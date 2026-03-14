@@ -1,0 +1,108 @@
+# Colours
+
+Brain vaults use CSS snippets to colour-code the Obsidian file explorer. Each folder type gets a distinct visual treatment so the vault hierarchy is scannable at a glance.
+
+## Palette
+
+All colours are CSS custom properties in `:root`. The palette provides 16 pastel colours:
+
+| Variable | Hex | Description |
+|---|---|---|
+| `--palette-sky` | `#8BB8E8` | Pastel Blue |
+| `--palette-amber` | `#F5C97A` | Pastel Amber |
+| `--palette-sage` | `#8FCA8E` | Pastel Green |
+| `--palette-coral` | `#F0908F` | Pastel Coral |
+| `--palette-teal` | `#7DD6D2` | Pastel Teal |
+| `--palette-rose` | `#F2A8C4` | Pastel Rose |
+| `--palette-peach` | `#F5B88A` | Pastel Peach |
+| `--palette-lavender` | `#B8A9E8` | Pastel Lavender |
+| `--palette-mint` | `#A8E8D0` | Pastel Mint |
+| `--palette-gold` | `#E8D48A` | Pastel Gold |
+| `--palette-slate` | `#A0B0C0` | Pastel Slate |
+| `--palette-mauve` | `#D4A0C0` | Pastel Mauve |
+| `--palette-lime` | `#C4E88A` | Pastel Lime |
+| `--palette-steel` | `#8AA8C8` | Pastel Steel |
+| `--palette-blush` | `#E8B8B0` | Pastel Blush |
+| `--palette-violet-light` | `#C4A8E8` | Light Purple |
+| `--palette-violet-dark` | `#3B2060` | Deep Purple |
+
+## Four-Tier Styling
+
+| Type | Background | Foreground | Border |
+|---|---|---|---|
+| **Config** (`_Config/`) | Purple 12% tint | Light purple text | 3px purple left |
+| **Temporal** (`_Temporal/`) | Rose 12% tint | Per-child colour | 3px coloured left |
+| **Plugins** (`_Plugins/`) | Gold 12% tint | Gold text | 3px gold left |
+| **Artefact** (root-level) | None | Unique colour per folder | 3px coloured left |
+
+Config, temporal, and plugin files get the tinted background. Artefact files get foreground colour only.
+
+## Theme Variables
+
+System-level theme variables:
+
+```css
+--theme-config-fg: var(--palette-violet-light);
+--theme-config-bg: rgba(196, 168, 232, 0.12);
+--theme-temporal-bg: rgba(242, 168, 196, 0.12);
+--theme-plugins-fg: var(--palette-gold);
+--theme-plugins-bg: rgba(232, 212, 138, 0.12);
+```
+
+Per-folder colour variables follow `--color-{folder}` for artefacts and `--color-temporal-{folder}` for temporal children.
+
+## Temporal Blend Formula
+
+Temporal child folders each get a distinct base hue blended 35% towards rose. This gives visually distinct colours that share a warm tint.
+
+**Formula:** `result = base + (rose - base) × 0.35` per RGB channel.
+
+Example: Amber (`#F5C97A`) blended towards rose (`#F2A8C4`) = `#F3BD93`.
+
+## CSS Selector Templates
+
+### Artefact folder
+
+```css
+/* {Folder Name} — folder + subfolders */
+.nav-folder-title[data-path="{Folder Name}"] .nav-folder-title-content,
+.nav-folder-title[data-path^="{Folder Name}/"] .nav-folder-title-content {
+  color: var(--color-{name});
+}
+.nav-folder-title[data-path="{Folder Name}"],
+.nav-folder-title[data-path^="{Folder Name}/"] {
+  border-left: 3px solid var(--color-{name});
+}
+/* {Folder Name} — files */
+.nav-file-title[data-path^="{Folder Name}/"] .nav-file-title-content {
+  color: var(--color-{name});
+}
+```
+
+### Temporal child folder
+
+```css
+/* _Temporal/{Child} — folder + subfolders */
+.nav-folder-title[data-path="_Temporal/{Child}"] .nav-folder-title-content,
+.nav-folder-title[data-path^="_Temporal/{Child}/"] .nav-folder-title-content {
+  color: var(--color-temporal-{child});
+}
+.nav-folder-title[data-path="_Temporal/{Child}"],
+.nav-folder-title[data-path^="_Temporal/{Child}/"] {
+  background-color: var(--theme-temporal-bg);
+  border-left: 3px solid var(--color-temporal-{child});
+  border-radius: 4px;
+}
+/* _Temporal/{Child} — files */
+.nav-file-title[data-path^="_Temporal/{Child}/"] {
+  background-color: var(--theme-temporal-bg);
+  border-radius: 4px;
+}
+.nav-file-title[data-path^="_Temporal/{Child}/"] .nav-file-title-content {
+  color: var(--color-temporal-{child});
+}
+```
+
+## CSS File Location
+
+The active CSS lives at `.obsidian/snippets/folder-colours.css`. Enable via **Settings > Appearance > CSS Snippets** in Obsidian. Instance-specific colour assignments are documented in `_Config/colours.md`.

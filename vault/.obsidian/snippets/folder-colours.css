@@ -1,0 +1,180 @@
+/* =====================================================
+   Folder Colors — Brain Vault
+   Vault: Brain (standalone vault root)
+   Updated: 2026-03-14
+   Note: data-path values are relative to vault root
+   ===================================================== */
+
+
+/* ─── Colour Palette ──────────────────────────────────────────────────────── */
+:root {
+  --palette-sky:          #8BB8E8; /* Pastel Blue   */
+  --palette-amber:        #F5C97A; /* Pastel Amber  */
+  --palette-sage:         #8FCA8E; /* Pastel Green  */
+  --palette-coral:        #F0908F; /* Pastel Coral  */
+  --palette-teal:         #7DD6D2; /* Pastel Teal   */
+  --palette-rose:         #F2A8C4; /* Pastel Rose   */
+  --palette-peach:        #F5B88A; /* Pastel Peach  */
+  --palette-lavender:     #B8A9E8; /* Pastel Lavender */
+  --palette-mint:         #A8E8D0; /* Pastel Mint   */
+  --palette-gold:         #E8D48A; /* Pastel Gold   */
+  --palette-slate:        #A0B0C0; /* Pastel Slate  */
+  --palette-mauve:        #D4A0C0; /* Pastel Mauve  */
+  --palette-lime:         #C4E88A; /* Pastel Lime   */
+  --palette-steel:        #8AA8C8; /* Pastel Steel  */
+  --palette-blush:        #E8B8B0; /* Pastel Blush  */
+  --palette-violet-light: #C4A8E8; /* Light Purple  */
+  --palette-violet-dark:  #3B2060; /* Deep Purple   */
+}
+
+
+/* ─── Themes ──────────────────────────────────────────────────────────────── */
+:root {
+  /* Config folders: purple bg + purple fg */
+  --theme-config-fg: var(--palette-violet-light);
+  --theme-config-bg: rgba(196, 168, 232, 0.12);  /* violet-light at 12% */
+
+  /* Temporal folders: rose bg + per-child fg */
+  --theme-temporal-bg: rgba(242, 168, 196, 0.12); /* rose at 12% */
+
+  /* Plugin folders */
+  --theme-plugins-fg: var(--palette-gold);       /* #E8D48A */
+  --theme-plugins-bg: rgba(232, 212, 138, 0.12); /* gold at 12% */
+
+  /* Artefact folders */
+  --color-wiki: var(--palette-teal);
+
+  /* Temporal parent and children (base colours blended 35% towards rose) */
+  --color-temporal:             #F2A8C4; /* Rose           */
+  --color-temporal-logs:        #F3BD93; /* Amber → rose   */
+  --color-temporal-transcripts: #CCA9DB; /* Lavender → rose */
+}
+
+
+/* ─── Config Folders (_Config) ───────────────────────────────────────────── */
+
+/* _Config folder and subfolders — background + purple fg */
+.nav-folder-title[data-path="_Config"] .nav-folder-title-content,
+.nav-folder-title[data-path^="_Config/"] .nav-folder-title-content {
+  color: var(--theme-config-fg);
+}
+.nav-folder-title[data-path="_Config"],
+.nav-folder-title[data-path^="_Config/"] {
+  background-color: var(--theme-config-bg);
+  border-left: 3px solid var(--theme-config-fg);
+  border-radius: 4px;
+}
+
+/* Files inside _Config — background + fg */
+.nav-file-title[data-path^="_Config/"] {
+  background-color: var(--theme-config-bg);
+  border-radius: 4px;
+}
+.nav-file-title[data-path^="_Config/"] .nav-file-title-content {
+  color: var(--theme-config-fg);
+  opacity: 0.85;
+}
+
+/* CLAUDE.md — root-level config file, foreground only */
+.nav-file-title[data-path="CLAUDE.md"] .nav-file-title-content {
+  color: var(--theme-config-fg);
+  opacity: 0.85;
+}
+
+/* router.md — root-level config file, foreground only */
+.nav-file-title[data-path="router.md"] .nav-file-title-content {
+  color: var(--theme-config-fg);
+  opacity: 0.85;
+}
+
+
+/* ─── Temporal Folders (_Temporal) ───────────────────────────────────────── */
+
+/* _Temporal parent — background + rose fg */
+.nav-folder-title[data-path="_Temporal"] .nav-folder-title-content {
+  color: var(--color-temporal);
+}
+.nav-folder-title[data-path="_Temporal"] {
+  background-color: var(--theme-temporal-bg);
+  border-left: 3px solid var(--color-temporal);
+  border-radius: 4px;
+}
+
+/* _Temporal/Logs — folder bg + fg */
+.nav-folder-title[data-path="_Temporal/Logs"] .nav-folder-title-content,
+.nav-folder-title[data-path^="_Temporal/Logs/"] .nav-folder-title-content {
+  color: var(--color-temporal-logs);
+}
+.nav-folder-title[data-path="_Temporal/Logs"],
+.nav-folder-title[data-path^="_Temporal/Logs/"] {
+  background-color: var(--theme-temporal-bg);
+  border-left: 3px solid var(--color-temporal-logs);
+  border-radius: 4px;
+}
+/* _Temporal/Logs — files */
+.nav-file-title[data-path^="_Temporal/Logs/"] {
+  background-color: var(--theme-temporal-bg);
+  border-radius: 4px;
+}
+.nav-file-title[data-path^="_Temporal/Logs/"] .nav-file-title-content {
+  color: var(--color-temporal-logs);
+}
+
+/* _Temporal/Transcripts — folder bg + fg */
+.nav-folder-title[data-path="_Temporal/Transcripts"] .nav-folder-title-content,
+.nav-folder-title[data-path^="_Temporal/Transcripts/"] .nav-folder-title-content {
+  color: var(--color-temporal-transcripts);
+}
+.nav-folder-title[data-path="_Temporal/Transcripts"],
+.nav-folder-title[data-path^="_Temporal/Transcripts/"] {
+  background-color: var(--theme-temporal-bg);
+  border-left: 3px solid var(--color-temporal-transcripts);
+  border-radius: 4px;
+}
+/* _Temporal/Transcripts — files */
+.nav-file-title[data-path^="_Temporal/Transcripts/"] {
+  background-color: var(--theme-temporal-bg);
+  border-radius: 4px;
+}
+.nav-file-title[data-path^="_Temporal/Transcripts/"] .nav-file-title-content {
+  color: var(--color-temporal-transcripts);
+}
+
+
+/* ─── Plugin Folders (_Plugins) ─────────────────────────────────────────── */
+
+.nav-folder-title[data-path="_Plugins"] .nav-folder-title-content,
+.nav-folder-title[data-path^="_Plugins/"] .nav-folder-title-content {
+  color: var(--theme-plugins-fg);
+}
+.nav-folder-title[data-path="_Plugins"],
+.nav-folder-title[data-path^="_Plugins/"] {
+  background-color: var(--theme-plugins-bg);
+  border-left: 3px solid var(--theme-plugins-fg);
+  border-radius: 4px;
+}
+.nav-file-title[data-path^="_Plugins/"] {
+  background-color: var(--theme-plugins-bg);
+  border-radius: 4px;
+}
+.nav-file-title[data-path^="_Plugins/"] .nav-file-title-content {
+  color: var(--theme-plugins-fg);
+  opacity: 0.85;
+}
+
+
+/* ─── Artefact Folders ───────────────────────────────────────────────────── */
+
+/* Wiki — folder + subfolders */
+.nav-folder-title[data-path="Wiki"] .nav-folder-title-content,
+.nav-folder-title[data-path^="Wiki/"] .nav-folder-title-content {
+  color: var(--color-wiki);
+}
+.nav-folder-title[data-path="Wiki"],
+.nav-folder-title[data-path^="Wiki/"] {
+  border-left: 3px solid var(--color-wiki);
+}
+/* Wiki — files */
+.nav-file-title[data-path^="Wiki/"] .nav-file-title-content {
+  color: var(--color-wiki);
+}

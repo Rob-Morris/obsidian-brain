@@ -1,0 +1,20 @@
+# Obsidian — workspace and device-specific state
+.obsidian/workspace.json
+.obsidian/workspace-mobile.json
+.obsidian/graph.json
+.obsidian/backlink.json
+
+# Obsidian — plugin runtime data (not config)
+.obsidian/plugins/*/data.json
+
+# Obsidian trash
+.trash/
+
+# macOS
+.DS_Store
+
+# Vault backups (large zips, not useful in git)
+_Config/Backups/
+
+# Skill workspace artefacts (eval outputs, benchmarks)
+_Config/Skills/*-workspace/
