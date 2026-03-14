@@ -1,5 +1,4 @@
 Always read [[.brain-core/v1.0/index]] for how this vault system works.
-Always follow [[.brain-core/v1.0/principles]]
 
 ## Artefacts
 
@@ -39,7 +38,7 @@ Bound to a moment. Written once, rarely edited. Grouped into `yyyy-mm/` month fo
 
 ## Principles
 
-Vault-specific constraints. Core principles from [[.brain-core/v1.0/principles]] always apply; add instance constraints here.
+Vault-specific constraints. Core principles from [[.brain-core/v1.0/index]] always apply; add instance constraints here.
 
 ## Style
 

@@ -2,11 +2,30 @@
 
 Brain is a self-extending system for organising Obsidian vaults, for agents and humans working together.
 
+BEFORE modifying the vault always read: [[.brain-core/v1.0/taxonomy]]
+
 ## Key Idea
 
-All content in the vault is an **artefact** — either living (evolves over time, current version is the source of truth) or temporal (bound to a moment, written once). System folders (`_Config/`, `_Plugins/`, `.obsidian/`) are infrastructure, not artefacts. This distinction drives folder organisation, naming, and styling.
+All content in the vault is an **artefact**:
+1. **Living** (in vault root) - evolve over time, source of truth
+2. **Temporal** (in _Temporal/) - bound to a moment, historic record
 
-The system is self-extending. When content has no home, you add a new artefact type following documented procedures rather than forcing it into an existing folder.
+System folders start with `_` or `.`, these are infrastructure, not artefacts. These distinction drives folder organisation, naming, and styling.
+
+The system is self-extending. When content has no appropriate home, add a new artefact type following documented procedures rather than forcing it into an existing folder.
+
+## Principles
+
+ALWAYS follow these principals:
+
+### Every file belongs in a folder
+No content files in the vault root. Every output — human or agent — goes into a folder appropriate for its content type. If no folder fits, extend the vault first.
+
+### Self-extending vault
+When content has no home, add a new artefact type before creating the file.
+
+### Keep instruction files lean
+Files read every session (router, index) stay minimal — routing tables, not encyclopedias. Detailed reference lives in the core docs and config files, linked from the router.
 
 ## How It Works
 
@@ -14,11 +33,8 @@ Each vault has a **router** — a single file an agent reads every session. The 
 
 ## Core Documentation
 
-- Governing constraints — [[.brain-core/v1.0/principles]]
-- Living vs temporal model, organisation rules, frontmatter — [[.brain-core/v1.0/artefacts]]
 - How to add artefact types and extend principles — [[.brain-core/v1.0/extensions]]
 - Ready-to-use artefact type definitions — [[.brain-core/v1.0/library]]
-- Workflow trigger system — [[.brain-core/v1.0/triggers]]
-- Folder colour system design, palette, CSS templates — [[.brain-core/v1.0/colours]]
-- Plugin system for external tools — [[.brain-core/v1.0/plugins]]
-- Naming conventions, frontmatter, wikilinks — [[.brain-core/v1.0/naming]]
+- How to use workflow trigger system — [[.brain-core/v1.0/triggers]]
+- How to use folder colour system: design, palette, CSS templates — [[.brain-core/v1.0/colours]]
+- How to use and extend plugin system for external tools — [[.brain-core/v1.0/plugins]]

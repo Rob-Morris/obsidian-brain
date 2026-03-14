@@ -1,4 +1,4 @@
-# Artefacts
+# Taxonomy
 
 All content in the vault is an artefact — either living or temporal. System folders (`_Config/`, `_Plugins/`, `.obsidian/`) are infrastructure, not artefacts.
 
@@ -36,6 +36,39 @@ tags:
 ```
 
 Config files (`_Config/`) do not use frontmatter. Plugin files follow their own conventions.
+
+## Naming
+
+### Slug Format
+
+Most files use descriptive slugs: lowercase words separated by hyphens. Keep slugs concise but descriptive.
+
+Examples: `pistols-at-dawn-discord-bot.md`, `ai-writing-style-guide.md`
+
+### Date Prefixes
+
+Temporal files use date prefixes for chronological sorting:
+
+| Pattern | Used by | Example |
+|---|---|---|
+| `log--yyyy-mm-dd.md` | Logs | `log--2026-03-10.md` |
+| `yyyymmdd-{slug}.md` | Most temporal types | `20260310-vault-restructure.md` |
+
+The double-dash `--` separates structural prefixes from the slug.
+
+### Wikilinks
+
+Use Obsidian wikilinks with vault-relative paths:
+
+```
+[[folder/file|display text]]
+```
+
+In artefact content, labels are fine for readability. In config and core documentation files (`_Config/`, `.brain-core/`), always use bare paths — no `|label` aliases — so agents see exactly where each link points:
+
+```
+[[.brain-core/v1.0/taxonomy]]
+```
 
 ## What a Vault Ships
 
