@@ -4,9 +4,13 @@ A self-extending system for organising Obsidian vaults, for agents and humans wo
 
 ## Quick Start
 
-1. Open the `template-vault/` folder as an Obsidian vault (or copy it to your preferred location first)
-2. Enable the CSS snippet in **Settings > Appearance > CSS Snippets** (`folder-colours`)
-3. Start working — agents read `CLAUDE.md` → `_Config/router.md` and follow the workflow automatically
+1. Copy `template-vault/` to your preferred location
+2. Copy `src/brain-core/` into the vault as `.brain-core/v1.0/` (the template vault uses a symlink for development convenience, but real vaults should contain a copy so they're self-contained and portable)
+3. Open the folder as an Obsidian vault
+4. Enable the CSS snippet in **Settings > Appearance > CSS Snippets** (`folder-colours`)
+5. Start working — agents read `CLAUDE.md` → `_Config/router.md` and follow the workflow automatically
+
+To upgrade brain-core later, replace `.brain-core/v1.0/` with the new version from `src/brain-core/`.
 
 ## Repository Structure
 
@@ -28,7 +32,7 @@ obsidian-brain/
 ├── template-vault/              # the Obsidian vault — copy or open directly
 │   ├── Agents.md                # agent entry point → router
 │   ├── CLAUDE.md                # symlink → Agents.md (Claude Code compatibility)
-│   ├── .brain-core/v1.0/        # symlink → ../../src/brain-core
+│   ├── .brain-core/v1.0/        # copy of src/brain-core (version-pinned)
 │   ├── .obsidian/               # Obsidian settings, plugins, CSS snippets
 │   ├── _Config/                 # router, taxonomy, style, colours, templates, skills
 │   ├── _Plugins/                # tool-managed data (installed separately)
@@ -45,7 +49,7 @@ The **router** (`_Config/router.md`) is the single file agents read every sessio
 
 ## Core / Config Split
 
-- **`.brain-core/`** — versioned methodology. How the Brain system works. Shared across all vaults.
+- **`.brain-core/`** — versioned methodology. How the Brain system works. Copied into each vault during setup and upgrades (not symlinked), so vaults are self-contained.
 - **`_Config/`** — instance configuration. Router, taxonomy, style, colours. Specific to this vault.
 
 ## Plugins
