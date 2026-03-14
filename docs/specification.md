@@ -79,6 +79,7 @@ Documented in `.brain-core/v1.0/extensions.md`:
 **Temporal artefacts:**
 - `_Temporal/Logs/` — daily activity logs
 - `_Temporal/Transcripts/` — conversation transcripts
+- `_Temporal/Plans/` — pre-work plans
 
 **System:**
 - `_Config/` — router, taxonomy, style, colours, templates, skills

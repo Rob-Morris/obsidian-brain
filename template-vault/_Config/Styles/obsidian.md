@@ -30,3 +30,4 @@ Temporal children share a steel background tint. Each gets a unique foreground d
 |--------|--------|----------|
 | `_Temporal/Logs/` | Amber → steel | `--color-temporal-logs` (`#D0BD95`) |
 | `_Temporal/Transcripts/` | Lavender → steel | `--color-temporal-transcripts` (`#A8A9DD`) |
+| `_Temporal/Plans/` | Coral → steel | `--color-temporal-plans` (`#C69DA8`) |

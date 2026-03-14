@@ -53,6 +53,7 @@
   --color-temporal:             var(--palette-steel); /* Steel        */
   --color-temporal-logs:        #D0BD95; /* Amber → steel    */
   --color-temporal-transcripts: #A8A9DD; /* Lavender → steel */
+  --color-temporal-plans:       #C69DA8; /* Coral → steel    */
 }
 
 
@@ -138,6 +139,26 @@
 }
 .nav-file-title[data-path^="_Temporal/Transcripts/"] .nav-file-title-content {
   color: var(--color-temporal-transcripts);
+}
+
+/* _Temporal/Plans — folder bg + fg */
+.nav-folder-title[data-path="_Temporal/Plans"] .nav-folder-title-content,
+.nav-folder-title[data-path^="_Temporal/Plans/"] .nav-folder-title-content {
+  color: var(--color-temporal-plans);
+}
+.nav-folder-title[data-path="_Temporal/Plans"],
+.nav-folder-title[data-path^="_Temporal/Plans/"] {
+  background-color: var(--theme-temporal-bg);
+  border-left: 3px solid var(--color-temporal-plans);
+  border-radius: 4px;
+}
+/* _Temporal/Plans — files */
+.nav-file-title[data-path^="_Temporal/Plans/"] {
+  background-color: var(--theme-temporal-bg);
+  border-radius: 4px;
+}
+.nav-file-title[data-path^="_Temporal/Plans/"] .nav-file-title-content {
+  color: var(--color-temporal-plans);
 }
 
 

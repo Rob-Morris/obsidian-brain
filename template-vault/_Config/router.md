@@ -19,6 +19,7 @@ Bound to a moment. Written once, rarely edited. Grouped into `yyyy-mm/` month fo
 |--------|---------|--------|-----------|
 | `_Temporal/Logs/` | Append-only daily activity logs | `log--yyyy-mm-dd.md` | [[_Config/Taxonomy/Temporal/logs]] |
 | `_Temporal/Transcripts/` | Conversation transcripts | `yyyymmdd-{slug}.md` | [[_Config/Taxonomy/Temporal/transcripts]] |
+| `_Temporal/Plans/` | Pre-work plans | `yyyymmdd-{slug}.md` | [[_Config/Taxonomy/Temporal/plans]] |
 
 ## Workflow Triggers
 
