@@ -30,7 +30,7 @@ obsidian-brain/
 │   ├── CLAUDE.md                # symlink → Agents.md (Claude Code compatibility)
 │   ├── .brain-core/v1.0/        # symlink → ../../src/brain-core
 │   ├── .obsidian/               # Obsidian settings, plugins, CSS snippets
-│   ├── _Config/                 # router, taxonomy, style, principles, colours, templates, skills
+│   ├── _Config/                 # router, taxonomy, style, colours, templates, skills
 │   ├── _Plugins/                # tool-managed data (installed separately)
 │   ├── _Temporal/               # dated working files (logs, transcripts)
 │   └── Wiki/                    # interconnected knowledge base
@@ -46,7 +46,7 @@ The **router** (`_Config/router.md`) is the single file agents read every sessio
 ## Core / Config Split
 
 - **`.brain-core/`** — versioned methodology. How the Brain system works. Shared across all vaults.
-- **`_Config/`** — instance configuration. Router, taxonomy, style, principles, colours. Specific to this vault.
+- **`_Config/`** — instance configuration. Router, taxonomy, style, colours. Specific to this vault.
 
 ## Plugins
 
@@ -62,7 +62,7 @@ Available plugins:
 - **`_Config/router.md`**: add/remove artefact types and workflow triggers
 - **`_Config/Taxonomy/`**: add taxonomy files for new artefact types
 - **`_Config/Styles/writing.md`**: adjust language preferences (defaults to Australian English)
-- **`_Config/principles.md`**: vault-level constraints
+- **`_Config/router.md` § Principles**: vault-level constraints
 - **`_Config/Styles/obsidian.md`**: folder colours and file explorer styling
 
 ## Documentation

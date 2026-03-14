@@ -1,9 +1,5 @@
----
-modified: 2026-03-14T23:13:22+11:00
----
-# Brain
-
-Read [[.brain-core/v1.0/index|Brain Core]] for how this vault system works.
+Always read [[.brain-core/v1.0/index]] for how this vault system works.
+Always follow [[.brain-core/v1.0/principles]]
 
 ## Artefacts
 
@@ -13,16 +9,16 @@ Evolve over time. The current version is the source of truth.
 
 | Folder | Purpose | Naming | Reference |
 |--------|---------|--------|-----------|
-| `Wiki/` | Interconnected knowledge base | `{slug}.md` | [[_Config/Taxonomy/Living/wiki|Wiki]] |
+| `Wiki/` | Interconnected knowledge base | `{slug}.md` | [[_Config/Taxonomy/Living/wiki]] |
 
 ### Temporal
 
-Bound to a day. Written once, rarely edited. Grouped into `yyyy-mm/` month folders.
+Bound to a moment. Written once, rarely edited. Grouped into `yyyy-mm/` month folders.
 
 | Folder | Purpose | Naming | Reference |
 |--------|---------|--------|-----------|
-| `_Temporal/Logs/` | Append-only daily activity logs | `log--yyyy-mm-dd.md` | [[_Config/Taxonomy/Temporal/logs|Logs]] |
-| `_Temporal/Transcripts/` | Conversation transcripts | `yyyymmdd-{slug}.md` | [[_Config/Taxonomy/Temporal/transcripts|Transcripts]] |
+| `_Temporal/Logs/` | Append-only daily activity logs | `log--yyyy-mm-dd.md` | [[_Config/Taxonomy/Temporal/logs]] |
+| `_Temporal/Transcripts/` | Conversation transcripts | `yyyymmdd-{slug}.md` | [[_Config/Taxonomy/Temporal/transcripts]] |
 
 ## Workflow Triggers
 
@@ -34,12 +30,17 @@ Bound to a day. Written once, rarely edited. Grouped into `yyyy-mm/` month folde
 - Before implementing large refactors, backup the vault.
 
 **After:**
-- After completing meaningful work, append a timestamped entry to the day's log in `_Temporal/Logs/yyyy-mm/log--yyyy-mm-dd.md`. See [[_Config/Taxonomy/Temporal/logs|Logs]] for format.
-- After a conversation that's worth preserving, capture it as a transcript under `_Temporal/Transcripts/`. See [[_Config/Taxonomy/Temporal/transcripts|Transcripts]] for format.
+- After completing meaningful work, append a timestamped entry to the day's log in `_Temporal/Logs/yyyy-mm/log--yyyy-mm-dd.md`. See [[_Config/Taxonomy/Temporal/logs]] for format.
+- After a conversation that's worth preserving, capture it as a transcript under `_Temporal/Transcripts/`. See [[_Config/Taxonomy/Temporal/transcripts]] for format.
 
 **Ongoing:**
 - During long sessions, re-read this file before and after each block of work.
 
-## Configuration
+## Principles
 
-[[_Config/Styles/writing|Writing]] · [[_Config/principles|Principles]] · [[_Config/Styles/obsidian|Obsidian]]
+Vault-specific constraints. Core principles from [[.brain-core/v1.0/principles]] always apply; add instance constraints here.
+
+## Style
+
+- For writing style — [[_Config/Styles/writing]]
+- For Obsidian CSS style — [[_Config/Styles/obsidian]]

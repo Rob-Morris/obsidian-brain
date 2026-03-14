@@ -2,8 +2,6 @@
 name: vault-maintenance
 description: |
   Enforces vault workflow rules when working on artefacts in the Brain Obsidian vault. Triggers whenever the user asks to create, edit, refine, or reorganise content in the vault — wiki pages, logs, transcripts, or vault structure itself. Also triggers for vault maintenance tasks like refactoring, restructuring, or bulk updates. Use this skill any time work will result in files being created or modified in the vault, even if the user doesn't explicitly mention "vault" or "maintenance".
-created: 2026-03-10T10:33:05+11:00
-modified: 2026-03-14T00:00:00+11:00
 ---
 
 # Vault Maintenance

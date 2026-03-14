@@ -8,7 +8,7 @@ Initial release.
 - Template vault with `CLAUDE.md` → `router.md` agent entry flow
 - Living vs temporal artefact model with example library
 - Starter artefacts: Wiki, Logs, Transcripts
-- Instance config at `_Config/` root: style, principles, colours
+- Instance config at `_Config/` root: style, principles
 - Vault-maintenance skill with compliance check script and evals
 - Folder colour CSS with 16-colour pastel palette
 - Plugin system with gold-styled `_Plugins/` folder

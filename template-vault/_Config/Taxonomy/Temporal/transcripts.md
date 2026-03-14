@@ -31,4 +31,4 @@ tags:
 
 ## Template
 
-[[_Config/Templates/Temporal/Transcripts|Transcripts]]
+[[_Config/Templates/Temporal/Transcripts]]

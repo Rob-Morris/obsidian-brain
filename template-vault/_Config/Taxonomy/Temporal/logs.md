@@ -31,4 +31,4 @@ tags:
 
 ## Template
 
-[[_Config/Templates/Temporal/Logs|Logs]]
+[[_Config/Templates/Temporal/Logs]]

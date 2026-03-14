@@ -25,7 +25,7 @@ Plugin files follow the plugin's own conventions, not the vault's standard front
 3. Write a skill document at `_Config/Skills/{name}/SKILL.md` describing available tools.
 4. If the plugin has an MCP server, add its configuration to `.mcp.json`.
 
-See the [plugin guide](../../docs/plugins.md) for detailed instructions on writing and packaging plugins.
+See the project's `docs/plugins.md` for detailed instructions on writing and packaging plugins.
 
 ## Versioning
 

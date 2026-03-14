@@ -30,7 +30,7 @@ System folders (`_Config/`, `_Plugins/`, `.obsidian/`) are infrastructure, not a
 ### Core / Config Split
 
 - **`.brain-core/v1.0/`** — versioned methodology docs. How artefacts work, how to extend the vault, trigger system, colour system, plugin system, naming conventions. Read when the agent needs to understand or modify the system.
-- **`_Config/`** — instance configuration. Router, taxonomy, style, principles, colour assignments, templates, skills. Specific to this vault installation.
+- **`_Config/`** — instance configuration. Router, taxonomy, style, colour assignments, templates, skills. Specific to this vault installation.
 - **`_Config/router.md`** — the bridge. Lists this vault's artefact types, active triggers, and config file links. Read every session.
 - **`_Config/Taxonomy/`** — one file per artefact type with detailed instructions. Agents read only the types they need.
 
@@ -81,5 +81,5 @@ Documented in `.brain-core/v1.0/extensions.md`:
 - `_Temporal/Transcripts/` — conversation transcripts
 
 **System:**
-- `_Config/` — router, taxonomy, style, principles, colours, templates, skills
+- `_Config/` — router, taxonomy, style, colours, templates, skills
 - `_Plugins/` — empty, ready for plugins

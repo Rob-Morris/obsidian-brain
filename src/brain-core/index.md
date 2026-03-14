@@ -4,7 +4,7 @@ Brain is a self-extending system for organising Obsidian vaults, for agents and 
 
 ## Key Idea
 
-Everything in the vault is an **artefact** — either living (evolves over time, current version is the source of truth) or temporal (bound to a moment, written once). This distinction drives folder organisation, naming, and styling.
+All content in the vault is an **artefact** — either living (evolves over time, current version is the source of truth) or temporal (bound to a moment, written once). System folders (`_Config/`, `_Plugins/`, `.obsidian/`) are infrastructure, not artefacts. This distinction drives folder organisation, naming, and styling.
 
 The system is self-extending. When content has no home, you add a new artefact type following documented procedures rather than forcing it into an existing folder.
 
@@ -14,10 +14,11 @@ Each vault has a **router** — a single file an agent reads every session. The 
 
 ## Core Documentation
 
-- [[.brain-core/v1.0/principles|Principles]] — governing constraints for all Brain vaults
-- [[.brain-core/v1.0/artefacts|Artefacts]] — living vs temporal model, organisation rules, frontmatter
-- [[.brain-core/v1.0/extensions|Extensions]] — how to add artefact types, with an example library
-- [[.brain-core/v1.0/triggers|Triggers]] — workflow trigger system
-- [[.brain-core/v1.0/colours|Colours]] — folder colour system design, palette, CSS templates
-- [[.brain-core/v1.0/plugins|Plugins]] — plugin system for external tools
-- [[.brain-core/v1.0/naming|Naming]] — naming conventions, frontmatter, wikilinks
+- Governing constraints — [[.brain-core/v1.0/principles]]
+- Living vs temporal model, organisation rules, frontmatter — [[.brain-core/v1.0/artefacts]]
+- How to add artefact types and extend principles — [[.brain-core/v1.0/extensions]]
+- Ready-to-use artefact type definitions — [[.brain-core/v1.0/library]]
+- Workflow trigger system — [[.brain-core/v1.0/triggers]]
+- Folder colour system design, palette, CSS templates — [[.brain-core/v1.0/colours]]
+- Plugin system for external tools — [[.brain-core/v1.0/plugins]]
+- Naming conventions, frontmatter, wikilinks — [[.brain-core/v1.0/naming]]

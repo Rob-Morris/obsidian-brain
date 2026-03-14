@@ -34,4 +34,4 @@ tags:
 
 ## Template
 
-[[_Config/Templates/Living/Wiki|Wiki]]
+[[_Config/Templates/Living/Wiki]]

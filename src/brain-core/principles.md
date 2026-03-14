@@ -8,7 +8,7 @@ No content files in the vault root. Every output — human or agent — goes int
 
 ## Self-extending vault
 
-When content has no home, add a new artefact type before creating the file. See [[.brain-core/v1.0/extensions|Extensions]] for the procedures.
+When content has no home, add a new artefact type before creating the file. See [[.brain-core/v1.0/extensions]] for the procedures.
 
 ## Keep instruction files lean
 

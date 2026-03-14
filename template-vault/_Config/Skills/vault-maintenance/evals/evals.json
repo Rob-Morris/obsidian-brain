@@ -3,20 +3,20 @@
   "evals": [
     {
       "id": 0,
-      "prompt": "Add a new idea note about building a personal finance tracker app",
-      "expected_output": "Creates an idea note in Ideas/ with correct naming and tags, appends a timestamped log entry, and asks clarifying questions before acting",
+      "prompt": "Add a wiki page about Rust ownership semantics",
+      "expected_output": "Creates a wiki page in Wiki/ with correct slug naming, type and tags frontmatter, appends a timestamped log entry, and asks clarifying questions before acting",
       "files": []
     },
     {
       "id": 1,
-      "prompt": "Rename the Ideas folder to Sparks and update all references",
-      "expected_output": "Asks for explicit approval before proceeding, writes a detailed plan to _Temporal/Plans/, backs up the vault before the refactor, updates all wikilinks and references, and appends log entries",
+      "prompt": "Capture our conversation about the colour system as a transcript",
+      "expected_output": "Creates a transcript file under _Temporal/Transcripts/yyyy-mm/ with correct yyyymmdd-{slug}.md naming, type and tags frontmatter, creates month folder if needed, and appends a timestamped log entry",
       "files": []
     },
     {
       "id": 2,
-      "prompt": "Let's refine the game engine design — I want to rethink the health system",
-      "expected_output": "Uses AskUserQuestion to explore the design space, captures the Q&A in a transcript file under _Temporal/Transcripts/, updates the design artefact, and appends log entries",
+      "prompt": "Let's refine the wiki page on Rust ownership — I want to rethink the borrowing section",
+      "expected_output": "Reads the existing wiki page, uses AskUserQuestion to explore the design space, captures the Q&A in a transcript file under _Temporal/Transcripts/, updates the wiki page, and appends log entries",
       "files": []
     }
   ]
