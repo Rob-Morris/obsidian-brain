@@ -2,7 +2,7 @@
 
 Brain is a self-extending system for organising Obsidian vaults, for agents and humans working together.
 
-BEFORE modifying the vault always read: [[.brain-core/v1.0/taxonomy]]
+BEFORE modifying the vault always read: [[.brain-core/v0.2.1/taxonomy]]
 
 ## Key Idea
 
@@ -33,8 +33,8 @@ Each vault has a **router** — a single file an agent reads every session. The 
 
 ## Core Documentation
 
-- How to add artefact types and extend principles — [[.brain-core/v1.0/extensions]]
-- Ready-to-use artefact type definitions — [[.brain-core/v1.0/library]]
-- How to use workflow trigger system — [[.brain-core/v1.0/triggers]]
-- How to use folder colour system: design, palette, CSS templates — [[.brain-core/v1.0/colours]]
-- How to use and extend plugin system for external tools — [[.brain-core/v1.0/plugins]]
+- How to add artefact types and extend principles — [[.brain-core/v0.2.1/extensions]]
+- Ready-to-use artefact type definitions — [[.brain-core/v0.2.1/library]]
+- How to use workflow trigger system — [[.brain-core/v0.2.1/triggers]]
+- How to use folder colour system: design, palette, CSS templates — [[.brain-core/v0.2.1/colours]]
+- How to use and extend plugin system for external tools — [[.brain-core/v0.2.1/plugins]]

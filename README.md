@@ -5,12 +5,12 @@ A self-extending system for organising Obsidian vaults, for agents and humans wo
 ## Quick Start
 
 1. Copy `template-vault/` to your preferred location
-2. Copy `src/brain-core/` into the vault as `.brain-core/v1.0/` (the template vault uses a symlink for development convenience, but real vaults should contain a copy so they're self-contained and portable)
+2. Copy `src/brain-core/` into the vault as `.brain-core/v0.2.1/` (the template vault uses a symlink for development convenience, but real vaults should contain a copy so they're self-contained and portable)
 3. Open the folder as an Obsidian vault
 4. Enable the CSS snippet in **Settings > Appearance > CSS Snippets** (`folder-colours`)
 5. Start working — agents read `CLAUDE.md` → `_Config/router.md` and follow the workflow automatically
 
-To upgrade brain-core later, replace `.brain-core/v1.0/` with the new version from `src/brain-core/`.
+To upgrade brain-core later, replace `.brain-core/v0.2.1/` with the new version from `src/brain-core/`.
 
 ## Repository Structure
 
@@ -19,12 +19,11 @@ obsidian-brain/
 ├── src/
 │   └── brain-core/              # core methodology (source of truth)
 │       ├── index.md             # entry point — links to all core docs
-│       ├── artefacts.md         # living vs temporal artefact model
+│       ├── taxonomy.md          # artefact model, naming conventions, frontmatter
 │       ├── extensions.md        # how to add types + example library
 │       ├── triggers.md          # workflow trigger system
 │       ├── colours.md           # folder colour system design
-│       ├── plugins.md           # plugin system
-│       └── naming.md            # naming conventions, frontmatter, wikilinks
+│       └── plugins.md           # plugin system
 ├── docs/
 │   ├── changelog.md             # version history
 │   ├── plugins.md               # how to install and write plugins
@@ -32,7 +31,7 @@ obsidian-brain/
 ├── template-vault/              # the Obsidian vault — copy or open directly
 │   ├── Agents.md                # agent entry point → router
 │   ├── CLAUDE.md                # symlink → Agents.md (Claude Code compatibility)
-│   ├── .brain-core/v1.0/        # copy of src/brain-core (version-pinned)
+│   ├── .brain-core/v0.2.1/        # copy of src/brain-core (version-pinned)
 │   ├── .obsidian/               # Obsidian settings, plugins, CSS snippets
 │   ├── _Config/                 # router, taxonomy, style, colours, templates, skills
 │   ├── _Plugins/                # tool-managed data (installed separately)
@@ -74,4 +73,4 @@ Available plugins:
 - [Specification](docs/specification.md) — design rationale and structural decisions
 - [Plugins](docs/plugins.md) — how to install and write plugins
 - [Changelog](docs/changelog.md) — version history
-- Core docs at `.brain-core/v1.0/` — the authoritative reference for the Brain system
+- Core docs at `.brain-core/v0.2.1/` — the authoritative reference for the Brain system

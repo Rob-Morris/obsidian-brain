@@ -1,6 +1,6 @@
 # Obsidian Style
 
-Custom styling for this vault's Obsidian file explorer. For palette design and CSS templates, see [[.brain-core/v1.0/colours]].
+Custom styling for this vault's Obsidian file explorer. For palette design and CSS templates, see [[.brain-core/v0.2.1/colours]].
 
 **Active CSS:** `.obsidian/snippets/folder-colours.css`
 

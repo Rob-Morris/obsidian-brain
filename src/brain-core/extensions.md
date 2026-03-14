@@ -6,7 +6,7 @@ When the vault needs a new artefact type, follow the procedure for the relevant 
 
 1. Create the folder at vault root.
 2. Pick a palette colour (or add a new `--palette-*` variable) and add a `--color-*` variable in the Themes block of `.obsidian/snippets/folder-colours.css`. Never reuse a system folder colour (purple, steel, gold) — those are reserved for `_Config/`, `_Temporal/`, and `_Plugins/`.
-3. Add three CSS selector blocks (folder + subfolders, border, files) — see [[.brain-core/v1.0/colours]] for the template.
+3. Add three CSS selector blocks (folder + subfolders, border, files) — see [[.brain-core/v0.2.1/colours]] for the template.
 4. Add a row to the router's Living artefact table.
 5. Create a taxonomy file at `_Config/Taxonomy/Living/{name}.md` describing the type's purpose, conventions, and template.
 6. Update `_Config/Styles/obsidian.md` with the new colour assignment.
@@ -15,7 +15,7 @@ When the vault needs a new artefact type, follow the procedure for the relevant 
 ## Adding a Temporal Child Folder
 
 1. Create the folder under `_Temporal/`.
-2. Choose a base hue and apply the blend formula (`result = base + (steel - base) × 0.35`) to derive the steel-tinted variant — see [[.brain-core/v1.0/colours]].
+2. Choose a base hue and apply the blend formula (`result = base + (steel - base) × 0.35`) to derive the steel-tinted variant — see [[.brain-core/v0.2.1/colours]].
 3. Add a `--color-temporal-*` hex in the Themes block and add CSS selectors with `background-color: var(--theme-temporal-bg)` and `border-radius: 4px`.
 4. Add a row to the router's Temporal artefact table.
 5. Create a taxonomy file at `_Config/Taxonomy/Temporal/{name}.md` describing the type's purpose, conventions, and template.
@@ -41,4 +41,4 @@ Vault-specific principles live in the router's `## Principles` section. Add each
 
 ---
 
-See [[.brain-core/v1.0/library]] for ready-to-use artefact type definitions.
+See [[.brain-core/v0.2.1/library]] for ready-to-use artefact type definitions.

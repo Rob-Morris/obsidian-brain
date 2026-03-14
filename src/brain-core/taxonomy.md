@@ -67,9 +67,9 @@ Use Obsidian wikilinks with vault-relative paths:
 In artefact content, labels are fine for readability. In config and core documentation files (`_Config/`, `.brain-core/`), always use bare paths — no `|label` aliases — so agents see exactly where each link points:
 
 ```
-[[.brain-core/v1.0/taxonomy]]
+[[.brain-core/v0.2.1/taxonomy]]
 ```
 
 ## What a Vault Ships
 
-This file describes the artefact model. The **router** lists which specific artefact types exist in a given vault — it's the per-instance configuration. See [[.brain-core/v1.0/extensions]] for adding new types.
+This file describes the artefact model. The **router** lists which specific artefact types exist in a given vault — it's the per-instance configuration. See [[.brain-core/v0.2.1/extensions]] for adding new types.
