@@ -14,6 +14,7 @@ All colours are CSS custom properties in `:root`. The palette provides 16 pastel
 | `--palette-coral` | `#F0908F` | Pastel Coral |
 | `--palette-teal` | `#7DD6D2` | Pastel Teal |
 | `--palette-rose` | `#F2A8C4` | Pastel Rose |
+| `--palette-rose-gold` | `#EDBEA7` | Rose Gold |
 | `--palette-peach` | `#F5B88A` | Pastel Peach |
 | `--palette-lavender` | `#B8A9E8` | Pastel Lavender |
 | `--palette-mint` | `#A8E8D0` | Pastel Mint |
@@ -31,11 +32,11 @@ All colours are CSS custom properties in `:root`. The palette provides 16 pastel
 | Type | Background | Foreground | Border |
 |---|---|---|---|
 | **Config** (`_Config/`) | Purple 12% tint | Light purple text | 3px purple left |
-| **Temporal** (`_Temporal/`) | Rose 12% tint | Per-child colour | 3px coloured left |
+| **Temporal** (`_Temporal/`) | Steel 12% tint | Per-child colour | 3px coloured left |
 | **Plugins** (`_Plugins/`) | Gold 12% tint | Gold text | 3px gold left |
-| **Artefact** (root-level) | None | Unique colour per folder | 3px coloured left |
+| **Artefact** (root-level) | Rose gold 12% tint | Unique colour per folder | 3px coloured left |
 
-Config, temporal, and plugin files get the tinted background. Artefact files get foreground colour only.
+All four tiers get a tinted background and coloured border.
 
 ## Theme Variables
 
@@ -44,20 +45,22 @@ System-level theme variables:
 ```css
 --theme-config-fg: var(--palette-violet-light);
 --theme-config-bg: rgba(196, 168, 232, 0.12);
---theme-temporal-bg: rgba(242, 168, 196, 0.12);
+--theme-temporal-fg: var(--palette-steel);
+--theme-temporal-bg: rgba(138, 168, 200, 0.12);
 --theme-plugins-fg: var(--palette-gold);
 --theme-plugins-bg: rgba(232, 212, 138, 0.12);
+--theme-artefact-bg: rgba(237, 190, 167, 0.12);
 ```
 
 Per-folder colour variables follow `--color-{folder}` for artefacts and `--color-temporal-{folder}` for temporal children.
 
 ## Temporal Blend Formula
 
-Temporal child folders each get a distinct base hue blended 35% towards rose. This gives visually distinct colours that share a warm tint.
+Temporal child folders each get a distinct base hue blended 35% towards steel. This gives visually distinct colours that share a cool tint.
 
-**Formula:** `result = base + (rose - base) × 0.35` per RGB channel.
+**Formula:** `result = base + (steel - base) × 0.35` per RGB channel.
 
-Example: Amber (`#F5C97A`) blended towards rose (`#F2A8C4`) = `#F3BD93`.
+Example: Amber (`#F5C97A`) blended towards steel (`#8AA8C8`) = `#D0BD95`.
 
 ## CSS Selector Templates
 
@@ -71,9 +74,15 @@ Example: Amber (`#F5C97A`) blended towards rose (`#F2A8C4`) = `#F3BD93`.
 }
 .nav-folder-title[data-path="{Folder Name}"],
 .nav-folder-title[data-path^="{Folder Name}/"] {
+  background-color: var(--theme-artefact-bg);
   border-left: 3px solid var(--color-{name});
+  border-radius: 4px;
 }
 /* {Folder Name} — files */
+.nav-file-title[data-path^="{Folder Name}/"] {
+  background-color: var(--theme-artefact-bg);
+  border-radius: 4px;
+}
 .nav-file-title[data-path^="{Folder Name}/"] .nav-file-title-content {
   color: var(--color-{name});
 }
@@ -105,4 +114,4 @@ Example: Amber (`#F5C97A`) blended towards rose (`#F2A8C4`) = `#F3BD93`.
 
 ## CSS File Location
 
-The active CSS lives at `.obsidian/snippets/folder-colours.css`. Enable via **Settings > Appearance > CSS Snippets** in Obsidian. Instance-specific colour assignments are documented in `_Config/colours.md`.
+The active CSS lives at `.obsidian/snippets/folder-colours.css`. Enable via **Settings > Appearance > CSS Snippets** in Obsidian. Instance-specific colour assignments are documented in `_Config/Styles/obsidian.md`.

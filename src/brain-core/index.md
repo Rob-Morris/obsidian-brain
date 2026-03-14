@@ -14,6 +14,7 @@ Each vault has a **router** — a single file an agent reads every session. The 
 
 ## Core Documentation
 
+- [[.brain-core/v1.0/principles|Principles]] — governing constraints for all Brain vaults
 - [[.brain-core/v1.0/artefacts|Artefacts]] — living vs temporal model, organisation rules, frontmatter
 - [[.brain-core/v1.0/extensions|Extensions]] — how to add artefact types, with an example library
 - [[.brain-core/v1.0/triggers|Triggers]] — workflow trigger system

@@ -1,4 +1,5 @@
 ---
+type: temporal/log
 tags:
   - log
 ---

@@ -8,23 +8,24 @@
 
 /* ─── Colour Palette ──────────────────────────────────────────────────────── */
 :root {
-  --palette-sky:          #8BB8E8; /* Pastel Blue   */
-  --palette-amber:        #F5C97A; /* Pastel Amber  */
-  --palette-sage:         #8FCA8E; /* Pastel Green  */
-  --palette-coral:        #F0908F; /* Pastel Coral  */
-  --palette-teal:         #7DD6D2; /* Pastel Teal   */
-  --palette-rose:         #F2A8C4; /* Pastel Rose   */
-  --palette-peach:        #F5B88A; /* Pastel Peach  */
-  --palette-lavender:     #B8A9E8; /* Pastel Lavender */
-  --palette-mint:         #A8E8D0; /* Pastel Mint   */
-  --palette-gold:         #E8D48A; /* Pastel Gold   */
-  --palette-slate:        #A0B0C0; /* Pastel Slate  */
-  --palette-mauve:        #D4A0C0; /* Pastel Mauve  */
-  --palette-lime:         #C4E88A; /* Pastel Lime   */
-  --palette-steel:        #8AA8C8; /* Pastel Steel  */
-  --palette-blush:        #E8B8B0; /* Pastel Blush  */
-  --palette-violet-light: #C4A8E8; /* Light Purple  */
-  --palette-violet-dark:  #3B2060; /* Deep Purple   */
+  --palette-sky:          #8BB8E8; /* Pastel Blue      */
+  --palette-amber:        #F5C97A; /* Pastel Amber     */
+  --palette-sage:         #8FCA8E; /* Pastel Green     */
+  --palette-coral:        #F0908F; /* Pastel Coral     */
+  --palette-teal:         #7DD6D2; /* Pastel Teal      */
+  --palette-rose:         #F2A8C4; /* Pastel Rose      */
+  --palette-rose-gold:    #EDBEA7; /* Rose Gold        */
+  --palette-peach:        #F5B88A; /* Pastel Peach     */
+  --palette-lavender:     #B8A9E8; /* Pastel Lavender  */
+  --palette-mint:         #A8E8D0; /* Pastel Mint      */
+  --palette-gold:         #E8D48A; /* Pastel Gold      */
+  --palette-slate:        #A0B0C0; /* Pastel Slate     */
+  --palette-mauve:        #D4A0C0; /* Pastel Mauve     */
+  --palette-lime:         #C4E88A; /* Pastel Lime      */
+  --palette-steel:        #8AA8C8; /* Pastel Steel     */
+  --palette-blush:        #E8B8B0; /* Pastel Blush     */
+  --palette-violet-light: #C4A8E8; /* Light Purple     */
+  --palette-violet-dark:  #3B2060; /* Deep Purple      */
 }
 
 
@@ -34,20 +35,24 @@
   --theme-config-fg: var(--palette-violet-light);
   --theme-config-bg: rgba(196, 168, 232, 0.12);  /* violet-light at 12% */
 
-  /* Temporal folders: rose bg + per-child fg */
-  --theme-temporal-bg: rgba(242, 168, 196, 0.12); /* rose at 12% */
+  /* Temporal folders: steel bg + per-child fg */
+  --theme-temporal-fg: var(--palette-steel);
+  --theme-temporal-bg: rgba(138, 168, 200, 0.12); /* steel at 12% */
 
-  /* Plugin folders */
+  /* Plugin folders: gold bg + gold fg */
   --theme-plugins-fg: var(--palette-gold);       /* #E8D48A */
   --theme-plugins-bg: rgba(232, 212, 138, 0.12); /* gold at 12% */
 
-  /* Artefact folders */
-  --color-wiki: var(--palette-teal);
+  /* Artefact folders: rose-gold bg + per-folder fg */
+  --theme-artefact-bg: rgba(237, 190, 167, 0.12); /* rose-gold at 12% */
 
-  /* Temporal parent and children (base colours blended 35% towards rose) */
-  --color-temporal:             #F2A8C4; /* Rose           */
-  --color-temporal-logs:        #F3BD93; /* Amber → rose   */
-  --color-temporal-transcripts: #CCA9DB; /* Lavender → rose */
+  /* Artefact folder colours */
+  --color-wiki: var(--palette-rose);
+
+  /* Temporal parent and children (base colours blended 35% towards steel) */
+  --color-temporal:             var(--palette-steel); /* Steel        */
+  --color-temporal-logs:        #D0BD95; /* Amber → steel    */
+  --color-temporal-transcripts: #A8A9DD; /* Lavender → steel */
 }
 
 
@@ -75,14 +80,9 @@
   opacity: 0.85;
 }
 
-/* CLAUDE.md — root-level config file, foreground only */
+/* Agents.md / CLAUDE.md — root-level config files, foreground only */
+.nav-file-title[data-path="Agents.md"] .nav-file-title-content,
 .nav-file-title[data-path="CLAUDE.md"] .nav-file-title-content {
-  color: var(--theme-config-fg);
-  opacity: 0.85;
-}
-
-/* router.md — root-level config file, foreground only */
-.nav-file-title[data-path="router.md"] .nav-file-title-content {
   color: var(--theme-config-fg);
   opacity: 0.85;
 }
@@ -90,7 +90,7 @@
 
 /* ─── Temporal Folders (_Temporal) ───────────────────────────────────────── */
 
-/* _Temporal parent — background + rose fg */
+/* _Temporal parent — background + steel fg */
 .nav-folder-title[data-path="_Temporal"] .nav-folder-title-content {
   color: var(--color-temporal);
 }
@@ -172,9 +172,15 @@
 }
 .nav-folder-title[data-path="Wiki"],
 .nav-folder-title[data-path^="Wiki/"] {
+  background-color: var(--theme-artefact-bg);
   border-left: 3px solid var(--color-wiki);
+  border-radius: 4px;
 }
 /* Wiki — files */
+.nav-file-title[data-path^="Wiki/"] {
+  background-color: var(--theme-artefact-bg);
+  border-radius: 4px;
+}
 .nav-file-title[data-path^="Wiki/"] .nav-file-title-content {
   color: var(--color-wiki);
 }

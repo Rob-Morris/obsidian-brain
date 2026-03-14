@@ -1,6 +1,6 @@
 # Principles
 
-Governing constraints for this vault. Everything else must satisfy these.
+Governing constraints for any Brain vault. Everything else must satisfy these.
 
 ## Every file belongs in a folder
 

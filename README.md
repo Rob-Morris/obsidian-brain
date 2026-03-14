@@ -4,9 +4,9 @@ An Obsidian vault designed for use with AI agents. Self-documenting structure wi
 
 ## Quick Start
 
-1. Open the `vault/` folder as an Obsidian vault
+1. Open the `template-vault/` folder as an Obsidian vault (or copy it to your preferred location first)
 2. Enable the CSS snippet in **Settings > Appearance > CSS Snippets** (`folder-colours`)
-3. Start working — agents read `CLAUDE.md` → `router.md` and follow the workflow automatically
+3. Start working — agents read `CLAUDE.md` → `_Config/router.md` and follow the workflow automatically
 
 ## Repository Structure
 
@@ -25,12 +25,12 @@ obsidian-brain/
 │   ├── changelog.md             # version history
 │   ├── plugins.md               # how to install and write plugins
 │   └── specification.md         # design rationale and structural decisions
-├── vault/                       # the Obsidian vault — open this folder in Obsidian
-│   ├── CLAUDE.md                # agent entry point → router
-│   ├── router.md                # per-session file: artefact map, triggers, config links
+├── template-vault/              # the Obsidian vault — copy or open directly
+│   ├── Agents.md                # agent entry point → router
+│   ├── CLAUDE.md                # symlink → Agents.md (Claude Code compatibility)
 │   ├── .brain-core/v1.0/        # symlink → ../../src/brain-core
 │   ├── .obsidian/               # Obsidian settings, plugins, CSS snippets
-│   ├── _Config/                 # style, principles, colours, templates, skills
+│   ├── _Config/                 # router, taxonomy, style, principles, colours, templates, skills
 │   ├── _Plugins/                # tool-managed data (installed separately)
 │   ├── _Temporal/               # dated working files (logs, transcripts)
 │   └── Wiki/                    # interconnected knowledge base
@@ -41,13 +41,12 @@ obsidian-brain/
 
 Everything in the vault is an **artefact** — either **living** (evolves over time, current version is truth) or **temporal** (bound to a moment, written once). Living artefacts sit at the vault root; temporal artefacts sit under `_Temporal/`.
 
-The **router** is the single file agents read every session. It lists which artefact types exist, workflow triggers to follow, and links to configuration files. Core methodology docs in `.brain-core/` are read only when extending the vault.
+The **router** (`_Config/router.md`) is the single file agents read every session. It lists which artefact types exist, workflow triggers to follow, and links to configuration. **Taxonomy** files (`_Config/Taxonomy/`) describe each artefact type in detail — agents read only the types they need.
 
 ## Core / Config Split
 
 - **`.brain-core/`** — versioned methodology. How the Brain system works. Shared across all vaults.
-- **`_Config/`** — instance configuration. Style, principles, colour assignments. Specific to this vault.
-- **`router.md`** — the bridge. Maps core concepts to this vault's specific artefact types and triggers.
+- **`_Config/`** — instance configuration. Router, taxonomy, style, principles, colours. Specific to this vault.
 
 ## Plugins
 
@@ -59,11 +58,12 @@ Available plugins:
 
 ## Customisation
 
-- **`CLAUDE.md`**: add your name and personal context for agents
-- **`_Config/style.md`**: adjust language preferences (defaults to Australian English)
+- **`Agents.md`**: add your name and personal context for agents
+- **`_Config/router.md`**: add/remove artefact types and workflow triggers
+- **`_Config/Taxonomy/`**: add taxonomy files for new artefact types
+- **`_Config/Styles/writing.md`**: adjust language preferences (defaults to Australian English)
 - **`_Config/principles.md`**: vault-level constraints
-- **`_Config/colours.md`**: folder colour assignments
-- **`router.md`**: add/remove artefact types and workflow triggers
+- **`_Config/Styles/obsidian.md`**: folder colours and file explorer styling
 
 ## Documentation
 

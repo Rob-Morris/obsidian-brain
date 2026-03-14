@@ -12,8 +12,9 @@ Read the vault's router, then follow its workflow triggers throughout the sessio
 
 ## Session Start
 
-1. Read `router.md` — contains the **Workflow Triggers** (Before/After/Ongoing) and artefact type map. These govern your behaviour for the whole session.
-2. Read `_Config/style.md` — language and tone rules.
+1. Read `_Config/router.md` — contains the **Workflow Triggers** (Before/After/Ongoing) and artefact type map. These govern your behaviour for the whole session.
+2. Read `_Config/Styles/writing.md` — language and tone rules.
+3. Read the relevant taxonomy file(s) in `_Config/Taxonomy/` for any artefact types you'll be working with.
 
 ## After Each Block of Work
 

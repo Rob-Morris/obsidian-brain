@@ -11,7 +11,7 @@ A plugin has up to four pieces:
 | Data folder | `_Plugins/{Name}/` | Files managed by the tool — do not hand-edit |
 | Skill doc | `_Config/Skills/{name}/SKILL.md` | Teaches agents how to use the tool's MCP tools or CLI |
 | MCP config | `.mcp.json` | Starts the tool's MCP server when Claude Code opens the vault |
-| Router entry | `router.md` | Makes the plugin visible to agents each session |
+| Router entry | `_Config/router.md` | Makes the plugin visible to agents each session |
 
 Only the data folder is strictly required. The other pieces depend on whether the tool has an MCP server, a CLI, or needs agent awareness.
 
@@ -20,10 +20,10 @@ Only the data folder is strictly required. The other pieces depend on whether th
 Each tool provides its own install instructions (typically a README in the tool's repo). The general steps are:
 
 1. **Install the tool's binary** — build from source or download a release
-2. **Create the data folder**: `mkdir -p vault/_Plugins/{Name}`
-3. **Copy the skill doc** (if provided): copy to `vault/_Config/Skills/{name}/SKILL.md`
-4. **Add MCP config** (if the tool has an MCP server): create or update `vault/.mcp.json`
-5. **Update the router**: if the plugin should be visible to agents, add it to `router.md`
+2. **Create the data folder**: `mkdir -p _Plugins/{Name}` (in your vault)
+3. **Copy the skill doc** (if provided): copy to `_Config/Skills/{name}/SKILL.md`
+4. **Add MCP config** (if the tool has an MCP server): create or update `.mcp.json`
+5. **Update the router**: if the plugin should be visible to agents, add it to `_Config/router.md`
 
 ## Writing a Plugin
 
@@ -88,7 +88,7 @@ If your tool has an MCP server, document the `.mcp.json` entry users need to add
       "command": "my-tool-mcp",
       "args": [],
       "env": {
-        "MY_TOOL_DATA": "/path/to/vault/_Plugins/MyTool"
+        "MY_TOOL_DATA": "/path/to/your-vault/_Plugins/MyTool"
       }
     }
   }

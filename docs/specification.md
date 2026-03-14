@@ -11,7 +11,7 @@ Brain is an Obsidian vault methodology designed for use with AI agents (Claude C
 1. **Every file belongs in a folder** — no content in the vault root
 2. **Self-extending** — when content doesn't fit existing folders, the vault grows to accommodate it
 3. **Lean instructions** — the router stays minimal; detailed reference lives in core docs and config files
-4. **Agent-first** — `CLAUDE.md` → `router.md` is the entry point; the router teaches agents everything they need for a session
+4. **Agent-first** — `Agents.md` → `_Config/router.md` is the entry point; the router teaches agents everything they need for a session (`CLAUDE.md` is a symlink to `Agents.md` for Claude Code compatibility)
 
 ## Artefact Model
 
@@ -29,15 +29,17 @@ System folders (`_Config/`, `_Plugins/`, `.obsidian/`) are infrastructure, not a
 ### Core / Config Split
 
 - **`.brain-core/v1.0/`** — versioned methodology docs. How artefacts work, how to extend the vault, trigger system, colour system, plugin system, naming conventions. Read when the agent needs to understand or modify the system.
-- **`_Config/`** — instance configuration. Style preferences, vault principles, colour assignments, templates, skills. Specific to this vault installation.
-- **`router.md`** — the bridge. Lists this vault's artefact types, active triggers, and config file links. Read every session.
+- **`_Config/`** — instance configuration. Router, taxonomy, style, principles, colour assignments, templates, skills. Specific to this vault installation.
+- **`_Config/router.md`** — the bridge. Lists this vault's artefact types, active triggers, and config file links. Read every session.
+- **`_Config/Taxonomy/`** — one file per artefact type with detailed instructions. Agents read only the types they need.
 
 ### Agent Reading Flow
 
-1. Agent reads `CLAUDE.md` → directed to `router.md`
-2. Router provides: artefact type map, workflow triggers, config file links
-3. Agent reads core docs only when extending the vault or understanding the system
-4. Agent reads config files only when relevant (style when writing, principles when restructuring)
+1. Agent reads `Agents.md` (or `CLAUDE.md` symlink) → directed to `_Config/router.md`
+2. Router provides: artefact type map with taxonomy links, workflow triggers, config file links
+3. Agent reads taxonomy files for the artefact types it's working with
+4. Agent reads core docs only when extending the vault or understanding the system
+5. Agent reads config files only when relevant (style when writing, principles when restructuring)
 
 ### Folder Tiers
 
@@ -45,8 +47,8 @@ Four tiers, each with distinct file explorer styling:
 
 | Tier | Prefix | Colour | Purpose |
 |------|--------|--------|---------|
-| Artefact | none | Per-folder unique | Primary content |
-| Temporal | `_Temporal/` | Rose-tinted | Dated working files |
+| Artefact | none | Rose gold | Primary content |
+| Temporal | `_Temporal/` | Steel-tinted | Dated working files |
 | Config | `_Config/` | Purple | System files |
 | Plugin | `_Plugins/` | Gold | Data managed by external tools |
 
@@ -56,15 +58,15 @@ CSS snippet at `.obsidian/snippets/folder-colours.css` driven by a palette of CS
 
 - Palette colours defined as `--palette-*` variables
 - Theme variables (`--theme-*-fg`, `--theme-*-bg`) reference palette colours
-- Temporal children use a blend formula: `result = base + (rose - base) × 0.35`
+- Temporal children use a blend formula: `result = base + (steel - base) × 0.35`
 - Each tier has consistent CSS selector patterns for folders, subfolders, and files
 
 ## Extension Procedures
 
 Documented in `.brain-core/v1.0/extensions.md`:
 
-- **New living artefact**: create at root, pick colour, add CSS, add to router
-- **New temporal child**: create under `_Temporal/`, blend colour towards rose, add CSS, add to router
+- **New living artefact**: create at root, pick colour, add CSS, add to router, add taxonomy file
+- **New temporal child**: create under `_Temporal/`, blend colour towards steel, add CSS, add to router, add taxonomy file
 - **New config child**: create under `_Config/`, inherits purple styling
 - **New plugin**: create under `_Plugins/`, inherits gold styling, add skill if it has tools
 
@@ -78,5 +80,5 @@ Documented in `.brain-core/v1.0/extensions.md`:
 - `_Temporal/Transcripts/` — conversation transcripts
 
 **System:**
-- `_Config/` — style, principles, colours, templates, skills
+- `_Config/` — router, taxonomy, style, principles, colours, templates, skills
 - `_Plugins/` — empty, ready for plugins

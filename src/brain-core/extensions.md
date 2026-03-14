@@ -5,20 +5,22 @@ When the vault needs a new artefact type, follow the procedure for the relevant 
 ## Adding a Living Artefact Folder
 
 1. Create the folder at vault root.
-2. Pick a palette colour (or add a new `--palette-*` variable) and add a `--color-*` variable in the Themes block of `.obsidian/snippets/folder-colours.css`.
+2. Pick a palette colour (or add a new `--palette-*` variable) and add a `--color-*` variable in the Themes block of `.obsidian/snippets/folder-colours.css`. Never reuse a system folder colour (purple, steel, gold) — those are reserved for `_Config/`, `_Temporal/`, and `_Plugins/`.
 3. Add three CSS selector blocks (folder + subfolders, border, files) — see [[.brain-core/v1.0/colours|Colours]] for the template.
 4. Add a row to the router's Living artefact table.
-5. Update `_Config/colours.md` with the new colour assignment.
-6. Log the addition.
+5. Create a taxonomy file at `_Config/Taxonomy/{name}.md` describing the type's purpose, conventions, and template.
+6. Update `_Config/Styles/obsidian.md` with the new colour assignment.
+7. Log the addition.
 
 ## Adding a Temporal Child Folder
 
 1. Create the folder under `_Temporal/`.
-2. Choose a base hue and apply the blend formula (`result = base + (rose - base) × 0.35`) to derive the rose-tinted variant — see [[.brain-core/v1.0/colours|Colours]].
+2. Choose a base hue and apply the blend formula (`result = base + (steel - base) × 0.35`) to derive the steel-tinted variant — see [[.brain-core/v1.0/colours|Colours]].
 3. Add a `--color-temporal-*` hex in the Themes block and add CSS selectors with `background-color: var(--theme-temporal-bg)` and `border-radius: 4px`.
 4. Add a row to the router's Temporal artefact table.
-5. Update `_Config/colours.md`.
-6. Log the addition.
+5. Create a taxonomy file at `_Config/Taxonomy/{name}.md` describing the type's purpose, conventions, and template.
+6. Update `_Config/Styles/obsidian.md`.
+7. Log the addition.
 
 ## Adding a Config Child Folder
 
@@ -71,13 +73,13 @@ Ready-to-use artefact type definitions. Pick what fits your vault.
 
 **Plans** — Pre-work plans written before complex work begins.
 - Naming: `yyyymmdd-{slug}.md`
-- Suggested colour blend: coral → rose (`#F198A2`)
+- Suggested colour blend: coral → steel (`#C69DA8`)
 - Tags: `plan`; frontmatter `status` field (`draft`, `approved`, `completed`)
 
 **Research** — Investigation snapshots and findings on specific topics.
 - Naming: `yyyymmdd-{slug}.md`
-- Suggested colour blend: teal → rose (`#A5C5CD`)
+- Suggested colour blend: teal → steel (`#81BDC9`)
 
 **Daily Notes (temporal variant)** — Date-bound alternative to the living Daily Notes folder. Use when daily notes are append-only records rather than evolving summaries.
 - Naming: `yyyymmdd-{slug}.md`
-- Suggested colour blend: sky → rose
+- Suggested colour blend: sky → steel
