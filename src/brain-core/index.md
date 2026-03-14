@@ -1,6 +1,6 @@
 # Brain Core
 
-Brain is a methodology for organising an Obsidian vault. It gives agents and humans a shared, self-documenting structure to work in.
+Brain is a self-extending system for organising Obsidian vaults, for agents and humans working together.
 
 ## Key Idea
 

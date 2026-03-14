@@ -4,14 +4,15 @@ Design rationale and structural decisions for the Brain vault.
 
 ## Overview
 
-Brain is an Obsidian vault methodology designed for use with AI agents (Claude Code, MCP tools). It provides a self-documenting structure where agents read a single router file on session start and follow workflow triggers throughout. Core methodology lives in `.brain-core/`, versioned and shared across vaults.
+Brain is a self-extending system for organising Obsidian vaults, for agents and humans working together. Agents read a single router file on session start and follow workflow triggers throughout. Core methodology lives in `.brain-core/`, versioned and shared across vaults.
 
 ## Design Principles
 
-1. **Every file belongs in a folder** — no content in the vault root
-2. **Self-extending** — when content doesn't fit existing folders, the vault grows to accommodate it
-3. **Lean instructions** — the router stays minimal; detailed reference lives in core docs and config files
-4. **Agent-first** — `Agents.md` → `_Config/router.md` is the entry point; the router teaches agents everything they need for a session (`CLAUDE.md` is a symlink to `Agents.md` for Claude Code compatibility)
+1. **Files are the source of truth** — the vault is folders and Markdown files, no database. Works with Obsidian, agents, and plain text editors simultaneously.
+2. **Every file belongs in a folder** — no content in the vault root
+3. **Self-extending** — when content doesn't fit existing folders, the vault grows to accommodate it
+4. **Lean instructions** — the router stays minimal; detailed reference lives in core docs and config files
+5. **Agent-first** — `Agents.md` → `_Config/router.md` is the entry point; the router teaches agents everything they need for a session (`CLAUDE.md` is a symlink to `Agents.md` for Claude Code compatibility)
 
 ## Artefact Model
 
@@ -47,14 +48,14 @@ Four tiers, each with distinct file explorer styling:
 
 | Tier | Prefix | Colour | Purpose |
 |------|--------|--------|---------|
-| Artefact | none | Rose gold | Primary content |
+| Artefact | none | Rose gold bg, unique foreground per folder | Primary content |
 | Temporal | `_Temporal/` | Steel-tinted | Dated working files |
 | Config | `_Config/` | Purple | System files |
-| Plugin | `_Plugins/` | Gold | Data managed by external tools |
+| Plugin | `_Plugins/` | Gold | External tool data, skills, and MCP integrations |
 
 ## Colour System
 
-CSS snippet at `.obsidian/snippets/folder-colours.css` driven by a palette of CSS variables. System design documented in `.brain-core/v1.0/colours.md`; instance assignments in `_Config/colours.md`.
+CSS snippet at `.obsidian/snippets/folder-colours.css` driven by a palette of CSS variables. System design documented in `.brain-core/v1.0/colours.md`; instance assignments in `_Config/Styles/obsidian.md`.
 
 - Palette colours defined as `--palette-*` variables
 - Theme variables (`--theme-*-fg`, `--theme-*-bg`) reference palette colours

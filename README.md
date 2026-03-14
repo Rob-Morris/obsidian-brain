@@ -1,6 +1,6 @@
 # Obsidian Brain
 
-An Obsidian vault designed for use with AI agents. Self-documenting structure with a router, core methodology docs, workflow triggers, agent skills, and folder colour coding.
+A self-extending system for organising Obsidian vaults, for agents and humans working together.
 
 ## Quick Start
 
