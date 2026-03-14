@@ -16,7 +16,7 @@ Brain is a self-extending system for organising Obsidian vaults, for agents and 
 
 ## Artefact Model
 
-Everything in the vault is an artefact, classified into two types:
+All content in the vault is an artefact, classified into two types:
 
 | Type | Location | Behaviour |
 |------|----------|-----------|

@@ -39,7 +39,7 @@ obsidian-brain/
 
 ## How It Works
 
-Everything in the vault is an **artefact** — either **living** (evolves over time, current version is truth) or **temporal** (bound to a moment, written once). Living artefacts sit at the vault root; temporal artefacts sit under `_Temporal/`.
+All content in the vault is an **artefact** — either **living** (evolves over time, current version is truth) or **temporal** (bound to a moment, written once). System folders (`_Config/`, `_Plugins/`, `.obsidian/`) are infrastructure, not artefacts. Living artefacts sit at the vault root; temporal artefacts sit under `_Temporal/`.
 
 The **router** (`_Config/router.md`) is the single file agents read every session. It lists which artefact types exist, workflow triggers to follow, and links to configuration. **Taxonomy** files (`_Config/Taxonomy/`) describe each artefact type in detail — agents read only the types they need.
 
