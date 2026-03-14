@@ -12,6 +12,11 @@ One file per day. A running record of what happened, in chronological order. Log
 - **Timestamp each entry.** Use `HH:MM` or `HH:MM:SS` at the start of each entry.
 - **Keep entries brief.** One or two sentences. Link to artefacts for detail rather than duplicating content.
 - **Use wikilinks.** Reference the artefacts, pages, or concepts involved.
+- **Tag cross-repo work.** When an entry relates to a different repository or project, prefix the description with the project name in italics — e.g. `*(Undertask)* Built the MCP server`. Entries without a tag are assumed to relate to the current vault.
+
+## Relationship to Summary Artefacts
+
+The log is the **raw chronological record** — every activity timestamped as it happens. Other artefacts (e.g. daily notes, weekly reviews) may distil or summarise logs, but the log itself is never back-edited to match a summary.
 
 ## Naming
 

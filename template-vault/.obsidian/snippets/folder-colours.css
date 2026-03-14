@@ -21,6 +21,7 @@
   --palette-gold:         #E8D48A; /* Pastel Gold      */
   --palette-slate:        #A0B0C0; /* Pastel Slate     */
   --palette-mauve:        #D4A0C0; /* Pastel Mauve     */
+  --palette-orchid:       #DBA8D6; /* Pastel Orchid    */
   --palette-lime:         #C4E88A; /* Pastel Lime      */
   --palette-steel:        #8AA8C8; /* Pastel Steel     */
   --palette-blush:        #E8B8B0; /* Pastel Blush     */
@@ -35,13 +36,13 @@
   --theme-config-fg: var(--palette-violet-light);
   --theme-config-bg: rgba(196, 168, 232, 0.12);  /* violet-light at 12% */
 
-  /* Temporal folders: steel bg + per-child fg */
-  --theme-temporal-fg: var(--palette-steel);
-  --theme-temporal-bg: rgba(138, 168, 200, 0.12); /* steel at 12% */
+  /* Temporal folders: rose bg + per-child fg */
+  --theme-temporal-fg: var(--palette-rose);
+  --theme-temporal-bg: rgba(242, 168, 196, 0.12); /* rose at 12% */
 
-  /* Plugin folders: gold bg + gold fg */
-  --theme-plugins-fg: var(--palette-gold);       /* #E8D48A */
-  --theme-plugins-bg: rgba(232, 212, 138, 0.12); /* gold at 12% */
+  /* Plugin folders: orchid bg + orchid fg (purple↔rose midpoint) */
+  --theme-plugins-fg: var(--palette-orchid);
+  --theme-plugins-bg: rgba(219, 168, 214, 0.12); /* orchid at 12% */
 
   /* Artefact folders: rose-gold bg + per-folder fg */
   --theme-artefact-bg: rgba(237, 190, 167, 0.12); /* rose-gold at 12% */
@@ -49,11 +50,53 @@
   /* Artefact folder colours */
   --color-wiki: var(--palette-rose);
 
-  /* Temporal parent and children (base colours blended 35% towards steel) */
-  --color-temporal:             var(--palette-steel); /* Steel        */
-  --color-temporal-logs:        #D0BD95; /* Amber → steel    */
-  --color-temporal-transcripts: #A8A9DD; /* Lavender → steel */
-  --color-temporal-plans:       #C69DA8; /* Coral → steel    */
+  /* Temporal parent and children (base colours blended 35% towards rose) */
+  --color-temporal:             var(--palette-rose);  /* Rose         */
+  --color-temporal-logs:        #F3BD93; /* Amber → rose     */
+  --color-temporal-transcripts: #CCA9DB; /* Lavender → rose  */
+  --color-temporal-plans:       #F198A2; /* Coral → rose     */
+}
+
+
+/* ─── System Folder Icons ───────────────────────────────────────────────── */
+
+.nav-folder-title[data-path="_Config"],
+.nav-folder-title[data-path="_Plugins"],
+.nav-folder-title[data-path="_Temporal"],
+.nav-file-title[data-path="Agents.md"],
+.nav-file-title[data-path="CLAUDE.md"] {
+  position: relative;
+}
+
+.nav-folder-title[data-path="_Config"]::after,
+.nav-folder-title[data-path="_Plugins"]::after,
+.nav-folder-title[data-path="_Temporal"]::after,
+.nav-file-title[data-path="Agents.md"]::after,
+.nav-file-title[data-path="CLAUDE.md"]::after {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 1.15em;
+  opacity: 0.6;
+}
+
+.nav-folder-title[data-path="_Config"]::after {
+  content: "⍟";
+  color: var(--theme-config-fg);
+}
+.nav-folder-title[data-path="_Plugins"]::after {
+  content: "⬡";
+  color: var(--theme-plugins-fg);
+}
+.nav-folder-title[data-path="_Temporal"]::after {
+  content: "◷";
+  color: var(--color-temporal);
+}
+.nav-file-title[data-path="Agents.md"]::after,
+.nav-file-title[data-path="CLAUDE.md"]::after {
+  content: "⍟";
+  color: var(--theme-config-fg);
 }
 
 
@@ -67,7 +110,7 @@
 .nav-folder-title[data-path="_Config"],
 .nav-folder-title[data-path^="_Config/"] {
   background-color: var(--theme-config-bg);
-  border-left: 3px solid var(--theme-config-fg);
+  border-left: 4px double var(--theme-config-fg);
   border-radius: 4px;
 }
 
@@ -97,7 +140,7 @@
 }
 .nav-folder-title[data-path="_Temporal"] {
   background-color: var(--theme-temporal-bg);
-  border-left: 3px solid var(--color-temporal);
+  border-left: 4px double var(--color-temporal);
   border-radius: 4px;
 }
 
@@ -109,7 +152,7 @@
 .nav-folder-title[data-path="_Temporal/Logs"],
 .nav-folder-title[data-path^="_Temporal/Logs/"] {
   background-color: var(--theme-temporal-bg);
-  border-left: 3px solid var(--color-temporal-logs);
+  border-left: 4px double var(--color-temporal-logs);
   border-radius: 4px;
 }
 /* _Temporal/Logs — files */
@@ -129,7 +172,7 @@
 .nav-folder-title[data-path="_Temporal/Transcripts"],
 .nav-folder-title[data-path^="_Temporal/Transcripts/"] {
   background-color: var(--theme-temporal-bg);
-  border-left: 3px solid var(--color-temporal-transcripts);
+  border-left: 4px double var(--color-temporal-transcripts);
   border-radius: 4px;
 }
 /* _Temporal/Transcripts — files */
@@ -149,7 +192,7 @@
 .nav-folder-title[data-path="_Temporal/Plans"],
 .nav-folder-title[data-path^="_Temporal/Plans/"] {
   background-color: var(--theme-temporal-bg);
-  border-left: 3px solid var(--color-temporal-plans);
+  border-left: 4px double var(--color-temporal-plans);
   border-radius: 4px;
 }
 /* _Temporal/Plans — files */
@@ -171,7 +214,7 @@
 .nav-folder-title[data-path="_Plugins"],
 .nav-folder-title[data-path^="_Plugins/"] {
   background-color: var(--theme-plugins-bg);
-  border-left: 3px solid var(--theme-plugins-fg);
+  border-left: 4px double var(--theme-plugins-fg);
   border-radius: 4px;
 }
 .nav-file-title[data-path^="_Plugins/"] {
