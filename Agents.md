@@ -14,6 +14,10 @@ Follows [semver](https://semver.org/). The version is tracked in `.brain-core/VE
 - **Minor** — breaking changes to vault structure (renamed/removed core files, changed folder conventions)
 - **Major** — fundamental model changes (artefact model, router contract, agent entry flow)
 
+## Multi-Repo Workflow
+
+Core-first workflow: when changes span brain-core and vault repos, implement and commit core changes first, then propagate to vault repos. Never deploy to both simultaneously.
+
 ## Local Overrides
 
 If `agents.local.md` exists in the repo root, read it for machine-specific configuration such as workspace paths and environment details.

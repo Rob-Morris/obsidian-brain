@@ -2,6 +2,20 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.7.0 — 2026-03-16
+
+- Brain MCP server at `.brain-core/mcp/server.py` — wraps compiled router + retrieval index as 3 MCP tools (DD-010, DD-011, DD-020)
+- `brain_read` — safe resource lookup: artefact, trigger, style, template, skill, plugin, environment, router. Optional `name` filter reads file content for styles/skills/plugins/templates
+- `brain_search` — BM25 keyword search with `type`, `tag`, `top_k` filters. Returns ranked `{path, title, type, score, snippet}` results
+- `brain_action` — mutations: `compile` (recompile router), `build_index` (rebuild retrieval index). Returns status summary
+- Auto-compile router on startup if stale — compares `meta.compiled_at` against source file mtimes (DD-014)
+- Auto-build index on startup if stale — compares `meta.built_at` against `.md` file mtimes across type folders
+- Staleness detection: missing/corrupt JSON files treated as stale, missing source files treated as stale
+- Server imports script functions directly (never calls `main()`) to avoid `sys.exit()` on error paths
+- Requires Python >=3.10 + `mcp` SDK (`requirements.txt` included)
+- Serves via stdio transport (designed for `.mcp.json` integration)
+- Test suite: 42 tests covering startup, staleness detection, all brain_read resources, search, actions, and caching
+
 ## v0.6.0 — 2026-03-15
 
 - `build_index.py` — BM25 retrieval index builder, walks all .md files in living + temporal type folders, computes per-doc term frequencies and corpus stats, writes `_Config/.retrieval-index.json`

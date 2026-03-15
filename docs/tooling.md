@@ -1,6 +1,6 @@
 # Obsidian Brain — Tooling
 
-Technical design for tooling that operates on Brain vaults. Source design doc: `Designs/brain-tooling-cli-agent-fallback.md` in the Rob vault.
+Technical design for tooling that operates on Brain vaults. Source design doc: `Designs/brain-tooling-architecture.md` in the Rob vault.
 
 ## Compiled Router (DD-008, DD-013, DD-014, DD-016)
 
@@ -22,11 +22,17 @@ Long-running MCP server at `.brain-core/mcp/server.py`. Exposes 3 tools:
 
 - **`brain_read`** — safe, no side effects, auto-approvable. Resources: `artefact`, `trigger`, `style`, `template`, `skill`, `plugin`, `environment`, `router`. Optional `name` filter.
 - **`brain_search`** — safe, no side effects, auto-approvable. Parameters: `query` (required), `type`, `tag`, `top_k`. Returns BM25-ranked results with path, title, type, score, snippet.
-- **`brain_action`** — mutations, gated by approval. Actions: `check`, `compile`, `build_index`, `create_artefact`. Optional `params` object.
+- **`brain_action`** — mutations, gated by approval. Actions: `compile`, `build_index` (implemented); `check`, `create_artefact` (deferred — scripts don't exist yet). Optional `params` object.
 
 DD-011 established the read/write safety split (2 tools). DD-020 adds `brain_search` as a third tool — search has different parameter semantics (query + filters vs. resource lookup) and response shape. The extra tool description costs ~1,350 token-turns/session, negligible vs. the ~34,000 saved by the MCP server.
 
-**Response payloads:** TBD.
+**Startup:** Auto-compiles router and auto-builds index if stale (compares timestamps against source file mtimes). Both artefacts loaded into memory for the session lifetime.
+
+**Response payloads:** All tools return JSON strings. `brain_read` returns the requested resource data (array or object). `brain_search` returns a ranked array of `{path, title, type, score, snippet}`. `brain_action` returns `{status, summary, compiled_at|built_at}`.
+
+**Dependencies:** Python >=3.10, `mcp` SDK. The server imports functions directly from the existing scripts — never calls their `main()` (which may `sys.exit`).
+
+**Status:** Implemented in v0.7.0. Phase C actions (`check`, `create_artefact`) deferred — those scripts don't exist yet.
 
 ## Lean Router Format (DD-012, DD-017)
 
@@ -103,16 +109,16 @@ python3 search_index.py "query" --json  # structured output
 
 **Snippets:** ~200 chars centred on first query term match in body, expanded to nearest word boundary. Falls back to first 200 chars if no match.
 
-**Build trigger:** Manual only for now. Planned automation:
+**Build trigger:**
 
-- **MCP server** (primary) — rebuild on startup if stale (compare index timestamp against file mtimes), expose `build_index` as a `brain_action` for mid-session refresh. Same pattern as compiled router auto-compile (DD-014). Phase 4 incremental updates make this cheap.
-- **Obsidian plugin** (secondary) — watch for `.md` file changes and trigger rebuild so the index stays fresh for non-agent use cases (in-Obsidian search UI, etc.). Vault files can be modified by agents, by Obsidian, or directly via the filesystem — all three paths need to result in a fresh index. The plugin would either shell out to Python or use a TypeScript reimplementation (DD-007 anticipates dual implementations).
+- **MCP server** (implemented v0.7.0) — rebuilds on startup if stale (compares index timestamp against file mtimes), exposes `build_index` as a `brain_action` for mid-session refresh. Same pattern as compiled router auto-compile (DD-014). Phase 4 incremental updates make this cheap.
+- **Obsidian plugin** (planned) — watch for `.md` file changes and trigger rebuild so the index stays fresh for non-agent use cases (in-Obsidian search UI, etc.). Vault files can be modified by agents, by Obsidian, or directly via the filesystem — all three paths need to result in a fresh index. The plugin would either shell out to Python or use a TypeScript reimplementation (DD-007 anticipates dual implementations).
+- **Manual** — `python3 build_index.py` from the vault root.
 
 ## Pending Design
 
 The following are accepted but not yet fully shaped:
 
-- **MCP server** — response payload schemas, session lifecycle, error handling
 - **upgrade.py** — in-place upgrade flow, migration steps
 - **CLI wrapper** — argument parsing, vault discovery, distribution
 - **Plugin registry** — `plugins.json` schema, install flow
@@ -132,14 +138,14 @@ The following are accepted but not yet fully shaped:
 | DD-007 | Dual implementation with shared test fixtures | Accepted |
 | DD-008 | Compiled router as foundation | Implemented (v0.5.0) |
 | DD-009 | Router-driven checks (no separate check config) | Accepted |
-| DD-010 | Brain MCP server in `.brain-core/mcp/` | Accepted |
-| DD-011 | MCP server exposes 2 tools with enum parameters | Accepted |
+| DD-010 | Brain MCP server in `.brain-core/mcp/` | Implemented (v0.7.0) |
+| DD-011 | MCP server exposes 2 tools with enum parameters | Implemented (v0.7.0) |
 | DD-012 | Lean router — always-rules only, conditional triggers co-located | Accepted |
 | DD-013 | Compiled router required for tools; markdown fallback for agents only | Accepted |
-| DD-014 | MCP server auto-compiles on startup | Accepted |
+| DD-014 | MCP server auto-compiles on startup | Implemented (v0.7.0) |
 | DD-015 | Single-line install — never require changes to Agents.md | Implemented (v0.4.0) |
 | DD-016 | Filesystem-first artefact discovery | Implemented (v0.5.0) |
 | DD-017 | Shorthand trigger index with gotos | Implemented (v0.4.0) |
 | DD-018 | Taxonomy index dropped — filesystem is the index | Implemented (v0.4.0) |
 | DD-019 | Succinct readme pattern for lean discovery guides | Implemented (v0.4.0) |
-| DD-020 | 3 MCP tools: brain_read + brain_search + brain_action | Accepted |
+| DD-020 | 3 MCP tools: brain_read + brain_search + brain_action | Implemented (v0.7.0) |
