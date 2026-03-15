@@ -18,9 +18,11 @@ To upgrade brain-core later, replace the contents of `.brain-core/` with the new
 obsidian-brain/
 ├── src/
 │   └── brain-core/              # core methodology (source of truth)
+│       ├── VERSION               # installed brain-core version (e.g. 0.3.0)
 │       ├── index.md             # entry point — links to all core docs
 │       ├── taxonomy.md          # artefact model, naming conventions, frontmatter
 │       ├── extensions.md        # how to add types + example library
+│       ├── library.md           # ready-to-use artefact type definitions
 │       ├── triggers.md          # workflow trigger system
 │       ├── colours.md           # folder colour system design
 │       └── plugins.md           # plugin system
