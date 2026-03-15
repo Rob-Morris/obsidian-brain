@@ -4,21 +4,27 @@ Brain MCP Server — exposes brain-core tools via the Model Context Protocol.
 
 Wraps compile_router, build_index, and search_index as 3 MCP tools:
   brain_read   — read compiled router resources (safe, no side effects)
-  brain_search — BM25 keyword search over vault markdown files
-  brain_action — mutations: compile router, rebuild index
+  brain_search — BM25 keyword search, with optional Obsidian CLI live search
+  brain_action — mutations: compile router, rebuild index, rename files
+
+Optional Obsidian CLI integration (dsebastien/obsidian-cli-rest):
+  - Search: CLI-first with BM25 fallback (CLI index is always current)
+  - Rename: CLI-first with grep-and-replace fallback (CLI updates wikilinks)
 
 Startup sequence:
   1. Find vault root (server always runs from vault via .mcp.json)
   2. Auto-compile router if stale
   3. Auto-build index if stale
   4. Load both into memory
-  5. Serve via stdio
+  5. Probe Obsidian CLI availability
+  6. Serve via stdio
 
 Requires Python >=3.10 and the `mcp` SDK (see requirements.txt).
 """
 
 import json
 import os
+import re
 import sys
 from datetime import datetime, timezone
 
@@ -46,6 +52,8 @@ from build_index import (
 )
 from search_index import search as search_index
 
+import obsidian_cli
+
 # ---------------------------------------------------------------------------
 # Server state
 # ---------------------------------------------------------------------------
@@ -55,6 +63,8 @@ mcp = FastMCP(name="brain")
 _vault_root: str | None = None
 _router: dict | None = None
 _index: dict | None = None
+_cli_available: bool = False
+_vault_name: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -167,8 +177,10 @@ def _build_index_and_save(vault_root: str) -> dict:
 
 def startup(vault_root: str | None = None) -> None:
     """Initialize server state: find vault, compile/build if stale, load data."""
-    global _vault_root, _router, _index
+    global _vault_root, _router, _index, _cli_available, _vault_name
 
+    if vault_root is None:
+        vault_root = os.environ.get("BRAIN_VAULT_ROOT")
     if vault_root is None:
         _vault_root = str(find_vault_root())
     else:
@@ -181,6 +193,10 @@ def startup(vault_root: str | None = None) -> None:
     # Auto-build index if stale
     stale, data = _check_index(_vault_root)
     _index = _build_index_and_save(_vault_root) if stale else data
+
+    # Probe Obsidian CLI availability
+    _cli_available = obsidian_cli.check_available()
+    _vault_name = os.environ.get("BRAIN_VAULT_NAME") or os.path.basename(_vault_root)
 
 
 # ---------------------------------------------------------------------------
@@ -261,7 +277,9 @@ def brain_read(resource: str, name: str | None = None) -> str:
         return _read_named_resource("plugin", name, "plugins", "skill_doc")
 
     elif resource == "environment":
-        return json.dumps(_router["environment"], indent=2)
+        env = dict(_router["environment"])
+        env["obsidian_cli_available"] = _cli_available
+        return json.dumps(env, indent=2)
 
     elif resource == "router":
         return json.dumps({
@@ -278,23 +296,119 @@ def brain_read(resource: str, name: str | None = None) -> str:
 # brain_search — safe, no side effects
 # ---------------------------------------------------------------------------
 
+def _transform_cli_results(cli_results: list[dict], type_filter: str | None,
+                           tag_filter: str | None, top_k: int) -> list[dict]:
+    """Transform Obsidian CLI search results to match brain_search schema."""
+    transformed = []
+    for item in cli_results:
+        path = item.get("filename", item.get("path", ""))
+        # Read frontmatter from the index if available
+        doc_meta = {}
+        if _index:
+            for doc in _index.get("documents", []):
+                if doc.get("path") == path:
+                    doc_meta = doc
+                    break
+        doc_type = doc_meta.get("type", "")
+        doc_tags = doc_meta.get("tags", [])
+
+        if type_filter and doc_type != type_filter:
+            continue
+        if tag_filter and tag_filter not in doc_tags:
+            continue
+
+        transformed.append({
+            "path": path,
+            "title": doc_meta.get("title", os.path.splitext(os.path.basename(path))[0]),
+            "type": doc_type,
+            "score": item.get("score", 0),
+            "snippet": item.get("matches", [{}])[0].get("content", "")[:200] if item.get("matches") else "",
+        })
+
+    return transformed[:top_k]
+
+
 @mcp.tool()
 def brain_search(query: str, type: str | None = None, tag: str | None = None, top_k: int = 10) -> str:
-    """Search vault content using BM25 keyword matching.
+    """Search vault content. Uses Obsidian CLI live index when available, BM25 fallback.
 
-    Returns ranked results with path, title, type, score, and snippet.
+    Returns ranked results with path, title, type, score, snippet, and source.
     Optional filters: type (e.g. 'living/wiki'), tag, top_k (default 10).
     """
     if _index is None:
         return "Error: server not initialized"
 
+    # CLI-first: Obsidian's live index is always current
+    if _cli_available and _vault_name and query:
+        cli_results = obsidian_cli.search(_vault_name, query)
+        if cli_results is not None:
+            results = _transform_cli_results(cli_results, type, tag, top_k)
+            return json.dumps({"source": "obsidian_cli", "results": results}, indent=2)
+
+    # BM25 fallback
     results = search_index(_index, query, _vault_root, type_filter=type, tag_filter=tag, top_k=top_k)
-    return json.dumps(results, indent=2)
+    return json.dumps({"source": "bm25", "results": results}, indent=2)
 
 
 # ---------------------------------------------------------------------------
 # brain_action — mutations, gated by approval
 # ---------------------------------------------------------------------------
+
+def _rename_grep_replace(vault_root: str, source: str, dest: str) -> int:
+    """Rename a file and update wikilinks via grep-and-replace. Returns links updated."""
+    abs_source = os.path.join(vault_root, source)
+    abs_dest = os.path.join(vault_root, dest)
+
+    if not os.path.isfile(abs_source):
+        raise FileNotFoundError(f"Source file not found: {source}")
+
+    # Derive wikilink stems (without .md extension)
+    def stem(path: str) -> str:
+        return path[:-3] if path.endswith(".md") else path
+
+    old_stem = stem(source)
+    new_stem = stem(dest)
+
+    # Find and replace wikilinks in all .md files
+    links_updated = 0
+    wikilink_pattern = re.compile(
+        r'\[\['
+        + re.escape(old_stem)
+        + r'(\|[^\]]*)?'  # optional alias
+        + r'\]\]'
+    )
+
+    for dirpath, _dirnames, filenames in os.walk(vault_root):
+        # Skip system directories
+        rel_dir = os.path.relpath(dirpath, vault_root)
+        if rel_dir != "." and is_system_dir(os.path.basename(dirpath)):
+            if not rel_dir.startswith("_Temporal"):
+                continue
+
+        for fname in filenames:
+            if not fname.endswith(".md"):
+                continue
+            fpath = os.path.join(dirpath, fname)
+            try:
+                with open(fpath, "r", encoding="utf-8") as f:
+                    content = f.read()
+            except OSError:
+                continue
+
+            new_content, count = wikilink_pattern.subn(
+                lambda m: f"[[{new_stem}{m.group(1) or ''}]]", content
+            )
+            if count > 0:
+                with open(fpath, "w", encoding="utf-8") as f:
+                    f.write(new_content)
+                links_updated += count
+
+    # Create destination directory if needed and rename the file
+    os.makedirs(os.path.dirname(abs_dest), exist_ok=True)
+    os.rename(abs_source, abs_dest)
+
+    return links_updated
+
 
 @mcp.tool()
 def brain_action(action: str, params: dict | None = None) -> str:
@@ -303,6 +417,7 @@ def brain_action(action: str, params: dict | None = None) -> str:
     Actions:
       compile     — recompile the router from source files
       build_index — rebuild the BM25 retrieval index
+      rename      — rename/move a file (params: source, dest as relative paths)
     """
     global _router, _index
 
@@ -332,8 +447,36 @@ def brain_action(action: str, params: dict | None = None) -> str:
             "built_at": _index["meta"]["built_at"],
         }, indent=2)
 
+    elif action == "rename":
+        if not params or "source" not in params or "dest" not in params:
+            return json.dumps({"error": "rename requires params: {source, dest} (relative paths)"})
+
+        source = params["source"]
+        dest = params["dest"]
+
+        # CLI-first: Obsidian auto-updates wikilinks
+        if _cli_available and _vault_name:
+            result = obsidian_cli.move(_vault_name, source, dest)
+            if result is not None:
+                return json.dumps({
+                    "status": "ok",
+                    "method": "obsidian_cli",
+                    "links_updated": result.get("links_updated", -1),
+                }, indent=2)
+
+        # Fallback: grep-and-replace wikilinks + os.rename
+        try:
+            links_updated = _rename_grep_replace(_vault_root, source, dest)
+            return json.dumps({
+                "status": "ok",
+                "method": "grep_replace",
+                "links_updated": links_updated,
+            }, indent=2)
+        except FileNotFoundError as e:
+            return json.dumps({"error": str(e)})
+
     else:
-        valid = ["compile", "build_index"]
+        valid = ["compile", "build_index", "rename"]
         return json.dumps({"error": f"Unknown action '{action}'. Valid: {', '.join(valid)}"})
 
 

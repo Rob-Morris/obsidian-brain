@@ -4,6 +4,7 @@ import json
 import os
 import sys
 import time
+from unittest.mock import patch
 
 import pytest
 
@@ -14,6 +15,7 @@ sys.path.insert(0, os.path.abspath(MCP_DIR))
 sys.path.insert(0, os.path.abspath(SCRIPTS_DIR))
 
 import server
+import obsidian_cli
 
 
 # ---------------------------------------------------------------------------
@@ -276,6 +278,11 @@ class TestBrainRead:
         result = json.loads(server.brain_read("environment"))
         assert "vault_root" in result
         assert "platform" in result
+        assert "obsidian_cli_available" in result
+
+    def test_read_environment_includes_cli_status(self, initialized):
+        """Environment response should reflect CLI availability."""
+        assert json.loads(server.brain_read("environment"))["obsidian_cli_available"] is False
 
     def test_read_router(self, initialized):
         result = json.loads(server.brain_read("router"))
@@ -295,12 +302,14 @@ class TestBrainRead:
 
 class TestBrainSearch:
     def test_search_returns_results(self, initialized):
-        results = json.loads(server.brain_search("brain knowledge"))
-        assert isinstance(results, list)
-        assert len(results) >= 1
+        resp = json.loads(server.brain_search("brain knowledge"))
+        assert resp["source"] == "bm25"
+        assert isinstance(resp["results"], list)
+        assert len(resp["results"]) >= 1
 
     def test_search_result_shape(self, initialized):
-        results = json.loads(server.brain_search("brain"))
+        resp = json.loads(server.brain_search("brain"))
+        results = resp["results"]
         assert len(results) >= 1
         r = results[0]
         assert "path" in r
@@ -310,33 +319,71 @@ class TestBrainSearch:
         assert "snippet" in r
 
     def test_search_ranked_by_score(self, initialized):
-        results = json.loads(server.brain_search("brain"))
+        results = json.loads(server.brain_search("brain"))["results"]
         if len(results) >= 2:
             assert results[0]["score"] >= results[1]["score"]
 
     def test_search_type_filter(self, initialized):
-        results = json.loads(server.brain_search("test", type="temporal/logs"))
+        results = json.loads(server.brain_search("test", type="temporal/logs"))["results"]
         for r in results:
             assert r["type"] == "temporal/logs"
 
     def test_search_tag_filter(self, initialized):
-        results = json.loads(server.brain_search("brain", tag="brain-core"))
+        results = json.loads(server.brain_search("brain", tag="brain-core"))["results"]
         assert len(results) >= 1
-        # Without tag filter, more results would appear — verify filtering narrowed it
-        unfiltered = json.loads(server.brain_search("brain"))
+        unfiltered = json.loads(server.brain_search("brain"))["results"]
         assert len(unfiltered) >= len(results)
 
     def test_search_top_k(self, initialized):
-        results = json.loads(server.brain_search("the", top_k=1))
+        results = json.loads(server.brain_search("the", top_k=1))["results"]
         assert len(results) <= 1
 
     def test_search_empty_query(self, initialized):
-        results = json.loads(server.brain_search(""))
-        assert results == []
+        resp = json.loads(server.brain_search(""))
+        assert resp["results"] == []
 
     def test_search_no_matches(self, initialized):
-        results = json.loads(server.brain_search("xyzzyplugh"))
-        assert results == []
+        resp = json.loads(server.brain_search("xyzzyplugh"))
+        assert resp["results"] == []
+
+    def test_search_uses_bm25_when_cli_unavailable(self, initialized):
+        """Verify BM25 is used when CLI is not available (default state)."""
+        assert server._cli_available is False
+        resp = json.loads(server.brain_search("brain"))
+        assert resp["source"] == "bm25"
+
+    def test_search_with_mocked_cli(self, initialized):
+        """Verify CLI results are transformed to match schema."""
+        cli_results = [
+            {"filename": "Wiki/brain-overview-abc123.md", "score": 2.0,
+             "matches": [{"content": "The Brain is a system"}]},
+        ]
+        with patch.object(obsidian_cli, "search", return_value=cli_results):
+            server._cli_available = True
+            server._vault_name = "test"
+            try:
+                resp = json.loads(server.brain_search("brain"))
+                assert resp["source"] == "obsidian_cli"
+                assert len(resp["results"]) >= 1
+                r = resp["results"][0]
+                assert r["path"] == "Wiki/brain-overview-abc123.md"
+                assert "title" in r
+                assert "type" in r
+                assert "score" in r
+            finally:
+                server._cli_available = False
+
+    def test_search_cli_failure_falls_back_to_bm25(self, initialized):
+        """Verify fallback to BM25 when CLI search returns None."""
+        with patch.object(obsidian_cli, "search", return_value=None):
+            server._cli_available = True
+            server._vault_name = "test"
+            try:
+                resp = json.loads(server.brain_search("brain"))
+                assert resp["source"] == "bm25"
+                assert len(resp["results"]) >= 1
+            finally:
+                server._cli_available = False
 
 
 # ---------------------------------------------------------------------------
@@ -372,6 +419,55 @@ class TestBrainAction:
         result = json.loads(server.brain_action("bogus"))
         assert "error" in result
         assert "Unknown action" in result["error"]
+
+    def test_action_rename_without_cli(self, initialized):
+        """Rename via grep-and-replace when CLI is unavailable."""
+        vault = initialized
+        # Create a file that links to the source
+        (vault / "Wiki" / "linker-xyz000.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "# Linker\n\nSee [[Wiki/brain-overview-abc123]].\n"
+        )
+        result = json.loads(server.brain_action("rename", {
+            "source": "Wiki/brain-overview-abc123.md",
+            "dest": "Wiki/brain-intro-abc123.md",
+        }))
+        assert result["status"] == "ok"
+        assert result["method"] == "grep_replace"
+        assert result["links_updated"] >= 1
+        # Verify file was renamed
+        assert not (vault / "Wiki" / "brain-overview-abc123.md").exists()
+        assert (vault / "Wiki" / "brain-intro-abc123.md").exists()
+        # Verify wikilink was updated
+        content = (vault / "Wiki" / "linker-xyz000.md").read_text()
+        assert "[[Wiki/brain-intro-abc123]]" in content
+
+    def test_action_rename_with_mocked_cli(self, initialized):
+        """Rename via CLI when available."""
+        with patch.object(obsidian_cli, "move", return_value={"status": "ok", "links_updated": 5}):
+            server._cli_available = True
+            server._vault_name = "test"
+            try:
+                result = json.loads(server.brain_action("rename", {
+                    "source": "Wiki/old.md",
+                    "dest": "Wiki/new.md",
+                }))
+                assert result["status"] == "ok"
+                assert result["method"] == "obsidian_cli"
+                assert result["links_updated"] == 5
+            finally:
+                server._cli_available = False
+
+    def test_action_rename_missing_params(self, initialized):
+        result = json.loads(server.brain_action("rename"))
+        assert "error" in result
+
+    def test_action_rename_source_not_found(self, initialized):
+        result = json.loads(server.brain_action("rename", {
+            "source": "Wiki/nonexistent.md",
+            "dest": "Wiki/other.md",
+        }))
+        assert "error" in result
 
 
 # ---------------------------------------------------------------------------
