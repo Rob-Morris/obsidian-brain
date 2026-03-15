@@ -102,7 +102,10 @@ python3 search_index.py "query" --json  # structured output
 
 **Snippets:** ~200 chars centred on first query term match in body, expanded to nearest word boundary. Falls back to first 200 chars if no match.
 
-**Build trigger:** Manual only — no automation yet. The compiled router auto-compiles on MCP startup (DD-014), but `build_index.py` has no equivalent trigger. Future options: run on MCP startup, bundle with `compile_router.py`, or trigger on vault open. Decision deferred until MCP `brain_search` tool is built.
+**Build trigger:** Manual only for now. Planned automation:
+
+- **MCP server** (primary) — rebuild on startup if stale (compare index timestamp against file mtimes), expose `build_index` as a `brain_action` for mid-session refresh. Same pattern as compiled router auto-compile (DD-014). Phase 4 incremental updates make this cheap.
+- **Obsidian plugin** (secondary) — watch for `.md` file changes and trigger rebuild so the index stays fresh for non-agent use cases (in-Obsidian search UI, etc.). Vault files can be modified by agents, by Obsidian, or directly via the filesystem — all three paths need to result in a fresh index. The plugin would either shell out to Python or use a TypeScript reimplementation (DD-007 anticipates dual implementations).
 
 ## Pending Design
 
