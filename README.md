@@ -5,12 +5,12 @@ A self-extending system for organising Obsidian vaults, for agents and humans wo
 ## Quick Start
 
 1. Copy `template-vault/` to your preferred location
-2. Copy `src/brain-core/` into the vault as `.brain-core/v0.2.1/` (the template vault uses a symlink for development convenience, but real vaults should contain a copy so they're self-contained and portable)
+2. Copy `src/brain-core/` into the vault as `.brain-core/` (the template vault uses a symlink for development convenience, but real vaults should contain a copy so they're self-contained and portable)
 3. Open the folder as an Obsidian vault
 4. Enable the CSS snippet in **Settings > Appearance > CSS Snippets** (`folder-colours`)
 5. Start working — agents read `CLAUDE.md` → `_Config/router.md` and follow the workflow automatically
 
-To upgrade brain-core later, replace `.brain-core/v0.2.1/` with the new version from `src/brain-core/`.
+To upgrade brain-core later, replace the contents of `.brain-core/` with the new version from `src/brain-core/`.
 
 ## Repository Structure
 
@@ -31,7 +31,7 @@ obsidian-brain/
 ├── template-vault/              # the Obsidian vault — copy or open directly
 │   ├── Agents.md                # agent entry point → router
 │   ├── CLAUDE.md                # symlink → Agents.md (Claude Code compatibility)
-│   ├── .brain-core/v0.2.1/        # copy of src/brain-core (version-pinned)
+│   ├── .brain-core/               # copy of src/brain-core (version in VERSION file)
 │   ├── .obsidian/               # Obsidian settings, plugins, CSS snippets
 │   ├── _Config/                 # router, taxonomy, style, colours, templates, skills
 │   ├── _Plugins/                # tool-managed data (installed separately)
@@ -73,4 +73,4 @@ Available plugins:
 - [Specification](docs/specification.md) — design rationale and structural decisions
 - [Plugins](docs/plugins.md) — how to install and write plugins
 - [Changelog](docs/changelog.md) — version history
-- Core docs at `.brain-core/v0.2.1/` — the authoritative reference for the Brain system
+- Core docs at `.brain-core/` — the authoritative reference for the Brain system

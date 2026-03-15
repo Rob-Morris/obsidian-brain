@@ -8,7 +8,7 @@ Before committing always update documentation, including `docs/changelog.md`.
 
 ## Versioning
 
-Follows [semver](https://semver.org/). Bump the version in `VERSION` when committing user-facing changes. This is the single source of truth. The full version determines the `.brain-core/vX.Y.Z/` folder path used in vaults — update the folder name, all wikilink references, and the README when bumping.
+Follows [semver](https://semver.org/). The version is tracked in `.brain-core/VERSION` (inside `src/brain-core/VERSION` in this repo). This is the single source of truth. The `.brain-core/` path is unversioned and stable across upgrades — no folder renames or wikilink rewrites needed when bumping.
 
 - **Patch** — bug fixes, doc clarifications, additive changes (new artefact types, new palette colours)
 - **Minor** — breaking changes to vault structure (renamed/removed core files, changed folder conventions)
