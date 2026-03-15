@@ -75,6 +75,33 @@ Conditional:
 
 **Key derivation convention** (DD-018): type key = lowercase folder name, spaces to hyphens. e.g. `Daily Notes` → `daily-notes` → `_Config/Taxonomy/{classification}/daily-notes.md`. No manual registry needed.
 
+## Retrieval Index (Phase 1 — BM25)
+
+BM25 keyword search over all vault markdown files. Built offline like the compiled router, queried at search time from a pre-built index.
+
+**Key properties:**
+- **Zero dependencies** — hand-rolled BM25, Python 3.8+ stdlib only, matching `compile_router.py` constraints
+- **Same folder discovery** — reuses `scan_living_types()` / `scan_temporal_types()` patterns, then recurses each type folder for `.md` files
+- **Whole-document indexing** — each note is one entry (sufficient at vault scale)
+- **Build/search split** — `build_index.py` builds the index, `search_index.py` queries it. Separate scripts, no cross-imports.
+
+**BM25 parameters:** `k1=1.5`, `b=0.75`. IDF: `log((N - df + 0.5) / (df + 0.5) + 1)`. Score: `Σ IDF(t) * (tf(t,d) * (k1+1)) / (tf(t,d) + k1 * (1 - b + b * dl/avgdl))`.
+
+**Output:** `_Config/.retrieval-index.json` — local, gitignored. Contains corpus stats (document frequencies, average document length), per-document term frequencies, and metadata (path, title, type, tags, status, modified).
+
+**CLI:**
+```bash
+python3 build_index.py           # write _Config/.retrieval-index.json
+python3 build_index.py --json    # output JSON to stdout
+python3 search_index.py "query"  # search and print ranked results
+python3 search_index.py "query" --type living/design --tag brain-core --top-k 5
+python3 search_index.py "query" --json  # structured output
+```
+
+**Tokeniser:** lowercase, split on non-alphanumeric, strip tokens < 2 chars.
+
+**Snippets:** ~200 chars centred on first query term match in body, expanded to nearest word boundary. Falls back to first 200 chars if no match.
+
 ## Pending Design
 
 The following are accepted but not yet fully shaped:

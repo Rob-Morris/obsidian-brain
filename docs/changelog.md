@@ -2,6 +2,18 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.6.0 — 2026-03-15
+
+- `build_index.py` — BM25 retrieval index builder, walks all .md files in living + temporal type folders, computes per-doc term frequencies and corpus stats, writes `_Config/.retrieval-index.json`
+- `search_index.py` — BM25 search over the pre-built index, supports `--type`, `--tag`, `--top-k` filters, returns ranked results with path, title, type, score, and ~200-char snippet
+- Hand-rolled BM25 scoring (k1=1.5, b=0.75) — zero external dependencies, Python 3.8+ stdlib only
+- Tokeniser: lowercase, split on non-alphanumeric, strip tokens < 2 chars
+- Frontmatter extraction: parses type, tags, status from YAML frontmatter; title from first `# ` heading
+- Same folder discovery as `compile_router.py` (convention-based `is_system_dir`), extended with recursive `.md` file walk
+- `--json` flag on both scripts for piping/MCP integration
+- Vault `.gitignore` updated to exclude `_Config/.retrieval-index.json`
+- Test suite: 56 tests covering vault discovery, frontmatter parsing, tokenisation, index building, search ranking, snippets, and CLI args
+
 ## v0.5.0 — 2026-03-15
 
 - `compile_router.py` — foundation script that compiles vault config into `_Config/.compiled-router.json` (DD-008, DD-016)

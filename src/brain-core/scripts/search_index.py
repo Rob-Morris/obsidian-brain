@@ -1,0 +1,289 @@
+#!/usr/bin/env python3
+"""
+search_index.py — Brain-core BM25 retrieval search
+
+Loads the pre-built retrieval index and scores a query using BM25.
+Supports filtering by type, tag, and top-k limit.
+
+Usage:
+    python3 search_index.py "query text"
+    python3 search_index.py "query" --type living/design --top-k 5
+    python3 search_index.py "query" --tag brain-core
+    python3 search_index.py "query" --json
+"""
+
+import json
+import math
+import os
+import re
+import sys
+from pathlib import Path
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+INDEX_PATH = os.path.join("_Config", ".retrieval-index.json")
+DEFAULT_TOP_K = 10
+SNIPPET_LENGTH = 200
+
+# ---------------------------------------------------------------------------
+# Vault root discovery (duplicated from compile_router.py for portability)
+# ---------------------------------------------------------------------------
+
+def _is_vault_root(path):
+    """Check if a directory is a Brain vault root."""
+    return (path / ".brain-core" / "VERSION").is_file() or (path / "Agents.md").is_file()
+
+
+def find_vault_root():
+    """Find a Brain vault root — checks cwd first, then walks up from script location."""
+    cwd = Path(os.getcwd()).resolve()
+    if _is_vault_root(cwd):
+        return cwd
+
+    current = Path(__file__).resolve().parent
+    for _ in range(10):
+        current = current.parent
+        if _is_vault_root(current):
+            return current
+    print("Error: could not find vault root.", file=sys.stderr)
+    sys.exit(1)
+
+
+def read_version(vault_root):
+    """Read brain-core version from the canonical VERSION file."""
+    version_file = os.path.join(str(vault_root), ".brain-core", "VERSION")
+    with open(version_file, "r", encoding="utf-8") as f:
+        return f.read().strip()
+
+
+def is_system_dir(name):
+    """Convention: any folder starting with _ or . is infrastructure."""
+    return name.startswith("_") or name.startswith(".")
+
+
+# ---------------------------------------------------------------------------
+# BM25 tokenisation (must match build_index.py)
+# ---------------------------------------------------------------------------
+
+_TOKEN_RE = re.compile(r"[a-z0-9]+")
+
+
+def tokenise(text):
+    """Lowercase, split on non-alphanumeric, strip tokens < 2 chars."""
+    return [t for t in _TOKEN_RE.findall(text.lower()) if len(t) >= 2]
+
+
+# ---------------------------------------------------------------------------
+# Index loading
+# ---------------------------------------------------------------------------
+
+def load_index(vault_root):
+    """Load the pre-built retrieval index."""
+    index_path = os.path.join(str(vault_root), INDEX_PATH)
+    if not os.path.isfile(index_path):
+        print(
+            f"Error: retrieval index not found at {INDEX_PATH}. "
+            f"Run build_index.py first.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    with open(index_path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+# ---------------------------------------------------------------------------
+# Snippet extraction
+# ---------------------------------------------------------------------------
+
+def extract_snippet(vault_root, rel_path, query_tokens, length=SNIPPET_LENGTH):
+    """Extract a ~length char snippet centred on the first query term match."""
+    abs_path = os.path.join(str(vault_root), rel_path)
+    try:
+        with open(abs_path, "r", encoding="utf-8") as f:
+            text = f.read()
+    except (OSError, UnicodeDecodeError):
+        return ""
+
+    # Strip frontmatter
+    fm_match = re.match(r"\A---\s*\n.*?\n---\s*\n?", text, re.DOTALL)
+    if fm_match:
+        body = text[fm_match.end():]
+    else:
+        body = text
+
+    # Clean up whitespace
+    body = re.sub(r"\s+", " ", body).strip()
+
+    if not body:
+        return ""
+
+    # Find first occurrence of any query token
+    body_lower = body.lower()
+    best_pos = None
+    for token in query_tokens:
+        pos = body_lower.find(token)
+        if pos >= 0 and (best_pos is None or pos < best_pos):
+            best_pos = pos
+
+    if best_pos is None:
+        # No match — return start of body
+        snippet = body[:length]
+    else:
+        # Centre window around match
+        half = length // 2
+        start = max(0, best_pos - half)
+        end = min(len(body), start + length)
+
+        # Expand to nearest word boundary
+        if start > 0:
+            space = body.rfind(" ", 0, start)
+            if space >= 0 and (start - space) < 30:
+                start = space + 1
+        if end < len(body):
+            space = body.find(" ", end)
+            if space >= 0 and (space - end) < 30:
+                end = space
+
+        snippet = body[start:end]
+
+    # Add ellipsis indicators
+    if not body.startswith(snippet):
+        snippet = "…" + snippet
+    if not body.endswith(snippet.lstrip("…")):
+        snippet = snippet + "…"
+
+    return snippet
+
+
+# ---------------------------------------------------------------------------
+# BM25 search
+# ---------------------------------------------------------------------------
+
+def search(index, query, vault_root, type_filter=None, tag_filter=None, top_k=DEFAULT_TOP_K):
+    """Score documents against query using BM25. Returns ranked results."""
+    query_tokens = tokenise(query)
+    if not query_tokens:
+        return []
+
+    corpus = index["corpus_stats"]
+    params = index["bm25_params"]
+    k1 = params["k1"]
+    b = params["b"]
+    total_docs = corpus["total_docs"]
+    avg_dl = corpus["avg_dl"]
+    df = corpus["df"]
+
+    results = []
+    for doc in index["documents"]:
+        # Apply filters
+        if type_filter and doc["type"] != type_filter:
+            continue
+        if tag_filter and tag_filter not in doc.get("tags", []):
+            continue
+
+        # BM25 score
+        score = 0.0
+        dl = doc["doc_length"]
+        tf = doc["tf"]
+
+        for term in query_tokens:
+            term_df = df.get(term, 0)
+            if term_df == 0:
+                continue
+
+            # IDF: log((N - df + 0.5) / (df + 0.5) + 1)
+            idf = math.log((total_docs - term_df + 0.5) / (term_df + 0.5) + 1)
+
+            # TF component
+            term_tf = tf.get(term, 0)
+            if term_tf == 0:
+                continue
+
+            tf_norm = (term_tf * (k1 + 1)) / (term_tf + k1 * (1 - b + b * dl / avg_dl)) if avg_dl > 0 else 0
+            score += idf * tf_norm
+
+        if score > 0:
+            snippet = extract_snippet(vault_root, doc["path"], query_tokens)
+            results.append({
+                "path": doc["path"],
+                "title": doc["title"],
+                "type": doc["type"],
+                "score": round(score, 4),
+                "snippet": snippet,
+            })
+
+    # Sort by score descending
+    results.sort(key=lambda r: r["score"], reverse=True)
+    return results[:top_k]
+
+
+# ---------------------------------------------------------------------------
+# CLI argument parsing
+# ---------------------------------------------------------------------------
+
+def parse_args(argv):
+    """Parse CLI arguments. Returns (query, type_filter, tag_filter, top_k, json_mode)."""
+    query = None
+    type_filter = None
+    tag_filter = None
+    top_k = DEFAULT_TOP_K
+    json_mode = False
+
+    i = 1
+    while i < len(argv):
+        arg = argv[i]
+        if arg == "--type" and i + 1 < len(argv):
+            type_filter = argv[i + 1]
+            i += 2
+        elif arg == "--tag" and i + 1 < len(argv):
+            tag_filter = argv[i + 1]
+            i += 2
+        elif arg == "--top-k" and i + 1 < len(argv):
+            top_k = int(argv[i + 1])
+            i += 2
+        elif arg == "--json":
+            json_mode = True
+            i += 1
+        elif not arg.startswith("--") and query is None:
+            query = arg
+            i += 1
+        else:
+            i += 1
+
+    return query, type_filter, tag_filter, top_k, json_mode
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
+def main():
+    query, type_filter, tag_filter, top_k, json_mode = parse_args(sys.argv)
+
+    if not query:
+        print("Usage: search_index.py \"query\" [--type TYPE] [--tag TAG] [--top-k N] [--json]", file=sys.stderr)
+        sys.exit(1)
+
+    vault_root = find_vault_root()
+    index = load_index(vault_root)
+    results = search(index, query, vault_root, type_filter, tag_filter, top_k)
+
+    if json_mode:
+        print(json.dumps(results, indent=2, ensure_ascii=False))
+    else:
+        if not results:
+            print("No results found.", file=sys.stderr)
+            sys.exit(0)
+
+        for i, r in enumerate(results, 1):
+            print(f"\n{i}. [{r['score']:.4f}] {r['title']}")
+            print(f"   {r['path']} ({r['type']})")
+            if r["snippet"]:
+                print(f"   {r['snippet']}")
+
+
+if __name__ == "__main__":
+    main()

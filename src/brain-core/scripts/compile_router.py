@@ -31,15 +31,23 @@ OUTPUT_PATH = os.path.join("_Config", ".compiled-router.json")
 # Vault root discovery
 # ---------------------------------------------------------------------------
 
+def _is_vault_root(path):
+    """Check if a directory is a Brain vault root."""
+    return (path / ".brain-core" / "VERSION").is_file() or (path / "Agents.md").is_file()
+
+
 def find_vault_root():
-    """Walk up from script location looking for a Brain vault root."""
-    # Script lives at .brain-core/scripts/compile_router.py — vault is 2 up
+    """Find a Brain vault root — checks cwd first, then walks up from script location."""
+    # Check cwd first (allows running from dev repo: cd vault && python3 /path/to/script)
+    cwd = Path(os.getcwd()).resolve()
+    if _is_vault_root(cwd):
+        return cwd
+
+    # Walk up from script location (works when installed inside .brain-core/scripts/)
     current = Path(__file__).resolve().parent
     for _ in range(10):
         current = current.parent
-        if (current / ".brain-core" / "VERSION").is_file():
-            return current
-        if (current / "Agents.md").is_file():
+        if _is_vault_root(current):
             return current
     print("Error: could not find vault root.", file=sys.stderr)
     sys.exit(1)
