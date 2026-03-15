@@ -10,13 +10,14 @@ System folders (`_` prefixed) have fixed colours. These are reserved — never a
 
 | Folder | Colour | Variable |
 |--------|--------|----------|
+| `_Attachments/` | Slate | `--theme-attachments-fg` / `--theme-attachments-bg` |
 | `_Config/` | Purple | `--theme-config-fg` / `--theme-config-bg` |
 | `_Temporal/` | Steel | `--theme-temporal-fg` / `--theme-temporal-bg` |
 | `_Plugins/` | Gold | `--theme-plugins-fg` / `--theme-plugins-bg` |
 
 ## Living Artefact Colours
 
-All living artefact folders share a rose gold background tint (`--theme-artefact-bg`). Each folder gets a unique foreground colour from the palette. Never reuse a system folder colour (purple, steel, gold) for a living artefact.
+All living artefact folders share a rose gold background tint (`--theme-artefact-bg`). Each folder gets a unique foreground colour from the palette. Never reuse a system folder colour (purple, steel, gold, slate) for a living artefact.
 
 | Folder | Colour | Variable |
 |--------|--------|----------|

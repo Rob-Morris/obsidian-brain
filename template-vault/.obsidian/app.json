@@ -1,4 +1,5 @@
 {
+  "attachmentFolderPath": "_Attachments",
   "promptDelete": false,
   "pdfExportSettings": {
     "pageSize": "A4",

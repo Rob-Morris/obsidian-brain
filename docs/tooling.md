@@ -7,7 +7,7 @@ Technical design for tooling that operates on Brain vaults. Source design doc: `
 The compiled router is the interface contract between human-readable config and all tooling. Source files (`router.md`, taxonomy, skills, styles, VERSION) are the single source of truth. The compiler combines them into `_Config/.compiled-router.json` — a local, gitignored, hash-invalidated cache.
 
 **Key properties:**
-- **Filesystem-first discovery** (DD-016) — artefact types are discovered by scanning vault folders, not by reading a registry. Root-level non-system folders → living types. `_Temporal/` subfolders → temporal types.
+- **Filesystem-first discovery** (DD-016) — artefact types are discovered by scanning vault folders, not by reading a registry. Root-level non-system folders → living types. `_Temporal/` subfolders → temporal types. System folders excluded: `_Attachments/`, `_Config/`, `_Plugins/`, `.obsidian/`.
 - **Hash invalidation** — SHA-256 of every source file stored in `meta.sources`. Stale the moment any source changes.
 - **Environment-specific** — includes absolute paths, platform, runtime availability. Local-only, never committed.
 - **Auto-compile on MCP startup** (DD-014) — the MCP server compiles if missing or stale before serving requests. All tools require the compiled router and auto-compile if needed (DD-013).

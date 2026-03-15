@@ -24,7 +24,7 @@ All content in the vault is an artefact, classified into two types:
 | **Living** | Vault root (e.g. `Wiki/`) | Evolves over time. Current version is the source of truth. |
 | **Temporal** | `_Temporal/` (e.g. `_Temporal/Logs/`) | Bound to a moment. Written once, rarely edited. |
 
-System folders (`_Config/`, `_Plugins/`, `.obsidian/`) are infrastructure, not artefacts.
+System folders (`_Attachments/`, `_Config/`, `_Plugins/`, `.obsidian/`) are infrastructure, not artefacts.
 
 ## Architecture
 
@@ -52,6 +52,7 @@ Four tiers, each with distinct file explorer styling:
 |------|--------|--------|---------|
 | Artefact | none | Rose gold bg, unique foreground per folder | Primary content |
 | Temporal | `_Temporal/` | Steel-tinted | Dated working files |
+| Attachments | `_Attachments/` | Slate | Non-markdown files (images, PDFs, etc.) |
 | Config | `_Config/` | Purple | System files |
 | Plugin | `_Plugins/` | Gold | External tool data, skills, and MCP integrations |
 
@@ -84,5 +85,6 @@ Documented in `.brain-core/extensions.md`:
 - `_Temporal/Plans/` — pre-work plans
 
 **System:**
+- `_Attachments/` — non-markdown files (images, PDFs, etc.)
 - `_Config/` — router, taxonomy, style, colours, templates, skills
 - `_Plugins/` — empty, ready for plugins

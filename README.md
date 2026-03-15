@@ -35,6 +35,7 @@ obsidian-brain/
 │   ├── CLAUDE.md                # symlink → Agents.md (Claude Code compatibility)
 │   ├── .brain-core/               # copy of src/brain-core (version in VERSION file)
 │   ├── .obsidian/               # Obsidian settings, plugins, CSS snippets
+│   ├── _Attachments/            # non-markdown files (images, PDFs, etc.)
 │   ├── _Config/                 # router, taxonomy, style, colours, templates, skills
 │   ├── _Plugins/                # tool-managed data (installed separately)
 │   ├── _Temporal/               # dated working files (logs, transcripts)
@@ -44,7 +45,7 @@ obsidian-brain/
 
 ## How It Works
 
-All content in the vault is an **artefact** — either **living** (evolves over time, current version is truth) or **temporal** (bound to a moment, written once). System folders (`_Config/`, `_Plugins/`, `.obsidian/`) are infrastructure, not artefacts. Living artefacts sit at the vault root; temporal artefacts sit under `_Temporal/`.
+All content in the vault is an **artefact** — either **living** (evolves over time, current version is truth) or **temporal** (bound to a moment, written once). System folders (`_Attachments/`, `_Config/`, `_Plugins/`, `.obsidian/`) are infrastructure, not artefacts. Living artefacts sit at the vault root; temporal artefacts sit under `_Temporal/`.
 
 The **router** (`_Config/router.md`) is the single file agents read every session. It lists which artefact types exist, workflow triggers to follow, and links to configuration. **Taxonomy** files (`_Config/Taxonomy/`) describe each artefact type in detail — agents read only the types they need.
 

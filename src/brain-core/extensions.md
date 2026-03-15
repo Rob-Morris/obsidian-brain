@@ -5,7 +5,7 @@ When the vault needs a new artefact type, follow the procedure for the relevant 
 ## Adding a Living Artefact Folder
 
 1. Create the folder at vault root.
-2. Pick a palette colour (or add a new `--palette-*` variable) and add a `--color-*` variable in the Themes block of `.obsidian/snippets/folder-colours.css`. Never reuse a system folder colour (purple, steel, gold) — those are reserved for `_Config/`, `_Temporal/`, and `_Plugins/`.
+2. Pick a palette colour (or add a new `--palette-*` variable) and add a `--color-*` variable in the Themes block of `.obsidian/snippets/folder-colours.css`. Never reuse a system folder colour (purple, steel, gold, slate) — those are reserved for `_Config/`, `_Temporal/`, `_Plugins/`, and `_Attachments/`.
 3. Add three CSS selector blocks (folder + subfolders, border, files) — see [[.brain-core/colours]] for the template.
 4. Add a row to the router's Living artefact table.
 5. Create a taxonomy file at `_Config/Taxonomy/Living/{name}.md` describing the type's purpose, conventions, and template.

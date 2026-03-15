@@ -31,6 +31,7 @@ All colours are CSS custom properties in `:root`. The palette provides 16 pastel
 
 | Type | Background | Foreground | Border |
 |---|---|---|---|
+| **Attachments** (`_Attachments/`) | Slate 12% tint | Slate text | 3px slate left |
 | **Config** (`_Config/`) | Purple 12% tint | Light purple text | 3px purple left |
 | **Temporal** (`_Temporal/`) | Steel 12% tint | Per-child colour | 3px coloured left |
 | **Plugins** (`_Plugins/`) | Gold 12% tint | Gold text | 3px gold left |
@@ -43,6 +44,8 @@ All four tiers get a tinted background and coloured border.
 System-level theme variables:
 
 ```css
+--theme-attachments-fg: var(--palette-slate);
+--theme-attachments-bg: rgba(160, 176, 192, 0.12);
 --theme-config-fg: var(--palette-violet-light);
 --theme-config-bg: rgba(196, 168, 232, 0.12);
 --theme-temporal-fg: var(--palette-steel);

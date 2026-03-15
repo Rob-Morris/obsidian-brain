@@ -44,6 +44,10 @@
   --theme-plugins-fg: var(--palette-orchid);
   --theme-plugins-bg: rgba(219, 168, 214, 0.12); /* orchid at 12% */
 
+  /* Attachments folder: slate bg + slate fg */
+  --theme-attachments-fg: var(--palette-slate);
+  --theme-attachments-bg: rgba(160, 176, 192, 0.12); /* slate at 12% */
+
   /* Artefact folders: rose-gold bg + per-folder fg */
   --theme-artefact-bg: rgba(237, 190, 167, 0.12); /* rose-gold at 12% */
 
@@ -60,6 +64,7 @@
 
 /* ─── System Folder Icons ───────────────────────────────────────────────── */
 
+.nav-folder-title[data-path="_Attachments"],
 .nav-folder-title[data-path="_Config"],
 .nav-folder-title[data-path="_Plugins"],
 .nav-folder-title[data-path="_Temporal"],
@@ -68,6 +73,7 @@
   position: relative;
 }
 
+.nav-folder-title[data-path="_Attachments"]::after,
 .nav-folder-title[data-path="_Config"]::after,
 .nav-folder-title[data-path="_Plugins"]::after,
 .nav-folder-title[data-path="_Temporal"]::after,
@@ -81,6 +87,10 @@
   opacity: 0.6;
 }
 
+.nav-folder-title[data-path="_Attachments"]::after {
+  content: "⧉";
+  color: var(--theme-attachments-fg);
+}
 .nav-folder-title[data-path="_Config"]::after {
   content: "⍟";
   color: var(--theme-config-fg);
@@ -97,6 +107,31 @@
 .nav-file-title[data-path="CLAUDE.md"]::after {
   content: "⍟";
   color: var(--theme-config-fg);
+}
+
+
+/* ─── Attachments Folder (_Attachments) ─────────────────────────────────── */
+
+/* _Attachments folder and subfolders — background + slate fg */
+.nav-folder-title[data-path="_Attachments"] .nav-folder-title-content,
+.nav-folder-title[data-path^="_Attachments/"] .nav-folder-title-content {
+  color: var(--theme-attachments-fg);
+}
+.nav-folder-title[data-path="_Attachments"],
+.nav-folder-title[data-path^="_Attachments/"] {
+  background-color: var(--theme-attachments-bg);
+  border-left: 4px double var(--theme-attachments-fg);
+  border-radius: 4px;
+}
+
+/* Files inside _Attachments — background + fg */
+.nav-file-title[data-path^="_Attachments/"] {
+  background-color: var(--theme-attachments-bg);
+  border-radius: 4px;
+}
+.nav-file-title[data-path^="_Attachments/"] .nav-file-title-content {
+  color: var(--theme-attachments-fg);
+  opacity: 0.85;
 }
 
 

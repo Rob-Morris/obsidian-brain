@@ -2,6 +2,13 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.4.1 — 2026-03-15
+
+- Added `_Attachments/` system folder for non-markdown files (images, PDFs, etc.)
+- Obsidian `attachmentFolderPath` set to `_Attachments` in app.json
+- Slate colour styling for attachments folder (⧉ icon)
+- System folder exclusion list updated across docs
+
 ## v0.4.0 — 2026-03-15
 
 - Lean router format (DD-017) — artefact tables removed, conditional triggers as goto pointers to taxonomy/skill files
