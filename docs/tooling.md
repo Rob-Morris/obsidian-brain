@@ -102,6 +102,8 @@ python3 search_index.py "query" --json  # structured output
 
 **Snippets:** ~200 chars centred on first query term match in body, expanded to nearest word boundary. Falls back to first 200 chars if no match.
 
+**Build trigger:** Manual only — no automation yet. The compiled router auto-compiles on MCP startup (DD-014), but `build_index.py` has no equivalent trigger. Future options: run on MCP startup, bundle with `compile_router.py`, or trigger on vault open. Decision deferred until MCP `brain_search` tool is built.
+
 ## Pending Design
 
 The following are accepted but not yet fully shaped:
