@@ -29,6 +29,10 @@ tags:
 ---
 ```
 
+## Trigger
+
+After a conversation worth preserving, capture it as a transcript.
+
 ## Template
 
 [[_Config/Templates/Temporal/Transcripts]]

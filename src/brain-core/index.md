@@ -2,7 +2,7 @@
 
 Brain is a self-extending system for organising Obsidian vaults, for agents and humans working together.
 
-BEFORE modifying the vault always read: [[.brain-core/taxonomy]]
+BEFORE modifying the vault always read: [[.brain-core/taxonomy/readme]]
 
 ## Key Idea
 

@@ -32,6 +32,10 @@ status: draft
 
 Status values: `draft`, `approved`, `completed`.
 
+## Trigger
+
+Before complex work, write the detailed plan.
+
 ## Template
 
 [[_Config/Templates/Temporal/Plans]]

@@ -2,6 +2,14 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.4.0 — 2026-03-15
+
+- Lean router format (DD-017) — artefact tables removed, conditional triggers as goto pointers to taxonomy/skill files
+- `taxonomy.md` → `taxonomy/readme.md` — lean discovery guide replaces full artefact reference (DD-018, DD-019)
+- Trigger sections added to taxonomy files — each type now has a `## Trigger` section with the full condition and action (DD-017)
+- `Agents.md` simplified to single-line install (DD-015) — user directives only, no vault instructions
+- Added `docs/tooling.md` — technical design reference with DD-001 through DD-019 index
+
 ## v0.3.0 — 2026-03-15
 
 **Breaking:** Dropped version from `.brain-core/` path. Vaults referencing `.brain-core/v0.2.1/` must rewrite wikilinks to `.brain-core/`. This is the last path-related breaking change — wikilinks are now stable across upgrades.

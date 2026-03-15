@@ -34,6 +34,10 @@ tags:
 ---
 ```
 
+## Trigger
+
+After completing meaningful work, append a timestamped entry to the day's log.
+
 ## Template
 
 [[_Config/Templates/Temporal/Logs]]

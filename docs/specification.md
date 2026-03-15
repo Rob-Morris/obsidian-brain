@@ -9,10 +9,11 @@ Brain is a self-extending system for organising Obsidian vaults, for agents and 
 ## Design Principles
 
 1. **Files are the source of truth** — the vault is folders and Markdown files, no database. Works with Obsidian, agents, and plain text editors simultaneously.
-2. **Every file belongs in a folder** — no content in the vault root
-3. **Self-extending** — when content doesn't fit existing folders, the vault grows to accommodate it
-4. **Lean instructions** — the router stays minimal; detailed reference lives in core docs and config files
-5. **Agent-first** — `Agents.md` → `_Config/router.md` is the entry point; the router teaches agents everything they need for a session (`CLAUDE.md` is a symlink to `Agents.md` for Claude Code compatibility)
+2. **The filesystem is the canonical index** — manually maintained file lists are redundant. The vault's folder structure declares its artefact types; tooling discovers them by scanning, not by reading a registry.
+3. **Every file belongs in a folder** — no content in the vault root
+4. **Self-extending** — when content doesn't fit existing folders, the vault grows to accommodate it
+5. **Lean instructions** — the router stays minimal; detailed reference lives in core docs and config files
+6. **Agent-first** — `Agents.md` → `_Config/router.md` is the entry point; the router teaches agents everything they need for a session (`CLAUDE.md` is a symlink to `Agents.md` for Claude Code compatibility)
 
 ## Artefact Model
 
@@ -29,18 +30,19 @@ System folders (`_Config/`, `_Plugins/`, `.obsidian/`) are infrastructure, not a
 
 ### Core / Config Split
 
-- **`.brain-core/`** — versioned methodology docs, copied into the vault during setup and upgrades (not symlinked, so vaults are self-contained and portable). How artefacts work, how to extend the vault, trigger system, colour system, plugin system, naming conventions. Read when the agent needs to understand or modify the system.
+- **`.brain-core/`** — versioned methodology docs, copied into the vault during setup and upgrades (not symlinked, so vaults are self-contained and portable). `taxonomy/readme.md` is a lean pointer to `_Config/Taxonomy/` — it explains the classification system and key derivation convention, not a full artefact reference. Other core docs cover extensions, triggers, colours, plugins. Read when the agent needs to understand or modify the system.
 - **`_Config/`** — instance configuration. Router, taxonomy, style, colour assignments, templates, skills. Specific to this vault installation.
-- **`_Config/router.md`** — the bridge. Lists this vault's artefact types, active triggers, and config file links. Read every session.
+- **`_Config/router.md`** — the bridge. Lean format: capability detection, always-rules, and conditional trigger gotos pointing to taxonomy/skill files. Read every session (~45 tokens).
 - **`_Config/Taxonomy/`** — one file per artefact type with detailed instructions. Agents read only the types they need.
 
 ### Agent Reading Flow
 
-1. Agent reads `Agents.md` (or `CLAUDE.md` symlink) → directed to `_Config/router.md`
-2. Router provides: artefact type map with taxonomy links, workflow triggers, config file links
-3. Agent reads taxonomy files for the artefact types it's working with
-4. Agent reads core docs only when extending the vault or understanding the system
-5. Agent reads config files only when relevant (style when writing, principles when restructuring)
+Four-tier boot, each degrading gracefully:
+
+1. **MCP tools** — if `brain_read`/`brain_action` are available, the agent uses them. Lowest token cost, structured responses.
+2. **Compiled router** — if the MCP server isn't available but the compiled router exists (`_Config/.compiled-router.json`), the agent reads it for a structured, environment-aware view of the vault.
+3. **Lean router** — if neither MCP nor compiled router is available, the agent reads `Agents.md` → `_Config/router.md` (~45 tokens). The router provides capability detection, always-rules, and conditional trigger pointers. Taxonomy files are loaded on demand when a condition matches.
+4. **Naive fallback** — if the agent has no knowledge of the system, it reads `Agents.md` → `router.md` → follows wikilinks. The filesystem itself is discoverable: root-level non-system folders are living types, `_Temporal/` subfolders are temporal types.
 
 ### Folder Tiers
 
