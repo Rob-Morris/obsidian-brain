@@ -16,14 +16,15 @@ The compiled router is the interface contract between human-readable config and 
 
 **CLI:** `python3 compile_router.py --json` outputs to stdout; default mode writes `_Config/.compiled-router.json` with a summary to stderr. Requires Python 3.8+ (stdlib only). On environments without Python (mobile, restricted shells), agents fall back to the lean router and wikilink traversal — see *Agent Reading Flow* in `specification.md`.
 
-## Brain MCP Server (DD-010, DD-011)
+## Brain MCP Server (DD-010, DD-011, DD-020)
 
-Long-running MCP server at `.brain-core/mcp/server.py`. Exposes 2 tools with enum parameters:
+Long-running MCP server at `.brain-core/mcp/server.py`. Exposes 3 tools:
 
-- **`brain_read`** — safe, no side effects. Resources: `artefact`, `trigger`, `style`, `template`, `skill`, `plugin`, `environment`, `router`. Optional `name` filter.
-- **`brain_action`** — mutations. Actions: `check`, `compile`, `upgrade`, `create_artefact`. Optional `params` object.
+- **`brain_read`** — safe, no side effects, auto-approvable. Resources: `artefact`, `trigger`, `style`, `template`, `skill`, `plugin`, `environment`, `router`. Optional `name` filter.
+- **`brain_search`** — safe, no side effects, auto-approvable. Parameters: `query` (required), `type`, `tag`, `top_k`. Returns BM25-ranked results with path, title, type, score, snippet.
+- **`brain_action`** — mutations, gated by approval. Actions: `check`, `compile`, `build_index`, `create_artefact`. Optional `params` object.
 
-The 2-tool design minimises tool-description token footprint (~270 tokens vs ~600 for granular tools) while preserving a read/write safety split for auto-approval.
+DD-011 established the read/write safety split (2 tools). DD-020 adds `brain_search` as a third tool — search has different parameter semantics (query + filters vs. resource lookup) and response shape. The extra tool description costs ~1,350 token-turns/session, negligible vs. the ~34,000 saved by the MCP server.
 
 **Response payloads:** TBD.
 
@@ -141,3 +142,4 @@ The following are accepted but not yet fully shaped:
 | DD-017 | Shorthand trigger index with gotos | Implemented (v0.4.0) |
 | DD-018 | Taxonomy index dropped — filesystem is the index | Implemented (v0.4.0) |
 | DD-019 | Succinct readme pattern for lean discovery guides | Implemented (v0.4.0) |
+| DD-020 | 3 MCP tools: brain_read + brain_search + brain_action | Accepted |
