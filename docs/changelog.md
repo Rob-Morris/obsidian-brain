@@ -2,6 +2,23 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.5.0 — 2026-03-15
+
+- `compile_router.py` — foundation script that compiles vault config into `_Config/.compiled-router.json` (DD-008, DD-016)
+- Filesystem-first artefact discovery: root-level folders → living types, `_Temporal/` subfolders → temporal types
+- System folder convention: any folder starting with `_` or `.` is excluded from living type scan; `_Temporal/` children scanned separately as temporal types
+- Taxonomy parsing: extracts naming, frontmatter, trigger, and template sections from each type's taxonomy file
+- Taxonomy lookup: tries exact folder name first, falls back to lowercase key — case-safe on all filesystems
+- Trigger merging: router conditionals merged with taxonomy `## Trigger` sections, deduplicated by target path
+- Enrichment discovery: skills (`_Config/Skills/*/SKILL.md`), styles (`_Config/Styles/*.md`), plugins (`_Plugins/*/SKILL.md`)
+- Hash invalidation: SHA-256 of every source file, composite source_hash for staleness detection
+- Version read from `.brain-core/VERSION` at runtime (no hardcoded version in script)
+- All artefact paths relative to vault root (no absolute paths in output)
+- `--json` flag for piping/MCP; default writes file + stderr summary
+- Warning emitted when router.md yields zero rules (likely malformed section headers)
+- Unconfigured types: `configured: false` with null fields (no inferred defaults)
+- Test suite: 41 tests covering scanning, parsing, compilation, hashing, and template vault integration
+
 ## v0.4.1 — 2026-03-15
 
 - Added `_Attachments/` system folder for non-markdown files (images, PDFs, etc.)

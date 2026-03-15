@@ -7,12 +7,14 @@ Technical design for tooling that operates on Brain vaults. Source design doc: `
 The compiled router is the interface contract between human-readable config and all tooling. Source files (`router.md`, taxonomy, skills, styles, VERSION) are the single source of truth. The compiler combines them into `_Config/.compiled-router.json` — a local, gitignored, hash-invalidated cache.
 
 **Key properties:**
-- **Filesystem-first discovery** (DD-016) — artefact types are discovered by scanning vault folders, not by reading a registry. Root-level non-system folders → living types. `_Temporal/` subfolders → temporal types. System folders excluded: `_Attachments/`, `_Config/`, `_Plugins/`, `.obsidian/`.
+- **Filesystem-first discovery** (DD-016) — artefact types are discovered by scanning vault folders, not by reading a registry. Root-level non-system folders → living types. `_Temporal/` subfolders → temporal types. System folder convention: any folder starting with `_` or `.` is infrastructure. `_Temporal/` follows this convention (excluded from living type scan) but gets its own dedicated temporal scan for its children.
 - **Hash invalidation** — SHA-256 of every source file stored in `meta.sources`. Stale the moment any source changes.
 - **Environment-specific** — includes absolute paths, platform, runtime availability. Local-only, never committed.
 - **Auto-compile on MCP startup** (DD-014) — the MCP server compiles if missing or stale before serving requests. All tools require the compiled router and auto-compile if needed (DD-013).
 
-**Schema:** TBD. See design doc for current draft.
+**Schema:** Implemented in v0.5.0. See `src/brain-core/scripts/compile_router.py` for the canonical implementation. Top-level keys: `meta`, `environment`, `always_rules`, `artefacts`, `triggers`, `skills`, `plugins`, `styles`.
+
+**CLI:** `python3 compile_router.py --json` outputs to stdout; default mode writes `_Config/.compiled-router.json` with a summary to stderr. Requires Python 3.8+ (stdlib only). On environments without Python (mobile, restricted shells), agents fall back to the lean router and wikilink traversal — see *Agent Reading Flow* in `specification.md`.
 
 ## Brain MCP Server (DD-010, DD-011)
 
@@ -77,7 +79,6 @@ Conditional:
 
 The following are accepted but not yet fully shaped:
 
-- **compile_router.py** — filesystem scanning algorithm, full JSON schema, system folder exclusion list
 - **MCP server** — response payload schemas, session lifecycle, error handling
 - **upgrade.py** — in-place upgrade flow, migration steps
 - **CLI wrapper** — argument parsing, vault discovery, distribution
@@ -96,7 +97,7 @@ The following are accepted but not yet fully shaped:
 | DD-005 | Obsidian plugin has its own TypeScript implementation | Accepted |
 | DD-006 | Mobile is first-class | Accepted |
 | DD-007 | Dual implementation with shared test fixtures | Accepted |
-| DD-008 | Compiled router as foundation | Accepted |
+| DD-008 | Compiled router as foundation | Implemented (v0.5.0) |
 | DD-009 | Router-driven checks (no separate check config) | Accepted |
 | DD-010 | Brain MCP server in `.brain-core/mcp/` | Accepted |
 | DD-011 | MCP server exposes 2 tools with enum parameters | Accepted |
@@ -104,7 +105,7 @@ The following are accepted but not yet fully shaped:
 | DD-013 | Compiled router required for tools; markdown fallback for agents only | Accepted |
 | DD-014 | MCP server auto-compiles on startup | Accepted |
 | DD-015 | Single-line install — never require changes to Agents.md | Implemented (v0.4.0) |
-| DD-016 | Filesystem-first artefact discovery | Accepted |
+| DD-016 | Filesystem-first artefact discovery | Implemented (v0.5.0) |
 | DD-017 | Shorthand trigger index with gotos | Implemented (v0.4.0) |
 | DD-018 | Taxonomy index dropped — filesystem is the index | Implemented (v0.4.0) |
 | DD-019 | Succinct readme pattern for lean discovery guides | Implemented (v0.4.0) |

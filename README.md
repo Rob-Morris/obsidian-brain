@@ -18,22 +18,25 @@ To upgrade brain-core later, replace the contents of `.brain-core/` with the new
 obsidian-brain/
 ├── src/
 │   └── brain-core/              # core methodology (source of truth)
-│       ├── VERSION               # installed brain-core version (e.g. 0.3.0)
+│       ├── VERSION               # installed brain-core version
 │       ├── index.md             # entry point — links to all core docs
-│       ├── taxonomy.md          # artefact model, naming conventions, frontmatter
+│       ├── taxonomy/readme.md   # artefact classification guide
 │       ├── extensions.md        # how to add types + example library
 │       ├── library.md           # ready-to-use artefact type definitions
 │       ├── triggers.md          # workflow trigger system
 │       ├── colours.md           # folder colour system design
-│       └── plugins.md           # plugin system
+│       ├── plugins.md           # plugin system
+│       └── scripts/             # tooling (compile_router.py)
+├── tests/                       # test suite
 ├── docs/
 │   ├── changelog.md             # version history
+│   ├── tooling.md               # technical design for tooling
 │   ├── plugins.md               # how to install and write plugins
 │   └── specification.md         # design rationale and structural decisions
 ├── template-vault/              # the Obsidian vault — copy or open directly
 │   ├── Agents.md                # agent entry point → router
 │   ├── CLAUDE.md                # symlink → Agents.md (Claude Code compatibility)
-│   ├── .brain-core/               # copy of src/brain-core (version in VERSION file)
+│   ├── .brain-core/             # copy of src/brain-core (version in VERSION file)
 │   ├── .obsidian/               # Obsidian settings, plugins, CSS snippets
 │   ├── _Attachments/            # non-markdown files (images, PDFs, etc.)
 │   ├── _Config/                 # router, taxonomy, style, colours, templates, skills
@@ -45,7 +48,7 @@ obsidian-brain/
 
 ## How It Works
 
-All content in the vault is an **artefact** — either **living** (evolves over time, current version is truth) or **temporal** (bound to a moment, written once). System folders (`_Attachments/`, `_Config/`, `_Plugins/`, `.obsidian/`) are infrastructure, not artefacts. Living artefacts sit at the vault root; temporal artefacts sit under `_Temporal/`.
+All content in the vault is an **artefact** — either **living** (evolves over time, current version is truth) or **temporal** (bound to a moment, written once). Folders starting with `_` or `.` are infrastructure, not artefacts. Living artefacts sit at the vault root; temporal artefacts sit under `_Temporal/`.
 
 The **router** (`_Config/router.md`) is the single file agents read every session. It lists which artefact types exist, workflow triggers to follow, and links to configuration. **Taxonomy** files (`_Config/Taxonomy/`) describe each artefact type in detail — agents read only the types they need.
 
