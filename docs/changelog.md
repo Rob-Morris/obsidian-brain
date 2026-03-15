@@ -12,6 +12,7 @@ Follows [semver](https://semver.org/). Changes to vault structure (renamed/remov
 - Same folder discovery as `compile_router.py` (convention-based `is_system_dir`), extended with recursive `.md` file walk
 - `--json` flag on both scripts for piping/MCP integration
 - Vault `.gitignore` updated to exclude `_Config/.retrieval-index.json`
+- `find_vault_root()` across all three scripts now checks cwd first, then walks up from `__file__` — allows running scripts from the dev repo against any vault
 - Test suite: 56 tests covering vault discovery, frontmatter parsing, tokenisation, index building, search ranking, snippets, and CLI args
 
 ## v0.5.0 — 2026-03-15

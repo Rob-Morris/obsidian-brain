@@ -9,7 +9,7 @@ The compiled router is the interface contract between human-readable config and 
 **Key properties:**
 - **Filesystem-first discovery** (DD-016) — artefact types are discovered by scanning vault folders, not by reading a registry. Root-level non-system folders → living types. `_Temporal/` subfolders → temporal types. System folder convention: any folder starting with `_` or `.` is infrastructure. `_Temporal/` follows this convention (excluded from living type scan) but gets its own dedicated temporal scan for its children.
 - **Hash invalidation** — SHA-256 of every source file stored in `meta.sources`. Stale the moment any source changes.
-- **Environment-specific** — includes absolute paths, platform, runtime availability. Local-only, never committed.
+- **Environment-specific** — includes platform, runtime availability, absolute vault root path. Local-only, never committed. Artefact paths are relative to vault root.
 - **Auto-compile on MCP startup** (DD-014) — the MCP server compiles if missing or stale before serving requests. All tools require the compiled router and auto-compile if needed (DD-013).
 
 **Schema:** Implemented in v0.5.0. See `src/brain-core/scripts/compile_router.py` for the canonical implementation. Top-level keys: `meta`, `environment`, `always_rules`, `artefacts`, `triggers`, `skills`, `plugins`, `styles`.
