@@ -16,23 +16,23 @@ The compiled router is the interface contract between human-readable config and 
 
 **CLI:** `python3 compile_router.py --json` outputs to stdout; default mode writes `_Config/.compiled-router.json` with a summary to stderr. Requires Python 3.8+ (stdlib only). On environments without Python (mobile, restricted shells), agents fall back to the lean router and wikilink traversal — see *Agent Reading Flow* in `specification.md`.
 
-## Brain MCP Server (DD-010, DD-011, DD-020)
+## Brain MCP Server (DD-010, DD-011, DD-020, DD-021)
 
 Long-running MCP server at `.brain-core/mcp/server.py`. Exposes 3 tools:
 
-- **`brain_read`** — safe, no side effects, auto-approvable. Resources: `artefact`, `trigger`, `style`, `template`, `skill`, `plugin`, `environment`, `router`. Optional `name` filter.
-- **`brain_search`** — safe, no side effects, auto-approvable. Parameters: `query` (required), `type`, `tag`, `top_k`. Returns BM25-ranked results with path, title, type, score, snippet.
-- **`brain_action`** — mutations, gated by approval. Actions: `compile`, `build_index` (implemented); `check`, `create_artefact` (deferred — scripts don't exist yet). Optional `params` object.
+- **`brain_read`** — safe, no side effects, auto-approvable. Resources: `artefact`, `trigger`, `style`, `template`, `skill`, `plugin`, `environment`, `router`. Optional `name` filter. Environment resource includes `obsidian_cli_available`.
+- **`brain_search`** — safe, no side effects, auto-approvable. Parameters: `query` (required), `type`, `tag`, `top_k`. CLI-first with BM25 fallback (DD-021). Response includes `source` field (`"obsidian_cli"` or `"bm25"`) and `results` array with path, title, type, score, snippet.
+- **`brain_action`** — mutations, gated by approval. Actions: `compile`, `build_index`, `rename` (implemented); `check`, `create_artefact` (deferred — scripts don't exist yet). Optional `params` object. `rename` uses Obsidian CLI when available (wikilink-safe), falls back to grep-and-replace.
 
-DD-011 established the read/write safety split (2 tools). DD-020 adds `brain_search` as a third tool — search has different parameter semantics (query + filters vs. resource lookup) and response shape. The extra tool description costs ~1,350 token-turns/session, negligible vs. the ~34,000 saved by the MCP server.
+DD-011 established the read/write safety split (2 tools). DD-020 adds `brain_search` as a third tool — search has different parameter semantics (query + filters vs. resource lookup) and response shape. DD-021 adds optional Obsidian CLI integration for search and rename.
 
-**Startup:** Auto-compiles router and auto-builds index if stale (compares timestamps against source file mtimes). Both artefacts loaded into memory for the session lifetime.
+**Startup:** Auto-compiles router and auto-builds index if stale (compares timestamps against source file mtimes). Both artefacts loaded into memory for the session lifetime. Probes Obsidian CLI availability and derives vault name from directory basename (overridable via `BRAIN_VAULT_NAME` env var).
 
-**Response payloads:** All tools return JSON strings. `brain_read` returns the requested resource data (array or object). `brain_search` returns a ranked array of `{path, title, type, score, snippet}`. `brain_action` returns `{status, summary, compiled_at|built_at}`.
+**Response payloads:** All tools return JSON strings. `brain_read` returns the requested resource data (array or object). `brain_search` returns `{source, results}` where results is a ranked array of `{path, title, type, score, snippet}`. `brain_action` returns `{status, summary, compiled_at|built_at}` or `{status, method, links_updated}` for rename.
 
-**Dependencies:** Python >=3.10, `mcp` SDK. The server imports functions directly from the existing scripts — never calls their `main()` (which may `sys.exit`).
+**Dependencies:** Python >=3.10, `mcp` SDK. The server imports functions directly from the existing scripts — never calls their `main()` (which may `sys.exit`). Optional: dsebastien/obsidian-cli-rest running on localhost:27124 (overridable via `OBSIDIAN_CLI_URL` env var).
 
-**Status:** Implemented in v0.7.0. Phase C actions (`check`, `create_artefact`) deferred — those scripts don't exist yet.
+**Status:** Implemented in v0.8.0. Phase C actions (`check`, `create_artefact`) deferred — those scripts don't exist yet.
 
 ## Lean Router Format (DD-012, DD-017)
 
@@ -149,3 +149,4 @@ The following are accepted but not yet fully shaped:
 | DD-018 | Taxonomy index dropped — filesystem is the index | Implemented (v0.4.0) |
 | DD-019 | Succinct readme pattern for lean discovery guides | Implemented (v0.4.0) |
 | DD-020 | 3 MCP tools: brain_read + brain_search + brain_action | Implemented (v0.7.0) |
+| DD-021 | Optional Obsidian CLI integration — CLI-preferred, agent-fallback | Implemented (v0.8.0) |
