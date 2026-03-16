@@ -1,0 +1,6 @@
+---
+type: living/wiki
+tags:
+  -
+---
+

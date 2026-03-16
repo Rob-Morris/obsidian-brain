@@ -1,0 +1,13 @@
+# Ideas
+
+Loose thoughts, concepts, and things to explore. A scratchpad for ideas that don't yet have a home elsewhere.
+
+See also: [Idea Logs](../../temporal/idea-logs/) for quick temporal captures that may graduate into idea docs here.
+
+## Install
+
+```
+_Config/Taxonomy/Living/ideas.md         ← taxonomy.md
+_Config/Templates/Living/Ideas.md        ← template.md
+Ideas/                                   ← create folder
+```
