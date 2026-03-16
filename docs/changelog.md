@@ -4,6 +4,7 @@ Follows [semver](https://semver.org/). Changes to vault structure (renamed/remov
 
 ## v0.8.0 — 2026-03-16
 
+- Idea Logs temporal artefact type — quick idea capture with date-prefixed entries and graduation path (idea log → living artefact → design). Taxonomy, template, router trigger, and folder included in template vault
 - Optional Obsidian CLI integration (dsebastien/obsidian-cli-rest) — CLI-preferred, agent-fallback (DD-021)
 - `brain_search` — CLI-first live search with BM25 fallback. Response now includes `source` field (`"obsidian_cli"` or `"bm25"`)
 - `brain_action("rename")` — new action: rename/move files with wikilink updates. Uses Obsidian CLI when available (wikilink-safe), falls back to grep-and-replace + `os.rename`
