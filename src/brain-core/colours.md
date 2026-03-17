@@ -122,14 +122,15 @@ Example: Amber (`#F5C97A`) blended towards steel (`#8AA8C8`) = `#D0BD95`.
 **Ordering:** The `_Archive` block must come AFTER the Artefact Folders section in the CSS file. The artefact selectors (e.g. `[data-path^="Designs/"]`) also match `Designs/_Archive/` — same specificity, so last rule wins.
 
 ```css
-/* _Archive subfolders — slate text, inherits parent background */
+/* _Archive subfolders — slate text, parent background + double border in parent colour */
 .nav-folder-title[data-path$="/_Archive"] .nav-folder-title-content,
 .nav-folder-title[data-path*="/_Archive/"] .nav-folder-title-content {
   color: var(--theme-attachments-fg);
 }
 .nav-folder-title[data-path$="/_Archive"],
 .nav-folder-title[data-path*="/_Archive/"] {
-  border-left: 4px double var(--theme-attachments-fg);
+  border-left-style: double;
+  border-left-width: 4px;
 }
 .nav-file-title[data-path*="/_Archive/"] .nav-file-title-content {
   color: var(--theme-attachments-fg);
