@@ -3,12 +3,13 @@
 search_index.py — Brain-core BM25 retrieval search
 
 Loads the pre-built retrieval index and scores a query using BM25.
-Supports filtering by type, tag, and top-k limit.
+Supports filtering by type, tag, status, and top-k limit.
 
 Usage:
     python3 search_index.py "query text"
     python3 search_index.py "query" --type living/design --top-k 5
     python3 search_index.py "query" --tag brain-core
+    python3 search_index.py "query" --status shaping
     python3 search_index.py "query" --json
 """
 
@@ -162,7 +163,8 @@ def extract_snippet(vault_root, rel_path, query_tokens, length=SNIPPET_LENGTH):
 # BM25 search
 # ---------------------------------------------------------------------------
 
-def search(index, query, vault_root, type_filter=None, tag_filter=None, top_k=DEFAULT_TOP_K):
+def search(index, query, vault_root, type_filter=None, tag_filter=None,
+           status_filter=None, top_k=DEFAULT_TOP_K):
     """Score documents against query using BM25. Returns ranked results."""
     query_tokens = tokenise(query)
     if not query_tokens:
@@ -182,6 +184,8 @@ def search(index, query, vault_root, type_filter=None, tag_filter=None, top_k=DE
         if type_filter and doc["type"] != type_filter:
             continue
         if tag_filter and tag_filter not in doc.get("tags", []):
+            continue
+        if status_filter and doc.get("status") != status_filter:
             continue
 
         # BM25 score
@@ -211,6 +215,7 @@ def search(index, query, vault_root, type_filter=None, tag_filter=None, top_k=DE
                 "path": doc["path"],
                 "title": doc["title"],
                 "type": doc["type"],
+                "status": doc.get("status"),
                 "score": round(score, 4),
                 "snippet": snippet,
             })
@@ -225,10 +230,11 @@ def search(index, query, vault_root, type_filter=None, tag_filter=None, top_k=DE
 # ---------------------------------------------------------------------------
 
 def parse_args(argv):
-    """Parse CLI arguments. Returns (query, type_filter, tag_filter, top_k, json_mode)."""
+    """Parse CLI arguments. Returns (query, type_filter, tag_filter, status_filter, top_k, json_mode)."""
     query = None
     type_filter = None
     tag_filter = None
+    status_filter = None
     top_k = DEFAULT_TOP_K
     json_mode = False
 
@@ -240,6 +246,9 @@ def parse_args(argv):
             i += 2
         elif arg == "--tag" and i + 1 < len(argv):
             tag_filter = argv[i + 1]
+            i += 2
+        elif arg == "--status" and i + 1 < len(argv):
+            status_filter = argv[i + 1]
             i += 2
         elif arg == "--top-k" and i + 1 < len(argv):
             top_k = int(argv[i + 1])
@@ -253,7 +262,7 @@ def parse_args(argv):
         else:
             i += 1
 
-    return query, type_filter, tag_filter, top_k, json_mode
+    return query, type_filter, tag_filter, status_filter, top_k, json_mode
 
 
 # ---------------------------------------------------------------------------
@@ -261,15 +270,15 @@ def parse_args(argv):
 # ---------------------------------------------------------------------------
 
 def main():
-    query, type_filter, tag_filter, top_k, json_mode = parse_args(sys.argv)
+    query, type_filter, tag_filter, status_filter, top_k, json_mode = parse_args(sys.argv)
 
     if not query:
-        print("Usage: search_index.py \"query\" [--type TYPE] [--tag TAG] [--top-k N] [--json]", file=sys.stderr)
+        print("Usage: search_index.py \"query\" [--type TYPE] [--tag TAG] [--status STATUS] [--top-k N] [--json]", file=sys.stderr)
         sys.exit(1)
 
     vault_root = find_vault_root()
     index = load_index(vault_root)
-    results = search(index, query, vault_root, type_filter, tag_filter, top_k)
+    results = search(index, query, vault_root, type_filter, tag_filter, status_filter, top_k)
 
     if json_mode:
         print(json.dumps(results, indent=2, ensure_ascii=False))

@@ -21,6 +21,18 @@ A low-friction place to jot down ideas as they arrive. Each entry is tagged and 
 
 When an idea graduates, link back to the original idea log from the new artefact.
 
+## Spinning Out to an Idea
+
+When an idea log entry has enough substance to become a living idea:
+
+1. Create a new idea doc in `Ideas/` with an **Origin** line in the body linking back to this idea log
+2. Add an inline note in the idea log body linking to the new idea:
+   ```markdown
+   > [!info] Spun out
+   > This idea has been spun out to [[Ideas/slug|Title]].
+   ```
+3. Carry forward relevant tags (especially project tags)
+
 ## Naming
 
 `yyyymmdd-idea-log--{slug}.md` in `_Temporal/Idea Logs/yyyy-mm/`.

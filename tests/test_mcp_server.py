@@ -46,12 +46,12 @@ def vault(tmp_path):
     wiki_dir = tmp_path / "Wiki"
     wiki_dir.mkdir()
     (wiki_dir / "brain-overview-abc123.md").write_text(
-        "---\ntype: living/wiki\ntags: [brain-core, overview]\n---\n\n"
+        "---\ntype: living/wiki\ntags: [brain-core, overview]\nstatus: active\n---\n\n"
         "# Brain Overview\n\n"
         "The Brain is a personal knowledge management system.\n"
     )
     (wiki_dir / "python-guide-def456.md").write_text(
-        "---\ntype: living/wiki\ntags: [python, guide]\n---\n\n"
+        "---\ntype: living/wiki\ntags: [python, guide]\nstatus: draft\n---\n\n"
         "# Python Guide\n\n"
         "Python is a versatile programming language used for scripting.\n"
     )
@@ -315,6 +315,7 @@ class TestBrainSearch:
         assert "path" in r
         assert "title" in r
         assert "type" in r
+        assert "status" in r
         assert "score" in r
         assert "snippet" in r
 
@@ -341,6 +342,12 @@ class TestBrainSearch:
     def test_search_empty_query(self, initialized):
         resp = json.loads(server.brain_search(""))
         assert resp["results"] == []
+
+    def test_search_status_filter(self, initialized):
+        results = json.loads(server.brain_search("brain", status="active"))["results"]
+        assert len(results) >= 1
+        for r in results:
+            assert r["status"] == "active"
 
     def test_search_no_matches(self, initialized):
         resp = json.loads(server.brain_search("xyzzyplugh"))

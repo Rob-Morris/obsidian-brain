@@ -47,6 +47,28 @@ artefact-types/
         └── template.md
 ```
 
+## Conventions
+
+Rules for defining and extending artefact types.
+
+### Frontmatter is for queryable state, not navigation
+
+Frontmatter fields should be **queryable metadata** — fields agents and Dataview can filter on: `type`, `status`, `tags`, `created`, `modified`.
+
+**Wikilinks and navigational references belong in the body**, not frontmatter. This includes origin links, transcript lists, "superseded by" pointers, and any other inter-doc references. Reasons:
+
+- **Backlinks/graph:** Obsidian reliably resolves wikilinks in body text for backlinks and graph view. Frontmatter wikilinks require specific property type configuration and behave inconsistently.
+- **Reading mode:** Body links are visible and clickable in reading mode. Frontmatter links are hidden unless the user opens the Properties panel.
+- **Search indexing:** Body text is tokenised by BM25. Frontmatter is parsed for structured fields only — wikilink text in frontmatter is not searchable.
+
+### Status fields
+
+Living artefact types that have a lifecycle should include a `status` field in frontmatter. Each type defines its own status values. Common patterns:
+
+- **Ideas:** `new` → `graduated` → `parked`
+- **Designs:** `shaping` → `active` → `implemented` → `parked`
+- **Plans:** `draft` → `active` → `complete` → `abandoned`
+
 ## Installing a type
 
 1. Copy `taxonomy.md` to `_Config/Taxonomy/{Living|Temporal}/{key}.md`

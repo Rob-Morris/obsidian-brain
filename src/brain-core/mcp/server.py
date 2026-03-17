@@ -297,7 +297,8 @@ def brain_read(resource: str, name: str | None = None) -> str:
 # ---------------------------------------------------------------------------
 
 def _transform_cli_results(cli_results: list[dict], type_filter: str | None,
-                           tag_filter: str | None, top_k: int) -> list[dict]:
+                           tag_filter: str | None, status_filter: str | None,
+                           top_k: int) -> list[dict]:
     """Transform Obsidian CLI search results to match brain_search schema."""
     transformed = []
     for item in cli_results:
@@ -311,16 +312,20 @@ def _transform_cli_results(cli_results: list[dict], type_filter: str | None,
                     break
         doc_type = doc_meta.get("type", "")
         doc_tags = doc_meta.get("tags", [])
+        doc_status = doc_meta.get("status")
 
         if type_filter and doc_type != type_filter:
             continue
         if tag_filter and tag_filter not in doc_tags:
+            continue
+        if status_filter and doc_status != status_filter:
             continue
 
         transformed.append({
             "path": path,
             "title": doc_meta.get("title", os.path.splitext(os.path.basename(path))[0]),
             "type": doc_type,
+            "status": doc_status,
             "score": item.get("score", 0),
             "snippet": item.get("matches", [{}])[0].get("content", "")[:200] if item.get("matches") else "",
         })
@@ -329,11 +334,12 @@ def _transform_cli_results(cli_results: list[dict], type_filter: str | None,
 
 
 @mcp.tool()
-def brain_search(query: str, type: str | None = None, tag: str | None = None, top_k: int = 10) -> str:
+def brain_search(query: str, type: str | None = None, tag: str | None = None,
+                 status: str | None = None, top_k: int = 10) -> str:
     """Search vault content. Uses Obsidian CLI live index when available, BM25 fallback.
 
-    Returns ranked results with path, title, type, score, snippet, and source.
-    Optional filters: type (e.g. 'living/wiki'), tag, top_k (default 10).
+    Returns ranked results with path, title, type, status, score, snippet, and source.
+    Optional filters: type (e.g. 'living/wiki'), tag, status (e.g. 'shaping'), top_k (default 10).
     """
     if _index is None:
         return "Error: server not initialized"
@@ -342,11 +348,12 @@ def brain_search(query: str, type: str | None = None, tag: str | None = None, to
     if _cli_available and _vault_name and query:
         cli_results = obsidian_cli.search(_vault_name, query)
         if cli_results is not None:
-            results = _transform_cli_results(cli_results, type, tag, top_k)
+            results = _transform_cli_results(cli_results, type, tag, status, top_k)
             return json.dumps({"source": "obsidian_cli", "results": results}, indent=2)
 
     # BM25 fallback
-    results = search_index(_index, query, _vault_root, type_filter=type, tag_filter=tag, top_k=top_k)
+    results = search_index(_index, query, _vault_root, type_filter=type, tag_filter=tag,
+                           status_filter=status, top_k=top_k)
     return json.dumps({"source": "bm25", "results": results}, indent=2)
 
 

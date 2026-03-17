@@ -106,6 +106,7 @@ class TestSearch:
         assert "path" in r
         assert "title" in r
         assert "type" in r
+        assert "status" in r
         assert "score" in r
         assert "snippet" in r
         assert r["score"] > 0
@@ -135,6 +136,15 @@ class TestSearch:
         results = si.search(index, "programming", vault, tag_filter="python")
         assert len(results) > 0
         # Should only include docs tagged with python
+
+    def test_status_filter(self, index, vault):
+        results = si.search(index, "python", vault, status_filter="active")
+        assert len(results) > 0
+        assert all(r["status"] == "active" for r in results)
+
+    def test_status_filter_no_match(self, index, vault):
+        results = si.search(index, "python", vault, status_filter="nonexistent")
+        assert results == []
 
     def test_ranking_order(self, index, vault):
         results = si.search(index, "python", vault)
@@ -188,37 +198,43 @@ class TestSnippet:
 
 class TestParseArgs:
     def test_query_only(self):
-        q, t, tag, k, j = si.parse_args(["prog", "hello world"])
+        q, t, tag, s, k, j = si.parse_args(["prog", "hello world"])
         assert q == "hello world"
         assert t is None
         assert tag is None
+        assert s is None
         assert k == 10
         assert j is False
 
     def test_type_filter(self):
-        q, t, tag, k, j = si.parse_args(["prog", "query", "--type", "living/wiki"])
+        q, t, tag, s, k, j = si.parse_args(["prog", "query", "--type", "living/wiki"])
         assert q == "query"
         assert t == "living/wiki"
 
     def test_tag_filter(self):
-        q, t, tag, k, j = si.parse_args(["prog", "query", "--tag", "python"])
+        q, t, tag, s, k, j = si.parse_args(["prog", "query", "--tag", "python"])
         assert tag == "python"
 
+    def test_status_filter(self):
+        q, t, tag, s, k, j = si.parse_args(["prog", "query", "--status", "shaping"])
+        assert s == "shaping"
+
     def test_top_k(self):
-        q, t, tag, k, j = si.parse_args(["prog", "query", "--top-k", "5"])
+        q, t, tag, s, k, j = si.parse_args(["prog", "query", "--top-k", "5"])
         assert k == 5
 
     def test_json_mode(self):
-        q, t, tag, k, j = si.parse_args(["prog", "query", "--json"])
+        q, t, tag, s, k, j = si.parse_args(["prog", "query", "--json"])
         assert j is True
 
     def test_all_flags(self):
-        q, t, tag, k, j = si.parse_args([
+        q, t, tag, s, k, j = si.parse_args([
             "prog", "query", "--type", "temporal/logs", "--tag", "ai",
-            "--top-k", "3", "--json"
+            "--status", "done", "--top-k", "3", "--json"
         ])
         assert q == "query"
         assert t == "temporal/logs"
         assert tag == "ai"
+        assert s == "done"
         assert k == 3
         assert j is True
