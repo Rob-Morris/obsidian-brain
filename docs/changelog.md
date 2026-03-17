@@ -2,6 +2,17 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.9.1 — 2026-03-17
+
+- `_Archive/` convention for living artefacts — when a document reaches a terminal status (e.g. `implemented`, `graduated`), set the status, add a supersession callout, and move to `{Type}/_Archive/`
+- Designs taxonomy: archiving section with `implemented` as terminal status, supersession callout format, agent contract
+- Ideas taxonomy: step 7 added to graduation workflow (move to `Ideas/_Archive/`), archiving section
+- `extensions.md`: new "Archiving Living Artefacts" section documenting the general pattern
+- `index.md`: `_Archive/` subfolder note added to Key Idea section
+- `colours.md`: archive subfolder styling template (slate, same as `_Attachments/`)
+- Template vault CSS: wildcard `_Archive` selectors using slate theme variables
+- `specification.md`: `_Archive/` note in Artefact Model section
+
 ## v0.9.0 — 2026-03-17
 
 - Router restructured: always-rules and tooling instructions moved to `index.md` (version-bound, system-level); router becomes pure routing (conditional triggers only)
