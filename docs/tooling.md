@@ -26,6 +26,8 @@ Long-running MCP server at `.brain-core/mcp/server.py`. Exposes 3 tools:
 
 DD-011 established the read/write safety split (2 tools). DD-020 adds `brain_search` as a third tool — search has different parameter semantics (query + filters vs. resource lookup) and response shape. DD-021 adds optional Obsidian CLI integration for search and rename.
 
+**CLI relationship** (DD-022): The Obsidian CLI is an **internal dependency** of the MCP server — not a separate agent-facing tier. The server delegates to the CLI for search and rename when available; agents interact only with MCP tools. When MCP is unavailable, agents can use the CLI directly (for search/rename) alongside `.brain-core/scripts/` (for compile/index) — these are complementary, not competing. Raw filesystem access is the last resort. Open question: several CLI capabilities (read, create, append, property management) are not yet exposed through MCP tools.
+
 **Startup:** Auto-compiles router and auto-builds index if stale (compares timestamps against source file mtimes). Both artefacts loaded into memory for the session lifetime. Probes Obsidian CLI availability and derives vault name from directory basename (overridable via `BRAIN_VAULT_NAME` env var).
 
 **Response payloads:** All tools return JSON strings. `brain_read` returns the requested resource data (array or object). `brain_search` returns `{source, results}` where results is a ranked array of `{path, title, type, score, snippet}`. `brain_action` returns `{status, summary, compiled_at|built_at}` or `{status, method, links_updated}` for rename.
@@ -39,8 +41,9 @@ DD-011 established the read/write safety split (2 tools). DD-020 adds `brain_sea
 The router file read by naive agents (no MCP, no compiled router). Format:
 
 ```
-Prefer `brain_read`/`brain_action` MCP tools if available.
-Otherwise read [[.brain-core/index]].
+Prefer `brain_read`/`brain_action`/`brain_search` MCP tools if available.
+Without MCP: use Obsidian CLI (localhost:27124) for search/rename + `.brain-core/scripts/` for compile/index.
+Without either: read [[.brain-core/index]].
 
 Always:
 - {universal structural constraints — inline}
@@ -150,3 +153,4 @@ The following are accepted but not yet fully shaped:
 | DD-019 | Succinct readme pattern for lean discovery guides | Implemented (v0.4.0) |
 | DD-020 | 3 MCP tools: brain_read + brain_search + brain_action | Implemented (v0.7.0) |
 | DD-021 | Optional Obsidian CLI integration — CLI-preferred, agent-fallback | Implemented (v0.8.0) |
+| DD-022 | Obsidian CLI is internal to MCP; agents use CLI directly only when MCP unavailable | Accepted |

@@ -9,6 +9,8 @@ Follows [semver](https://semver.org/). Changes to vault structure (renamed/remov
 - Idea logs taxonomy updated with "Spinning Out to an Idea" section documenting the spinout process
 - Design template now includes body scaffold (Core Goal, Open Decisions table)
 - `brain_search` results now include `status` field; new `--status` filter on CLI and MCP tool
+- Router updated with full fallback chain (MCP → CLI + scripts → lean router)
+- Tooling docs clarified: Obsidian CLI relationship to MCP server (DD-022)
 
 ## v0.8.0 — 2026-03-16
 

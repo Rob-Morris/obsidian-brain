@@ -1,5 +1,6 @@
-Prefer `brain_read`/`brain_action` MCP tools if available.
-Otherwise read [[.brain-core/index]].
+Prefer `brain_read`/`brain_action`/`brain_search` MCP tools if available.
+Without MCP: use Obsidian CLI (localhost:27124) for search/rename + `.brain-core/scripts/` for compile/index.
+Without either: read [[.brain-core/index]].
 
 Always:
 - Every artefact belongs in a typed folder. Prefer existing types over new ones.
