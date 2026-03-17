@@ -28,6 +28,13 @@ When an idea is ready for structured design work:
 4. Add an **Origin** line to the design doc body linking back to the idea
 5. Carry forward open questions from the idea as decisions in the design doc
 6. Carry forward the project tag (e.g. `project/my-project`)
+7. Move the idea to `Ideas/_Archive/`
+
+## Archiving
+
+Graduated ideas are archived automatically as part of the graduation workflow (step 7 above). The graduation callout already serves as the supersession link. Wikilinks resolve by filename — moves within the vault don't break links.
+
+**Agent contract:** if you land on an archived idea, follow the graduation callout link to find the design doc. Do not modify archived ideas.
 
 ## Lineage
 

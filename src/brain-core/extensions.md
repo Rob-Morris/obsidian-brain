@@ -35,6 +35,19 @@ When the vault needs a new artefact type, follow the procedure for the relevant 
 3. Document in the router.
 4. Create a skill in `_Config/Skills/` if the plugin has MCP tools or CLI commands.
 
+## Archiving Living Artefacts
+
+When a living artefact reaches a terminal status (e.g. `implemented` for designs, `graduated` for ideas), it can be moved to `{Type}/_Archive/` to keep the active folder clean. The general pattern:
+
+1. Set the terminal status in frontmatter
+2. Add a supersession callout linking to the successor (the file that now holds authority)
+3. Move the file to `{Type}/_Archive/`
+
+Notes:
+- Wikilinks resolve by filename — moves within the vault don't break links
+- Not all types need archiving — only types with terminal statuses opt in. Each type's taxonomy defines its own archiving rules
+- `_Archive/` is a system subfolder (starts with `_`), so it's automatically excluded from indexing and search
+
 ## Extending Principles
 
 System-level always-rules live in `index.md`'s `Always:` section. Vault-specific additions go in the router's `Always:` section. Add each as a bullet with a short description explaining the constraint. The compiler merges both — system rules first, vault additions after.

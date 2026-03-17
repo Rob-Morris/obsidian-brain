@@ -115,6 +115,32 @@ Example: Amber (`#F5C97A`) blended towards steel (`#8AA8C8`) = `#D0BD95`.
 }
 ```
 
+## Archive Subfolder Styling
+
+`_Archive/` subfolders within artefact folders use the same slate styling as `_Attachments/` — this visually signals "infrastructure, not active content". Unlike artefact folder CSS which is per-folder, the archive styling uses wildcard selectors so it works for any artefact type's `_Archive/` subfolder without per-folder CSS.
+
+```css
+/* _Archive subfolders — slate styling (same as _Attachments) */
+.nav-folder-title[data-path$="/_Archive"] .nav-folder-title-content,
+.nav-folder-title[data-path*="/_Archive/"] .nav-folder-title-content {
+  color: var(--theme-attachments-fg);
+}
+.nav-folder-title[data-path$="/_Archive"],
+.nav-folder-title[data-path*="/_Archive/"] {
+  background-color: var(--theme-attachments-bg);
+  border-left: 4px double var(--theme-attachments-fg);
+  border-radius: 4px;
+}
+.nav-file-title[data-path*="/_Archive/"] {
+  background-color: var(--theme-attachments-bg);
+  border-radius: 4px;
+}
+.nav-file-title[data-path*="/_Archive/"] .nav-file-title-content {
+  color: var(--theme-attachments-fg);
+  opacity: 0.85;
+}
+```
+
 ## CSS File Location
 
 The active CSS lives at `.obsidian/snippets/folder-colours.css`. Enable via **Settings > Appearance > CSS Snippets** in Obsidian. Instance-specific colour assignments are documented in `_Config/Styles/obsidian.md`.
