@@ -119,6 +119,8 @@ Example: Amber (`#F5C97A`) blended towards steel (`#8AA8C8`) = `#D0BD95`.
 
 `_Archive/` subfolders within artefact folders use the same slate styling as `_Attachments/` — this visually signals "infrastructure, not active content". Unlike artefact folder CSS which is per-folder, the archive styling uses wildcard selectors so it works for any artefact type's `_Archive/` subfolder without per-folder CSS.
 
+**Ordering:** The `_Archive` block must come AFTER the Artefact Folders section in the CSS file. The artefact selectors (e.g. `[data-path^="Designs/"]`) also match `Designs/_Archive/` — same specificity, so last rule wins.
+
 ```css
 /* _Archive subfolders — slate styling (same as _Attachments) */
 .nav-folder-title[data-path$="/_Archive"] .nav-folder-title-content,
