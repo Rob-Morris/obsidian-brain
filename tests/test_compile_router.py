@@ -436,3 +436,56 @@ class TestHashing:
         result1 = cr.compile(vault)
         result2 = cr.compile(vault)
         assert result1["meta"]["source_hash"] == result2["meta"]["source_hash"]
+
+
+# ---------------------------------------------------------------------------
+# System rules from index.md
+# ---------------------------------------------------------------------------
+
+class TestSystemRulesFromIndex:
+    def test_merges_index_and_router_rules(self, vault):
+        """System rules from index.md come first, vault rules from router.md after."""
+        # Create index.md with system always-rules
+        index = vault / ".brain-core" / "index.md"
+        index.write_text(
+            "# Brain Core\n\n"
+            "Always:\n"
+            "- System rule alpha.\n"
+            "- System rule beta.\n"
+        )
+        result = cr.compile(vault)
+        rules = result["always_rules"]
+        # System rules first
+        assert rules[0] == "System rule alpha."
+        assert rules[1] == "System rule beta."
+        # Vault rules after (from router.md fixture)
+        assert "typed folder" in rules[2].lower()
+        assert len(rules) == 4  # 2 system + 2 vault
+
+    def test_no_index_uses_router_only(self, vault):
+        """Without index.md, only router.md rules are used (backward compat)."""
+        # The vault fixture has no index.md by default
+        assert not (vault / ".brain-core" / "index.md").exists()
+        result = cr.compile(vault)
+        assert len(result["always_rules"]) == 2
+        assert "typed folder" in result["always_rules"][0].lower()
+
+    def test_index_tracked_as_source(self, vault):
+        """index.md should appear in meta.sources when present."""
+        index = vault / ".brain-core" / "index.md"
+        index.write_text(
+            "# Brain Core\n\n"
+            "Always:\n"
+            "- A system rule.\n"
+        )
+        result = cr.compile(vault)
+        index_key = os.path.join(".brain-core", "index.md")
+        assert index_key in result["meta"]["sources"]
+
+    def test_index_without_always_section(self, vault):
+        """index.md without Always: section contributes no system rules."""
+        index = vault / ".brain-core" / "index.md"
+        index.write_text("# Brain Core\n\nJust some text, no rules.\n")
+        result = cr.compile(vault)
+        # Only router.md rules
+        assert len(result["always_rules"]) == 2

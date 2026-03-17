@@ -2,6 +2,16 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.9.0 — 2026-03-17
+
+- Router restructured: always-rules and tooling instructions moved to `index.md` (version-bound, system-level); router becomes pure routing (conditional triggers only)
+- All agents now read `index.md` every session via router directive — MCP-only agents no longer miss taxonomy-first gate, system principles, or tooling fallback chain
+- Compiler reads always-rules from `index.md` (system) + `router.md` (vault-specific, optional), merges both into compiled router
+- New `## Tooling` section in `index.md`: MCP → CLI+scripts → wikilinks fallback chain
+- Fixed stale references in `extensions.md` (router artefact tables removed v0.4.0, principles section doesn't exist)
+- Fixed stale "How It Works" text in `index.md` (router no longer lists artefact types)
+- Fixed typo in `index.md`: "principals" → "principles"
+
 ## v0.8.1 — 2026-03-17
 
 - Idea graduation workflow codified — ideas get `status` (new/graduated/parked); designs get `status` (shaping/active/implemented/parked). Taxonomy instructions now document lifecycle, graduation process, and lineage conventions

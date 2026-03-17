@@ -41,18 +41,16 @@ DD-011 established the read/write safety split (2 tools). DD-020 adds `brain_sea
 The router file read by naive agents (no MCP, no compiled router). Format:
 
 ```
-Prefer `brain_read`/`brain_action`/`brain_search` MCP tools if available.
-Without MCP: use Obsidian CLI (localhost:27124) for search/rename + `.brain-core/scripts/` for compile/index.
-Without either: read [[.brain-core/index]].
+Always read [[.brain-core/index]].
 
 Always:
-- {universal structural constraints — inline}
+- {vault-specific constraints — optional}
 
 Conditional:
 - {condition} → [[{taxonomy or skill file}]]
 ```
 
-**Always-rules** are universal constraints that apply every session (e.g. "Every artefact belongs in a typed folder").
+**Always-rules** live in two places: system-level rules in `index.md`'s `Always:` section (version-bound, apply to all vaults), and vault-specific additions in the router's `Always:` section (optional). The compiler merges both into the compiled router's `always_rules` — system first, vault additions after.
 
 **Conditional triggers** use a goto pattern: the router states WHEN (one-line condition + wikilink pointer); the target taxonomy or skill file states WHAT and HOW in a `## Trigger` section. Zero duplication — the taxonomy file is the single source of truth.
 

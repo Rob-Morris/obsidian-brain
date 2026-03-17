@@ -16,7 +16,7 @@ The system is self-extending. When content has no appropriate home, add a new ar
 
 ## Principles
 
-ALWAYS follow these principals:
+ALWAYS follow these principles:
 
 ### Every file belongs in a folder
 No content files in the vault root. Every output — human or agent — goes into a folder appropriate for its content type. If no folder fits, extend the vault first.
@@ -27,9 +27,19 @@ When content has no home, add a new artefact type before creating the file.
 ### Keep instruction files lean
 Files read every session (router, index) stay minimal — routing tables, not encyclopedias. Detailed reference lives in the core docs and config files, linked from the router.
 
+Always:
+- Every artefact belongs in a typed folder. Prefer existing types over new ones.
+- When content has no home, add a new artefact type before creating the file.
+
+## Tooling
+
+Prefer `brain_read`/`brain_action`/`brain_search` MCP tools if available.
+Without MCP: use Obsidian CLI (localhost:27124) for search/rename + `.brain-core/scripts/` for compile/index.
+Without either: navigate via wikilinks from the router and this document.
+
 ## How It Works
 
-Each vault has a **router** — a single file an agent reads every session. The router lists which artefact types exist, what triggers to follow, and where to find configuration. Agents read the core docs only when they need to understand or extend the system.
+Each vault has a **router** — a single file an agent reads every session. The router contains conditional trigger gotos and vault-specific rules, pointing to taxonomy and skill files. Agents read the core docs only when they need to understand or extend the system.
 
 ## Core Documentation
 

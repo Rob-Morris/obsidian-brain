@@ -248,9 +248,9 @@ def parse_router(path):
             section = "conditional"
             continue
         elif stripped and not stripped.startswith("-") and not stripped.startswith("["):
-            # Non-list line outside of a section (preamble text)
-            if section is None:
-                continue
+            # Non-list line ends the current section (headers, prose, etc.)
+            section = None
+            continue
 
         if not stripped.startswith("- "):
             continue
@@ -401,6 +401,17 @@ def compile(vault_root):
     always_rules, conditionals = parse_router(
         os.path.join(vault_root, router_path)
     )
+
+    # Parse system rules from index (if present)
+    index_path = os.path.join(".brain-core", "index.md")
+    index_abs = os.path.join(vault_root, index_path)
+    system_rules = []
+    if os.path.isfile(index_abs):
+        track(index_path)
+        system_rules, _ = parse_router(index_abs)
+
+    # Merge: system rules first, vault-specific additions after
+    always_rules = system_rules + always_rules
 
     # Track VERSION
     version_path = os.path.join(".brain-core", "VERSION")
