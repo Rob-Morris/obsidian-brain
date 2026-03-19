@@ -1,6 +1,6 @@
 # Obsidian Brain — Tooling
 
-Technical design for tooling that operates on Brain vaults. Source design doc: `Designs/brain-tooling-architecture.md` in the Rob vault.
+Technical design for tooling that operates on Brain vaults.
 
 ## Compiled Router (DD-008, DD-013, DD-014, DD-016)
 
@@ -12,7 +12,7 @@ The compiled router is the interface contract between human-readable config and 
 - **Environment-specific** — includes platform, runtime availability, absolute vault root path. Local-only, never committed. Artefact paths are relative to vault root.
 - **Auto-compile on MCP startup** (DD-014) — the MCP server compiles if missing or stale before serving requests. All tools require the compiled router and auto-compile if needed (DD-013).
 
-**Schema:** Implemented in v0.5.0. See `src/brain-core/scripts/compile_router.py` for the canonical implementation. Top-level keys: `meta`, `environment`, `always_rules`, `artefacts`, `triggers`, `skills`, `plugins`, `styles`.
+**Schema:** Implemented in v0.5.0. The output structure is implementation-defined — see `src/brain-core/scripts/compile_router.py` for the canonical reference. Top-level keys: `meta`, `environment`, `always_rules`, `artefacts`, `triggers`, `skills`, `plugins`, `styles`.
 
 **CLI:** `python3 compile_router.py --json` outputs to stdout; default mode writes `_Config/.compiled-router.json` with a summary to stderr. Requires Python 3.8+ (stdlib only). On environments without Python (mobile, restricted shells), agents fall back to the lean router and wikilink traversal — see *Agent Reading Flow* in `specification.md`.
 
@@ -34,7 +34,7 @@ DD-011 established the read/write safety split (2 tools). DD-020 adds `brain_sea
 
 **Dependencies:** Python >=3.10, `mcp` SDK. The server imports functions directly from the existing scripts — never calls their `main()` (which may `sys.exit`). Optional: dsebastien/obsidian-cli-rest running on localhost:27124 (overridable via `OBSIDIAN_CLI_URL` env var).
 
-**Status:** Implemented in v0.8.0. Phase C actions (`check`, `create_artefact`) deferred — those scripts don't exist yet.
+**Status:** Implemented in v0.8.0. Phase C actions (`check`, `create_artefact`) deferred — those scripts don't exist yet. `create_artefact` may be superseded by a broader `write` action from the zettelkasten maintenance design.
 
 ## Lean Router Format (DD-012, DD-017)
 
@@ -58,7 +58,7 @@ Conditional:
 
 ## check.py (DD-009)
 
-*Fully shaped.* Router-driven vault compliance checker. Reads the compiled router, validates vault files against structural rules.
+*Designed but not yet implemented.* Router-driven vault compliance checker. Reads the compiled router, validates vault files against structural rules.
 
 **Flags:** `--json` (structured output), `--actionable` (enriched fix context), `--severity <level>` (filter: `error`/`warning`/`info`).
 
@@ -125,6 +125,7 @@ The following are accepted but not yet fully shaped:
 - **Plugin registry** — `plugins.json` schema, install flow
 - **Obsidian plugin** — TypeScript implementation, shared test fixtures (DD-005, DD-006, DD-007)
 - **Frontmatter timestamps absorption** (DD-004) — ignore rules, agent-aware stamping
+- **Procedures directory** — `.brain-core/procedures/`, structured step-by-step instructions for agents without code execution
 
 ## Design Decisions Index
 

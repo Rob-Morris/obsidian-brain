@@ -2,6 +2,16 @@
 
 Ready-to-use artefact type definitions. Pick what fits your vault.
 
+## Choosing a Knowledge Type
+
+Three living types serve knowledge management. Pick based on your workflow:
+
+- **Wiki** — Human-curated knowledge base. Comprehensive, selective, deliberately maintained. Best for a polished reference library.
+- **Zettelkasten** — Auto-maintained atomic concept mesh. One card per concept, dense links. Best for surfacing implicit structure across a growing corpus. Designed as a complementary layer with wiki — see each type's taxonomy for details.
+- **Notes** — Low-friction flat notes for when you just want to write something down without thinking too hard about where it fits. No automated graph, no strict structure — just date-prefixed interconnected pages.
+
+Wiki and zettelkasten can coexist in the same vault as complementary layers (fine-grained concept mesh + coarse-grained knowledge base).
+
 ## Living Examples
 
 **Notes** — Flat knowledge base of interconnected notes. Intentionally flat — no subfolders. Each note has at least one tag.

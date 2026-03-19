@@ -2,6 +2,16 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.9.4 — 2026-03-20
+
+- Documentation accuracy pass — 8 issues resolved across core and project docs
+- `tooling.md`: `check.py` marked as designed-but-not-implemented (was documented as if built)
+- `tooling.md`: `create_artefact` noted as potentially superseded by planned `write` action
+- `tooling.md`: compiled router schema clarified as implementation-defined
+- `tooling.md`: removed stale Rob vault reference; procedures directory added to Pending Design
+- `library.md`: new "Choosing a Knowledge Type" section — wiki vs zettelkasten vs notes guidance
+- `extensions.md`: new "When to Add a New Type" criteria section
+
 ## v0.9.3 — 2026-03-20
 
 - Archive date tracking — `archiveddate: YYYY-MM-DD` frontmatter field added when archiving living artefacts
