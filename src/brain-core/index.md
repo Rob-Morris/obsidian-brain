@@ -33,6 +33,9 @@ When content has no home, add a new artefact type before creating the file.
 ### Keep instruction files lean
 Files read every session (router, index) stay minimal — routing tables, not encyclopedias. Detailed reference lives in the core docs and config files, linked from the router.
 
+### Start simple, grow organically
+Artefacts start as flat files in their type folder. Structure (subfolders, index files, linked compositions) is added as needed when complexity grows, not planned upfront. Lean into organic growth; add structure to deal elegantly with increasing complexity.
+
 Always:
 - Every artefact belongs in a typed folder. Prefer existing types over new ones.
 - When content has no home, add a new artefact type before creating the file.

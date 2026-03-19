@@ -2,6 +2,18 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.9.5 — 2026-03-20
+
+- Artefact provenance convention — `Origin:` link on new artefact, `[!info] Spun out to` callout at top of source artefact body. Terminal status + archive when authority transfers fully
+- Subfolders within living artefact folders — organic growth convention for when a single work spans multiple files. Index file, inherited type, automatic CSS coverage
+- New principle: "Start simple, grow organically" added to `index.md`
+- **Writing** living artefact type — rose colour, lifecycle: draft → editing → review → published → parked. Subfolder evolution cue for complex projects
+- **Idea Logs** temporal type — blush → rose (`#ECB2B7`), tag: `idea`
+- **Thoughts** temporal type — mint → rose (`#C2D2CC`), tag: `thought`
+- **Reports** temporal type — lime → rose (`#D4D29E`), tag: `report`
+- Temporal blend formula migrated from steel (`#8AA8C8`) to rose (`#F2A8C4`) — all existing temporal colour blends updated (Plans, Research, Daily Notes)
+- `specification.md`: documentation section added
+
 ## v0.9.4 — 2026-03-20
 
 - Documentation accuracy pass — 8 issues resolved across core and project docs

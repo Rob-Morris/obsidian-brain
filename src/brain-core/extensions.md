@@ -24,7 +24,7 @@ Before creating a new artefact type, check these criteria:
 ## Adding a Temporal Child Folder
 
 1. Create the folder under `_Temporal/`.
-2. Choose a base hue and apply the blend formula (`result = base + (steel - base) × 0.35`) to derive the steel-tinted variant — see [[.brain-core/colours]].
+2. Choose a base hue and apply the blend formula (`result = base + (rose - base) × 0.35`) to derive the rose-tinted variant — see [[.brain-core/colours]].
 3. Add a `--color-temporal-*` hex in the Themes block and add CSS selectors with `background-color: var(--theme-temporal-bg)` and `border-radius: 4px`.
 4. Add a conditional trigger to the router if the type has one.
 5. Create a taxonomy file at `_Config/Taxonomy/Temporal/{name}.md` describing the type's purpose, conventions, and template.
@@ -58,6 +58,37 @@ Notes:
 - `brain_action("rename")` handles wikilink updates automatically — no manual link maintenance needed
 - Not all types need archiving — only types with terminal statuses opt in. Each type's taxonomy defines its own archiving rules
 - `_Archive/` is a system subfolder (starts with `_`), so it's automatically excluded from indexing and search
+
+## Artefact Provenance
+
+When an artefact spins out of another (e.g. an idea graduating to a design, or a log entry becoming a standalone note), record the lineage in both files:
+
+**On the new artefact:**
+- Add `**Origin:** [[source-file|description]] (yyyy-mm-dd)` in the body
+
+**On the source artefact:**
+- Add a callout **at the top of the body** (after frontmatter, before other content) so agents and humans hit it immediately:
+
+```markdown
+> [!info] Spun out to {type}
+> [[new-file]] — yyyy-mm-dd
+```
+
+**Terminal status:** If the source artefact has transferred all authority to the new one, set the terminal status in frontmatter and archive if the type supports it. Otherwise the callout alone suffices — the source remains active.
+
+Individual artefact taxonomy files may document specific provenance patterns (e.g. idea graduation, log spinout) with their own terminology, but the underlying mechanism is always this: origin link on the child, callout on the parent.
+
+## Subfolders Within Living Artefact Folders
+
+Artefacts start as flat files in their type folder. Structure is not planned upfront — it emerges when a single logical work grows to span multiple files.
+
+When a project, book, or other complex work outgrows a single file, a subfolder appears naturally:
+
+- One file in the subfolder acts as the **index** (`index.md` or the project slug, e.g. `my-book.md`)
+- The subfolder inherits the parent artefact type — no separate taxonomy or CSS needed
+- CSS prefix selectors (e.g. `[data-path^="Writing/"]`) handle nested content automatically
+
+This is organic growth, not upfront architecture. Common evolution patterns (e.g. "a book might grow chapters in a subfolder") can be documented in individual artefact taxonomy files as cues, without being prescriptive.
 
 ## User Preferences
 

@@ -45,17 +45,37 @@ Wiki and zettelkasten can coexist in the same vault as complementary layers (fin
 - Suggested colour: sky (`--palette-sky`)
 - Tag: `daily-note`
 
+**Writing** — Long-form written works: essays, articles, stories, books. Lifecycle: `draft` → `editing` → `review` → `published` → `parked`.
+- Naming: `{slug}.md`
+- Suggested colour: rose (`--palette-rose`)
+- Subfolder evolution: complex projects (e.g. a book with chapters) may grow parts in a subfolder with an index file
+
 ## Temporal Examples
 
 **Plans** — Pre-work plans written before complex work begins.
 - Naming: `yyyymmdd-{slug}.md`
-- Suggested colour blend: coral → steel (`#C69DA8`)
+- Suggested colour blend: coral → rose (`#F198A2`)
 - Tags: `plan`; frontmatter `status` field (`draft`, `approved`, `completed`)
 
 **Research** — Investigation snapshots and findings on specific topics.
 - Naming: `yyyymmdd-{slug}.md`
-- Suggested colour blend: teal → steel (`#81BDC9`)
+- Suggested colour blend: teal → rose (`#A5C5CD`)
 
 **Daily Notes (temporal variant)** — Date-bound alternative to the living Daily Notes folder. Use when daily notes are append-only records rather than evolving summaries.
 - Naming: `yyyymmdd-{slug}.md`
-- Suggested colour blend: sky → steel
+- Suggested colour blend: sky → rose
+
+**Idea Logs** — Capture moments when a new idea strikes. Raw, timestamped, low-friction. May spin out to a full Idea via provenance convention.
+- Naming: `yyyymmdd-{slug}.md`
+- Suggested colour blend: blush → rose (`#ECB2B7`)
+- Tag: `idea`
+
+**Thoughts** — Raw thoughts and reflections captured when they surface. Unstructured, honest, exploratory.
+- Naming: `yyyymmdd-{slug}.md`
+- Suggested colour blend: mint → rose (`#C2D2CC`)
+- Tag: `thought`
+
+**Reports** — Detailed process reports written after completing a significant piece of work. Retrospective, analytical.
+- Naming: `yyyymmdd-{slug}.md`
+- Suggested colour blend: lime → rose (`#D4D29E`)
+- Tag: `report`

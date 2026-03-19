@@ -77,6 +77,13 @@ Documented in `.brain-core/extensions.md`:
 - **New config child**: create under `_Config/`, inherits purple styling
 - **New plugin**: create under `_Plugins/`, inherits gold styling, add skill if it has tools
 
+## Documentation
+
+- `docs/specification.md` — this file; design rationale and structural decisions
+- `docs/changelog.md` — single-file version history. When it exceeds ~500 lines, consider splitting into per-version files under `docs/changelog/` with the main file as an index
+- `docs/tooling.md` — technical design reference with DD index
+- `docs/plugins.md` — plugin writing and installation guide
+
 ## What Ships in the Starter Vault
 
 **Living artefacts:**

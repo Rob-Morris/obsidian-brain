@@ -59,11 +59,11 @@ Per-folder colour variables follow `--color-{folder}` for artefacts and `--color
 
 ## Temporal Blend Formula
 
-Temporal child folders each get a distinct base hue blended 35% towards steel. This gives visually distinct colours that share a cool tint.
+Temporal child folders each get a distinct base hue blended 35% towards rose. This gives visually distinct colours that share a warm tint.
 
-**Formula:** `result = base + (steel - base) × 0.35` per RGB channel.
+**Formula:** `result = base + (rose - base) × 0.35` per RGB channel.
 
-Example: Amber (`#F5C97A`) blended towards steel (`#8AA8C8`) = `#D0BD95`.
+Example: Amber (`#F5C97A`) blended towards rose (`#F2A8C4`) = `#F3BD93`.
 
 ## CSS Selector Templates
 
