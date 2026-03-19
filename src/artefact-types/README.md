@@ -53,7 +53,7 @@ Rules for defining and extending artefact types.
 
 ### Frontmatter is for queryable state, not navigation
 
-Frontmatter fields should be **queryable metadata** — fields agents and Dataview can filter on: `type`, `status`, `tags`, `created`, `modified`.
+Frontmatter fields should be **queryable metadata** — fields agents and Dataview can filter on: `type`, `status`, `tags`, `created`, `modified`, `archiveddate`.
 
 **Wikilinks and navigational references belong in the body**, not frontmatter. This includes origin links, transcript lists, "superseded by" pointers, and any other inter-doc references. Reasons:
 

@@ -2,6 +2,15 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.9.3 — 2026-03-20
+
+- Archive date tracking — `archiveddate: YYYY-MM-DD` frontmatter field added when archiving living artefacts
+- Date-prefixed archive filenames — archived files renamed to `yyyymmdd-slug.md` for chronological sorting in `_Archive/` folders
+- Wikilinks handled automatically by `brain_action("rename")` (Obsidian CLI first, grep-replace fallback)
+- `extensions.md`: archiving steps expanded (3 → 5) with archiveddate and rename
+- Designs/Ideas taxonomy: archiving workflows updated with new steps
+- `index.md`, `specification.md`: archive descriptions updated
+
 ## v0.9.2 — 2026-03-19
 
 - Zettelkasten artefact type — auto-maintained atomic concept mesh. One card per concept (~200–400 words), dense links to sources and related ideas. Graph maintained by deterministic maintenance layer; card content by separate enrichment step. Suggested colour: mint (`--palette-mint`)

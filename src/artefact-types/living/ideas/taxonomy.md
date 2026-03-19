@@ -20,19 +20,21 @@ When an idea is ready for structured design work:
 
 1. Create a new design doc in `Designs/`
 2. Set the idea's `status: graduated`
-3. Add a graduation callout to the idea body:
+3. Add `archiveddate: YYYY-MM-DD` to the idea's frontmatter
+4. Rename the idea to `yyyymmdd-{slug}.md` using `brain_action("rename")` — updates all wikilinks automatically
+5. Add a graduation callout to the idea body:
    ```markdown
    > [!info] Graduated to design
    > This idea has been graduated to a design doc: [[Designs/slug|Title]].
    ```
-4. Add an **Origin** line to the design doc body linking back to the idea
-5. Carry forward open questions from the idea as decisions in the design doc
-6. Carry forward the project tag (e.g. `project/my-project`)
-7. Move the idea to `Ideas/_Archive/`
+6. Add an **Origin** line to the design doc body linking back to the idea
+7. Carry forward open questions from the idea as decisions in the design doc
+8. Carry forward the project tag (e.g. `project/my-project`)
+9. Move the idea to `Ideas/_Archive/`
 
 ## Archiving
 
-Graduated ideas are archived automatically as part of the graduation workflow (step 7 above). The graduation callout already serves as the supersession link. Wikilinks resolve by filename — moves within the vault don't break links.
+Graduated ideas are archived automatically as part of the graduation workflow (steps 3–4 and 9 above). The graduation callout serves as the supersession link. `archiveddate` and the date-prefixed filename are set during graduation. `brain_action("rename")` handles wikilink updates automatically.
 
 **Agent contract:** if you land on an archived idea, follow the graduation callout link to find the design doc. Do not modify archived ideas.
 

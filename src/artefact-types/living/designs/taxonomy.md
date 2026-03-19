@@ -20,14 +20,14 @@ A home for visual and structural design work. Each file captures a design for a 
 When a design reaches `implemented` status, authority transfers from the design to the implementation. Archive the design to keep the active folder clean:
 
 1. Set `status: implemented` in frontmatter
-2. Add a supersession callout at the top of the body (below the heading):
+2. Add `archiveddate: YYYY-MM-DD` to frontmatter
+3. Add a supersession callout at the top of the body (below the heading):
    ```markdown
    > [!info] Implemented
    > This design has been implemented. See [[link|title]] for the current source of truth.
    ```
-3. Move the file to `Designs/_Archive/`
-
-Wikilinks resolve by filename — moves within the vault don't break links.
+4. Rename the file to `yyyymmdd-{slug}.md` using `brain_action("rename")` — updates all wikilinks automatically
+5. Move the file to `Designs/_Archive/`
 
 **Agent contract:** if you land on an archived design, follow the supersession link to find the current source of truth. Do not modify archived designs.
 

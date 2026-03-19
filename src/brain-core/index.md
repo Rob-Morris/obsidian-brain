@@ -10,7 +10,7 @@ All content in the vault is an **artefact**:
 1. **Living** (in vault root) - evolve over time, source of truth
 2. **Temporal** (in _Temporal/) - bound to a moment, historic record
 
-System folders start with `_` or `.`, these are infrastructure, not artefacts. Living artefact folders may contain an `_Archive/` subfolder for documents that have transferred authority elsewhere — see [[.brain-core/extensions]]. These distinction drives folder organisation, naming, and styling.
+System folders start with `_` or `.`, these are infrastructure, not artefacts. Living artefact folders may contain an `_Archive/` subfolder for documents that have transferred authority elsewhere — archived files are date-prefixed (`yyyymmdd-slug.md`) and carry `archiveddate` in frontmatter. See [[.brain-core/extensions]]. These distinction drives folder organisation, naming, and styling.
 
 The system is self-extending. When content has no appropriate home, add a new artefact type following documented procedures rather than forcing it into an existing folder.
 
