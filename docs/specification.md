@@ -31,7 +31,8 @@ System folders (`_Attachments/`, `_Config/`, `_Plugins/`, `.obsidian/`) are infr
 ### Core / Config Split
 
 - **`.brain-core/`** — versioned methodology docs, copied into the vault during setup and upgrades (not symlinked, so vaults are self-contained and portable). `taxonomy/readme.md` is a lean pointer to `_Config/Taxonomy/` — it explains the classification system and key derivation convention, not a full artefact reference. Other core docs cover extensions, triggers, colours, plugins. Read when the agent needs to understand or modify the system.
-- **`_Config/`** — instance configuration. Router, taxonomy, style, colour assignments, templates, skills. Specific to this vault installation.
+- **`_Config/`** — instance configuration. Router, taxonomy, style, colour assignments, templates, skills, user preferences. Specific to this vault installation.
+- **`_Config/User/`** — vault owner's standing instructions. `preferences-always.md` (workflow preferences, quality standards, agent behaviour rules) and `gotchas.md` (learned lessons from previous sessions). Both read every session when present.
 - **`_Config/router.md`** — the bridge. Lean format: capability detection, always-rules, and conditional trigger gotos pointing to taxonomy/skill files. Read every session (~45 tokens).
 - **`_Config/Taxonomy/`** — one file per artefact type with detailed instructions. Agents read only the types they need.
 
@@ -88,5 +89,5 @@ Documented in `.brain-core/extensions.md`:
 
 **System:**
 - `_Attachments/` — non-markdown files (images, PDFs, etc.)
-- `_Config/` — router, taxonomy, style, colours, templates, skills
+- `_Config/` — router, taxonomy, style, colours, templates, skills, user preferences
 - `_Plugins/` — empty, ready for plugins

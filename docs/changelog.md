@@ -11,6 +11,7 @@ Follows [semver](https://semver.org/). Changes to vault structure (renamed/remov
 - `index.md`: new "User Preferences" section directing agents to read user config
 - `extensions.md`: new "User Preferences" section documenting the convention
 - Template vault: empty `_Config/User/` files included
+- `specification.md`: `_Config/User/` documented in Core/Config Split and folder listing
 
 ## v0.9.1 — 2026-03-17
 
