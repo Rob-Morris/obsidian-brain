@@ -14,6 +14,12 @@ System folders start with `_` or `.`, these are infrastructure, not artefacts. L
 
 The system is self-extending. When content has no appropriate home, add a new artefact type following documented procedures rather than forcing it into an existing folder.
 
+## User Preferences
+
+If `_Config/User/preferences-always.md` exists, read and follow it every session. It contains the vault owner's standing instructions — workflow preferences, quality standards, and agent behaviour rules.
+
+If `_Config/User/gotchas.md` exists, read it before starting work. It contains learned lessons and known pitfalls from previous sessions.
+
 ## Principles
 
 ALWAYS follow these principles:

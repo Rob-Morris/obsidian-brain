@@ -48,6 +48,15 @@ Notes:
 - Not all types need archiving — only types with terminal statuses opt in. Each type's taxonomy defines its own archiving rules
 - `_Archive/` is a system subfolder (starts with `_`), so it's automatically excluded from indexing and search
 
+## User Preferences
+
+`_Config/User/` holds per-vault user preferences that agents read every session:
+
+- `preferences-always.md` — standing instructions: workflow preferences, quality standards, agent behaviour rules
+- `gotchas.md` — learned lessons and known pitfalls from previous sessions, added incrementally
+
+Both files are freeform markdown. Content is up to the vault owner — Brain provides the convention and the empty files, not the content.
+
 ## Extending Principles
 
 System-level always-rules live in `index.md`'s `Always:` section. Vault-specific additions go in the router's `Always:` section. Add each as a bullet with a short description explaining the constraint. The compiler merges both — system rules first, vault additions after.
