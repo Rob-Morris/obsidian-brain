@@ -16,6 +16,16 @@ One page per concept. The wiki is for things you want to understand, reference, 
 - **Tags for broad categories, links for specific relationships.** Tags group pages by domain (`programming`, `design`). Links connect pages by meaning.
 - **No prescribed structure.** Pages shape themselves around their subject. A page about a tool looks different from a page about a principle.
 
+## Relationship with Zettelkasten
+
+Wiki and zettelkasten form a two-layer semantic graph: a fine-grained concept mesh (zettelkasten, automatic) and a coarse-grained knowledge base (wiki, deliberate).
+
+- A zettel **discovers** a concept; a wiki page **explains** it in depth
+- Zettels link to wiki pages when deeper explanation exists
+- Wiki pages link to zettels when referencing atomic concepts
+- Not every zettel needs a wiki page (most won't); not every wiki page needs a zettel
+- When both exist for a concept, the zettel stays atomic — it defers depth to the wiki
+
 ## Naming
 
 `{slug}.md` in `Wiki/`.

@@ -25,6 +25,11 @@ Ready-to-use artefact type definitions. Pick what fits your vault.
 - Naming: `{slug}.md`
 - Suggested colour: sage (`--palette-sage`)
 
+**Zettelkasten** — Auto-maintained atomic concept mesh. One card per concept, dense links to sources and related ideas. Graph maintained by deterministic maintenance layer; card content by separate enrichment step.
+- Naming: `{slug}.md`
+- Suggested colour: mint (`--palette-mint`)
+- Frontmatter: `sources` (machine-maintained provenance), `related` (lateral connections)
+
 **Daily Notes** — End-of-day summaries distilled from the day's log. The log has the detail; the daily note has the overview.
 - Naming: `yyyy-mm-dd ddd.md` (e.g. `2026-03-10 Tue.md`)
 - Suggested colour: sky (`--palette-sky`)
