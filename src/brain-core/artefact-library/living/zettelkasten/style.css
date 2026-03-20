@@ -1,0 +1,24 @@
+/* Zettelkasten — colour variable */
+:root {
+  --color-zettelkasten: var(--palette-mint);
+}
+
+/* Zettelkasten — folder + subfolders */
+.nav-folder-title[data-path="Zettelkasten"] .nav-folder-title-content,
+.nav-folder-title[data-path^="Zettelkasten/"] .nav-folder-title-content {
+  color: var(--color-zettelkasten);
+}
+.nav-folder-title[data-path="Zettelkasten"],
+.nav-folder-title[data-path^="Zettelkasten/"] {
+  background-color: var(--theme-artefact-bg);
+  border-left: 3px solid var(--color-zettelkasten);
+  border-radius: 4px;
+}
+/* Zettelkasten — files */
+.nav-file-title[data-path^="Zettelkasten/"] {
+  background-color: var(--theme-artefact-bg);
+  border-radius: 4px;
+}
+.nav-file-title[data-path^="Zettelkasten/"] .nav-file-title-content {
+  color: var(--color-zettelkasten);
+}

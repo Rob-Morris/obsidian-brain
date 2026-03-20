@@ -1,0 +1,24 @@
+/* Ideas — colour variable */
+:root {
+  --color-ideas: var(--palette-amber);
+}
+
+/* Ideas — folder + subfolders */
+.nav-folder-title[data-path="Ideas"] .nav-folder-title-content,
+.nav-folder-title[data-path^="Ideas/"] .nav-folder-title-content {
+  color: var(--color-ideas);
+}
+.nav-folder-title[data-path="Ideas"],
+.nav-folder-title[data-path^="Ideas/"] {
+  background-color: var(--theme-artefact-bg);
+  border-left: 3px solid var(--color-ideas);
+  border-radius: 4px;
+}
+/* Ideas — files */
+.nav-file-title[data-path^="Ideas/"] {
+  background-color: var(--theme-artefact-bg);
+  border-radius: 4px;
+}
+.nav-file-title[data-path^="Ideas/"] .nav-file-title-content {
+  color: var(--color-ideas);
+}

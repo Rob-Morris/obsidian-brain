@@ -1,0 +1,24 @@
+/* Design Transcripts — colour variable */
+:root {
+  --color-temporal-design-transcripts: #CCA9DB; /* Lavender → rose */
+}
+
+/* _Temporal/Design Transcripts — folder + subfolders */
+.nav-folder-title[data-path="_Temporal/Design Transcripts"] .nav-folder-title-content,
+.nav-folder-title[data-path^="_Temporal/Design Transcripts/"] .nav-folder-title-content {
+  color: var(--color-temporal-design-transcripts);
+}
+.nav-folder-title[data-path="_Temporal/Design Transcripts"],
+.nav-folder-title[data-path^="_Temporal/Design Transcripts/"] {
+  background-color: var(--theme-temporal-bg);
+  border-left: 4px double var(--color-temporal-design-transcripts);
+  border-radius: 4px;
+}
+/* _Temporal/Design Transcripts — files */
+.nav-file-title[data-path^="_Temporal/Design Transcripts/"] {
+  background-color: var(--theme-temporal-bg);
+  border-radius: 4px;
+}
+.nav-file-title[data-path^="_Temporal/Design Transcripts/"] .nav-file-title-content {
+  color: var(--color-temporal-design-transcripts);
+}

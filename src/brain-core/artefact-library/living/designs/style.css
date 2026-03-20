@@ -1,0 +1,24 @@
+/* Designs — colour variable */
+:root {
+  --color-designs: var(--palette-coral);
+}
+
+/* Designs — folder + subfolders */
+.nav-folder-title[data-path="Designs"] .nav-folder-title-content,
+.nav-folder-title[data-path^="Designs/"] .nav-folder-title-content {
+  color: var(--color-designs);
+}
+.nav-folder-title[data-path="Designs"],
+.nav-folder-title[data-path^="Designs/"] {
+  background-color: var(--theme-artefact-bg);
+  border-left: 3px solid var(--color-designs);
+  border-radius: 4px;
+}
+/* Designs — files */
+.nav-file-title[data-path^="Designs/"] {
+  background-color: var(--theme-artefact-bg);
+  border-radius: 4px;
+}
+.nav-file-title[data-path^="Designs/"] .nav-file-title-content {
+  color: var(--color-designs);
+}

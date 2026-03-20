@@ -1,0 +1,24 @@
+/* Transcripts — colour variable */
+:root {
+  --color-temporal-transcripts: #D8A4C2; /* Mauve → rose */
+}
+
+/* _Temporal/Transcripts — folder + subfolders */
+.nav-folder-title[data-path="_Temporal/Transcripts"] .nav-folder-title-content,
+.nav-folder-title[data-path^="_Temporal/Transcripts/"] .nav-folder-title-content {
+  color: var(--color-temporal-transcripts);
+}
+.nav-folder-title[data-path="_Temporal/Transcripts"],
+.nav-folder-title[data-path^="_Temporal/Transcripts/"] {
+  background-color: var(--theme-temporal-bg);
+  border-left: 4px double var(--color-temporal-transcripts);
+  border-radius: 4px;
+}
+/* _Temporal/Transcripts — files */
+.nav-file-title[data-path^="_Temporal/Transcripts/"] {
+  background-color: var(--theme-temporal-bg);
+  border-radius: 4px;
+}
+.nav-file-title[data-path^="_Temporal/Transcripts/"] .nav-file-title-content {
+  color: var(--color-temporal-transcripts);
+}

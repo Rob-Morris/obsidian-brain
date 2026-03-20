@@ -1,0 +1,24 @@
+/* Research — colour variable */
+:root {
+  --color-temporal-research: #A5C5CD; /* Teal → rose */
+}
+
+/* _Temporal/Research — folder + subfolders */
+.nav-folder-title[data-path="_Temporal/Research"] .nav-folder-title-content,
+.nav-folder-title[data-path^="_Temporal/Research/"] .nav-folder-title-content {
+  color: var(--color-temporal-research);
+}
+.nav-folder-title[data-path="_Temporal/Research"],
+.nav-folder-title[data-path^="_Temporal/Research/"] {
+  background-color: var(--theme-temporal-bg);
+  border-left: 4px double var(--color-temporal-research);
+  border-radius: 4px;
+}
+/* _Temporal/Research — files */
+.nav-file-title[data-path^="_Temporal/Research/"] {
+  background-color: var(--theme-temporal-bg);
+  border-radius: 4px;
+}
+.nav-file-title[data-path^="_Temporal/Research/"] .nav-file-title-content {
+  color: var(--color-temporal-research);
+}

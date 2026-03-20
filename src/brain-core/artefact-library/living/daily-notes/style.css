@@ -1,0 +1,24 @@
+/* Daily Notes — colour variable */
+:root {
+  --color-daily-notes: var(--palette-sky);
+}
+
+/* Daily Notes — folder + subfolders */
+.nav-folder-title[data-path="Daily Notes"] .nav-folder-title-content,
+.nav-folder-title[data-path^="Daily Notes/"] .nav-folder-title-content {
+  color: var(--color-daily-notes);
+}
+.nav-folder-title[data-path="Daily Notes"],
+.nav-folder-title[data-path^="Daily Notes/"] {
+  background-color: var(--theme-artefact-bg);
+  border-left: 3px solid var(--color-daily-notes);
+  border-radius: 4px;
+}
+/* Daily Notes — files */
+.nav-file-title[data-path^="Daily Notes/"] {
+  background-color: var(--theme-artefact-bg);
+  border-radius: 4px;
+}
+.nav-file-title[data-path^="Daily Notes/"] .nav-file-title-content {
+  color: var(--color-daily-notes);
+}
