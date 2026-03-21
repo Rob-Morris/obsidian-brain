@@ -14,7 +14,7 @@
 .DS_Store
 
 # Vault backups (large zips, not useful in git)
-_Config/Backups/
+.backups/
 
 # Skill workspace artefacts (eval outputs, benchmarks)
 _Config/Skills/*-workspace/

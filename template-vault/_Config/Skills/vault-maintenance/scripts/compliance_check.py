@@ -35,7 +35,7 @@ def check_transcripts(root):
     return "OK", f"{len(found)} transcript(s): {', '.join(found)}"
 
 def check_backup(root):
-    d = root / "_Config/Backups"
+    d = root / ".backups"
     if not d.exists(): return "INFO", "No Backups folder"
     backups = sorted(d.iterdir(), key=lambda f: f.stat().st_mtime, reverse=True)
     if not backups: return "INFO", "Backups folder empty"
@@ -44,7 +44,7 @@ def check_backup(root):
     return "INFO", f"Latest backup {age_h:.0f}h old ({backups[0].name})"
 
 # Files allowed in vault root (not content — system/config only)
-ROOT_ALLOW = {"CLAUDE.md", "Agents.md", ".gitignore", ".gitattributes", ".mcp.json", ".obsidian", ".brain-core", ".git", ".DS_Store", ".trash"}
+ROOT_ALLOW = {"CLAUDE.md", "Agents.md", ".gitignore", ".gitattributes", ".mcp.json", ".obsidian", ".brain-core", ".backups", ".git", ".DS_Store", ".trash"}
 
 def check_root_files(root):
     orphans = []

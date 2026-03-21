@@ -2,6 +2,13 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.9.13 — 2026-03-22
+
+- **Move backups to `.backups/`** — vault backups now live in a hidden dot folder at vault root instead of `_Config/Backups/`. Dot folders are hidden from Obsidian's file explorer and consistent with `.brain-core/`, `.obsidian/`. `_Config/` is now purely configuration
+- **Remove `_Config/Assets/`** — unused folder removed from template vault. Was consolidated into other locations in v0.9.x
+- `compliance_check.py` updated: backup path → `.backups/`, added `.backups` to `ROOT_ALLOW`
+- Template vault `.gitignore` updated to ignore `.backups/` instead of `_Config/Backups/`
+
 ## v0.9.12 — 2026-03-22
 
 - **Self-adapting colour system** — `compile_colours.py` auto-generates `.obsidian/snippets/folder-colours.css` from the compiled router. Hues are distributed evenly across available colour space using HSL distribution with exclusion zones, eliminating manual colour picking and CSS editing
