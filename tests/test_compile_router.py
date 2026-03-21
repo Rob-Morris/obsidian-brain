@@ -229,6 +229,235 @@ class TestParseTaxonomyFile:
         assert "meaningful work" in result["trigger"]["condition"].lower()
 
 
+# ---------------------------------------------------------------------------
+# Status enum extraction
+# ---------------------------------------------------------------------------
+
+class TestParseStatusEnum:
+    def test_inline_yaml_comment(self, tmp_path):
+        """Pattern 1: status: default  # val1 | val2 | val3"""
+        f = tmp_path / "tax.md"
+        f.write_text(
+            "# Designs\n\n"
+            "## Frontmatter\n\n"
+            "```yaml\n---\ntype: living/design\n"
+            "status: shaping             # shaping | active | implemented | parked\n"
+            "---\n```\n"
+        )
+        result = cr.parse_status_enum(f.read_text())
+        assert result == ["shaping", "active", "implemented", "parked"]
+
+    def test_lifecycle_table(self, tmp_path):
+        """Pattern 2: | `value` | description | rows"""
+        f = tmp_path / "tax.md"
+        f.write_text(
+            "# Writing\n\n"
+            "## Lifecycle\n\n"
+            "| Status | Meaning |\n"
+            "|---|---|\n"
+            "| `draft` | Work in progress. |\n"
+            "| `editing` | Refining. |\n"
+            "| `published` | Released. |\n"
+            "| `parked` | Set aside. |\n\n"
+            "## Frontmatter\n\n"
+            "```yaml\n---\ntype: living/writing\nstatus: draft\n---\n```\n"
+        )
+        result = cr.parse_status_enum(f.read_text())
+        assert result == ["draft", "editing", "published", "parked"]
+
+    def test_prose_line(self, tmp_path):
+        """Pattern 3: Status values: `val1`, `val2`, `val3`."""
+        f = tmp_path / "tax.md"
+        f.write_text(
+            "# Plans\n\n"
+            "## Frontmatter\n\n"
+            "```yaml\n---\ntype: temporal/plan\nstatus: draft\n---\n```\n\n"
+            "Status values: `draft`, `approved`, `completed`.\n"
+        )
+        result = cr.parse_status_enum(f.read_text())
+        assert result == ["draft", "approved", "completed"]
+
+    def test_no_status_returns_none(self, tmp_path):
+        """Types without status fields return None."""
+        f = tmp_path / "tax.md"
+        f.write_text(
+            "# Wiki\n\n"
+            "## Frontmatter\n\n"
+            "```yaml\n---\ntype: living/wiki\ntags:\n  - topic\n---\n```\n"
+        )
+        result = cr.parse_status_enum(f.read_text())
+        assert result is None
+
+    def test_inline_comment_takes_priority_over_table(self, tmp_path):
+        """When both inline comment and table exist, inline comment wins."""
+        f = tmp_path / "tax.md"
+        f.write_text(
+            "# Test\n\n"
+            "## Lifecycle\n\n"
+            "| Status | Meaning |\n|---|---|\n"
+            "| `alpha` | First. |\n| `beta` | Second. |\n\n"
+            "## Frontmatter\n\n"
+            "```yaml\n---\nstatus: alpha  # alpha | beta | gamma\n---\n```\n"
+        )
+        result = cr.parse_status_enum(f.read_text())
+        assert result == ["alpha", "beta", "gamma"]
+
+
+# ---------------------------------------------------------------------------
+# Terminal status extraction
+# ---------------------------------------------------------------------------
+
+class TestParseTerminalStatuses:
+    def test_explicit_status_reference(self, tmp_path):
+        """Detects `implemented` from 'reaches `implemented` status'."""
+        f = tmp_path / "tax.md"
+        f.write_text(
+            "# Designs\n\n"
+            "## Archiving\n\n"
+            "When a design reaches `implemented` status, archive it.\n\n"
+            "1. Set `status: implemented` in frontmatter\n"
+            "2. Move to `_Archive/`\n\n"
+            "## Naming\n"
+        )
+        enum = ["shaping", "active", "implemented", "parked"]
+        result = cr.parse_terminal_statuses(f.read_text(), enum)
+        assert result == ["implemented"]
+
+    def test_cross_reference_capitalised_enum(self, tmp_path):
+        """Detects 'graduated' from 'Graduated ideas are archived'."""
+        f = tmp_path / "tax.md"
+        f.write_text(
+            "# Ideas\n\n"
+            "## Archiving\n\n"
+            "Graduated ideas are archived automatically.\n\n"
+            "## Naming\n"
+        )
+        enum = ["new", "graduated", "parked"]
+        result = cr.parse_terminal_statuses(f.read_text(), enum)
+        assert result == ["graduated"]
+
+    def test_no_false_positive_on_incidental_word(self, tmp_path):
+        """Does not match 'active' from 'active folder clean'."""
+        f = tmp_path / "tax.md"
+        f.write_text(
+            "# Designs\n\n"
+            "## Archiving\n\n"
+            "When a design reaches `implemented` status, archive the design "
+            "to keep the active folder clean.\n\n"
+            "1. Set `status: implemented`\n\n"
+            "## Naming\n"
+        )
+        enum = ["shaping", "active", "implemented", "parked"]
+        result = cr.parse_terminal_statuses(f.read_text(), enum)
+        assert "active" not in result
+        assert "implemented" in result
+
+    def test_no_archiving_section_returns_none(self, tmp_path):
+        """Types without ## Archiving return None."""
+        f = tmp_path / "tax.md"
+        f.write_text("# Wiki\n\n## Naming\n\nSome naming rules.\n")
+        result = cr.parse_terminal_statuses(f.read_text(), ["active"])
+        assert result is None
+
+    def test_archiving_section_with_no_statuses(self, tmp_path):
+        """Archiving section that doesn't reference any status values."""
+        f = tmp_path / "tax.md"
+        f.write_text(
+            "# Writing\n\n"
+            "## Archiving\n\n"
+            "Superseded writing can be archived.\n\n"
+            "## Naming\n"
+        )
+        result = cr.parse_terminal_statuses(f.read_text(), ["draft", "editing"])
+        assert result is None
+
+    def test_published_cross_reference(self, tmp_path):
+        """Detects 'published' from 'Published writing that has been superseded'."""
+        f = tmp_path / "tax.md"
+        f.write_text(
+            "# Writing\n\n"
+            "## Archiving\n\n"
+            "Published writing that has been superseded can be archived.\n\n"
+            "## Naming\n"
+        )
+        enum = ["draft", "editing", "review", "published", "parked"]
+        result = cr.parse_terminal_statuses(f.read_text(), enum)
+        assert result == ["published"]
+
+    def test_no_enum_still_finds_explicit_references(self, tmp_path):
+        """Even without an enum, explicit `status: value` patterns are found."""
+        f = tmp_path / "tax.md"
+        f.write_text(
+            "# Test\n\n"
+            "## Archiving\n\n"
+            "Set `status: done` and archive.\n\n"
+            "## Naming\n"
+        )
+        result = cr.parse_terminal_statuses(f.read_text(), None)
+        assert result == ["done"]
+
+
+# ---------------------------------------------------------------------------
+# Frontmatter integration — status_enum and terminal_statuses in parsed output
+# ---------------------------------------------------------------------------
+
+class TestParseTaxonomyStatusIntegration:
+    def test_status_enum_in_frontmatter(self, tmp_path):
+        """parse_taxonomy_file includes status_enum in frontmatter."""
+        f = tmp_path / "designs.md"
+        f.write_text(
+            "# Designs\n\n"
+            "## Frontmatter\n\n"
+            "```yaml\n---\ntype: living/design\n"
+            "status: shaping  # shaping | active | implemented | parked\n"
+            "---\n```\n\n"
+            "## Archiving\n\n"
+            "When `implemented` status is reached, archive.\n"
+        )
+        result = cr.parse_taxonomy_file(str(f))
+        assert result["frontmatter"]["status_enum"] == ["shaping", "active", "implemented", "parked"]
+        assert result["frontmatter"]["terminal_statuses"] == ["implemented"]
+
+    def test_no_status_fields_are_null(self, tmp_path):
+        """Types without status have null for both new fields."""
+        f = tmp_path / "wiki.md"
+        f.write_text(
+            "# Wiki\n\n"
+            "## Frontmatter\n\n"
+            "```yaml\n---\ntype: living/wiki\ntags:\n  - topic\n---\n```\n"
+        )
+        result = cr.parse_taxonomy_file(str(f))
+        assert result["frontmatter"]["status_enum"] is None
+        assert result["frontmatter"]["terminal_statuses"] is None
+
+    def test_full_compile_includes_status_fields(self, vault):
+        """Compiled output includes status_enum and terminal_statuses."""
+        # Add a type with status enum to the fixture
+        (vault / "Designs").mkdir()
+        tax = vault / "_Config" / "Taxonomy" / "Living"
+        (tax / "designs.md").write_text(
+            "# Designs\n\n"
+            "## Naming\n\n`{slug}.md` in `Designs/`.\n\n"
+            "## Frontmatter\n\n"
+            "```yaml\n---\ntype: living/design\n"
+            "status: shaping  # shaping | active | implemented | parked\n"
+            "---\n```\n\n"
+            "## Archiving\n\n"
+            "When a design reaches `implemented` status, archive it.\n"
+            "1. Set `status: implemented`\n\n"
+            "## Template\n\n[[_Config/Templates/Living/Design]]\n"
+        )
+        result = cr.compile(vault)
+        designs = [a for a in result["artefacts"] if a["folder"] == "Designs"][0]
+        assert designs["frontmatter"]["status_enum"] == ["shaping", "active", "implemented", "parked"]
+        assert designs["frontmatter"]["terminal_statuses"] == ["implemented"]
+
+        # Wiki should have null for both
+        wiki = [a for a in result["artefacts"] if a["folder"] == "Wiki"][0]
+        assert wiki["frontmatter"]["status_enum"] is None
+        assert wiki["frontmatter"]["terminal_statuses"] is None
+
+
 class TestInferTriggerCategory:
     def test_after(self):
         assert cr.infer_trigger_category("After meaningful work") == "after"
