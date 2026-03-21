@@ -11,7 +11,7 @@ A plan captures the intended approach before implementation starts. It records t
 - **Write before you start.** The plan comes first; implementation follows.
 - **Keep it concise.** Enough detail to align on approach, not a full specification.
 - **Link to artefacts.** Reference the files, wiki pages, or tasks involved.
-- **Update status.** Move from `draft` → `approved` → `completed` as the work progresses.
+- **Update status.** Move from `draft` → `approved` → `implementing` → `completed` as the work progresses.
 
 ## Naming
 
@@ -30,7 +30,7 @@ status: draft
 ---
 ```
 
-Status values: `draft`, `approved`, `completed`.
+Status values: `draft`, `approved`, `implementing`, `completed`.
 
 ## Trigger
 
