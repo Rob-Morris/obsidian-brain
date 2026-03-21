@@ -73,9 +73,13 @@ Conditional:
 | `frontmatter_type` | warning | `type` field matches folder-derived type |
 | `frontmatter_required` | warning | Required frontmatter fields present |
 | `month_folders` | warning | Temporal files in correct `yyyy-mm/` subfolder |
+| `archive_metadata` | warning | Archived files have `archiveddate` field and `yyyymmdd-` filename prefix |
+| `status_values` | warning | Status field values match taxonomy-defined enum |
 | `unconfigured_type` | info | Folder has no taxonomy file |
 
 **Constraints:** Python 3.8+ stdlib only, self-locating, stateless, idempotent, stdout-only.
+
+**Relationship with `compliance_check.py`:** The vault-maintenance skill ships a separate `compliance_check.py` for **session hygiene** — quick checks like "did you log today? any transcripts? backups fresh?" It runs after each work block as a sanity check. `check.py` (this design) is **structural compliance** — "do all files have correct frontmatter? naming? month folders?" Deep scan, runs on demand or during maintenance. These are complementary tools, not competing ones.
 
 ## Taxonomy Discovery (DD-018, DD-019)
 

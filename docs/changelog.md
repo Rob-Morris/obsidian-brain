@@ -2,6 +2,12 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.9.8 — 2026-03-21
+
+- DD-009 check catalogue expanded: `archive_metadata` (archived files have `archiveddate` + date-prefixed filename) and `status_values` (status matches taxonomy-defined enum) — 6 → 8 checks
+- `tooling.md`: clarified relationship between `compliance_check.py` (session hygiene) and `check.py` (structural compliance)
+- `compliance_check.py`: replaced hardcoded `EXPECTED_FOLDERS` with minimal infrastructure check (`_Config`, `_Temporal`) — eliminates false positives for vaults without `Wiki` or `_Plugins`
+
 ## v0.9.7 — 2026-03-21
 
 - **Decision Logs** temporal type — point-in-time records of decisions capturing the "why" behind choices (question, options, tradeoffs, reasoning, implications). Sage → rose (`#B2BEA1`)

@@ -55,14 +55,14 @@ def check_root_files(root):
         return "OK", "No content files in vault root"
     return "ORPHAN", f"{len(orphans)} file(s) in vault root: {', '.join(sorted(orphans))}"
 
-# Expected folders in the vault
-EXPECTED_FOLDERS = {"Wiki", "_Config", "_Temporal", "_Plugins"}
+# Infrastructure folders required by brain-core (other folders are vault-specific)
+REQUIRED_FOLDERS = {"_Config", "_Temporal"}
 
 def check_expected_folders(root):
-    missing = [f for f in EXPECTED_FOLDERS if not (root / f).is_dir()]
+    missing = [f for f in REQUIRED_FOLDERS if not (root / f).is_dir()]
     if missing:
-        return "MISSING", f"Missing folders: {', '.join(sorted(missing))}"
-    return "OK", f"All expected folders present"
+        return "MISSING", f"Missing infrastructure folders: {', '.join(sorted(missing))}"
+    return "OK", f"Infrastructure folders present"
 
 def main():
     root = vault_root()
