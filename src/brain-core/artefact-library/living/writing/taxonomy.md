@@ -22,7 +22,7 @@ Published writing that has been superseded (e.g. a rewrite exists elsewhere) can
 
 ## Naming
 
-`{slug}.md` in `Writing/` (or `Writing/{project-slug}/{slug}.md` for grouped pieces).
+`{name}.md` in `Writing/` (or `Writing/{project-slug}/{slug}.md` for grouped pieces).
 
 Example: `Writing/on-tool-use.md`
 Example: `Writing/my-novel/chapter-1.md`

@@ -49,7 +49,7 @@ Add lineage links at the top of the body, below the heading:
 
 ## Naming
 
-`{slug}.md` in `Designs/`.
+`{name}.md` in `Designs/`.
 
 Example: `Designs/pistols-at-dawn-discord-bot.md`
 

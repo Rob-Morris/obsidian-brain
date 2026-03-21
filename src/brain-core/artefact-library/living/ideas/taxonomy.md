@@ -48,7 +48,7 @@ When an idea originates from an idea log, add an origin line at the top of the b
 
 ## Naming
 
-`{slug}.md` in `Ideas/`.
+`{name}.md` in `Ideas/`.
 
 Example: `Ideas/voice-controlled-task-manager.md`
 

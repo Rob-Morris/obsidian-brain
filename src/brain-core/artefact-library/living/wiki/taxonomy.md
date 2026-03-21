@@ -28,7 +28,7 @@ Wiki and zettelkasten form a two-layer semantic graph: a fine-grained concept me
 
 ## Naming
 
-`{slug}.md` in `Wiki/`.
+`{name}.md` in `Wiki/`.
 
 Example: `Wiki/rust-lifetimes.md`
 

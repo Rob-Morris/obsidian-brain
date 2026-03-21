@@ -18,7 +18,7 @@ One page per concept. The wiki is for things you want to understand, reference, 
 
 ## Naming
 
-`{slug}.md` in `Wiki/`.
+`{name}.md` in `Wiki/`.
 
 Example: `Wiki/rust-lifetimes.md`
 

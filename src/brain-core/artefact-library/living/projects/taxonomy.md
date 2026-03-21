@@ -8,7 +8,7 @@ One file per project, linking to all related artefacts across the vault. The pro
 
 ## Naming
 
-`{slug}.md` in `Projects/`.
+`{name}.md` in `Projects/`.
 
 Example: `Projects/pistols-at-dawn.md`
 
