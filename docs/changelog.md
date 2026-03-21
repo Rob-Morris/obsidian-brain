@@ -4,7 +4,9 @@ Follows [semver](https://semver.org/). Changes to vault structure (renamed/remov
 
 ## v0.9.8 — 2026-03-21
 
-- DD-009 check catalogue expanded: `archive_metadata` (archived files have `archiveddate` + date-prefixed filename) and `status_values` (status matches taxonomy-defined enum) — 6 → 8 checks
+- DD-009 check catalogue expanded: `archive_metadata` and `status_values` checks — 6 → 8 checks
+- DD-009 contract made explicit: check.py reads compiled router only, never taxonomy markdown — compiler is the single adaptation point for vault evolution
+- Planned compiler extensions: `frontmatter.status_enum` (valid status values from taxonomy YAML comments) and `frontmatter.terminal_statuses` (archiving triggers) per artefact type
 - `tooling.md`: clarified relationship between `compliance_check.py` (session hygiene) and `check.py` (structural compliance)
 - `compliance_check.py`: replaced hardcoded `EXPECTED_FOLDERS` with minimal infrastructure check (`_Config`, `_Temporal`) — eliminates false positives for vaults without `Wiki` or `_Plugins`
 

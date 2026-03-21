@@ -14,6 +14,10 @@ The compiled router is the interface contract between human-readable config and 
 
 **Schema:** Implemented in v0.5.0. The output structure is implementation-defined — see `src/brain-core/scripts/compile_router.py` for the canonical reference. Top-level keys: `meta`, `environment`, `always_rules`, `artefacts`, `triggers`, `skills`, `plugins`, `styles`.
 
+**Planned extensions:** The compiler will extract two additional fields per artefact type from taxonomy files, needed by `check.py` (DD-009):
+- `artefacts[].frontmatter.status_enum` — valid status values, parsed from the inline YAML comment pattern (`status: default  # val1 | val2 | val3`) in the taxonomy's Frontmatter section. `null` when the type has no status field.
+- `artefacts[].frontmatter.terminal_statuses` — subset of `status_enum` that trigger archiving (e.g. `implemented`, `graduated`), parsed from the taxonomy's archiving section. `null` when the type doesn't support archiving. Allows `check.py` to validate that archived files have the right terminal status set.
+
 **CLI:** `python3 compile_router.py --json` outputs to stdout; default mode writes `_Config/.compiled-router.json` with a summary to stderr. Requires Python 3.8+ (stdlib only). On environments without Python (mobile, restricted shells), agents fall back to the lean router and wikilink traversal — see *Agent Reading Flow* in `specification.md`.
 
 ## Brain MCP Server (DD-010, DD-011, DD-020, DD-021)
@@ -58,7 +62,7 @@ Conditional:
 
 ## check.py (DD-009)
 
-*Designed but not yet implemented.* Router-driven vault compliance checker. Reads the compiled router, validates vault files against structural rules.
+*Designed but not yet implemented.* Router-driven vault compliance checker. Reads the compiled router, validates vault files against structural rules. check.py never parses taxonomy markdown — all per-type rules (naming patterns, required fields, status enums, terminal statuses) come from the compiled router. This means the compiler is the single point that must track vault evolution; check.py adapts automatically when the router is recompiled.
 
 **Flags:** `--json` (structured output), `--actionable` (enriched fix context), `--severity <level>` (filter: `error`/`warning`/`info`).
 
@@ -73,8 +77,8 @@ Conditional:
 | `frontmatter_type` | warning | `type` field matches folder-derived type |
 | `frontmatter_required` | warning | Required frontmatter fields present |
 | `month_folders` | warning | Temporal files in correct `yyyy-mm/` subfolder |
-| `archive_metadata` | warning | Archived files have `archiveddate` field and `yyyymmdd-` filename prefix |
-| `status_values` | warning | Status field values match taxonomy-defined enum |
+| `archive_metadata` | warning | Files in `_Archive/` have `archiveddate` field, `yyyymmdd-` filename prefix, and a terminal status from `frontmatter.terminal_statuses` |
+| `status_values` | warning | Status field values match `frontmatter.status_enum` from compiled router |
 | `unconfigured_type` | info | Folder has no taxonomy file |
 
 **Constraints:** Python 3.8+ stdlib only, self-locating, stateless, idempotent, stdout-only.
