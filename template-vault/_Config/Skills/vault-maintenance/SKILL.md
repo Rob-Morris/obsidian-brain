@@ -16,13 +16,23 @@ Read the vault's router, then follow its workflow triggers throughout the sessio
 
 ## After Each Block of Work
 
-Run the compliance check:
+Run the session hygiene check:
 
 ```bash
 python _Config/Skills/vault-maintenance/scripts/compliance_check.py
 ```
 
 Fix any issues before moving on.
+
+## Structural Compliance
+
+For deep structural compliance (naming, frontmatter, archive metadata, status values), run:
+
+```bash
+python3 .brain-core/scripts/check.py
+```
+
+Use `--json` for structured output, `--actionable` for fix suggestions, `--severity warning` to filter.
 
 ## Session End
 

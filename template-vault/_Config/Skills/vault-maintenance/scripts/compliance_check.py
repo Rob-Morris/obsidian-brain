@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Vault compliance check — run from vault root or any subdirectory."""
+"""Vault session hygiene check — run from vault root or any subdirectory.
+
+Session hygiene only (did you log today? transcripts? backups?).
+Structural compliance (naming, frontmatter, archive metadata) has moved
+to .brain-core/scripts/check.py.
+"""
 
 import sys
 from datetime import datetime, date

@@ -51,6 +51,7 @@ from build_index import (
     OUTPUT_PATH as RETRIEVAL_INDEX_REL,
 )
 from search_index import search as search_index
+from check import run_checks
 
 import obsidian_cli
 
@@ -240,6 +241,7 @@ def brain_read(resource: str, name: str | None = None) -> str:
       plugin      — list plugins, or read a specific plugin file by name
       environment — runtime environment info
       router      — always-rules and metadata
+      compliance  — run structural compliance checks (name = severity filter: error/warning/info)
     """
     if _router is None:
         return "Error: server not initialized"
@@ -287,8 +289,19 @@ def brain_read(resource: str, name: str | None = None) -> str:
             "meta": _router["meta"],
         }, indent=2)
 
+    elif resource == "compliance":
+        result = run_checks(str(_vault_root), _router)
+        if name:  # name parameter doubles as severity filter
+            result["findings"] = [f for f in result["findings"] if f["severity"] == name]
+            result["summary"] = {
+                "errors": sum(1 for f in result["findings"] if f["severity"] == "error"),
+                "warnings": sum(1 for f in result["findings"] if f["severity"] == "warning"),
+                "info": sum(1 for f in result["findings"] if f["severity"] == "info"),
+            }
+        return json.dumps(result, indent=2, ensure_ascii=False)
+
     else:
-        valid = ["artefact", "trigger", "style", "template", "skill", "plugin", "environment", "router"]
+        valid = ["artefact", "trigger", "style", "template", "skill", "plugin", "environment", "router", "compliance"]
         return json.dumps({"error": f"Unknown resource '{resource}'. Valid: {', '.join(valid)}"})
 
 
