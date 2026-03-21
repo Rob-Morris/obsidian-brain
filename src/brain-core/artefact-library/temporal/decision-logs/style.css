@@ -1,0 +1,24 @@
+/* Decision Logs — colour variable */
+:root {
+  --color-temporal-decision-logs: #B2BEA1; /* Sage → rose */
+}
+
+/* _Temporal/Decision Logs — folder + subfolders */
+.nav-folder-title[data-path="_Temporal/Decision Logs"] .nav-folder-title-content,
+.nav-folder-title[data-path^="_Temporal/Decision Logs/"] .nav-folder-title-content {
+  color: var(--color-temporal-decision-logs);
+}
+.nav-folder-title[data-path="_Temporal/Decision Logs"],
+.nav-folder-title[data-path^="_Temporal/Decision Logs/"] {
+  background-color: var(--theme-temporal-bg);
+  border-left: 4px double var(--color-temporal-decision-logs);
+  border-radius: 4px;
+}
+/* _Temporal/Decision Logs — files */
+.nav-file-title[data-path^="_Temporal/Decision Logs/"] {
+  background-color: var(--theme-temporal-bg);
+  border-radius: 4px;
+}
+.nav-file-title[data-path^="_Temporal/Decision Logs/"] .nav-file-title-content {
+  color: var(--color-temporal-decision-logs);
+}

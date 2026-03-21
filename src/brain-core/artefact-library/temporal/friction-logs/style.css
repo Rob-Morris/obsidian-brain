@@ -1,0 +1,24 @@
+/* Friction Logs — colour variable */
+:root {
+  --color-temporal-friction-logs: #AFB2DB; /* Sky → rose */
+}
+
+/* _Temporal/Friction Logs — folder + subfolders */
+.nav-folder-title[data-path="_Temporal/Friction Logs"] .nav-folder-title-content,
+.nav-folder-title[data-path^="_Temporal/Friction Logs/"] .nav-folder-title-content {
+  color: var(--color-temporal-friction-logs);
+}
+.nav-folder-title[data-path="_Temporal/Friction Logs"],
+.nav-folder-title[data-path^="_Temporal/Friction Logs/"] {
+  background-color: var(--theme-temporal-bg);
+  border-left: 4px double var(--color-temporal-friction-logs);
+  border-radius: 4px;
+}
+/* _Temporal/Friction Logs — files */
+.nav-file-title[data-path^="_Temporal/Friction Logs/"] {
+  background-color: var(--theme-temporal-bg);
+  border-radius: 4px;
+}
+.nav-file-title[data-path^="_Temporal/Friction Logs/"] .nav-file-title-content {
+  color: var(--color-temporal-friction-logs);
+}

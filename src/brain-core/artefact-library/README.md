@@ -27,7 +27,9 @@ The template vault ships with a minimal set of types (wiki, logs, plans, transcr
 | [Logs](temporal/logs/) | `logs` | Append-only daily activity logs. **Template vault default.** |
 | [Plans](temporal/plans/) | `plans` | Pre-work plans before complex work begins. **Template vault default.** |
 | [Transcripts](temporal/transcripts/) | `transcripts` | Conversation transcripts. **Template vault default.** |
+| [Decision Logs](temporal/decision-logs/) | `decision-logs` | Point-in-time records of decisions — captures the "why" behind choices. |
 | [Design Transcripts](temporal/design-transcripts/) | `design-transcripts` | Q&A refinement transcripts tied to a source artefact. |
+| [Friction Logs](temporal/friction-logs/) | `friction-logs` | Signal accumulator — logs missing context, conflicting info, or guesses. |
 | [Idea Logs](temporal/idea-logs/) | `idea-logs` | Quick idea captures with graduation path to ideas then designs. |
 | [Research](temporal/research/) | `research` | In-depth research notes on specific topics. |
 | [Thoughts](temporal/thoughts/) | `thoughts` | Raw, unformed thinking captured in the moment. |
@@ -74,6 +76,8 @@ Each type includes a `style.css` with suggested default colours. These are start
 
 | Type | Base Colour | Blend Hex |
 |---|---|---|
+| Decision Logs | Sage | `#B2BEA1` |
+| Friction Logs | Sky | `#AFB2DB` |
 | Logs | Amber | `#F3BD93` |
 | Plans | Coral | `#F198A2` |
 | Research | Teal | `#A5C5CD` |
