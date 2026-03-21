@@ -4,8 +4,8 @@ Follows [semver](https://semver.org/). Changes to vault structure (renamed/remov
 
 ## v0.9.10 — 2026-03-21
 
-- **User documentation** — quick-start guide (`src/brain-core/guide.md`, ships as `.brain-core/guide.md`) and full reference (`docs/user-guide.md`). Quick-start covers vault structure, day-to-day workflows, frontmatter, provenance, archiving, extending, configuration, and tooling with links to the full reference. Full reference documents all 20 artefact types, filing conventions, frontmatter rules, workflows (daily cycle, idea graduation, provenance, archiving, friction-to-gotcha, organic growth), extension procedures, configuration, tooling, colour system, and writing style
-- `CLAUDE.md`: added user documentation maintenance convention — update guide and user-guide when changes affect user-facing behaviour
+- **User documentation** — three-tier docs: quick-start guide (`src/brain-core/guide.md`, ships as `.brain-core/guide.md`), example-driven user guide (`docs/user-guide.md`), and full reference (`docs/user-reference.md`). The user guide walks through a day in the life of using the Brain, idea graduation, building knowledge, and how agents fit in. The reference documents all 20 artefact types with full frontmatter schemas, every configuration point, colour system, extension procedures, and tooling
+- `CLAUDE.md`: added user documentation maintenance convention — update docs when changes affect user-facing behaviour
 
 ## v0.9.9 — 2026-03-21
 

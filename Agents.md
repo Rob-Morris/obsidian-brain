@@ -6,7 +6,7 @@ Self-extending system for organising Obsidian vaults, for agents and humans work
 
 Before committing always update documentation, including `docs/changelog.md`.
 
-When making changes that affect user-facing behaviour (new types, changed conventions, new workflows, new tooling), update the user documentation: `src/brain-core/guide.md` (quick-start) and `docs/user-guide.md` (full reference).
+When making changes that affect user-facing behaviour (new types, changed conventions, new workflows, new tooling), update the user documentation: `src/brain-core/guide.md` (quick-start), `docs/user-guide.md` (walkthrough), and `docs/user-reference.md` (full reference).
 
 ## Versioning
 
