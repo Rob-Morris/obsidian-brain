@@ -14,9 +14,9 @@ The compiled router is the interface contract between human-readable config and 
 
 **Schema:** Implemented in v0.5.0. The output structure is implementation-defined — see `src/brain-core/scripts/compile_router.py` for the canonical reference. Top-level keys: `meta`, `environment`, `always_rules`, `artefacts`, `triggers`, `skills`, `plugins`, `styles`.
 
-**Planned extensions:** The compiler will extract two additional fields per artefact type from taxonomy files, needed by `check.py` (DD-009):
-- `artefacts[].frontmatter.status_enum` — valid status values, parsed from the inline YAML comment pattern (`status: default  # val1 | val2 | val3`) in the taxonomy's Frontmatter section. `null` when the type has no status field.
-- `artefacts[].frontmatter.terminal_statuses` — subset of `status_enum` that trigger archiving (e.g. `implemented`, `graduated`), parsed from the taxonomy's archiving section. `null` when the type doesn't support archiving. Allows `check.py` to validate that archived files have the right terminal status set.
+**Status and archiving extensions (v0.9.9):** The compiler extracts two additional fields per artefact type from taxonomy files, consumed by `check.py` (DD-009):
+- `artefacts[].frontmatter.status_enum` — valid status values, parsed from three patterns: inline YAML comment (`status: default  # val1 | val2 | val3`), markdown lifecycle table (`| \`value\` | meaning |`), or prose line (`Status values: \`val1\`, \`val2\`.`). `null` when the type has no status field.
+- `artefacts[].frontmatter.terminal_statuses` — subset of `status_enum` that trigger archiving (e.g. `implemented`, `graduated`), parsed from the taxonomy's `## Archiving` section. Uses direct references (`status: value`, `` `value` status ``) and cross-references capitalised enum values against the archiving text. `null` when the type doesn't support archiving.
 
 **CLI:** `python3 compile_router.py --json` outputs to stdout; default mode writes `_Config/.compiled-router.json` with a summary to stderr. Requires Python 3.8+ (stdlib only). On environments without Python (mobile, restricted shells), agents fall back to the lean router and wikilink traversal — see *Agent Reading Flow* in `specification.md`.
 

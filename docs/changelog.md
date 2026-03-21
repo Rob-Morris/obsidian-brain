@@ -2,11 +2,14 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.9.9 — 2026-03-21
+
+- **Compiler: status enum and terminal status extraction** — `compile_router.py` now extracts `frontmatter.status_enum` and `frontmatter.terminal_statuses` per artefact type from taxonomy files. Recognises three status enum patterns (inline YAML comment, lifecycle table, prose line) and cross-references archiving sections against the enum. check.py (DD-009) consumes these fields — no taxonomy parsing needed at check time
+
 ## v0.9.8 — 2026-03-21
 
 - DD-009 check catalogue expanded: `archive_metadata` and `status_values` checks — 6 → 8 checks
-- DD-009 contract made explicit: check.py reads compiled router only, never taxonomy markdown — compiler is the single adaptation point for vault evolution
-- Planned compiler extensions: `frontmatter.status_enum` (valid status values from taxonomy YAML comments) and `frontmatter.terminal_statuses` (archiving triggers) per artefact type
+- DD-009 contract made explicit in `tooling.md`: check.py reads compiled router only, never taxonomy markdown — compiler is the single adaptation point for vault evolution
 - `tooling.md`: clarified relationship between `compliance_check.py` (session hygiene) and `check.py` (structural compliance)
 - `compliance_check.py`: replaced hardcoded `EXPECTED_FOLDERS` with minimal infrastructure check (`_Config`, `_Temporal`) — eliminates false positives for vaults without `Wiki` or `_Plugins`
 

@@ -142,6 +142,80 @@ def scan_temporal_types(vault_root):
 # Taxonomy parsing
 # ---------------------------------------------------------------------------
 
+def parse_status_enum(content):
+    """Extract valid status values from taxonomy content.
+
+    Recognises three patterns used across taxonomy files:
+    1. Inline YAML comment:  status: default  # val1 | val2 | val3
+    2. Markdown table:       | `value` | description |  (under ## Lifecycle)
+    3. Prose line:           Status values: `val1`, `val2`, `val3`.
+    """
+    # Pattern 1: inline comment in frontmatter YAML block
+    comment_match = re.search(
+        r"^status:\s*\S+\s*#\s*(.+)$", content, re.MULTILINE
+    )
+    if comment_match:
+        return [v.strip() for v in comment_match.group(1).split("|") if v.strip()]
+
+    # Pattern 2: markdown table rows with backtick-delimited status values
+    table_values = re.findall(
+        r"^\|\s*`([^`]+)`\s*\|", content, re.MULTILINE
+    )
+    # Filter out header rows (e.g. "Status")
+    table_values = [v for v in table_values if v.lower() != "status"]
+    if table_values:
+        return table_values
+
+    # Pattern 3: prose line "Status values: `val1`, `val2`, `val3`."
+    prose_match = re.search(
+        r"Status values?:\s*(.+)", content, re.IGNORECASE
+    )
+    if prose_match:
+        return re.findall(r"`([^`]+)`", prose_match.group(1))
+
+    return None
+
+
+def parse_terminal_statuses(content, status_enum):
+    """Extract terminal statuses from the ## Archiving section.
+
+    Looks for backtick-delimited status values mentioned in the archiving
+    instructions (e.g. "reaches `implemented` status", "status: graduated").
+    Cross-references against status_enum when the archiving section uses
+    natural language (e.g. "Graduated ideas are archived").
+    """
+    archive_match = re.search(
+        r"^## Archiving\s*\n(.*?)(?=^## |\Z)", content, re.MULTILINE | re.DOTALL
+    )
+    if not archive_match:
+        return None
+    archive_text = archive_match.group(1)
+    # Find status values referenced via `status: value` or `value` status
+    candidates = re.findall(r"`(\w+)`\s+status", archive_text)
+    candidates += re.findall(r"status:\s*(\w+)`", archive_text)
+    # Also match "Set `status: value`" pattern
+    candidates += re.findall(r"status:\s*(\w+)", archive_text)
+    # Cross-reference: if archiving text uses a status enum value as an
+    # adjective describing the artefact (e.g. "Graduated ideas are archived",
+    # "Published writing...can be archived"). Match at word start to avoid
+    # false positives like "active folder".
+    if status_enum:
+        for val in status_enum:
+            # Match "Graduated ideas", "Published writing" — capitalised status
+            # at sentence/clause start followed by the artefact noun
+            pattern = r"(?:^|\.\s+)" + re.escape(val.capitalize()) + r"\b"
+            if re.search(pattern, archive_text) and val not in candidates:
+                candidates.append(val)
+    # Deduplicate preserving order
+    seen = set()
+    terminal = []
+    for v in candidates:
+        if v not in seen:
+            seen.add(v)
+            terminal.append(v)
+    return terminal if terminal else None
+
+
 def parse_taxonomy_file(path):
     """Parse a taxonomy .md file, extracting Naming, Frontmatter, Trigger, Template sections."""
     with open(path, "r", encoding="utf-8") as f:
@@ -187,6 +261,20 @@ def parse_taxonomy_file(path):
                 "type": type_match.group(1).strip() if type_match else None,
                 "required": required if required else [],
             }
+
+    # Extract status enum and terminal statuses from full content
+    status_enum = parse_status_enum(content)
+    terminal_statuses = parse_terminal_statuses(content, status_enum)
+    if result["frontmatter"]:
+        result["frontmatter"]["status_enum"] = status_enum
+        result["frontmatter"]["terminal_statuses"] = terminal_statuses
+    elif status_enum or terminal_statuses:
+        result["frontmatter"] = {
+            "type": None,
+            "required": [],
+            "status_enum": status_enum,
+            "terminal_statuses": terminal_statuses,
+        }
 
     # Parse ## Trigger
     trigger_match = re.search(
