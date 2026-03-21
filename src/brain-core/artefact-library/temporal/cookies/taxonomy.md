@@ -1,4 +1,4 @@
-# Cookies
+# 🍪 Cookies
 
 Temporal artefact. A measure of user satisfaction, awarded when work lands well.
 
@@ -16,9 +16,10 @@ Don't fish for cookies on trivial work. Don't assume you've earned one. Let the 
 
 ## How to Record Cookies
 
-- **One file per cookie.** Each cookie captures what was done and why it earned one.
+- **One file per cookie.** Each 🍪 captures what was done and why it earned one.
 - **Be specific.** "Built the auth system" is less useful than "Shipped JWT refresh with sliding window — clean implementation, no back-and-forth."
 - **Note the flavour.** What made this satisfying? Speed? Elegance? Surprise? Understanding what the user actually wanted without being told? The flavour is the insight.
+- **Always use 🍪** when referring to cookies in conversation and documentation.
 
 ## Naming
 
