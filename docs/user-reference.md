@@ -88,7 +88,7 @@ When temporal work produces something lasting, it spins out to a living artefact
 
 ### Wiki
 
-**Folder:** `Wiki/` · **Naming:** `{slug}.md` · **Colour:** Rose
+**Folder:** `Wiki/` · **Naming:** `{name}.md` · **Colour:** Rose
 
 Interconnected knowledge base. One page per concept. Deliberately human-curated — selective, polished, comprehensive reference.
 
@@ -104,7 +104,7 @@ No status field. Evergreen. Update pages as understanding deepens. One page per 
 
 ### Zettelkasten
 
-**Folder:** `Zettelkasten/` · **Naming:** `{slug}.md` · **Colour:** Mint
+**Folder:** `Zettelkasten/` · **Naming:** `{name}.md` · **Colour:** Mint
 
 Auto-maintained atomic concept mesh. One card per concept (~200–400 words), densely linked to sources and related cards. Makes implicit knowledge structure explicit.
 
@@ -158,7 +158,7 @@ tags:
 
 ### Designs
 
-**Folder:** `Designs/` · **Naming:** `{slug}.md`
+**Folder:** `Designs/` · **Naming:** `{name}.md`
 
 Design documents, wireframes, proposals for features, products, or concepts.
 
@@ -188,7 +188,7 @@ status: shaping
 
 ### Ideas
 
-**Folder:** `Ideas/` · **Naming:** `{slug}.md`
+**Folder:** `Ideas/` · **Naming:** `{name}.md`
 
 Loose thoughts and concepts to explore. Loose structure; no prescribed format beyond title and tags.
 
@@ -211,7 +211,7 @@ status: new
 
 ### Projects
 
-**Folder:** `Projects/` · **Naming:** `{slug}.md`
+**Folder:** `Projects/` · **Naming:** `{name}.md`
 
 Project index files. One per project, linking to all related artefacts — designs, research, plans, transcripts. The hub.
 
@@ -225,7 +225,7 @@ tags:
 
 ### Writing
 
-**Folder:** `Writing/` · **Naming:** `{slug}.md`
+**Folder:** `Writing/` · **Naming:** `{name}.md`
 
 Atomic pieces of written work — essays, blog posts, chapters, letters, scripts.
 
@@ -250,7 +250,7 @@ Complex writing projects use subfolders: `Writing/my-novel/index.md` with chapte
 
 ### Documentation
 
-**Folder:** `Documentation/` · **Naming:** `{slug}.md`
+**Folder:** `Documentation/` · **Naming:** `{name}.md`
 
 Technical docs, style guides, prescriptive reference that governs how work gets done.
 
@@ -302,7 +302,7 @@ tags:
 status: draft
 ```
 
-**Lifecycle:** `draft` → `approved` → `completed`
+**Lifecycle:** `draft` → `approved` → `implementing` → `completed`
 
 **Conventions:** Write before starting. Keep concise — align on approach, not full spec. Link to relevant artefacts.
 
@@ -476,6 +476,22 @@ tags:
 
 **Trigger:** After completing work the user is happy with. Look for signals: explicit praise, "ship it", "that's perfect", or the word "cookie." Agents should ask honestly: "Was that good enough to earn a cookie? Because you know I'd do aaaanything for a cookie, so be straight with me."
 
+### Mockups
+
+**Folder:** `_Temporal/Mockups/yyyy-mm/` · **Naming:** `yyyymmdd-mockup--{slug}.md`
+
+Visual or interactive prototypes generated to explore a design direction. Mockups bridge the gap between abstract design documents and real implementation.
+
+```yaml
+type: temporal/mockup
+tags:
+  - mockup
+```
+
+**Conventions:** Link to the design or project being explored. If AI-generated, include the prompt. Note the verdict — what works, what needs iteration. One direction per file.
+
+**Trigger:** When exploring a visual or interactive design direction — UI layouts, component designs, app shells.
+
 ---
 
 ## Filing Conventions
@@ -483,7 +499,7 @@ tags:
 ### Living Artefacts
 
 - Root-level folder, one per type
-- Slug-based naming for most types: `{slug}.md`
+- Freeform naming for most types: `{name}.md` (spaces and mixed case allowed)
 - Some types use date prefixes: Notes (`yyyymmdd - {Title}.md`), Daily Notes (`yyyy-mm-dd ddd.md`)
 - Start flat; subfolders emerge organically when a single work outgrows one file
 - One file acts as the index in a subfolder (`index.md` or `project-slug.md`)
@@ -524,7 +540,7 @@ Only types with a defined lifecycle have status. Current types with status:
 | Designs | `shaping`, `active`, `implemented`, `parked` |
 | Ideas | `new`, `graduated`, `parked` |
 | Writing | `draft`, `editing`, `review`, `published`, `parked` |
-| Plans | `draft`, `approved`, `completed` |
+| Plans | `draft`, `approved`, `implementing`, `completed` |
 
 ### Archive Fields
 
@@ -711,8 +727,8 @@ Skill documents for MCP tools, CLI commands, or plugin workflows. One folder per
 If your vault runs the Brain MCP server (`.brain-core/mcp/server.py`), three tools are available:
 
 **brain_read** (safe, no side effects)
-- Look up artefacts, triggers, styles, templates, skills, plugins, environment info, or the compiled router
-- Optional name filter to narrow results
+- Look up artefacts, triggers, styles, templates, skills, plugins, environment info, the compiled router, or structural compliance results
+- Optional name filter to narrow results (for compliance, filters by severity: `error`/`warning`/`info`)
 
 **brain_search** (safe, no side effects)
 - Search vault content by query text
@@ -734,12 +750,21 @@ Available in `.brain-core/scripts/`:
 | `compile_router.py` | Compile router, taxonomy, skills, and styles into a single JSON file |
 | `build_index.py` | Build the BM25 retrieval index for search |
 | `search_index.py` | Search the BM25 index from the command line |
+| `check.py` | Structural compliance checker — validates naming, frontmatter, month folders, archives, status values |
 
-### Compliance Check
+### Compliance Checks
 
-`compliance_check.py` is a vault-maintenance skill for session hygiene — checks like "did you log today?" and "are backups fresh?" Run it after work blocks.
+Two complementary tools:
 
-Separate from `check.py` (structural compliance — correct frontmatter, naming, month folders for all files).
+**`check.py`** (structural compliance) — deep scan that validates all files against the compiled router: naming patterns, frontmatter type and required fields, month folders for temporal files, archive metadata, and status values. Run on demand or during maintenance. Flags: `--json` (structured output), `--actionable` (fix suggestions), `--severity <level>` (filter). Also available via MCP: `brain_read(resource="compliance")`.
+
+```bash
+python3 .brain-core/scripts/check.py                    # human-readable
+python3 .brain-core/scripts/check.py --json --actionable # structured with fixes
+python3 .brain-core/scripts/check.py --vault /path/to/vault  # check a specific vault
+```
+
+**`compliance_check.py`** (session hygiene) — quick checks like "did you log today?" and "are backups fresh?" Run after each work block.
 
 ### Fallback Chain
 

@@ -291,6 +291,10 @@ The Brain provides search tools that let agents find existing work before creati
 
 The router (`_Config/router.md`) defines workflow triggers — things that should happen at certain moments. "After meaningful work, log it." "Before complex work, write a plan." Agents follow these automatically, so the vault stays maintained without you having to think about it.
 
+### Agents Keep Your Vault Healthy
+
+The Brain includes a structural compliance checker (`check.py`) that validates every file against its type's rules — naming patterns, frontmatter fields, month folders, archive metadata, status values. Run it on demand or let agents use it via `brain_read(resource="compliance")` to catch drift before it accumulates.
+
 ### Agents Read Your Preferences
 
 Your standing instructions and gotchas travel with the vault. Every agent session starts by reading them. Your preferences persist even when the conversation doesn't.
@@ -331,6 +335,7 @@ _Temporal/
   Reports/                    ← process overviews
   Snippets/                   ← crafted short-form content
   Cookies/                    ← "that earned a cookie"
+  Mockups/                    ← visual/interactive prototypes
 
 _Attachments/                 ← images, PDFs, files
 _Config/                      ← router, taxonomy, styles, preferences

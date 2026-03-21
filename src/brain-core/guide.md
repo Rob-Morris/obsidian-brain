@@ -43,11 +43,11 @@ Pick the artefact type that fits, create the file in the right folder with the r
 
 | Type | Where | Naming |
 |---|---|---|
-| Wiki page | `Wiki/` | `{slug}.md` |
-| Design doc | `Designs/` | `{slug}.md` |
-| Project index | `Projects/` | `{slug}.md` |
-| Writing piece | `Writing/` | `{slug}.md` |
-| Idea | `Ideas/` | `{slug}.md` |
+| Wiki page | `Wiki/` | `{name}.md` |
+| Design doc | `Designs/` | `{name}.md` |
+| Project index | `Projects/` | `{name}.md` |
+| Writing piece | `Writing/` | `{name}.md` |
+| Idea | `Ideas/` | `{name}.md` |
 | Note | `Notes/` | `yyyymmdd - {Title}.md` |
 | Daily note | `Daily Notes/` | `yyyy-mm-dd ddd.md` |
 | Log entry | `_Temporal/Logs/yyyy-mm/` | `log--yyyy-mm-dd.md` |
@@ -96,7 +96,7 @@ Some types have a lifecycle. Status values are defined per type:
 - **Designs:** `shaping` → `active` → `implemented` | `parked`
 - **Ideas:** `new` → `graduated` | `parked`
 - **Writing:** `draft` → `editing` → `review` → `published` | `parked`
-- **Plans:** `draft` → `approved` → `completed`
+- **Plans:** `draft` → `approved` → `implementing` → `completed`
 
 Not every type has status. Wiki, Notes, Documentation, and most temporal types are evergreen.
 
@@ -153,9 +153,11 @@ Full details in the [User Guide — Extending Your Vault](https://github.com/rob
 
 If your vault has the Brain MCP server running, you get three tools:
 
-- **brain_read** — look up artefacts, triggers, styles, templates
+- **brain_read** — look up artefacts, triggers, styles, templates, or run structural compliance checks
 - **brain_search** — find files by query, type, or tag
 - **brain_action** — compile the router, build the search index, rename files with wikilink updates
+
+For structural compliance (naming, frontmatter, archives), run `python3 .brain-core/scripts/check.py` or use `brain_read(resource="compliance")` via MCP.
 
 Without MCP, agents fall back to the compiled router (`_Config/.compiled-router.json`), then the lean router (`_Config/router.md`), then plain file navigation.
 

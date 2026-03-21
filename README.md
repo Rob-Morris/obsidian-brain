@@ -18,31 +18,26 @@ To upgrade brain-core later, replace the contents of `.brain-core/` with the new
 obsidian-brain/
 ├── src/
 │   └── brain-core/              # core methodology (source of truth)
-│       ├── VERSION               # installed brain-core version
+│       ├── VERSION              # brain-core version
 │       ├── index.md             # entry point — links to all core docs
+│       ├── guide.md             # quick-start guide (ships into vaults)
+│       ├── artefact-library/    # ready-to-install type definitions
 │       ├── taxonomy/readme.md   # artefact classification guide
-│       ├── extensions.md        # how to add types + example library
-│       ├── library.md           # ready-to-use artefact type definitions
+│       ├── extensions.md        # how to add types, colours, triggers
 │       ├── triggers.md          # workflow trigger system
 │       ├── colours.md           # folder colour system design
 │       ├── plugins.md           # plugin system
-│       └── scripts/             # tooling (compile_router.py)
-├── tests/                       # test suite
+│       ├── scripts/             # tooling (compile_router, check, build_index, search)
+│       └── mcp/                 # MCP server (brain_read, brain_search, brain_action)
+├── tests/                       # test suite (make test)
 ├── docs/
+│   ├── user-guide.md            # walkthrough with examples
+│   ├── user-reference.md        # full reference for all types and conventions
+│   ├── tooling.md               # technical design and development setup
 │   ├── changelog.md             # version history
-│   ├── tooling.md               # technical design for tooling
 │   ├── plugins.md               # how to install and write plugins
 │   └── specification.md         # design rationale and structural decisions
-├── template-vault/              # the Obsidian vault — copy or open directly
-│   ├── Agents.md                # agent entry point → router
-│   ├── CLAUDE.md                # symlink → Agents.md (Claude Code compatibility)
-│   ├── .brain-core/             # copy of src/brain-core (version in VERSION file)
-│   ├── .obsidian/               # Obsidian settings, plugins, CSS snippets
-│   ├── _Attachments/            # non-markdown files (images, PDFs, etc.)
-│   ├── _Config/                 # router, taxonomy, style, colours, templates, skills
-│   ├── _Plugins/                # tool-managed data (installed separately)
-│   ├── _Temporal/               # dated working files (logs, transcripts)
-│   └── Wiki/                    # interconnected knowledge base
+├── template-vault/              # starter vault — copy to create a new Brain
 └── README.md
 ```
 
@@ -68,15 +63,20 @@ Available plugins:
 ## Customisation
 
 - **`Agents.md`**: add your name and personal context for agents
-- **`_Config/router.md`**: add/remove artefact types and workflow triggers
+- **`_Config/router.md`**: add/remove workflow triggers and vault-level constraints
 - **`_Config/Taxonomy/`**: add taxonomy files for new artefact types
+- **`.brain-core/artefact-library/`**: browse and install ready-made type definitions
+- **`_Config/User/preferences-always.md`**: your standing instructions for agents
+- **`_Config/User/gotchas.md`**: learned pitfalls from previous sessions
 - **`_Config/Styles/writing.md`**: adjust language preferences (defaults to Australian English)
-- **`_Config/router.md` § Principles**: vault-level constraints
 - **`_Config/Styles/obsidian.md`**: folder colours and file explorer styling
 
 ## Documentation
 
+- [Quick-Start Guide](src/brain-core/guide.md) — day-to-day essentials (ships as `.brain-core/guide.md` in vaults)
+- [User Guide](docs/user-guide.md) — walkthrough with examples: workflows, idea graduation, building knowledge
+- [User Reference](docs/user-reference.md) — every artefact type, configuration point, and convention in detail
+- [Tooling](docs/tooling.md) — technical design for scripts, MCP server, and development setup
 - [Specification](docs/specification.md) — design rationale and structural decisions
 - [Plugins](docs/plugins.md) — how to install and write plugins
 - [Changelog](docs/changelog.md) — version history
-- Core docs at `.brain-core/` — the authoritative reference for the Brain system

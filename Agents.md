@@ -20,6 +20,10 @@ Follows [semver](https://semver.org/). The version is tracked in `.brain-core/VE
 
 Core-first workflow: when changes span brain-core and vault repos, implement and commit core changes first, then propagate to vault repos. Never deploy to both simultaneously.
 
+## Testing
+
+Run `make test` (uses `.venv` with Python 3.12). Run `make install` first if the venv doesn't exist. See `docs/tooling.md` for details.
+
 ## Local Overrides
 
 If `agents.local.md` exists in the repo root, read it for machine-specific configuration such as workspace paths and environment details.

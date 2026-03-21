@@ -24,7 +24,7 @@ The compiled router is the interface contract between human-readable config and 
 
 Long-running MCP server at `.brain-core/mcp/server.py`. Exposes 3 tools:
 
-- **`brain_read`** — safe, no side effects, auto-approvable. Resources: `artefact`, `trigger`, `style`, `template`, `skill`, `plugin`, `environment`, `router`. Optional `name` filter. Environment resource includes `obsidian_cli_available`.
+- **`brain_read`** — safe, no side effects, auto-approvable. Resources: `artefact`, `trigger`, `style`, `template`, `skill`, `plugin`, `environment`, `router`, `compliance`. Optional `name` filter. Environment resource includes `obsidian_cli_available`. Compliance resource runs check.py checks; `name` parameter filters by severity (`error`/`warning`/`info`).
 - **`brain_search`** — safe, no side effects, auto-approvable. Parameters: `query` (required), `type`, `tag`, `top_k`. CLI-first with BM25 fallback (DD-021). Response includes `source` field (`"obsidian_cli"` or `"bm25"`) and `results` array with path, title, type, score, snippet.
 - **`brain_action`** — mutations, gated by approval. Actions: `compile`, `build_index`, `rename` (implemented); `check`, `create_artefact` (deferred — scripts don't exist yet). Optional `params` object. `rename` uses Obsidian CLI when available (wikilink-safe), falls back to grep-and-replace.
 
@@ -62,9 +62,9 @@ Conditional:
 
 ## check.py (DD-009)
 
-*Designed but not yet implemented.* Router-driven vault compliance checker. Reads the compiled router, validates vault files against structural rules. check.py never parses taxonomy markdown — all per-type rules (naming patterns, required fields, status enums, terminal statuses) come from the compiled router. This means the compiler is the single point that must track vault evolution; check.py adapts automatically when the router is recompiled.
+*Implemented in v0.9.11.* Router-driven vault compliance checker. Reads the compiled router, validates vault files against structural rules. check.py never parses taxonomy markdown — all per-type rules (naming patterns, required fields, status enums, terminal statuses) come from the compiled router. This means the compiler is the single point that must track vault evolution; check.py adapts automatically when the router is recompiled.
 
-**Flags:** `--json` (structured output), `--actionable` (enriched fix context), `--severity <level>` (filter: `error`/`warning`/`info`).
+**Flags:** `--json` (structured output), `--actionable` (enriched fix context), `--severity <level>` (filter: `error`/`warning`/`info`), `--vault <path>` (check a specific vault instead of auto-detecting).
 
 **Exit codes:** 0 = clean, 1 = warnings only, 2 = errors present.
 
@@ -135,6 +135,33 @@ The following are accepted but not yet fully shaped:
 - **Frontmatter timestamps absorption** (DD-004) — ignore rules, agent-aware stamping
 - **Procedures directory** — `.brain-core/procedures/`, structured step-by-step instructions for agents without code execution
 
+## Development
+
+### Prerequisites
+
+- Python 3.10+ (scripts target 3.8+ stdlib for portability, but `mcp` SDK and type syntax require >=3.10)
+- `make` (standard on macOS/Linux)
+
+### Setup
+
+```bash
+make install    # creates .venv with Python 3.12, installs mcp + pytest
+make test       # runs the full test suite (237 tests)
+make clean      # removes .venv and caches
+```
+
+Or manually:
+
+```bash
+python3.12 -m venv .venv
+.venv/bin/pip install "mcp>=1.0.0" "pytest>=9.0"
+.venv/bin/pytest -q
+```
+
+### Test configuration
+
+`pyproject.toml` configures pytest with `pythonpath` entries for `src/brain-core/scripts` and `src/brain-core/mcp`, so test files can `import check`, `import server`, etc. without `sys.path` manipulation.
+
 ## Design Decisions Index
 
 | DD | Summary | Status |
@@ -147,7 +174,7 @@ The following are accepted but not yet fully shaped:
 | DD-006 | Mobile is first-class | Accepted |
 | DD-007 | Dual implementation with shared test fixtures | Accepted |
 | DD-008 | Compiled router as foundation | Implemented (v0.5.0) |
-| DD-009 | Router-driven checks (no separate check config) | Accepted |
+| DD-009 | Router-driven checks (no separate check config) | Implemented (v0.9.11) |
 | DD-010 | Brain MCP server in `.brain-core/mcp/` | Implemented (v0.7.0) |
 | DD-011 | MCP server exposes 2 tools with enum parameters | Implemented (v0.7.0) |
 | DD-012 | Lean router — always-rules only, conditional triggers co-located | Accepted |
