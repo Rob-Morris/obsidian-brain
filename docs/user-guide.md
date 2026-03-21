@@ -256,7 +256,7 @@ A new Brain vault ships with a practical starter set: Wiki, Daily Notes, Notes, 
 
 ### Adding Types When You Need Them
 
-When you find yourself creating content that doesn't fit anywhere, that's the signal to add a type. The artefact library (`.brain-core/artefact-library/`) has ready-to-install definitions for types like Ideas, Designs, Writing, Research, Decision Logs, and more. Each comes with a taxonomy file, template, and CSS.
+When you find yourself creating content that doesn't fit anywhere, that's the signal to add a type. The artefact library (`.brain-core/artefact-library/`) has ready-to-install definitions for types like Ideas, Designs, Writing, Research, Decision Logs, and more. Each comes with a taxonomy file and template. Folder colours are auto-generated when you run `brain_action("compile")`.
 
 The rule of thumb: add a type when you'll create multiple files of that kind and they need different conventions from what you already have. If it's a one-off, a subfolder or tag within an existing type is simpler.
 

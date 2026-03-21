@@ -9,27 +9,23 @@ Before creating a new artefact type, check these criteria:
 - **No existing type fits** — the content doesn't belong in any current folder, even with generous interpretation
 - **Recurring pattern** — you expect multiple files of this kind, not just one
 - **Distinct lifecycle** — the content has different naming, frontmatter, or archiving rules from existing types
-- **Worth the overhead** — each type needs a taxonomy file, colour assignment, CSS selectors, and a router trigger. If the content is a one-off, a subfolder or tag within an existing type may be simpler
+- **Worth the overhead** — each type needs a taxonomy file and a router trigger (colours are auto-generated). If the content is a one-off, a subfolder or tag within an existing type may be simpler
 
 ## Adding a Living Artefact Folder
 
 1. Create the folder at vault root.
-2. Pick a palette colour (or add a new `--palette-*` variable) and add a `--color-*` variable in the Themes block of `.obsidian/snippets/folder-colours.css`. Never reuse a system folder colour (purple, steel, gold, slate) — those are reserved for `_Config/`, `_Temporal/`, `_Plugins/`, and `_Attachments/`.
-3. Add three CSS selector blocks (folder + subfolders, border, files) — see [[.brain-core/colours]] for the template.
-4. Add a conditional trigger to the router if the type has one.
-5. Create a taxonomy file at `_Config/Taxonomy/Living/{name}.md` describing the type's purpose, conventions, and template.
-6. Update `_Config/Styles/obsidian.md` with the new colour assignment.
-7. Log the addition.
+2. Add a conditional trigger to the router if the type has one.
+3. Create a taxonomy file at `_Config/Taxonomy/Living/{name}.md` describing the type's purpose, conventions, and template.
+4. Run `brain_action("compile")` to regenerate the router and colours — CSS is auto-generated.
+5. Log the addition.
 
 ## Adding a Temporal Child Folder
 
 1. Create the folder under `_Temporal/`.
-2. Choose a base hue and apply the blend formula (`result = base + (rose - base) × 0.35`) to derive the rose-tinted variant — see [[.brain-core/colours]].
-3. Add a `--color-temporal-*` hex in the Themes block and add CSS selectors with `background-color: var(--theme-temporal-bg)` and `border-radius: 4px`.
-4. Add a conditional trigger to the router if the type has one.
-5. Create a taxonomy file at `_Config/Taxonomy/Temporal/{name}.md` describing the type's purpose, conventions, and template.
-6. Update `_Config/Styles/obsidian.md`.
-7. Log the addition.
+2. Add a conditional trigger to the router if the type has one.
+3. Create a taxonomy file at `_Config/Taxonomy/Temporal/{name}.md` describing the type's purpose, conventions, and template.
+4. Run `brain_action("compile")` to regenerate the router and colours — CSS is auto-generated, rose blend applied automatically.
+5. Log the addition.
 
 ## Adding a Config Child Folder
 

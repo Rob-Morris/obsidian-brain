@@ -45,6 +45,7 @@ from compile_router import (
     scan_temporal_types,
     OUTPUT_PATH as COMPILED_ROUTER_REL,
 )
+from compile_colours import generate as generate_colours
 from build_index import (
     build_index,
     find_md_files,
@@ -159,9 +160,10 @@ def _save_json(data: dict, vault_root: str, rel_path: str) -> None:
 
 
 def _compile_and_save(vault_root: str) -> dict:
-    """Compile router, write to disk, return compiled data."""
+    """Compile router and colours, write to disk, return compiled data."""
     compiled = compile_router(vault_root)
     _save_json(compiled, vault_root, COMPILED_ROUTER_REL)
+    generate_colours(vault_root, compiled)
     return compiled
 
 
@@ -450,10 +452,13 @@ def brain_action(action: str, params: dict | None = None) -> str:
         configured = sum(1 for a in _router["artefacts"] if a["configured"])
         trigger_count = len(_router["triggers"])
         skill_count = len(_router["skills"])
+        living_count = sum(1 for a in _router["artefacts"] if a["classification"] == "living")
+        temporal_count = sum(1 for a in _router["artefacts"] if a["classification"] == "temporal")
         return json.dumps({
             "status": "ok",
             "summary": f"Compiled: {art_count} artefacts ({configured} configured), "
-                       f"{trigger_count} triggers, {skill_count} skills",
+                       f"{trigger_count} triggers, {skill_count} skills, "
+                       f"{living_count + temporal_count} colours",
             "compiled_at": _router["meta"]["compiled_at"],
         }, indent=2)
 

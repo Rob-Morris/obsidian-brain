@@ -455,11 +455,11 @@ tags:
 
 **Trigger:** When crafting a shareable or reusable piece from existing work.
 
-### Cookies
+### 🍪 Cookies
 
 **Folder:** `_Temporal/Cookies/yyyy-mm/` · **Naming:** `yyyymmdd-cookie--{slug}.md`
 
-A measure of user satisfaction. When work lands well, the user awards a cookie. Over time, the cookie log reveals what kinds of work resonate and what approaches are worth repeating.
+A measure of user satisfaction. When work lands well, the user awards a 🍪. Over time, the 🍪 log reveals what kinds of work resonate and what approaches are worth repeating.
 
 ```yaml
 type: temporal/cookie
@@ -472,9 +472,9 @@ tags:
 - **Flavour:** What made it satisfying (speed, elegance, understanding, surprise)
 - **Why it earned a cookie:** Why this work stood out
 
-**Conventions:** One file per cookie. Be specific about what was done. Note the flavour — the insight is in *why* it was satisfying, not just *that* it was. Don't fish for cookies on trivial work; the value comes from them being genuine.
+**Conventions:** One file per 🍪. Be specific about what was done. Note the flavour — the insight is in *why* it was satisfying, not just *that* it was. Don't fish for 🍪s on trivial work; the value comes from them being genuine. Always use 🍪 when referring to cookies.
 
-**Trigger:** After completing work the user is happy with. Look for signals: explicit praise, "ship it", "that's perfect", or the word "cookie." Agents should ask honestly: "Was that good enough to earn a cookie? Because you know I'd do aaaanything for a cookie, so be straight with me."
+**Trigger:** After completing work the user is happy with. Look for signals: explicit praise, "ship it", "that's perfect", or the word "cookie." Agents should ask honestly: "Was that good enough to earn a 🍪? Because you know I'd do aaaanything for a 🍪, so be straight with me."
 
 ### Mockups
 
@@ -779,34 +779,19 @@ When full tooling isn't available, agents degrade gracefully:
 
 ## Colour System
 
-Brain uses a 16-colour pastel palette to visually distinguish folders in the Obsidian sidebar.
+Brain auto-generates folder colours to visually distinguish types in the Obsidian sidebar. Colours are computed by `compile_colours.py` and regenerated automatically via `brain_action("compile")`.
 
 ### How Colours Are Assigned
 
-- **Living artefact folders** get a palette colour directly (e.g., Wiki = Rose, Zettelkasten = Mint)
-- **Temporal child folders** get a base hue blended 35% towards rose for a warm, cohesive tint
-- **System folders** use reserved colours: Config = Purple, Temporal = Steel, Plugins = Gold, Attachments/Archives = Slate
+- **Living artefact folders** — hues distributed evenly across available colour space (HSL with S=57%, L=72%)
+- **Temporal child folders** — independent hue distribution, then blended 35% towards rose for a warm, cohesive tint
+- **System folders** — fixed reserved colours: Config = Violet, Temporal = Rose, Plugins = Orchid, Attachments/Archives = Slate
 
-### The Palette
+### Algorithm
 
-| Colour | Hex | Typical Use |
-|---|---|---|
-| Rose | `#F2A8C4` | Wiki |
-| Mint | `#A8E8D0` | Zettelkasten |
-| Coral | `#F0908F` | Available for living types |
-| Amber | `#F5C97A` | Logs (base before blend) |
-| Teal | `#7DD6D2` | Research (base before blend) |
-| Lavender | `#B8A9E8` | Shaping Transcripts (base before blend) |
-| Sky | `#8BB8E8` | Friction Logs (base before blend) |
-| Sage | `#8FCA8E` | Decision Logs (base before blend) |
-| Mauve | `#D4A0C0` | Transcripts (base before blend) |
-| Lime | `#C4E88A` | Reports (base before blend) |
-| Blush | `#E8B8B0` | Idea Logs (base before blend) |
-| Gold | `#E8D48A` | Snippets (base before blend) / Plugins folder |
-| Peach | `#F5B88A` | Available |
-| Rose Gold | `#EDBEA7` | Living artefact folder backgrounds |
-| Slate | `#A0B0C0` | Attachments, Archives |
-| Steel | `#8AA8C8` | Temporal parent folder |
+Hues are distributed across 240° of available space (360° minus four 30° exclusion zones reserved for system colours). Types are sorted alphabetically, so colours are deterministic — same type list always produces the same colours. Adding a new type shifts existing colours by a small, predictable amount.
+
+**System colour exclusion zones:** Slate (195–225°), Violet (255–285°), Orchid (285–315°), Rose (325–355°).
 
 ### Temporal Blend Formula
 
@@ -816,7 +801,7 @@ This gives temporal folders a warm, cohesive tint while keeping each type visual
 
 ### CSS Location
 
-All colour definitions and folder styling live in `.obsidian/snippets/folder-colours.css`. Templates for adding new colour selectors are in `.brain-core/colours.md`.
+All colour definitions and folder styling live in `.obsidian/snippets/folder-colours.css`. The file is auto-generated — do not edit manually. Regenerate with `brain_action("compile")` or `python3 compile_colours.py`. Algorithm details and CSS selector templates are in `.brain-core/colours.md`.
 
 ---
 

@@ -131,9 +131,9 @@ Before adding a type, check:
 - You'll create multiple files of this type (not just one)
 - It needs different naming, frontmatter, or lifecycle rules
 
-To add a living type: create the root folder, pick a colour, add CSS, create the taxonomy file in `_Config/Taxonomy/Living/`, and optionally add a router trigger.
+To add a living type: create the root folder, create the taxonomy file in `_Config/Taxonomy/Living/`, optionally add a router trigger, then run `brain_action("compile")` — colours are auto-generated.
 
-To add a temporal type: create the folder under `_Temporal/`, blend the colour 35% towards rose, add CSS, create taxonomy in `_Config/Taxonomy/Temporal/`.
+To add a temporal type: create the folder under `_Temporal/`, create taxonomy in `_Config/Taxonomy/Temporal/`, then run `brain_action("compile")` — rose-blended colours are auto-generated.
 
 Full details in the [User Guide — Extending Your Vault](https://github.com/robmorris/obsidian-brain/blob/main/docs/user-guide.md#extending-your-vault).
 
