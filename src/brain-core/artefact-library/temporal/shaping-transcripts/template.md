@@ -1,5 +1,5 @@
 ---
-type: temporal/design-transcript
+type: temporal/shaping-transcript
 tags:
   - transcript
   - SOURCE_TYPE
