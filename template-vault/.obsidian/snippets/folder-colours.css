@@ -52,13 +52,20 @@
   --theme-artefact-bg: rgba(237, 190, 167, 0.12); /* rose-gold at 12% */
 
   /* Artefact folder colours */
-  --color-wiki: var(--palette-rose);
+  --color-wiki:        var(--palette-rose);
+  --color-daily-notes: var(--palette-sky);
+  --color-notes:       var(--palette-teal);
 
   /* Temporal parent and children (base colours blended 35% towards rose) */
-  --color-temporal:             var(--palette-rose);  /* Rose         */
-  --color-temporal-logs:        #F3BD93; /* Amber → rose     */
-  --color-temporal-transcripts: #CCA9DB; /* Lavender → rose  */
-  --color-temporal-plans:       #F198A2; /* Coral → rose     */
+  --color-temporal:                      var(--palette-rose);  /* Rose         */
+  --color-temporal-logs:                 #F3BD93; /* Amber → rose          */
+  --color-temporal-transcripts:          #CCA9DB; /* Lavender → rose       */
+  --color-temporal-plans:                #F198A2; /* Coral → rose          */
+  --color-temporal-research:             #A5C5CD; /* Teal → rose           */
+  --color-temporal-decision-logs:        #B2BEA1; /* Sage → rose           */
+  --color-temporal-friction-logs:        #AFB2DB; /* Sky → rose            */
+  --color-temporal-cookies:              #DDA793; /* Cookie dough → rose   */
+  --color-temporal-shaping-transcripts:  #CCA9DB; /* Lavender → rose       */
 }
 
 
@@ -239,6 +246,106 @@
   color: var(--color-temporal-plans);
 }
 
+/* _Temporal/Research — folder + subfolders */
+.nav-folder-title[data-path="_Temporal/Research"] .nav-folder-title-content,
+.nav-folder-title[data-path^="_Temporal/Research/"] .nav-folder-title-content {
+  color: var(--color-temporal-research);
+}
+.nav-folder-title[data-path="_Temporal/Research"],
+.nav-folder-title[data-path^="_Temporal/Research/"] {
+  background-color: var(--theme-temporal-bg);
+  border-left: 4px double var(--color-temporal-research);
+  border-radius: 4px;
+}
+/* _Temporal/Research — files */
+.nav-file-title[data-path^="_Temporal/Research/"] {
+  background-color: var(--theme-temporal-bg);
+  border-radius: 4px;
+}
+.nav-file-title[data-path^="_Temporal/Research/"] .nav-file-title-content {
+  color: var(--color-temporal-research);
+}
+
+/* _Temporal/Decision Logs — folder + subfolders */
+.nav-folder-title[data-path="_Temporal/Decision Logs"] .nav-folder-title-content,
+.nav-folder-title[data-path^="_Temporal/Decision Logs/"] .nav-folder-title-content {
+  color: var(--color-temporal-decision-logs);
+}
+.nav-folder-title[data-path="_Temporal/Decision Logs"],
+.nav-folder-title[data-path^="_Temporal/Decision Logs/"] {
+  background-color: var(--theme-temporal-bg);
+  border-left: 4px double var(--color-temporal-decision-logs);
+  border-radius: 4px;
+}
+/* _Temporal/Decision Logs — files */
+.nav-file-title[data-path^="_Temporal/Decision Logs/"] {
+  background-color: var(--theme-temporal-bg);
+  border-radius: 4px;
+}
+.nav-file-title[data-path^="_Temporal/Decision Logs/"] .nav-file-title-content {
+  color: var(--color-temporal-decision-logs);
+}
+
+/* _Temporal/Friction Logs — folder + subfolders */
+.nav-folder-title[data-path="_Temporal/Friction Logs"] .nav-folder-title-content,
+.nav-folder-title[data-path^="_Temporal/Friction Logs/"] .nav-folder-title-content {
+  color: var(--color-temporal-friction-logs);
+}
+.nav-folder-title[data-path="_Temporal/Friction Logs"],
+.nav-folder-title[data-path^="_Temporal/Friction Logs/"] {
+  background-color: var(--theme-temporal-bg);
+  border-left: 4px double var(--color-temporal-friction-logs);
+  border-radius: 4px;
+}
+/* _Temporal/Friction Logs — files */
+.nav-file-title[data-path^="_Temporal/Friction Logs/"] {
+  background-color: var(--theme-temporal-bg);
+  border-radius: 4px;
+}
+.nav-file-title[data-path^="_Temporal/Friction Logs/"] .nav-file-title-content {
+  color: var(--color-temporal-friction-logs);
+}
+
+/* _Temporal/Shaping Transcripts — folder + subfolders */
+.nav-folder-title[data-path="_Temporal/Shaping Transcripts"] .nav-folder-title-content,
+.nav-folder-title[data-path^="_Temporal/Shaping Transcripts/"] .nav-folder-title-content {
+  color: var(--color-temporal-shaping-transcripts);
+}
+.nav-folder-title[data-path="_Temporal/Shaping Transcripts"],
+.nav-folder-title[data-path^="_Temporal/Shaping Transcripts/"] {
+  background-color: var(--theme-temporal-bg);
+  border-left: 4px double var(--color-temporal-shaping-transcripts);
+  border-radius: 4px;
+}
+/* _Temporal/Shaping Transcripts — files */
+.nav-file-title[data-path^="_Temporal/Shaping Transcripts/"] {
+  background-color: var(--theme-temporal-bg);
+  border-radius: 4px;
+}
+.nav-file-title[data-path^="_Temporal/Shaping Transcripts/"] .nav-file-title-content {
+  color: var(--color-temporal-shaping-transcripts);
+}
+
+/* _Temporal/Cookies — folder + subfolders */
+.nav-folder-title[data-path="_Temporal/Cookies"] .nav-folder-title-content,
+.nav-folder-title[data-path^="_Temporal/Cookies/"] .nav-folder-title-content {
+  color: var(--color-temporal-cookies);
+}
+.nav-folder-title[data-path="_Temporal/Cookies"],
+.nav-folder-title[data-path^="_Temporal/Cookies/"] {
+  background-color: var(--theme-temporal-bg);
+  border-left: 4px double var(--color-temporal-cookies);
+  border-radius: 4px;
+}
+/* _Temporal/Cookies — files */
+.nav-file-title[data-path^="_Temporal/Cookies/"] {
+  background-color: var(--theme-temporal-bg);
+  border-radius: 4px;
+}
+.nav-file-title[data-path^="_Temporal/Cookies/"] .nav-file-title-content {
+  color: var(--color-temporal-cookies);
+}
+
 
 /* ─── Plugin Folders (_Plugins) ─────────────────────────────────────────── */
 
@@ -263,6 +370,46 @@
 
 
 /* ─── Artefact Folders ───────────────────────────────────────────────────── */
+
+/* Daily Notes — folder + subfolders */
+.nav-folder-title[data-path="Daily Notes"] .nav-folder-title-content,
+.nav-folder-title[data-path^="Daily Notes/"] .nav-folder-title-content {
+  color: var(--color-daily-notes);
+}
+.nav-folder-title[data-path="Daily Notes"],
+.nav-folder-title[data-path^="Daily Notes/"] {
+  background-color: var(--theme-artefact-bg);
+  border-left: 3px solid var(--color-daily-notes);
+  border-radius: 4px;
+}
+/* Daily Notes — files */
+.nav-file-title[data-path^="Daily Notes/"] {
+  background-color: var(--theme-artefact-bg);
+  border-radius: 4px;
+}
+.nav-file-title[data-path^="Daily Notes/"] .nav-file-title-content {
+  color: var(--color-daily-notes);
+}
+
+/* Notes — folder + subfolders */
+.nav-folder-title[data-path="Notes"] .nav-folder-title-content,
+.nav-folder-title[data-path^="Notes/"] .nav-folder-title-content {
+  color: var(--color-notes);
+}
+.nav-folder-title[data-path="Notes"],
+.nav-folder-title[data-path^="Notes/"] {
+  background-color: var(--theme-artefact-bg);
+  border-left: 3px solid var(--color-notes);
+  border-radius: 4px;
+}
+/* Notes — files */
+.nav-file-title[data-path^="Notes/"] {
+  background-color: var(--theme-artefact-bg);
+  border-radius: 4px;
+}
+.nav-file-title[data-path^="Notes/"] .nav-file-title-content {
+  color: var(--color-notes);
+}
 
 /* Wiki — folder + subfolders */
 .nav-folder-title[data-path="Wiki"] .nav-folder-title-content,
