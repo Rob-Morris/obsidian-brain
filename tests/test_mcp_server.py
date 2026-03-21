@@ -2,17 +2,10 @@
 
 import json
 import os
-import sys
 import time
 from unittest.mock import patch
 
 import pytest
-
-# Add mcp server and scripts dirs to path
-MCP_DIR = os.path.join(os.path.dirname(__file__), "..", "src", "brain-core", "mcp")
-SCRIPTS_DIR = os.path.join(os.path.dirname(__file__), "..", "src", "brain-core", "scripts")
-sys.path.insert(0, os.path.abspath(MCP_DIR))
-sys.path.insert(0, os.path.abspath(SCRIPTS_DIR))
 
 import server
 import obsidian_cli

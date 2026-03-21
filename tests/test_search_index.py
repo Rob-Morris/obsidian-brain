@@ -3,13 +3,8 @@
 import json
 import math
 import os
-import sys
 
 import pytest
-
-# Add scripts dir to path so we can import the module
-SCRIPTS_DIR = os.path.join(os.path.dirname(__file__), "..", "src", "brain-core", "scripts")
-sys.path.insert(0, SCRIPTS_DIR)
 
 import build_index as bi
 import search_index as si

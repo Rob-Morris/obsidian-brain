@@ -5,5 +5,9 @@
 __pycache__/
 .venv/
 
+# Generated files
+.compiled-router.json
+.retrieval-index.json
+
 # Local overrides
 agents.local.md

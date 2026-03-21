@@ -1,0 +1,18 @@
+[project]
+name = "obsidian-brain"
+requires-python = ">=3.10"
+dependencies = [
+    "mcp>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = [
+    "src/brain-core/scripts",
+    "src/brain-core/mcp",
+]

@@ -2,15 +2,10 @@
 
 import json
 import os
-import sys
 import tempfile
 import shutil
 
 import pytest
-
-# Add scripts dir to path so we can import the module
-SCRIPTS_DIR = os.path.join(os.path.dirname(__file__), "..", "src", "brain-core", "scripts")
-sys.path.insert(0, SCRIPTS_DIR)
 
 import compile_router as cr
 
