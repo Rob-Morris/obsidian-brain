@@ -324,14 +324,14 @@ tags:
 
 **Trigger:** After a conversation worth preserving, capture as transcript.
 
-### Design Transcripts
+### Shaping Transcripts
 
-**Folder:** `_Temporal/Design Transcripts/yyyy-mm/` · **Naming:** `yyyymmdd-{sourcedoctype}-transcript--{slug}.md`
+**Folder:** `_Temporal/Shaping Transcripts/yyyy-mm/` · **Naming:** `yyyymmdd-{sourcedoctype}-transcript--{slug}.md`
 
 Q&A refinement transcripts tied to a source artefact. Each transcript is bound to one source document.
 
 ```yaml
-type: temporal/design-transcript
+type: temporal/shaping-transcript
 tags:
   - transcript
   - source-type
@@ -454,6 +454,27 @@ tags:
 **Conventions:** Derive from a source (use provenance convention). Keep tight — a paragraph, a tweet, a tagline. One piece per file.
 
 **Trigger:** When crafting a shareable or reusable piece from existing work.
+
+### Cookies
+
+**Folder:** `_Temporal/Cookies/yyyy-mm/` · **Naming:** `yyyymmdd-cookie--{slug}.md`
+
+A measure of user satisfaction. When work lands well, the user awards a cookie. Over time, the cookie log reveals what kinds of work resonate and what approaches are worth repeating.
+
+```yaml
+type: temporal/cookie
+tags:
+  - cookie
+```
+
+**Template fields:**
+- **What:** What was done
+- **Flavour:** What made it satisfying (speed, elegance, understanding, surprise)
+- **Why it earned a cookie:** Why this work stood out
+
+**Conventions:** One file per cookie. Be specific about what was done. Note the flavour — the insight is in *why* it was satisfying, not just *that* it was. Don't fish for cookies on trivial work; the value comes from them being genuine.
+
+**Trigger:** After completing work the user is happy with. Look for signals: explicit praise, "ship it", "that's perfect", or the word "cookie." Agents should ask honestly: "Was that good enough to earn a cookie? Because you know I'd do aaaanything for a cookie, so be straight with me."
 
 ---
 
@@ -750,7 +771,7 @@ Brain uses a 16-colour pastel palette to visually distinguish folders in the Obs
 | Coral | `#F0908F` | Available for living types |
 | Amber | `#F5C97A` | Logs (base before blend) |
 | Teal | `#7DD6D2` | Research (base before blend) |
-| Lavender | `#B8A9E8` | Design Transcripts (base before blend) |
+| Lavender | `#B8A9E8` | Shaping Transcripts (base before blend) |
 | Sky | `#8BB8E8` | Friction Logs (base before blend) |
 | Sage | `#8FCA8E` | Decision Logs (base before blend) |
 | Mauve | `#D4A0C0` | Transcripts (base before blend) |

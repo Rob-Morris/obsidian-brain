@@ -2,7 +2,7 @@
 
 Complete, ready-to-install artefact type definitions for Brain vaults.
 
-The template vault ships with a minimal set of types (wiki, logs, plans, transcripts). This library contains all known types — including the template vault defaults — as a reference and install source.
+The template vault ships with a curated set of defaults (marked below). This library contains all known types — including the template vault defaults — as a reference and install source.
 
 ## Available Types
 
@@ -11,11 +11,11 @@ The template vault ships with a minimal set of types (wiki, logs, plans, transcr
 | Type | Key | Description |
 |---|---|---|
 | [Wiki](living/wiki/) | `wiki` | Interconnected knowledge base. One page per concept. **Template vault default.** |
-| [Daily Notes](living/daily-notes/) | `daily-notes` | High-level end-of-day summaries distilled from logs. |
+| [Daily Notes](living/daily-notes/) | `daily-notes` | High-level end-of-day summaries distilled from logs. **Template vault default.** |
 | [Designs](living/designs/) | `designs` | Design documents, wireframes, and specs. |
 | [Documentation](living/documentation/) | `documentation` | Guides, standards, and reference material. |
 | [Ideas](living/ideas/) | `ideas` | Loose thoughts and concepts to explore. |
-| [Notes](living/notes/) | `notes` | Flat knowledge base of date-prefixed interconnected notes. |
+| [Notes](living/notes/) | `notes` | Flat knowledge base of date-prefixed interconnected notes. **Template vault default.** |
 | [Projects](living/projects/) | `projects` | Project index files linking to related artefacts via project tags. |
 | [Writing](living/writing/) | `writing` | Long-form written works with lifecycle: draft → published. |
 | [Zettelkasten](living/zettelkasten/) | `zettelkasten` | Auto-maintained atomic concept mesh. One card per concept. |
@@ -27,14 +27,15 @@ The template vault ships with a minimal set of types (wiki, logs, plans, transcr
 | [Logs](temporal/logs/) | `logs` | Append-only daily activity logs. **Template vault default.** |
 | [Plans](temporal/plans/) | `plans` | Pre-work plans before complex work begins. **Template vault default.** |
 | [Transcripts](temporal/transcripts/) | `transcripts` | Conversation transcripts. **Template vault default.** |
-| [Decision Logs](temporal/decision-logs/) | `decision-logs` | Point-in-time records of decisions — captures the "why" behind choices. |
-| [Design Transcripts](temporal/design-transcripts/) | `design-transcripts` | Q&A refinement transcripts tied to a source artefact. |
-| [Friction Logs](temporal/friction-logs/) | `friction-logs` | Signal accumulator — logs missing context, conflicting info, or guesses. |
+| [Decision Logs](temporal/decision-logs/) | `decision-logs` | Point-in-time records of decisions — captures the "why" behind choices. **Template vault default.** |
+| [Shaping Transcripts](temporal/shaping-transcripts/) | `shaping-transcripts` | Q&A refinement transcripts tied to a source artefact. **Template vault default.** |
+| [Friction Logs](temporal/friction-logs/) | `friction-logs` | Signal accumulator — logs missing context, conflicting info, or guesses. **Template vault default.** |
 | [Idea Logs](temporal/idea-logs/) | `idea-logs` | Quick idea captures with graduation path to ideas then designs. |
-| [Research](temporal/research/) | `research` | In-depth research notes on specific topics. |
+| [Research](temporal/research/) | `research` | In-depth research notes on specific topics. **Template vault default.** |
 | [Thoughts](temporal/thoughts/) | `thoughts` | Raw, unformed thinking captured in the moment. |
 | [Reports](temporal/reports/) | `reports` | Overviews of detailed processes — findings and implications. |
 | [Snippets](temporal/snippets/) | `snippets` | Short, crafted content pieces derived from existing work. |
+| [Cookies](temporal/cookies/) | `cookies` | A measure of user satisfaction — awarded when work lands well. **Template vault default.** |
 
 ## Choosing a Knowledge Type
 
@@ -81,12 +82,13 @@ Each type includes a `style.css` with suggested default colours. These are start
 | Logs | Amber | `#F3BD93` |
 | Plans | Coral | `#F198A2` |
 | Research | Teal | `#A5C5CD` |
-| Design Transcripts | Lavender | `#CCA9DB` |
+| Shaping Transcripts | Lavender | `#CCA9DB` |
 | Transcripts | Mauve | `#D8A4C2` |
 | Idea Logs | Blush | `#ECB2B7` |
 | Thoughts | Mint | `#C2D2CC` |
 | Reports | Lime | `#D4D29E` |
 | Snippets | Gold | `#EBC49E` |
+| Cookies | Cookie Dough | `#DDA793` |
 
 ## Conventions
 

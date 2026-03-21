@@ -252,7 +252,7 @@ Every artefact related to this project shares the `project/my-app` tag. The proj
 
 ### Starting Small
 
-A new Brain vault ships with just a few types: Wiki, Logs, Transcripts, and Plans. That's enough to start. You don't need to install all 20 types on day one.
+A new Brain vault ships with a practical starter set: Wiki, Daily Notes, Notes, Logs, Plans, Transcripts, Research, Decision Logs, Friction Logs, and Cookies. That covers the core workflows — capturing knowledge, logging activity, recording decisions, tracking friction, and rewarding good work. You can add more types from the library as you need them.
 
 ### Adding Types When You Need Them
 
@@ -295,6 +295,12 @@ The router (`_Config/router.md`) defines workflow triggers — things that shoul
 
 Your standing instructions and gotchas travel with the vault. Every agent session starts by reading them. Your preferences persist even when the conversation doesn't.
 
+### Cookies
+
+When an agent does good work, you can award a cookie. Cookies are temporal artefacts that track what was done, what made it satisfying, and why it earned one. Over time, the cookie log becomes a signal of what kinds of work land well — a feedback loop that helps agents understand what you value.
+
+Agents are encouraged to ask honestly after meaningful work: "Was that good enough to earn a cookie? Because you know I'd do aaaanything for a cookie, so be straight with me." The value comes from cookies being genuine, not fished for.
+
 ---
 
 ## What's in the Vault
@@ -317,13 +323,14 @@ _Temporal/
   Plans/                      ← pre-work strategy
   Research/                   ← investigation notes
   Transcripts/                ← conversation records
-  Design Transcripts/         ← Q&A refinement sessions
+  Shaping Transcripts/         ← Q&A refinement sessions
   Idea Logs/                  ← raw idea captures
   Thoughts/                   ← unformed thinking
   Decision Logs/              ← "why we chose X"
   Friction Logs/              ← "this was confusing"
   Reports/                    ← process overviews
   Snippets/                   ← crafted short-form content
+  Cookies/                    ← "that earned a cookie"
 
 _Attachments/                 ← images, PDFs, files
 _Config/                      ← router, taxonomy, styles, preferences

@@ -8,13 +8,16 @@ This guide covers what you need to know day-to-day. For the full reference, see 
 
 ```
 Wiki/                     ← living artefacts (root folders)
-Projects/
-Designs/
+Daily Notes/
+Notes/
 ...
 _Temporal/                ← temporal artefacts (dated, point-in-time)
   Logs/2026-03/
   Plans/2026-03/
   Research/2026-03/
+  Decision Logs/2026-03/
+  Friction Logs/2026-03/
+  Cookies/2026-03/
   ...
 _Attachments/             ← images, PDFs, non-markdown files
 _Config/                  ← router, taxonomy, styles, templates, preferences
