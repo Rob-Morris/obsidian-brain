@@ -2,6 +2,11 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.9.10 — 2026-03-21
+
+- **User documentation** — quick-start guide (`src/brain-core/guide.md`, ships as `.brain-core/guide.md`) and full reference (`docs/user-guide.md`). Quick-start covers vault structure, day-to-day workflows, frontmatter, provenance, archiving, extending, configuration, and tooling with links to the full reference. Full reference documents all 20 artefact types, filing conventions, frontmatter rules, workflows (daily cycle, idea graduation, provenance, archiving, friction-to-gotcha, organic growth), extension procedures, configuration, tooling, colour system, and writing style
+- `CLAUDE.md`: added user documentation maintenance convention — update guide and user-guide when changes affect user-facing behaviour
+
 ## v0.9.9 — 2026-03-21
 
 - **Compiler: status enum and terminal status extraction** — `compile_router.py` now extracts `frontmatter.status_enum` and `frontmatter.terminal_statuses` per artefact type from taxonomy files. Recognises three status enum patterns (inline YAML comment, lifecycle table, prose line) and cross-references archiving sections against the enum. check.py (DD-009) consumes these fields — no taxonomy parsing needed at check time

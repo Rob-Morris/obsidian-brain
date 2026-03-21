@@ -1,0 +1,838 @@
+# Brain User Guide
+
+Complete reference for using a Brain vault. If you're new, start with the [Quick-Start Guide](../src/brain-core/guide.md) that ships with your vault (`.brain-core/guide.md`).
+
+---
+
+## Contents
+
+- [What is the Brain For?](#what-is-the-brain-for)
+- [How Brain Works](#how-brain-works)
+- [Vault Structure](#vault-structure)
+- [The Artefact Model](#the-artefact-model)
+- [Living Artefact Types](#living-artefact-types)
+- [Temporal Artefact Types](#temporal-artefact-types)
+- [Filing Conventions](#filing-conventions)
+- [Frontmatter Conventions](#frontmatter-conventions)
+- [Workflows](#workflows)
+- [Extending Your Vault](#extending-your-vault)
+- [Configuration Reference](#configuration-reference)
+- [Tooling](#tooling)
+- [Colour System](#colour-system)
+- [Writing Style](#writing-style)
+- [Maintaining This Guide](#maintaining-this-guide)
+
+---
+
+## What is the Brain For?
+
+The Brain remembers for you so you don't have to. More than that, it remembers in a way that it understands what you mean and can help you do the things you want to do.
+
+Most note-taking systems start organised and slowly decay. Files pile up, naming drifts, folders become dumping grounds, and finding things depends on remembering where you put them. AI agents make this worse — they create files fast but have no memory of what's already there, so they duplicate, misfile, and fragment your knowledge.
+
+Brain solves this by giving your vault a self-reinforcing structure. Every file has a typed home. Naming and frontmatter follow predictable conventions per type. Agents can find existing work before creating new work, file things in the right place without being told, and maintain vault integrity as they go. Because the structure is consistent and machine-readable, agents don't just store your knowledge — they understand it well enough to surface the right context when you need it, connect related ideas across your vault, and act on your behalf with real awareness of what you've already thought, decided, and built.
+
+The vault gets more useful over time, not less. You spend less time organising and more time thinking. You capture ideas without worrying about where they go. You come back after a break and find things where you expect them. Your agents work with the same conventions you do, so their output fits seamlessly alongside yours.
+
+Brain is opinionated about structure but flexible about content. It tells you where things go and what to call them, but not what to write. You start with a small set of artefact types and add more as your needs evolve — the system extends itself rather than fighting you.
+
+## How Brain Works
+
+Brain is a methodology for organising Obsidian vaults. It gives every file a typed home, defines naming and frontmatter conventions per type, and provides workflows for how artefacts relate to each other over time.
+
+The core ships as `.brain-core/` inside your vault — a versioned, upgradeable package. Your vault's configuration lives in `_Config/`, which persists across upgrades. You start with a small set of artefact types and add more as you need them.
+
+### Core Principles
+
+1. **Every file belongs in a typed folder.** No content in the vault root. If nothing fits, extend the vault first.
+2. **Self-extending vault.** When content has no home, add a new artefact type before creating the file.
+3. **Start simple, grow organically.** Artefacts start flat. Structure (subfolders, indexes) emerges as complexity grows, not planned upfront.
+4. **Frontmatter for queryable state, body for navigation.** Type, tags, status in frontmatter. Wikilinks, origin lines, callouts in body.
+5. **Keep instruction files lean.** The router stays minimal; detail lives in taxonomy files and core docs.
+
+---
+
+## Vault Structure
+
+### Folder Tiers
+
+| Tier | Folders | Purpose |
+|---|---|---|
+| **Living** | Root-level type folders (`Wiki/`, `Projects/`, etc.) | Artefacts that evolve; current version is source of truth |
+| **Temporal** | `_Temporal/` and its children | Point-in-time artefacts; written once, rarely edited |
+| **Config** | `_Config/` | Router, taxonomy, styles, templates, skills, preferences |
+| **System** | `_Attachments/`, `_Plugins/`, `.brain-core/`, `.obsidian/` | Infrastructure, not content |
+
+### System Folders
+
+| Folder | Purpose |
+|---|---|
+| `_Attachments/` | Non-markdown files — images, PDFs, exports |
+| `_Config/` | Vault configuration — router, taxonomy definitions, styles, templates, user preferences |
+| `_Config/Taxonomy/` | One file per artefact type with full definition |
+| `_Config/Templates/` | Obsidian templates for each type |
+| `_Config/Styles/` | Writing style guide and colour assignments |
+| `_Config/User/` | Your standing preferences and learned gotchas |
+| `_Config/Skills/` | Skill documents for tools and workflows |
+| `_Temporal/` | Parent folder for all temporal artefact types |
+| `_Plugins/` | External tool data and integrations |
+| `.brain-core/` | The Brain system itself (versioned, upgradeable) |
+| `.obsidian/` | Obsidian vault config and CSS snippets |
+
+Folders starting with `_` or `.` are infrastructure — excluded from content indexing and search.
+
+### Archive Subfolders
+
+Living artefact folders can contain an `_Archive/` subfolder for terminal artefacts. Archived files are renamed with a date prefix and styled in slate to signal "inactive."
+
+---
+
+## The Artefact Model
+
+Brain classifies every file as either **living** or **temporal**.
+
+### Living Artefacts
+
+- Sit in root-level folders
+- Evolve over time — you edit them, they grow, the current version is what matters
+- May have a lifecycle with status values (e.g., `draft` → `published`)
+- Some reach a terminal status and get archived; others are evergreen
+
+### Temporal Artefacts
+
+- Sit under `_Temporal/` in type-specific subfolders
+- Bound to a moment — written once, rarely edited afterward
+- Organised in monthly subfolders (`yyyy-mm/`)
+- Date-prefixed filenames
+- Serve as historic record; their insights may spin out into living artefacts
+
+### The Relationship
+
+Temporal artefacts capture the moment. Living artefacts capture the understanding. A log entry records what happened; a wiki page explains the concept. A research doc captures findings at a point in time; a design doc carries the decisions forward.
+
+When temporal work produces something lasting, it spins out to a living artefact with provenance links connecting the two.
+
+---
+
+## Living Artefact Types
+
+### Wiki
+
+**Folder:** `Wiki/` · **Naming:** `{slug}.md` · **Colour:** Rose
+
+Interconnected knowledge base. One page per concept. Deliberately human-curated — selective, polished, comprehensive reference.
+
+```yaml
+type: living/wiki
+tags:
+  - topic-tag
+```
+
+No status field. Evergreen. Update pages as understanding deepens. One page per concept; merge duplicates. Link liberally.
+
+**Relationship to Zettelkasten:** Wiki is coarse-grained — topic pages that synthesise multiple ideas. Zettelkasten is fine-grained — atomic concept cards. Wiki pages explain in depth; zettels index atomically. They complement each other.
+
+### Zettelkasten
+
+**Folder:** `Zettelkasten/` · **Naming:** `{slug}.md` · **Colour:** Mint
+
+Auto-maintained atomic concept mesh. One card per concept (~200–400 words), densely linked to sources and related cards. Makes implicit knowledge structure explicit.
+
+```yaml
+type: living/zettelkasten
+tags:
+  - topic-tag
+sources:
+  - "[[Wiki/some-concept]]"
+related:
+  - "[[Zettelkasten/related-concept]]"
+```
+
+No status field. Stubs (< 50 words) are identified automatically.
+
+**Two-layer authorship:**
+- **Maintenance layer** (deterministic): discovers concepts from your other artefacts, creates stub cards, maintains `sources` and `related` links
+- **Enrichment layer** (LLM-assisted): develops stubs into proper cards (200–400 words, in your own words)
+
+**Optional body links:**
+- `**Follows:** [[Zettelkasten/ownership]]` — thought-lineage chain
+- `**Depth:** [[Wiki/some-concept]]` — pointer to wiki page for deeper explanation
+
+### Notes
+
+**Folder:** `Notes/` · **Naming:** `yyyymmdd - {Title}.md`
+
+Flat knowledge base of date-prefixed notes. Low-friction alternative to wiki when deliberate curation feels like overhead.
+
+```yaml
+type: living/note
+tags:
+  - topic-tag
+```
+
+No status field. Evergreen. Intentionally flat (no subfolders). One page per concept. Update existing pages rather than creating duplicates. Link liberally. Self-contained — readable without following links.
+
+### Daily Notes
+
+**Folder:** `Daily Notes/` · **Naming:** `yyyy-mm-dd ddd.md` (e.g., `2026-03-15 Sun.md`)
+
+End-of-day summaries distilled from the day's log. The log has detail; the daily note has overview.
+
+```yaml
+type: living/daily-note
+tags:
+  - daily-note
+```
+
+**Format:** `## Tasks` (checkbox list of what got done) + `## Notes` (short topic sections summarising the day).
+
+### Designs
+
+**Folder:** `Designs/` · **Naming:** `{slug}.md`
+
+Design documents, wireframes, proposals for features, products, or concepts.
+
+```yaml
+type: living/design
+tags:
+  - design
+status: shaping
+```
+
+**Lifecycle:**
+
+| Status | Meaning |
+|---|---|
+| `shaping` | Default. Being explored; decisions open. |
+| `active` | Agreed and being implemented. |
+| `implemented` | Fully built; authority transfers to implementation. Terminal — archive. |
+| `parked` | Set aside; not abandoned, not being pursued. |
+
+**Body lineage:**
+```markdown
+**Origin:** [[source-idea|The original idea]] (2026-03-10)
+**Transcripts:** [[transcript-1|Session 1]], [[transcript-2|Session 2]]
+```
+
+**Archiving:** When `implemented` → add `archiveddate` → add supersession callout → rename to `yyyymmdd-{slug}.md` → move to `Designs/_Archive/`.
+
+### Ideas
+
+**Folder:** `Ideas/` · **Naming:** `{slug}.md`
+
+Loose thoughts and concepts to explore. Loose structure; no prescribed format beyond title and tags.
+
+```yaml
+type: living/idea
+tags:
+  - idea
+status: new
+```
+
+**Lifecycle:**
+
+| Status | Meaning |
+|---|---|
+| `new` | Default. Exists but not developed. |
+| `graduated` | Promoted to design doc. Terminal — archive. |
+| `parked` | Set aside; not abandoned. |
+
+**Graduation to Design:** Create design doc in `Designs/` → set idea `status: graduated` → add `archiveddate` → add graduation callout → rename to `yyyymmdd-{slug}.md` → add `**Origin:**` link on design → move idea to `Ideas/_Archive/`.
+
+### Projects
+
+**Folder:** `Projects/` · **Naming:** `{slug}.md`
+
+Project index files. One per project, linking to all related artefacts — designs, research, plans, transcripts. The hub.
+
+```yaml
+type: living/project
+tags:
+  - project/{slug}
+```
+
+**Convention:** All related files across the vault use a nested project tag (e.g., `project/pistols-at-dawn`) so you can find everything connected to a project.
+
+### Writing
+
+**Folder:** `Writing/` · **Naming:** `{slug}.md`
+
+Atomic pieces of written work — essays, blog posts, chapters, letters, scripts.
+
+```yaml
+type: living/writing
+tags:
+  - writing
+status: draft
+```
+
+**Lifecycle:**
+
+| Status | Meaning |
+|---|---|
+| `draft` | Work in progress. Default. |
+| `editing` | Structure set; refining language and flow. |
+| `review` | Ready for external or final self-review. |
+| `published` | Released or delivered. Stays as canonical source. |
+| `parked` | Set aside; not being worked on. |
+
+Complex writing projects use subfolders: `Writing/my-novel/index.md` with chapter files alongside.
+
+### Documentation
+
+**Folder:** `Documentation/` · **Naming:** `{slug}.md`
+
+Technical docs, style guides, prescriptive reference that governs how work gets done.
+
+```yaml
+type: living/documentation
+tags:
+  - documentation
+```
+
+No status field. Evergreen. Evolves over time as understanding deepens.
+
+---
+
+## Temporal Artefact Types
+
+All temporal artefacts live under `_Temporal/` in type-specific subfolders, organised by month (`yyyy-mm/`).
+
+### Logs
+
+**Folder:** `_Temporal/Logs/yyyy-mm/` · **Naming:** `log--yyyy-mm-dd.md`
+
+Append-only daily activity logs. Running chronological record of what happened.
+
+```yaml
+type: temporal/log
+tags:
+  - log
+```
+
+**Conventions:**
+- Append only — never edit or remove entries
+- Timestamp each entry: `HH:MM` or `HH:MM:SS`
+- Keep entries brief (1–2 sentences)
+- Use wikilinks to reference artefacts and concepts
+- Tag cross-repo work with project name in italics: `*(My Project)* Did the thing`
+
+**Trigger:** After meaningful work, append a timestamped entry to today's log.
+
+### Plans
+
+**Folder:** `_Temporal/Plans/yyyy-mm/` · **Naming:** `yyyymmdd-{slug}.md`
+
+Pre-work plans written before complex work begins. Records intended approach, goal, and strategy.
+
+```yaml
+type: temporal/plan
+tags:
+  - plan
+status: draft
+```
+
+**Lifecycle:** `draft` → `approved` → `completed`
+
+**Conventions:** Write before starting. Keep concise — align on approach, not full spec. Link to relevant artefacts.
+
+**Trigger:** Before complex work, write the plan.
+
+### Transcripts
+
+**Folder:** `_Temporal/Transcripts/yyyy-mm/` · **Naming:** `yyyymmdd-{slug}.md`
+
+Conversation transcripts — person-to-person, AI conversations, Q&A sessions.
+
+```yaml
+type: temporal/transcript
+tags:
+  - transcript
+```
+
+**Conventions:** One transcript per conversation. Identify participants consistently. Preserve flow — record in order, don't reorganise.
+
+**Trigger:** After a conversation worth preserving, capture as transcript.
+
+### Design Transcripts
+
+**Folder:** `_Temporal/Design Transcripts/yyyy-mm/` · **Naming:** `yyyymmdd-{sourcedoctype}-transcript--{slug}.md`
+
+Q&A refinement transcripts tied to a source artefact. Each transcript is bound to one source document.
+
+```yaml
+type: temporal/design-transcript
+tags:
+  - transcript
+  - source-type
+```
+
+File begins with a wikilink to the source. Q&A format: `Q.` prefix for questions, `> A.` blockquote for answers.
+
+**Trigger:** After refining an artefact through Q&A, capture the raw Q&A.
+
+### Research
+
+**Folder:** `_Temporal/Research/yyyy-mm/` · **Naming:** `yyyymmdd-{slug}.md`
+
+In-depth research notes and findings on specific topics.
+
+```yaml
+type: temporal/research
+tags:
+  - research
+```
+
+**Conventions:** One topic per file. Link to the context that prompted the research (project, design, idea). Include sources.
+
+### Idea Logs
+
+**Folder:** `_Temporal/Idea Logs/yyyy-mm/` · **Naming:** `yyyymmdd-idea-log--{slug}.md`
+
+Low-friction idea captures. Raw, quick captures with a deliberately low bar for entry.
+
+```yaml
+type: temporal/idea-log
+tags:
+  - idea
+  - topic-tag
+```
+
+**Graduation path:** Idea log (raw capture) → living Idea (fleshed out) → Design (shaped proposal). At each transition, use provenance links.
+
+**Trigger:** When a new idea strikes, capture before it slips away.
+
+### Thoughts
+
+**Folder:** `_Temporal/Thoughts/yyyy-mm/` · **Naming:** `yyyymmdd-thought--{slug}.md`
+
+Raw, unformed thinking captured in the moment. Precursor to ideas. Deliberately low bar — if it crosses your mind and feels worth noting, write it down. Most thoughts won't go anywhere, and that's fine.
+
+```yaml
+type: temporal/thought
+tags:
+  - thought
+```
+
+**Trigger:** When a raw thought surfaces, capture before it slips away.
+
+### Decision Logs
+
+**Folder:** `_Temporal/Decision Logs/yyyy-mm/` · **Naming:** `yyyymmdd-decision--{slug}.md`
+
+Point-in-time records of decisions, capturing the "why" behind choices.
+
+```yaml
+type: temporal/decision-log
+tags:
+  - decision
+```
+
+**Conventions:**
+- State the question clearly — what decision needed making?
+- List options considered, especially rejected ones
+- Be honest about tradeoffs
+- Link to what prompted the decision
+- Write before the reasoning fades
+
+**Trigger:** After a significant decision, capture the reasoning.
+
+### Friction Logs
+
+**Folder:** `_Temporal/Friction Logs/yyyy-mm/` · **Naming:** `yyyymmdd-friction--{slug}.md`
+
+Signal accumulator for maintenance. Logs moments where context was missing, information conflicted, or assumptions had to be made. Not a bug tracker — a pattern detector. Individual entries are low-cost; value emerges when signals accumulate.
+
+```yaml
+type: temporal/friction-log
+tags:
+  - friction
+```
+
+**Conventions:** Capture in the moment. Be specific about where friction occurred. Include impact. Suggest a fix.
+
+**Review pattern:** When friction patterns recur across multiple logs, distil them into a gotcha in `_Config/User/gotchas.md`.
+
+**Trigger:** When encountering missing context, conflicting info, or making assumptions.
+
+### Reports
+
+**Folder:** `_Temporal/Reports/yyyy-mm/` · **Naming:** `yyyymmdd-report--{slug}.md`
+
+Overviews of detailed processes. Distils a process (research, diagnosis, investigation, audit) into findings, implications, and recommended next steps.
+
+```yaml
+type: temporal/report
+tags:
+  - report
+```
+
+**Trigger:** After completing a detailed process, distil what it meant.
+
+### Snippets
+
+**Folder:** `_Temporal/Snippets/yyyy-mm/` · **Naming:** `yyyymmdd-snippet--{slug}.md`
+
+Short, crafted content pieces derived from existing work — tweets, blurbs, product descriptions, taglines, bios.
+
+```yaml
+type: temporal/snippet
+tags:
+  - snippet
+```
+
+**Conventions:** Derive from a source (use provenance convention). Keep tight — a paragraph, a tweet, a tagline. One piece per file.
+
+**Trigger:** When crafting a shareable or reusable piece from existing work.
+
+---
+
+## Filing Conventions
+
+### Living Artefacts
+
+- Root-level folder, one per type
+- Slug-based naming for most types: `{slug}.md`
+- Some types use date prefixes: Notes (`yyyymmdd - {Title}.md`), Daily Notes (`yyyy-mm-dd ddd.md`)
+- Start flat; subfolders emerge organically when a single work outgrows one file
+- One file acts as the index in a subfolder (`index.md` or `project-slug.md`)
+
+### Temporal Artefacts
+
+- All under `_Temporal/{Type Name}/`
+- Monthly subfolders: `yyyy-mm/`
+- Date-prefixed filenames (exact format varies by type — see individual type sections)
+- Flat within month folders
+
+### Archives
+
+- `{Type}/_Archive/` for living artefacts that reach terminal status
+- Files renamed to `yyyymmdd-{slug}.md` before moving
+- Styled in slate to signal "inactive infrastructure"
+
+---
+
+## Frontmatter Conventions
+
+### Required Fields
+
+Every artefact needs at minimum:
+
+```yaml
+type: living/wiki        # or temporal/log, etc.
+tags:
+  - topic-tag
+```
+
+### Status
+
+Only types with a defined lifecycle have status. Current types with status:
+
+| Type | Status values |
+|---|---|
+| Designs | `shaping`, `active`, `implemented`, `parked` |
+| Ideas | `new`, `graduated`, `parked` |
+| Writing | `draft`, `editing`, `review`, `published`, `parked` |
+| Plans | `draft`, `approved`, `completed` |
+
+### Archive Fields
+
+Added only when archiving:
+
+```yaml
+archiveddate: 2026-03-15
+```
+
+### Project Tags
+
+Use nested tags to connect artefacts to a project:
+
+```yaml
+tags:
+  - project/my-project
+```
+
+All artefacts related to that project share the tag, making them findable together.
+
+### The Body Rule
+
+**Frontmatter** is for queryable state: type, tags, status, dates.
+
+**Body text** is for navigation: wikilinks, origin links, transcript references, supersession callouts.
+
+Why? Obsidian's backlinks and graph view resolve body wikilinks. Body text is visible in reading mode. The search index tokenises body text. Keep your links where they work.
+
+---
+
+## Workflows
+
+### Daily Cycle
+
+1. Work happens
+2. After meaningful work, append a timestamped entry to today's **log** (`_Temporal/Logs/`)
+3. At end of day, create a **daily note** (`Daily Notes/`) summarising the log
+
+The log is the raw timeline. The daily note is the digest.
+
+### Idea Graduation
+
+Ideas progress through increasing levels of structure:
+
+1. **Idea Log** (`_Temporal/Idea Logs/`) — raw capture, low bar
+2. **Idea** (`Ideas/`) — fleshed out, explored, status: `new`
+3. **Design** (`Designs/`) — shaped proposal with decisions, status: `shaping`
+
+At each transition, use provenance links (origin on child, callout on parent). Carry forward relevant tags, especially project tags.
+
+### Provenance
+
+When one artefact spins out of another:
+
+**On the new artefact (child):**
+```markdown
+**Origin:** [[source-file|description]] (yyyy-mm-dd)
+```
+
+**On the source artefact (parent):**
+```markdown
+> [!info] Spun out to design
+> [[new-design]] — 2026-03-15
+```
+
+If the source transfers all authority, set its terminal status and archive it. Otherwise the callout alone suffices — the source stays active.
+
+### Archiving
+
+For living artefacts reaching terminal status:
+
+1. Set the terminal status in frontmatter (e.g., `status: implemented`)
+2. Add `archiveddate: YYYY-MM-DD` to frontmatter
+3. Add a supersession callout at the top of the body linking to the successor
+4. Rename to `yyyymmdd-{slug}.md` (use `brain_action("rename")` for automatic wikilink updates)
+5. Move to `{Type}/_Archive/`
+
+### Friction to Gotcha
+
+1. Encounter friction during work → create a **friction log**
+2. Notice the same friction recurring → distil it into a **gotcha** in `_Config/User/gotchas.md`
+3. Gotchas get read every session, preventing repeat friction
+
+### Organic Growth
+
+Artefacts start as single files. When a piece of work outgrows one file:
+
+1. Create a subfolder within the type folder (e.g., `Writing/my-novel/`)
+2. One file acts as the index (`index.md` or the project-slug file)
+3. Related files sit alongside
+4. The subfolder inherits the parent type — no separate taxonomy or CSS needed
+
+---
+
+## Extending Your Vault
+
+### When to Add a New Type
+
+Before creating a new artefact type, check:
+
+- **No existing type fits** — even with generous interpretation
+- **Recurring pattern** — you expect multiple files, not just one
+- **Distinct lifecycle** — different naming, frontmatter, or archiving rules from existing types
+- **Worth the overhead** — each type needs taxonomy, colour, CSS, and optionally a router trigger
+
+If it's a one-off, consider a subfolder or tag within an existing type instead.
+
+### The Artefact Library
+
+`.brain-core/artefact-library/` contains ready-to-install type definitions. Each type includes a README, taxonomy file, template, and CSS. Browse the library's README for the full catalogue with descriptions and recommendations.
+
+### Adding a Living Artefact Type
+
+1. **Create the root folder** (e.g., `Projects/`)
+2. **Pick a palette colour** — add a `--color-{type}` CSS variable in `.obsidian/snippets/folder-colours.css`. Never reuse system colours (purple, steel, gold, slate).
+3. **Add CSS selectors** — folder, border, and file selectors (templates in `.brain-core/colours.md`)
+4. **Create taxonomy file** at `_Config/Taxonomy/Living/{key}.md`
+5. **Create template** at `_Config/Templates/Living/{Type Name}.md`
+6. **Update colour assignments** in `_Config/Styles/obsidian.md`
+7. **Add router trigger** in `_Config/router.md` (if the type has a trigger condition)
+8. **Log the addition**
+
+### Adding a Temporal Artefact Type
+
+1. **Create the folder** under `_Temporal/` (e.g., `_Temporal/Reports/`)
+2. **Choose a base hue** and apply the temporal blend: `result = base + (rose - base) × 0.35`
+3. **Add CSS** — `--color-temporal-{type}` variable and selectors with `background-color: var(--theme-temporal-bg)`
+4. **Create taxonomy file** at `_Config/Taxonomy/Temporal/{key}.md`
+5. **Create template** at `_Config/Templates/Temporal/{Type Name}.md`
+6. **Update colour assignments** in `_Config/Styles/obsidian.md`
+7. **Add router trigger** in `_Config/router.md` (if applicable)
+8. **Log the addition**
+
+---
+
+## Configuration Reference
+
+### Router (`_Config/router.md`)
+
+The entry point for agents. Contains:
+- A pointer to `.brain-core/index.md` (read every session)
+- **Always-rules** — vault-specific constraints that apply every session
+- **Conditional triggers** — "when X happens, follow this link to the taxonomy file"
+
+Each trigger is a condition paired with a goto pointer. The taxonomy file's `## Trigger` section contains the detailed instructions. This means triggers are defined in one place (no duplication between router and taxonomy).
+
+### Taxonomy (`_Config/Taxonomy/`)
+
+One file per artefact type, organised as `Living/{key}.md` and `Temporal/{key}.md`. Each taxonomy file defines:
+- Purpose and description
+- Naming pattern
+- Frontmatter schema
+- Lifecycle and status values (if applicable)
+- Archiving rules (if applicable)
+- Trigger section (if applicable)
+- Conventions and writing guidance
+
+### Templates (`_Config/Templates/`)
+
+Obsidian templates for each type, organised as `Living/{Type Name}.md` and `Temporal/{Type Name}.md`. Used by Obsidian's core Templates plugin or Templater.
+
+### Styles
+
+- **`_Config/Styles/obsidian.md`** — colour assignments for the vault's artefact types
+- **`_Config/Styles/writing.md`** — writing style guide (language preferences, conventions)
+
+### User Preferences
+
+- **`_Config/User/preferences-always.md`** — your standing instructions for agents (workflow preferences, quality standards, behaviour rules). Read every session.
+- **`_Config/User/gotchas.md`** — learned pitfalls from previous sessions. Friction patterns that recur get distilled here. Read every session.
+
+Both are freeform markdown. Content is entirely up to you.
+
+### Skills (`_Config/Skills/`)
+
+Skill documents for MCP tools, CLI commands, or plugin workflows. One folder per skill with a `SKILL.md` file describing what the skill does and how to use it.
+
+---
+
+## Tooling
+
+### MCP Tools
+
+If your vault runs the Brain MCP server (`.brain-core/mcp/server.py`), three tools are available:
+
+**brain_read** (safe, no side effects)
+- Look up artefacts, triggers, styles, templates, skills, plugins, environment info, or the compiled router
+- Optional name filter to narrow results
+
+**brain_search** (safe, no side effects)
+- Search vault content by query text
+- Filter by `type` and/or `tag`
+- Returns ranked results with paths, titles, scores, and text snippets
+- Uses Obsidian CLI when available, falls back to BM25 index
+
+**brain_action** (mutations, requires approval)
+- `compile` — rebuild the compiled router from source files
+- `build_index` — rebuild the BM25 search index
+- `rename` — rename a file with automatic wikilink updates (uses Obsidian CLI when available)
+
+### Scripts
+
+Available in `.brain-core/scripts/`:
+
+| Script | Purpose |
+|---|---|
+| `compile_router.py` | Compile router, taxonomy, skills, and styles into a single JSON file |
+| `build_index.py` | Build the BM25 retrieval index for search |
+| `search_index.py` | Search the BM25 index from the command line |
+
+### Compliance Check
+
+`compliance_check.py` is a vault-maintenance skill for session hygiene — checks like "did you log today?" and "are backups fresh?" Run it after work blocks.
+
+Separate from `check.py` (structural compliance — correct frontmatter, naming, month folders for all files).
+
+### Fallback Chain
+
+When full tooling isn't available, agents degrade gracefully:
+
+1. **MCP tools** — lowest token cost, structured responses
+2. **Compiled router** — `_Config/.compiled-router.json` (local, gitignored)
+3. **Lean router** — `_Config/router.md` (~45 tokens)
+4. **Naive fallback** — read `index.md` → `router.md` → follow wikilinks
+
+---
+
+## Colour System
+
+Brain uses a 16-colour pastel palette to visually distinguish folders in the Obsidian sidebar.
+
+### How Colours Are Assigned
+
+- **Living artefact folders** get a palette colour directly (e.g., Wiki = Rose, Zettelkasten = Mint)
+- **Temporal child folders** get a base hue blended 35% towards rose for a warm, cohesive tint
+- **System folders** use reserved colours: Config = Purple, Temporal = Steel, Plugins = Gold, Attachments/Archives = Slate
+
+### The Palette
+
+| Colour | Hex | Typical Use |
+|---|---|---|
+| Rose | `#F2A8C4` | Wiki |
+| Mint | `#A8E8D0` | Zettelkasten |
+| Coral | `#F0908F` | Available for living types |
+| Amber | `#F5C97A` | Logs (base before blend) |
+| Teal | `#7DD6D2` | Research (base before blend) |
+| Lavender | `#B8A9E8` | Design Transcripts (base before blend) |
+| Sky | `#8BB8E8` | Friction Logs (base before blend) |
+| Sage | `#8FCA8E` | Decision Logs (base before blend) |
+| Mauve | `#D4A0C0` | Transcripts (base before blend) |
+| Lime | `#C4E88A` | Reports (base before blend) |
+| Blush | `#E8B8B0` | Idea Logs (base before blend) |
+| Gold | `#E8D48A` | Snippets (base before blend) / Plugins folder |
+| Peach | `#F5B88A` | Available |
+| Rose Gold | `#EDBEA7` | Living artefact folder backgrounds |
+| Slate | `#A0B0C0` | Attachments, Archives |
+| Steel | `#8AA8C8` | Temporal parent folder |
+
+### Temporal Blend Formula
+
+`result = base + (rose - base) × 0.35` per RGB channel.
+
+This gives temporal folders a warm, cohesive tint while keeping each type visually distinct.
+
+### CSS Location
+
+All colour definitions and folder styling live in `.obsidian/snippets/folder-colours.css`. Templates for adding new colour selectors are in `.brain-core/colours.md`.
+
+---
+
+## Writing Style
+
+Configured in `_Config/Styles/writing.md`. Default conventions:
+
+**Universal:** Australian English.
+
+**External audience** (tagged `audience/external` or user-requested):
+
+1. Point first, support underneath
+2. Vary sentence length — short punches, long builds momentum, mix keeps prose alive
+3. Short, familiar, specific words ("use" not "utilise")
+4. Strong verbs; cut the adverb
+5. No em dashes (use commas, colons, semicolons)
+6. Write how a sharp person talks
+7. Avoid inflated vocabulary and filler
+8. Show, don't tell — concrete detail persuades
+9. Every sentence earns its place; stop when done
+10. Lead each sentence with the important thing; push setup to the end
+
+---
+
+## Maintaining This Guide
+
+This guide should be updated when:
+
+- **New artefact types** are added to the template vault defaults or the artefact library
+- **Core conventions change** — naming patterns, frontmatter rules, filing conventions
+- **Workflows are added or modified** — new graduation paths, changed archiving rules
+- **New user-facing tooling** is introduced — new MCP tools, scripts, or skills
+- **Configuration points change** — new config files, changed file locations
+
+The [Quick-Start Guide](../src/brain-core/guide.md) (`src/brain-core/guide.md`) that ships with vaults should be updated in tandem — it's a subset of this reference.

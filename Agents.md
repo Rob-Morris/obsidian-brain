@@ -6,6 +6,8 @@ Self-extending system for organising Obsidian vaults, for agents and humans work
 
 Before committing always update documentation, including `docs/changelog.md`.
 
+When making changes that affect user-facing behaviour (new types, changed conventions, new workflows, new tooling), update the user documentation: `src/brain-core/guide.md` (quick-start) and `docs/user-guide.md` (full reference).
+
 ## Versioning
 
 Follows [semver](https://semver.org/). The version is tracked in `.brain-core/VERSION` (inside `src/brain-core/VERSION` in this repo). This is the single source of truth. The `.brain-core/` path is unversioned and stable across upgrades — no folder renames or wikilink rewrites needed when bumping.
