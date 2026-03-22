@@ -12,7 +12,7 @@ The hook source is tracked at `.githooks/pre-commit`. To activate:
 make hooks      # sets git to use .githooks/ directory
 ```
 
-Adding a new numbered item to the canary file automatically enforces it — no hook changes needed. See [canary.md](canary.md) for how canaries work generally.
+Adding a new numbered item to the canary file automatically enforces it — no hook changes needed. See [standards/canary.md](standards/canary.md) for how canaries work generally.
 
 ## Documentation Layers
 
@@ -27,7 +27,7 @@ Brain has multiple documentation layers, each serving a different audience. Keep
 | `specification.md` | Contributors | Design rationale, architecture, what ships in the vault |
 | `tooling.md` | Contributors | Technical design decisions (DD index) |
 | `changelog.md` | Everyone | Version history |
-| `canary.md` | Contributors | How canaries work |
+| `standards/canary.md` | Contributors | How canaries work |
 
 ### Brain-core docs (in `src/brain-core/`, ship as `.brain-core/` in vaults)
 
@@ -79,12 +79,12 @@ Brain-core is developed here (`src/brain-core/`) and deployed to vaults by copyi
 
 1. Implement and commit core changes in this repo first
 2. Copy `src/brain-core/` to the vault's `.brain-core/`
-3. Follow `docs/canaries/post-propagation.local.md` — update vault log, daily note, and master design doc
+3. Follow `docs/canaries/post-core-commit.local.md` — propagate to vault, update vault log, daily note, and master design doc
 4. Commit in the vault repo
 
 Never deploy to both simultaneously. Core-first, always.
 
-Step 3 depends on having a local vault — the post-propagation canary reference belongs in `agents.local.md`, not `Agents.md`. See "Agents.md vs agents.local.md" below.
+Step 3 depends on having a local vault — the post-core-commit canary reference belongs in `agents.local.md`, not `Agents.md`. See "Agents.md vs agents.local.md" below.
 
 ## Agents.md vs agents.local.md
 
@@ -93,7 +93,7 @@ Step 3 depends on having a local vault — the post-propagation canary reference
 `agents.local.md` is gitignored and machine-specific. It holds:
 
 - **Workspace paths** — vault locations, related repo paths
-- **Workflow triggers that depend on the local environment** — e.g. post-propagation canary (only relevant if a vault is co-located), deploy steps for a local staging environment
+- **Workflow triggers that depend on the local environment** — e.g. post-core-commit canary (only relevant if a vault is co-located), deploy steps for a local staging environment
 - **Machine-specific tool config** — local CLI paths, env vars, capability flags
 
 **Rule of thumb:** if the instruction only makes sense when a specific path or local resource exists, it goes in `agents.local.md`. If it applies to anyone working on the repo, it goes in `Agents.md` or `docs/`.
@@ -107,9 +107,9 @@ Step 3 depends on having a local vault — the post-propagation canary reference
 
 Rob's vault: `/Users/robmorris/Library/Mobile Documents/iCloud~md~obsidian/Documents/Brain/`
 
-## After Propagating to Vault
+## After Committing to Brain-Core
 
-When copying `src/brain-core/` to the vault's `.brain-core/`, follow `docs/canaries/post-propagation.local.md` before committing in the vault repo.
+After committing brain-core changes in this repo, follow `docs/canaries/post-core-commit.local.md` to propagate and update vault documentation.
 ```
 
 ## Standards vs Docs
