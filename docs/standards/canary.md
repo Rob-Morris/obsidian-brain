@@ -23,7 +23,7 @@ A canary brief succinctly describes a numbered list of triggers & actions for an
 ```markdown
 # {Name} Canary
 
-{One-line trigger — when this canary fires.} See [standards/canary.md](...) for how canaries work.
+{One-line trigger — when this canary fires.} See [standards/canary.md](relative/path/to/standards/canary.md) for how canaries work.
 
 ## Items
 
@@ -49,6 +49,8 @@ After following the items above, write `.canary--{name}` at {location}:
 Each item gets a **bold short name** so it's scannable, followed by the full instruction. Blank lines between items for readability. Line 2 links back to this standard so agents can look up the format.
 
 Only items that are conditionally applicable should include `skip` guidance. Always-do items (like "run the tests") don't need it — they must always be done.
+
+Canaries that depend on a local environment (e.g. a co-located vault) should use a `.local.md` suffix and be gitignored. The brief format is the same — the suffix just signals that the canary is machine-specific and not part of the shared repo.
 
 ### Example
 
