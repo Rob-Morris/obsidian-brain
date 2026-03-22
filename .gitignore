@@ -12,5 +12,8 @@ __pycache__/
 # Canary logs (transient, checked by hooks)
 .canary--*
 
+# Local-only canaries (vault-specific, not part of core)
+docs/canaries/*.local.md
+
 # Local overrides
 agents.local.md
