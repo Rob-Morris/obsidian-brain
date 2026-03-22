@@ -9,4 +9,4 @@ Self-extending system for organising Obsidian vaults, for agents and humans work
 
 ## Local Overrides
 
-If `agents.local.md` exists in the repo root, read it for machine-specific configuration such as workspace paths and environment details.
+If `agents.local.md` exists in the repo root, read it for machine-specific configuration: workspace paths, vault locations, and workflow triggers that depend on the local environment (e.g. post-propagation canaries for a co-located vault).

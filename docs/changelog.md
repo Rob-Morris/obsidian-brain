@@ -2,6 +2,12 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.9.16 — 2026-03-22
+
+- **Post-propagation canary** — `docs/canaries/post-propagation.md` covers vault-side updates after brain-core propagation: activity log, daily note, master design doc. Triggered from `agents.local.md` (machine-specific, not universal)
+- `docs/contributing.md`: new "Agents.md vs agents.local.md" section — rule of thumb for what goes where
+- `Agents.md`: local overrides description now mentions workflow triggers as a use case
+
 ## v0.9.15 — 2026-03-22
 
 - **Memories** — conditional context that agents load on demand when the user references a project, tool, or concept. Memories are declarative reference cards (not procedural skills) stored in `_Config/Memories/` with `triggers: [...]` in YAML frontmatter
