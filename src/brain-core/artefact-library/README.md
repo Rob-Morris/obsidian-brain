@@ -16,6 +16,7 @@ The template vault ships with a curated set of defaults (marked below). This lib
 | [Documentation](living/documentation/) | `documentation` | Guides, standards, and reference material. |
 | [Ideas](living/ideas/) | `ideas` | Loose thoughts and concepts to explore. |
 | [Notes](living/notes/) | `notes` | Flat knowledge base of date-prefixed interconnected notes. **Template vault default.** |
+| [Journals](living/journals/) | `journals` | Named journal streams grouping personal journal entries via nested tags. |
 | [Projects](living/projects/) | `projects` | Project index files linking to related artefacts via project tags. |
 | [Writing](living/writing/) | `writing` | Long-form written works with lifecycle: draft → published. |
 | [Zettelkasten](living/zettelkasten/) | `zettelkasten` | Auto-maintained atomic concept mesh. One card per concept. |
@@ -36,6 +37,8 @@ The template vault ships with a curated set of defaults (marked below). This lib
 | [Reports](temporal/reports/) | `reports` | Overviews of detailed processes — findings and implications. |
 | [Snippets](temporal/snippets/) | `snippets` | Short, crafted content pieces derived from existing work. |
 | [Cookies](temporal/cookies/) | `cookies` | A measure of user satisfaction — awarded when work lands well. **Template vault default.** |
+| [Journal Entries](temporal/journal-entries/) | `journal-entries` | Personal journal entries — reflections, recollections, and life updates. |
+| [Mockups](temporal/mockups/) | `mockups` | Visual or interactive prototypes generated to explore a design direction. |
 
 ## Choosing a Knowledge Type
 
@@ -89,6 +92,8 @@ Each type includes a `style.css` with suggested default colours. These are start
 | Reports | Lime | `#D4D29E` |
 | Snippets | Gold | `#EBC49E` |
 | Cookies | Cookie Dough | `#DDA793` |
+| Journal Entries | Lavender | `#D4A8DB` |
+| Mockups | Peach | `#F4B29E` |
 
 ## Conventions
 
@@ -110,15 +115,14 @@ Living artefact types that have a lifecycle should include a `status` field in f
 
 - **Ideas:** `new` → `graduated` → `parked`
 - **Designs:** `shaping` → `active` → `implemented` → `parked`
-- **Plans:** `draft` → `active` → `complete` → `abandoned`
+- **Plans:** `draft` → `approved` → `implementing` → `completed`
 
 ## Installing a type
 
 1. Copy `taxonomy.md` to `_Config/Taxonomy/{Living|Temporal}/{key}.md`
 2. Copy `template.md` to `_Config/Templates/{Living|Temporal}/{Type Name}.md`
 3. Create the storage folder (e.g. `_Temporal/{Type Name}/` or `{Type Name}/`)
-4. Merge `style.css` into `.obsidian/snippets/folder-colours.css` — add the colour variable to the Themes `:root` block and the selector blocks to the appropriate section
-5. Update `_Config/Styles/obsidian.md` with the new colour assignment
-6. Optionally add a conditional trigger to `_Config/router.md`
+4. Optionally add a conditional trigger to `_Config/router.md`
+5. Run `brain_action("compile")` — colours are auto-generated from the compiled router
 
 Each type's README includes the specific paths and an optional router trigger line.

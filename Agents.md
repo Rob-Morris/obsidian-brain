@@ -2,27 +2,10 @@
 
 Self-extending system for organising Obsidian vaults, for agents and humans working together.
 
-## Git Conventions
+## Before Committing
 
-Before committing always update documentation, including `docs/changelog.md`.
-
-When making changes that affect user-facing behaviour (new types, changed conventions, new workflows, new tooling), update the user documentation: `src/brain-core/guide.md` (quick-start), `docs/user-guide.md` (walkthrough), and `docs/user-reference.md` (full reference).
-
-## Versioning
-
-Follows [semver](https://semver.org/). The version is tracked in `.brain-core/VERSION` (inside `src/brain-core/VERSION` in this repo). This is the single source of truth. The `.brain-core/` path is unversioned and stable across upgrades — no folder renames or wikilink rewrites needed when bumping.
-
-- **Patch** — bug fixes, doc clarifications, additive changes (new artefact types, new palette colours)
-- **Minor** — breaking changes to vault structure (renamed/removed core files, changed folder conventions)
-- **Major** — fundamental model changes (artefact model, router contract, agent entry flow)
-
-## Multi-Repo Workflow
-
-Core-first workflow: when changes span brain-core and vault repos, implement and commit core changes first, then propagate to vault repos. Never deploy to both simultaneously.
-
-## Testing
-
-Run `make test` (uses `.venv` with Python 3.12). Run `make install` first if the venv doesn't exist. See `docs/tooling.md` for details.
+1. Run `make test` (uses `.venv` with Python 3.12; run `make install` first if the venv doesn't exist)
+2. Follow `docs/canaries/pre-commit.md`
 
 ## Local Overrides
 

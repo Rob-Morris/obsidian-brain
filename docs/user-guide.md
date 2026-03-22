@@ -108,6 +108,29 @@ _Temporal/Friction Logs/2026-03/20260321-friction--api-docs-mismatch.md
 
 One friction log is just a note. But when the same kind of friction keeps showing up, you distil it into a gotcha (`_Config/User/gotchas.md`) so your agents know to watch for it.
 
+### After Work: Journaling
+
+Work's done for the day, but something's on your mind. You've been thinking about a conversation with a friend, or processing a big life change, or just want to get some thoughts down. You chat with your agent about it — casually, like talking to a friend.
+
+The agent captures what you shared as a journal entry, in your own words:
+
+```
+_Temporal/Journal Entries/2026-03/20260321-journal--personal--moving-house.md
+```
+
+```yaml
+---
+type: temporal/journal-entry
+tags:
+  - journal-entry
+  - journal/personal
+---
+```
+
+The entry records your reflections. The conversation itself is a separate transcript if worth keeping. Journal entries are distinct from logs (which track work) and thoughts (which are fleeting fragments) — they're developed personal reflections in your own voice.
+
+If you have multiple journals — say, a personal one and a health one — each is a living artefact in `Journals/` that groups its entries via a nested tag like `journal/personal` or `journal/health`.
+
 ### End of Day: The Daily Note
 
 At the end of the day, you (or your agent) create a daily note that distils the log:
@@ -252,7 +275,7 @@ Every artefact related to this project shares the `project/my-app` tag. The proj
 
 ### Starting Small
 
-A new Brain vault ships with a practical starter set: Wiki, Daily Notes, Notes, Logs, Plans, Transcripts, Research, Decision Logs, Friction Logs, and Cookies. That covers the core workflows — capturing knowledge, logging activity, recording decisions, tracking friction, and rewarding good work. You can add more types from the library as you need them.
+A new Brain vault ships with a practical starter set: Wiki, Daily Notes, Notes, Logs, Plans, Transcripts, Shaping Transcripts, Research, Decision Logs, Friction Logs, and Cookies. That covers the core workflows — capturing knowledge, logging activity, recording decisions, refining artefacts, tracking friction, and rewarding good work. You can add more types from the library as you need them.
 
 ### Adding Types When You Need Them
 
@@ -317,6 +340,7 @@ Zettelkasten/                 ← atomic concept cards (auto-maintained)
 Projects/                     ← project indexes
 Designs/                      ← design docs and proposals
 Ideas/                        ← concepts being explored
+Journals/                     ← named journal streams
 Writing/                      ← essays, posts, chapters
 Documentation/                ← technical docs and style guides
 Notes/                        ← low-friction knowledge notes
@@ -329,6 +353,7 @@ _Temporal/
   Transcripts/                ← conversation records
   Shaping Transcripts/         ← Q&A refinement sessions
   Idea Logs/                  ← raw idea captures
+  Journal Entries/             ← personal reflections
   Thoughts/                   ← unformed thinking
   Decision Logs/              ← "why we chose X"
   Friction Logs/              ← "this was confusing"

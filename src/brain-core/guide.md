@@ -44,16 +44,18 @@ Pick the artefact type that fits, create the file in the right folder with the r
 | Type | Where | Naming |
 |---|---|---|
 | Wiki page | `Wiki/` | `{name}.md` |
-| Design doc | `Designs/` | `{name}.md` |
-| Project index | `Projects/` | `{name}.md` |
-| Writing piece | `Writing/` | `{name}.md` |
-| Idea | `Ideas/` | `{name}.md` |
 | Note | `Notes/` | `yyyymmdd - {Title}.md` |
 | Daily note | `Daily Notes/` | `yyyy-mm-dd ddd.md` |
 | Log entry | `_Temporal/Logs/yyyy-mm/` | `log--yyyy-mm-dd.md` |
 | Plan | `_Temporal/Plans/yyyy-mm/` | `yyyymmdd-{slug}.md` |
-| Research | `_Temporal/Research/yyyy-mm/` | `yyyymmdd-{slug}.md` |
 | Transcript | `_Temporal/Transcripts/yyyy-mm/` | `yyyymmdd-{slug}.md` |
+| Shaping transcript | `_Temporal/Shaping Transcripts/yyyy-mm/` | `yyyymmdd-{sourcedoctype}-transcript--{slug}.md` |
+| Research | `_Temporal/Research/yyyy-mm/` | `yyyymmdd-{slug}.md` |
+| Decision log | `_Temporal/Decision Logs/yyyy-mm/` | `yyyymmdd-decision--{slug}.md` |
+| Friction log | `_Temporal/Friction Logs/yyyy-mm/` | `yyyymmdd-friction--{slug}.md` |
+| Cookie | `_Temporal/Cookies/yyyy-mm/` | `yyyymmdd-cookie--{slug}.md` |
+
+Additional types available from the artefact library: Designs, Ideas, Journals, Projects, Writing, Zettelkasten (living); Idea Logs, Journal Entries, Thoughts, Reports, Snippets, Mockups (temporal).
 
 Every file needs frontmatter with at least `type` and `tags`:
 

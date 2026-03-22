@@ -9,5 +9,8 @@ __pycache__/
 .compiled-router.json
 .retrieval-index.json
 
+# Canary logs (transient, checked by hooks)
+.canary--*
+
 # Local overrides
 agents.local.md

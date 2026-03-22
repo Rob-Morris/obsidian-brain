@@ -209,6 +209,28 @@ status: new
 
 **Graduation to Design:** Create design doc in `Designs/` → set idea `status: graduated` → add `archiveddate` → add graduation callout → rename to `yyyymmdd-{slug}.md` → add `**Origin:**` link on design → move idea to `Ideas/_Archive/`.
 
+### Journals
+
+**Folder:** `Journals/` · **Naming:** `{name}.md`
+
+Named journal streams. One file per journal, grouping personal journal entries via nested tags. Follows the same hub pattern as Projects.
+
+```yaml
+type: living/journal
+tags:
+  - journal/{slug}
+status: active
+```
+
+**Lifecycle:**
+
+| Status | Meaning |
+|---|---|
+| `active` | Default. Accepting new entries. |
+| `archived` | No longer active. Existing entries preserved. |
+
+**Convention:** All journal entries use the nested journal tag (e.g., `journal/personal`), connecting entries to their journal stream.
+
 ### Projects
 
 **Folder:** `Projects/` · **Naming:** `{name}.md`
@@ -386,6 +408,29 @@ tags:
 
 **Trigger:** When a raw thought surfaces, capture before it slips away.
 
+### Journal Entries
+
+**Folder:** `_Temporal/Journal Entries/yyyy-mm/` · **Naming:** `yyyymmdd-journal--{journal-slug}.md` or `yyyymmdd-journal--{journal-slug}--{topic}.md`
+
+Personal journal entries — reflections, recollections, and life updates. Always in the user's own words unless the user explicitly asks the agent to write on their behalf. Each entry belongs to a journal stream via the `journal/{slug}` nested tag.
+
+```yaml
+type: temporal/journal-entry
+tags:
+  - journal-entry
+  - journal/{journal-slug}
+```
+
+**Workflows:** Casual sharing (agent captures user's words from conversation), directed creation (user dictates), shaping/drafting (agent helps draft, user approves), or manual (user writes directly).
+
+**Voice:** Preserve the user's language and phrasing. Do not paraphrase, summarise, or polish.
+
+**Naming variants:**
+- General: `20260322-journal--personal.md`
+- Topic: `20260322-journal--personal--moving-house.md`
+
+**Trigger:** When the user wants to journal, reflect on their life, or share something personal.
+
 ### Decision Logs
 
 **Folder:** `_Temporal/Decision Logs/yyyy-mm/` · **Naming:** `yyyymmdd-decision--{slug}.md`
@@ -539,6 +584,7 @@ Only types with a defined lifecycle have status. Current types with status:
 |---|---|
 | Designs | `shaping`, `active`, `implemented`, `parked` |
 | Ideas | `new`, `graduated`, `parked` |
+| Journals | `active`, `archived` |
 | Writing | `draft`, `editing`, `review`, `published`, `parked` |
 | Plans | `draft`, `approved`, `implementing`, `completed` |
 
@@ -655,24 +701,20 @@ If it's a one-off, consider a subfolder or tag within an existing type instead.
 ### Adding a Living Artefact Type
 
 1. **Create the root folder** (e.g., `Projects/`)
-2. **Pick a palette colour** — add a `--color-{type}` CSS variable in `.obsidian/snippets/folder-colours.css`. Never reuse system colours (purple, steel, gold, slate).
-3. **Add CSS selectors** — folder, border, and file selectors (templates in `.brain-core/colours.md`)
-4. **Create taxonomy file** at `_Config/Taxonomy/Living/{key}.md`
-5. **Create template** at `_Config/Templates/Living/{Type Name}.md`
-6. **Update colour assignments** in `_Config/Styles/obsidian.md`
-7. **Add router trigger** in `_Config/router.md` (if the type has a trigger condition)
-8. **Log the addition**
+2. **Create taxonomy file** at `_Config/Taxonomy/Living/{key}.md`
+3. **Create template** at `_Config/Templates/Living/{Type Name}.md`
+4. **Add router trigger** in `_Config/router.md` (if the type has a trigger condition)
+5. **Run `brain_action("compile")`** — colours are auto-generated
+6. **Log the addition**
 
 ### Adding a Temporal Artefact Type
 
 1. **Create the folder** under `_Temporal/` (e.g., `_Temporal/Reports/`)
-2. **Choose a base hue** and apply the temporal blend: `result = base + (rose - base) × 0.35`
-3. **Add CSS** — `--color-temporal-{type}` variable and selectors with `background-color: var(--theme-temporal-bg)`
-4. **Create taxonomy file** at `_Config/Taxonomy/Temporal/{key}.md`
-5. **Create template** at `_Config/Templates/Temporal/{Type Name}.md`
-6. **Update colour assignments** in `_Config/Styles/obsidian.md`
-7. **Add router trigger** in `_Config/router.md` (if applicable)
-8. **Log the addition**
+2. **Create taxonomy file** at `_Config/Taxonomy/Temporal/{key}.md`
+3. **Create template** at `_Config/Templates/Temporal/{Type Name}.md`
+4. **Add router trigger** in `_Config/router.md` (if applicable)
+5. **Run `brain_action("compile")`** — rose-blended colours are auto-generated
+6. **Log the addition**
 
 ---
 

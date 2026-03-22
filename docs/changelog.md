@@ -2,6 +2,25 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.9.14 — 2026-03-22
+
+- **Journals** living artefact type — named journal streams that group personal journal entries via nested tags (`journal/{slug}`). Follows the Projects hub pattern. Lifecycle: `active` → `archived`. Suggested colour: lavender
+- **Journal Entries** temporal artefact type — personal reflections, recollections, and life updates in the user's own words. Four creation workflows: casual sharing, directed creation, shaping/drafting, manual. Naming includes journal slug with optional topic slug: `yyyymmdd-journal--{journal-slug}--{topic}.md`. Lavender → rose (`#D4A8DB`)
+- Artefact library: 9 → 10 living types (Journals), 12 → 13 temporal types (Journal Entries)
+- **Canary system** — `docs/canary.md` describes the approach; `docs/canaries/pre-commit.md` is the pre-commit canary with versioning, changelog, routing table, and cross-check list. `.githooks/pre-commit` hook verifies `.canary--pre-commit` log file covers all items
+- **`docs/contributing.md`** — contributor guide: documentation architecture, why drift happens, testing, multi-repo workflow, common pitfalls
+- **`standards/` directory** — generic reusable patterns extracted from project-specific work. First standard: `canary.md` (the canary pattern, independent of brain-core)
+- `CLAUDE.md` slimmed — points to canary for pre-commit workflow and contributing for context
+- `specification.md` Documentation section updated with full file list including new contributor docs
+- **Hub pattern** documented as a general convention in `extensions.md` and `specification.md` — living artefacts that group related artefacts via nested tags (`{type}/{slug}`). Generalises the pattern used by Projects and Journals
+- `specification.md`: fixed stale temporal blend formula (steel → rose), updated "What Ships in the Starter Vault" to match current 11 template vault defaults, updated extension procedures to reflect auto-generated colours, added library types catalogue
+- Documentation accuracy pass across all doc layers:
+  - User guide: added Shaping Transcripts to starter set list, journaling scenario added to "A Day in the Life", vault overview updated
+  - User reference: both type specs documented, extension procedures updated to reflect auto-generated colours (was still showing manual CSS steps from pre-v0.9.12)
+  - Quick-start guide: type table now shows all 11 template vault defaults (was showing non-default types instead of defaults), library types listed separately
+  - Artefact library README: added Mockups to temporal table and colour recommendations, fixed Plans lifecycle (was `draft/active/complete/abandoned`, now `draft/approved/implementing/completed`), install steps updated for auto-generated colours
+  - `library.md`: install steps updated for auto-generated colours
+
 ## v0.9.13 — 2026-03-22
 
 - **Move backups to `.backups/`** — vault backups now live in a hidden dot folder at vault root instead of `_Config/Backups/`. Dot folders are hidden from Obsidian's file explorer and consistent with `.brain-core/`, `.obsidian/`. `_Config/` is now purely configuration

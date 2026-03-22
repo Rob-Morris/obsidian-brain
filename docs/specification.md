@@ -65,22 +65,35 @@ CSS snippet at `.obsidian/snippets/folder-colours.css` driven by a palette of CS
 
 - Palette colours defined as `--palette-*` variables
 - Theme variables (`--theme-*-fg`, `--theme-*-bg`) reference palette colours
-- Temporal children use a blend formula: `result = base + (steel - base) × 0.35`
+- Temporal children use a blend formula: `result = base + (rose - base) × 0.35`
 - Each tier has consistent CSS selector patterns for folders, subfolders, and files
 
 ## Extension Procedures
 
 Documented in `.brain-core/extensions.md`:
 
-- **New living artefact**: create at root, pick colour, add CSS, add to router, add taxonomy file
-- **New temporal child**: create under `_Temporal/`, blend colour towards steel, add CSS, add to router, add taxonomy file
+- **New living artefact**: create at root, add taxonomy file, optionally add router trigger, run `brain_action("compile")` — colours are auto-generated
+- **New temporal child**: create under `_Temporal/`, add taxonomy file, optionally add router trigger, run `brain_action("compile")` — rose-blended colours are auto-generated
 - **New config child**: create under `_Config/`, inherits purple styling
 - **New plugin**: create under `_Plugins/`, inherits gold styling, add skill if it has tools
+
+### Hub Pattern
+
+Some living artefact types act as hubs — containers that group related artefacts (temporal or living) via nested tags. The hub file carries a nested tag (e.g. `project/{slug}`, `journal/{slug}`), and all related artefacts share that tag. The hub is the index; the tag is the query mechanism.
+
+This pattern is useful when a single living artefact organises a stream of related work or content across the vault. Current examples: Projects (groups plans, research, designs, logs via `project/{slug}`), Journals (groups journal entries via `journal/{slug}`).
 
 ## Documentation
 
 - `docs/specification.md` — this file; design rationale and structural decisions
+- `docs/user-guide.md` — example-driven walkthrough for vault users
+- `docs/user-reference.md` — full type specs, conventions, config reference
 - `docs/changelog.md` — single-file version history. When it exceeds ~500 lines, consider splitting into per-version files under `docs/changelog/` with the main file as an index
+- `docs/canary.md` — how canaries work; `docs/canaries/` holds individual canary definitions
+- `docs/canaries/pre-commit.md` — pre-commit canary: versioning, changelog, routing table, cross-checks
+- `docs/contributing.md` — contributor guide: doc architecture, drift prevention, testing, pitfalls
+- `standards/canary.md` — generic canary pattern (project-independent)
+- `standards/README.md` — standards index
 - `docs/tooling.md` — technical design reference with DD index
 - `docs/plugins.md` — plugin writing and installation guide
 
@@ -88,13 +101,22 @@ Documented in `.brain-core/extensions.md`:
 
 **Living artefacts:**
 - `Wiki/` — interconnected knowledge base
+- `Daily Notes/` — end-of-day summaries
+- `Notes/` — low-friction knowledge notes
 
 **Temporal artefacts:**
 - `_Temporal/Logs/` — daily activity logs
-- `_Temporal/Transcripts/` — conversation transcripts
 - `_Temporal/Plans/` — pre-work plans
+- `_Temporal/Transcripts/` — conversation transcripts
+- `_Temporal/Research/` — investigation notes
+- `_Temporal/Decision Logs/` — reasoning behind choices
+- `_Temporal/Friction Logs/` — signal accumulator for maintenance
+- `_Temporal/Shaping Transcripts/` — Q&A refinement sessions
+- `_Temporal/Cookies/` — user satisfaction tracking
 
 **System:**
 - `_Attachments/` — non-markdown files (images, PDFs, etc.)
 - `_Config/` — router, taxonomy, style, colours, templates, skills, user preferences
 - `_Plugins/` — empty, ready for plugins
+
+Additional types are available in the artefact library (`.brain-core/artefact-library/`) for install as needed: Designs, Documentation, Ideas, Journals, Projects, Writing, Zettelkasten (living); Idea Logs, Journal Entries, Thoughts, Reports, Snippets, Mockups (temporal).
