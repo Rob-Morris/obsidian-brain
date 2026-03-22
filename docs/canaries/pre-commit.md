@@ -1,6 +1,6 @@
 # Pre-Commit Canary
 
-Follow before every commit. See [canary.md](../canary.md) for how canaries work.
+Follow before every commit. See [standards/canary.md](../standards/canary.md) for how canaries work.
 
 ## Items
 

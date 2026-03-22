@@ -79,13 +79,42 @@ Brain-core is developed here (`src/brain-core/`) and deployed to vaults by copyi
 
 1. Implement and commit core changes in this repo first
 2. Copy `src/brain-core/` to the vault's `.brain-core/`
-3. Commit in the vault repo
+3. Follow [canaries/post-propagation.md](canaries/post-propagation.md) — update vault log, daily note, and master design doc
+4. Commit in the vault repo
 
 Never deploy to both simultaneously. Core-first, always.
 
+Step 3 depends on having a local vault — the post-propagation canary reference belongs in `agents.local.md`, not `Agents.md`. See "Agents.md vs agents.local.md" below.
+
+## Agents.md vs agents.local.md
+
+`Agents.md` is checked in and universal — it applies to every contributor on every machine. Keep it lean: project identity, pre-commit canary, pointer to local overrides.
+
+`agents.local.md` is gitignored and machine-specific. It holds:
+
+- **Workspace paths** — vault locations, related repo paths
+- **Workflow triggers that depend on the local environment** — e.g. post-propagation canary (only relevant if a vault is co-located), deploy steps for a local staging environment
+- **Machine-specific tool config** — local CLI paths, env vars, capability flags
+
+**Rule of thumb:** if the instruction only makes sense when a specific path or local resource exists, it goes in `agents.local.md`. If it applies to anyone working on the repo, it goes in `Agents.md` or `docs/`.
+
+**Example `agents.local.md`:**
+
+```markdown
+# Local Overrides — Rob's Machine
+
+## Vault Path
+
+Rob's vault: `/Users/robmorris/Library/Mobile Documents/iCloud~md~obsidian/Documents/Brain/`
+
+## After Propagating to Vault
+
+When copying `src/brain-core/` to the vault's `.brain-core/`, follow `docs/canaries/post-propagation.md` before committing in the vault repo.
+```
+
 ## Standards vs Docs
 
-`standards/` contains generic, reusable patterns — things that could be adopted by any project without modification. `docs/` contains brain-specific conventions, guides, and references. When a pattern emerges from brain-specific work but has no inherent dependency on brain, extract the generic version into `standards/` and have `docs/` reference it.
+`docs/standards/` contains generic, reusable patterns — things that could be adopted by any project without modification. The rest of `docs/` contains brain-specific conventions, guides, and references. When a pattern emerges from brain-specific work but has no inherent dependency on brain, extract the generic version into `docs/standards/` and keep project-specific usage in `docs/`.
 
 ## Common Pitfalls
 
