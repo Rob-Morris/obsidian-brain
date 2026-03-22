@@ -20,7 +20,7 @@ _Temporal/                ← temporal artefacts (dated, point-in-time)
   Cookies/2026-03/
   ...
 _Attachments/             ← images, PDFs, non-markdown files
-_Config/                  ← router, taxonomy, styles, templates, preferences
+_Config/                  ← router, taxonomy, styles, templates, memories, preferences
 _Plugins/                 ← external tool integrations
 .brain-core/              ← this system (versioned, upgradeable)
 ```
@@ -148,6 +148,7 @@ Full details in the [User Guide — Extending Your Vault](https://github.com/rob
 | Templates | `_Config/Templates/` |
 | Writing style | `_Config/Styles/writing.md` |
 | Folder colours | `_Config/Styles/obsidian.md` |
+| Memories | `_Config/Memories/` |
 | Your preferences | `_Config/User/preferences-always.md` |
 | Known gotchas | `_Config/User/gotchas.md` |
 

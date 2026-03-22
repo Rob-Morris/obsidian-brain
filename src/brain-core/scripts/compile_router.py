@@ -452,6 +452,60 @@ def discover_styles(vault_root):
     return styles
 
 
+def _parse_memory_triggers(path):
+    """Extract triggers list from YAML frontmatter of a memory file.
+
+    Handles both inline format (triggers: [a, b]) and list format:
+        triggers:
+          - a
+          - b
+    """
+    with open(path, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    # Check for YAML frontmatter
+    if not content.startswith("---"):
+        return []
+
+    fm_end = content.find("---", 3)
+    if fm_end == -1:
+        return []
+    frontmatter = content[3:fm_end]
+
+    # Inline format: triggers: [a, b, c]
+    inline_match = re.search(
+        r"^triggers:\s*\[([^\]]*)\]", frontmatter, re.MULTILINE
+    )
+    if inline_match:
+        return [t.strip().strip("'\"") for t in inline_match.group(1).split(",") if t.strip()]
+
+    # List format: triggers:\n  - a\n  - b
+    list_match = re.search(
+        r"^triggers:\s*\n((?:\s+-\s+.+\n?)+)", frontmatter, re.MULTILINE
+    )
+    if list_match:
+        return re.findall(r"^\s+-\s+(.+)", list_match.group(1), re.MULTILINE)
+
+    return []
+
+
+def discover_memories(vault_root):
+    """Find memories at _Config/Memories/*.md, excluding README.md."""
+    memories_dir = os.path.join(vault_root, "_Config", "Memories")
+    if not os.path.isdir(memories_dir):
+        return []
+    memories = []
+    for entry in sorted(os.listdir(memories_dir)):
+        if not entry.endswith(".md") or entry.upper() == "README.MD":
+            continue
+        path = os.path.join(memories_dir, entry)
+        name = entry[:-3]  # strip .md
+        triggers = _parse_memory_triggers(path)
+        rel = os.path.relpath(path, vault_root)
+        memories.append({"name": name, "triggers": triggers, "memory_doc": rel})
+    return memories
+
+
 # ---------------------------------------------------------------------------
 # Environment detection
 # ---------------------------------------------------------------------------
@@ -573,6 +627,10 @@ def compile(vault_root):
     for s in styles:
         track(s["style_doc"])
 
+    memories = discover_memories(vault_root)
+    for m in memories:
+        track(m["memory_doc"])
+
     # Build output
     source_hash = compute_source_hash(sources)
 
@@ -590,6 +648,7 @@ def compile(vault_root):
         "skills": skills,
         "plugins": plugins,
         "styles": styles,
+        "memories": memories,
     }
 
     return compiled
@@ -617,9 +676,11 @@ def main():
         configured = sum(1 for a in compiled["artefacts"] if a["configured"])
         trigger_count = len(compiled["triggers"])
         skill_count = len(compiled["skills"])
+        memory_count = len(compiled["memories"])
         print(
             f"Compiled router: {art_count} artefacts ({configured} configured), "
-            f"{trigger_count} triggers, {skill_count} skills → {OUTPUT_PATH}",
+            f"{trigger_count} triggers, {skill_count} skills, "
+            f"{memory_count} memories → {OUTPUT_PATH}",
             file=sys.stderr,
         )
 

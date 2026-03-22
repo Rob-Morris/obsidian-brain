@@ -241,6 +241,7 @@ def brain_read(resource: str, name: str | None = None) -> str:
       template    — read a template file (name = artefact type key)
       skill       — list skills, or read a specific skill file by name
       plugin      — list plugins, or read a specific plugin file by name
+      memory      — list memories, or search by trigger/name (case-insensitive substring)
       environment — runtime environment info
       router      — always-rules and metadata
       compliance  — run structural compliance checks (name = severity filter: error/warning/info)
@@ -291,6 +292,23 @@ def brain_read(resource: str, name: str | None = None) -> str:
             "meta": _router["meta"],
         }, indent=2)
 
+    elif resource == "memory":
+        memories = _router.get("memories", [])
+        if name:
+            # Case-insensitive substring search across triggers
+            lower_name = name.lower()
+            matches = [m for m in memories
+                       if any(lower_name in t.lower() for t in m.get("triggers", []))]
+            # Fallback to exact name match
+            if not matches:
+                matches = [m for m in memories if m["name"].lower() == lower_name]
+            if not matches:
+                return json.dumps({"error": f"No memory matching '{name}'"})
+            if len(matches) == 1:
+                return _read_file_content(_vault_root, matches[0]["memory_doc"])
+            return json.dumps(matches, indent=2)
+        return json.dumps(memories, indent=2)
+
     elif resource == "compliance":
         result = run_checks(str(_vault_root), _router)
         if name:  # name parameter doubles as severity filter
@@ -303,7 +321,7 @@ def brain_read(resource: str, name: str | None = None) -> str:
         return json.dumps(result, indent=2, ensure_ascii=False)
 
     else:
-        valid = ["artefact", "trigger", "style", "template", "skill", "plugin", "environment", "router", "compliance"]
+        valid = ["artefact", "trigger", "style", "template", "skill", "plugin", "environment", "router", "memory", "compliance"]
         return json.dumps({"error": f"Unknown resource '{resource}'. Valid: {', '.join(valid)}"})
 
 
@@ -452,12 +470,14 @@ def brain_action(action: str, params: dict | None = None) -> str:
         configured = sum(1 for a in _router["artefacts"] if a["configured"])
         trigger_count = len(_router["triggers"])
         skill_count = len(_router["skills"])
+        memory_count = len(_router.get("memories", []))
         living_count = sum(1 for a in _router["artefacts"] if a["classification"] == "living")
         temporal_count = sum(1 for a in _router["artefacts"] if a["classification"] == "temporal")
         return json.dumps({
             "status": "ok",
             "summary": f"Compiled: {art_count} artefacts ({configured} configured), "
                        f"{trigger_count} triggers, {skill_count} skills, "
+                       f"{memory_count} memories, "
                        f"{living_count + temporal_count} colours",
             "compiled_at": _router["meta"]["compiled_at"],
         }, indent=2)

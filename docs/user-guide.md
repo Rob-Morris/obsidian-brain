@@ -287,6 +287,14 @@ The rule of thumb: add a type when you'll create multiple files of that kind and
 
 Artefacts start as single files. When something outgrows one file, structure emerges naturally. Your novel starts as `Writing/my-novel.md` and eventually becomes `Writing/my-novel/index.md` with chapter files alongside. No upfront planning needed — the Brain adapts as your content grows.
 
+### Giving Agents Context with Memories
+
+When you mention a project, tool, or concept and your agent doesn't know what you're talking about, it can look it up. Memories (`_Config/Memories/`) are reference cards — factual context that agents load on demand.
+
+Each memory has triggers (words or phrases you'd naturally use) and a body (what the thing is, where to find it, key facts). When you say "brain core" and the agent lacks context, it finds the memory with that trigger and reads it.
+
+You can create memories for anything agents should know about — your projects, your tools, your codebase conventions. They're simple markdown files with a `triggers` list in frontmatter. Memories are "what is it?" context — if the agent needs "how do I do it?" steps, that's a skill. See the [Reference](user-reference.md) for the full format.
+
 ### Telling the Brain About You
 
 Two files in `_Config/User/` shape how agents work with your vault:
@@ -363,7 +371,7 @@ _Temporal/
   Mockups/                    ← visual/interactive prototypes
 
 _Attachments/                 ← images, PDFs, files
-_Config/                      ← router, taxonomy, styles, preferences
+_Config/                      ← router, taxonomy, styles, memories, preferences
 _Plugins/                     ← external integrations
 .brain-core/                  ← the Brain system itself
 ```

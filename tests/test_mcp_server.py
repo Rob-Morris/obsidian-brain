@@ -289,6 +289,60 @@ class TestBrainRead:
         assert "Unknown resource" in result["error"]
 
 
+class TestBrainReadMemory:
+    @pytest.fixture(autouse=True)
+    def setup_memories(self, initialized):
+        """Add a memories directory with a test memory to the vault fixture."""
+        self.vault = initialized
+        memories_dir = initialized / "_Config" / "Memories"
+        memories_dir.mkdir(parents=True, exist_ok=True)
+        (memories_dir / "README.md").write_text("# Memories\n\nDispatch doc.\n")
+        (memories_dir / "brain-core-reference.md").write_text(
+            "---\ntriggers: [brain core, obsidian-brain, vault system]\n---\n\n"
+            "# Brain Core Reference\n\nBrain-core is the system.\n"
+        )
+        (memories_dir / "python-setup.md").write_text(
+            "---\ntriggers: [python, dev environment]\n---\n\n"
+            "# Python Setup\n\nUse Python 3.12.\n"
+        )
+        # Recompile to pick up memories
+        server.brain_action("compile")
+
+    def test_list_memories(self):
+        result = json.loads(server.brain_read("memory"))
+        assert isinstance(result, list)
+        assert len(result) == 2
+        names = [m["name"] for m in result]
+        assert "brain-core-reference" in names
+        assert "python-setup" in names
+
+    def test_read_by_trigger(self):
+        result = server.brain_read("memory", name="brain core")
+        assert "Brain-core is the system." in result
+
+    def test_trigger_case_insensitive(self):
+        result = server.brain_read("memory", name="BRAIN CORE")
+        assert "Brain-core is the system." in result
+
+    def test_trigger_substring(self):
+        result = server.brain_read("memory", name="brain")
+        # "brain" is a substring of "brain core" and "obsidian-brain"
+        # Should match brain-core-reference — single match returns content
+        assert "Brain-core is the system." in result
+
+    def test_fallback_to_name(self):
+        result = server.brain_read("memory", name="python-setup")
+        assert "Use Python 3.12." in result
+
+    def test_not_found(self):
+        result = json.loads(server.brain_read("memory", name="nonexistent-thing"))
+        assert "error" in result
+
+    def test_compile_summary_includes_memories(self):
+        result = json.loads(server.brain_action("compile"))
+        assert "memories" in result["summary"]
+
+
 # ---------------------------------------------------------------------------
 # brain_search tests
 # ---------------------------------------------------------------------------

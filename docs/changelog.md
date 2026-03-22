@@ -2,6 +2,18 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.9.15 — 2026-03-22
+
+- **Memories** — conditional context that agents load on demand when the user references a project, tool, or concept. Memories are declarative reference cards (not procedural skills) stored in `_Config/Memories/` with `triggers: [...]` in YAML frontmatter
+- **Compiler:** `discover_memories()` scans `_Config/Memories/*.md` (excluding README), extracts triggers from frontmatter (inline `[a, b]` and list `- a` formats), adds `memories` key to compiled router JSON. Memory files tracked in source hash for invalidation
+- **MCP:** `brain_read(resource="memory")` — list all memories (no name), or search by trigger (case-insensitive substring, fallback to exact filename match). `brain_action("compile")` summary now includes memory count
+- **Template vault:** ships with `_Config/Memories/README.md` (dispatch doc + trigger table) and `brain-core-reference.md` (first memory — what brain-core is, key locations, how extensions work). Router conditional added: "When the user references a project, tool, or concept and you lack context → Memories README"
+- **Memories vs skills boundary** documented across all layers: memories answer "what is it?" (context), skills answer "how do I do it?" (procedures). If a memory starts containing steps, agents should create a skill instead. Memories can reference skills but not replicate them
+- **Naive agent path:** router → README → trigger table → memory file works without compiler or MCP
+- `extensions.md`: new "Adding a Memory" section
+- User docs updated: guide.md (vault structure, configuration table), user-guide.md (new Memories section), user-reference.md (memory format, trigger matching, MCP integration, system folders table)
+- Test suite: 298 tests (was 284) — 14 new tests covering memory discovery, trigger parsing, README exclusion, full compilation, source tracking, MCP list/search/fallback/case-insensitive/substring/not-found, compile summary
+
 ## v0.9.14 — 2026-03-22
 
 - **Journals** living artefact type — named journal streams that group personal journal entries via nested tags (`journal/{slug}`). Follows the Projects hub pattern. Lifecycle: `active` → `archived`. Suggested colour: lavender

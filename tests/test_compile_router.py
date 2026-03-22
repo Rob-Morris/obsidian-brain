@@ -613,6 +613,73 @@ class TestCompile:
 # Template vault integration test
 # ---------------------------------------------------------------------------
 
+class TestDiscoverMemories:
+    def test_finds_memories(self, vault):
+        memories_dir = vault / "_Config" / "Memories"
+        memories_dir.mkdir()
+        (memories_dir / "test-memory.md").write_text(
+            "---\ntriggers: [brain core, vault system]\n---\n\n# Test Memory\n\nSome context.\n"
+        )
+        memories = cr.discover_memories(str(vault))
+        assert len(memories) == 1
+        assert memories[0]["name"] == "test-memory"
+        assert memories[0]["triggers"] == ["brain core", "vault system"]
+        assert "memory_doc" in memories[0]
+
+    def test_excludes_readme(self, vault):
+        memories_dir = vault / "_Config" / "Memories"
+        memories_dir.mkdir()
+        (memories_dir / "README.md").write_text("# Memories\n\nHow to use.\n")
+        (memories_dir / "actual-memory.md").write_text(
+            "---\ntriggers: [test]\n---\n\nContent.\n"
+        )
+        memories = cr.discover_memories(str(vault))
+        assert len(memories) == 1
+        assert memories[0]["name"] == "actual-memory"
+
+    def test_no_memories_dir(self, tmp_path):
+        assert cr.discover_memories(str(tmp_path)) == []
+
+    def test_yaml_list_triggers(self, vault):
+        memories_dir = vault / "_Config" / "Memories"
+        memories_dir.mkdir()
+        (memories_dir / "listed.md").write_text(
+            "---\ntriggers:\n  - alpha\n  - beta\n---\n\nContent.\n"
+        )
+        memories = cr.discover_memories(str(vault))
+        assert memories[0]["triggers"] == ["alpha", "beta"]
+
+    def test_empty_triggers(self, vault):
+        memories_dir = vault / "_Config" / "Memories"
+        memories_dir.mkdir()
+        (memories_dir / "empty.md").write_text(
+            "---\ntriggers: []\n---\n\nContent.\n"
+        )
+        memories = cr.discover_memories(str(vault))
+        assert memories[0]["triggers"] == []
+
+    def test_memories_in_full_compile(self, vault):
+        memories_dir = vault / "_Config" / "Memories"
+        memories_dir.mkdir()
+        (memories_dir / "test-memory.md").write_text(
+            "---\ntriggers: [brain core]\n---\n\n# Test\n"
+        )
+        result = cr.compile(vault)
+        assert "memories" in result
+        assert len(result["memories"]) == 1
+        assert result["memories"][0]["name"] == "test-memory"
+
+    def test_memories_tracked_in_sources(self, vault):
+        memories_dir = vault / "_Config" / "Memories"
+        memories_dir.mkdir()
+        (memories_dir / "tracked.md").write_text(
+            "---\ntriggers: [test]\n---\n\nContent.\n"
+        )
+        result = cr.compile(vault)
+        memory_path = os.path.join("_Config", "Memories", "tracked.md")
+        assert memory_path in result["meta"]["sources"]
+
+
 class TestTemplateVault:
     def test_compiles_template_vault(self, template_vault):
         result = cr.compile(template_vault)
