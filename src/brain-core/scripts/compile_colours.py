@@ -43,6 +43,12 @@ EXCLUSION_ZONES = [
 PASTEL_S = 0.57
 PASTEL_L = 0.72
 
+# System palette hex values — single source of truth for CSS and graph view
+PALETTE_SLATE = "#A0B0C0"
+PALETTE_ROSE = "#F2A8C4"
+PALETTE_VIOLET = "#C4A8E8"
+PALETTE_ORCHID = "#DBA8D6"
+
 ROSE_RGB = (242, 168, 196)
 ROSE_BLEND_FACTOR = 0.35
 
@@ -302,12 +308,12 @@ def _css_system_palette():
     return (
         "\n/* ─── Colour Palette ──────────────────────────────────────────────────────── */\n"
         ":root {\n"
-        "  --palette-rose:         #F2A8C4; /* Pastel Rose      */\n"
+        f"  --palette-rose:         {PALETTE_ROSE}; /* Pastel Rose      */\n"
         "  --palette-rose-gold:    #EDBEA7; /* Rose Gold         */\n"
-        "  --palette-slate:        #A0B0C0; /* Pastel Slate      */\n"
-        "  --palette-violet-light: #C4A8E8; /* Light Purple      */\n"
+        f"  --palette-slate:        {PALETTE_SLATE}; /* Pastel Slate      */\n"
+        f"  --palette-violet-light: {PALETTE_VIOLET}; /* Light Purple      */\n"
         "  --palette-violet-dark:  #3B2060; /* Deep Purple       */\n"
-        "  --palette-orchid:       #DBA8D6; /* Pastel Orchid     */\n"
+        f"  --palette-orchid:       {PALETTE_ORCHID}; /* Pastel Orchid     */\n"
         "}\n"
     )
 
@@ -625,15 +631,15 @@ def render_css(assignments):
 # Graph view colour groups
 # ---------------------------------------------------------------------------
 
-# System folder colours (hex) — match the CSS palette
+# System folder colours — references to shared palette constants
 _SYSTEM_GRAPH_COLOURS = [
-    ("_Attachments", "#A0B0C0"),  # Slate
-    ("_Config",      "#C4A8E8"),  # Violet
-    ("_Plugins",     "#DBA8D6"),  # Orchid
-    ("_Temporal",    "#F2A8C4"),  # Rose
+    ("_Attachments", PALETTE_SLATE),
+    ("_Config",      PALETTE_VIOLET),
+    ("_Plugins",     PALETTE_ORCHID),
+    ("_Temporal",    PALETTE_ROSE),
 ]
 
-_ARCHIVE_COLOUR = "#A0B0C0"  # Slate
+_ARCHIVE_COLOUR = PALETTE_SLATE
 
 
 def _graph_entry(query, hex_color):
@@ -675,13 +681,11 @@ def write_graph_json(vault_root, color_groups):
     """Write colorGroups to .obsidian/graph.json, preserving other settings."""
     graph_path = os.path.join(str(vault_root), GRAPH_JSON_REL)
 
-    existing = {}
-    if os.path.isfile(graph_path):
-        try:
-            with open(graph_path, "r", encoding="utf-8") as f:
-                existing = json.load(f)
-        except (json.JSONDecodeError, OSError):
-            existing = {}
+    try:
+        with open(graph_path, "r", encoding="utf-8") as f:
+            existing = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        existing = {}
 
     existing["colorGroups"] = color_groups
 
@@ -774,12 +778,7 @@ def main():
         print(json.dumps(color_groups, indent=2))
         return
 
-    css_path = os.path.join(str(vault_root), OUTPUT_REL)
-    os.makedirs(os.path.dirname(css_path), exist_ok=True)
-    with open(css_path, "w", encoding="utf-8") as f:
-        f.write(css)
-
-    write_graph_json(vault_root, color_groups)
+    generate(vault_root, router)
 
     living_count = len(assignments["living"])
     temporal_count = len(assignments["temporal"])
