@@ -864,9 +864,18 @@ Hues are distributed across 240° of available space (360° minus four 30° excl
 
 This gives temporal folders a warm, cohesive tint while keeping each type visually distinct.
 
-### CSS Location
+### Graph View Colours
 
-All colour definitions and folder styling live in `.obsidian/snippets/folder-colours.css`. The file is auto-generated — do not edit manually. Regenerate with `brain_action("compile")` or `python3 compile_colours.py`. Algorithm details and CSS selector templates are in `.brain-core/colours.md`.
+The same colour assignments are applied to Obsidian's graph view. Graph colours are written as `colorGroups` entries in `.obsidian/graph.json`. The graph view is canvas-based (CSS doesn't apply), so colours use a `path:` query with a decimal RGB integer. System folders, living folders, temporal children, and archive folders all appear in the graph with matching colours.
+
+The `graph.json` merge preserves all existing graph settings (scale, forces, display options) — only `colorGroups` is replaced on each compile.
+
+### File Locations
+
+- **Sidebar colours:** `.obsidian/snippets/folder-colours.css` — auto-generated CSS snippet
+- **Graph colours:** `.obsidian/graph.json` `colorGroups` — auto-generated, other settings preserved
+
+Both files are auto-generated — do not edit colour entries manually. Regenerate with `brain_action("compile")` or `python3 compile_colours.py`. Algorithm details and CSS selector templates are in `.brain-core/colours.md`.
 
 ---
 

@@ -61,12 +61,13 @@ Four tiers, each with distinct file explorer styling:
 
 ## Colour System
 
-CSS snippet at `.obsidian/snippets/folder-colours.css` driven by a palette of CSS variables. System design documented in `.brain-core/colours.md`; instance assignments in `_Config/Styles/obsidian.md`.
+CSS snippet at `.obsidian/snippets/folder-colours.css` driven by a palette of CSS variables. Graph view colours at `.obsidian/graph.json` `colorGroups`. System design documented in `.brain-core/colours.md`; instance assignments in `_Config/Styles/obsidian.md`.
 
 - Palette colours defined as `--palette-*` variables
 - Theme variables (`--theme-*-fg`, `--theme-*-bg`) reference palette colours
 - Temporal children use a blend formula: `result = base + (rose - base) × 0.35`
 - Each tier has consistent CSS selector patterns for folders, subfolders, and files
+- Graph view: same colour assignments written as `colorGroups` in `graph.json` (canvas-based — CSS doesn't apply). Merge preserves existing graph settings
 
 ## Extension Procedures
 

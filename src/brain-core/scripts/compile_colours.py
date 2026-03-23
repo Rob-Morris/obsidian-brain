@@ -47,6 +47,7 @@ ROSE_RGB = (242, 168, 196)
 ROSE_BLEND_FACTOR = 0.35
 
 OUTPUT_REL = os.path.join(".obsidian", "snippets", "folder-colours.css")
+GRAPH_JSON_REL = os.path.join(".obsidian", "graph.json")
 COMPILED_ROUTER_REL = os.path.join("_Config", ".compiled-router.json")
 
 
@@ -203,6 +204,11 @@ def hsl_to_rgb(h, s, l):
 def rgb_to_hex(r, g, b):
     """Convert RGB tuple to hex string like #AABBCC."""
     return f"#{r:02X}{g:02X}{b:02X}"
+
+
+def hex_to_decimal_rgb(hex_color):
+    """Convert '#RRGGBB' to decimal integer for Obsidian graph.json."""
+    return int(hex_color[1:], 16)
 
 
 def rose_blend(rgb, factor=ROSE_BLEND_FACTOR):
@@ -616,11 +622,83 @@ def render_css(assignments):
 
 
 # ---------------------------------------------------------------------------
+# Graph view colour groups
+# ---------------------------------------------------------------------------
+
+# System folder colours (hex) — match the CSS palette
+_SYSTEM_GRAPH_COLOURS = [
+    ("_Attachments", "#A0B0C0"),  # Slate
+    ("_Config",      "#C4A8E8"),  # Violet
+    ("_Plugins",     "#DBA8D6"),  # Orchid
+    ("_Temporal",    "#F2A8C4"),  # Rose
+]
+
+_ARCHIVE_COLOUR = "#A0B0C0"  # Slate
+
+
+def _graph_entry(query, hex_color):
+    """Build a single graph colorGroup entry."""
+    return {
+        "query": query,
+        "color": {"a": 1, "rgb": hex_to_decimal_rgb(hex_color)},
+    }
+
+
+def render_graph_color_groups(assignments):
+    """Generate graph.json colorGroups from colour assignments.
+
+    Returns list of {query, color} dicts. Ordering: system → living →
+    temporal children → archive (Obsidian uses last-match-wins for
+    overlapping queries).
+    """
+    groups = []
+
+    # System folders
+    for folder, hex_color in _SYSTEM_GRAPH_COLOURS:
+        groups.append(_graph_entry(f'path:"{folder}"', hex_color))
+
+    # Living artefact folders
+    for a in assignments["living"]:
+        groups.append(_graph_entry(f'path:"{a["folder"]}"', a["hex"]))
+
+    # Temporal child folders
+    for a in assignments["temporal"]:
+        groups.append(_graph_entry(f'path:"{a["path"]}"', a["blended_hex"]))
+
+    # Archive — last, so it overrides parent colours
+    groups.append(_graph_entry('path:_Archive', _ARCHIVE_COLOUR))
+
+    return groups
+
+
+def write_graph_json(vault_root, color_groups):
+    """Write colorGroups to .obsidian/graph.json, preserving other settings."""
+    graph_path = os.path.join(str(vault_root), GRAPH_JSON_REL)
+
+    existing = {}
+    if os.path.isfile(graph_path):
+        try:
+            with open(graph_path, "r", encoding="utf-8") as f:
+                existing = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            existing = {}
+
+    existing["colorGroups"] = color_groups
+
+    os.makedirs(os.path.dirname(graph_path), exist_ok=True)
+    with open(graph_path, "w", encoding="utf-8") as f:
+        json.dump(existing, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+
+    return graph_path
+
+
+# ---------------------------------------------------------------------------
 # Public API (for MCP server import)
 # ---------------------------------------------------------------------------
 
 def generate(vault_root, router=None):
-    """Generate colours and write CSS. Returns (assignments, css_path).
+    """Generate colours and write CSS + graph.json. Returns (assignments, css_path).
 
     Can be called from MCP server with a pre-loaded router.
     """
@@ -635,6 +713,9 @@ def generate(vault_root, router=None):
     os.makedirs(os.path.dirname(css_path), exist_ok=True)
     with open(css_path, "w", encoding="utf-8") as f:
         f.write(css)
+
+    color_groups = render_graph_color_groups(assignments)
+    write_graph_json(vault_root, color_groups)
 
     return assignments, css_path
 
@@ -667,6 +748,7 @@ def main():
     vault_root = find_vault_root(vault_path)
     router = load_router(vault_root)
     assignments = compute_colours(router)
+    color_groups = render_graph_color_groups(assignments)
 
     if json_mode:
         # Serialise — strip non-JSON-friendly tuples
@@ -679,6 +761,7 @@ def main():
                 {k: v for k, v in a.items() if k not in ("rgb", "blended_rgb")}
                 for a in assignments["temporal"]
             ],
+            "graph": color_groups,
         }
         print(json.dumps(output, indent=2))
         return
@@ -687,6 +770,8 @@ def main():
 
     if dry_run:
         print(css)
+        print("\n--- graph.json colorGroups ---")
+        print(json.dumps(color_groups, indent=2))
         return
 
     css_path = os.path.join(str(vault_root), OUTPUT_REL)
@@ -694,11 +779,18 @@ def main():
     with open(css_path, "w", encoding="utf-8") as f:
         f.write(css)
 
+    write_graph_json(vault_root, color_groups)
+
     living_count = len(assignments["living"])
     temporal_count = len(assignments["temporal"])
+    graph_count = len(color_groups)
     print(
         f"Generated colours: {living_count} living + {temporal_count} temporal "
         f"= {living_count + temporal_count} types → {OUTPUT_REL}",
+        file=sys.stderr,
+    )
+    print(
+        f"Graph colour groups: {graph_count} entries → {GRAPH_JSON_REL}",
         file=sys.stderr,
     )
 

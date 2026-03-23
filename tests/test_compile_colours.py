@@ -516,6 +516,192 @@ class TestRobVaultShape:
 
 
 # ---------------------------------------------------------------------------
+# Hex → decimal RGB conversion
+# ---------------------------------------------------------------------------
+
+class TestHexToDecimalRgb:
+    def test_black(self):
+        assert cc.hex_to_decimal_rgb("#000000") == 0
+
+    def test_white(self):
+        assert cc.hex_to_decimal_rgb("#FFFFFF") == 16777215
+
+    def test_known_colour(self):
+        # #E0BE8F → 0xE0BE8F → 14728847
+        assert cc.hex_to_decimal_rgb("#E0BE8F") == 0xE0BE8F
+
+    def test_lowercase(self):
+        assert cc.hex_to_decimal_rgb("#e0be8f") == 0xE0BE8F
+
+
+# ---------------------------------------------------------------------------
+# Graph colour groups
+# ---------------------------------------------------------------------------
+
+class TestGraphColourGroups:
+    def test_system_folders_included(self, vault):
+        router = _load_router(vault)
+        assignments = cc.compute_colours(router)
+        groups = cc.render_graph_color_groups(assignments)
+        queries = [g["query"] for g in groups]
+        assert 'path:"_Attachments"' in queries
+        assert 'path:"_Config"' in queries
+        assert 'path:"_Plugins"' in queries
+        assert 'path:"_Temporal"' in queries
+
+    def test_living_folders_use_path_query(self, vault):
+        router = _load_router(vault)
+        assignments = cc.compute_colours(router)
+        groups = cc.render_graph_color_groups(assignments)
+        queries = [g["query"] for g in groups]
+        assert 'path:"Wiki"' in queries
+        assert 'path:"Daily Notes"' in queries
+        assert 'path:"Notes"' in queries
+
+    def test_temporal_folders_use_temporal_path(self, vault):
+        router = _load_router(vault)
+        assignments = cc.compute_colours(router)
+        groups = cc.render_graph_color_groups(assignments)
+        queries = [g["query"] for g in groups]
+        assert 'path:"_Temporal/Logs"' in queries
+        assert 'path:"_Temporal/Plans"' in queries
+
+    def test_temporal_uses_blended_colour(self, vault):
+        router = _load_router(vault)
+        assignments = cc.compute_colours(router)
+        groups = cc.render_graph_color_groups(assignments)
+        # Find a temporal entry and check its colour matches blended_hex
+        logs_assign = [a for a in assignments["temporal"] if a["key"] == "logs"][0]
+        logs_group = [g for g in groups if g["query"] == 'path:"_Temporal/Logs"'][0]
+        assert logs_group["color"]["rgb"] == cc.hex_to_decimal_rgb(logs_assign["blended_hex"])
+
+    def test_all_entries_have_alpha_one(self, vault):
+        router = _load_router(vault)
+        assignments = cc.compute_colours(router)
+        groups = cc.render_graph_color_groups(assignments)
+        for g in groups:
+            assert g["color"]["a"] == 1
+
+    def test_all_rgb_values_are_ints(self, vault):
+        router = _load_router(vault)
+        assignments = cc.compute_colours(router)
+        groups = cc.render_graph_color_groups(assignments)
+        for g in groups:
+            assert isinstance(g["color"]["rgb"], int)
+
+    def test_total_count(self, vault):
+        router = _load_router(vault)
+        assignments = cc.compute_colours(router)
+        groups = cc.render_graph_color_groups(assignments)
+        # 4 system + 3 living + 8 temporal + 1 archive = 16
+        expected = 4 + len(assignments["living"]) + len(assignments["temporal"]) + 1
+        assert len(groups) == expected
+
+    def test_archive_is_last(self, vault):
+        router = _load_router(vault)
+        assignments = cc.compute_colours(router)
+        groups = cc.render_graph_color_groups(assignments)
+        assert groups[-1]["query"] == "path:_Archive"
+
+    def test_deterministic(self, vault):
+        router = _load_router(vault)
+        assignments = cc.compute_colours(router)
+        g1 = cc.render_graph_color_groups(assignments)
+        g2 = cc.render_graph_color_groups(assignments)
+        assert g1 == g2
+
+
+# ---------------------------------------------------------------------------
+# Graph JSON writing
+# ---------------------------------------------------------------------------
+
+class TestWriteGraphJson:
+    def test_creates_new_file(self, vault):
+        groups = [{"query": "path:test", "color": {"a": 1, "rgb": 123}}]
+        graph_path = cc.write_graph_json(vault, groups)
+        assert os.path.isfile(graph_path)
+        with open(graph_path) as f:
+            data = json.load(f)
+        assert data["colorGroups"] == groups
+
+    def test_preserves_existing_settings(self, vault):
+        # Write initial graph.json with other settings
+        graph_path = os.path.join(str(vault), ".obsidian", "graph.json")
+        os.makedirs(os.path.dirname(graph_path), exist_ok=True)
+        existing = {
+            "collapse-filter": True,
+            "search": "",
+            "showTags": False,
+            "showAttachments": False,
+            "showOrphans": True,
+            "collapse-color-groups": True,
+            "colorGroups": [{"query": "old", "color": {"a": 1, "rgb": 0}}],
+            "collapse-display": True,
+            "showArrow": False,
+            "textFadeMultiplier": 0,
+            "nodeSizeMultiplier": 1,
+            "lineSizeMultiplier": 1,
+            "collapse-forces": True,
+            "centerStrength": 0.5,
+            "repelStrength": 10,
+            "linkStrength": 1,
+            "linkDistance": 250,
+        }
+        with open(graph_path, "w") as f:
+            json.dump(existing, f)
+
+        # Write new color groups
+        new_groups = [{"query": "path:new", "color": {"a": 1, "rgb": 456}}]
+        cc.write_graph_json(vault, new_groups)
+
+        with open(graph_path) as f:
+            data = json.load(f)
+
+        # colorGroups replaced
+        assert data["colorGroups"] == new_groups
+        # Other settings preserved
+        assert data["collapse-filter"] is True
+        assert data["repelStrength"] == 10
+        assert data["linkDistance"] == 250
+
+    def test_replaces_on_second_write(self, vault):
+        groups1 = [{"query": "path:a", "color": {"a": 1, "rgb": 1}}]
+        groups2 = [{"query": "path:b", "color": {"a": 1, "rgb": 2}}]
+        cc.write_graph_json(vault, groups1)
+        cc.write_graph_json(vault, groups2)
+        graph_path = os.path.join(str(vault), ".obsidian", "graph.json")
+        with open(graph_path) as f:
+            data = json.load(f)
+        assert data["colorGroups"] == groups2
+        assert len(data["colorGroups"]) == 1  # No append
+
+
+# ---------------------------------------------------------------------------
+# Generate includes graph.json
+# ---------------------------------------------------------------------------
+
+class TestGenerateGraph:
+    def test_generate_writes_graph_json(self, vault):
+        router = _load_router(vault)
+        cc.generate(vault, router)
+        graph_path = os.path.join(str(vault), ".obsidian", "graph.json")
+        assert os.path.isfile(graph_path)
+        with open(graph_path) as f:
+            data = json.load(f)
+        assert "colorGroups" in data
+        assert len(data["colorGroups"]) > 0
+
+    def test_generate_graph_matches_assignments(self, vault):
+        router = _load_router(vault)
+        assignments, _ = cc.generate(vault, router)
+        graph_path = os.path.join(str(vault), ".obsidian", "graph.json")
+        with open(graph_path) as f:
+            data = json.load(f)
+        expected = cc.render_graph_color_groups(assignments)
+        assert data["colorGroups"] == expected
+
+
+# ---------------------------------------------------------------------------
 # CLI args parsing
 # ---------------------------------------------------------------------------
 

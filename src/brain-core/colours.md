@@ -123,6 +123,37 @@ For reference, the generated CSS uses these patterns:
 
 **Ordering:** The `_Archive` block must come AFTER the Artefact Folders section in the CSS file. Same specificity, last rule wins.
 
+## Graph View Colours
+
+`compile_colours.py` also generates colour groups for Obsidian's graph view. The graph view is canvas-based — CSS doesn't apply — so colours are written as `colorGroups` entries in `.obsidian/graph.json`.
+
+### Format
+
+Each entry is a `path:` query with a decimal RGB colour:
+
+```json
+{
+  "colorGroups": [
+    {"query": "path:\"Daily Notes\"", "color": {"a": 1, "rgb": 14729871}}
+  ]
+}
+```
+
+`color.rgb` is the hex colour converted to a decimal integer (`#E0BE8F` → `0xE0BE8F` → `14729871`).
+
+### Ordering
+
+Obsidian uses last-match-wins for overlapping queries. Entries are ordered:
+
+1. **System folders** — `_Attachments` (Slate), `_Config` (Violet), `_Plugins` (Orchid), `_Temporal` (Rose)
+2. **Living artefact folders** — `path:"FolderName"` with the same computed hex as CSS
+3. **Temporal child folders** — `path:"_Temporal/ChildName"` with the rose-blended hex
+4. **Archive** — `path:_Archive` with Slate, last so it overrides parent colours
+
+### Merge behaviour
+
+`write_graph_json` reads the existing `graph.json`, replaces only `colorGroups`, and writes back. All other graph settings (scale, forces, display options) are preserved. If no `graph.json` exists, one is created.
+
 ## CSS File Location
 
 The active CSS lives at `.obsidian/snippets/folder-colours.css`. Enable via **Settings > Appearance > CSS Snippets** in Obsidian. Regenerate with `brain_action("compile")` or `python3 compile_colours.py`.
