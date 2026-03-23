@@ -10,7 +10,7 @@ All content in the vault is an **artefact**:
 1. **Living** (in vault root) - evolve over time, source of truth
 2. **Temporal** (in _Temporal/) - bound to a moment, historic record
 
-System folders start with `_` or `.`, these are infrastructure, not artefacts. Living artefact folders may contain an `_Archive/` subfolder for documents that have transferred authority elsewhere — archived files are date-prefixed (`yyyymmdd-slug.md`) and carry `archiveddate` in frontmatter. See [[.brain-core/extensions]]. These distinction drives folder organisation, naming, and styling.
+System folders start with `_` or `.` — these are infrastructure, not artefacts. Living artefact folders may contain an `_Archive/` subfolder for documents that have transferred authority elsewhere. See [[.brain-core/extensions]] for archiving procedures. This distinction drives folder organisation, naming, and styling.
 
 The system is self-extending. When content has no appropriate home, add a new artefact type following documented procedures rather than forcing it into an existing folder.
 
@@ -36,10 +36,6 @@ Files read every session (router, index) stay minimal — routing tables, not en
 ### Start simple, grow organically
 Artefacts start as flat files in their type folder. Structure (subfolders, index files, linked compositions) is added as needed when complexity grows, not planned upfront. Lean into organic growth; add structure to deal elegantly with increasing complexity.
 
-Always:
-- Every artefact belongs in a typed folder. Prefer existing types over new ones.
-- When content has no home, add a new artefact type before creating the file.
-
 ## Tooling
 
 Prefer `brain_read`/`brain_action`/`brain_search` MCP tools if available.
@@ -53,7 +49,7 @@ Each vault has a **router** — a single file an agent reads every session. The 
 ## Core Documentation
 
 - How to add artefact types and extend principles — [[.brain-core/extensions]]
-- Ready-to-use artefact type definitions — [[.brain-core/library]]
+- Ready-to-use artefact type definitions — [[.brain-core/artefact-library/README]]
 - How to use workflow trigger system — [[.brain-core/triggers]]
 - How to use folder colour system: design, palette, CSS templates — [[.brain-core/colours]]
 - How to use and extend plugin system for external tools — [[.brain-core/plugins]]

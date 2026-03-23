@@ -12,10 +12,10 @@ Follow before every commit. See [standards/canary.md](../standards/canary.md) fo
 
 [4] **Docs updated.** Update every file affected by your change:
 
-    [4a] **Artefact type** — if added/removed/renamed: `src/brain-core/artefact-library/README.md` (type table, colour table), `docs/user-reference.md` (type spec), `docs/specification.md` (starter vault list if default), `docs/user-guide.md` (vault overview)
+    [4a] **Artefact type** — if added/removed/renamed: `src/brain-core/artefact-library/README.md` (type table), `docs/user-reference.md` (type spec), `docs/specification.md` (starter vault list if default), `docs/user-guide.md` (vault overview)
     [4b] **Template vault defaults** — if added/removed: `docs/user-guide.md` (starter set list), `src/brain-core/guide.md` (type table), `docs/specification.md` (starter vault section)
     [4c] **Status/lifecycle values** — `docs/user-reference.md` (type spec + status table), `src/brain-core/artefact-library/README.md` (conventions section), `src/brain-core/guide.md` (status section)
-    [4d] **Install/extension procedures** — `docs/user-reference.md` (Extending Your Vault), `src/brain-core/extensions.md`, `src/brain-core/library.md`, `src/brain-core/artefact-library/README.md` (Installing a type)
+    [4d] **Install/extension procedures** — `docs/user-reference.md` (Extending Your Vault), `src/brain-core/extensions.md`, `src/brain-core/artefact-library/README.md` (Installing a type)
     [4e] **Colour system** — `src/brain-core/colours.md`, `docs/user-reference.md` (Colour System), `docs/specification.md` (Colour System)
     [4f] **System design/architecture** — `docs/specification.md`, `src/brain-core/index.md` (if principles change), `src/brain-core/extensions.md` (if patterns change)
     [4g] **Day-to-day workflows** — `docs/user-guide.md`, `src/brain-core/guide.md`, `docs/user-reference.md` (Workflows)
@@ -27,8 +27,7 @@ Follow before every commit. See [standards/canary.md](../standards/canary.md) fo
     [5a] **Type counts** — living/temporal counts in library README, changelog, specification
     [5b] **Template vault defaults list** — user-guide, quick-start guide, specification
     [5c] **Status values** — user-reference, library README, quick-start guide
-    [5d] **Install step counts** — user-reference, library README, library.md, extensions.md
-    [5e] **Colour table entries** — library README (one row per temporal type)
+    [5d] **Install step counts** — user-reference, library README, extensions.md
 
 ## Log
 
@@ -53,7 +52,6 @@ After following the items above, write `.canary--pre-commit` at the repo root:
     [5b] Template vault defaults list: skip, no changes
     [5c] Status values: skip, no changes
     [5d] Install step counts: skip, no changes
-    [5e] Colour table entries: skip, no changes
 ```
 
 The pre-commit hook checks this file exists and covers all items.

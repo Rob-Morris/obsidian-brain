@@ -65,57 +65,9 @@ python3 compile_colours.py --dry-run    # print CSS to stdout without writing
 python3 compile_colours.py --vault /path/to/vault
 ```
 
-## CSS Selector Templates
+## CSS Selectors
 
-For reference, the generated CSS uses these patterns:
-
-### Artefact folder
-
-```css
-/* {Folder Name} — folder + subfolders */
-.nav-folder-title[data-path="{Folder Name}"] .nav-folder-title-content,
-.nav-folder-title[data-path^="{Folder Name}/"] .nav-folder-title-content {
-  color: var(--color-{name});
-}
-.nav-folder-title[data-path="{Folder Name}"],
-.nav-folder-title[data-path^="{Folder Name}/"] {
-  background-color: var(--theme-artefact-bg);
-  border-left: 3px solid var(--color-{name});
-  border-radius: 4px;
-}
-/* {Folder Name} — files */
-.nav-file-title[data-path^="{Folder Name}/"] {
-  background-color: var(--theme-artefact-bg);
-  border-radius: 4px;
-}
-.nav-file-title[data-path^="{Folder Name}/"] .nav-file-title-content {
-  color: var(--color-{name});
-}
-```
-
-### Temporal child folder
-
-```css
-/* _Temporal/{Child} — folder + subfolders */
-.nav-folder-title[data-path="_Temporal/{Child}"] .nav-folder-title-content,
-.nav-folder-title[data-path^="_Temporal/{Child}/"] .nav-folder-title-content {
-  color: var(--color-temporal-{child});
-}
-.nav-folder-title[data-path="_Temporal/{Child}"],
-.nav-folder-title[data-path^="_Temporal/{Child}/"] {
-  background-color: var(--theme-temporal-bg);
-  border-left: 4px double var(--color-temporal-{child});
-  border-radius: 4px;
-}
-/* _Temporal/{Child} — files */
-.nav-file-title[data-path^="_Temporal/{Child}/"] {
-  background-color: var(--theme-temporal-bg);
-  border-radius: 4px;
-}
-.nav-file-title[data-path^="_Temporal/{Child}/"] .nav-file-title-content {
-  color: var(--color-temporal-{child});
-}
-```
+The generated CSS uses `data-path` attribute selectors on `.nav-folder-title` and `.nav-file-title` elements. Each folder gets colour, background, and border rules. Use `--dry-run` to inspect the full output.
 
 ## Archive Subfolder Styling
 

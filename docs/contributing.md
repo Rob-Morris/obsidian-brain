@@ -36,9 +36,8 @@ Brain has multiple documentation layers, each serving a different audience. Keep
 | `guide.md` | Vault users + agents | Quick-start guide, ships in the vault |
 | `index.md` | Agents | System principles and always-rules, read every session |
 | `extensions.md` | Agents + contributors | How to extend the vault (add types, patterns, preferences) |
-| `library.md` | Agents + contributors | How to browse and install artefact types |
 | `colours.md` | Contributors | Colour system algorithm, CSS templates |
-| `artefact-library/README.md` | Agents + contributors | Type catalogue, colour table, install steps |
+| `artefact-library/README.md` | Agents + contributors | Type catalogue, install steps, browsing guide |
 
 ### Why drift happens
 
@@ -120,8 +119,16 @@ After committing brain-core changes in this repo, follow `docs/canaries/post-cor
 
 ### Stale install procedures
 
-Install/extension procedures appear in four places (`user-reference.md`, `extensions.md`, `library.md`, `artefact-library/README.md`). Since v0.9.12, colours are auto-generated — any mention of manual CSS steps or colour picking is stale.
+Install/extension procedures appear in three places (`user-reference.md`, `extensions.md`, `artefact-library/README.md`). Since v0.9.12, colours are auto-generated — any mention of manual CSS steps or colour picking is stale.
 
 ### Type table vs defaults
 
 The quick-start guide (`src/brain-core/guide.md`) type table should show template vault defaults. The artefact library README shows all available types. These are different lists — don't copy one into the other.
+
+### When to update guide.md
+
+The quick-start guide (`src/brain-core/guide.md`) ships in every vault and should be updated when:
+- New artefact types are added to the template vault defaults
+- Core conventions change (naming, frontmatter, filing)
+- New user-facing tooling is introduced
+- Workflows are added or modified
