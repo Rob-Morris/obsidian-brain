@@ -67,6 +67,41 @@ _router: dict | None = None
 _index: dict | None = None
 _cli_available: bool = False
 _vault_name: str | None = None
+_loaded_version: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Version check — exit if brain-core was upgraded since startup
+# ---------------------------------------------------------------------------
+
+VERSION_REL = os.path.join(".brain-core", "VERSION")
+
+
+def _read_disk_version(vault_root: str) -> str | None:
+    """Read the current .brain-core/VERSION from disk."""
+    version_path = os.path.join(vault_root, VERSION_REL)
+    try:
+        with open(version_path, "r", encoding="utf-8") as f:
+            return f.read().strip()
+    except OSError:
+        return None
+
+
+def _check_version() -> None:
+    """Exit if brain-core on disk is newer than what was loaded at startup.
+
+    The MCP client will restart the server, which reimports the new code.
+    """
+    if _vault_root is None or _loaded_version is None:
+        return
+    disk_version = _read_disk_version(_vault_root)
+    if disk_version is not None and disk_version != _loaded_version:
+        print(
+            f"brain-core version changed ({_loaded_version} → {disk_version}), "
+            f"exiting for restart",
+            file=sys.stderr,
+        )
+        sys.exit(0)
 
 
 # ---------------------------------------------------------------------------
@@ -180,7 +215,7 @@ def _build_index_and_save(vault_root: str) -> dict:
 
 def startup(vault_root: str | None = None) -> None:
     """Initialize server state: find vault, compile/build if stale, load data."""
-    global _vault_root, _router, _index, _cli_available, _vault_name
+    global _vault_root, _router, _index, _cli_available, _vault_name, _loaded_version
 
     if vault_root is None:
         vault_root = os.environ.get("BRAIN_VAULT_ROOT")
@@ -188,6 +223,9 @@ def startup(vault_root: str | None = None) -> None:
         _vault_root = str(find_vault_root())
     else:
         _vault_root = str(vault_root)
+
+    # Record loaded version for drift detection
+    _loaded_version = _read_disk_version(_vault_root)
 
     # Auto-compile router if stale (reuse parsed data when fresh)
     stale, data = _check_router(_vault_root)
@@ -246,6 +284,8 @@ def brain_read(resource: str, name: str | None = None) -> str:
       router      — always-rules and metadata
       compliance  — run structural compliance checks (name = severity filter: error/warning/info)
     """
+    _check_version()
+
     if _router is None:
         return "Error: server not initialized"
 
@@ -374,6 +414,8 @@ def brain_search(query: str, type: str | None = None, tag: str | None = None,
     Returns ranked results with path, title, type, status, score, snippet, and source.
     Optional filters: type (e.g. 'living/wiki'), tag, status (e.g. 'shaping'), top_k (default 10).
     """
+    _check_version()
+
     if _index is None:
         return "Error: server not initialized"
 
@@ -460,6 +502,8 @@ def brain_action(action: str, params: dict | None = None) -> str:
       rename      — rename/move a file (params: source, dest as relative paths)
     """
     global _router, _index
+
+    _check_version()
 
     if _vault_root is None:
         return "Error: server not initialized"

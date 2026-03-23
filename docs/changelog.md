@@ -2,6 +2,11 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.9.18 — 2026-03-23
+
+- **MCP server version drift detection** — server reads `.brain-core/VERSION` at startup and checks it on every tool call. If brain-core was upgraded since startup (version on disk differs from loaded version), the server exits cleanly (code 0) so the MCP client restarts it with the new code. Prevents stale code from writing wrong outputs, missing new resources, or misinterpreting updated data
+- Test suite: 323 tests (was 316) — 7 new tests covering version recording, drift detection, graceful exit on all three tools, and resilience when VERSION is missing
+
 ## v0.9.17 — 2026-03-23
 
 - **Graph view colours** — `compile_colours.py` now generates `colorGroups` entries in `.obsidian/graph.json` alongside the CSS snippet. Graph nodes are coloured by folder type using the same colour assignments: system folders (Slate/Violet/Orchid/Rose), living artefacts (computed hex), temporal children (rose-blended hex), and archive (Slate override). Existing graph settings (scale, forces, display) are preserved — only `colorGroups` is replaced

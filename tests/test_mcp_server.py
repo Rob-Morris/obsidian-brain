@@ -547,3 +547,55 @@ class TestStartupCaching:
         server.startup(vault_root=str(vault))
         built_at_2 = server._index["meta"]["built_at"]
         assert built_at_1 == built_at_2
+
+
+# ---------------------------------------------------------------------------
+# Version drift detection
+# ---------------------------------------------------------------------------
+
+class TestVersionCheck:
+    def test_startup_records_loaded_version(self, vault):
+        server.startup(vault_root=str(vault))
+        assert server._loaded_version == "0.7.0"
+
+    def test_no_exit_when_version_matches(self, initialized):
+        """_check_version should not exit when version is unchanged."""
+        server._check_version()  # Should return normally
+
+    def test_exits_when_version_changes(self, initialized):
+        """_check_version should sys.exit(0) when on-disk version differs."""
+        version_path = initialized / ".brain-core" / "VERSION"
+        version_path.write_text("99.0.0\n")
+        with pytest.raises(SystemExit) as exc_info:
+            server._check_version()
+        assert exc_info.value.code == 0
+
+    def test_no_exit_when_version_file_missing(self, initialized):
+        """_check_version should not exit if VERSION file is deleted."""
+        version_path = initialized / ".brain-core" / "VERSION"
+        version_path.unlink()
+        server._check_version()  # Should return normally
+
+    def test_brain_read_checks_version(self, initialized):
+        """brain_read should exit if version drifted."""
+        version_path = initialized / ".brain-core" / "VERSION"
+        version_path.write_text("99.0.0\n")
+        with pytest.raises(SystemExit) as exc_info:
+            server.brain_read("artefact")
+        assert exc_info.value.code == 0
+
+    def test_brain_search_checks_version(self, initialized):
+        """brain_search should exit if version drifted."""
+        version_path = initialized / ".brain-core" / "VERSION"
+        version_path.write_text("99.0.0\n")
+        with pytest.raises(SystemExit) as exc_info:
+            server.brain_search("test query")
+        assert exc_info.value.code == 0
+
+    def test_brain_action_checks_version(self, initialized):
+        """brain_action should exit if version drifted."""
+        version_path = initialized / ".brain-core" / "VERSION"
+        version_path.write_text("99.0.0\n")
+        with pytest.raises(SystemExit) as exc_info:
+            server.brain_action("compile")
+        assert exc_info.value.code == 0
