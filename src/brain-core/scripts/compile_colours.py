@@ -24,7 +24,8 @@ import math
 import os
 import sys
 from datetime import datetime, timezone
-from pathlib import Path
+
+from _common import find_vault_root
 
 
 # ---------------------------------------------------------------------------
@@ -55,37 +56,6 @@ ROSE_BLEND_FACTOR = 0.35
 OUTPUT_REL = os.path.join(".obsidian", "snippets", "folder-colours.css")
 GRAPH_JSON_REL = os.path.join(".obsidian", "graph.json")
 COMPILED_ROUTER_REL = os.path.join("_Config", ".compiled-router.json")
-
-
-# ---------------------------------------------------------------------------
-# Vault root discovery (same pattern as compile_router.py)
-# ---------------------------------------------------------------------------
-
-def _is_vault_root(path):
-    """Check if a directory is a Brain vault root."""
-    return (path / ".brain-core" / "VERSION").is_file() or (path / "Agents.md").is_file()
-
-
-def find_vault_root(vault_arg=None):
-    """Find a Brain vault root."""
-    if vault_arg:
-        p = Path(vault_arg).resolve()
-        if _is_vault_root(p):
-            return p
-        print(f"Error: {vault_arg} is not a vault root.", file=sys.stderr)
-        sys.exit(1)
-
-    cwd = Path(os.getcwd()).resolve()
-    if _is_vault_root(cwd):
-        return cwd
-
-    current = Path(__file__).resolve().parent
-    for _ in range(10):
-        current = current.parent
-        if _is_vault_root(current):
-            return current
-    print("Error: could not find vault root.", file=sys.stderr)
-    sys.exit(1)
 
 
 # ---------------------------------------------------------------------------

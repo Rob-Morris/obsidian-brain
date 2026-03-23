@@ -12,104 +12,20 @@ Usage:
 """
 
 import json
-import math
 import os
-import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-
-TEMPORAL_DIR = "_Temporal"
-OUTPUT_PATH = os.path.join("_Config", ".retrieval-index.json")
-INDEX_VERSION = "1.0.0"
-BM25_K1 = 1.5
-BM25_B = 0.75
-
-# ---------------------------------------------------------------------------
-# Vault root discovery (duplicated from compile_router.py for portability)
-# ---------------------------------------------------------------------------
-
-def _is_vault_root(path):
-    """Check if a directory is a Brain vault root."""
-    return (path / ".brain-core" / "VERSION").is_file() or (path / "Agents.md").is_file()
-
-
-def find_vault_root():
-    """Find a Brain vault root — checks cwd first, then walks up from script location."""
-    # Check cwd first (allows running from dev repo: cd vault && python3 /path/to/script)
-    cwd = Path(os.getcwd()).resolve()
-    if _is_vault_root(cwd):
-        return cwd
-
-    # Walk up from script location (works when installed inside .brain-core/scripts/)
-    current = Path(__file__).resolve().parent
-    for _ in range(10):
-        current = current.parent
-        if _is_vault_root(current):
-            return current
-    print("Error: could not find vault root.", file=sys.stderr)
-    sys.exit(1)
-
-
-def read_version(vault_root):
-    """Read brain-core version from the canonical VERSION file."""
-    version_file = os.path.join(str(vault_root), ".brain-core", "VERSION")
-    with open(version_file, "r", encoding="utf-8") as f:
-        return f.read().strip()
-
-
-def is_system_dir(name):
-    """Convention: any folder starting with _ or . is infrastructure."""
-    return name.startswith("_") or name.startswith(".")
-
-
-# ---------------------------------------------------------------------------
-# Type folder discovery (matches compile_router.py patterns)
-# ---------------------------------------------------------------------------
-
-def scan_living_types(vault_root):
-    """Discover living artefact type folders from root-level non-system dirs."""
-    types = []
-    vault_str = str(vault_root)
-    for entry in sorted(os.listdir(vault_str)):
-        full = os.path.join(vault_str, entry)
-        if not os.path.isdir(full):
-            continue
-        if is_system_dir(entry):
-            continue
-        key = entry.lower().replace(" ", "-")
-        types.append({
-            "folder": entry,
-            "type": "living/" + key,
-            "path": entry,
-        })
-    return types
-
-
-def scan_temporal_types(vault_root):
-    """Discover temporal artefact type folders from _Temporal/ subfolders."""
-    vault_str = str(vault_root)
-    temporal_dir = os.path.join(vault_str, TEMPORAL_DIR)
-    if not os.path.isdir(temporal_dir):
-        return []
-    types = []
-    for entry in sorted(os.listdir(temporal_dir)):
-        full = os.path.join(temporal_dir, entry)
-        if not os.path.isdir(full):
-            continue
-        if entry.startswith(".") or entry.startswith("_"):
-            continue
-        key = entry.lower().replace(" ", "-")
-        types.append({
-            "folder": entry,
-            "type": "temporal/" + key,
-            "path": os.path.join(TEMPORAL_DIR, entry),
-        })
-    return types
+from _common import (
+    find_vault_root,
+    is_system_dir,
+    parse_frontmatter,
+    read_version,
+    scan_living_types,
+    scan_temporal_types,
+    tokenise,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -135,75 +51,6 @@ def find_md_files(vault_root, type_info):
     return files
 
 
-# ---------------------------------------------------------------------------
-# Frontmatter + body extraction
-# ---------------------------------------------------------------------------
-
-_FM_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n?", re.DOTALL)
-
-
-def parse_frontmatter(text):
-    """Extract frontmatter fields from markdown text. Returns (fields, body)."""
-    m = _FM_RE.match(text)
-    if not m:
-        return {}, text
-
-    fm_text = m.group(1)
-    body = text[m.end():]
-    fields = {}
-
-    # Simple YAML parser for flat fields — handles type, status, tags
-    for line in fm_text.split("\n"):
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-
-        colon_idx = line.find(":")
-        if colon_idx < 0:
-            continue
-
-        key = line[:colon_idx].strip()
-        value = line[colon_idx + 1:].strip()
-
-        if key == "tags":
-            # Handle inline list: [tag1, tag2] or multi-line
-            if value.startswith("["):
-                inner = value.strip("[]")
-                fields["tags"] = [t.strip().strip("'\"") for t in inner.split(",") if t.strip()]
-            elif not value:
-                # Multi-line tags follow; collect them
-                fields["tags"] = []
-            continue
-
-        if key == "tags" or (not value and key != "tags"):
-            continue
-
-        # Strip quotes
-        if (value.startswith("'") and value.endswith("'")) or \
-           (value.startswith('"') and value.endswith('"')):
-            value = value[1:-1]
-
-        fields[key] = value
-
-    # Handle multi-line tags (- tag format)
-    if "tags" in fields and fields["tags"] == []:
-        tags = []
-        in_tags = False
-        for line in fm_text.split("\n"):
-            stripped = line.strip()
-            if stripped.startswith("tags:"):
-                in_tags = True
-                continue
-            if in_tags:
-                if stripped.startswith("- "):
-                    tags.append(stripped[2:].strip().strip("'\""))
-                elif stripped and not stripped.startswith("-"):
-                    break
-        fields["tags"] = tags
-
-    return fields, body
-
-
 def extract_title(body, filename):
     """Extract title from first # heading or fallback to filename stem."""
     for line in body.split("\n"):
@@ -214,15 +61,13 @@ def extract_title(body, filename):
 
 
 # ---------------------------------------------------------------------------
-# BM25 tokenisation
+# Constants
 # ---------------------------------------------------------------------------
 
-_TOKEN_RE = re.compile(r"[a-z0-9]+")
-
-
-def tokenise(text):
-    """Lowercase, split on non-alphanumeric, strip tokens < 2 chars."""
-    return [t for t in _TOKEN_RE.findall(text.lower()) if len(t) >= 2]
+OUTPUT_PATH = os.path.join("_Config", ".retrieval-index.json")
+INDEX_VERSION = "1.0.0"
+BM25_K1 = 1.5
+BM25_B = 0.75
 
 
 # ---------------------------------------------------------------------------

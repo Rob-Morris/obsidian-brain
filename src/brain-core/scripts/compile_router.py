@@ -21,43 +21,16 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-# _Temporal contains temporal artefacts — scanned separately from living types
-TEMPORAL_DIR = "_Temporal"
+from _common import (
+    TEMPORAL_DIR,
+    find_vault_root,
+    is_system_dir,
+    read_version,
+    scan_living_types,
+    scan_temporal_types,
+)
 
 OUTPUT_PATH = os.path.join("_Config", ".compiled-router.json")
-
-
-# ---------------------------------------------------------------------------
-# Vault root discovery
-# ---------------------------------------------------------------------------
-
-def _is_vault_root(path):
-    """Check if a directory is a Brain vault root."""
-    return (path / ".brain-core" / "VERSION").is_file() or (path / "Agents.md").is_file()
-
-
-def find_vault_root():
-    """Find a Brain vault root — checks cwd first, then walks up from script location."""
-    # Check cwd first (allows running from dev repo: cd vault && python3 /path/to/script)
-    cwd = Path(os.getcwd()).resolve()
-    if _is_vault_root(cwd):
-        return cwd
-
-    # Walk up from script location (works when installed inside .brain-core/scripts/)
-    current = Path(__file__).resolve().parent
-    for _ in range(10):
-        current = current.parent
-        if _is_vault_root(current):
-            return current
-    print("Error: could not find vault root.", file=sys.stderr)
-    sys.exit(1)
-
-
-def read_version(vault_root):
-    """Read brain-core version from the canonical VERSION file."""
-    version_file = os.path.join(str(vault_root), ".brain-core", "VERSION")
-    with open(version_file, "r", encoding="utf-8") as f:
-        return f.read().strip()
 
 
 # ---------------------------------------------------------------------------
@@ -79,63 +52,6 @@ def compute_source_hash(sources):
     for key in sorted(sources.keys()):
         h.update(sources[key].encode("utf-8"))
     return "sha256:" + h.hexdigest()
-
-
-# ---------------------------------------------------------------------------
-# Filesystem scanning (DD-016)
-# ---------------------------------------------------------------------------
-
-def is_system_dir(name):
-    """Check if a directory name is infrastructure (not a living artefact).
-
-    Convention: any folder starting with _ or . is excluded from living type
-    discovery. _Temporal contains artefacts but is scanned separately — it is
-    still excluded here because its children are temporal, not living.
-    """
-    return name.startswith("_") or name.startswith(".")
-
-
-def scan_living_types(vault_root):
-    """Discover living artefact types from root-level non-system directories."""
-    types = []
-    for entry in sorted(os.listdir(vault_root)):
-        full = os.path.join(vault_root, entry)
-        if not os.path.isdir(full):
-            continue
-        if is_system_dir(entry):
-            continue
-        key = entry.lower().replace(" ", "-")
-        types.append({
-            "folder": entry,
-            "key": key,
-            "classification": "living",
-            "type": "living/" + key,
-            "path": entry,
-        })
-    return types
-
-
-def scan_temporal_types(vault_root):
-    """Discover temporal artefact types from _Temporal/ subfolders."""
-    temporal_dir = os.path.join(vault_root, TEMPORAL_DIR)
-    if not os.path.isdir(temporal_dir):
-        return []
-    types = []
-    for entry in sorted(os.listdir(temporal_dir)):
-        full = os.path.join(temporal_dir, entry)
-        if not os.path.isdir(full):
-            continue
-        if entry.startswith(".") or entry.startswith("_"):
-            continue
-        key = entry.lower().replace(" ", "-")
-        types.append({
-            "folder": entry,
-            "key": key,
-            "classification": "temporal",
-            "type": "temporal/" + key,
-            "path": os.path.join(TEMPORAL_DIR, entry),
-        })
-    return types
 
 
 # ---------------------------------------------------------------------------

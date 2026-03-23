@@ -18,7 +18,8 @@ import math
 import os
 import re
 import sys
-from pathlib import Path
+
+from _common import _FM_RE, find_vault_root, tokenise
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -27,53 +28,6 @@ from pathlib import Path
 INDEX_PATH = os.path.join("_Config", ".retrieval-index.json")
 DEFAULT_TOP_K = 10
 SNIPPET_LENGTH = 200
-
-# ---------------------------------------------------------------------------
-# Vault root discovery (duplicated from compile_router.py for portability)
-# ---------------------------------------------------------------------------
-
-def _is_vault_root(path):
-    """Check if a directory is a Brain vault root."""
-    return (path / ".brain-core" / "VERSION").is_file() or (path / "Agents.md").is_file()
-
-
-def find_vault_root():
-    """Find a Brain vault root — checks cwd first, then walks up from script location."""
-    cwd = Path(os.getcwd()).resolve()
-    if _is_vault_root(cwd):
-        return cwd
-
-    current = Path(__file__).resolve().parent
-    for _ in range(10):
-        current = current.parent
-        if _is_vault_root(current):
-            return current
-    print("Error: could not find vault root.", file=sys.stderr)
-    sys.exit(1)
-
-
-def read_version(vault_root):
-    """Read brain-core version from the canonical VERSION file."""
-    version_file = os.path.join(str(vault_root), ".brain-core", "VERSION")
-    with open(version_file, "r", encoding="utf-8") as f:
-        return f.read().strip()
-
-
-def is_system_dir(name):
-    """Convention: any folder starting with _ or . is infrastructure."""
-    return name.startswith("_") or name.startswith(".")
-
-
-# ---------------------------------------------------------------------------
-# BM25 tokenisation (must match build_index.py)
-# ---------------------------------------------------------------------------
-
-_TOKEN_RE = re.compile(r"[a-z0-9]+")
-
-
-def tokenise(text):
-    """Lowercase, split on non-alphanumeric, strip tokens < 2 chars."""
-    return [t for t in _TOKEN_RE.findall(text.lower()) if len(t) >= 2]
 
 
 # ---------------------------------------------------------------------------
@@ -109,7 +63,7 @@ def extract_snippet(vault_root, rel_path, query_tokens, length=SNIPPET_LENGTH):
         return ""
 
     # Strip frontmatter
-    fm_match = re.match(r"\A---\s*\n.*?\n---\s*\n?", text, re.DOTALL)
+    fm_match = _FM_RE.match(text)
     if fm_match:
         body = text[fm_match.end():]
     else:

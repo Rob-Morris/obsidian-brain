@@ -2,6 +2,15 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.9.19 — 2026-03-24
+
+- **Script deduplication** — extracted shared utilities (`find_vault_root`, `read_version`, `is_system_dir`, `scan_living_types`, `scan_temporal_types`, `parse_frontmatter`, `tokenise`) into `scripts/_common.py`. All 5 scripts import from this module instead of duplicating ~120 lines each. Fixed dead code in `parse_frontmatter` (unreachable `key == "tags"` branch after `continue`). Removed 3 unused functions (`read_version` in search_index.py and check.py, `is_system_dir` in search_index.py)
+- **Deleted 23 vestigial `style.css` files** — `compile_colours.py` auto-generates all CSS from the compiled router; these hand-written files were never read by any script and drifted when types changed
+- **Documentation tightening** — removed ~50 lines of CSS selector templates from `colours.md` (agents never write CSS; the generator does). Removed hardcoded colour table from `artefact-library/README.md` (auto-generated, was drifting). Eliminated `library.md` and integrated its content into `artefact-library/README.md`. Removed duplicate "Always:" section from `index.md` (restated principles already covered above). Fixed grammar error ("These distinction" → "This distinction"). Moved "Maintaining This Guide" from `guide.md` to `docs/contributing.md`
+- **Completed mockups artefact type** — added missing `README.md` and `template.md` to `temporal/mockups/` (was the only type with just `taxonomy.md`)
+- Updated pre-commit canary to remove `library.md` references and colour table cross-check
+- Test suite: 353 tests (was 323) — 30 new tests for `_common.py` shared module
+
 ## Canary labelled log output — 2026-03-23
 
 - **Labelled canary logs with sub-items** — canary briefs now use bracket IDs (`[1]`, `[4a]`) instead of markdown numbered lists. Log lines include the item's label (`[4a] Artefact type: skip, reason`) so logs are self-describing without cross-referencing the brief. Items with sub-items expand into individual labelled log lines. Hook extracts expected IDs directly from the brief's Items section

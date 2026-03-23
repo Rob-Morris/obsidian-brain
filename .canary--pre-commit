@@ -1,0 +1,18 @@
+[1] Tests pass: done
+[2] Version bumped: done
+[3] Changelog updated: done
+[4] Docs updated: done
+    [4a] Artefact type: skip, no type changes
+    [4b] Template vault defaults: skip, no changes
+    [4c] Status/lifecycle values: skip, no changes
+    [4d] Install/extension procedures: skip, no changes
+    [4e] Colour system: skip, no changes
+    [4f] System design/architecture: skip, no changes
+    [4g] Day-to-day workflows: skip, no changes
+    [4h] Tooling: done
+    [4i] General pattern: skip, no changes
+[5] Shared facts cross-checked: done
+    [5a] Type counts: skip, no changes
+    [5b] Template vault defaults list: skip, no changes
+    [5c] Status values: skip, no changes
+    [5d] Install step counts: skip, no changes

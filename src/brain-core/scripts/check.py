@@ -20,7 +20,8 @@ import os
 import re
 import sys
 from datetime import datetime, timezone
-from pathlib import Path
+
+from _common import find_vault_root, parse_frontmatter
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -32,37 +33,6 @@ ROOT_ALLOW = {
     "Agents.md", "CLAUDE.md", "agents.local.md",
     ".gitignore", ".gitattributes", ".mcp.json",
 }
-
-
-# ---------------------------------------------------------------------------
-# Vault root discovery (duplicated from compile_router.py for portability)
-# ---------------------------------------------------------------------------
-
-def _is_vault_root(path):
-    """Check if a directory is a Brain vault root."""
-    return (path / ".brain-core" / "VERSION").is_file() or (path / "Agents.md").is_file()
-
-
-def find_vault_root():
-    """Find a Brain vault root — checks cwd first, then walks up from script location."""
-    cwd = Path(os.getcwd()).resolve()
-    if _is_vault_root(cwd):
-        return cwd
-
-    current = Path(__file__).resolve().parent
-    for _ in range(10):
-        current = current.parent
-        if _is_vault_root(current):
-            return current
-    print("Error: could not find vault root.", file=sys.stderr)
-    sys.exit(1)
-
-
-def read_version(vault_root):
-    """Read brain-core version from the canonical VERSION file."""
-    version_file = os.path.join(vault_root, ".brain-core", "VERSION")
-    with open(version_file, "r", encoding="utf-8") as f:
-        return f.read().strip()
 
 
 # ---------------------------------------------------------------------------
@@ -79,71 +49,6 @@ def load_router(vault_root):
             return json.load(f)
     except (json.JSONDecodeError, OSError) as e:
         return {"error": f"Failed to read compiled router: {e}"}
-
-
-# ---------------------------------------------------------------------------
-# Frontmatter parsing (duplicated from build_index.py for portability)
-# ---------------------------------------------------------------------------
-
-_FM_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n?", re.DOTALL)
-
-
-def parse_frontmatter(text):
-    """Extract frontmatter fields from markdown text. Returns (fields, body)."""
-    m = _FM_RE.match(text)
-    if not m:
-        return {}, text
-
-    fm_text = m.group(1)
-    body = text[m.end():]
-    fields = {}
-
-    for line in fm_text.split("\n"):
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-
-        colon_idx = line.find(":")
-        if colon_idx < 0:
-            continue
-
-        key = line[:colon_idx].strip()
-        value = line[colon_idx + 1:].strip()
-
-        if key == "tags":
-            if value.startswith("["):
-                inner = value.strip("[]")
-                fields["tags"] = [t.strip().strip("'\"") for t in inner.split(",") if t.strip()]
-            elif not value:
-                fields["tags"] = []
-            continue
-
-        if key == "tags" or (not value and key != "tags"):
-            continue
-
-        if (value.startswith("'") and value.endswith("'")) or \
-           (value.startswith('"') and value.endswith('"')):
-            value = value[1:-1]
-
-        fields[key] = value
-
-    # Handle multi-line tags (- tag format)
-    if "tags" in fields and fields["tags"] == []:
-        tags = []
-        in_tags = False
-        for line in fm_text.split("\n"):
-            stripped = line.strip()
-            if stripped.startswith("tags:"):
-                in_tags = True
-                continue
-            if in_tags:
-                if stripped.startswith("- "):
-                    tags.append(stripped[2:].strip().strip("'\""))
-                elif stripped and not stripped.startswith("-"):
-                    break
-        fields["tags"] = tags
-
-    return fields, body
 
 
 # ---------------------------------------------------------------------------
