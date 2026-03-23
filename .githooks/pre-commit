@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 #
-# Pre-commit hook: verifies .canary--pre-commit covers all numbered items
+# Pre-commit hook: verifies .canary--pre-commit covers all bracket IDs
 # defined in docs/canaries/pre-commit.md.
 #
-# The canary file is the source of truth — adding a new numbered item there
+# The canary brief is the source of truth — adding a new [id] there
 # automatically enforces it here.
 
 set -euo pipefail
@@ -12,17 +12,17 @@ REPO_ROOT="$(git rev-parse --show-toplevel)"
 CANARY_DEF="$REPO_ROOT/docs/canaries/pre-commit.md"
 CANARY_LOG="$REPO_ROOT/.canary--pre-commit"
 
-# Extract required item count from the canary definition
 if [[ ! -f "$CANARY_DEF" ]]; then
   echo "pre-commit: docs/canaries/pre-commit.md not found — skipping canary check"
   exit 0
 fi
 
-# Count numbered items (lines starting with digit followed by period)
-item_count=$(grep -cE '^[0-9]+\.' "$CANARY_DEF" || true)
+# Extract all [id] patterns from the Items section (between ## Items and ## Log)
+items_section=$(sed -n '/^## Items$/,/^## Log$/p' "$CANARY_DEF")
+expected_ids=($(echo "$items_section" | grep -oE '\[[0-9]+[a-z]?\]' | sort -u))
 
-if [[ "$item_count" -eq 0 ]]; then
-  echo "pre-commit: no numbered items found in docs/canaries/pre-commit.md — skipping"
+if [[ ${#expected_ids[@]} -eq 0 ]]; then
+  echo "pre-commit: no bracket IDs found in docs/canaries/pre-commit.md — skipping"
   exit 0
 fi
 
@@ -34,17 +34,17 @@ if [[ ! -f "$CANARY_LOG" ]]; then
   echo "Read docs/canaries/pre-commit.md and write .canary--pre-commit"
   echo "confirming you've followed each item. Format:"
   echo ""
-  echo "  [1] done"
-  echo "  [2] skip: reason"
+  echo "  [1] Label: done"
+  echo "  [2] Label: skip, reason"
   echo ""
   exit 1
 fi
 
-# Check each required item is present
+# Check each expected ID is present in the log
 missing=()
-for i in $(seq 1 "$item_count"); do
-  if ! grep -qE "^\[$i\]" "$CANARY_LOG" 2>/dev/null; then
-    missing+=("[$i]")
+for id in "${expected_ids[@]}"; do
+  if ! grep -qF "$id" "$CANARY_LOG" 2>/dev/null; then
+    missing+=("$id")
   fi
 done
 
@@ -55,24 +55,29 @@ if [[ ${#missing[@]} -gt 0 ]]; then
     echo "  $item"
   done
   echo ""
-  echo "Mark each as 'done' or 'skip: reason' in .canary--pre-commit."
+  echo "Mark each as '[id] Label: done' or '[id] Label: skip, reason'."
   exit 1
 fi
 
-# Check each item has 'done' or 'skip'
+# Validate format: each bracketed line must have a label and status
 bad=()
 while IFS= read -r line; do
-  if [[ "$line" =~ ^\[[0-9]+\] && ! "$line" =~ (done|skip) ]]; then
-    bad+=("$line")
+  trimmed="${line#"${line%%[![:space:]]*}"}"
+  if [[ "$trimmed" =~ ^\[[0-9]+[a-z]?\] ]]; then
+    if ! echo "$trimmed" | grep -qE '^\[[0-9]+[a-z]?\] .+: (done|skip, ?.+)$'; then
+      bad+=("$line")
+    fi
   fi
 done < "$CANARY_LOG"
 
 if [[ ${#bad[@]} -gt 0 ]]; then
   echo ""
-  echo "pre-commit: these lines need 'done' or 'skip: reason':"
+  echo "pre-commit: these lines have invalid format:"
   for line in "${bad[@]}"; do
     echo "  $line"
   done
+  echo ""
+  echo "Expected: [id] Label: done  or  [id] Label: skip, reason"
   exit 1
 fi
 

@@ -2,6 +2,12 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## Canary labelled log output — 2026-03-23
+
+- **Labelled canary logs with sub-items** — canary briefs now use bracket IDs (`[1]`, `[4a]`) instead of markdown numbered lists. Log lines include the item's label (`[4a] Artefact type: skip, reason`) so logs are self-describing without cross-referencing the brief. Items with sub-items expand into individual labelled log lines. Hook extracts expected IDs directly from the brief's Items section
+- **Skip reason guidance** — standard now instructs agents to write their own assessment rather than copying example reasons. Hook validates a reason is present but not its content
+- Pre-commit hook rewritten to extract bracket IDs via `sed`/`grep`, validate `[id] Label: status` format, and accept optional indentation on sub-items
+
 ## v0.9.18 — 2026-03-23
 
 - **MCP server version drift detection** — server reads `.brain-core/VERSION` at startup and checks it on every tool call. If brain-core was upgraded since startup (version on disk differs from loaded version), the server exits cleanly (code 0) so the MCP client restarts it with the new code. Prevents stale code from writing wrong outputs, missing new resources, or misinterpreting updated data
