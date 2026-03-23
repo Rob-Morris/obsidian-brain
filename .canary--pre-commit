@@ -2,12 +2,12 @@
 [2] Version bumped: skip, already bumped in prior commit
 [3] Changelog updated: skip, already updated in prior commit
 [4] Docs updated: done
-    [4a] Artefact type: skip, no type changes
-    [4b] Template vault defaults: skip, no changes
+    [4a] Artefact type: done
+    [4b] Template vault defaults: skip, mockups is not a default
     [4c] Status/lifecycle values: skip, no changes
-    [4d] Install/extension procedures: done
-    [4e] Colour system: done
-    [4f] System design/architecture: done
+    [4d] Install/extension procedures: skip, no changes
+    [4e] Colour system: skip, no changes
+    [4f] System design/architecture: skip, no changes
     [4g] Day-to-day workflows: skip, no changes
     [4h] Tooling: skip, no changes
     [4i] General pattern: skip, no changes
@@ -15,4 +15,4 @@
     [5a] Type counts: skip, no changes
     [5b] Template vault defaults list: skip, no changes
     [5c] Status values: skip, no changes
-    [5d] Install step counts: done
+    [5d] Install step counts: skip, no changes
