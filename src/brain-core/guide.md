@@ -177,7 +177,7 @@ If your vault has the Brain MCP server running, you get three tools:
 
 For structural compliance (naming, frontmatter, archives), run `python3 .brain-core/scripts/check.py` or use `brain_read(resource="compliance")` via MCP.
 
-Without MCP, agents fall back to the compiled router (`_Config/.compiled-router.json`), then the lean router (`_Config/router.md`), then plain file navigation.
+Without MCP, use `.brain-core/scripts/` directly (`read.py`, `search_index.py`, `rename.py`, `compile_router.py`, `check.py`). Without scripts, fall back to the lean router (`_Config/router.md`), then plain file navigation.
 
 ## Further Reading
 

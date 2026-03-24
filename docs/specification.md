@@ -41,9 +41,9 @@ System folders (`_Attachments/`, `_Config/`, `_Plugins/`, `.obsidian/`) are infr
 
 Four-tier boot, each degrading gracefully:
 
-1. **MCP tools** — if `brain_read`/`brain_action`/`brain_search` are available, the agent uses them. Lowest token cost, structured responses.
-2. **Compiled router** — if the MCP server isn't available but the compiled router exists (`_Config/.compiled-router.json`), the agent reads it for a structured, environment-aware view of the vault.
-3. **Lean router** — if neither MCP nor compiled router is available, the agent reads `Agents.md` → `_Config/router.md` (~45 tokens). The router provides conditional trigger pointers and vault-specific rules. Taxonomy files are loaded on demand when a condition matches.
+1. **MCP tools** — if `brain_read`/`brain_action`/`brain_search` are available, the agent uses them. Lowest token cost, structured responses, in-memory caching.
+2. **Scripts** — if MCP isn't available, `.brain-core/scripts/` provides full functionality: `read.py` (query compiled router), `search_index.py` (BM25 search), `rename.py` (wikilink-safe rename), `compile_router.py`, `check.py`. Same logic as MCP — the server imports from these scripts.
+3. **Lean router** — if neither MCP nor scripts are available, the agent reads `Agents.md` → `_Config/router.md` (~45 tokens). The router provides conditional trigger pointers and vault-specific rules. Taxonomy files are loaded on demand when a condition matches.
 4. **Naive fallback** — if the agent has no knowledge of the system, it reads `Agents.md` → `router.md` → follows wikilinks. The filesystem itself is discoverable: root-level non-system folders are living types, `_Temporal/` subfolders are temporal types.
 
 All tiers begin by reading `index.md` (via the router's "Always read [[.brain-core/index]]" directive) for system principles, always-rules, and tooling instructions. This ensures MCP-only agents receive the taxonomy-first gate and system constraints.

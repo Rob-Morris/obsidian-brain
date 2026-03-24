@@ -20,25 +20,50 @@ The compiled router is the interface contract between human-readable config and 
 
 **CLI:** `python3 compile_router.py --json` outputs to stdout; default mode writes `_Config/.compiled-router.json` with a summary to stderr. Requires Python 3.8+ (stdlib only). On environments without Python (mobile, restricted shells), agents fall back to the lean router and wikilink traversal — see *Agent Reading Flow* in `specification.md`.
 
+## Script Architecture (DD-023)
+
+Scripts in `.brain-core/scripts/` are the **source of truth** for all vault operations. Each script exposes importable functions and a CLI entry point:
+
+| Script | Purpose | CLI usage |
+|---|---|---|
+| `compile_router.py` | Compile router from source files | `python3 compile_router.py [--json]` |
+| `compile_colours.py` | Generate folder colour CSS | (called by compile_router) |
+| `build_index.py` | Build BM25 retrieval index | `python3 build_index.py [--json]` |
+| `search_index.py` | BM25 keyword search | `python3 search_index.py "query" [--type T] [--json]` |
+| `read.py` | Query compiled router resources | `python3 read.py RESOURCE [--name N]` |
+| `rename.py` | Rename file + update wikilinks | `python3 rename.py "source" "dest" [--json]` |
+| `check.py` | Structural compliance checks | `python3 check.py [--json] [--severity S]` |
+| `init.py` | MCP server registration | `python3 init.py [--user] [--project PATH]` |
+
+**Why scripts hold all logic:** The MCP server is a thin wrapper that imports functions from scripts and holds the compiled router and search index in memory. Scripts are the single implementation — the server adds only MCP transport, in-memory caching, and Obsidian CLI delegation. This means:
+
+- Agents without MCP use scripts directly — same logic, same results
+- No logic duplication between MCP and CLI paths
+- The server gets in-memory caching for free (router/index loaded at startup)
+- Standalone scripts pay a cold-start cost reading JSON from disk
+- New operations are implemented as scripts first, then exposed via MCP
+
+**When adding new operations:** implement the logic as importable functions in a script, add a CLI entry point, then import into `server.py`. Never put operation logic directly in the server.
+
 ## Brain MCP Server (DD-010, DD-011, DD-020, DD-021)
 
-Long-running MCP server at `.brain-core/mcp/server.py`. Exposes 3 tools:
+Long-running MCP server at `.brain-core/mcp/server.py`. Thin wrapper over scripts — exposes 3 MCP tools:
 
-- **`brain_read`** — safe, no side effects, auto-approvable. Resources: `artefact`, `trigger`, `style`, `template`, `skill`, `plugin`, `environment`, `router`, `compliance`. Optional `name` filter. Environment resource includes `obsidian_cli_available`. Compliance resource runs check.py checks; `name` parameter filters by severity (`error`/`warning`/`info`).
+- **`brain_read`** — safe, no side effects, auto-approvable. Delegates to `read.py` resource handlers. Resources: `artefact`, `trigger`, `style`, `template`, `skill`, `plugin`, `environment`, `router`, `compliance`. Optional `name` filter. Environment resource enriched with `obsidian_cli_available` (server-only state). Compliance resource runs check.py checks; `name` parameter filters by severity (`error`/`warning`/`info`).
 - **`brain_search`** — safe, no side effects, auto-approvable. Parameters: `query` (required), `type`, `tag`, `top_k`. CLI-first with BM25 fallback (DD-021). Response includes `source` field (`"obsidian_cli"` or `"bm25"`) and `results` array with path, title, type, score, snippet.
-- **`brain_action`** — mutations, gated by approval. Actions: `compile`, `build_index`, `rename` (implemented); `check`, `create_artefact` (deferred — scripts don't exist yet). Optional `params` object. `rename` uses Obsidian CLI when available (wikilink-safe), falls back to grep-and-replace.
+- **`brain_action`** — mutations, gated by approval. Actions: `compile`, `build_index`, `rename`. Optional `params` object. `rename` delegates to `rename.py`'s `rename_and_update_links()`, with Obsidian CLI override when available.
 
 DD-011 established the read/write safety split (2 tools). DD-020 adds `brain_search` as a third tool — search has different parameter semantics (query + filters vs. resource lookup) and response shape. DD-021 adds optional Obsidian CLI integration for search and rename.
 
-**CLI relationship** (DD-022): The Obsidian CLI is an **internal dependency** of the MCP server — not a separate agent-facing tier. The server delegates to the CLI for search and rename when available; agents interact only with MCP tools. When MCP is unavailable, agents can use the CLI directly (for search/rename) alongside `.brain-core/scripts/` (for compile/index) — these are complementary, not competing. Raw filesystem access is the last resort. Open question: several CLI capabilities (read, create, append, property management) are not yet exposed through MCP tools.
+**Obsidian CLI** (DD-022): Internal dependency of the MCP server, not a separate agent-facing tier. The server delegates to the CLI for search and rename when available; agents interact only with MCP tools or scripts. When MCP is unavailable, scripts provide full functionality (read, search, rename, compile, check). The CLI is an optimisation layer, not a requirement.
 
 **Startup:** Auto-compiles router and auto-builds index if stale (compares timestamps against source file mtimes). Both artefacts loaded into memory for the session lifetime. Probes Obsidian CLI availability and derives vault name from directory basename (overridable via `BRAIN_VAULT_NAME` env var).
 
 **Response payloads:** All tools return JSON strings. `brain_read` returns the requested resource data (array or object). `brain_search` returns `{source, results}` where results is a ranked array of `{path, title, type, score, snippet}`. `brain_action` returns `{status, summary, compiled_at|built_at}` or `{status, method, links_updated}` for rename.
 
-**Dependencies:** Python >=3.10, `mcp` SDK. The server imports functions directly from the existing scripts — never calls their `main()` (which may `sys.exit`). Optional: dsebastien/obsidian-cli-rest running on localhost:27124 (overridable via `OBSIDIAN_CLI_URL` env var).
+**Dependencies:** Python >=3.10, `mcp` SDK. The server imports functions directly from scripts — never calls their `main()` (which may `sys.exit`). Optional: dsebastien/obsidian-cli-rest running on localhost:27124 (overridable via `OBSIDIAN_CLI_URL` env var).
 
-**Status:** Implemented in v0.8.0. Phase C actions (`check`, `create_artefact`) deferred — those scripts don't exist yet. `create_artefact` may be superseded by a broader `write` action from the zettelkasten maintenance design.
+**Status:** Implemented in v0.8.0. Script parity completed in v0.10.3 (read.py, rename.py). Phase C actions (`create_artefact`) deferred — may be superseded by a broader `write` action from the zettelkasten maintenance design.
 
 ## Lean Router Format (DD-012, DD-017)
 

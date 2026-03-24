@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
 """
-Brain MCP Server — exposes brain-core tools via the Model Context Protocol.
+Brain MCP Server — thin MCP wrapper over brain-core scripts.
 
-Wraps compile_router, build_index, and search_index as 3 MCP tools:
+All logic lives in `.brain-core/scripts/` as importable functions.
+The server imports them, holds the compiled router and search index in memory,
+and exposes 3 MCP tools:
   brain_read   — read compiled router resources (safe, no side effects)
   brain_search — BM25 keyword search, with optional Obsidian CLI live search
   brain_action — mutations: compile router, rebuild index, rename files
+
+Why this pattern: scripts are the source of truth for all vault operations.
+The MCP server gets in-memory caching for free (router/index loaded once at
+startup). Standalone scripts pay a cold-start cost reading JSON from disk.
+Agents without MCP use the scripts directly — same logic, same results.
 
 Optional Obsidian CLI integration (dsebastien/obsidian-cli-rest):
   - Search: CLI-first with BM25 fallback (CLI index is always current)
@@ -24,7 +31,6 @@ Requires Python >=3.10 and the `mcp` SDK (see requirements.txt).
 
 import json
 import os
-import re
 import sys
 from datetime import datetime, timezone
 
@@ -40,7 +46,6 @@ sys.path.insert(0, os.path.abspath(SCRIPTS_DIR))
 from compile_router import (
     compile as compile_router,
     find_vault_root,
-    is_system_dir,
     scan_living_types,
     scan_temporal_types,
     OUTPUT_PATH as COMPILED_ROUTER_REL,
@@ -52,7 +57,8 @@ from build_index import (
     OUTPUT_PATH as RETRIEVAL_INDEX_REL,
 )
 from search_index import search as search_index
-from check import run_checks
+from read import read_resource
+from rename import rename_and_update_links
 
 import obsidian_cli
 
@@ -244,30 +250,6 @@ def startup(vault_root: str | None = None) -> None:
 # brain_read — safe, no side effects
 # ---------------------------------------------------------------------------
 
-def _read_file_content(vault_root: str, rel_path: str) -> str:
-    """Read a file's content given a relative path from vault root."""
-    abs_path = os.path.join(vault_root, rel_path)
-    # Resolve wikilink-style paths (no extension → try .md)
-    if not os.path.isfile(abs_path) and not rel_path.endswith(".md"):
-        abs_path += ".md"
-    if not os.path.isfile(abs_path):
-        return f"Error: file not found: {rel_path}"
-    with open(abs_path, "r", encoding="utf-8") as f:
-        return f.read()
-
-
-def _read_named_resource(resource: str, name: str | None,
-                         router_key: str, doc_field: str) -> str:
-    """List items or read a specific item's file content by name."""
-    items = _router[router_key]
-    if name:
-        match = next((i for i in items if i["name"] == name), None)
-        if not match:
-            return json.dumps({"error": f"No {resource} matching '{name}'"})
-        return _read_file_content(_vault_root, match[doc_field])
-    return json.dumps(items, indent=2)
-
-
 @mcp.tool()
 def brain_read(resource: str, name: str | None = None) -> str:
     """Read Brain vault resources. Safe, no side effects.
@@ -289,80 +271,16 @@ def brain_read(resource: str, name: str | None = None) -> str:
     if _router is None:
         return "Error: server not initialized"
 
-    if resource == "artefact":
-        artefacts = _router["artefacts"]
-        if name:
-            matches = [a for a in artefacts if a["key"] == name or a["type"] == name]
-            if not matches:
-                return json.dumps({"error": f"No artefact matching '{name}'"})
-            return json.dumps(matches, indent=2)
-        return json.dumps(artefacts, indent=2)
+    result = read_resource(_router, _vault_root, resource, name)
 
-    elif resource == "trigger":
-        return json.dumps(_router["triggers"], indent=2)
+    # Environment resource: MCP server enriches with CLI availability
+    if resource == "environment" and isinstance(result, dict) and "error" not in result:
+        result["obsidian_cli_available"] = _cli_available
 
-    elif resource == "style":
-        return _read_named_resource("style", name, "styles", "style_doc")
-
-    elif resource == "template":
-        if not name:
-            return json.dumps({"error": "template resource requires a name parameter (artefact type key)"})
-        artefacts = _router["artefacts"]
-        match = next((a for a in artefacts if a["key"] == name or a["type"] == name), None)
-        if not match:
-            return json.dumps({"error": f"No artefact matching '{name}'"})
-        if not match.get("template_file"):
-            return json.dumps({"error": f"Artefact '{name}' has no template file"})
-        return _read_file_content(_vault_root, match["template_file"])
-
-    elif resource == "skill":
-        return _read_named_resource("skill", name, "skills", "skill_doc")
-
-    elif resource == "plugin":
-        return _read_named_resource("plugin", name, "plugins", "skill_doc")
-
-    elif resource == "environment":
-        env = dict(_router["environment"])
-        env["obsidian_cli_available"] = _cli_available
-        return json.dumps(env, indent=2)
-
-    elif resource == "router":
-        return json.dumps({
-            "always_rules": _router["always_rules"],
-            "meta": _router["meta"],
-        }, indent=2)
-
-    elif resource == "memory":
-        memories = _router.get("memories", [])
-        if name:
-            # Case-insensitive substring search across triggers
-            lower_name = name.lower()
-            matches = [m for m in memories
-                       if any(lower_name in t.lower() for t in m.get("triggers", []))]
-            # Fallback to exact name match
-            if not matches:
-                matches = [m for m in memories if m["name"].lower() == lower_name]
-            if not matches:
-                return json.dumps({"error": f"No memory matching '{name}'"})
-            if len(matches) == 1:
-                return _read_file_content(_vault_root, matches[0]["memory_doc"])
-            return json.dumps(matches, indent=2)
-        return json.dumps(memories, indent=2)
-
-    elif resource == "compliance":
-        result = run_checks(str(_vault_root), _router)
-        if name:  # name parameter doubles as severity filter
-            result["findings"] = [f for f in result["findings"] if f["severity"] == name]
-            result["summary"] = {
-                "errors": sum(1 for f in result["findings"] if f["severity"] == "error"),
-                "warnings": sum(1 for f in result["findings"] if f["severity"] == "warning"),
-                "info": sum(1 for f in result["findings"] if f["severity"] == "info"),
-            }
-        return json.dumps(result, indent=2, ensure_ascii=False)
-
-    else:
-        valid = ["artefact", "trigger", "style", "template", "skill", "plugin", "environment", "router", "memory", "compliance"]
-        return json.dumps({"error": f"Unknown resource '{resource}'. Valid: {', '.join(valid)}"})
+    # Return strings as-is (file content), dicts/lists as JSON
+    if isinstance(result, str):
+        return result
+    return json.dumps(result, indent=2, ensure_ascii=False)
 
 
 # ---------------------------------------------------------------------------
@@ -436,62 +354,6 @@ def brain_search(query: str, type: str | None = None, tag: str | None = None,
 # brain_action — mutations, gated by approval
 # ---------------------------------------------------------------------------
 
-def _rename_grep_replace(vault_root: str, source: str, dest: str) -> int:
-    """Rename a file and update wikilinks via grep-and-replace. Returns links updated."""
-    abs_source = os.path.join(vault_root, source)
-    abs_dest = os.path.join(vault_root, dest)
-
-    if not os.path.isfile(abs_source):
-        raise FileNotFoundError(f"Source file not found: {source}")
-
-    # Derive wikilink stems (without .md extension)
-    def stem(path: str) -> str:
-        return path[:-3] if path.endswith(".md") else path
-
-    old_stem = stem(source)
-    new_stem = stem(dest)
-
-    # Find and replace wikilinks in all .md files
-    links_updated = 0
-    wikilink_pattern = re.compile(
-        r'\[\['
-        + re.escape(old_stem)
-        + r'(\|[^\]]*)?'  # optional alias
-        + r'\]\]'
-    )
-
-    for dirpath, _dirnames, filenames in os.walk(vault_root):
-        # Skip system directories
-        rel_dir = os.path.relpath(dirpath, vault_root)
-        if rel_dir != "." and is_system_dir(os.path.basename(dirpath)):
-            if not rel_dir.startswith("_Temporal"):
-                continue
-
-        for fname in filenames:
-            if not fname.endswith(".md"):
-                continue
-            fpath = os.path.join(dirpath, fname)
-            try:
-                with open(fpath, "r", encoding="utf-8") as f:
-                    content = f.read()
-            except OSError:
-                continue
-
-            new_content, count = wikilink_pattern.subn(
-                lambda m: f"[[{new_stem}{m.group(1) or ''}]]", content
-            )
-            if count > 0:
-                with open(fpath, "w", encoding="utf-8") as f:
-                    f.write(new_content)
-                links_updated += count
-
-    # Create destination directory if needed and rename the file
-    os.makedirs(os.path.dirname(abs_dest), exist_ok=True)
-    os.rename(abs_source, abs_dest)
-
-    return links_updated
-
-
 @mcp.tool()
 def brain_action(action: str, params: dict | None = None) -> str:
     """Perform vault actions. Mutations — may modify files.
@@ -555,7 +417,7 @@ def brain_action(action: str, params: dict | None = None) -> str:
 
         # Fallback: grep-and-replace wikilinks + os.rename
         try:
-            links_updated = _rename_grep_replace(_vault_root, source, dest)
+            links_updated = rename_and_update_links(_vault_root, source, dest)
             return json.dumps({
                 "status": "ok",
                 "method": "grep_replace",

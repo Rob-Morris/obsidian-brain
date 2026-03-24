@@ -1,0 +1,150 @@
+#!/usr/bin/env python3
+"""
+rename.py — Rename a vault file and update all wikilinks that reference it.
+
+Scans all .md files in the vault for wikilinks matching the old path stem,
+replaces them with the new path stem, then renames the file itself.
+
+Usage:
+    python3 rename.py "Wiki/old-name.md" "Wiki/new-name.md"
+    python3 rename.py --vault /path/to/vault "source.md" "dest.md"
+    python3 rename.py "source.md" "dest.md" --json
+"""
+
+import json
+import os
+import re
+import sys
+
+from _common import find_vault_root, is_system_dir
+
+
+# ---------------------------------------------------------------------------
+# Core logic
+# ---------------------------------------------------------------------------
+
+def rename_and_update_links(vault_root, source, dest):
+    """Rename a file and update wikilinks via grep-and-replace.
+
+    Args:
+        vault_root: Absolute path to the vault root.
+        source: Relative path from vault root to the source file.
+        dest: Relative path from vault root to the destination.
+
+    Returns:
+        Number of wikilinks updated across all files.
+
+    Raises:
+        FileNotFoundError: If the source file does not exist.
+    """
+    abs_source = os.path.join(vault_root, source)
+    abs_dest = os.path.join(vault_root, dest)
+
+    if not os.path.isfile(abs_source):
+        raise FileNotFoundError(f"Source file not found: {source}")
+
+    # Derive wikilink stems (without .md extension)
+    def stem(path):
+        return path[:-3] if path.endswith(".md") else path
+
+    old_stem = stem(source)
+    new_stem = stem(dest)
+
+    # Find and replace wikilinks in all .md files
+    links_updated = 0
+    wikilink_pattern = re.compile(
+        r'\[\['
+        + re.escape(old_stem)
+        + r'(\|[^\]]*)?'  # optional alias
+        + r'\]\]'
+    )
+
+    for dirpath, _dirnames, filenames in os.walk(vault_root):
+        # Skip system directories (but not _Temporal, which has artefacts)
+        rel_dir = os.path.relpath(dirpath, vault_root)
+        if rel_dir != "." and is_system_dir(os.path.basename(dirpath)):
+            if not rel_dir.startswith("_Temporal"):
+                continue
+
+        for fname in filenames:
+            if not fname.endswith(".md"):
+                continue
+            fpath = os.path.join(dirpath, fname)
+            try:
+                with open(fpath, "r", encoding="utf-8") as f:
+                    content = f.read()
+            except OSError:
+                continue
+
+            new_content, count = wikilink_pattern.subn(
+                lambda m: f"[[{new_stem}{m.group(1) or ''}]]", content
+            )
+            if count > 0:
+                with open(fpath, "w", encoding="utf-8") as f:
+                    f.write(new_content)
+                links_updated += count
+
+    # Create destination directory if needed and rename the file
+    os.makedirs(os.path.dirname(abs_dest), exist_ok=True)
+    os.rename(abs_source, abs_dest)
+
+    return links_updated
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+def main():
+    vault_arg = None
+    json_mode = False
+    positional = []
+
+    i = 1
+    while i < len(sys.argv):
+        arg = sys.argv[i]
+        if arg == "--vault" and i + 1 < len(sys.argv):
+            vault_arg = sys.argv[i + 1]
+            i += 2
+        elif arg == "--json":
+            json_mode = True
+            i += 1
+        elif not arg.startswith("--"):
+            positional.append(arg)
+            i += 1
+        else:
+            i += 1
+
+    if len(positional) != 2:
+        print(
+            'Usage: rename.py "source.md" "dest.md" [--vault PATH] [--json]',
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    source, dest = positional
+    vault_root = str(find_vault_root(vault_arg))
+
+    try:
+        links_updated = rename_and_update_links(vault_root, source, dest)
+    except FileNotFoundError as e:
+        if json_mode:
+            print(json.dumps({"error": str(e)}))
+        else:
+            print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if json_mode:
+        print(json.dumps({
+            "status": "ok",
+            "method": "grep_replace",
+            "source": source,
+            "dest": dest,
+            "links_updated": links_updated,
+        }, indent=2))
+    else:
+        print(f"Renamed {source} → {dest} ({links_updated} links updated)", file=sys.stderr)
+
+
+if __name__ == "__main__":
+    main()

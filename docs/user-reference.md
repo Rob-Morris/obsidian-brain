@@ -811,13 +811,15 @@ If your vault runs the Brain MCP server (`.brain-core/mcp/server.py`), three too
 
 ### Scripts
 
-Available in `.brain-core/scripts/`:
+Available in `.brain-core/scripts/`. Scripts are the source of truth for all vault operations — the MCP server imports from them.
 
 | Script | Purpose |
 |---|---|
 | `compile_router.py` | Compile router, taxonomy, skills, and styles into a single JSON file |
 | `build_index.py` | Build the BM25 retrieval index for search |
 | `search_index.py` | Search the BM25 index from the command line |
+| `read.py` | Query compiled router resources (artefacts, triggers, styles, templates, skills, etc.) |
+| `rename.py` | Rename a file with automatic wikilink updates |
 | `init.py` | Set up Claude Code to use this vault's MCP server |
 | `check.py` | Structural compliance checker — validates naming, frontmatter, month folders, archives, status values |
 
@@ -839,8 +841,8 @@ python3 .brain-core/scripts/check.py --vault /path/to/vault  # check a specific 
 
 When full tooling isn't available, agents degrade gracefully:
 
-1. **MCP tools** — lowest token cost, structured responses
-2. **Compiled router** — `_Config/.compiled-router.json` (local, gitignored)
+1. **MCP tools** — lowest token cost, structured responses, in-memory caching
+2. **Scripts** — `.brain-core/scripts/` provides full functionality (read, search, rename, compile, check)
 3. **Lean router** — `_Config/router.md` (~45 tokens)
 4. **Naive fallback** — read `index.md` → `router.md` → follow wikilinks
 

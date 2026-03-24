@@ -47,7 +47,7 @@ Artefacts start as flat files in their type folder. Structure (subfolders, index
 ## Tooling
 
 Prefer `brain_read`/`brain_action`/`brain_search` MCP tools if available.
-Without MCP: use Obsidian CLI (localhost:27124) for search/rename + `.brain-core/scripts/` for compile/index.
+Without MCP: use `.brain-core/scripts/` (compile, search, read, rename).
 Without either: navigate via wikilinks from the router and this document.
 
 ## How It Works
