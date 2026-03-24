@@ -79,7 +79,7 @@ No status field — entries have no lifecycle.
 
 ## Distillation
 
-Journal entries are source material. Over time, patterns across entries might feed into living artefacts (wiki pages about life topics, writing projects, etc.) using the standard provenance convention. But there is no prescribed graduation path — journal entries are valuable as-is.
+Journal entries are source material. Over time, patterns across entries might feed into living artefacts (wiki pages about life topics, writing projects, etc.) following [[.brain-core/standards/provenance]]. But there is no prescribed graduation path — journal entries are valuable as-is.
 
 ## Trigger
 

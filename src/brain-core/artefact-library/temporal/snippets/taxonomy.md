@@ -8,7 +8,7 @@ A snippet is a small, polished piece of text crafted from existing vault content
 
 ## How to Write Snippets
 
-- **Derive from source.** Every snippet comes from an existing artefact. Link to it via the provenance convention.
+- **Derive from source.** Every snippet comes from an existing artefact. Link to it via [[.brain-core/standards/provenance]].
 - **Keep it tight.** Snippets are short by definition — a paragraph, a tweet, a tagline. If it grows longer, it's probably writing, not a snippet.
 - **One piece per file.** Each snippet is its own file, even if multiple snippets derive from the same source.
 

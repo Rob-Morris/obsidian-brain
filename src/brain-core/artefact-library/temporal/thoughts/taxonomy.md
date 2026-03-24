@@ -8,7 +8,7 @@ A thought is the precursor to an idea — rougher, more fleeting, possibly just 
 
 ## Graduation
 
-A thought can become anything it makes sense to become. There is no prescribed path. When a thought does inspire a new artefact, use the provenance convention: add an origin line on the new artefact linking back to the thought, and add a spun-out callout on the thought linking forward.
+A thought can become anything it makes sense to become. There is no prescribed path. When a thought does inspire a new artefact, follow [[.brain-core/standards/provenance]].
 
 ## Naming
 

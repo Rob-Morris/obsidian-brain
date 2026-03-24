@@ -10,7 +10,7 @@ Mockups bridge the gap between abstract design documents and real implementation
 
 ## How to Write Mockups
 
-- **Link to the design.** Every mockup should reference the design or project it's exploring. Use the provenance convention.
+- **Link to the design.** Every mockup should reference the design or project it's exploring. Follow [[.brain-core/standards/provenance]].
 - **Record the prompt.** If the mockup was AI-generated, include the prompt that produced it. This makes the mockup reproducible and helps refine the generation process.
 - **Note the verdict.** Was this a keeper? What needs iteration? What design decisions does it validate or invalidate?
 - **One direction per file.** If you're exploring multiple alternatives, give each its own file. Comparing mockups is easier when they're separate artefacts.

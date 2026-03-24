@@ -17,23 +17,21 @@ A home for visual and structural design work. Each file captures a design for a 
 
 ## Archiving
 
-When a design reaches `implemented` status, authority transfers from the design to the implementation. Archive the design to keep the active folder clean:
+When a design reaches `implemented` status, authority transfers from the design to the implementation. Follow [[.brain-core/standards/archiving]] with these design-specific details:
 
-1. Set `status: implemented` in frontmatter
-2. Add `archiveddate: YYYY-MM-DD` to frontmatter
-3. Add a supersession callout at the top of the body (below the heading):
-   ```markdown
-   > [!info] Implemented
-   > This design has been implemented. See [[link|title]] for the current source of truth.
-   ```
-4. Rename the file to `yyyymmdd-{slug}.md` using `brain_action("rename")` — updates all wikilinks automatically
-5. Move the file to `Designs/_Archive/`
+- Set `status: implemented`
+- Use this supersession callout:
+  ```markdown
+  > [!info] Implemented
+  > This design has been implemented. See [[link|title]] for the current source of truth.
+  ```
+- Move to `Designs/_Archive/`
 
 **Agent contract:** if you land on an archived design, follow the supersession link to find the current source of truth. Do not modify archived designs.
 
 ## Lineage
 
-Add lineage links at the top of the body, below the heading:
+Follow [[.brain-core/standards/provenance]]. Designs additionally track transcripts:
 
 ```markdown
 **Origin:** [[idea-slug|Source idea]]
