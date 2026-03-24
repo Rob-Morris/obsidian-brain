@@ -52,11 +52,12 @@ def find_md_files(vault_root, type_info):
 
 
 def extract_title(body, filename):
-    """Extract title from first # heading or fallback to filename stem."""
-    for line in body.split("\n"):
-        stripped = line.strip()
-        if stripped.startswith("# ") and not stripped.startswith("## "):
-            return stripped[2:].strip()
+    """Extract title from filename stem.
+
+    In Obsidian, the filename is the canonical title — it's what users
+    link to, search for, and see in the file explorer. The H1 heading
+    is display text and may omit structural info (e.g. type prefixes).
+    """
     return Path(filename).stem
 
 

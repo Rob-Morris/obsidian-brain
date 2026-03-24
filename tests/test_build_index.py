@@ -171,14 +171,14 @@ class TestFrontmatter:
         fields, body = bi.parse_frontmatter(text)
         assert fields["created"] == "2026-01-01T00:00:00.000Z"
 
-    def test_extract_title_heading(self):
-        assert bi.extract_title("# My Title\n\nBody", "file.md") == "My Title"
+    def test_extract_title_uses_filename_stem(self):
+        assert bi.extract_title("# My Title\n\nBody", "file.md") == "file"
 
-    def test_extract_title_fallback(self):
+    def test_extract_title_strips_extension(self):
         assert bi.extract_title("No heading here.", "my-file.md") == "my-file"
 
-    def test_extract_title_ignores_h2(self):
-        assert bi.extract_title("## Not H1\n\nBody", "fallback.md") == "fallback"
+    def test_extract_title_with_path(self):
+        assert bi.extract_title("## Not H1\n\nBody", "Wiki/fallback.md") == "fallback"
 
 
 # ---------------------------------------------------------------------------
@@ -238,7 +238,7 @@ class TestBuildIndex:
     def test_document_fields(self, vault):
         index = bi.build_index(vault)
         doc = next(d for d in index["documents"] if "python" in d["path"])
-        assert doc["title"] == "Python Basics"
+        assert doc["title"] == "python-basics"
         assert doc["type"] == "living/wiki"
         assert "python" in doc["tags"]
         assert doc["status"] == "active"

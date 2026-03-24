@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.11.4 — 2026-03-25
+
+- **Title from filename, not H1** — search index now uses the filename stem as the document title (boosted field), not the first H1 heading. In Obsidian the filename is the canonical title — it's what users link to and search for. The H1 remains indexed at normal weight as part of body text. Fixes issue where structural filename info (e.g. type prefix `idea-log`) was invisible to search
+
 ## v0.11.3 — 2026-03-25
 
 - **BM25 title boosting** — search results now boost documents where query terms appear in the title (3x weight). Fixes ranking issue where long documents with diluted term density outranked shorter documents with exact title matches. Title term frequencies stored in index (`title_tf`); backward compatible with older indexes
