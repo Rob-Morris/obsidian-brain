@@ -13,14 +13,18 @@ Usage:
 
 import json
 import os
-import re
 import sys
-from datetime import datetime, timezone
+
+from check import naming_pattern_to_regex
+from create import resolve_naming_pattern, resolve_type, resolve_folder
 
 from _common import (
+    build_wikilink_pattern,
     find_vault_root,
     parse_frontmatter,
+    replace_wikilinks_in_vault,
     serialize_frontmatter,
+    strip_md_ext,
     title_to_slug,
 )
 
@@ -46,7 +50,6 @@ def validate_artefact_path(vault_root, router, path):
             # Optionally check naming pattern
             naming = art.get("naming")
             if naming and naming.get("pattern"):
-                from check import naming_pattern_to_regex
                 regex = naming_pattern_to_regex(naming["pattern"])
                 if regex:
                     filename = os.path.basename(path)
@@ -162,9 +165,6 @@ def convert_artefact(vault_root, router, path, target_type):
         ValueError: If source or target type resolution fails.
         FileNotFoundError: If the source file does not exist.
     """
-    from rename import rename_and_update_links
-    from create import _resolve_type, _resolve_folder
-
     vault_root = str(vault_root)
 
     # Validate source
@@ -173,8 +173,8 @@ def convert_artefact(vault_root, router, path, target_type):
         raise FileNotFoundError(f"File not found: {path}")
 
     # Resolve source and target artefact types
-    source_art = validate_artefact_path(vault_root, router, path)
-    target_art = _resolve_type(router, target_type)
+    validate_artefact_path(vault_root, router, path)
+    target_art = resolve_type(router, target_type)
 
     # Read and parse source file
     with open(abs_source, "r", encoding="utf-8") as f:
@@ -182,17 +182,15 @@ def convert_artefact(vault_root, router, path, target_type):
     fields, body = parse_frontmatter(content)
 
     # Compute new filename from target naming pattern
-    # Derive title from existing title field or filename stem
     title = fields.get("title") or os.path.splitext(os.path.basename(path))[0]
     target_naming = target_art.get("naming")
     if target_naming and target_naming.get("pattern"):
-        from create import resolve_naming_pattern
         new_filename = resolve_naming_pattern(target_naming["pattern"], title)
     else:
         new_filename = title_to_slug(title) + ".md"
 
     # Compute new path
-    target_folder = _resolve_folder(target_art)
+    target_folder = resolve_folder(target_art)
     new_path = os.path.join(target_folder, new_filename)
 
     # Reconcile frontmatter: set type to target type
@@ -207,39 +205,13 @@ def convert_artefact(vault_root, router, path, target_type):
         f.write(new_content)
 
     # Update wikilinks vault-wide (old stem → new stem)
-    def stem(p):
-        return p[:-3] if p.endswith(".md") else p
-
-    old_stem = stem(path)
-    new_stem = stem(new_path)
-
-    from _common import is_system_dir
-    links_updated = 0
-    wikilink_pattern = re.compile(
-        r'\[\[' + re.escape(old_stem) + r'(\|[^\]]*)?'r'\]\]'
+    old_stem = strip_md_ext(path)
+    new_stem = strip_md_ext(new_path)
+    pattern = build_wikilink_pattern(old_stem)
+    links_updated = replace_wikilinks_in_vault(
+        vault_root, pattern,
+        lambda m: f"[[{new_stem}{m.group(1) or ''}]]",
     )
-
-    for dirpath, _dirnames, filenames in os.walk(vault_root):
-        rel_dir = os.path.relpath(dirpath, vault_root)
-        if rel_dir != "." and is_system_dir(os.path.basename(dirpath)):
-            if not rel_dir.startswith("_Temporal"):
-                continue
-        for fname in filenames:
-            if not fname.endswith(".md"):
-                continue
-            fpath = os.path.join(dirpath, fname)
-            try:
-                with open(fpath, "r", encoding="utf-8") as f:
-                    text = f.read()
-            except OSError:
-                continue
-            new_text, count = wikilink_pattern.subn(
-                lambda m: f"[[{new_stem}{m.group(1) or ''}]]", text
-            )
-            if count > 0:
-                with open(fpath, "w", encoding="utf-8") as f:
-                    f.write(new_text)
-                links_updated += count
 
     # Remove old file
     os.remove(abs_source)
@@ -264,7 +236,6 @@ def main():
     json_mode = False
     fm_json = None
 
-    positional = []
     i = 1
     while i < len(sys.argv):
         arg = sys.argv[i]

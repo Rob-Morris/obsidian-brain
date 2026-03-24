@@ -194,6 +194,56 @@ def parse_frontmatter(text):
 
 
 # ---------------------------------------------------------------------------
+# Path and wikilink utilities
+# ---------------------------------------------------------------------------
+
+def strip_md_ext(path):
+    """Strip .md extension from a path, returning the wikilink stem."""
+    return path[:-3] if path.endswith(".md") else path
+
+
+def build_wikilink_pattern(stem):
+    """Build a compiled regex matching wikilinks to the given stem.
+
+    Matches [[stem]] and [[stem|alias]], capturing the optional alias group.
+    """
+    return re.compile(
+        r'\[\[' + re.escape(stem) + r'(\|[^\]]*)?'r'\]\]'
+    )
+
+
+def replace_wikilinks_in_vault(vault_root, pattern, replacement):
+    """Walk all .md files in the vault and apply a wikilink regex substitution.
+
+    Skips system directories except _Temporal (which contains artefacts).
+    replacement can be a string or a callable (as per re.sub).
+
+    Returns the total number of substitutions made.
+    """
+    total = 0
+    for dirpath, _dirnames, filenames in os.walk(vault_root):
+        rel_dir = os.path.relpath(dirpath, vault_root)
+        if rel_dir != "." and is_system_dir(os.path.basename(dirpath)):
+            if not rel_dir.startswith(TEMPORAL_DIR):
+                continue
+        for fname in filenames:
+            if not fname.endswith(".md"):
+                continue
+            fpath = os.path.join(dirpath, fname)
+            try:
+                with open(fpath, "r", encoding="utf-8") as f:
+                    content = f.read()
+            except OSError:
+                continue
+            new_content, count = pattern.subn(replacement, content)
+            if count > 0:
+                with open(fpath, "w", encoding="utf-8") as f:
+                    f.write(new_content)
+                total += count
+    return total
+
+
+# ---------------------------------------------------------------------------
 # Slug generation
 # ---------------------------------------------------------------------------
 

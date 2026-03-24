@@ -13,7 +13,6 @@ Usage:
 
 import json
 import os
-import re
 import sys
 from datetime import datetime, timezone
 
@@ -90,7 +89,7 @@ def create_artefact(vault_root, router, type_key, title, body="", frontmatter_ov
     vault_root = str(vault_root)
 
     # 1. Resolve type
-    artefact = _resolve_type(router, type_key)
+    artefact = resolve_type(router, type_key)
 
     # 2. Read template (base frontmatter + body)
     template_fields, template_body = _read_template(vault_root, artefact)
@@ -103,7 +102,7 @@ def create_artefact(vault_root, router, type_key, title, body="", frontmatter_ov
         filename = title_to_slug(title) + ".md"
 
     # 4. Resolve folder
-    folder = _resolve_folder(artefact)
+    folder = resolve_folder(artefact)
 
     # 5. Merge frontmatter: template → overrides → force type
     fields = dict(template_fields)
@@ -115,22 +114,21 @@ def create_artefact(vault_root, router, type_key, title, body="", frontmatter_ov
     # 6. Determine body
     final_body = body if body else template_body
 
-    # 7. Check collision
+    # 7. Write (exclusive create — fails atomically if file exists)
     rel_path = os.path.join(folder, filename)
     abs_path = os.path.join(vault_root, rel_path)
-    if os.path.exists(abs_path):
-        raise ValueError(f"File already exists: {rel_path}")
-
-    # 8. Write
     content = serialize_frontmatter(fields, body=final_body)
     os.makedirs(os.path.dirname(abs_path), exist_ok=True)
-    with open(abs_path, "w", encoding="utf-8") as f:
-        f.write(content)
+    try:
+        with open(abs_path, "x", encoding="utf-8") as f:
+            f.write(content)
+    except FileExistsError:
+        raise ValueError(f"File already exists: {rel_path}")
 
     return {"path": rel_path, "type": artefact["type"], "title": title}
 
 
-def _resolve_type(router, type_key):
+def resolve_type(router, type_key):
     """Match type_key against router artefacts by key or full type."""
     for art in router.get("artefacts", []):
         if art["key"] == type_key or art["type"] == type_key:
@@ -159,7 +157,7 @@ def _read_template(vault_root, artefact):
     return parse_frontmatter(content)
 
 
-def _resolve_folder(artefact):
+def resolve_folder(artefact):
     """Resolve the target folder for a new artefact.
 
     Living types: use artefact["path"].

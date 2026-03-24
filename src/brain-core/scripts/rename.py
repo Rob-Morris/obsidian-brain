@@ -17,7 +17,12 @@ import os
 import re
 import sys
 
-from _common import find_vault_root, is_system_dir
+from _common import (
+    build_wikilink_pattern,
+    find_vault_root,
+    replace_wikilinks_in_vault,
+    strip_md_ext,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -44,46 +49,14 @@ def rename_and_update_links(vault_root, source, dest):
     if not os.path.isfile(abs_source):
         raise FileNotFoundError(f"Source file not found: {source}")
 
-    # Derive wikilink stems (without .md extension)
-    def stem(path):
-        return path[:-3] if path.endswith(".md") else path
+    old_stem = strip_md_ext(source)
+    new_stem = strip_md_ext(dest)
 
-    old_stem = stem(source)
-    new_stem = stem(dest)
-
-    # Find and replace wikilinks in all .md files
-    links_updated = 0
-    wikilink_pattern = re.compile(
-        r'\[\['
-        + re.escape(old_stem)
-        + r'(\|[^\]]*)?'  # optional alias
-        + r'\]\]'
+    pattern = build_wikilink_pattern(old_stem)
+    links_updated = replace_wikilinks_in_vault(
+        vault_root, pattern,
+        lambda m: f"[[{new_stem}{m.group(1) or ''}]]",
     )
-
-    for dirpath, _dirnames, filenames in os.walk(vault_root):
-        # Skip system directories (but not _Temporal, which has artefacts)
-        rel_dir = os.path.relpath(dirpath, vault_root)
-        if rel_dir != "." and is_system_dir(os.path.basename(dirpath)):
-            if not rel_dir.startswith("_Temporal"):
-                continue
-
-        for fname in filenames:
-            if not fname.endswith(".md"):
-                continue
-            fpath = os.path.join(dirpath, fname)
-            try:
-                with open(fpath, "r", encoding="utf-8") as f:
-                    content = f.read()
-            except OSError:
-                continue
-
-            new_content, count = wikilink_pattern.subn(
-                lambda m: f"[[{new_stem}{m.group(1) or ''}]]", content
-            )
-            if count > 0:
-                with open(fpath, "w", encoding="utf-8") as f:
-                    f.write(new_content)
-                links_updated += count
 
     # Create destination directory if needed and rename the file
     os.makedirs(os.path.dirname(abs_dest), exist_ok=True)
@@ -112,48 +85,21 @@ def delete_and_clean_links(vault_root, path):
     if not os.path.isfile(abs_path):
         raise FileNotFoundError(f"File not found: {path}")
 
-    # Derive wikilink stem
-    stem = path[:-3] if path.endswith(".md") else path
+    stem = strip_md_ext(path)
     display_name = os.path.splitext(os.path.basename(path))[0]
 
-    # Find and replace wikilinks in all .md files
-    links_replaced = 0
-    wikilink_pattern = re.compile(
-        r'\[\['
-        + re.escape(stem)
-        + r'(?:\|([^\]]*))?' # optional alias (captured)
-        + r'\]\]'
+    # Use a capturing pattern for alias to distinguish [[path|alias]] from [[path]]
+    pattern = re.compile(
+        r'\[\[' + re.escape(stem) + r'(?:\|([^\]]*))?' + r'\]\]'
     )
 
     def replacement(m):
         alias = m.group(1)
         return f"~~{alias}~~" if alias else f"~~{display_name}~~"
 
-    for dirpath, _dirnames, filenames in os.walk(vault_root):
-        rel_dir = os.path.relpath(dirpath, vault_root)
-        if rel_dir != "." and is_system_dir(os.path.basename(dirpath)):
-            if not rel_dir.startswith("_Temporal"):
-                continue
+    links_replaced = replace_wikilinks_in_vault(vault_root, pattern, replacement)
 
-        for fname in filenames:
-            if not fname.endswith(".md"):
-                continue
-            fpath = os.path.join(dirpath, fname)
-            try:
-                with open(fpath, "r", encoding="utf-8") as f:
-                    content = f.read()
-            except OSError:
-                continue
-
-            new_content, count = wikilink_pattern.subn(replacement, content)
-            if count > 0:
-                with open(fpath, "w", encoding="utf-8") as f:
-                    f.write(new_content)
-                links_replaced += count
-
-    # Delete the file
     os.remove(abs_path)
-
     return links_replaced
 
 
