@@ -15,9 +15,9 @@ A record of a conversation — with a person, an AI, or during a Q&A refinement 
 
 ## Naming
 
-`yyyymmdd-{slug}.md` in `_Temporal/Transcripts/yyyy-mm/`.
+`yyyymmdd-transcript--{slug}.md` in `_Temporal/Transcripts/yyyy-mm/`.
 
-Example: `_Temporal/Transcripts/2026-03/20260314-rust-api-design.md`
+Example: `_Temporal/Transcripts/2026-03/20260314-transcript--rust-api-design.md`
 
 ## Frontmatter
 

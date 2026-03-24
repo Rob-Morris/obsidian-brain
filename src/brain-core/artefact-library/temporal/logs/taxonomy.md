@@ -20,9 +20,9 @@ The log is the **raw chronological record** — every activity timestamped as it
 
 ## Naming
 
-`log--yyyy-mm-dd.md` in `_Temporal/Logs/yyyy-mm/`.
+`yyyymmdd-log.md` in `_Temporal/Logs/yyyy-mm/`.
 
-Example: `_Temporal/Logs/2026-03/log--2026-03-14.md`
+Example: `_Temporal/Logs/2026-03/20260314-log.md`
 
 ## Frontmatter
 

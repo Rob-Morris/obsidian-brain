@@ -113,12 +113,12 @@ def vault(tmp_path):
         "template_file": None, "trigger": None,
     }
 
-    # Logs — temporal, configured, log--yyyy-mm-dd.md
+    # Logs — temporal, configured, yyyymmdd-log.md
     logs_art = {
         "folder": "Logs", "type": "temporal/log", "key": "logs",
         "classification": "temporal", "configured": True,
         "path": os.path.join("_Temporal", "Logs"),
-        "naming": {"pattern": "log--yyyy-mm-dd.md", "folder": "_Temporal/Logs/yyyy-mm/"},
+        "naming": {"pattern": "yyyymmdd-log.md", "folder": "_Temporal/Logs/yyyy-mm/"},
         "frontmatter": {
             "type": "temporal/log",
             "required": ["type", "tags"],
@@ -129,12 +129,12 @@ def vault(tmp_path):
         "template_file": None, "trigger": None,
     }
 
-    # Plans — temporal, configured, yyyymmdd-{slug}.md
+    # Plans — temporal, configured, yyyymmdd-plan--{slug}.md
     plans_art = {
         "folder": "Plans", "type": "temporal/plan", "key": "plans",
         "classification": "temporal", "configured": True,
         "path": os.path.join("_Temporal", "Plans"),
-        "naming": {"pattern": "yyyymmdd-{slug}.md", "folder": "_Temporal/Plans/yyyy-mm/"},
+        "naming": {"pattern": "yyyymmdd-plan--{slug}.md", "folder": "_Temporal/Plans/yyyy-mm/"},
         "frontmatter": {
             "type": "temporal/plan",
             "required": ["type", "tags", "status"],
@@ -220,7 +220,7 @@ def vault(tmp_path):
              {"type": "living/note", "tags": ["rust"]}, "# Rust Lifetimes")
     write_md(tmp_path / "Daily Notes" / "2026-03-15 Sat.md",
              {"type": "living/daily-note", "tags": ["daily-note"]}, "# Saturday")
-    write_md(tmp_path / "_Temporal" / "Logs" / "2026-03" / "log--2026-03-15.md",
+    write_md(tmp_path / "_Temporal" / "Logs" / "2026-03" / "20260315-log.md",
              {"type": "temporal/log", "tags": ["log"]}, "09:00 Started work.")
     write_md(tmp_path / "_Temporal" / "Shaping Transcripts" / "2026-03" /
              "20260315-design-transcript--auth.md",
@@ -252,10 +252,10 @@ class TestNamingPatternToRegex:
         assert not r.match("2026-03-15-auth.md")
 
     def test_log_pattern(self):
-        r = check.naming_pattern_to_regex("log--yyyy-mm-dd.md")
-        assert r.match("log--2026-03-15.md")
-        assert not r.match("log-2026-03-15.md")
-        assert not r.match("log--20260315.md")
+        r = check.naming_pattern_to_regex("yyyymmdd-log.md")
+        assert r.match("20260315-log.md")
+        assert not r.match("log--2026-03-15.md")
+        assert not r.match("log-20260315.md")
 
     def test_title_pattern(self):
         r = check.naming_pattern_to_regex("yyyymmdd - {Title}.md")

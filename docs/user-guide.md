@@ -67,7 +67,7 @@ The plan captures your intended approach: what you're going to do, which files y
 As you work, you (or your agent) append entries to today's log:
 
 ```
-_Temporal/Logs/2026-03/log--2026-03-21.md
+_Temporal/Logs/2026-03/20260321-log.md
 ```
 
 ```

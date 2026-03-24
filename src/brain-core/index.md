@@ -53,3 +53,7 @@ Each vault has a **router** — a single file an agent reads every session. The 
 - How to use workflow trigger system — [[.brain-core/triggers]]
 - How to use folder colour system: design, palette, CSS templates — [[.brain-core/colours]]
 - How to use and extend plugin system for external tools — [[.brain-core/plugins]]
+
+## Standards
+
+- Artefact file naming rules — [[.brain-core/standards/naming-conventions]]

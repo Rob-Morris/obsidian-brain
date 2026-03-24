@@ -67,7 +67,7 @@ def vault(tmp_path):
     (tax_temporal / "logs.md").write_text(
         "# Logs\n\n"
         "## Naming\n\n"
-        "`log--yyyy-mm-dd.md` in `_Temporal/Logs/yyyy-mm/`.\n\n"
+        "`yyyymmdd-log.md` in `_Temporal/Logs/yyyy-mm/`.\n\n"
         "## Frontmatter\n\n"
         "```yaml\n---\ntype: temporal/log\ntags:\n  - log\n---\n```\n\n"
         "## Trigger\n\n"

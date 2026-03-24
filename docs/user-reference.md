@@ -293,7 +293,7 @@ All temporal artefacts live under `_Temporal/` in type-specific subfolders, orga
 
 ### Logs
 
-**Folder:** `_Temporal/Logs/yyyy-mm/` · **Naming:** `log--yyyy-mm-dd.md`
+**Folder:** `_Temporal/Logs/yyyy-mm/` · **Naming:** `yyyymmdd-log.md`
 
 Append-only daily activity logs. Running chronological record of what happened.
 
@@ -314,7 +314,7 @@ tags:
 
 ### Plans
 
-**Folder:** `_Temporal/Plans/yyyy-mm/` · **Naming:** `yyyymmdd-{slug}.md`
+**Folder:** `_Temporal/Plans/yyyy-mm/` · **Naming:** `yyyymmdd-plan--{slug}.md`
 
 Pre-work plans written before complex work begins. Records intended approach, goal, and strategy.
 
@@ -333,7 +333,7 @@ status: draft
 
 ### Transcripts
 
-**Folder:** `_Temporal/Transcripts/yyyy-mm/` · **Naming:** `yyyymmdd-{slug}.md`
+**Folder:** `_Temporal/Transcripts/yyyy-mm/` · **Naming:** `yyyymmdd-transcript--{slug}.md`
 
 Conversation transcripts — person-to-person, AI conversations, Q&A sessions.
 
@@ -366,7 +366,7 @@ File begins with a wikilink to the source. Q&A format: `Q.` prefix for questions
 
 ### Research
 
-**Folder:** `_Temporal/Research/yyyy-mm/` · **Naming:** `yyyymmdd-{slug}.md`
+**Folder:** `_Temporal/Research/yyyy-mm/` · **Naming:** `yyyymmdd-research--{slug}.md`
 
 In-depth research notes and findings on specific topics.
 

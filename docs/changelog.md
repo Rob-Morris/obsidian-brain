@@ -2,6 +2,12 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.9.20 — 2026-03-24
+
+- **Naming convention standard** — created `standards/naming-conventions.md` documenting the temporal `yyyymmdd-{prefix}--{slug}.md` pattern and living artefact naming principles, linked from `index.md`
+- **Fixed 4 non-conforming naming patterns** — Research (`yyyymmdd-research--{slug}.md`), Plans (`yyyymmdd-plan--{slug}.md`), Transcripts (`yyyymmdd-transcript--{slug}.md`), and Logs (`yyyymmdd-log.md`) now use type prefixes consistent with all other temporal types
+- Updated taxonomy files, guide.md quick-reference table, user-reference.md, user-guide.md, template-vault taxonomies, and test fixtures to match new patterns
+
 ## v0.9.19 — 2026-03-24
 
 - **Script deduplication** — extracted shared utilities (`find_vault_root`, `read_version`, `is_system_dir`, `scan_living_types`, `scan_temporal_types`, `parse_frontmatter`, `tokenise`) into `scripts/_common.py`. All 5 scripts import from this module instead of duplicating ~120 lines each. Fixed dead code in `parse_frontmatter` (unreachable `key == "tags"` branch after `continue`). Removed 3 unused functions (`read_version` in search_index.py and check.py, `is_system_dir` in search_index.py)

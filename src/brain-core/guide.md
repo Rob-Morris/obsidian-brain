@@ -46,11 +46,11 @@ Pick the artefact type that fits, create the file in the right folder with the r
 | Wiki page | `Wiki/` | `{name}.md` |
 | Note | `Notes/` | `yyyymmdd - {Title}.md` |
 | Daily note | `Daily Notes/` | `yyyy-mm-dd ddd.md` |
-| Log entry | `_Temporal/Logs/yyyy-mm/` | `log--yyyy-mm-dd.md` |
-| Plan | `_Temporal/Plans/yyyy-mm/` | `yyyymmdd-{slug}.md` |
-| Transcript | `_Temporal/Transcripts/yyyy-mm/` | `yyyymmdd-{slug}.md` |
+| Log entry | `_Temporal/Logs/yyyy-mm/` | `yyyymmdd-log.md` |
+| Plan | `_Temporal/Plans/yyyy-mm/` | `yyyymmdd-plan--{slug}.md` |
+| Transcript | `_Temporal/Transcripts/yyyy-mm/` | `yyyymmdd-transcript--{slug}.md` |
 | Shaping transcript | `_Temporal/Shaping Transcripts/yyyy-mm/` | `yyyymmdd-{sourcedoctype}-transcript--{slug}.md` |
-| Research | `_Temporal/Research/yyyy-mm/` | `yyyymmdd-{slug}.md` |
+| Research | `_Temporal/Research/yyyy-mm/` | `yyyymmdd-research--{slug}.md` |
 | Decision log | `_Temporal/Decision Logs/yyyy-mm/` | `yyyymmdd-decision--{slug}.md` |
 | Friction log | `_Temporal/Friction Logs/yyyy-mm/` | `yyyymmdd-friction--{slug}.md` |
 | Cookie | `_Temporal/Cookies/yyyy-mm/` | `yyyymmdd-cookie--{slug}.md` |
@@ -69,7 +69,7 @@ tags:
 
 ### Logging
 
-After meaningful work, append a timestamped entry to today's log (`_Temporal/Logs/yyyy-mm/log--yyyy-mm-dd.md`). Keep entries brief — one or two sentences with a timestamp:
+After meaningful work, append a timestamped entry to today's log (`_Temporal/Logs/yyyy-mm/yyyymmdd-log.md`). Keep entries brief — one or two sentences with a timestamp:
 
 ```
 14:30 Refactored the auth middleware. See [[auth-redesign]].
