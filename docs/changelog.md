@@ -2,6 +2,13 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.10.0 — 2026-03-24
+
+- **init.py setup script** (DD-023) — `.brain-core/scripts/init.py` configures Claude Code to use the brain MCP server. Three scopes: local (vault), user (all projects), project (per-folder override). Prefers `claude mcp add-json` CLI, falls back to direct `~/.claude.json` / `.mcp.json` editing. Self-contained, idempotent, Python 3.8+ stdlib only
+- **Core skills** (DD-024) — compiler discovers skills at `.brain-core/skills/*/SKILL.md` alongside user skills from `_Config/Skills/`. Core skills tagged `"source": "core"` in compiled router, user skills tagged `"source": "user"`. Core skills are system methodology — versioned with brain-core, not user-editable
+- **brain-remote skill** — `.brain-core/skills/brain-remote/SKILL.md` teaches agents the remote-project workflow: session bootstrap via MCP, key differences from in-vault work, logging, search, and setup instructions
+- **Router trigger** — template vault router gains `When working via MCP from an external project → brain-remote` conditional
+
 ## v0.9.21 — 2026-03-24
 
 - **Contributor skills** — added `simplify-audit` skill in `.claude/commands/` for analysing brain-core simplification opportunities. Contributor skills are Claude Code commands checked into the dev repo, distinct from user skills that ship in vaults

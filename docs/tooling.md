@@ -91,6 +91,27 @@ Conditional:
 
 **Key derivation convention** (DD-018): type key = lowercase folder name, spaces to hyphens. e.g. `Daily Notes` → `daily-notes` → `_Config/Taxonomy/{classification}/daily-notes.md`. No manual registry needed.
 
+## init.py (DD-023)
+
+Setup script at `.brain-core/scripts/init.py`. Configures Claude Code to use the brain MCP server. Self-contained (no `_common` imports), idempotent, supports three scopes:
+
+- **Local** (default): `.mcp.json` in the vault root. For using Claude Code inside the vault.
+- **User** (`--user`): `~/.claude.json` top-level `mcpServers`. Default brain for all projects.
+- **Project** (`--project <dir>`): `.mcp.json` in the project folder. Per-project vault override.
+
+Registration strategy: `claude mcp add-json` when CLI available, direct JSON file editing otherwise. Both produce equivalent config. Project scope also writes a CLAUDE.md bootstrap line.
+
+**Dependencies:** Python 3.8+ stdlib only. Detects a Python with `mcp` package for the server config (vault `.venv` → current Python → PATH search).
+
+## Core Skills (DD-024)
+
+Skills in `.brain-core/skills/*/SKILL.md` — system-provided, versioned with brain-core, not user-editable. Discovered by the compiler alongside user skills from `_Config/Skills/`. Tagged `"source": "core"` in the compiled router (user skills tagged `"source": "user"`).
+
+Core skills teach agents how to use brain-core's own tools. They ship in `.brain-core/` and are overwritten on upgrade, which is correct — they describe system methodology, not user configuration.
+
+**Current core skills:**
+- `brain-remote` — workflow for using brain MCP tools from an external project folder
+
 ## Retrieval Index (Phase 1 — BM25)
 
 BM25 keyword search over all vault markdown files. Built offline like the compiled router, queried at search time from a pre-built index.
@@ -146,7 +167,7 @@ The following are accepted but not yet fully shaped:
 
 ```bash
 make install    # creates .venv with Python 3.12, installs mcp + pytest
-make test       # runs the full test suite (237 tests)
+make test       # runs the full test suite
 make clean      # removes .venv and caches
 ```
 
@@ -188,3 +209,5 @@ python3.12 -m venv .venv
 | DD-020 | 3 MCP tools: brain_read + brain_search + brain_action | Implemented (v0.7.0) |
 | DD-021 | Optional Obsidian CLI integration — CLI-preferred, agent-fallback | Implemented (v0.8.0) |
 | DD-022 | Obsidian CLI is internal to MCP; agents use CLI directly only when MCP unavailable | Accepted |
+| DD-023 | init.py setup script | Implemented (v0.10.0) |
+| DD-024 | Core skills in .brain-core/skills/ | Implemented (v0.10.0) |

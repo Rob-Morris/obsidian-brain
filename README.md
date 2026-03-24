@@ -9,6 +9,7 @@ A self-extending system for organising Obsidian vaults, for agents and humans wo
 3. Open the folder as an Obsidian vault
 4. Enable the CSS snippet in **Settings > Appearance > CSS Snippets** (`folder-colours`)
 5. Start working — agents read `CLAUDE.md` → `_Config/router.md` and follow the workflow automatically
+6. Set up Claude Code: `python3 .brain-core/scripts/init.py` (or `--user` for all projects)
 
 To upgrade brain-core later, replace the contents of `.brain-core/` with the new version from `src/brain-core/`.
 

@@ -31,6 +31,7 @@ System folders (`_Attachments/`, `_Config/`, `_Plugins/`, `.obsidian/`) are infr
 ### Core / Config Split
 
 - **`.brain-core/`** — versioned methodology docs, copied into the vault during setup and upgrades (not symlinked, so vaults are self-contained and portable). `taxonomy/readme.md` is a lean pointer to `_Config/Taxonomy/` — it explains the classification system and key derivation convention, not a full artefact reference. Other core docs cover extensions, triggers, colours, plugins. Read when the agent needs to understand or modify the system.
+- **`.brain-core/skills/`** — core skills. System-provided skill documents that teach agents how to use brain-core tools. Discovered by the compiler, tagged `"source": "core"`. Not user-editable; overwritten on brain-core upgrade.
 - **`_Config/`** — instance configuration. Router, taxonomy, style, colour assignments, templates, user skills, memories, user preferences. Specific to this vault installation.
 - **`_Config/User/`** — vault owner's standing instructions. `preferences-always.md` (workflow preferences, quality standards, agent behaviour rules) and `gotchas.md` (learned lessons from previous sessions). Both read every session when present.
 - **`_Config/router.md`** — the bridge. Lean format: capability detection, always-rules, and conditional trigger gotos pointing to taxonomy/skill files. Read every session (~45 tokens).

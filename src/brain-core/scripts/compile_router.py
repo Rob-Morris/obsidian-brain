@@ -336,7 +336,21 @@ def discover_skills(vault_root):
         skill_doc = os.path.join(skills_dir, entry, "SKILL.md")
         if os.path.isfile(skill_doc):
             rel = os.path.relpath(skill_doc, vault_root)
-            skills.append({"name": entry, "skill_doc": rel})
+            skills.append({"name": entry, "skill_doc": rel, "source": "user"})
+    return skills
+
+
+def discover_core_skills(vault_root):
+    """Find core skills at .brain-core/skills/*/SKILL.md."""
+    skills_dir = os.path.join(vault_root, ".brain-core", "skills")
+    if not os.path.isdir(skills_dir):
+        return []
+    skills = []
+    for entry in sorted(os.listdir(skills_dir)):
+        skill_doc = os.path.join(skills_dir, entry, "SKILL.md")
+        if os.path.isfile(skill_doc):
+            rel = os.path.relpath(skill_doc, vault_root)
+            skills.append({"name": entry, "skill_doc": rel, "source": "core"})
     return skills
 
 
@@ -534,6 +548,11 @@ def compile(vault_root):
     skills = discover_skills(vault_root)
     for s in skills:
         track(s["skill_doc"])
+
+    core_skills = discover_core_skills(vault_root)
+    for s in core_skills:
+        track(s["skill_doc"])
+    skills = core_skills + skills
 
     plugins = discover_plugins(vault_root)
     for p in plugins:

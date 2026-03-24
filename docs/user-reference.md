@@ -815,6 +815,7 @@ Available in `.brain-core/scripts/`:
 | `compile_router.py` | Compile router, taxonomy, skills, and styles into a single JSON file |
 | `build_index.py` | Build the BM25 retrieval index for search |
 | `search_index.py` | Search the BM25 index from the command line |
+| `init.py` | Set up Claude Code to use this vault's MCP server |
 | `check.py` | Structural compliance checker — validates naming, frontmatter, month folders, archives, status values |
 
 ### Compliance Checks

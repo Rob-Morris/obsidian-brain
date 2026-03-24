@@ -98,6 +98,14 @@ def vault(tmp_path):
         "---\ntype: living/wiki\ntags: []\n---\n\n# {{title}}\n\n"
     )
 
+    # Core skills
+    core_skills_dir = bc / "skills" / "brain-remote"
+    core_skills_dir.mkdir(parents=True)
+    (core_skills_dir / "SKILL.md").write_text(
+        "---\nname: brain-remote\n---\n\n"
+        "# Brain Remote\n\nUse brain MCP tools from external projects.\n"
+    )
+
     # Plugins
     plugins_dir = tmp_path / "_Plugins" / "Undertask"
     plugins_dir.mkdir(parents=True)
@@ -251,7 +259,12 @@ class TestBrainRead:
         result = json.loads(server.brain_read("skill"))
         assert isinstance(result, list)
         names = [s["name"] for s in result]
+        assert "brain-remote" in names
         assert "Vault Maintenance" in names
+
+    def test_read_core_skill_content(self, initialized):
+        result = server.brain_read("skill", name="brain-remote")
+        assert "Brain Remote" in result
 
     def test_read_skill_content(self, initialized):
         result = server.brain_read("skill", name="Vault Maintenance")

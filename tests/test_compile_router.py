@@ -91,6 +91,14 @@ def vault(tmp_path):
     plugins.mkdir(parents=True)
     (plugins / "SKILL.md").write_text("# Example Plugin\n")
 
+    # Core skills
+    core_skills_dir = bc / "skills" / "brain-remote"
+    core_skills_dir.mkdir(parents=True)
+    (core_skills_dir / "SKILL.md").write_text(
+        "---\nname: brain-remote\n---\n\n"
+        "# Brain Remote\n\nUse brain MCP tools from external projects.\n"
+    )
+
     # System dirs that should be excluded from living types
     (tmp_path / "_Config").exists()  # already exists
     (tmp_path / "_Attachments").mkdir()
@@ -563,7 +571,7 @@ class TestCompile:
         assert len(result["always_rules"]) == 2
         assert len(result["artefacts"]) >= 2  # Wiki + Logs at minimum
         assert len(result["triggers"]) == 1
-        assert len(result["skills"]) == 1
+        assert len(result["skills"]) == 2
         assert len(result["plugins"]) == 1
         assert isinstance(result["styles"], list)
 
@@ -602,6 +610,17 @@ class TestCompile:
         assert triggers[0]["category"] == "after"
         assert "meaningful work" in triggers[0]["condition"].lower()
 
+    def test_core_skills_before_user_skills(self, vault):
+        result = cr.compile(vault)
+        sources = [s["source"] for s in result["skills"]]
+        assert sources == ["core", "user"]
+
+    def test_skills_have_source_tag(self, vault):
+        result = cr.compile(vault)
+        for s in result["skills"]:
+            assert "source" in s
+            assert s["source"] in ("core", "user")
+
     def test_version_from_file(self, vault):
         """Version comes from VERSION file, not a hardcoded constant."""
         (vault / ".brain-core" / "VERSION").write_text("9.9.9\n")
@@ -612,6 +631,23 @@ class TestCompile:
 # ---------------------------------------------------------------------------
 # Template vault integration test
 # ---------------------------------------------------------------------------
+
+class TestDiscoverCoreSkills:
+    def test_finds_core_skills(self, vault):
+        skills = cr.discover_core_skills(str(vault))
+        assert len(skills) == 1
+        assert skills[0]["name"] == "brain-remote"
+        assert skills[0]["source"] == "core"
+        assert "SKILL.md" in skills[0]["skill_doc"]
+
+    def test_no_core_skills_dir(self, tmp_path):
+        assert cr.discover_core_skills(str(tmp_path)) == []
+
+    def test_core_skills_path_is_relative(self, vault):
+        skills = cr.discover_core_skills(str(vault))
+        for s in skills:
+            assert not os.path.isabs(s["skill_doc"])
+
 
 class TestDiscoverMemories:
     def test_finds_memories(self, vault):
