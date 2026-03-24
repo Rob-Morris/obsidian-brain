@@ -3,13 +3,15 @@
 _common.py — Shared utilities for brain-core scripts.
 
 Provides vault root discovery, version reading, filesystem scanning,
-frontmatter parsing, and BM25 tokenisation. All five brain-core scripts
-import from this module rather than duplicating these functions.
+frontmatter parsing, serialisation, slug generation, and BM25 tokenisation.
+All brain-core scripts import from this module rather than duplicating
+these functions.
 """
 
 import os
 import re
 import sys
+import unicodedata
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -189,6 +191,59 @@ def parse_frontmatter(text):
         fields["tags"] = tags
 
     return fields, body
+
+
+# ---------------------------------------------------------------------------
+# Slug generation
+# ---------------------------------------------------------------------------
+
+_SLUG_RE = re.compile(r"[^a-z0-9]+")
+
+
+def title_to_slug(title):
+    """Convert a human-readable title to a filename slug.
+
+    Lowercase, replace non-alphanumeric runs with hyphens, strip edges.
+    Output matches the {slug} regex from check.py: [a-z0-9]+(?:-[a-z0-9]+)*
+    """
+    # Transliterate unicode to ASCII approximations (e.g. é → e)
+    normalised = unicodedata.normalize("NFKD", title)
+    ascii_only = normalised.encode("ascii", "ignore").decode("ascii")
+    slug = _SLUG_RE.sub("-", ascii_only.lower()).strip("-")
+    # Collapse any remaining double hyphens
+    while "--" in slug:
+        slug = slug.replace("--", "-")
+    return slug
+
+
+# ---------------------------------------------------------------------------
+# Frontmatter serialisation
+# ---------------------------------------------------------------------------
+
+def serialize_frontmatter(fields, body=""):
+    """Produce markdown with YAML frontmatter from a fields dict and body.
+
+    Handles scalars and `tags` as a multi-line list (- tag).
+    Round-trips with parse_frontmatter().
+    """
+    lines = ["---"]
+    for key, value in fields.items():
+        if key == "tags" and isinstance(value, list):
+            if value:
+                lines.append("tags:")
+                for tag in value:
+                    lines.append(f"  - {tag}")
+            else:
+                lines.append("tags: []")
+        else:
+            lines.append(f"{key}: {value}")
+    lines.append("---")
+    lines.append("")  # blank line after frontmatter
+
+    fm_block = "\n".join(lines)
+    if body:
+        return fm_block + body
+    return fm_block
 
 
 # ---------------------------------------------------------------------------

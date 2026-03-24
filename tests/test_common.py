@@ -211,6 +211,80 @@ class TestParseFrontmatter:
 
 
 # ---------------------------------------------------------------------------
+# title_to_slug
+# ---------------------------------------------------------------------------
+
+class TestTitleToSlug:
+    def test_basic_title(self):
+        assert common.title_to_slug("My Great Idea") == "my-great-idea"
+
+    def test_special_characters(self):
+        assert common.title_to_slug("Hello, World! (2026)") == "hello-world-2026"
+
+    def test_unicode(self):
+        assert common.title_to_slug("Café Résumé") == "cafe-resume"
+
+    def test_multiple_spaces(self):
+        assert common.title_to_slug("  lots   of   spaces  ") == "lots-of-spaces"
+
+    def test_hyphens_and_underscores(self):
+        assert common.title_to_slug("already-has-hyphens_and_underscores") == "already-has-hyphens-and-underscores"
+
+    def test_all_special(self):
+        assert common.title_to_slug("!!!") == ""
+
+    def test_single_word(self):
+        assert common.title_to_slug("Python") == "python"
+
+    def test_numbers(self):
+        assert common.title_to_slug("3 Ways to Code") == "3-ways-to-code"
+
+
+# ---------------------------------------------------------------------------
+# serialize_frontmatter
+# ---------------------------------------------------------------------------
+
+class TestSerializeFrontmatter:
+    def test_basic_fields(self):
+        result = common.serialize_frontmatter({"type": "living/wiki", "status": "active"})
+        assert result.startswith("---\n")
+        assert "type: living/wiki\n" in result
+        assert "status: active\n" in result
+
+    def test_tags_list(self):
+        result = common.serialize_frontmatter({"tags": ["brain-core", "overview"]})
+        assert "tags:\n  - brain-core\n  - overview\n" in result
+
+    def test_empty_tags(self):
+        result = common.serialize_frontmatter({"tags": []})
+        assert "tags: []\n" in result
+
+    def test_with_body(self):
+        result = common.serialize_frontmatter({"type": "x"}, body="# Title\n\nBody text")
+        assert result.endswith("# Title\n\nBody text")
+
+    def test_empty_body(self):
+        result = common.serialize_frontmatter({"type": "x"})
+        assert result.endswith("---\n")
+
+    def test_roundtrip_with_parse(self):
+        original_fields = {"type": "living/wiki", "status": "active"}
+        original_body = "# Title\n\nBody content.\n"
+        serialized = common.serialize_frontmatter(original_fields, body=original_body)
+        parsed_fields, parsed_body = common.parse_frontmatter(serialized)
+        assert parsed_fields["type"] == "living/wiki"
+        assert parsed_fields["status"] == "active"
+        assert "# Title" in parsed_body
+        assert "Body content." in parsed_body
+
+    def test_roundtrip_tags(self):
+        original_fields = {"type": "x", "tags": ["alpha", "beta"]}
+        serialized = common.serialize_frontmatter(original_fields)
+        parsed_fields, _ = common.parse_frontmatter(serialized)
+        assert parsed_fields["tags"] == ["alpha", "beta"]
+
+
+# ---------------------------------------------------------------------------
 # tokenise
 # ---------------------------------------------------------------------------
 
