@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.11.6 — 2026-03-25
+
+- **Workspaces artefact type** — new living artefact type in the artefact library. Workspace hub files link brain artefacts to bounded data containers (`_Workspaces/`) for non-artefact files (CSVs, data, scripts, outputs). Follows the hub pattern with `workspace/{slug}` tags. Two modes: embedded (data in vault) and linked (data in external folder via `.brain/config`). Lifecycle: `active` → `paused` → `completed` → `archived`
+
 ## v0.11.5 — 2026-03-25
 
 - **Artefact type tokens in title boost** — search index now includes tokenised artefact type (e.g. `temporal/idea-log` → `temporal`, `idea`, `log`) in the boosted title field. Searching "log" now surfaces idea-logs and other log types even when "log" doesn't appear in the filename or body

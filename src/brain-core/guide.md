@@ -55,7 +55,7 @@ Pick the artefact type that fits, create the file in the right folder with the r
 | Friction log | `_Temporal/Friction Logs/yyyy-mm/` | `yyyymmdd-friction--{slug}.md` |
 | Cookie | `_Temporal/Cookies/yyyy-mm/` | `yyyymmdd-cookie--{slug}.md` |
 
-Additional types available from the artefact library: Designs, Ideas, Journals, Projects, Writing, Zettelkasten (living); Idea Logs, Journal Entries, Thoughts, Reports, Snippets, Mockups (temporal).
+Additional types available from the artefact library: Designs, Ideas, Journals, Projects, Workspaces, Writing, Zettelkasten (living); Idea Logs, Journal Entries, Thoughts, Reports, Snippets, Mockups (temporal).
 
 Every file needs frontmatter with at least `type` and `tags`:
 

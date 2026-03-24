@@ -346,6 +346,7 @@ Here's what a well-used Brain vault looks like at a glance:
 Wiki/                         ← polished knowledge base
 Zettelkasten/                 ← atomic concept cards (auto-maintained)
 Projects/                     ← project indexes
+Workspaces/                   ← workspace hubs (linked to _Workspaces/ data)
 Designs/                      ← design docs and proposals
 Ideas/                        ← concepts being explored
 Journals/                     ← named journal streams
@@ -370,6 +371,7 @@ _Temporal/
   Cookies/                    ← "that earned a cookie"
   Mockups/                    ← visual/interactive prototypes
 
+_Workspaces/                  ← freeform data containers for workspaces
 _Attachments/                 ← images, PDFs, files
 _Config/                      ← router, taxonomy, styles, memories, preferences
 _Plugins/                     ← external integrations

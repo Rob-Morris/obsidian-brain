@@ -47,6 +47,7 @@ Complete reference for every artefact type, convention, configuration point, and
 | `_Config/Skills/` | Skill documents for tools and workflows |
 | `_Temporal/` | Parent folder for all temporal artefact types |
 | `_Plugins/` | External tool data and integrations |
+| `_Workspaces/` | Freeform data containers for workspaces — not indexed, not compliance-checked |
 | `.brain-core/` | The Brain system itself (versioned, upgradeable) |
 | `.obsidian/` | Obsidian vault config and CSS snippets |
 
@@ -246,6 +247,33 @@ tags:
 ```
 
 **Convention:** All related files across the vault use a nested project tag (e.g., `project/pistols-at-dawn`) so you can find everything connected to a project.
+
+### Workspaces
+
+**Folder:** `Workspaces/` · **Naming:** `{name}.md`
+
+Workspace hub files. One per workspace, linking brain artefacts to a bounded container of working files (`_Workspaces/`) that fall outside the vault's artefact taxonomy. Follows the same hub pattern as Projects.
+
+```yaml
+type: living/workspace
+tags:
+  - workspace/{slug}
+status: active
+workspace_mode: embedded
+```
+
+**Lifecycle:**
+
+| Status | Meaning |
+|---|---|
+| `active` | Default. Workspace is in use. |
+| `paused` | Set aside temporarily. |
+| `completed` | Work is done. Terminal — archive. |
+| `archived` | Preserved for reference. Terminal — archive. |
+
+**Data folder:** `_Workspaces/{slug}/` is a freeform data bucket (embedded mode). Any file type — no frontmatter, naming, or taxonomy rules. Not indexed or compliance-checked. For linked mode (`workspace_mode: linked`), data lives in an external folder connected via `.brain/config`.
+
+**Convention:** All related brain artefacts use the nested workspace tag (e.g., `workspace/yearly-taxes-2026`).
 
 ### Writing
 
@@ -587,6 +615,7 @@ Only types with a defined lifecycle have status. Current types with status:
 | Designs | `shaping`, `active`, `implemented`, `parked` |
 | Ideas | `new`, `developing`, `graduated`, `parked` |
 | Journals | `active`, `archived` |
+| Workspaces | `active`, `paused`, `completed`, `archived` |
 | Writing | `draft`, `editing`, `review`, `published`, `parked` |
 | Plans | `draft`, `approved`, `implementing`, `completed` |
 

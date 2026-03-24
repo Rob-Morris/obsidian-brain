@@ -11,5 +11,6 @@ This is useful when a stream of related work or content needs a single living to
 **Current examples:**
 - **Projects** — `project/{slug}` groups plans, research, designs, logs, and other artefacts related to a project
 - **Journals** — `journal/{slug}` groups journal entries belonging to a named journal stream
+- **Workspaces** — `workspace/{slug}` groups brain artefacts related to a bounded working container (`_Workspaces/`). The workspace hub connects brain content to a freeform data folder of non-artefact files
 
 **When to use:** When you need a living artefact that organises a collection of other artefacts (especially temporal ones) rather than containing content itself. If the living artefact is primarily content (like a wiki page or design doc), tags alone suffice — the hub pattern adds an explicit index file.

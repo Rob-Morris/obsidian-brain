@@ -18,6 +18,7 @@ The template vault ships with a curated set of defaults (marked below). This lib
 | [Notes](living/notes/) | `notes` | Flat knowledge base of date-prefixed interconnected notes. **Template vault default.** |
 | [Journals](living/journals/) | `journals` | Named journal streams grouping personal journal entries via nested tags. |
 | [Projects](living/projects/) | `projects` | Project index files linking to related artefacts via project tags. |
+| [Workspaces](living/workspaces/) | `workspaces` | Workspace hub files linking brain artefacts to bounded data containers (`_Workspaces/`). |
 | [Writing](living/writing/) | `writing` | Long-form written works with lifecycle: draft → published. |
 | [Zettelkasten](living/zettelkasten/) | `zettelkasten` | Auto-maintained atomic concept mesh. One card per concept. |
 
@@ -84,6 +85,7 @@ Living artefact types that have a lifecycle should include a `status` field in f
 
 - **Ideas:** `new` → `developing` → `graduated` → `parked`
 - **Designs:** `shaping` → `active` → `implemented` → `parked`
+- **Workspaces:** `active` → `paused` → `completed` → `archived`
 - **Plans:** `draft` → `approved` → `implementing` → `completed`
 
 ## Installing a type
