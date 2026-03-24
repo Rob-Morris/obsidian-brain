@@ -792,7 +792,7 @@ Skill documents for MCP tools, CLI commands, or plugin workflows. One folder per
 
 ### MCP Tools
 
-If your vault runs the Brain MCP server (`.brain-core/mcp/server.py`), three tools are available:
+If your vault runs the Brain MCP server (`.brain-core/mcp/server.py`), five tools are available:
 
 **brain_read** (safe, no side effects)
 - Look up artefacts, triggers, styles, templates, skills, plugins, memories, environment info, the compiled router, or structural compliance results
@@ -804,10 +804,22 @@ If your vault runs the Brain MCP server (`.brain-core/mcp/server.py`), three too
 - Returns ranked results with paths, titles, scores, and text snippets
 - Uses Obsidian CLI when available, falls back to BM25 index
 
-**brain_action** (mutations, requires approval)
+**brain_create** (additive, safe to auto-approve)
+- Create a new vault artefact from type, title, and optional body/frontmatter overrides
+- Resolves template and naming pattern from the compiled router
+- Returns the created file's path, type, and title
+
+**brain_edit** (single-file mutation)
+- `edit` — replace body content, optionally merge frontmatter changes
+- `append` — add content to end of existing body
+- Path validated against compiled router (folder + naming pattern)
+
+**brain_action** (vault-wide/destructive, requires approval)
 - `compile` — rebuild the compiled router from source files
 - `build_index` — rebuild the BM25 search index
 - `rename` — rename a file with automatic wikilink updates (uses Obsidian CLI when available)
+- `delete` — delete a file and replace wikilinks with strikethrough text
+- `convert` — change artefact type, move file, reconcile frontmatter, update wikilinks
 
 ### Scripts
 
@@ -819,6 +831,8 @@ Available in `.brain-core/scripts/`. Scripts are the source of truth for all vau
 | `build_index.py` | Build the BM25 retrieval index for search |
 | `search_index.py` | Search the BM25 index from the command line |
 | `read.py` | Query compiled router resources (artefacts, triggers, styles, templates, skills, etc.) |
+| `create.py` | Create a new artefact with template/naming resolution |
+| `edit.py` | Edit, append to, or convert an existing artefact |
 | `rename.py` | Rename a file with automatic wikilink updates |
 | `init.py` | Set up Claude Code to use this vault's MCP server |
 | `check.py` | Structural compliance checker — validates naming, frontmatter, month folders, archives, status values |
@@ -842,7 +856,7 @@ python3 .brain-core/scripts/check.py --vault /path/to/vault  # check a specific 
 When full tooling isn't available, agents degrade gracefully:
 
 1. **MCP tools** — lowest token cost, structured responses, in-memory caching
-2. **Scripts** — `.brain-core/scripts/` provides full functionality (read, search, rename, compile, check)
+2. **Scripts** — `.brain-core/scripts/` provides full functionality (read, search, create, edit, rename, compile, check)
 3. **Lean router** — `_Config/router.md` (~45 tokens)
 4. **Naive fallback** — read `index.md` → `router.md` → follow wikilinks
 

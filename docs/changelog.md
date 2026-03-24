@@ -2,6 +2,14 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.11.0 — 2026-03-24
+
+- **MCP tool privilege split (DD-025)** — expanded from 3 to 5 MCP tools for granular permissions. `brain_create` (additive, safe to auto-approve) and `brain_edit` (single-file mutation) split out from `brain_action`. Two new actions added to `brain_action`: `delete` (removes file, replaces wikilinks with strikethrough) and `convert` (changes artefact type, moves file, reconciles frontmatter, updates wikilinks vault-wide)
+- **New scripts** — `create.py` (artefact creation with template/naming resolution) and `edit.py` (edit, append, convert, path validation)
+- **New shared utilities** — `title_to_slug()` (unicode-aware slug generation) and `serialize_frontmatter()` (round-trips with `parse_frontmatter()`) added to `_common.py`
+- **`delete_and_clean_links()`** added to `rename.py` — deletes a file and replaces wikilinks with strikethrough text
+- 76 new tests (483 total)
+
 ## v0.10.3 — 2026-03-24
 
 - **Script/MCP parity** — added `read.py` (query compiled router resources) and `rename.py` (wikilink-aware file renaming) to `.brain-core/scripts/`. All MCP tool logic now lives in scripts as importable functions; the MCP server is a thin wrapper that imports and caches in memory

@@ -169,15 +169,17 @@ python3 .brain-core/scripts/init.py --project /path/to/project
 
 ## Tooling
 
-If your vault has the Brain MCP server running, you get three tools:
+If your vault has the Brain MCP server running, you get five tools:
 
 - **brain_read** — look up artefacts, triggers, styles, templates, or run structural compliance checks
 - **brain_search** — find files by query, type, or tag
-- **brain_action** — compile the router, build the search index, rename files with wikilink updates
+- **brain_create** — create a new artefact (additive, safe to auto-approve)
+- **brain_edit** — edit or append to an existing artefact (single-file mutation)
+- **brain_action** — compile the router, build the search index, rename, delete, or convert files
 
 For structural compliance (naming, frontmatter, archives), run `python3 .brain-core/scripts/check.py` or use `brain_read(resource="compliance")` via MCP.
 
-Without MCP, use `.brain-core/scripts/` directly (`read.py`, `search_index.py`, `rename.py`, `compile_router.py`, `check.py`). Without scripts, fall back to the lean router (`_Config/router.md`), then plain file navigation.
+Without MCP, use `.brain-core/scripts/` directly (`read.py`, `search_index.py`, `create.py`, `edit.py`, `rename.py`, `compile_router.py`, `check.py`). Without scripts, fall back to the lean router (`_Config/router.md`), then plain file navigation.
 
 ## Further Reading
 

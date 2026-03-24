@@ -31,6 +31,8 @@ Scripts in `.brain-core/scripts/` are the **source of truth** for all vault oper
 | `build_index.py` | Build BM25 retrieval index | `python3 build_index.py [--json]` |
 | `search_index.py` | BM25 keyword search | `python3 search_index.py "query" [--type T] [--json]` |
 | `read.py` | Query compiled router resources | `python3 read.py RESOURCE [--name N]` |
+| `create.py` | Create new artefact | `python3 create.py --type T --title "Title" [--body B] [--json]` |
+| `edit.py` | Edit/append to artefact | `python3 edit.py edit\|append --path P --body B [--json]` |
 | `rename.py` | Rename file + update wikilinks | `python3 rename.py "source" "dest" [--json]` |
 | `check.py` | Structural compliance checks | `python3 check.py [--json] [--severity S]` |
 | `init.py` | MCP server registration | `python3 init.py [--user] [--project PATH]` |
@@ -45,25 +47,29 @@ Scripts in `.brain-core/scripts/` are the **source of truth** for all vault oper
 
 **When adding new operations:** implement the logic as importable functions in a script, add a CLI entry point, then import into `server.py`. Never put operation logic directly in the server.
 
-## Brain MCP Server (DD-010, DD-011, DD-020, DD-021)
+## Brain MCP Server (DD-010, DD-011, DD-020, DD-021, DD-025)
 
-Long-running MCP server at `.brain-core/mcp/server.py`. Thin wrapper over scripts — exposes 3 MCP tools:
+Long-running MCP server at `.brain-core/mcp/server.py`. Thin wrapper over scripts — exposes 5 MCP tools:
 
 - **`brain_read`** — safe, no side effects, auto-approvable. Delegates to `read.py` resource handlers. Resources: `artefact`, `trigger`, `style`, `template`, `skill`, `plugin`, `environment`, `router`, `compliance`. Optional `name` filter. Environment resource enriched with `obsidian_cli_available` (server-only state). Compliance resource runs check.py checks; `name` parameter filters by severity (`error`/`warning`/`info`).
 - **`brain_search`** — safe, no side effects, auto-approvable. Parameters: `query` (required), `type`, `tag`, `top_k`. CLI-first with BM25 fallback (DD-021). Response includes `source` field (`"obsidian_cli"` or `"bm25"`) and `results` array with path, title, type, score, snippet.
-- **`brain_action`** — mutations, gated by approval. Actions: `compile`, `build_index`, `rename`. Optional `params` object. `rename` delegates to `rename.py`'s `rename_and_update_links()`, with Obsidian CLI override when available.
+- **`brain_create`** — additive, safe to auto-approve. Creates a new vault artefact. Parameters: `type` (key or full type), `title`, optional `body` and `frontmatter` overrides. Resolves type from compiled router, reads template, generates filename from naming pattern, writes file with merged frontmatter. Returns `{path, type, title}`.
+- **`brain_edit`** — single-file mutation. Parameters: `operation` (`"edit"` or `"append"`), `path`, `body`, optional `frontmatter` changes (edit only). Path validated against compiled router — wrong folder or naming rejected with helpful error. Returns `{path, operation}`.
+- **`brain_action`** — vault-wide/destructive ops, gated by approval. Actions: `compile`, `build_index`, `rename`, `delete`, `convert`. Optional `params` object. `rename` delegates to `rename.py`'s `rename_and_update_links()`, with Obsidian CLI override when available. `delete` removes a file and replaces wikilinks with strikethrough. `convert` changes artefact type, moves file, reconciles frontmatter, and updates wikilinks vault-wide.
 
-DD-011 established the read/write safety split (2 tools). DD-020 adds `brain_search` as a third tool — search has different parameter semantics (query + filters vs. resource lookup) and response shape. DD-021 adds optional Obsidian CLI integration for search and rename.
+DD-011 established the read/write safety split (2 tools). DD-020 adds `brain_search` as a third tool. DD-021 adds optional Obsidian CLI integration for search and rename. DD-025 splits mutations into three privilege tiers: `brain_create` (additive, safe to auto-approve), `brain_edit` (single-file), and `brain_action` (vault-wide/destructive).
+
+**Recommended permission config:** `brain_read` and `brain_search` are safe to auto-approve always. `brain_create` is additive-only (creates files, never destroys) — safe to auto-approve for most workflows. `brain_edit` mutates a single validated file — approve-once or auto-approve depending on trust level. `brain_action` affects multiple files or system state — require explicit approval per call.
 
 **Obsidian CLI** (DD-022): Internal dependency of the MCP server, not a separate agent-facing tier. The server delegates to the CLI for search and rename when available; agents interact only with MCP tools or scripts. When MCP is unavailable, scripts provide full functionality (read, search, rename, compile, check). The CLI is an optimisation layer, not a requirement.
 
 **Startup:** Auto-compiles router and auto-builds index if stale (compares timestamps against source file mtimes). Both artefacts loaded into memory for the session lifetime. Probes Obsidian CLI availability and derives vault name from directory basename (overridable via `BRAIN_VAULT_NAME` env var).
 
-**Response payloads:** All tools return JSON strings. `brain_read` returns the requested resource data (array or object). `brain_search` returns `{source, results}` where results is a ranked array of `{path, title, type, score, snippet}`. `brain_action` returns `{status, summary, compiled_at|built_at}` or `{status, method, links_updated}` for rename.
+**Response payloads:** All tools return JSON strings. `brain_read` returns the requested resource data (array or object). `brain_search` returns `{source, results}` where results is a ranked array of `{path, title, type, score, snippet}`. `brain_create` returns `{path, type, title}`. `brain_edit` returns `{path, operation}`. `brain_action` returns `{status, summary, compiled_at|built_at}` for compile/build_index, `{status, method, links_updated}` for rename, `{status, path, links_replaced}` for delete, or `{status, old_path, new_path, type, links_updated}` for convert.
 
 **Dependencies:** Python >=3.10, `mcp` SDK. The server imports functions directly from scripts — never calls their `main()` (which may `sys.exit`). Optional: dsebastien/obsidian-cli-rest running on localhost:27124 (overridable via `OBSIDIAN_CLI_URL` env var).
 
-**Status:** Implemented in v0.8.0. Script parity completed in v0.10.3 (read.py, rename.py). Phase C actions (`create_artefact`) deferred — may be superseded by a broader `write` action from the zettelkasten maintenance design.
+**Status:** Implemented in v0.8.0. Script parity completed in v0.10.3 (read.py, rename.py). Privilege split in v0.11.0 — 5 tools with granular permissions (DD-025). Artefact CRUD now implemented: create, edit/append, delete, convert.
 
 ## Lean Router Format (DD-012, DD-017)
 
@@ -222,7 +228,7 @@ python3.12 -m venv .venv
 | DD-008 | Compiled router as foundation | Implemented (v0.5.0) |
 | DD-009 | Router-driven checks (no separate check config) | Implemented (v0.9.11) |
 | DD-010 | Brain MCP server in `.brain-core/mcp/` | Implemented (v0.7.0) |
-| DD-011 | MCP server exposes 2 tools with enum parameters | Implemented (v0.7.0) |
+| DD-011 | MCP server exposes 2 tools with enum parameters | Superseded by DD-025 (v0.11.0) |
 | DD-012 | Lean router — always-rules only, conditional triggers co-located | Accepted |
 | DD-013 | Compiled router required for tools; markdown fallback for agents only | Accepted |
 | DD-014 | MCP server auto-compiles on startup | Implemented (v0.7.0) |
@@ -231,8 +237,9 @@ python3.12 -m venv .venv
 | DD-017 | Shorthand trigger index with gotos | Implemented (v0.4.0) |
 | DD-018 | Taxonomy index dropped — filesystem is the index | Implemented (v0.4.0) |
 | DD-019 | Succinct readme pattern for lean discovery guides | Implemented (v0.4.0) |
-| DD-020 | 3 MCP tools: brain_read + brain_search + brain_action | Implemented (v0.7.0) |
+| DD-020 | 3 MCP tools: brain_read + brain_search + brain_action | Superseded by DD-025 (v0.11.0) |
 | DD-021 | Optional Obsidian CLI integration — CLI-preferred, agent-fallback | Implemented (v0.8.0) |
 | DD-022 | Obsidian CLI is internal to MCP; agents use CLI directly only when MCP unavailable | Accepted |
 | DD-023 | init.py setup script | Implemented (v0.10.0) |
 | DD-024 | Core skills in .brain-core/skills/ | Implemented (v0.10.0) |
+| DD-025 | 5 MCP tools: privilege split for granular permissions | Implemented (v0.11.0) |
