@@ -28,6 +28,7 @@ from _common import _FM_RE, find_vault_root, tokenise
 INDEX_PATH = os.path.join("_Config", ".retrieval-index.json")
 DEFAULT_TOP_K = 10
 SNIPPET_LENGTH = 200
+TITLE_BOOST = 3.0
 
 
 # ---------------------------------------------------------------------------
@@ -142,10 +143,11 @@ def search(index, query, vault_root, type_filter=None, tag_filter=None,
         if status_filter and doc.get("status") != status_filter:
             continue
 
-        # BM25 score
+        # BM25 score with title boosting
         score = 0.0
         dl = doc["doc_length"]
         tf = doc["tf"]
+        title_tf = doc.get("title_tf", {})
 
         for term in query_tokens:
             term_df = df.get(term, 0)
@@ -155,13 +157,15 @@ def search(index, query, vault_root, type_filter=None, tag_filter=None,
             # IDF: log((N - df + 0.5) / (df + 0.5) + 1)
             idf = math.log((total_docs - term_df + 0.5) / (term_df + 0.5) + 1)
 
-            # TF component
-            term_tf = tf.get(term, 0)
-            if term_tf == 0:
-                continue
+            # Body TF component
+            term_tf_val = tf.get(term, 0)
+            if term_tf_val > 0 and avg_dl > 0:
+                tf_norm = (term_tf_val * (k1 + 1)) / (term_tf_val + k1 * (1 - b + b * dl / avg_dl))
+                score += idf * tf_norm
 
-            tf_norm = (term_tf * (k1 + 1)) / (term_tf + k1 * (1 - b + b * dl / avg_dl)) if avg_dl > 0 else 0
-            score += idf * tf_norm
+            # Title boost: flat IDF * boost when term appears in title
+            if title_tf.get(term, 0) > 0:
+                score += idf * TITLE_BOOST
 
         if score > 0:
             snippet = extract_snippet(vault_root, doc["path"], query_tokens)

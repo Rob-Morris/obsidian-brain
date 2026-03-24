@@ -2,11 +2,16 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.11.3 — 2026-03-25
+
+- **BM25 title boosting** — search results now boost documents where query terms appear in the title (3x weight). Fixes ranking issue where long documents with diluted term density outranked shorter documents with exact title matches. Title term frequencies stored in index (`title_tf`); backward compatible with older indexes
+- 3 new tests (492 total)
+
 ## v0.11.2 — 2026-03-25
 
 - **`brain_read` file resource** — new `file` resource type reads any artefact file by relative path (`brain_read(resource="file", name="Wiki/my-page.md")`). Closes the search→read gap: `brain_search` finds files, `brain_read(resource="file")` reads them. Path validated against compiled router — must belong to a configured artefact type folder (consistent with `brain_edit`). System/config files remain served by their dedicated resource types
 - **`index.md` tooling line updated** — lists all 5 MCP tools (`brain_create` and `brain_edit` were missing after v0.11.0 privilege split)
-- 6 new tests (495 total)
+- 6 new tests (489 total)
 
 ## v0.11.1 — 2026-03-25
 

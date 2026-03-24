@@ -163,6 +163,33 @@ class TestSearch:
         for r in results:
             assert r["score"] > 0
 
+    def test_title_boost_ranks_title_match_higher(self, vault):
+        """A doc with query terms in its title should rank above one with terms only in body."""
+        # Create two docs: one with "zephyr" in title, one with "zephyr" only in body
+        (vault / "Wiki" / "zephyr-guide.md").write_text(
+            "---\ntype: living/wiki\ntags: []\nstatus: active\n---\n\n"
+            "# Zephyr Guide\n\nThis guide covers the basics.\n"
+        )
+        (vault / "Wiki" / "wind-patterns.md").write_text(
+            "---\ntype: living/wiki\ntags: []\nstatus: active\n---\n\n"
+            "# Wind Patterns\n\nThe zephyr is a gentle western wind. "
+            "Zephyr winds are common in spring. The zephyr brings warm air.\n"
+        )
+        index = bi.build_index(vault)
+        results = si.search(index, "zephyr", vault)
+        assert len(results) >= 2
+        # Title match should rank first despite fewer body occurrences
+        assert "zephyr-guide" in results[0]["path"]
+
+    def test_title_boost_backward_compatible(self, vault):
+        """Index without title_tf still works (graceful fallback)."""
+        index = bi.build_index(vault)
+        # Strip title_tf from all docs to simulate old index
+        for doc in index["documents"]:
+            doc.pop("title_tf", None)
+        results = si.search(index, "python", vault)
+        assert len(results) > 0
+
 
 # ---------------------------------------------------------------------------
 # Snippet extraction

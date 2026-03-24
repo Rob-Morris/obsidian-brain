@@ -110,6 +110,12 @@ def build_index(vault_root):
             for token in tokens:
                 tf[token] = tf.get(token, 0) + 1
 
+            # Tokenise title separately for title boosting
+            title_tokens = tokenise(title)
+            title_tf = {}
+            for token in title_tokens:
+                title_tf[token] = title_tf.get(token, 0) + 1
+
             documents.append({
                 "path": rel_path,
                 "title": title,
@@ -119,6 +125,7 @@ def build_index(vault_root):
                 "modified": modified,
                 "doc_length": len(tokens),
                 "tf": tf,
+                "title_tf": title_tf,
             })
 
     # Compute corpus stats

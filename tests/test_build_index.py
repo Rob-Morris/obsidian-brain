@@ -285,6 +285,13 @@ class TestBuildIndex:
         doc = next(d for d in index["documents"] if "python" in d["path"])
         assert doc["type"] == "living/wiki"
 
+    def test_title_tf_present(self, vault):
+        index = bi.build_index(vault)
+        doc = next(d for d in index["documents"] if "python" in d["path"])
+        assert "title_tf" in doc
+        assert doc["title_tf"].get("python", 0) > 0
+        assert doc["title_tf"].get("basics", 0) > 0
+
     def test_type_fallback_to_folder(self, vault):
         """Missing type in frontmatter falls back to folder-derived type."""
         # Add a file without type in frontmatter
