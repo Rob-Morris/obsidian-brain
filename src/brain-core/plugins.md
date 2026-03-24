@@ -7,7 +7,7 @@ Plugins integrate external tools into a Brain vault. Each plugin gets its own fo
 A plugin consists of:
 
 - **Data folder** — `_Plugins/{Name}/` stores the plugin's files. The plugin owns this folder and its file format. Do not hand-edit plugin files unless the plugin's documentation says otherwise.
-- **Skill document** — `_Config/Skills/{name}/SKILL.md` teaches agents how to use the plugin's tools. Optional but recommended for any plugin with MCP tools or CLI commands.
+- **Skill document** — `_Config/Skills/{name}/SKILL.md` teaches agents how to use the plugin's tools. These are user-facing skills that ship with the vault; contributor skills for brain-core development live in the dev repo's `.claude/commands/`. Optional but recommended for any plugin with MCP tools or CLI commands.
 - **MCP configuration** — `.mcp.json` at the vault root registers the plugin's MCP server. Only needed for plugins that expose MCP tools.
 
 ## File Conventions
