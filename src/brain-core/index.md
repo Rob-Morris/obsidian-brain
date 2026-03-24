@@ -46,7 +46,7 @@ Artefacts start as flat files in their type folder. Structure (subfolders, index
 
 ## Tooling
 
-Prefer `brain_read`/`brain_action`/`brain_search` MCP tools if available.
+Prefer MCP tools (`brain_read`, `brain_search`, `brain_create`, `brain_edit`, `brain_action`) if available.
 Without MCP: use `.brain-core/scripts/` (compile, search, read, rename).
 Without either: navigate via wikilinks from the router and this document.
 

@@ -171,7 +171,7 @@ python3 .brain-core/scripts/init.py --project /path/to/project
 
 If your vault has the Brain MCP server running, you get five tools:
 
-- **brain_read** — look up artefacts, triggers, styles, templates, or run structural compliance checks
+- **brain_read** — look up artefacts, triggers, styles, templates, run structural compliance checks, or read artefact files by path
 - **brain_search** — find files by query, type, or tag
 - **brain_create** — create a new artefact (additive, safe to auto-approve)
 - **brain_edit** — edit or append to an existing artefact (single-file mutation)

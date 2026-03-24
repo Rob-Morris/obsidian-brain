@@ -271,6 +271,55 @@ class TestReadFileContent:
 
 
 # ---------------------------------------------------------------------------
+# File resource tests (read artefact files by path)
+# ---------------------------------------------------------------------------
+
+class TestReadFile:
+    def test_reads_file_by_path(self, vault):
+        tmp_path, router = vault
+        result = read.read_resource(router, str(tmp_path), "file", name="Wiki/test-page.md")
+        assert isinstance(result, str)
+        assert "# Test Page" in result
+
+    def test_reads_file_wikilink_style(self, vault):
+        tmp_path, router = vault
+        result = read.read_resource(router, str(tmp_path), "file", name="Wiki/test-page")
+        assert "# Test Page" in result
+
+    def test_requires_name(self, vault):
+        _, router = vault
+        result = read.read_resource(router, "", "file")
+        assert "error" in result
+        assert "requires a name" in result["error"]
+
+    def test_file_not_found(self, vault):
+        tmp_path, router = vault
+        result = read.read_resource(router, str(tmp_path), "file", name="Wiki/nonexistent.md")
+        assert isinstance(result, str)
+        assert result.startswith("Error:")
+
+    def test_rejects_path_outside_type_folders(self, vault):
+        tmp_path, router = vault
+        # _Config is not an artefact type folder
+        result = read.read_resource(router, str(tmp_path), "file", name="_Config/router.md")
+        assert "error" in result
+        assert "does not belong" in result["error"]
+
+    def test_rejects_unconfigured_type(self, vault):
+        tmp_path, router = vault
+        # Create a folder that the router sees but has no taxonomy
+        unknown = tmp_path / "Unconfigured"
+        unknown.mkdir()
+        (unknown / "test.md").write_text("# Test\n")
+        # Recompile router to pick up the new folder
+        from compile_router import compile as compile_router
+        router = compile_router(str(tmp_path))
+        result = read.read_resource(router, str(tmp_path), "file", name="Unconfigured/test.md")
+        assert "error" in result
+        assert "unconfigured" in result["error"].lower()
+
+
+# ---------------------------------------------------------------------------
 # CLI compiled router loading
 # ---------------------------------------------------------------------------
 

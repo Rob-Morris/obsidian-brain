@@ -20,6 +20,7 @@ Usage:
     python3 read.py environment
     python3 read.py router
     python3 read.py compliance --name error
+    python3 read.py file --name "Designs/brain-master-design.md"
 """
 
 import json
@@ -142,6 +143,25 @@ def read_router_meta(router, vault_root, name=None):
     }
 
 
+def read_file(router, vault_root, name=None):
+    """Read any artefact file by relative path from vault root."""
+    if not name:
+        return {"error": "file resource requires a name parameter (relative path from vault root)"}
+    # Router-driven containment: path must belong to a known artefact type folder
+    matched = False
+    for art in router.get("artefacts", []):
+        art_path = art["path"]
+        if name.startswith(art_path + os.sep) or name.startswith(art_path + "/"):
+            if not art.get("configured"):
+                return {"error": f"Path '{name}' belongs to unconfigured type '{art['key']}'."}
+            matched = True
+            break
+    if not matched:
+        known = [a["path"] for a in router.get("artefacts", [])]
+        return {"error": f"Path '{name}' does not belong to any known artefact folder. Known: {', '.join(known)}"}
+    return read_file_content(vault_root, name)
+
+
 def read_compliance(router, vault_root, name=None):
     """Run structural compliance checks. name = severity filter."""
     from check import run_checks
@@ -171,6 +191,7 @@ RESOURCES = {
     "environment": read_environment,
     "router": read_router_meta,
     "compliance": read_compliance,
+    "file": read_file,
 }
 
 

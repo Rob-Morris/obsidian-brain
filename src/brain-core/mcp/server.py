@@ -269,6 +269,7 @@ def brain_read(resource: str, name: str | None = None) -> str:
       environment — runtime environment info
       router      — always-rules and metadata
       compliance  — run structural compliance checks (name = severity filter: error/warning/info)
+      file        — read any artefact file by relative path (name = path from vault root)
     """
     _check_version()
 

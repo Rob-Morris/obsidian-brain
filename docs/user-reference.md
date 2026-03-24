@@ -797,8 +797,8 @@ Skill documents for MCP tools, CLI commands, or plugin workflows. One folder per
 If your vault runs the Brain MCP server (`.brain-core/mcp/server.py`), five tools are available:
 
 **brain_read** (safe, no side effects)
-- Look up artefacts, triggers, styles, templates, skills, plugins, memories, environment info, the compiled router, or structural compliance results
-- Optional name filter to narrow results (for compliance, filters by severity: `error`/`warning`/`info`)
+- Look up artefacts, triggers, styles, templates, skills, plugins, memories, environment info, the compiled router, structural compliance results, or read artefact files by path
+- Optional name filter to narrow results (for compliance, filters by severity; for file, the relative path from vault root)
 
 **brain_search** (safe, no side effects)
 - Search vault content by query text

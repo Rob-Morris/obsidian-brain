@@ -51,7 +51,7 @@ Scripts in `.brain-core/scripts/` are the **source of truth** for all vault oper
 
 Long-running MCP server at `.brain-core/mcp/server.py`. Thin wrapper over scripts — exposes 5 MCP tools:
 
-- **`brain_read`** — safe, no side effects, auto-approvable. Delegates to `read.py` resource handlers. Resources: `artefact`, `trigger`, `style`, `template`, `skill`, `plugin`, `environment`, `router`, `compliance`. Optional `name` filter. Environment resource enriched with `obsidian_cli_available` (server-only state). Compliance resource runs check.py checks; `name` parameter filters by severity (`error`/`warning`/`info`).
+- **`brain_read`** — safe, no side effects, auto-approvable. Delegates to `read.py` resource handlers. Resources: `artefact`, `trigger`, `style`, `template`, `skill`, `plugin`, `environment`, `router`, `compliance`, `file`. Optional `name` filter. Environment resource enriched with `obsidian_cli_available` (server-only state). Compliance resource runs check.py checks; `name` parameter filters by severity (`error`/`warning`/`info`). File resource reads any artefact file by relative path; `name` = path from vault root, validated against compiled router (must belong to a configured type folder).
 - **`brain_search`** — safe, no side effects, auto-approvable. Parameters: `query` (required), `type`, `tag`, `top_k`. CLI-first with BM25 fallback (DD-021). Response includes `source` field (`"obsidian_cli"` or `"bm25"`) and `results` array with path, title, type, score, snippet.
 - **`brain_create`** — additive, safe to auto-approve. Creates a new vault artefact. Parameters: `type` (key or full type), `title`, optional `body` and `frontmatter` overrides. Resolves type from compiled router, reads template, generates filename from naming pattern, writes file with merged frontmatter. Returns `{path, type, title}`.
 - **`brain_edit`** — single-file mutation. Parameters: `operation` (`"edit"` or `"append"`), `path`, `body`, optional `frontmatter` changes (edit only). Path validated against compiled router — wrong folder or naming rejected with helpful error. Returns `{path, operation}`.
@@ -69,7 +69,7 @@ DD-011 established the read/write safety split (2 tools). DD-020 adds `brain_sea
 
 **Dependencies:** Python >=3.10, `mcp` SDK. The server imports functions directly from scripts — never calls their `main()` (which may `sys.exit`). Optional: dsebastien/obsidian-cli-rest running on localhost:27124 (overridable via `OBSIDIAN_CLI_URL` env var).
 
-**Status:** Implemented in v0.8.0. Script parity completed in v0.10.3 (read.py, rename.py). Privilege split in v0.11.0 — 5 tools with granular permissions (DD-025). Artefact CRUD now implemented: create, edit/append, delete, convert.
+**Status:** Implemented in v0.8.0. Script parity completed in v0.10.3 (read.py, rename.py). Privilege split in v0.11.0 — 5 tools with granular permissions (DD-025). Artefact CRUD now implemented: create, edit/append, delete, convert. File resource added in v0.11.2 (read artefact files by path).
 
 ## Lean Router Format (DD-012, DD-017)
 

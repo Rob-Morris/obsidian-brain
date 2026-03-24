@@ -2,6 +2,12 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.11.2 — 2026-03-25
+
+- **`brain_read` file resource** — new `file` resource type reads any artefact file by relative path (`brain_read(resource="file", name="Wiki/my-page.md")`). Closes the search→read gap: `brain_search` finds files, `brain_read(resource="file")` reads them. Path validated against compiled router — must belong to a configured artefact type folder (consistent with `brain_edit`). System/config files remain served by their dedicated resource types
+- **`index.md` tooling line updated** — lists all 5 MCP tools (`brain_create` and `brain_edit` were missing after v0.11.0 privilege split)
+- 6 new tests (495 total)
+
 ## v0.11.1 — 2026-03-25
 
 - **Wikilink hygiene for archiving** — added guidance to `archiving.md` and `provenance.md` on disambiguating wikilinks when an archived file's slug matches its successor (path-qualified supersession callouts, renamed-identifier origin links)
