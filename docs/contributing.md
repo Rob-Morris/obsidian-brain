@@ -45,7 +45,7 @@ The same fact often appears in multiple files. For example, "Plans lifecycle is 
 
 ## Versioning
 
-Bump `src/brain-core/VERSION` for any behaviour change. Follows [semver](https://semver.org/):
+Bump `src/brain-core/VERSION` for any change to files under `src/brain-core/`, including doc-only edits. If it ships in `.brain-core/`, it gets a version bump — no exceptions. Follows [semver](https://semver.org/):
 
 | Bump | When |
 |---|---|

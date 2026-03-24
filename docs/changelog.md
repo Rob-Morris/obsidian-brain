@@ -2,6 +2,12 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.9.21 — 2026-03-24
+
+- **Contributor skills** — added `simplify-audit` skill in `.claude/commands/` for analysing brain-core simplification opportunities. Contributor skills are Claude Code commands checked into the dev repo, distinct from user skills that ship in vaults
+- **Clarified user vs contributor skill distinction** — `plugins.md` now distinguishes vault-shipped user skills from dev-repo contributor skills; `specification.md` uses "user skills" where context is vault-instance config
+- **Tightened versioning rule** — any change to `src/brain-core/` files gets a version bump, including doc-only edits. Updated `contributing.md` and pre-commit canary
+
 ## v0.9.20 — 2026-03-24
 
 - **Naming convention standard** — created `standards/naming-conventions.md` documenting the temporal `yyyymmdd-{prefix}--{slug}.md` pattern and living artefact naming principles, linked from `index.md`

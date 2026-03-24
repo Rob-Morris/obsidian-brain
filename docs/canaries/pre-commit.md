@@ -6,7 +6,7 @@ Follow before every commit. See [standards/canary.md](../standards/canary.md) fo
 
 [1] **Tests pass.** Run `make test`. All tests must pass.
 
-[2] **Version bumped.** Bump `src/brain-core/VERSION` for any behaviour change. Patch = additive changes, minor = breaking vault structure, major = fundamental model changes.
+[2] **Version bumped.** Bump `src/brain-core/VERSION` for any change to files under `src/brain-core/`, including doc-only edits. If it ships in `.brain-core/`, it gets a version bump. Patch = doc clarifications, additive changes; minor = breaking vault structure; major = fundamental model changes.
 
 [3] **Changelog updated.** New entry at the top of `docs/changelog.md`. Format: `## v{x.y.z} — YYYY-MM-DD`. Bold lead for significant changes. Never edit past entries.
 
