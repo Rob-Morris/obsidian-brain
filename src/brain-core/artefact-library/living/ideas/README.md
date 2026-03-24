@@ -1,8 +1,8 @@
 # Ideas
 
-Loose thoughts, concepts, and things to explore. A scratchpad for ideas that don't yet have a home elsewhere.
+Where concepts are articulated and shaped to clarity through iterative refinement.
 
-See also: [Idea Logs](../../temporal/idea-logs/) for quick temporal captures that may graduate into idea docs here.
+See also: [Idea Logs](../../temporal/idea-logs/) for quick temporal captures that may be spun out into ideas.
 
 ## Install
 

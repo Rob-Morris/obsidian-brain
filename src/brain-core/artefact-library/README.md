@@ -14,7 +14,7 @@ The template vault ships with a curated set of defaults (marked below). This lib
 | [Daily Notes](living/daily-notes/) | `daily-notes` | High-level end-of-day summaries distilled from logs. **Template vault default.** |
 | [Designs](living/designs/) | `designs` | Design documents, wireframes, and specs. |
 | [Documentation](living/documentation/) | `documentation` | Guides, standards, and reference material. |
-| [Ideas](living/ideas/) | `ideas` | Loose thoughts and concepts to explore. |
+| [Ideas](living/ideas/) | `ideas` | Concepts articulated and shaped to clarity through iterative refinement. |
 | [Notes](living/notes/) | `notes` | Flat knowledge base of date-prefixed interconnected notes. **Template vault default.** |
 | [Journals](living/journals/) | `journals` | Named journal streams grouping personal journal entries via nested tags. |
 | [Projects](living/projects/) | `projects` | Project index files linking to related artefacts via project tags. |
@@ -31,7 +31,7 @@ The template vault ships with a curated set of defaults (marked below). This lib
 | [Decision Logs](temporal/decision-logs/) | `decision-logs` | Point-in-time records of decisions — captures the "why" behind choices. **Template vault default.** |
 | [Shaping Transcripts](temporal/shaping-transcripts/) | `shaping-transcripts` | Q&A refinement transcripts tied to a source artefact. **Template vault default.** |
 | [Friction Logs](temporal/friction-logs/) | `friction-logs` | Signal accumulator — logs missing context, conflicting info, or guesses. **Template vault default.** |
-| [Idea Logs](temporal/idea-logs/) | `idea-logs` | Quick idea captures with graduation path to ideas then designs. |
+| [Idea Logs](temporal/idea-logs/) | `idea-logs` | Quick idea captures in rough form. |
 | [Research](temporal/research/) | `research` | In-depth research notes on specific topics. **Template vault default.** |
 | [Thoughts](temporal/thoughts/) | `thoughts` | Raw, unformed thinking captured in the moment. |
 | [Reports](temporal/reports/) | `reports` | Overviews of detailed processes — findings and implications. |
@@ -82,7 +82,7 @@ Frontmatter fields should be **queryable metadata** — fields agents and Datavi
 
 Living artefact types that have a lifecycle should include a `status` field in frontmatter. Each type defines its own status values. Common patterns:
 
-- **Ideas:** `new` → `graduated` → `parked`
+- **Ideas:** `new` → `developing` → `graduated` → `parked`
 - **Designs:** `shaping` → `active` → `implemented` → `parked`
 - **Plans:** `draft` → `approved` → `implementing` → `completed`
 
