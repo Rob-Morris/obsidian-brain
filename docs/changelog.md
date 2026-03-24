@@ -2,6 +2,16 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.10.1 — 2026-03-24
+
+- **Two new core principles** — "Always link related things" and "Save each step before building on it" added to `index.md` principles section
+- **Extracted operational standards from `extensions.md`** — provenance, archiving, hub pattern, subfolders, and user preferences moved to individual files in `standards/`. `extensions.md` now covers only vault-extension procedures
+- **Standardised provenance references** — all artefact type taxonomies now reference `standards/provenance.md` instead of inlining the generic pattern. Type-specific extras remain inline
+- **Extension procedures updated** — adding a new type now includes a step to reference provenance/archiving standards in the taxonomy
+- **Ideas taxonomy rewritten** — purpose reframed from "scratchpad" to iterative shaping; `developing` status added between `new` and `graduated`; graduation and lineage language softened
+- **Ideas template** — new sections: The Idea, Why This Matters, Detail, Questions
+- **Idea-logs taxonomy** — "Graduation Path" renamed to "Common Progressions" with softer language; "Spinning Out" section generalised for any target type; naming example fixed to include `idea-log--` prefix per naming conventions
+
 ## v0.10.0 — 2026-03-24
 
 - **init.py setup script** (DD-023) — `.brain-core/scripts/init.py` configures Claude Code to use the brain MCP server. Three scopes: local (vault), user (all projects), project (per-folder override). Prefers `claude mcp add-json` CLI, falls back to direct `~/.claude.json` / `.mcp.json` editing. Self-contained, idempotent, Python 3.8+ stdlib only

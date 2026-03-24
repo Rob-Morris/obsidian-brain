@@ -74,8 +74,8 @@ CSS snippet at `.obsidian/snippets/folder-colours.css` driven by a palette of CS
 
 Documented in `.brain-core/extensions.md`:
 
-- **New living artefact**: create at root, add taxonomy file, optionally add router trigger, run `brain_action("compile")` — colours are auto-generated
-- **New temporal child**: create under `_Temporal/`, add taxonomy file, optionally add router trigger, run `brain_action("compile")` — rose-blended colours are auto-generated
+- **New living artefact**: create at root, add taxonomy file, reference standards (provenance/archiving) in taxonomy if applicable, optionally add router trigger, run `brain_action("compile")` — colours are auto-generated
+- **New temporal child**: create under `_Temporal/`, add taxonomy file, reference standards (provenance/archiving) in taxonomy if applicable, optionally add router trigger, run `brain_action("compile")` — rose-blended colours are auto-generated
 - **New config child**: create under `_Config/`, inherits purple styling
 - **New plugin**: create under `_Plugins/`, inherits gold styling, add skill if it has tools
 

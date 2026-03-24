@@ -35,7 +35,8 @@ Brain has multiple documentation layers, each serving a different audience. Keep
 |---|---|---|
 | `guide.md` | Vault users + agents | Quick-start guide, ships in the vault |
 | `index.md` | Agents | System principles and always-rules, read every session |
-| `extensions.md` | Agents + contributors | How to extend the vault (add types, patterns, preferences) |
+| `extensions.md` | Agents + contributors | How to extend the vault (add types, memories, principles) |
+| `standards/` | Agents + contributors | Operational standards — naming, provenance, archiving, hub pattern, subfolders, user preferences |
 | `colours.md` | Contributors | Colour system algorithm, CSS templates |
 | `artefact-library/README.md` | Agents + contributors | Type catalogue, install steps, browsing guide |
 

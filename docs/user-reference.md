@@ -205,10 +205,11 @@ status: new
 | Status | Meaning |
 |---|---|
 | `new` | Default. Exists but not developed. |
+| `developing` | Actively being shaped and refined. |
 | `graduated` | Promoted to design doc. Terminal — archive. |
 | `parked` | Set aside; not abandoned. |
 
-**Graduation to Design:** Create design doc in `Designs/` → set idea `status: graduated` → add `archiveddate` → add graduation callout → rename to `yyyymmdd-{slug}.md` → add `**Origin:**` link on design → move idea to `Ideas/_Archive/`.
+**Graduating to Design:** Follow [[.brain-core/standards/provenance]] for lineage and [[.brain-core/standards/archiving]] for the archive workflow. Set idea `status: graduated`, carry forward open questions as design decisions, carry forward project tag.
 
 ### Journals
 
@@ -584,7 +585,7 @@ Only types with a defined lifecycle have status. Current types with status:
 | Type | Status values |
 |---|---|
 | Designs | `shaping`, `active`, `implemented`, `parked` |
-| Ideas | `new`, `graduated`, `parked` |
+| Ideas | `new`, `developing`, `graduated`, `parked` |
 | Journals | `active`, `archived` |
 | Writing | `draft`, `editing`, `review`, `published`, `parked` |
 | Plans | `draft`, `approved`, `implementing`, `completed` |
@@ -704,18 +705,20 @@ If it's a one-off, consider a subfolder or tag within an existing type instead.
 1. **Create the root folder** (e.g., `Projects/`)
 2. **Create taxonomy file** at `_Config/Taxonomy/Living/{key}.md`
 3. **Create template** at `_Config/Templates/Living/{Type Name}.md`
-4. **Add router trigger** in `_Config/router.md` (if the type has a trigger condition)
-5. **Run `brain_action("compile")`** — colours are auto-generated
-6. **Log the addition**
+4. **Reference standards** — if the type has lineage or archiving, reference `.brain-core/standards/provenance` and/or `.brain-core/standards/archiving` in the taxonomy
+5. **Add router trigger** in `_Config/router.md` (if the type has a trigger condition)
+6. **Run `brain_action("compile")`** — colours are auto-generated
+7. **Log the addition**
 
 ### Adding a Temporal Artefact Type
 
 1. **Create the folder** under `_Temporal/` (e.g., `_Temporal/Reports/`)
 2. **Create taxonomy file** at `_Config/Taxonomy/Temporal/{key}.md`
 3. **Create template** at `_Config/Templates/Temporal/{Type Name}.md`
-4. **Add router trigger** in `_Config/router.md` (if applicable)
-5. **Run `brain_action("compile")`** — rose-blended colours are auto-generated
-6. **Log the addition**
+4. **Reference standards** — if the type has lineage or archiving, reference `.brain-core/standards/provenance` and/or `.brain-core/standards/archiving` in the taxonomy
+5. **Add router trigger** in `_Config/router.md` (if applicable)
+6. **Run `brain_action("compile")`** — rose-blended colours are auto-generated
+7. **Log the addition**
 
 ---
 

@@ -96,7 +96,7 @@ Why the split? Obsidian's backlinks and graph view work from body wikilinks. Sea
 Some types have a lifecycle. Status values are defined per type:
 
 - **Designs:** `shaping` → `active` → `implemented` | `parked`
-- **Ideas:** `new` → `graduated` | `parked`
+- **Ideas:** `new` → `developing` → `graduated` | `parked`
 - **Writing:** `draft` → `editing` → `review` → `published` | `parked`
 - **Plans:** `draft` → `approved` → `implementing` → `completed`
 
@@ -104,7 +104,7 @@ Not every type has status. Wiki, Notes, Documentation, and most temporal types a
 
 ## Provenance
 
-When one artefact spins out of another, link them:
+When one artefact spins out of another, link them. Full details in [[.brain-core/standards/provenance]].
 
 **On the new artefact:** `**Origin:** [[source-file|description]] (yyyy-mm-dd)`
 
@@ -116,7 +116,7 @@ When one artefact spins out of another, link them:
 
 ## Archiving
 
-Living artefacts that reach a terminal status (e.g., `implemented`, `graduated`) get archived:
+Living artefacts that reach a terminal status (e.g., `implemented`, `graduated`) get archived. Full details in [[.brain-core/standards/archiving]].
 
 1. Set the terminal status
 2. Add `archiveddate: YYYY-MM-DD` to frontmatter

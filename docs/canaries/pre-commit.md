@@ -20,7 +20,7 @@ Follow before every commit. See [standards/canary.md](../standards/canary.md) fo
     [4f] **System design/architecture** — `docs/specification.md`, `src/brain-core/index.md` (if principles change), `src/brain-core/extensions.md` (if patterns change)
     [4g] **Day-to-day workflows** — `docs/user-guide.md`, `src/brain-core/guide.md`, `docs/user-reference.md` (Workflows)
     [4h] **Tooling** — scripts, MCP tools: `docs/tooling.md`, `docs/user-reference.md` (Tooling), `src/brain-core/guide.md` (Tooling)
-    [4i] **General pattern** — hub, provenance, archiving: `src/brain-core/extensions.md`, `docs/specification.md`, `docs/user-reference.md` (Workflows)
+    [4i] **General pattern** — hub, provenance, archiving: `src/brain-core/standards/`, `docs/specification.md`, `docs/user-reference.md` (Workflows)
 
 [5] **Shared facts cross-checked.** Grep for the specific values you changed to catch stale references in other files:
 
