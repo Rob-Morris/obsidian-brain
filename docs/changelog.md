@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.11.1 — 2026-03-25
+
+- **Wikilink hygiene for archiving** — added guidance to `archiving.md` and `provenance.md` on disambiguating wikilinks when an archived file's slug matches its successor (path-qualified supersession callouts, renamed-identifier origin links)
+
 ## v0.11.0 — 2026-03-24
 
 - **MCP tool privilege split (DD-025)** — expanded from 3 to 5 MCP tools for granular permissions. `brain_create` (additive, safe to auto-approve) and `brain_edit` (single-file mutation) split out from `brain_action`. Two new actions added to `brain_action`: `delete` (removes file, replaces wikilinks with strikethrough) and `convert` (changes artefact type, moves file, reconciles frontmatter, updates wikilinks vault-wide)

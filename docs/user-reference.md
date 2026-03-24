@@ -666,6 +666,8 @@ For living artefacts reaching terminal status:
 4. Rename to `yyyymmdd-{slug}.md` (use `brain_action("rename")` for automatic wikilink updates)
 5. Move to `{Type}/_Archive/`
 
+**Wikilink hygiene:** The rename disambiguates the archived file from any successor that reuses the original slug. Use a path-qualified wikilink in the supersession callout (e.g. `[[Designs/brain-workspaces]]`) and the renamed identifier in the origin link on the successor (e.g. `[[20260324-brain-workspaces]]`). See `archiving.md` for details.
+
 ### Friction to Gotcha
 
 1. Encounter friction during work → create a **friction log**
