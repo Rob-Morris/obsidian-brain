@@ -64,7 +64,7 @@ bad=()
 while IFS= read -r line; do
   trimmed="${line#"${line%%[![:space:]]*}"}"
   if [[ "$trimmed" =~ ^\[[0-9]+[a-z]?\] ]]; then
-    if ! echo "$trimmed" | grep -qE '^\[[0-9]+[a-z]?\] .+: (done|skip, ?.+)$'; then
+    if ! echo "$trimmed" | grep -qE '^\[[0-9]+[a-z]?\] .+: (done([, ] ?.+)?|skip, ?.+)$'; then
       bad+=("$line")
     fi
   fi

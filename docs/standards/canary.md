@@ -88,7 +88,7 @@ The final section of the brief instructs the agent to write a terse canary log a
 
 Log format: `[{id}] {Label}: done` or `[{id}] {Label}: skip, {reason}`. IDs must match the bracket IDs in the brief's Items section. Every ID must be accounted for — parents and sub-items alike.
 
-- **`done`** means you performed the action. Only write `done` if you actually did the thing.
+- **`done`** means you performed the action. Only write `done` if you actually did the thing. You may optionally add detail after `done` — e.g. `done (353 passed)` or `done, updated 4 files`. The hook accepts any trailing content after `done` separated by a space or comma.
 - **`skip, {reason}`** means you did not perform the action. The reason must be your own assessment of why the action wasn't needed — describe what you evaluated and what you concluded. Do not copy example reasons from the brief; write what actually applies to your situation. Good reasons tend to fall into patterns like:
     - what changed didn't reach this area (`skip, changes limited to test infrastructure`)
     - the precondition doesn't apply (`skip, no new artefact types introduced`)
