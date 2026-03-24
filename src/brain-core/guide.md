@@ -183,5 +183,5 @@ Without MCP, agents fall back to the compiled router (`_Config/.compiled-router.
 
 - [User Guide](https://github.com/robmorris/obsidian-brain/blob/main/docs/user-guide.md) — walkthrough of how the Brain works day-to-day, with examples
 - [Reference](https://github.com/robmorris/obsidian-brain/blob/main/docs/user-reference.md) — every artefact type, configuration point, and system in detail
-- `.brain-core/extensions.md` — detailed extension procedures (developer reference)
+- `.brain-core/standards/extending/` — extension procedures (developer reference)
 - `.brain-core/index.md` — system principles and always-rules

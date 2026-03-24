@@ -56,7 +56,7 @@ Each vault has a **router** — a single file an agent reads every session. The 
 
 ## Core Documentation
 
-- How to add artefact types and extend principles — [[.brain-core/extensions]]
+- How to add artefact types and extend principles — [[.brain-core/standards/extending/README]]
 - Ready-to-use artefact type definitions — [[.brain-core/artefact-library/README]]
 - How to use workflow trigger system — [[.brain-core/triggers]]
 - How to use folder colour system: design, palette, CSS templates — [[.brain-core/colours]]

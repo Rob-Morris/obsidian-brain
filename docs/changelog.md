@@ -2,6 +2,11 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.10.2 — 2026-03-24
+
+- **Decomposed `extensions.md` into granular files** — extension procedures (adding types, memories, principles) extracted to `standards/extending/`. Old `extensions.md` removed; `standards/extending/README.md` is the new lean index. Reduces token cost when agents need a single procedure
+- **New `standards/extending/` directory** — procedural instructions (how to add things) grouped under `standards/`, separate from reference standards (naming, archiving, provenance rules)
+
 ## v0.10.1 — 2026-03-24
 
 - **Two new core principles** — "Always link related things" and "Save each step before building on it" added to `index.md` principles section
