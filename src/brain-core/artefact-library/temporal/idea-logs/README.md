@@ -1,8 +1,10 @@
 # Idea Logs
 
-Quick captures of new ideas in rough form. Low-friction, date-prefixed, tagged entries that can graduate into living artefacts and eventually designs.
+Quick captures of new ideas in rough form. Low-friction, date-prefixed, tagged entries.
 
-## Graduation path
+## Common progressions
+
+These are patterns, not a required pipeline:
 
 1. **Idea log** — raw capture, a few sentences
 2. **Living artefact** — fleshed out, explored

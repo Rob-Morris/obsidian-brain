@@ -13,31 +13,25 @@ A low-friction place to jot down ideas as they arrive. Each entry is tagged and 
 - **Tag generously.** Tags make ideas findable later when context has faded.
 - **Link to context.** If the idea came from something specific, link to it.
 
-## Graduation Path
+## Common Progressions
+
+These are patterns, not a required pipeline — each artefact type can be created independently:
 
 1. **Idea log entry** — raw capture, a few sentences
 2. **Living artefact** — fleshed out, explored, living document
 3. **Design** — shaped proposal with decisions and structure
 
-When an idea graduates, link back to the original idea log from the new artefact.
+## Spinning Out
 
-## Spinning Out to an Idea
+When an idea log entry has enough substance to become a new artefact, follow [[.brain-core/standards/provenance]]. Additionally:
 
-When an idea log entry has enough substance to become a living idea:
-
-1. Create a new idea doc in `Ideas/` with an **Origin** line in the body linking back to this idea log
-2. Add an inline note in the idea log body linking to the new idea:
-   ```markdown
-   > [!info] Spun out
-   > This idea has been spun out to [[Ideas/slug|Title]].
-   ```
-3. Carry forward relevant tags (especially project tags)
+- Carry forward relevant tags (especially project tags)
 
 ## Naming
 
 `yyyymmdd-idea-log--{slug}.md` in `_Temporal/Idea Logs/yyyy-mm/`.
 
-Example: `_Temporal/Idea Logs/2026-03/20260316-voice-memo-transcriber.md`
+Example: `_Temporal/Idea Logs/2026-03/20260316-idea-log--voice-memo-transcriber.md`
 
 ## Frontmatter
 
