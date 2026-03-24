@@ -111,8 +111,11 @@ def build_index(vault_root):
             for token in tokens:
                 tf[token] = tf.get(token, 0) + 1
 
-            # Tokenise title separately for title boosting
-            title_tokens = tokenise(title)
+            # Tokenise title + type for title boosting
+            # Type tokens (e.g. "temporal/idea-log" → ["temporal", "idea", "log"])
+            # ensure searching by type name surfaces matching docs
+            doc_type = fields.get("type", type_info["type"])
+            title_tokens = tokenise(title) + tokenise(doc_type)
             title_tf = {}
             for token in title_tokens:
                 title_tf[token] = title_tf.get(token, 0) + 1

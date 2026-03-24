@@ -2,6 +2,11 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.11.5 — 2026-03-25
+
+- **Artefact type tokens in title boost** — search index now includes tokenised artefact type (e.g. `temporal/idea-log` → `temporal`, `idea`, `log`) in the boosted title field. Searching "log" now surfaces idea-logs and other log types even when "log" doesn't appear in the filename or body
+- 1 new test (493 total)
+
 ## v0.11.4 — 2026-03-25
 
 - **Title from filename, not H1** — search index now uses the filename stem as the document title (boosted field), not the first H1 heading. In Obsidian the filename is the canonical title — it's what users link to and search for. The H1 remains indexed at normal weight as part of body text. Fixes issue where structural filename info (e.g. type prefix `idea-log`) was invisible to search
