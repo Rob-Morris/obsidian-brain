@@ -100,3 +100,48 @@ class TestRenameAndUpdateLinks:
         rename.rename_and_update_links(str(vault), "Wiki/topic-a.md", "Wiki/renamed.md")
         # _Config file should NOT be updated
         assert "[[Wiki/topic-a]]" in (config / "notes.md").read_text()
+
+
+# ---------------------------------------------------------------------------
+# Delete and clean links tests
+# ---------------------------------------------------------------------------
+
+class TestDeleteAndCleanLinks:
+    def test_delete_removes_file(self, vault):
+        rename.delete_and_clean_links(str(vault), "Wiki/topic-a.md")
+        assert not (vault / "Wiki" / "topic-a.md").exists()
+
+    def test_delete_replaces_wikilinks_with_strikethrough(self, vault):
+        rename.delete_and_clean_links(str(vault), "Wiki/topic-a.md")
+        # topic-b has [[Wiki/topic-a|Topic A]] → should become ~~Topic A~~
+        content_b = (vault / "Wiki" / "topic-b.md").read_text()
+        assert "~~Topic A~~" in content_b
+        assert "[[Wiki/topic-a" not in content_b
+
+    def test_delete_replaces_plain_wikilinks(self, vault):
+        rename.delete_and_clean_links(str(vault), "Wiki/topic-a.md")
+        # log has [[Wiki/topic-a]] (no alias) → should become ~~topic-a~~
+        content_log = (vault / "_Temporal" / "Logs" / "2026-03" / "20260324-log.md").read_text()
+        assert "~~topic-a~~" in content_log
+        assert "[[Wiki/topic-a]]" not in content_log
+
+    def test_delete_returns_links_replaced_count(self, vault):
+        count = rename.delete_and_clean_links(str(vault), "Wiki/topic-a.md")
+        # topic-b has one link, log has one link = 2
+        assert count == 2
+
+    def test_delete_raises_on_missing_file(self, vault):
+        with pytest.raises(FileNotFoundError, match="File not found"):
+            rename.delete_and_clean_links(str(vault), "Wiki/nonexistent.md")
+
+    def test_delete_no_references(self, vault):
+        # Remove all references to topic-b first
+        (vault / "Wiki" / "topic-a.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n# Topic A\n\nNo links.\n"
+        )
+        (vault / "_Temporal" / "Logs" / "2026-03" / "20260324-log.md").write_text(
+            "---\ntype: temporal/logs\ntags: []\n---\n\nNothing linked.\n"
+        )
+        count = rename.delete_and_clean_links(str(vault), "Wiki/topic-b.md")
+        assert count == 0
+        assert not (vault / "Wiki" / "topic-b.md").exists()

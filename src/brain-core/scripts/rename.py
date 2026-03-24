@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-rename.py — Rename a vault file and update all wikilinks that reference it.
+rename.py — Rename or delete a vault file and update all wikilinks.
 
 Scans all .md files in the vault for wikilinks matching the old path stem,
-replaces them with the new path stem, then renames the file itself.
+replaces them with the new path stem (rename) or strikethrough text (delete),
+then renames/removes the file itself.
 
 Usage:
     python3 rename.py "Wiki/old-name.md" "Wiki/new-name.md"
@@ -89,6 +90,71 @@ def rename_and_update_links(vault_root, source, dest):
     os.rename(abs_source, abs_dest)
 
     return links_updated
+
+
+def delete_and_clean_links(vault_root, path):
+    """Delete a file and replace wikilinks with strikethrough text.
+
+    [[path|alias]] → ~~alias~~
+    [[path]]       → ~~path stem~~
+
+    Args:
+        vault_root: Absolute path to the vault root.
+        path: Relative path from vault root to the file to delete.
+
+    Returns:
+        Number of wikilinks replaced across all files.
+
+    Raises:
+        FileNotFoundError: If the file does not exist.
+    """
+    abs_path = os.path.join(vault_root, path)
+    if not os.path.isfile(abs_path):
+        raise FileNotFoundError(f"File not found: {path}")
+
+    # Derive wikilink stem
+    stem = path[:-3] if path.endswith(".md") else path
+    display_name = os.path.splitext(os.path.basename(path))[0]
+
+    # Find and replace wikilinks in all .md files
+    links_replaced = 0
+    wikilink_pattern = re.compile(
+        r'\[\['
+        + re.escape(stem)
+        + r'(?:\|([^\]]*))?' # optional alias (captured)
+        + r'\]\]'
+    )
+
+    def replacement(m):
+        alias = m.group(1)
+        return f"~~{alias}~~" if alias else f"~~{display_name}~~"
+
+    for dirpath, _dirnames, filenames in os.walk(vault_root):
+        rel_dir = os.path.relpath(dirpath, vault_root)
+        if rel_dir != "." and is_system_dir(os.path.basename(dirpath)):
+            if not rel_dir.startswith("_Temporal"):
+                continue
+
+        for fname in filenames:
+            if not fname.endswith(".md"):
+                continue
+            fpath = os.path.join(dirpath, fname)
+            try:
+                with open(fpath, "r", encoding="utf-8") as f:
+                    content = f.read()
+            except OSError:
+                continue
+
+            new_content, count = wikilink_pattern.subn(replacement, content)
+            if count > 0:
+                with open(fpath, "w", encoding="utf-8") as f:
+                    f.write(new_content)
+                links_replaced += count
+
+    # Delete the file
+    os.remove(abs_path)
+
+    return links_replaced
 
 
 # ---------------------------------------------------------------------------
