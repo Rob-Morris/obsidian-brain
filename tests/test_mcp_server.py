@@ -91,11 +91,26 @@ def vault(tmp_path):
     styles_dir.mkdir(parents=True)
     (styles_dir / "concise.md").write_text("# Concise\n\nBe brief and direct.\n")
 
+    # Living type: Ideas
+    ideas_dir = tmp_path / "Ideas"
+    ideas_dir.mkdir()
+
+    # Taxonomy: Ideas
+    (tax_living / "ideas.md").write_text(
+        "# Ideas\n\n"
+        "## Naming\n\n`{slug}.md` in `Ideas/`.\n\n"
+        "## Frontmatter\n\n```yaml\n---\ntype: living/ideas\ntags:\n  - idea-tag\nstatus: shaping\n---\n```\n\n"
+        "## Template\n\n[[_Config/Templates/Living/Ideas]]\n"
+    )
+
     # Templates
     templates_dir = config / "Templates" / "Living"
     templates_dir.mkdir(parents=True)
     (templates_dir / "Wiki.md").write_text(
         "---\ntype: living/wiki\ntags: []\n---\n\n# {{title}}\n\n"
+    )
+    (templates_dir / "Ideas.md").write_text(
+        "---\ntype: living/ideas\ntags: []\nstatus: shaping\n---\n\n# {{title}}\n\nWhat if...\n"
     )
 
     # Core skills
@@ -612,3 +627,217 @@ class TestVersionCheck:
         with pytest.raises(SystemExit) as exc_info:
             server.brain_action("compile")
         assert exc_info.value.code == 0
+
+    def test_brain_create_checks_version(self, initialized):
+        """brain_create should exit if version drifted."""
+        version_path = initialized / ".brain-core" / "VERSION"
+        version_path.write_text("99.0.0\n")
+        with pytest.raises(SystemExit) as exc_info:
+            server.brain_create(type="wiki", title="test")
+        assert exc_info.value.code == 0
+
+    def test_brain_edit_checks_version(self, initialized):
+        """brain_edit should exit if version drifted."""
+        version_path = initialized / ".brain-core" / "VERSION"
+        version_path.write_text("99.0.0\n")
+        with pytest.raises(SystemExit) as exc_info:
+            server.brain_edit(operation="edit", path="Wiki/test.md", body="x")
+        assert exc_info.value.code == 0
+
+
+# ---------------------------------------------------------------------------
+# brain_create tests
+# ---------------------------------------------------------------------------
+
+class TestBrainCreate:
+    def test_create_returns_path(self, initialized):
+        result = json.loads(server.brain_create(type="wiki", title="New Page"))
+        assert "path" in result
+        assert result["type"] == "living/wiki"
+        assert result["title"] == "New Page"
+
+    def test_create_file_on_disk(self, initialized):
+        result = json.loads(server.brain_create(type="wiki", title="Disk Test"))
+        abs_path = os.path.join(str(initialized), result["path"])
+        assert os.path.isfile(abs_path)
+
+    def test_create_correct_frontmatter(self, initialized):
+        result = json.loads(server.brain_create(type="wiki", title="FM Test"))
+        abs_path = os.path.join(str(initialized), result["path"])
+        with open(abs_path) as f:
+            content = f.read()
+        from _common import parse_frontmatter
+        fields, _ = parse_frontmatter(content)
+        assert fields["type"] == "living/wiki"
+
+    def test_create_unknown_type_error(self, initialized):
+        result = json.loads(server.brain_create(type="nonexistent", title="Test"))
+        assert "error" in result
+
+    def test_create_temporal_subfolder(self, initialized):
+        result = json.loads(server.brain_create(type="logs", title="My Session"))
+        assert "_Temporal/Logs/" in result["path"]
+        import re
+        # Path should contain yyyy-mm subfolder
+        assert re.search(r"\d{4}-\d{2}", result["path"])
+
+    def test_create_body_override(self, initialized):
+        result = json.loads(server.brain_create(
+            type="wiki", title="Custom Body", body="# Custom\n\nMy content.\n"
+        ))
+        abs_path = os.path.join(str(initialized), result["path"])
+        with open(abs_path) as f:
+            content = f.read()
+        assert "My content." in content
+
+    def test_create_frontmatter_override(self, initialized):
+        result = json.loads(server.brain_create(
+            type="ideas", title="Override Test",
+            frontmatter={"status": "developing"}
+        ))
+        abs_path = os.path.join(str(initialized), result["path"])
+        with open(abs_path) as f:
+            content = f.read()
+        from _common import parse_frontmatter
+        fields, _ = parse_frontmatter(content)
+        assert fields["status"] == "developing"
+
+
+# ---------------------------------------------------------------------------
+# brain_edit tests
+# ---------------------------------------------------------------------------
+
+class TestBrainEdit:
+    def test_edit_replaces_body(self, initialized):
+        result = json.loads(server.brain_edit(
+            operation="edit",
+            path="Wiki/brain-overview-abc123.md",
+            body="# New Body\n\nReplaced.\n"
+        ))
+        assert result["operation"] == "edit"
+        content = (initialized / "Wiki" / "brain-overview-abc123.md").read_text()
+        assert "Replaced." in content
+
+    def test_edit_preserves_frontmatter(self, initialized):
+        server.brain_edit(
+            operation="edit",
+            path="Wiki/brain-overview-abc123.md",
+            body="# New\n"
+        )
+        content = (initialized / "Wiki" / "brain-overview-abc123.md").read_text()
+        from _common import parse_frontmatter
+        fields, _ = parse_frontmatter(content)
+        assert fields["type"] == "living/wiki"
+
+    def test_edit_merges_frontmatter(self, initialized):
+        server.brain_edit(
+            operation="edit",
+            path="Wiki/brain-overview-abc123.md",
+            body="# New\n",
+            frontmatter={"status": "archived"}
+        )
+        content = (initialized / "Wiki" / "brain-overview-abc123.md").read_text()
+        from _common import parse_frontmatter
+        fields, _ = parse_frontmatter(content)
+        assert fields["status"] == "archived"
+
+    def test_append_works(self, initialized):
+        result = json.loads(server.brain_edit(
+            operation="append",
+            path="Wiki/brain-overview-abc123.md",
+            body="\n\nAppended text.\n"
+        ))
+        assert result["operation"] == "append"
+        content = (initialized / "Wiki" / "brain-overview-abc123.md").read_text()
+        assert "Appended text." in content
+        assert "Brain Overview" in content  # original preserved
+
+    def test_invalid_path_rejected(self, initialized):
+        result = json.loads(server.brain_edit(
+            operation="edit",
+            path="Unknown/file.md",
+            body="test"
+        ))
+        assert "error" in result
+
+    def test_file_not_found(self, initialized):
+        result = json.loads(server.brain_edit(
+            operation="edit",
+            path="Wiki/nonexistent.md",
+            body="test"
+        ))
+        assert "error" in result
+
+    def test_unknown_operation(self, initialized):
+        result = json.loads(server.brain_edit(
+            operation="bogus",
+            path="Wiki/brain-overview-abc123.md",
+            body="test"
+        ))
+        assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# brain_action delete/convert tests
+# ---------------------------------------------------------------------------
+
+class TestBrainActionDelete:
+    def test_delete_removes_file(self, initialized):
+        result = json.loads(server.brain_action("delete", {"path": "Wiki/python-guide-def456.md"}))
+        assert result["status"] == "ok"
+        assert not (initialized / "Wiki" / "python-guide-def456.md").exists()
+
+    def test_delete_cleans_links(self, initialized):
+        # Add a link to the target file
+        (initialized / "Wiki" / "linker-aaa000.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\nSee [[Wiki/python-guide-def456|Python]].\n"
+        )
+        result = json.loads(server.brain_action("delete", {"path": "Wiki/python-guide-def456.md"}))
+        assert result["links_replaced"] >= 1
+        content = (initialized / "Wiki" / "linker-aaa000.md").read_text()
+        assert "~~Python~~" in content
+
+    def test_delete_missing_params(self, initialized):
+        result = json.loads(server.brain_action("delete"))
+        assert "error" in result
+
+    def test_delete_not_found(self, initialized):
+        result = json.loads(server.brain_action("delete", {"path": "Wiki/gone.md"}))
+        assert "error" in result
+
+
+class TestBrainActionConvert:
+    def test_convert_changes_type_and_path(self, initialized):
+        result = json.loads(server.brain_action("convert", {
+            "path": "Wiki/brain-overview-abc123.md",
+            "target_type": "ideas",
+        }))
+        assert result["status"] == "ok"
+        assert result["type"] == "living/ideas"
+        assert result["new_path"].startswith("Ideas/")
+        assert not (initialized / "Wiki" / "brain-overview-abc123.md").exists()
+        assert os.path.isfile(os.path.join(str(initialized), result["new_path"]))
+
+    def test_convert_updates_links(self, initialized):
+        (initialized / "Wiki" / "linker-bbb000.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\nSee [[Wiki/brain-overview-abc123]].\n"
+        )
+        result = json.loads(server.brain_action("convert", {
+            "path": "Wiki/brain-overview-abc123.md",
+            "target_type": "ideas",
+        }))
+        assert result["links_updated"] >= 1
+        content = (initialized / "Wiki" / "linker-bbb000.md").read_text()
+        new_stem = result["new_path"][:-3]
+        assert f"[[{new_stem}]]" in content
+
+    def test_convert_missing_params(self, initialized):
+        result = json.loads(server.brain_action("convert"))
+        assert "error" in result
+
+    def test_convert_unknown_target(self, initialized):
+        result = json.loads(server.brain_action("convert", {
+            "path": "Wiki/brain-overview-abc123.md",
+            "target_type": "nonexistent",
+        }))
+        assert "error" in result

@@ -4,10 +4,12 @@ Brain MCP Server — thin MCP wrapper over brain-core scripts.
 
 All logic lives in `.brain-core/scripts/` as importable functions.
 The server imports them, holds the compiled router and search index in memory,
-and exposes 3 MCP tools:
+and exposes 5 MCP tools:
   brain_read   — read compiled router resources (safe, no side effects)
   brain_search — BM25 keyword search, with optional Obsidian CLI live search
-  brain_action — mutations: compile router, rebuild index, rename files
+  brain_create — create new vault artefacts (additive, safe to auto-approve)
+  brain_edit   — modify existing vault artefacts (single-file mutation)
+  brain_action — vault-wide/destructive ops: compile, build_index, rename, delete, convert
 
 Why this pattern: scripts are the source of truth for all vault operations.
 The MCP server gets in-memory caching for free (router/index loaded once at
@@ -58,7 +60,9 @@ from build_index import (
 )
 from search_index import search as search_index
 from read import read_resource
-from rename import rename_and_update_links
+from rename import rename_and_update_links, delete_and_clean_links
+from create import create_artefact
+from edit import edit_artefact, append_to_artefact, convert_artefact
 
 import obsidian_cli
 
@@ -351,17 +355,86 @@ def brain_search(query: str, type: str | None = None, tag: str | None = None,
 
 
 # ---------------------------------------------------------------------------
-# brain_action — mutations, gated by approval
+# brain_create — additive, safe to auto-approve
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def brain_create(type: str, title: str, body: str = "", frontmatter: dict | None = None) -> str:
+    """Create a new vault artefact. Additive — creates a file, cannot destroy existing work.
+
+    Parameters:
+      type       — artefact type key (e.g. "idea") or full type (e.g. "living/idea")
+      title      — human-readable title, used for filename generation
+      body       — markdown body content (optional, template body used if empty)
+      frontmatter — optional frontmatter field overrides (e.g. {"status": "developing"})
+
+    Returns JSON: {path, type, title}
+    """
+    _check_version()
+
+    if _router is None or _vault_root is None:
+        return "Error: server not initialized"
+
+    try:
+        result = create_artefact(
+            _vault_root, _router, type, title,
+            body=body, frontmatter_overrides=frontmatter,
+        )
+        return json.dumps(result, indent=2)
+    except ValueError as e:
+        return json.dumps({"error": str(e)})
+
+
+# ---------------------------------------------------------------------------
+# brain_edit — single-file mutation
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def brain_edit(operation: str, path: str, body: str = "", frontmatter: dict | None = None) -> str:
+    """Modify an existing vault artefact. Single-file mutation.
+
+    Parameters:
+      operation  — "edit" (replace body) or "append" (add to body)
+      path       — relative path from vault root (e.g. "Ideas/my-idea.md")
+      body       — new body content (edit) or content to append (append)
+      frontmatter — optional frontmatter changes (edit only, merged with existing)
+
+    Path validated against compiled router — wrong folder or naming rejected with helpful error.
+    """
+    _check_version()
+
+    if _router is None or _vault_root is None:
+        return "Error: server not initialized"
+
+    try:
+        if operation == "edit":
+            result = edit_artefact(
+                _vault_root, _router, path, body,
+                frontmatter_changes=frontmatter,
+            )
+        elif operation == "append":
+            result = append_to_artefact(_vault_root, _router, path, body)
+        else:
+            return json.dumps({"error": f"Unknown operation '{operation}'. Valid: edit, append"})
+        return json.dumps(result, indent=2)
+    except (ValueError, FileNotFoundError) as e:
+        return json.dumps({"error": str(e)})
+
+
+# ---------------------------------------------------------------------------
+# brain_action — vault-wide/destructive ops, gated by approval
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
 def brain_action(action: str, params: dict | None = None) -> str:
-    """Perform vault actions. Mutations — may modify files.
+    """Perform vault-wide actions. Mutations — may modify multiple files.
 
     Actions:
       compile     — recompile the router from source files
       build_index — rebuild the BM25 retrieval index
-      rename      — rename/move a file (params: source, dest as relative paths)
+      rename      — rename/move a file (params: {source, dest} as relative paths)
+      delete      — delete a file and clean wikilinks (params: {path})
+      convert     — convert artefact to different type (params: {path, target_type})
     """
     global _router, _index
 
@@ -426,8 +499,38 @@ def brain_action(action: str, params: dict | None = None) -> str:
         except FileNotFoundError as e:
             return json.dumps({"error": str(e)})
 
+    elif action == "delete":
+        if not params or "path" not in params:
+            return json.dumps({"error": "delete requires params: {path} (relative path)"})
+        try:
+            links_replaced = delete_and_clean_links(_vault_root, params["path"])
+            return json.dumps({
+                "status": "ok",
+                "path": params["path"],
+                "links_replaced": links_replaced,
+            }, indent=2)
+        except FileNotFoundError as e:
+            return json.dumps({"error": str(e)})
+
+    elif action == "convert":
+        if not params or "path" not in params or "target_type" not in params:
+            return json.dumps({"error": "convert requires params: {path, target_type}"})
+        try:
+            result = convert_artefact(
+                _vault_root, _router, params["path"], params["target_type"]
+            )
+            return json.dumps({
+                "status": "ok",
+                "old_path": result["old_path"],
+                "new_path": result["new_path"],
+                "type": result["type"],
+                "links_updated": result["links_updated"],
+            }, indent=2)
+        except (ValueError, FileNotFoundError) as e:
+            return json.dumps({"error": str(e)})
+
     else:
-        valid = ["compile", "build_index", "rename"]
+        valid = ["compile", "build_index", "rename", "delete", "convert"]
         return json.dumps({"error": f"Unknown action '{action}'. Valid: {', '.join(valid)}"})
 
 
