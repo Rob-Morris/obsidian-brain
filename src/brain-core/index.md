@@ -12,7 +12,7 @@ All content in the vault is an **artefact**:
 1. **Living** (in vault root) - evolve over time, source of truth
 2. **Temporal** (in _Temporal/) - bound to a moment, historic record
 
-System folders start with `_` or `.` — these are infrastructure, not artefacts. Living artefact folders may contain an `_Archive/` subfolder for documents that have transferred authority elsewhere. See [[.brain-core/extensions]] for archiving procedures. This distinction drives folder organisation, naming, and styling.
+System folders start with `_` or `.` — these are infrastructure, not artefacts. Living artefact folders may contain an `_Archive/` subfolder for documents that have transferred authority elsewhere. See [[.brain-core/standards/archiving]] for archiving procedures. This distinction drives folder organisation, naming, and styling.
 
 The system is self-extending. When content has no appropriate home, add a new artefact type following documented procedures rather than forcing it into an existing folder.
 
@@ -31,6 +31,12 @@ No content files in the vault root. Every output — human or agent — goes int
 
 ### Self-extending vault
 When content has no home, add a new artefact type before creating the file.
+
+### Always link related things
+When artefacts relate — by origin, topic, or reference — connect them with wikilinks in the body.
+
+### Save each step before building on it
+Multi-stage work (research → analysis, capture → synthesis) produces an artefact at each stage. Don't skip ahead.
 
 ### Keep instruction files lean
 Files read every session (router, index) stay minimal — routing tables, not encyclopedias. Detailed reference lives in the core docs and config files, linked from the router.
@@ -59,3 +65,8 @@ Each vault has a **router** — a single file an agent reads every session. The 
 ## Standards
 
 - Artefact file naming rules — [[.brain-core/standards/naming-conventions]]
+- Artefact provenance and lineage — [[.brain-core/standards/provenance]]
+- Archiving living artefacts — [[.brain-core/standards/archiving]]
+- Hub pattern for grouping artefacts — [[.brain-core/standards/hub-pattern]]
+- Subfolders within living artefact folders — [[.brain-core/standards/subfolders]]
+- User preferences — [[.brain-core/standards/user-preferences]]
