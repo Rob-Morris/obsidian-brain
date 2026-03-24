@@ -1,0 +1,243 @@
+#!/usr/bin/env python3
+"""
+create.py — Create a new vault artefact.
+
+Resolves type from the compiled router, reads the template, generates a
+filename from the naming pattern, and writes the file with frontmatter.
+
+Usage:
+    python3 create.py --type idea --title "My Idea"
+    python3 create.py --type idea --title "My Idea" --body "Content here"
+    python3 create.py --type idea --title "My Idea" --vault /path/to/vault --json
+"""
+
+import json
+import os
+import re
+import sys
+from datetime import datetime, timezone
+
+from _common import (
+    find_vault_root,
+    parse_frontmatter,
+    serialize_frontmatter,
+    title_to_slug,
+)
+from read import read_file_content
+
+
+# ---------------------------------------------------------------------------
+# Naming pattern resolution
+# ---------------------------------------------------------------------------
+
+def resolve_naming_pattern(pattern, title):
+    """Resolve a naming pattern to a filename using the given title and today's date.
+
+    Placeholders:
+      {slug}, {name}  — title_to_slug(title)
+      {Title}         — title as-is
+      yyyymmdd        — today as YYYYMMDD
+      yyyy-mm-dd      — today as YYYY-MM-DD
+      yyyy            — four-digit year
+      mm              — two-digit month
+      dd              — two-digit day
+      ddd             — three-letter weekday (Mon, Tue, ...)
+    """
+    now = datetime.now(timezone.utc).astimezone()
+    slug = title_to_slug(title)
+
+    # Order matters: longer placeholders first to avoid partial matches
+    replacements = [
+        ("yyyymmdd", now.strftime("%Y%m%d")),
+        ("yyyy-mm-dd", now.strftime("%Y-%m-%d")),
+        ("yyyy", now.strftime("%Y")),
+        ("ddd", now.strftime("%a")),
+        ("mm", now.strftime("%m")),
+        ("dd", now.strftime("%d")),
+        ("{slug}", slug),
+        ("{name}", slug),
+        ("{Title}", title),
+    ]
+
+    result = pattern
+    for placeholder, value in replacements:
+        result = result.replace(placeholder, value)
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Core logic
+# ---------------------------------------------------------------------------
+
+def create_artefact(vault_root, router, type_key, title, body="", frontmatter_overrides=None):
+    """Create a new artefact. Returns {"path": relative_path, "type": ..., "title": ...}.
+
+    Args:
+        vault_root: Absolute path to the vault root.
+        router: Compiled router dict.
+        type_key: Artefact type key (e.g. "idea") or full type (e.g. "living/idea").
+        title: Human-readable title, used for filename generation.
+        body: Markdown body content (optional, template body used if empty).
+        frontmatter_overrides: Optional dict of frontmatter field overrides.
+
+    Returns:
+        Dict with path, type, and title.
+
+    Raises:
+        ValueError: If type is not found, not configured, or file already exists.
+    """
+    vault_root = str(vault_root)
+
+    # 1. Resolve type
+    artefact = _resolve_type(router, type_key)
+
+    # 2. Read template (base frontmatter + body)
+    template_fields, template_body = _read_template(vault_root, artefact)
+
+    # 3. Generate filename
+    pattern = artefact.get("naming", {}).get("pattern") if artefact.get("naming") else None
+    if pattern:
+        filename = resolve_naming_pattern(pattern, title)
+    else:
+        filename = title_to_slug(title) + ".md"
+
+    # 4. Resolve folder
+    folder = _resolve_folder(artefact)
+
+    # 5. Merge frontmatter: template → overrides → force type
+    fields = dict(template_fields)
+    if frontmatter_overrides:
+        fields.update(frontmatter_overrides)
+    if artefact.get("frontmatter") and artefact["frontmatter"].get("type"):
+        fields["type"] = artefact["frontmatter"]["type"]
+
+    # 6. Determine body
+    final_body = body if body else template_body
+
+    # 7. Check collision
+    rel_path = os.path.join(folder, filename)
+    abs_path = os.path.join(vault_root, rel_path)
+    if os.path.exists(abs_path):
+        raise ValueError(f"File already exists: {rel_path}")
+
+    # 8. Write
+    content = serialize_frontmatter(fields, body=final_body)
+    os.makedirs(os.path.dirname(abs_path), exist_ok=True)
+    with open(abs_path, "w", encoding="utf-8") as f:
+        f.write(content)
+
+    return {"path": rel_path, "type": artefact["type"], "title": title}
+
+
+def _resolve_type(router, type_key):
+    """Match type_key against router artefacts by key or full type."""
+    for art in router.get("artefacts", []):
+        if art["key"] == type_key or art["type"] == type_key:
+            if not art.get("configured"):
+                raise ValueError(
+                    f"Type '{type_key}' exists but is not configured "
+                    f"(no taxonomy file). Create a taxonomy file first."
+                )
+            return art
+    raise ValueError(
+        f"Unknown artefact type '{type_key}'. "
+        f"Valid types: {', '.join(a['key'] for a in router.get('artefacts', []))}"
+    )
+
+
+def _read_template(vault_root, artefact):
+    """Read and parse the template file for an artefact type."""
+    template_ref = artefact.get("template_file")
+    if not template_ref:
+        return {}, ""
+
+    content = read_file_content(vault_root, template_ref)
+    if content.startswith("Error:"):
+        return {}, ""
+
+    return parse_frontmatter(content)
+
+
+def _resolve_folder(artefact):
+    """Resolve the target folder for a new artefact.
+
+    Living types: use artefact["path"].
+    Temporal types: append yyyy-mm/ subfolder.
+    """
+    base_path = artefact["path"]
+    if artefact.get("classification") == "temporal":
+        now = datetime.now(timezone.utc).astimezone()
+        month_folder = now.strftime("%Y-%m")
+        return os.path.join(base_path, month_folder)
+    return base_path
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+def main():
+    type_key = None
+    title = None
+    body = ""
+    vault_arg = None
+    json_mode = False
+
+    i = 1
+    while i < len(sys.argv):
+        arg = sys.argv[i]
+        if arg == "--type" and i + 1 < len(sys.argv):
+            type_key = sys.argv[i + 1]
+            i += 2
+        elif arg == "--title" and i + 1 < len(sys.argv):
+            title = sys.argv[i + 1]
+            i += 2
+        elif arg == "--body" and i + 1 < len(sys.argv):
+            body = sys.argv[i + 1]
+            i += 2
+        elif arg == "--vault" and i + 1 < len(sys.argv):
+            vault_arg = sys.argv[i + 1]
+            i += 2
+        elif arg == "--json":
+            json_mode = True
+            i += 1
+        else:
+            i += 1
+
+    if not type_key or not title:
+        print(
+            'Usage: create.py --type TYPE --title TITLE [--body BODY] [--vault PATH] [--json]',
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    vault_root = str(find_vault_root(vault_arg))
+
+    # Load router
+    from check import load_router
+    router = load_router(vault_root)
+    if "error" in router:
+        if json_mode:
+            print(json.dumps(router))
+        else:
+            print(f"Error: {router['error']}", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        result = create_artefact(vault_root, router, type_key, title, body=body)
+    except ValueError as e:
+        if json_mode:
+            print(json.dumps({"error": str(e)}))
+        else:
+            print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if json_mode:
+        print(json.dumps(result, indent=2))
+    else:
+        print(f"Created {result['path']}", file=sys.stderr)
+
+
+if __name__ == "__main__":
+    main()
