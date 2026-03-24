@@ -1,5 +1,5 @@
-[1] Tests pass: done (353 passed, no test changes)
-[2] Version bumped: skip, no behaviour change
+[1] Tests pass: done (353 passed)
+[2] Version bumped: skip, single-line doc addition to index.md
 [3] Changelog updated: skip, no version bump
 [4] Docs updated: done
     [4a] Artefact type: skip, no type changes
@@ -7,7 +7,7 @@
     [4c] Status/lifecycle values: skip, no changes
     [4d] Install/extension procedures: skip, no changes
     [4e] Colour system: skip, no changes
-    [4f] System design/architecture: skip, no changes
+    [4f] System design/architecture: done
     [4g] Day-to-day workflows: skip, no changes
     [4h] Tooling: skip, no changes
     [4i] General pattern: skip, no changes
