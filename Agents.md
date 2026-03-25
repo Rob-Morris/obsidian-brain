@@ -10,3 +10,5 @@ Self-extending system for organising Obsidian vaults, for agents and humans work
 ## Local Overrides
 
 If `agents.local.md` exists in the repo root, read it for machine-specific configuration.
+
+If brain MCP tools are available, call brain_read(resource="router") at session start.
