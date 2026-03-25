@@ -973,3 +973,156 @@ class TestBrainActionShapePresentation:
         }))
         assert result["status"] == "ok"
         assert "preview_pid" not in result
+
+
+# ---------------------------------------------------------------------------
+# brain_session tests
+# ---------------------------------------------------------------------------
+
+class TestBrainSession:
+
+    def test_returns_valid_json(self, initialized):
+        result = json.loads(server.brain_session())
+        assert "error" not in result
+
+    def test_payload_keys(self, initialized):
+        result = json.loads(server.brain_session())
+        expected_keys = {
+            "version", "brain_core_version", "compiled_at",
+            "always_rules", "preferences", "gotchas",
+            "triggers", "artefacts", "environment",
+            "memories", "skills", "plugins", "styles",
+        }
+        assert set(result.keys()) == expected_keys
+
+    def test_always_rules(self, initialized):
+        result = json.loads(server.brain_session())
+        assert isinstance(result["always_rules"], list)
+        assert len(result["always_rules"]) > 0
+        assert all(isinstance(r, str) for r in result["always_rules"])
+
+    def test_artefact_condensed(self, initialized):
+        result = json.loads(server.brain_session())
+        allowed_keys = {"type", "key", "path", "naming_pattern", "status_enum", "configured"}
+        for a in result["artefacts"]:
+            assert set(a.keys()) == allowed_keys
+            # No full taxonomy/template fields leaking
+            assert "taxonomy_file" not in a
+            assert "template_file" not in a
+            assert "frontmatter" not in a
+            assert "trigger" not in a
+
+    def test_artefact_configured_wiki(self, initialized):
+        result = json.loads(server.brain_session())
+        wiki = [a for a in result["artefacts"] if a["key"] == "wiki"]
+        assert len(wiki) == 1
+        assert wiki[0]["configured"] is True
+        assert wiki[0]["naming_pattern"] is not None
+
+    def test_triggers_present(self, initialized):
+        result = json.loads(server.brain_session())
+        assert isinstance(result["triggers"], list)
+        assert len(result["triggers"]) > 0
+        for t in result["triggers"]:
+            assert "category" in t
+            assert "condition" in t
+
+    def test_environment(self, initialized):
+        result = json.loads(server.brain_session())
+        env = result["environment"]
+        assert "vault_root" in env
+        assert "platform" in env
+        assert "cli_available" in env
+        assert "obsidian_cli_available" in env
+
+    def test_memories_condensed(self, initialized):
+        # Add memories and recompile
+        memories_dir = initialized / "_Config" / "Memories"
+        memories_dir.mkdir(parents=True, exist_ok=True)
+        (memories_dir / "test-mem.md").write_text(
+            "---\ntriggers: [test, memory]\n---\n\n# Test Memory\n"
+        )
+        server.brain_action("compile")
+
+        result = json.loads(server.brain_session())
+        assert isinstance(result["memories"], list)
+        assert len(result["memories"]) > 0
+        for m in result["memories"]:
+            assert "name" in m
+            assert "triggers" in m
+            assert "memory_doc" not in m
+
+    def test_skills_condensed(self, initialized):
+        result = json.loads(server.brain_session())
+        assert isinstance(result["skills"], list)
+        assert len(result["skills"]) > 0
+        for s in result["skills"]:
+            assert "name" in s
+            assert "source" in s
+            assert "skill_doc" not in s
+
+    def test_plugins_condensed(self, initialized):
+        result = json.loads(server.brain_session())
+        assert isinstance(result["plugins"], list)
+        assert len(result["plugins"]) > 0
+        for p in result["plugins"]:
+            assert "name" in p
+            assert "skill_doc" not in p
+
+    def test_styles_are_names(self, initialized):
+        result = json.loads(server.brain_session())
+        assert isinstance(result["styles"], list)
+        assert len(result["styles"]) > 0
+        assert all(isinstance(s, str) for s in result["styles"])
+        assert "concise" in result["styles"]
+
+    def test_preferences_present(self, initialized):
+        user_dir = initialized / "_Config" / "User"
+        user_dir.mkdir(parents=True, exist_ok=True)
+        (user_dir / "preferences-always.md").write_text(
+            "---\ntype: user-preferences\n---\n\nBe concise. No emojis.\n"
+        )
+        result = json.loads(server.brain_session())
+        assert "Be concise. No emojis." in result["preferences"]
+        # Frontmatter should be stripped
+        assert "---" not in result["preferences"]
+
+    def test_preferences_missing(self, initialized):
+        result = json.loads(server.brain_session())
+        assert result["preferences"] == ""
+
+    def test_gotchas_present(self, initialized):
+        user_dir = initialized / "_Config" / "User"
+        user_dir.mkdir(parents=True, exist_ok=True)
+        (user_dir / "gotchas.md").write_text(
+            "---\ntype: user-gotchas\n---\n\nNever force-push to main.\n"
+        )
+        result = json.loads(server.brain_session())
+        assert "Never force-push to main." in result["gotchas"]
+        assert "---" not in result["gotchas"]
+
+    def test_gotchas_missing(self, initialized):
+        result = json.loads(server.brain_session())
+        assert result["gotchas"] == ""
+
+    def test_context_stub(self, initialized):
+        result = json.loads(server.brain_session(context="mcp-spike"))
+        assert "context" in result
+        assert result["context"]["slug"] == "mcp-spike"
+        assert result["context"]["status"] == "not_implemented"
+        # General payload should still be present
+        assert "always_rules" in result
+        assert "artefacts" in result
+
+    def test_not_initialized(self):
+        # Save and reset server state
+        saved_router = server._router
+        saved_root = server._vault_root
+        server._router = None
+        server._vault_root = None
+        try:
+            result = server.brain_session()
+            assert "Error" in result
+        finally:
+            server._router = saved_router
+            server._vault_root = saved_root

@@ -4,12 +4,13 @@ Brain MCP Server — thin MCP wrapper over brain-core scripts.
 
 All logic lives in `.brain-core/scripts/` as importable functions.
 The server imports them, holds the compiled router and search index in memory,
-and exposes 5 MCP tools:
-  brain_read   — read compiled router resources (safe, no side effects)
-  brain_search — BM25 keyword search, with optional Obsidian CLI live search
-  brain_create — create new vault artefacts (additive, safe to auto-approve)
-  brain_edit   — modify existing vault artefacts (single-file mutation)
-  brain_action — vault-wide/destructive ops: compile, build_index, rename, delete, convert
+and exposes 6 MCP tools:
+  brain_session — bootstrap an agent session (compiled payload, one call)
+  brain_read    — read compiled router resources (safe, no side effects)
+  brain_search  — BM25 keyword search, with optional Obsidian CLI live search
+  brain_create  — create new vault artefacts (additive, safe to auto-approve)
+  brain_edit    — modify existing vault artefacts (single-file mutation)
+  brain_action  — vault-wide/destructive ops: compile, build_index, rename, delete, convert
 
 Why this pattern: scripts are the source of truth for all vault operations.
 The MCP server gets in-memory caching for free (router/index loaded once at
@@ -56,6 +57,7 @@ import rename
 import create
 import edit
 import obsidian_cli
+import session
 import shape_presentation
 
 # Constants that don't change between versions
@@ -96,7 +98,7 @@ def _read_disk_version(vault_root: str) -> str | None:
 _SCRIPT_MODULES = [
     "_common", "compile_router", "compile_colours", "build_index",
     "search_index", "read", "create", "edit", "rename", "obsidian_cli",
-    "shape_presentation",
+    "session", "shape_presentation",
 ]
 
 
@@ -271,6 +273,36 @@ def startup(vault_root: str | None = None) -> None:
     # Probe Obsidian CLI availability
     _cli_available = obsidian_cli.check_available()
     _vault_name = os.environ.get("BRAIN_VAULT_NAME") or os.path.basename(_vault_root)
+
+
+# ---------------------------------------------------------------------------
+# brain_session — agent bootstrap, one-call session setup
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def brain_session(context: str | None = None) -> str:
+    """Bootstrap an agent session. Returns everything needed to work with the Brain in one call.
+
+    Args:
+        context: Optional context slug for scoped sessions (e.g., "mcp-spike").
+                 Context scoping is not yet implemented — parameter accepted for forward compatibility.
+
+    Returns a compiled JSON payload: always-rules, user preferences, gotchas,
+    triggers, artefact type summaries, environment, memory/skill/plugin/style indexes.
+    Call this once at session start. Use brain_read for individual resources after.
+    """
+    _check_and_reload()
+    _ensure_router_fresh()
+
+    if _router is None or _vault_root is None:
+        return "Error: server not initialized"
+
+    result = session.compile_session(
+        _router, _vault_root,
+        obsidian_cli_available=_cli_available,
+        context=context,
+    )
+    return json.dumps(result, ensure_ascii=False)
 
 
 # ---------------------------------------------------------------------------

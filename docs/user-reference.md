@@ -858,7 +858,12 @@ Skill documents for MCP tools, CLI commands, or plugin workflows. One folder per
 
 ### MCP Tools
 
-If your vault runs the Brain MCP server (`.brain-core/mcp/server.py`), five tools are available:
+If your vault runs the Brain MCP server (`.brain-core/mcp/server.py`), six tools are available:
+
+**brain_session** (safe, auto-approvable)
+- Bootstrap an agent session in one call — returns a compiled, token-efficient payload
+- Includes: always-rules, user preferences, gotchas, triggers, condensed artefact types, environment, memory/skill/plugin/style indexes
+- Optional `context` parameter for scoped sessions (not yet implemented)
 
 **brain_read** (safe, no side effects)
 - Look up artefacts, triggers, styles, templates, skills, plugins, memories, environment info, the compiled router, structural compliance results, or read artefact files by path

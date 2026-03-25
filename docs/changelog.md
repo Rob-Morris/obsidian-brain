@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.12.0 — 2026-03-25
+
+- **`brain_session` MCP tool** — new top-level tool for agent session bootstrap. Returns a compiled, token-efficient payload in one round trip: always-rules, user preferences, gotchas, triggers, condensed artefact types, environment, memory/skill/plugin/style indexes. The server actively compiles this — stripping frontmatter from user files, condensing artefact metadata, merging environment state. Accepts an optional `context` parameter (forward-compatible stub for future context-scoped sessions). New script: `session.py`. 6th MCP tool (was 5). 520 tests (was 503)
+
 ## v0.11.10 — 2026-03-25
 
 - **`_Attachments/` → `_Assets/` refactor** — replaced the flat `_Attachments/` bucket with `_Assets/` containing `Attachments/` (Obsidian attachment target, user-added files) and `Generated/` (tool-produced output, reproducible from source — `Presentations/`, `Mockups/`). CSS variables renamed `--theme-attachments-*` → `--theme-assets-*`. Graph colour entry updated. Template vault `attachmentFolderPath` now points to `_Assets/Attachments`. Convention change — vault migration required

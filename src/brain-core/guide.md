@@ -169,8 +169,9 @@ python3 .brain-core/scripts/init.py --project /path/to/project
 
 ## Tooling
 
-If your vault has the Brain MCP server running, you get five tools:
+If your vault has the Brain MCP server running, you get six tools:
 
+- **brain_session** — bootstrap an agent session in one call (always-rules, preferences, gotchas, triggers, artefact types, environment)
 - **brain_read** — look up artefacts, triggers, styles, templates, run structural compliance checks, or read artefact files by path
 - **brain_search** — find files by query, type, or tag
 - **brain_create** — create a new artefact (additive, safe to auto-approve)
