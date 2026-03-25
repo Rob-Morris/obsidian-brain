@@ -370,6 +370,7 @@ _Temporal/
   Snippets/                   ← crafted short-form content
   Cookies/                    ← "that earned a cookie"
   Mockups/                    ← visual/interactive prototypes
+  Captures/                   ← ingested external material
 
 _Workspaces/                  ← freeform data containers for workspaces
 _Attachments/                 ← images, PDFs, files

@@ -567,6 +567,23 @@ tags:
 
 **Trigger:** When exploring a visual or interactive design direction — UI layouts, component designs, app shells.
 
+### Captures
+
+**Folder:** `_Temporal/Captures/yyyy-mm/` · **Naming:** `yyyymmdd-capture--{slug}.md`
+
+External material ingested into the vault verbatim — emails, meeting notes, Slack threads, data extracts, documents. Preserved exactly as received, frozen on ingest. Never edited after creation. Downstream artefacts link back to captures as source material.
+
+```yaml
+type: temporal/capture
+source:
+tags:
+  - capture
+```
+
+**Conventions:** Preserve the original — don't summarise or restructure. Note the source in the `source` field (e.g. "Email from James Ward", "Slack #ops channel"). Link to at least one vault artefact for context via wikilinks in the body.
+
+**Trigger:** When ingesting external material into the vault.
+
 ---
 
 ## Filing Conventions

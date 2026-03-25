@@ -120,4 +120,4 @@ This pattern is useful when a single living artefact organises a stream of relat
 - `_Config/` — router, taxonomy, style, colours, templates, user skills, user preferences
 - `_Plugins/` — empty, ready for plugins
 
-Additional types are available in the artefact library (`.brain-core/artefact-library/`) for install as needed: Designs, Documentation, Ideas, Journals, Projects, Workspaces, Writing, Zettelkasten (living); Idea Logs, Journal Entries, Thoughts, Reports, Snippets, Mockups (temporal).
+Additional types are available in the artefact library (`.brain-core/artefact-library/`) for install as needed: Designs, Documentation, Ideas, Journals, Projects, Workspaces, Writing, Zettelkasten (living); Idea Logs, Journal Entries, Thoughts, Reports, Snippets, Mockups, Captures (temporal).

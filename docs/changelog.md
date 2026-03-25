@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.11.7 — 2026-03-25
+
+- **Captures artefact type** — new temporal artefact type in the artefact library. External material ingested verbatim (emails, meeting notes, Slack threads, data extracts), frozen on ingest. Uses `source` frontmatter field to record origin. No lifecycle — captures are immutable once created
+
 ## v0.11.6 — 2026-03-25
 
 - **Workspaces artefact type** — new living artefact type in the artefact library. Workspace hub files link brain artefacts to bounded data containers (`_Workspaces/`) for non-artefact files (CSVs, data, scripts, outputs). Follows the hub pattern with `workspace/{slug}` tags. Two modes: embedded (data in vault) and linked (data in external folder via `.brain/config`). Lifecycle: `active` → `paused` → `completed` → `archived`
