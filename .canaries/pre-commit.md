@@ -1,8 +1,8 @@
-# Pre-Commit Canary
+# Canary: Pre-Commit
 
-Follow before every commit. See [standards/canary.md](../standards/canary.md) for how canaries work.
+Follow before every commit.
 
-## Items
+## Tasks
 
 [1] **Tests pass.** Run `make test`. All tests must pass.
 
@@ -31,7 +31,24 @@ Follow before every commit. See [standards/canary.md](../standards/canary.md) fo
 
 ## Log
 
-After following the items above, write `.canary--pre-commit` at the repo root:
+After following the tasks above, ALWAYS write a log file named `.canary--pre-commit` to the repo root.
+Every task must have exactly one log line with a matching ID. Optionally indent sub-items for readability.
+
+Log format: `[id] Short name: status, comment`
+
+The `[id]` brackets are literal. Comment is optional for `done`, required for `skip`.
+
+### done
+
+`done` means you performed the action. Only write `done` if you actually did the thing. You may optionally add detail after `done`, e.g. `done, updated 4 files` or `done, 353 passed`.
+
+### skip
+
+`skip, {reason}` means you did not perform the action. The reason must be your own assessment of why the action wasn't needed — describe what you evaluated and what you concluded. Do not copy example reasons from this brief; write what actually applies to your situation.
+
+Note: `skip` uses a comma separator (not colon) to avoid ambiguity with the label separator.
+
+### Example
 
 ```
 [1] Tests pass: done
@@ -54,4 +71,4 @@ After following the items above, write `.canary--pre-commit` at the repo root:
     [5d] Install step counts: skip, no changes
 ```
 
-The pre-commit hook checks this file exists and covers all items.
+The pre-commit hook checks this file exists and covers all tasks.

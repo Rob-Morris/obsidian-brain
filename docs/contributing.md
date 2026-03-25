@@ -79,7 +79,7 @@ Brain-core is developed here (`src/brain-core/`) and deployed to vaults by copyi
 
 1. Implement and commit core changes in this repo first
 2. Copy `src/brain-core/` to the vault's `.brain-core/`
-3. Follow `docs/canaries/post-core-commit.local.md` — propagate to vault, update vault log, daily note, and master design doc
+3. Follow `.canaries/post-core-commit.local.md` — propagate to vault, update vault log, daily note, and master design doc
 4. Commit in the vault repo
 
 Never deploy to both simultaneously. Core-first, always.
@@ -117,7 +117,7 @@ Rob's vault: `/Users/robmorris/Library/Mobile Documents/iCloud~md~obsidian/Docum
 
 ## After Committing to Brain-Core
 
-After committing brain-core changes in this repo, follow `docs/canaries/post-core-commit.local.md` to propagate and update vault documentation.
+After committing brain-core changes in this repo, follow `.canaries/post-core-commit.local.md` to propagate and update vault documentation.
 ```
 
 ## Standards vs Docs

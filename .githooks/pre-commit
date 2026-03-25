@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Pre-commit hook: verifies .canary--pre-commit covers all bracket IDs
-# defined in docs/canaries/pre-commit.md.
+# defined in .canaries/pre-commit.md.
 #
 # The canary brief is the source of truth — adding a new [id] there
 # automatically enforces it here.
@@ -9,20 +9,20 @@
 set -euo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
-CANARY_DEF="$REPO_ROOT/docs/canaries/pre-commit.md"
+CANARY_DEF="$REPO_ROOT/.canaries/pre-commit.md"
 CANARY_LOG="$REPO_ROOT/.canary--pre-commit"
 
 if [[ ! -f "$CANARY_DEF" ]]; then
-  echo "pre-commit: docs/canaries/pre-commit.md not found — skipping canary check"
+  echo "pre-commit: .canaries/pre-commit.md not found — skipping canary check"
   exit 0
 fi
 
-# Extract all [id] patterns from the Items section (between ## Items and ## Log)
-items_section=$(sed -n '/^## Items$/,/^## Log$/p' "$CANARY_DEF")
-expected_ids=($(echo "$items_section" | grep -oE '\[[0-9]+[a-z]?\]' | sort -u))
+# Extract all [id] patterns from the Tasks section (between ## Tasks and ## Log)
+tasks_section=$(sed -n '/^## Tasks$/,/^## Log$/p' "$CANARY_DEF")
+expected_ids=($(echo "$tasks_section" | grep -oE '\[[0-9]+[a-z]?\]' | sort -u))
 
 if [[ ${#expected_ids[@]} -eq 0 ]]; then
-  echo "pre-commit: no bracket IDs found in docs/canaries/pre-commit.md — skipping"
+  echo "pre-commit: no bracket IDs found in .canaries/pre-commit.md — skipping"
   exit 0
 fi
 
@@ -31,8 +31,8 @@ if [[ ! -f "$CANARY_LOG" ]]; then
   echo ""
   echo "pre-commit: .canary--pre-commit not found."
   echo ""
-  echo "Read docs/canaries/pre-commit.md and write .canary--pre-commit"
-  echo "confirming you've followed each item. Format:"
+  echo "Read .canaries/pre-commit.md and write .canary--pre-commit"
+  echo "confirming you've followed each task. Format:"
   echo ""
   echo "  [1] Label: done"
   echo "  [2] Label: skip, reason"
@@ -50,9 +50,9 @@ done
 
 if [[ ${#missing[@]} -gt 0 ]]; then
   echo ""
-  echo "pre-commit: .canary--pre-commit is missing these items:"
-  for item in "${missing[@]}"; do
-    echo "  $item"
+  echo "pre-commit: .canary--pre-commit is missing these tasks:"
+  for task in "${missing[@]}"; do
+    echo "  $task"
   done
   echo ""
   echo "Mark each as '[id] Label: done' or '[id] Label: skip, reason'."

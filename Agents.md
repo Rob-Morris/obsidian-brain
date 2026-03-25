@@ -5,7 +5,7 @@ Self-extending system for organising Obsidian vaults, for agents and humans work
 ## Before Committing
 
 1. Run `make test` (uses `.venv` with Python 3.12; run `make install` first if the venv doesn't exist)
-2. Follow `docs/canaries/pre-commit.md`
+2. Follow `.canaries/pre-commit.md`
 
 ## Local Overrides
 

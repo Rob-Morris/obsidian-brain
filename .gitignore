@@ -13,7 +13,7 @@ __pycache__/
 .canary--*
 
 # Local-only canaries (vault-specific, not part of core)
-docs/canaries/*.local.md
+.canaries/*.local.md
 
 # Local overrides
 agents.local.md

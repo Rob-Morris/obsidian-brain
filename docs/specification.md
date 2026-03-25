@@ -91,7 +91,7 @@ This pattern is useful when a single living artefact organises a stream of relat
 - `docs/user-guide.md` — example-driven walkthrough for vault users
 - `docs/user-reference.md` — full type specs, conventions, config reference
 - `docs/changelog.md` — single-file version history. When it exceeds ~500 lines, consider splitting into per-version files under `docs/changelog/` with the main file as an index
-- `docs/canaries/pre-commit.md` — pre-commit canary: versioning, changelog, routing table, cross-checks
+- `.canaries/pre-commit.md` — pre-commit canary: versioning, changelog, routing table, cross-checks
 - `docs/contributing.md` — contributor guide: doc architecture, drift prevention, testing, pitfalls
 - `docs/standards/canary.md` — generic canary pattern (project-independent)
 - `docs/standards/README.md` — standards index
