@@ -69,7 +69,9 @@ DD-011 established the read/write safety split (2 tools). DD-020 adds `brain_sea
 
 **Dependencies:** Python >=3.10, `mcp` SDK. The server imports functions directly from scripts — never calls their `main()` (which may `sys.exit`). Optional: dsebastien/obsidian-cli-rest running on localhost:27124 (overridable via `OBSIDIAN_CLI_URL` env var).
 
-**Status:** Implemented in v0.8.0. Script parity completed in v0.10.3 (read.py, rename.py). Privilege split in v0.11.0 — 5 tools with granular permissions (DD-025). Artefact CRUD now implemented: create, edit/append, delete, convert. File resource added in v0.11.2 (read artefact files by path).
+**Version drift:** If `.brain-core/` is upgraded while the server is running (e.g. after a brain-core propagation), the server detects the version change on the next tool call and reloads all script modules in-process via `importlib.reload()`. No MCP client cooperation needed — the server self-heals. Read, search, create, and edit tools also auto-recompile the router when new taxonomy files appear mid-session.
+
+**Status:** Implemented in v0.8.0. Script parity completed in v0.10.3 (read.py, rename.py). Privilege split in v0.11.0 — 5 tools with granular permissions (DD-025). Artefact CRUD now implemented: create, edit/append, delete, convert. File resource added in v0.11.2 (read artefact files by path). Module reload on version drift added in v0.11.8.
 
 ## Lean Router Format (DD-012, DD-017)
 

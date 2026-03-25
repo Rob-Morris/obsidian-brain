@@ -586,63 +586,109 @@ class TestVersionCheck:
         server.startup(vault_root=str(vault))
         assert server._loaded_version == "0.7.0"
 
-    def test_no_exit_when_version_matches(self, initialized):
-        """_check_version should not exit when version is unchanged."""
-        server._check_version()  # Should return normally
+    def test_no_reload_when_version_matches(self, initialized):
+        """_check_and_reload should be a no-op when version is unchanged."""
+        old_version = server._loaded_version
+        server._check_and_reload()
+        assert server._loaded_version == old_version
 
-    def test_exits_when_version_changes(self, initialized):
-        """_check_version should sys.exit(0) when on-disk version differs."""
+    def test_reloads_when_version_changes(self, initialized):
+        """_check_and_reload should update _loaded_version when on-disk version differs."""
         version_path = initialized / ".brain-core" / "VERSION"
         version_path.write_text("99.0.0\n")
-        with pytest.raises(SystemExit) as exc_info:
-            server._check_version()
-        assert exc_info.value.code == 0
+        server._check_and_reload()
+        assert server._loaded_version == "99.0.0"
 
-    def test_no_exit_when_version_file_missing(self, initialized):
-        """_check_version should not exit if VERSION file is deleted."""
+    def test_no_reload_when_version_file_missing(self, initialized):
+        """_check_and_reload should be a no-op if VERSION file is deleted."""
         version_path = initialized / ".brain-core" / "VERSION"
         version_path.unlink()
-        server._check_version()  # Should return normally
+        old_version = server._loaded_version
+        server._check_and_reload()
+        assert server._loaded_version == old_version
 
-    def test_brain_read_checks_version(self, initialized):
-        """brain_read should exit if version drifted."""
+    def test_brain_read_survives_version_drift(self, initialized):
+        """brain_read should succeed after version drift (reload, not exit)."""
         version_path = initialized / ".brain-core" / "VERSION"
         version_path.write_text("99.0.0\n")
-        with pytest.raises(SystemExit) as exc_info:
-            server.brain_read("artefact")
-        assert exc_info.value.code == 0
+        result = json.loads(server.brain_read("artefact"))
+        assert isinstance(result, list)
+        assert server._loaded_version == "99.0.0"
 
-    def test_brain_search_checks_version(self, initialized):
-        """brain_search should exit if version drifted."""
+    def test_brain_search_survives_version_drift(self, initialized):
+        """brain_search should succeed after version drift."""
         version_path = initialized / ".brain-core" / "VERSION"
         version_path.write_text("99.0.0\n")
-        with pytest.raises(SystemExit) as exc_info:
-            server.brain_search("test query")
-        assert exc_info.value.code == 0
+        resp = json.loads(server.brain_search("brain"))
+        assert "results" in resp
+        assert server._loaded_version == "99.0.0"
 
-    def test_brain_action_checks_version(self, initialized):
-        """brain_action should exit if version drifted."""
+    def test_brain_action_survives_version_drift(self, initialized):
+        """brain_action should succeed after version drift."""
         version_path = initialized / ".brain-core" / "VERSION"
         version_path.write_text("99.0.0\n")
-        with pytest.raises(SystemExit) as exc_info:
-            server.brain_action("compile")
-        assert exc_info.value.code == 0
+        result = json.loads(server.brain_action("compile"))
+        assert result["status"] == "ok"
+        assert server._loaded_version == "99.0.0"
 
-    def test_brain_create_checks_version(self, initialized):
-        """brain_create should exit if version drifted."""
+    def test_brain_create_survives_version_drift(self, initialized):
+        """brain_create should succeed after version drift."""
         version_path = initialized / ".brain-core" / "VERSION"
         version_path.write_text("99.0.0\n")
-        with pytest.raises(SystemExit) as exc_info:
-            server.brain_create(type="wiki", title="test")
-        assert exc_info.value.code == 0
+        result = json.loads(server.brain_create(type="wiki", title="drift test"))
+        assert "path" in result
+        assert server._loaded_version == "99.0.0"
 
-    def test_brain_edit_checks_version(self, initialized):
-        """brain_edit should exit if version drifted."""
+    def test_brain_edit_survives_version_drift(self, initialized):
+        """brain_edit should succeed after version drift."""
         version_path = initialized / ".brain-core" / "VERSION"
         version_path.write_text("99.0.0\n")
-        with pytest.raises(SystemExit) as exc_info:
-            server.brain_edit(operation="edit", path="Wiki/test.md", body="x")
-        assert exc_info.value.code == 0
+        result = json.loads(server.brain_edit(
+            operation="edit",
+            path="Wiki/brain-overview-abc123.md",
+            body="# Drifted\n"
+        ))
+        assert result["operation"] == "edit"
+        assert server._loaded_version == "99.0.0"
+
+
+# ---------------------------------------------------------------------------
+# Auto-recompile on taxonomy changes
+# ---------------------------------------------------------------------------
+
+class TestAutoRecompile:
+    def test_new_type_triggers_recompile(self, initialized):
+        """Installing a new taxonomy file should trigger recompile via _ensure_router_fresh."""
+        old_count = len(server._router["artefacts"])
+        # Add a new living type taxonomy
+        tax_living = initialized / "_Config" / "Taxonomy" / "Living"
+        (tax_living / "glossary.md").write_text(
+            "# Glossary\n\n"
+            "## Naming\n\n`{slug}.md` in `Glossary/`.\n\n"
+            "## Frontmatter\n\n```yaml\n---\ntype: living/glossary\ntags:\n  - term\n---\n```\n"
+        )
+        (initialized / "Glossary").mkdir()
+        server._ensure_router_fresh()
+        new_count = len(server._router["artefacts"])
+        assert new_count == old_count + 1
+        keys = [a["key"] for a in server._router["artefacts"]]
+        assert "glossary" in keys
+
+    def test_no_recompile_when_types_unchanged(self, initialized):
+        """_ensure_router_fresh should not recompile when nothing changed."""
+        compiled_at = server._router["meta"]["compiled_at"]
+        server._ensure_router_fresh()
+        assert server._router["meta"]["compiled_at"] == compiled_at
+
+    def test_modified_taxonomy_triggers_recompile(self, initialized):
+        """Modifying an existing taxonomy file's mtime should trigger recompile."""
+        compiled_at = server._router["meta"]["compiled_at"]
+        time.sleep(0.1)
+        # Touch a taxonomy source file to make it newer than compiled_at
+        tax_file = initialized / "_Config" / "Taxonomy" / "Living" / "wiki.md"
+        tax_file.write_text(tax_file.read_text() + "\n")
+        server._ensure_router_fresh()
+        assert server._router["meta"]["compiled_at"] != compiled_at
 
 
 # ---------------------------------------------------------------------------

@@ -45,26 +45,21 @@ from mcp.server.fastmcp import FastMCP
 SCRIPTS_DIR = os.path.join(os.path.dirname(__file__), "..", "scripts")
 sys.path.insert(0, os.path.abspath(SCRIPTS_DIR))
 
-from compile_router import (
-    compile as compile_router,
-    find_vault_root,
-    scan_living_types,
-    scan_temporal_types,
-    OUTPUT_PATH as COMPILED_ROUTER_REL,
-)
-from compile_colours import generate as generate_colours
-from build_index import (
-    build_index,
-    find_md_files,
-    OUTPUT_PATH as RETRIEVAL_INDEX_REL,
-)
-from search_index import search as search_index
-from read import read_resource
-from rename import rename_and_update_links, delete_and_clean_links
-from create import create_artefact
-from edit import edit_artefact, append_to_artefact, convert_artefact
-
+import importlib
+import _common
+import compile_router
+import compile_colours
+import build_index
+import search_index
+import read as read_mod
+import rename
+import create
+import edit
 import obsidian_cli
+
+# Constants that don't change between versions
+COMPILED_ROUTER_REL = compile_router.OUTPUT_PATH
+RETRIEVAL_INDEX_REL = build_index.OUTPUT_PATH
 
 # ---------------------------------------------------------------------------
 # Server state
@@ -81,7 +76,7 @@ _loaded_version: str | None = None
 
 
 # ---------------------------------------------------------------------------
-# Version check — exit if brain-core was upgraded since startup
+# Version drift — reload script modules if brain-core was upgraded
 # ---------------------------------------------------------------------------
 
 VERSION_REL = os.path.join(".brain-core", "VERSION")
@@ -97,21 +92,26 @@ def _read_disk_version(vault_root: str) -> str | None:
         return None
 
 
-def _check_version() -> None:
-    """Exit if brain-core on disk is newer than what was loaded at startup.
+_SCRIPT_MODULES = [
+    "_common", "compile_router", "compile_colours", "build_index",
+    "search_index", "read", "create", "edit", "rename", "obsidian_cli",
+]
 
-    The MCP client will restart the server, which reimports the new code.
-    """
+
+def _check_and_reload() -> None:
+    """Reload script modules if brain-core on disk has been upgraded."""
+    global _loaded_version
     if _vault_root is None or _loaded_version is None:
         return
     disk_version = _read_disk_version(_vault_root)
     if disk_version is not None and disk_version != _loaded_version:
-        print(
-            f"brain-core version changed ({_loaded_version} → {disk_version}), "
-            f"exiting for restart",
-            file=sys.stderr,
-        )
-        sys.exit(0)
+        old = _loaded_version
+        for name in _SCRIPT_MODULES:
+            mod = sys.modules.get(name)
+            if mod is not None:
+                importlib.reload(mod)
+        _loaded_version = disk_version
+        print(f"brain-core reloaded ({old} → {disk_version})", file=sys.stderr)
 
 
 # ---------------------------------------------------------------------------
@@ -180,15 +180,36 @@ def _check_index(vault_root: str) -> tuple[bool, dict | None]:
 
 def _has_md_newer_than(vault_root: str, threshold: float) -> bool:
     """Return True as soon as any .md file in type folders is newer than threshold."""
-    all_types = scan_living_types(vault_root) + scan_temporal_types(vault_root)
+    all_types = compile_router.scan_living_types(vault_root) + compile_router.scan_temporal_types(vault_root)
     for type_info in all_types:
-        for rel_path in find_md_files(vault_root, type_info):
+        for rel_path in build_index.find_md_files(vault_root, type_info):
             try:
                 if os.path.getmtime(os.path.join(vault_root, rel_path)) > threshold:
                     return True
             except OSError:
                 continue
     return False
+
+
+def _check_router_type_count(vault_root: str, router: dict) -> bool:
+    """Return True if the vault has types not in the cached router."""
+    cached_count = len(router.get("artefacts", []))
+    fs_types = (
+        compile_router.scan_living_types(vault_root)
+        + compile_router.scan_temporal_types(vault_root)
+    )
+    return len(fs_types) != cached_count
+
+
+def _ensure_router_fresh() -> None:
+    """Auto-recompile if the router is stale (new types or modified sources)."""
+    global _router
+    if _vault_root is None or _router is None:
+        return
+    stale, data = _check_router(_vault_root)
+    if not stale and not _check_router_type_count(_vault_root, _router):
+        return
+    _router = _compile_and_save(_vault_root)
 
 
 # ---------------------------------------------------------------------------
@@ -206,15 +227,15 @@ def _save_json(data: dict, vault_root: str, rel_path: str) -> None:
 
 def _compile_and_save(vault_root: str) -> dict:
     """Compile router and colours, write to disk, return compiled data."""
-    compiled = compile_router(vault_root)
+    compiled = compile_router.compile(vault_root)
     _save_json(compiled, vault_root, COMPILED_ROUTER_REL)
-    generate_colours(vault_root, compiled)
+    compile_colours.generate(vault_root, compiled)
     return compiled
 
 
 def _build_index_and_save(vault_root: str) -> dict:
     """Build retrieval index, write to disk, return index data."""
-    index = build_index(vault_root)
+    index = build_index.build_index(vault_root)
     _save_json(index, vault_root, RETRIEVAL_INDEX_REL)
     return index
 
@@ -230,7 +251,7 @@ def startup(vault_root: str | None = None) -> None:
     if vault_root is None:
         vault_root = os.environ.get("BRAIN_VAULT_ROOT")
     if vault_root is None:
-        _vault_root = str(find_vault_root())
+        _vault_root = str(compile_router.find_vault_root())
     else:
         _vault_root = str(vault_root)
 
@@ -271,12 +292,13 @@ def brain_read(resource: str, name: str | None = None) -> str:
       compliance  — run structural compliance checks (name = severity filter: error/warning/info)
       file        — read any artefact file by relative path (name = path from vault root)
     """
-    _check_version()
+    _check_and_reload()
+    _ensure_router_fresh()
 
     if _router is None:
         return "Error: server not initialized"
 
-    result = read_resource(_router, _vault_root, resource, name)
+    result = read_mod.read_resource(_router, _vault_root, resource, name)
 
     # Environment resource: MCP server enriches with CLI availability
     if resource == "environment" and isinstance(result, dict) and "error" not in result:
@@ -337,7 +359,8 @@ def brain_search(query: str, type: str | None = None, tag: str | None = None,
     Returns ranked results with path, title, type, status, score, snippet, and source.
     Optional filters: type (e.g. 'living/wiki'), tag, status (e.g. 'shaping'), top_k (default 10).
     """
-    _check_version()
+    _check_and_reload()
+    _ensure_router_fresh()
 
     if _index is None:
         return "Error: server not initialized"
@@ -350,8 +373,8 @@ def brain_search(query: str, type: str | None = None, tag: str | None = None,
             return json.dumps({"source": "obsidian_cli", "results": results}, indent=2)
 
     # BM25 fallback
-    results = search_index(_index, query, _vault_root, type_filter=type, tag_filter=tag,
-                           status_filter=status, top_k=top_k)
+    results = search_index.search(_index, query, _vault_root, type_filter=type, tag_filter=tag,
+                                  status_filter=status, top_k=top_k)
     return json.dumps({"source": "bm25", "results": results}, indent=2)
 
 
@@ -371,13 +394,14 @@ def brain_create(type: str, title: str, body: str = "", frontmatter: dict | None
 
     Returns JSON: {path, type, title}
     """
-    _check_version()
+    _check_and_reload()
+    _ensure_router_fresh()
 
     if _router is None or _vault_root is None:
         return "Error: server not initialized"
 
     try:
-        result = create_artefact(
+        result = create.create_artefact(
             _vault_root, _router, type, title,
             body=body, frontmatter_overrides=frontmatter,
         )
@@ -402,19 +426,20 @@ def brain_edit(operation: str, path: str, body: str = "", frontmatter: dict | No
 
     Path validated against compiled router — wrong folder or naming rejected with helpful error.
     """
-    _check_version()
+    _check_and_reload()
+    _ensure_router_fresh()
 
     if _router is None or _vault_root is None:
         return "Error: server not initialized"
 
     try:
         if operation == "edit":
-            result = edit_artefact(
+            result = edit.edit_artefact(
                 _vault_root, _router, path, body,
                 frontmatter_changes=frontmatter,
             )
         elif operation == "append":
-            result = append_to_artefact(_vault_root, _router, path, body)
+            result = edit.append_to_artefact(_vault_root, _router, path, body)
         else:
             return json.dumps({"error": f"Unknown operation '{operation}'. Valid: edit, append"})
         return json.dumps(result, indent=2)
@@ -439,7 +464,7 @@ def brain_action(action: str, params: dict | None = None) -> str:
     """
     global _router, _index
 
-    _check_version()
+    _check_and_reload()
 
     if _vault_root is None:
         return "Error: server not initialized"
@@ -491,7 +516,7 @@ def brain_action(action: str, params: dict | None = None) -> str:
 
         # Fallback: grep-and-replace wikilinks + os.rename
         try:
-            links_updated = rename_and_update_links(_vault_root, source, dest)
+            links_updated = rename.rename_and_update_links(_vault_root, source, dest)
             return json.dumps({
                 "status": "ok",
                 "method": "grep_replace",
@@ -504,7 +529,7 @@ def brain_action(action: str, params: dict | None = None) -> str:
         if not params or "path" not in params:
             return json.dumps({"error": "delete requires params: {path} (relative path)"})
         try:
-            links_replaced = delete_and_clean_links(_vault_root, params["path"])
+            links_replaced = rename.delete_and_clean_links(_vault_root, params["path"])
             return json.dumps({
                 "status": "ok",
                 "path": params["path"],
@@ -517,7 +542,7 @@ def brain_action(action: str, params: dict | None = None) -> str:
         if not params or "path" not in params or "target_type" not in params:
             return json.dumps({"error": "convert requires params: {path, target_type}"})
         try:
-            result = convert_artefact(
+            result = edit.convert_artefact(
                 _vault_root, _router, params["path"], params["target_type"]
             )
             return json.dumps({
