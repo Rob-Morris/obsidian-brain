@@ -36,8 +36,6 @@ def _read_user_body(vault_root, rel_path):
     Returns "" if the file does not exist or is empty.
     """
     abs_path = os.path.join(vault_root, rel_path)
-    if not os.path.isfile(abs_path):
-        return ""
     try:
         with open(abs_path, encoding="utf-8") as f:
             text = f.read()
