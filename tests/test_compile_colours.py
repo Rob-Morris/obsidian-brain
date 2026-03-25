@@ -100,7 +100,7 @@ class TestComputeAvailableArcs:
     def test_with_default_exclusions(self):
         arcs = cc.compute_available_arcs(cc.EXCLUSION_ZONES)
         total = sum(a[1] - a[0] for a in arcs)
-        assert total == 240  # 360 - 4×30 = 240
+        assert total == 210  # 360 - 5×30 = 210
 
     def test_no_exclusions(self):
         arcs = cc.compute_available_arcs([])
@@ -593,8 +593,8 @@ class TestGraphColourGroups:
         router = _load_router(vault)
         assignments = cc.compute_colours(router)
         groups = cc.render_graph_color_groups(assignments)
-        # 4 system + 3 living + 8 temporal + 1 archive = 16
-        expected = 4 + len(assignments["living"]) + len(assignments["temporal"]) + 1
+        # 5 system + 3 living + 8 temporal + 1 archive = 17
+        expected = 5 + len(assignments["living"]) + len(assignments["temporal"]) + 1
         assert len(groups) == expected
 
     def test_archive_is_last(self, vault):

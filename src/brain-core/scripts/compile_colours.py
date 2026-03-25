@@ -35,6 +35,7 @@ from _common import find_vault_root
 # System colour exclusion zones (hue ranges in degrees)
 # Each zone is ±15° around the system colour's hue
 EXCLUSION_ZONES = [
+    (150, 180),   # Teal / Workspaces    (hue ~165°)
     (195, 225),   # Slate / Attachments  (hue ~210°)
     (255, 285),   # Violet / Config      (hue ~270°)
     (285, 315),   # Orchid / Plugins     (hue ~300°)
@@ -45,6 +46,7 @@ PASTEL_S = 0.57
 PASTEL_L = 0.72
 
 # System palette hex values — single source of truth for CSS and graph view
+PALETTE_TEAL = "#8ABCB0"
 PALETTE_SLATE = "#A0B0C0"
 PALETTE_ROSE = "#F2A8C4"
 PALETTE_VIOLET = "#C4A8E8"
@@ -278,6 +280,7 @@ def _css_system_palette():
     return (
         "\n/* ─── Colour Palette ──────────────────────────────────────────────────────── */\n"
         ":root {\n"
+        f"  --palette-teal:          {PALETTE_TEAL}; /* Pastel Teal       */\n"
         f"  --palette-rose:         {PALETTE_ROSE}; /* Pastel Rose      */\n"
         "  --palette-rose-gold:    #EDBEA7; /* Rose Gold         */\n"
         f"  --palette-slate:        {PALETTE_SLATE}; /* Pastel Slate      */\n"
@@ -304,6 +307,10 @@ def _css_theme_variables(living, temporal):
         "  /* Plugin folders: orchid bg + orchid fg (purple↔rose midpoint) */",
         "  --theme-plugins-fg: var(--palette-orchid);",
         "  --theme-plugins-bg: rgba(219, 168, 214, 0.12); /* orchid at 12% */",
+        "",
+        "  /* Workspaces folder: teal bg + teal fg */",
+        "  --theme-workspaces-fg: var(--palette-teal);",
+        "  --theme-workspaces-bg: rgba(138, 188, 176, 0.12); /* teal at 12% */",
         "",
         "  /* Attachments folder: slate bg + slate fg */",
         "  --theme-attachments-fg: var(--palette-slate);",
@@ -334,6 +341,7 @@ def _css_system_folder_icons():
         ".nav-folder-title[data-path=\"_Config\"],\n"
         ".nav-folder-title[data-path=\"_Plugins\"],\n"
         ".nav-folder-title[data-path=\"_Temporal\"],\n"
+        ".nav-folder-title[data-path=\"_Workspaces\"],\n"
         ".nav-file-title[data-path=\"Agents.md\"],\n"
         ".nav-file-title[data-path=\"CLAUDE.md\"] {\n"
         "  position: relative;\n"
@@ -343,6 +351,7 @@ def _css_system_folder_icons():
         ".nav-folder-title[data-path=\"_Config\"]::after,\n"
         ".nav-folder-title[data-path=\"_Plugins\"]::after,\n"
         ".nav-folder-title[data-path=\"_Temporal\"]::after,\n"
+        ".nav-folder-title[data-path=\"_Workspaces\"]::after,\n"
         ".nav-file-title[data-path=\"Agents.md\"]::after,\n"
         ".nav-file-title[data-path=\"CLAUDE.md\"]::after {\n"
         "  position: absolute;\n"
@@ -368,6 +377,10 @@ def _css_system_folder_icons():
         ".nav-folder-title[data-path=\"_Temporal\"]::after {\n"
         "  content: \"◷\";\n"
         "  color: var(--color-temporal);\n"
+        "}\n"
+        ".nav-folder-title[data-path=\"_Workspaces\"]::after {\n"
+        "  content: \"⊞\";\n"
+        "  color: var(--theme-workspaces-fg);\n"
         "}\n"
         ".nav-file-title[data-path=\"Agents.md\"]::after,\n"
         ".nav-file-title[data-path=\"CLAUDE.md\"]::after {\n"
@@ -512,6 +525,32 @@ def _css_plugins_section():
     )
 
 
+def _css_workspaces_section():
+    """Workspaces data folder (fixed)."""
+    return (
+        "\n\n/* ─── Workspaces Data Folder (_Workspaces) ──────────────────────────────── */\n"
+        "\n"
+        ".nav-folder-title[data-path=\"_Workspaces\"] .nav-folder-title-content,\n"
+        ".nav-folder-title[data-path^=\"_Workspaces/\"] .nav-folder-title-content {\n"
+        "  color: var(--theme-workspaces-fg);\n"
+        "}\n"
+        ".nav-folder-title[data-path=\"_Workspaces\"],\n"
+        ".nav-folder-title[data-path^=\"_Workspaces/\"] {\n"
+        "  background-color: var(--theme-workspaces-bg);\n"
+        "  border-left: 4px double var(--theme-workspaces-fg);\n"
+        "  border-radius: 4px;\n"
+        "}\n"
+        ".nav-file-title[data-path^=\"_Workspaces/\"] {\n"
+        "  background-color: var(--theme-workspaces-bg);\n"
+        "  border-radius: 4px;\n"
+        "}\n"
+        ".nav-file-title[data-path^=\"_Workspaces/\"] .nav-file-title-content {\n"
+        "  color: var(--theme-workspaces-fg);\n"
+        "  opacity: 0.85;\n"
+        "}\n"
+    )
+
+
 def _css_artefact_folder(folder, key):
     """Generate CSS for a single living artefact folder."""
     var = f"--color-{key}"
@@ -581,6 +620,7 @@ def render_css(assignments):
         sections.append(_css_temporal_child(a["folder"], a["key"]))
 
     sections.append(_css_plugins_section())
+    sections.append(_css_workspaces_section())
 
     # Artefact folders header
     sections.append(
@@ -607,6 +647,7 @@ _SYSTEM_GRAPH_COLOURS = [
     ("_Config",      PALETTE_VIOLET),
     ("_Plugins",     PALETTE_ORCHID),
     ("_Temporal",    PALETTE_ROSE),
+    ("_Workspaces",  PALETTE_TEAL),
 ]
 
 _ARCHIVE_COLOUR = PALETTE_SLATE
