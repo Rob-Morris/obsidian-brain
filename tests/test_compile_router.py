@@ -101,7 +101,7 @@ def vault(tmp_path):
 
     # System dirs that should be excluded from living types
     (tmp_path / "_Config").exists()  # already exists
-    (tmp_path / "_Attachments").mkdir()
+    (tmp_path / "_Assets").mkdir()
     (tmp_path / ".obsidian").mkdir()
     (tmp_path / ".git").mkdir()
 
@@ -131,7 +131,7 @@ class TestIsSystemDir:
     def test_underscore_prefixed_dirs_are_system(self):
         assert cr.is_system_dir("_Config")
         assert cr.is_system_dir("_Plugins")
-        assert cr.is_system_dir("_Attachments")
+        assert cr.is_system_dir("_Assets")
         assert cr.is_system_dir("_AnyNewSystemDir")
 
     def test_temporal_is_system(self):
@@ -159,7 +159,7 @@ class TestScanLivingTypes:
         types = cr.scan_living_types(str(vault))
         folders = [t["folder"] for t in types]
         assert "_Config" not in folders
-        assert "_Attachments" not in folders
+        assert "_Assets" not in folders
         assert ".obsidian" not in folders
         assert ".git" not in folders
         assert "_Plugins" not in folders

@@ -36,7 +36,7 @@ from _common import find_vault_root
 # Each zone is ±15° around the system colour's hue
 EXCLUSION_ZONES = [
     (150, 180),   # Teal / Workspaces    (hue ~165°)
-    (195, 225),   # Slate / Attachments  (hue ~210°)
+    (195, 225),   # Slate / Assets       (hue ~210°)
     (255, 285),   # Violet / Config      (hue ~270°)
     (285, 315),   # Orchid / Plugins     (hue ~300°)
     (325, 355),   # Rose / Temporal      (hue ~340°)
@@ -312,9 +312,9 @@ def _css_theme_variables(living, temporal):
         "  --theme-workspaces-fg: var(--palette-teal);",
         "  --theme-workspaces-bg: rgba(138, 188, 176, 0.12); /* teal at 12% */",
         "",
-        "  /* Attachments folder: slate bg + slate fg */",
-        "  --theme-attachments-fg: var(--palette-slate);",
-        "  --theme-attachments-bg: rgba(160, 176, 192, 0.12); /* slate at 12% */",
+        "  /* Assets folder: slate bg + slate fg */",
+        "  --theme-assets-fg: var(--palette-slate);",
+        "  --theme-assets-bg: rgba(160, 176, 192, 0.12); /* slate at 12% */",
         "",
         "  /* Artefact folders: rose-gold bg + per-folder fg */",
         "  --theme-artefact-bg: rgba(237, 190, 167, 0.12); /* rose-gold at 12% */",
@@ -337,7 +337,7 @@ def _css_system_folder_icons():
     return (
         "\n\n/* ─── System Folder Icons ───────────────────────────────────────────────── */\n"
         "\n"
-        ".nav-folder-title[data-path=\"_Attachments\"],\n"
+        ".nav-folder-title[data-path=\"_Assets\"],\n"
         ".nav-folder-title[data-path=\"_Config\"],\n"
         ".nav-folder-title[data-path=\"_Plugins\"],\n"
         ".nav-folder-title[data-path=\"_Temporal\"],\n"
@@ -347,7 +347,7 @@ def _css_system_folder_icons():
         "  position: relative;\n"
         "}\n"
         "\n"
-        ".nav-folder-title[data-path=\"_Attachments\"]::after,\n"
+        ".nav-folder-title[data-path=\"_Assets\"]::after,\n"
         ".nav-folder-title[data-path=\"_Config\"]::after,\n"
         ".nav-folder-title[data-path=\"_Plugins\"]::after,\n"
         ".nav-folder-title[data-path=\"_Temporal\"]::after,\n"
@@ -362,9 +362,9 @@ def _css_system_folder_icons():
         "  opacity: 0.6;\n"
         "}\n"
         "\n"
-        ".nav-folder-title[data-path=\"_Attachments\"]::after {\n"
+        ".nav-folder-title[data-path=\"_Assets\"]::after {\n"
         "  content: \"⧉\";\n"
-        "  color: var(--theme-attachments-fg);\n"
+        "  color: var(--theme-assets-fg);\n"
         "}\n"
         ".nav-folder-title[data-path=\"_Config\"]::after {\n"
         "  content: \"⍟\";\n"
@@ -390,30 +390,30 @@ def _css_system_folder_icons():
     )
 
 
-def _css_attachments_section():
-    """Attachments folder (fixed)."""
+def _css_assets_section():
+    """Assets folder (fixed)."""
     return (
-        "\n\n/* ─── Attachments Folder (_Attachments) ─────────────────────────────────── */\n"
+        "\n\n/* ─── Assets Folder (_Assets) ───────────────────────────────────────── */\n"
         "\n"
-        "/* _Attachments folder and subfolders — background + slate fg */\n"
-        ".nav-folder-title[data-path=\"_Attachments\"] .nav-folder-title-content,\n"
-        ".nav-folder-title[data-path^=\"_Attachments/\"] .nav-folder-title-content {\n"
-        "  color: var(--theme-attachments-fg);\n"
+        "/* _Assets folder and subfolders — background + slate fg */\n"
+        ".nav-folder-title[data-path=\"_Assets\"] .nav-folder-title-content,\n"
+        ".nav-folder-title[data-path^=\"_Assets/\"] .nav-folder-title-content {\n"
+        "  color: var(--theme-assets-fg);\n"
         "}\n"
-        ".nav-folder-title[data-path=\"_Attachments\"],\n"
-        ".nav-folder-title[data-path^=\"_Attachments/\"] {\n"
-        "  background-color: var(--theme-attachments-bg);\n"
-        "  border-left: 4px double var(--theme-attachments-fg);\n"
+        ".nav-folder-title[data-path=\"_Assets\"],\n"
+        ".nav-folder-title[data-path^=\"_Assets/\"] {\n"
+        "  background-color: var(--theme-assets-bg);\n"
+        "  border-left: 4px double var(--theme-assets-fg);\n"
         "  border-radius: 4px;\n"
         "}\n"
         "\n"
-        "/* Files inside _Attachments — background + fg */\n"
-        ".nav-file-title[data-path^=\"_Attachments/\"] {\n"
-        "  background-color: var(--theme-attachments-bg);\n"
+        "/* Files inside _Assets — background + fg */\n"
+        ".nav-file-title[data-path^=\"_Assets/\"] {\n"
+        "  background-color: var(--theme-assets-bg);\n"
         "  border-radius: 4px;\n"
         "}\n"
-        ".nav-file-title[data-path^=\"_Attachments/\"] .nav-file-title-content {\n"
-        "  color: var(--theme-attachments-fg);\n"
+        ".nav-file-title[data-path^=\"_Assets/\"] .nav-file-title-content {\n"
+        "  color: var(--theme-assets-fg);\n"
         "  opacity: 0.85;\n"
         "}\n"
     )
@@ -586,7 +586,7 @@ def _css_archive_section():
         "/* _Archive subfolders — slate text, parent background + double border in parent colour */\n"
         ".nav-folder-title[data-path$=\"/_Archive\"] .nav-folder-title-content,\n"
         ".nav-folder-title[data-path*=\"/_Archive/\"] .nav-folder-title-content {\n"
-        "  color: var(--theme-attachments-fg);\n"
+        "  color: var(--theme-assets-fg);\n"
         "}\n"
         ".nav-folder-title[data-path$=\"/_Archive\"],\n"
         ".nav-folder-title[data-path*=\"/_Archive/\"] {\n"
@@ -594,7 +594,7 @@ def _css_archive_section():
         "  border-left-width: 4px;\n"
         "}\n"
         ".nav-file-title[data-path*=\"/_Archive/\"] .nav-file-title-content {\n"
-        "  color: var(--theme-attachments-fg);\n"
+        "  color: var(--theme-assets-fg);\n"
         "  opacity: 0.85;\n"
         "}\n"
     )
@@ -610,7 +610,7 @@ def render_css(assignments):
         _css_system_palette(),
         _css_theme_variables(living, temporal),
         _css_system_folder_icons(),
-        _css_attachments_section(),
+        _css_assets_section(),
         _css_config_section(),
         _css_temporal_parent(),
     ]
@@ -643,7 +643,7 @@ def render_css(assignments):
 
 # System folder colours — references to shared palette constants
 _SYSTEM_GRAPH_COLOURS = [
-    ("_Attachments", PALETTE_SLATE),
+    ("_Assets", PALETTE_SLATE),
     ("_Config",      PALETTE_VIOLET),
     ("_Plugins",     PALETTE_ORCHID),
     ("_Temporal",    PALETTE_ROSE),

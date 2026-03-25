@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.11.10 — 2026-03-25
+
+- **`_Attachments/` → `_Assets/` refactor** — replaced the flat `_Attachments/` bucket with `_Assets/` containing `Attachments/` (Obsidian attachment target, user-added files) and `Generated/` (tool-produced output, reproducible from source — `Presentations/`, `Mockups/`). CSS variables renamed `--theme-attachments-*` → `--theme-assets-*`. Graph colour entry updated. Template vault `attachmentFolderPath` now points to `_Assets/Attachments`. Convention change — vault migration required
+
 ## v0.11.9 — 2026-03-25
 
 - **Presentations artefact type** — new temporal artefact type in the artefact library. Slide decks generated from markdown content using Marp CLI. First artefact-bundled skill: type ships with a companion `SKILL.md` (Marp workflow) and `theme.css` (Brain-themed slide styles). Theme provides title slides, callout classes (warning/info/caution), risk colours, and CSS grid card layouts

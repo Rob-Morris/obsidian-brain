@@ -7,7 +7,7 @@ Brain vaults use CSS snippets to colour-code the Obsidian file explorer. Each fo
 **HSL hue distribution with exclusion zones.**
 
 1. Four system colours occupy fixed exclusion zones (±15° each, 120° total excluded):
-   - Slate / Attachments: 195–225°
+   - Slate / Assets: 195–225°
    - Violet / Config: 255–285°
    - Orchid / Plugins: 285–315°
    - Rose / Temporal parent: 325–355°
@@ -33,7 +33,7 @@ Four reserved colours with fixed exclusion zones — these never change regardle
 
 | System Folder | Colour | Hue | Exclusion Zone |
 |---|---|---|---|
-| `_Attachments` | Slate `#A0B0C0` | ~210° | 195–225° |
+| `_Assets` | Slate `#A0B0C0` | ~210° | 195–225° |
 | `_Config` | Violet `#C4A8E8` | ~270° | 255–285° |
 | `_Plugins` | Orchid `#DBA8D6` | ~300° | 285–315° |
 | `_Temporal` | Rose `#F2A8C4` | ~340° | 325–355° |
@@ -42,7 +42,7 @@ Four reserved colours with fixed exclusion zones — these never change regardle
 
 | Type | Background | Foreground | Border |
 |---|---|---|---|
-| **Attachments** (`_Attachments/`) | Slate 12% tint | Slate text | 4px double slate |
+| **Assets** (`_Assets/`) | Slate 12% tint | Slate text | 4px double slate |
 | **Config** (`_Config/`) | Purple 12% tint | Light purple text | 4px double purple |
 | **Temporal** (`_Temporal/`) | Rose 12% tint | Per-child colour | 4px double coloured |
 | **Plugins** (`_Plugins/`) | Orchid 12% tint | Orchid text | 4px double orchid |
@@ -97,7 +97,7 @@ Each entry is a `path:` query with a decimal RGB colour:
 
 Obsidian uses last-match-wins for overlapping queries. Entries are ordered:
 
-1. **System folders** — `_Attachments` (Slate), `_Config` (Violet), `_Plugins` (Orchid), `_Temporal` (Rose)
+1. **System folders** — `_Assets` (Slate), `_Config` (Violet), `_Plugins` (Orchid), `_Temporal` (Rose)
 2. **Living artefact folders** — `path:"FolderName"` with the same computed hex as CSS
 3. **Temporal child folders** — `path:"_Temporal/ChildName"` with the rose-blended hex
 4. **Archive** — `path:_Archive` with Slate, last so it overrides parent colours

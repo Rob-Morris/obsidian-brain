@@ -19,7 +19,7 @@ _Temporal/                ← temporal artefacts (dated, point-in-time)
   Friction Logs/2026-03/
   Cookies/2026-03/
   ...
-_Attachments/             ← images, PDFs, non-markdown files
+_Assets/             ← images, PDFs, non-markdown files
 _Config/                  ← router, taxonomy, styles, templates, memories, preferences
 _Plugins/                 ← external tool integrations
 .brain-core/              ← this system (versioned, upgradeable)
@@ -29,7 +29,7 @@ _Plugins/                 ← external tool integrations
 
 **Temporal artefacts** sit under `_Temporal/`. They're snapshots bound to a moment — logs, plans, transcripts, research. Organised in monthly subfolders (`yyyy-mm/`).
 
-**Everything else** (`_Attachments/`, `_Config/`, `_Plugins/`, `.brain-core/`) is infrastructure.
+**Everything else** (`_Assets/`, `_Config/`, `_Plugins/`, `.brain-core/`) is infrastructure.
 
 ## The Golden Rule
 

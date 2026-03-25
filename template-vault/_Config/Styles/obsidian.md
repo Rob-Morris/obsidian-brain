@@ -10,18 +10,18 @@ System folders (`_` prefixed) have fixed colours. These are reserved — never a
 
 | Folder | Colour | Variable |
 |--------|--------|----------|
-| `_Attachments/` | Slate | `--theme-attachments-fg` / `--theme-attachments-bg` |
+| `_Assets/` | Slate | `--theme-assets-fg` / `--theme-assets-bg` |
 | `_Config/` | Purple | `--theme-config-fg` / `--theme-config-bg` |
 | `_Temporal/` | Rose | `--theme-temporal-fg` / `--theme-temporal-bg` |
 | `_Plugins/` | Gold | `--theme-plugins-fg` / `--theme-plugins-bg` |
 
 ## _Archive Subfolders
 
-`_Archive/` subfolders within artefact folders use the same slate styling as `_Attachments/`. This visually signals "infrastructure, not active content". Wildcard CSS selectors apply to any artefact type's `_Archive/` subfolder automatically — no per-folder CSS needed.
+`_Archive/` subfolders within artefact folders use the same slate styling as `_Assets/`. This visually signals "infrastructure, not active content". Wildcard CSS selectors apply to any artefact type's `_Archive/` subfolder automatically — no per-folder CSS needed.
 
 | Folder | Colour | Variable |
 |--------|--------|----------|
-| `{Type}/_Archive/` | Slate | `--theme-attachments-fg` / `--theme-attachments-bg` |
+| `{Type}/_Archive/` | Slate | `--theme-assets-fg` / `--theme-assets-bg` |
 
 ## Living Artefact Colours
 

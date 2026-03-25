@@ -340,7 +340,7 @@ class TestCheckRootFiles:
 
     def test_underscore_prefixed_ignored(self, vault):
         tmp_path, router = vault
-        (tmp_path / "_Attachments").mkdir(exist_ok=True)
+        (tmp_path / "_Assets").mkdir(exist_ok=True)
         findings = check.check_root_files(str(tmp_path), router)
         assert len(findings) == 0
 

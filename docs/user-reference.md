@@ -31,13 +31,13 @@ Complete reference for every artefact type, convention, configuration point, and
 | **Living** | Root-level type folders (`Wiki/`, `Projects/`, etc.) | Artefacts that evolve; current version is source of truth |
 | **Temporal** | `_Temporal/` and its children | Point-in-time artefacts; written once, rarely edited |
 | **Config** | `_Config/` | Router, taxonomy, styles, templates, skills, preferences |
-| **System** | `_Attachments/`, `_Plugins/`, `.brain-core/`, `.obsidian/` | Infrastructure, not content |
+| **System** | `_Assets/`, `_Plugins/`, `.brain-core/`, `.obsidian/` | Infrastructure, not content |
 
 ### System Folders
 
 | Folder | Purpose |
 |---|---|
-| `_Attachments/` | Non-markdown files — images, PDFs, exports |
+| `_Assets/` | Non-markdown files and generated output — `Attachments/` (user-added, Obsidian target) and `Generated/` (tool-produced, reproducible from source) |
 | `_Config/` | Vault configuration — router, taxonomy definitions, styles, templates, user preferences |
 | `_Config/Taxonomy/` | One file per artefact type with full definition |
 | `_Config/Templates/` | Obsidian templates for each type |
@@ -937,7 +937,7 @@ Brain auto-generates folder colours to visually distinguish types in the Obsidia
 
 - **Living artefact folders** — hues distributed evenly across available colour space (HSL with S=57%, L=72%)
 - **Temporal child folders** — independent hue distribution, then blended 35% towards rose for a warm, cohesive tint
-- **System folders** — fixed reserved colours: Config = Violet, Temporal = Rose, Plugins = Orchid, Attachments/Archives = Slate
+- **System folders** — fixed reserved colours: Config = Violet, Temporal = Rose, Plugins = Orchid, Assets/Archives = Slate
 
 ### Algorithm
 

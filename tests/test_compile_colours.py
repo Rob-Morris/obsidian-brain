@@ -310,7 +310,7 @@ class TestRenderCss:
         palette_pos = css.index("Colour Palette")
         themes_pos = css.index("Themes")
         icons_pos = css.index("System Folder Icons")
-        attachments_pos = css.index("Attachments Folder")
+        attachments_pos = css.index("Assets Folder")
         config_pos = css.index("Config Folders")
         temporal_pos = css.index("Temporal Folders")
         plugins_pos = css.index("Plugin Folders")
@@ -349,8 +349,8 @@ class TestRenderCss:
             e = css.index(end_marker)
             return css[s:e]
 
-        a1 = extract_section(css1, "Attachments Folder", "Config Folders")
-        a2 = extract_section(css2, "Attachments Folder", "Config Folders")
+        a1 = extract_section(css1, "Assets Folder", "Config Folders")
+        a2 = extract_section(css2, "Assets Folder", "Config Folders")
         assert a1 == a2
 
     def test_contains_living_type_variables(self, vault):
@@ -544,7 +544,7 @@ class TestGraphColourGroups:
         assignments = cc.compute_colours(router)
         groups = cc.render_graph_color_groups(assignments)
         queries = [g["query"] for g in groups]
-        assert 'path:"_Attachments"' in queries
+        assert 'path:"_Assets"' in queries
         assert 'path:"_Config"' in queries
         assert 'path:"_Plugins"' in queries
         assert 'path:"_Temporal"' in queries

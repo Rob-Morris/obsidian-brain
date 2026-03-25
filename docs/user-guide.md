@@ -374,7 +374,7 @@ _Temporal/
   Presentations/              ← slide decks (Marp)
 
 _Workspaces/                  ← freeform data containers for workspaces
-_Attachments/                 ← images, PDFs, files
+_Assets/                      ← images, PDFs, generated output
 _Config/                      ← router, taxonomy, styles, memories, preferences
 _Plugins/                     ← external integrations
 .brain-core/                  ← the Brain system itself
