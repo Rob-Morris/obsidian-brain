@@ -584,6 +584,24 @@ tags:
 
 **Trigger:** When ingesting external material into the vault.
 
+### Presentations
+
+**Folder:** `_Temporal/Presentations/yyyy-mm/` · **Naming:** `yyyymmdd-presentation--{slug}.md`
+
+Slide decks generated from markdown content using Marp CLI. The markdown source is the artefact; the PDF is output. Presentations draw from existing artefacts (designs, research, reports) and distil them into a structured narrative.
+
+```yaml
+type: temporal/presentation
+tags:
+  - presentation
+```
+
+**Conventions:** Link to the source artefact(s) via provenance. One idea per slide. Use the Brain theme for consistent styling (title slides, callouts, risk colours, card layouts). Regenerate the PDF after any edits — the markdown is the source of truth.
+
+**Shaping workflow:** `brain_action("shape-presentation", {source, slug})` creates the artefact and launches a live preview. The agent iterates on slides while the user watches in real time.
+
+**Trigger:** When creating a slide deck or presentation from vault content.
+
 ---
 
 ## Filing Conventions
@@ -868,6 +886,7 @@ If your vault runs the Brain MCP server (`.brain-core/mcp/server.py`), five tool
 - `rename` — rename a file with automatic wikilink updates (uses Obsidian CLI when available)
 - `delete` — delete a file and replace wikilinks with strikethrough text
 - `convert` — change artefact type, move file, reconcile frontmatter, update wikilinks
+- `shape-presentation` — create a presentation artefact and launch Marp live preview (params: `{source, slug}`)
 
 ### Scripts
 

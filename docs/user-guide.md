@@ -371,6 +371,7 @@ _Temporal/
   Cookies/                    ← "that earned a cookie"
   Mockups/                    ← visual/interactive prototypes
   Captures/                   ← ingested external material
+  Presentations/              ← slide decks (Marp)
 
 _Workspaces/                  ← freeform data containers for workspaces
 _Attachments/                 ← images, PDFs, files

@@ -56,6 +56,7 @@ import rename
 import create
 import edit
 import obsidian_cli
+import shape_presentation
 
 # Constants that don't change between versions
 COMPILED_ROUTER_REL = compile_router.OUTPUT_PATH
@@ -95,6 +96,7 @@ def _read_disk_version(vault_root: str) -> str | None:
 _SCRIPT_MODULES = [
     "_common", "compile_router", "compile_colours", "build_index",
     "search_index", "read", "create", "edit", "rename", "obsidian_cli",
+    "shape_presentation",
 ]
 
 
@@ -456,11 +458,12 @@ def brain_action(action: str, params: dict | None = None) -> str:
     """Perform vault-wide actions. Mutations — may modify multiple files.
 
     Actions:
-      compile     — recompile the router from source files
-      build_index — rebuild the BM25 retrieval index
-      rename      — rename/move a file (params: {source, dest} as relative paths)
-      delete      — delete a file and clean wikilinks (params: {path})
-      convert     — convert artefact to different type (params: {path, target_type})
+      compile            — recompile the router from source files
+      build_index        — rebuild the BM25 retrieval index
+      rename             — rename/move a file (params: {source, dest} as relative paths)
+      delete             — delete a file and clean wikilinks (params: {path})
+      convert            — convert artefact to different type (params: {path, target_type})
+      shape-presentation — create presentation + launch live preview (params: {source, slug})
     """
     global _router, _index
 
@@ -555,8 +558,12 @@ def brain_action(action: str, params: dict | None = None) -> str:
         except (ValueError, FileNotFoundError) as e:
             return json.dumps({"error": str(e)})
 
+    elif action == "shape-presentation":
+        result = shape_presentation.shape(_vault_root, params)
+        return json.dumps(result, indent=2)
+
     else:
-        valid = ["compile", "build_index", "rename", "delete", "convert"]
+        valid = ["compile", "build_index", "rename", "delete", "convert", "shape-presentation"]
         return json.dumps({"error": f"Unknown action '{action}'. Valid: {', '.join(valid)}"})
 
 

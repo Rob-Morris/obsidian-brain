@@ -35,6 +35,7 @@ Scripts in `.brain-core/scripts/` are the **source of truth** for all vault oper
 | `edit.py` | Edit/append to artefact | `python3 edit.py edit\|append --path P --body B [--json]` |
 | `rename.py` | Rename file + update wikilinks | `python3 rename.py "source" "dest" [--json]` |
 | `check.py` | Structural compliance checks | `python3 check.py [--json] [--severity S]` |
+| `shape_presentation.py` | Create presentation + launch preview | `python3 shape_presentation.py --source P --slug S` |
 | `init.py` | MCP server registration | `python3 init.py [--user] [--project PATH]` |
 
 **Why scripts hold all logic:** The MCP server is a thin wrapper that imports functions from scripts and holds the compiled router and search index in memory. Scripts are the single implementation — the server adds only MCP transport, in-memory caching, and Obsidian CLI delegation. This means:
@@ -55,7 +56,7 @@ Long-running MCP server at `.brain-core/mcp/server.py`. Thin wrapper over script
 - **`brain_search`** — safe, no side effects, auto-approvable. Parameters: `query` (required), `type`, `tag`, `top_k`. CLI-first with BM25 fallback (DD-021). Response includes `source` field (`"obsidian_cli"` or `"bm25"`) and `results` array with path, title, type, score, snippet.
 - **`brain_create`** — additive, safe to auto-approve. Creates a new vault artefact. Parameters: `type` (key or full type), `title`, optional `body` and `frontmatter` overrides. Resolves type from compiled router, reads template, generates filename from naming pattern, writes file with merged frontmatter. Returns `{path, type, title}`.
 - **`brain_edit`** — single-file mutation. Parameters: `operation` (`"edit"` or `"append"`), `path`, `body`, optional `frontmatter` changes (edit only). Path validated against compiled router — wrong folder or naming rejected with helpful error. Returns `{path, operation}`.
-- **`brain_action`** — vault-wide/destructive ops, gated by approval. Actions: `compile`, `build_index`, `rename`, `delete`, `convert`. Optional `params` object. `rename` delegates to `rename.py`'s `rename_and_update_links()`, with Obsidian CLI override when available. `delete` removes a file and replaces wikilinks with strikethrough. `convert` changes artefact type, moves file, reconciles frontmatter, and updates wikilinks vault-wide.
+- **`brain_action`** — vault-wide/destructive ops, gated by approval. Actions: `compile`, `build_index`, `rename`, `delete`, `convert`, `shape-presentation`. Optional `params` object. `rename` delegates to `rename.py`'s `rename_and_update_links()`, with Obsidian CLI override when available. `delete` removes a file and replaces wikilinks with strikethrough. `convert` changes artefact type, moves file, reconciles frontmatter, and updates wikilinks vault-wide. `shape-presentation` creates a Marp presentation artefact and launches live preview (`params: {source, slug}`).
 
 DD-011 established the read/write safety split (2 tools). DD-020 adds `brain_search` as a third tool. DD-021 adds optional Obsidian CLI integration for search and rename. DD-025 splits mutations into three privilege tiers: `brain_create` (additive, safe to auto-approve), `brain_edit` (single-file), and `brain_action` (vault-wide/destructive).
 

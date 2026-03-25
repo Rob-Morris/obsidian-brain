@@ -41,6 +41,7 @@ The template vault ships with a curated set of defaults (marked below). This lib
 | [Journal Entries](temporal/journal-entries/) | `journal-entries` | Personal journal entries — reflections, recollections, and life updates. |
 | [Mockups](temporal/mockups/) | `mockups` | Visual or interactive prototypes generated to explore a design direction. |
 | [Captures](temporal/captures/) | `captures` | External material ingested verbatim — emails, meeting notes, data extracts. Frozen on ingest. |
+| [Presentations](temporal/presentations/) | `presentations` | Slide decks generated from markdown using Marp CLI. Source is markdown; output is PDF. |
 
 ## Choosing a Knowledge Type
 
@@ -54,13 +55,15 @@ Wiki and zettelkasten can coexist in the same vault as complementary layers (fin
 
 ## Browsing the Library
 
-Each type has its own directory with three files:
+Each type has its own directory with three standard files:
 
 | File | Purpose |
 |---|---|
 | `README.md` | Overview, install paths, optional router trigger |
 | `taxonomy.md` | Conventions, naming, frontmatter — copy to `_Config/Taxonomy/` |
 | `template.md` | Obsidian template — copy to `_Config/Templates/` |
+
+Some types include additional files (e.g. `SKILL.md`, `theme.css`). Check the type's README for the full install list.
 
 ## Colours
 

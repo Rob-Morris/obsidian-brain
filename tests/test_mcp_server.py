@@ -887,3 +887,89 @@ class TestBrainActionConvert:
             "target_type": "nonexistent",
         }))
         assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# brain_action shape-presentation tests
+# ---------------------------------------------------------------------------
+
+class TestBrainActionShapePresentation:
+    @pytest.fixture(autouse=True)
+    def setup_presentation_files(self, initialized):
+        """Add presentation template and theme to the vault fixture."""
+        self.vault = initialized
+        # Template
+        templates_dir = initialized / "_Config" / "Templates" / "Temporal"
+        templates_dir.mkdir(parents=True, exist_ok=True)
+        (templates_dir / "Presentations.md").write_text(
+            "---\ntype: temporal/presentation\ntags:\n  - presentation\n"
+            "marp: true\ntheme: brain\npaginate: true\n---\n\n"
+            "<!-- _class: title -->\n\n# PRESENTATION TITLE\n\n"
+            "**{{date:YYYY-MM-DD}}**\n\n"
+            "**Origin:** [[source-artefact|Source document]]\n\n---\n\n## Slide 1\n"
+        )
+        # Theme
+        skills_dir = initialized / "_Config" / "Skills" / "presentations"
+        skills_dir.mkdir(parents=True, exist_ok=True)
+        (skills_dir / "theme.css").write_text("/* @theme brain */\n")
+
+    def test_missing_params_returns_error(self, initialized):
+        result = json.loads(server.brain_action("shape-presentation"))
+        assert "error" in result
+
+    def test_missing_source_returns_error(self, initialized):
+        result = json.loads(server.brain_action("shape-presentation", {"slug": "test"}))
+        assert "error" in result
+
+    def test_missing_slug_returns_error(self, initialized):
+        result = json.loads(server.brain_action("shape-presentation", {"source": "Wiki/brain-overview-abc123.md"}))
+        assert "error" in result
+
+    def test_source_not_found_returns_error(self, initialized):
+        result = json.loads(server.brain_action("shape-presentation", {
+            "source": "Wiki/nonexistent.md",
+            "slug": "test",
+        }))
+        assert "error" in result
+
+    @patch("shape_presentation.subprocess.Popen")
+    def test_creates_file_and_returns_status(self, mock_popen, initialized):
+        mock_popen.return_value.pid = 12345
+        result = json.loads(server.brain_action("shape-presentation", {
+            "source": "Wiki/brain-overview-abc123.md",
+            "slug": "test-deck",
+        }))
+        assert result["status"] == "ok"
+        assert "presentation" in result["path"]
+        assert "test-deck" in result["path"]
+        assert result["created"] is True
+        # Verify file was created on disk
+        abs_path = os.path.join(str(initialized), result["path"])
+        assert os.path.isfile(abs_path)
+
+    @patch("shape_presentation.subprocess.Popen")
+    def test_does_not_recreate_existing_file(self, mock_popen, initialized):
+        mock_popen.return_value.pid = 12345
+        # First call creates
+        result1 = json.loads(server.brain_action("shape-presentation", {
+            "source": "Wiki/brain-overview-abc123.md",
+            "slug": "existing-deck",
+        }))
+        assert result1["created"] is True
+        # Second call reuses
+        result2 = json.loads(server.brain_action("shape-presentation", {
+            "source": "Wiki/brain-overview-abc123.md",
+            "slug": "existing-deck",
+        }))
+        assert result2["status"] == "ok"
+        assert result2["created"] is False
+
+    @patch("shape_presentation.subprocess.Popen", side_effect=FileNotFoundError)
+    def test_works_without_marp_installed(self, mock_popen, initialized):
+        """Should succeed even if marp CLI is not installed (no preview)."""
+        result = json.loads(server.brain_action("shape-presentation", {
+            "source": "Wiki/brain-overview-abc123.md",
+            "slug": "no-marp",
+        }))
+        assert result["status"] == "ok"
+        assert "preview_pid" not in result

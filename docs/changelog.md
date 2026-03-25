@@ -2,6 +2,11 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.11.9 — 2026-03-25
+
+- **Presentations artefact type** — new temporal artefact type in the artefact library. Slide decks generated from markdown content using Marp CLI. First artefact-bundled skill: type ships with a companion `SKILL.md` (Marp workflow) and `theme.css` (Brain-themed slide styles). Theme provides title slides, callout classes (warning/info/caution), risk colours, and CSS grid card layouts
+- **`shape-presentation` brain_action** — new `brain_action("shape-presentation", {source, slug})` creates a presentation artefact from the template and launches `marp --preview` for live browser preview. Agent iteratively edits slides while the user watches. New script: `shape_presentation.py`
+
 ## v0.11.8 — 2026-03-25
 
 - **MCP server module reload on version drift** — replaced `sys.exit(0)` with `importlib.reload()` for all script modules. When brain-core is upgraded mid-session, the server reloads code in-process instead of trying to exit for restart. Fixes silent CSS generation failure when `brain_action("compile")` ran with stale code after a brain-core propagation. Import style changed from `from X import Y` to module-level imports so reloaded code takes effect immediately via attribute access
