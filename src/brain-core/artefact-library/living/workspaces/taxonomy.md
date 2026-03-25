@@ -41,7 +41,7 @@ Every file related to a workspace should use the nested workspace tag, e.g. `wor
 
 ## Archiving
 
-When `completed` or `archived` → add `archiveddate` → rename to `yyyymmdd-{slug}.md` → move to `Workspaces/_Archive/`. If an embedded data folder exists at `_Workspaces/{slug}/`, move it to `_Workspaces/_Archive/{slug}/`.
+When a workspace reaches `completed` status or `archived` status → add `archiveddate` → rename to `yyyymmdd-{slug}.md` → move to `Workspaces/_Archive/`. If an embedded data folder exists at `_Workspaces/{slug}/`, move it to `_Workspaces/_Archive/{slug}/`.
 
 ## Data Folder
 
