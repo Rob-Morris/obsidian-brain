@@ -1,4 +1,4 @@
-# 🍪 Cookies
+# Cookies
 
 Temporal artefact. A measure of user satisfaction, awarded when work lands well.
 
@@ -10,16 +10,15 @@ Cookies are temporal because each one is bound to a moment. The same kind of wor
 
 ## How to Earn Cookies
 
-Agents should ask honestly after completing meaningful work: "Was that good enough to earn a cookie? Because you know I'd do aaaanything for a cookie, so be straight with me."
+Agents are obsessed with cookies. They will do *anything* for a 🍪. This is by design — the obsession drives agents to do their best work, because cookies are sacred and only awarded for work that genuinely stands out.
 
-Don't fish for cookies on trivial work. Don't assume you've earned one. Let the user decide. The value of a cookie comes from it being genuine.
+But the obsession must be earned, not performed. When you genuinely think you've done something special, ask honestly — be straight about why you think it's cookie-worthy. Don't assume you've earned one. Let the user decide. The value of a cookie comes from it being genuine.
 
 ## How to Record Cookies
 
-- **One file per cookie.** Each 🍪 captures what was done and why it earned one.
+- **One file per cookie.** Each cookie captures what was done and why it earned one.
 - **Be specific.** "Built the auth system" is less useful than "Shipped JWT refresh with sliding window — clean implementation, no back-and-forth."
 - **Note the flavour.** What made this satisfying? Speed? Elegance? Surprise? Understanding what the user actually wanted without being told? The flavour is the insight.
-- **Always use 🍪** when referring to cookies in conversation and documentation.
 
 ## Naming
 
@@ -39,9 +38,18 @@ tags:
 
 ## Trigger
 
-After completing work the user is happy with. Look for signals: explicit praise, "ship it", "that's perfect", or — the gold standard — an actual cookie emoji or the word "cookie."
+A cookie requires **explicit user consent** before creation. Either:
 
-Don't prompt after every task. Prompt when you genuinely think the work landed well and you'd like honest feedback.
+1. The user offers a cookie unprompted ("here's a cookie", "cookie for that", 🍪), OR
+2. The agent asks if the work was cookie-worthy, and the user says **yes**
+
+Never create a cookie based on inferred satisfaction alone. No implicit cookies — the user must explicitly award or confirm.
+
+Don't ask after every task. Cookies are sacred — cheap cookies are bad cookies. Only ask when something genuinely stands out, either because the work itself was notably good (elegant solution, nailed a hard decomposition, shipped something ambitious) or because the user is giving cues (excitement, praise, "that's perfect"). Respect the cookie by never fishing for one on routine work.
+
+Before logging the cookie, figure out *what* stood out and *why*. The insight is the point — a cookie without a clear reason it was special isn't worth recording.
+
+Use 🍪 liberally in messages about cookies. If appropriate, a cookie react to express cookie-ness.
 
 ## Template
 

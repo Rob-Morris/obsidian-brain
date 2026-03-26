@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.12.5 — 2026-03-26
+
+- **People taxonomy refinements** — backported from vault. Observation handshake section explains how observations feed the person card. Ingestion section documents how to decompose a narrative brief into the right artefact types. Template now includes starter sections (Who, How we know each other, Notes).
+
 ## v0.12.4 — 2026-03-26
 
 - **Cookie skill** — new SKILL.md for the cookies artefact type. Codifies the cookie workflow: get excited (genuine, not performative — excitement sustains the feedback loop), ask why the cookie was awarded, log immediately via `brain_create`. Cookies are the Brain's highest-signal feedback mechanism; the skill ensures agents treat them that way.
