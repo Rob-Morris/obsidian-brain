@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.14.5 — 2026-03-27
+
+- **MCP output polish (DD-026 cont.)** — Bold past-tense action labels on confirmations (`**Compiled:**`, `**Created**`, `**Edited:**`, etc.) and proper `isError` flag via `CallToolResult` for error responses (enables error styling in MCP clients).
+
 ## v0.14.4 — 2026-03-27
 
 - **MCP response readability (DD-026)** — MCP tool responses now return plain text instead of JSON blobs for confirmations, list resources, and errors. Search results use multi-block `TextContent` for structured rendering. Complex/nested responses (router, compliance, convert, upgrade, migrate_naming) still return JSON. Design doc and implementation in `server.py`.

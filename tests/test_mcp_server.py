@@ -7,9 +7,19 @@ from unittest.mock import patch
 
 import pytest
 
+from mcp.types import CallToolResult
+
 import server
 import obsidian_cli
 import workspace_registry
+
+
+def _assert_error(result, substring=None):
+    """Assert result is a CallToolResult with isError flag."""
+    assert isinstance(result, CallToolResult), f"Expected CallToolResult, got {type(result)}"
+    assert result.isError is True
+    if substring:
+        assert substring in result.content[0].text
 
 
 # ---------------------------------------------------------------------------
@@ -240,7 +250,7 @@ class TestBrainRead:
 
     def test_read_artefact_not_found(self, initialized):
         result = server.brain_read("artefact", name="nonexistent")
-        assert result.startswith("Error:")
+        _assert_error(result)
 
     def test_read_trigger(self, initialized):
         result = server.brain_read("trigger")
@@ -256,7 +266,7 @@ class TestBrainRead:
 
     def test_read_style_not_found(self, initialized):
         result = server.brain_read("style", name="nonexistent")
-        assert result.startswith("Error:")
+        _assert_error(result)
 
     def test_read_template(self, initialized):
         result = server.brain_read("template", name="wiki")
@@ -264,7 +274,7 @@ class TestBrainRead:
 
     def test_read_template_requires_name(self, initialized):
         result = server.brain_read("template")
-        assert result.startswith("Error:")
+        _assert_error(result)
 
     def test_read_skill_list(self, initialized):
         result = server.brain_read("skill")
@@ -306,8 +316,7 @@ class TestBrainRead:
 
     def test_read_unknown_resource(self, initialized):
         result = server.brain_read("bogus")
-        assert result.startswith("Error:")
-        assert "Unknown resource" in result
+        _assert_error(result, "Unknown resource")
 
 
 class TestBrainReadMemory:
@@ -354,7 +363,7 @@ class TestBrainReadMemory:
 
     def test_not_found(self):
         result = server.brain_read("memory", name="nonexistent-thing")
-        assert result.startswith("Error:")
+        _assert_error(result)
 
     def test_compile_summary_includes_memories(self):
         result = server.brain_action("compile")
@@ -482,7 +491,7 @@ class TestBrainSearch:
 class TestBrainAction:
     def test_action_compile(self, initialized):
         result = server.brain_action("compile")
-        assert result.startswith("Compiled:")
+        assert result.startswith("**Compiled:**")
 
     def test_action_compile_updates_memory(self, initialized):
         old_compiled_at = server._router["meta"]["compiled_at"]
@@ -492,7 +501,7 @@ class TestBrainAction:
 
     def test_action_build_index(self, initialized):
         result = server.brain_action("build_index")
-        assert result.startswith("Built index:")
+        assert result.startswith("**Built index:**")
 
     def test_action_build_index_updates_memory(self, initialized):
         old_built_at = server._index["meta"]["built_at"]
@@ -502,8 +511,7 @@ class TestBrainAction:
 
     def test_action_unknown(self, initialized):
         result = server.brain_action("bogus")
-        assert result.startswith("Error:")
-        assert "Unknown action" in result
+        _assert_error(result, "Unknown action")
 
     def test_action_rename_without_cli(self, initialized):
         """Rename via grep-and-replace when CLI is unavailable."""
@@ -543,14 +551,14 @@ class TestBrainAction:
 
     def test_action_rename_missing_params(self, initialized):
         result = server.brain_action("rename")
-        assert result.startswith("Error:")
+        _assert_error(result)
 
     def test_action_rename_source_not_found(self, initialized):
         result = server.brain_action("rename", {
             "source": "Wiki/nonexistent.md",
             "dest": "Wiki/other.md",
         })
-        assert result.startswith("Error:")
+        _assert_error(result)
 
 
 # ---------------------------------------------------------------------------
@@ -629,7 +637,7 @@ class TestVersionCheck:
         version_path = initialized / ".brain-core" / "VERSION"
         version_path.write_text("99.0.0\n")
         result = server.brain_action("compile")
-        assert result.startswith("Compiled:")
+        assert result.startswith("**Compiled:**")
         assert server._loaded_version == "99.0.0"
 
     def test_brain_create_survives_version_drift(self, initialized):
@@ -637,7 +645,7 @@ class TestVersionCheck:
         version_path = initialized / ".brain-core" / "VERSION"
         version_path.write_text("99.0.0\n")
         result = server.brain_create(type="wiki", title="drift test")
-        assert result.startswith("Created ")
+        assert result.startswith("**Created**")
         assert server._loaded_version == "99.0.0"
 
     def test_brain_edit_survives_version_drift(self, initialized):
@@ -649,7 +657,7 @@ class TestVersionCheck:
             path="Wiki/brain-overview-abc123.md",
             body="# Drifted\n"
         )
-        assert result == "edit: Wiki/brain-overview-abc123.md"
+        assert result == "**Edited:** Wiki/brain-overview-abc123.md"
         assert server._loaded_version == "99.0.0"
 
 
@@ -704,7 +712,7 @@ def _extract_create_path(result):
 class TestBrainCreate:
     def test_create_returns_path(self, initialized):
         result = server.brain_create(type="wiki", title="New Page")
-        assert result.startswith("Created living/wiki: ")
+        assert result.startswith("**Created** living/wiki: ")
         path = _extract_create_path(result)
         assert path.startswith("Wiki/")
 
@@ -726,7 +734,7 @@ class TestBrainCreate:
 
     def test_create_unknown_type_error(self, initialized):
         result = server.brain_create(type="nonexistent", title="Test")
-        assert result.startswith("Error:")
+        _assert_error(result)
 
     def test_create_temporal_subfolder(self, initialized):
         result = server.brain_create(type="logs", title="My Session")
@@ -771,7 +779,7 @@ class TestBrainEdit:
             path="Wiki/brain-overview-abc123.md",
             body="# New Body\n\nReplaced.\n"
         )
-        assert result == "edit: Wiki/brain-overview-abc123.md"
+        assert result == "**Edited:** Wiki/brain-overview-abc123.md"
         content = (initialized / "Wiki" / "brain-overview-abc123.md").read_text()
         assert "Replaced." in content
 
@@ -804,7 +812,7 @@ class TestBrainEdit:
             path="Wiki/brain-overview-abc123.md",
             body="\n\nAppended text.\n"
         )
-        assert result == "append: Wiki/brain-overview-abc123.md"
+        assert result == "**Appended:** Wiki/brain-overview-abc123.md"
         content = (initialized / "Wiki" / "brain-overview-abc123.md").read_text()
         assert "Appended text." in content
         assert "Brain Overview" in content  # original preserved
@@ -815,7 +823,7 @@ class TestBrainEdit:
             path="Unknown/file.md",
             body="test"
         )
-        assert result.startswith("Error:")
+        _assert_error(result)
 
     def test_file_not_found(self, initialized):
         result = server.brain_edit(
@@ -823,7 +831,7 @@ class TestBrainEdit:
             path="Wiki/nonexistent.md",
             body="test"
         )
-        assert result.startswith("Error:")
+        _assert_error(result)
 
     def test_unknown_operation(self, initialized):
         result = server.brain_edit(
@@ -831,7 +839,7 @@ class TestBrainEdit:
             path="Wiki/brain-overview-abc123.md",
             body="test"
         )
-        assert result.startswith("Error:")
+        _assert_error(result)
 
 
 # ---------------------------------------------------------------------------
@@ -841,7 +849,7 @@ class TestBrainEdit:
 class TestBrainActionDelete:
     def test_delete_removes_file(self, initialized):
         result = server.brain_action("delete", {"path": "Wiki/python-guide-def456.md"})
-        assert result.startswith("Deleted:")
+        assert result.startswith("**Deleted:**")
         assert not (initialized / "Wiki" / "python-guide-def456.md").exists()
 
     def test_delete_cleans_links(self, initialized):
@@ -856,11 +864,11 @@ class TestBrainActionDelete:
 
     def test_delete_missing_params(self, initialized):
         result = server.brain_action("delete")
-        assert result.startswith("Error:")
+        _assert_error(result)
 
     def test_delete_not_found(self, initialized):
         result = server.brain_action("delete", {"path": "Wiki/gone.md"})
-        assert result.startswith("Error:")
+        _assert_error(result)
 
 
 class TestBrainActionConvert:
@@ -890,14 +898,14 @@ class TestBrainActionConvert:
 
     def test_convert_missing_params(self, initialized):
         result = server.brain_action("convert")
-        assert result.startswith("Error:")
+        _assert_error(result)
 
     def test_convert_unknown_target(self, initialized):
         result = server.brain_action("convert", {
             "path": "Wiki/brain-overview-abc123.md",
             "target_type": "nonexistent",
         })
-        assert result.startswith("Error:")
+        _assert_error(result)
 
 
 # ---------------------------------------------------------------------------
@@ -926,22 +934,22 @@ class TestBrainActionShapePresentation:
 
     def test_missing_params_returns_error(self, initialized):
         result = server.brain_action("shape-presentation")
-        assert result.startswith("Error:")
+        _assert_error(result)
 
     def test_missing_source_returns_error(self, initialized):
         result = server.brain_action("shape-presentation", {"slug": "test"})
-        assert result.startswith("Error:")
+        _assert_error(result)
 
     def test_missing_slug_returns_error(self, initialized):
         result = server.brain_action("shape-presentation", {"source": "Wiki/brain-overview-abc123.md"})
-        assert result.startswith("Error:")
+        _assert_error(result)
 
     def test_source_not_found_returns_error(self, initialized):
         result = server.brain_action("shape-presentation", {
             "source": "Wiki/nonexistent.md",
             "slug": "test",
         })
-        assert result.startswith("Error:")
+        _assert_error(result)
 
     @patch("shape_presentation.subprocess.Popen")
     def test_creates_file_and_returns_status(self, mock_popen, initialized):
@@ -1133,7 +1141,7 @@ class TestBrainSession:
         server._vault_root = None
         try:
             result = server.brain_session()
-            assert "Error" in result
+            _assert_error(result)
         finally:
             server._router = saved_router
             server._vault_root = saved_root
@@ -1446,7 +1454,7 @@ class TestWorkspaceRead:
 
     def test_resolve_unknown_workspace(self):
         result = server.brain_read("workspace", name="nonexistent")
-        assert result.startswith("Error:")
+        _assert_error(result)
 
 
 class TestWorkspaceActions:
@@ -1464,11 +1472,11 @@ class TestWorkspaceActions:
 
     def test_register_missing_params(self, initialized):
         result = server.brain_action("register_workspace")
-        assert result.startswith("Error:")
+        _assert_error(result)
 
     def test_register_missing_path(self, initialized):
         result = server.brain_action("register_workspace", {"slug": "x"})
-        assert result.startswith("Error:")
+        _assert_error(result)
 
     def test_unregister_workspace(self, initialized, tmp_path):
         # Register first
@@ -1481,11 +1489,11 @@ class TestWorkspaceActions:
 
     def test_unregister_missing_params(self, initialized):
         result = server.brain_action("unregister_workspace")
-        assert result.startswith("Error:")
+        _assert_error(result)
 
     def test_unregister_unknown_slug(self, initialized):
         result = server.brain_action("unregister_workspace", {"slug": "ghost"})
-        assert result.startswith("Error:")
+        _assert_error(result)
 
     def test_registered_workspace_visible_in_read(self, initialized, tmp_path):
         """After registering, brain_read workspace should list it."""

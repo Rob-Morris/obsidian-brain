@@ -38,7 +38,7 @@ import sys
 from datetime import datetime, timezone
 
 from mcp.server.fastmcp import FastMCP
-from mcp.types import TextContent
+from mcp.types import CallToolResult, TextContent
 
 # ---------------------------------------------------------------------------
 # Script imports — add scripts dir to sys.path
@@ -289,8 +289,11 @@ def startup(vault_root: str | None = None) -> None:
 # ---------------------------------------------------------------------------
 
 def _fmt_error(msg):
-    """Format an error message as plain text."""
-    return f"Error: {msg}"
+    """Format an error as a CallToolResult with isError flag."""
+    return CallToolResult(
+        content=[TextContent(type="text", text=f"Error: {msg}")],
+        isError=True,
+    )
 
 
 def _fmt_artefact_list(artefacts):
@@ -389,7 +392,7 @@ def brain_session(context: str | None = None) -> str:
     _ensure_router_fresh()
 
     if _router is None or _vault_root is None:
-        return "Error: server not initialized"
+        return _fmt_error("server not initialized")
 
     result = session.compile_session(
         _router, _vault_root,
@@ -425,7 +428,7 @@ def brain_read(resource: str, name: str | None = None) -> str:
     _ensure_router_fresh()
 
     if _router is None:
-        return "Error: server not initialized"
+        return _fmt_error("server not initialized")
 
     # Workspace resource: handled by server (registry is server state, not router state)
     if resource == "workspace":
@@ -504,7 +507,7 @@ def _transform_cli_results(cli_results: list[dict], type_filter: str | None,
 
 def _fmt_search(source, results):
     """Format search results as multi-block TextContent."""
-    meta = f"Search: {len(results)} results (source: {source})"
+    meta = f"**Searched:** {len(results)} results (source: {source})"
     if not results:
         return [TextContent(type="text", text=meta)]
     lines = []
@@ -529,7 +532,7 @@ def brain_search(query: str, type: str | None = None, tag: str | None = None,
     _ensure_router_fresh()
 
     if _index is None:
-        return "Error: server not initialized"
+        return _fmt_error("server not initialized")
 
     # CLI-first: Obsidian's live index is always current
     if _cli_available and _vault_name and query:
@@ -564,14 +567,14 @@ def brain_create(type: str, title: str, body: str = "", frontmatter: dict | None
     _ensure_router_fresh()
 
     if _router is None or _vault_root is None:
-        return "Error: server not initialized"
+        return _fmt_error("server not initialized")
 
     try:
         result = create.create_artefact(
             _vault_root, _router, type, title,
             body=body, frontmatter_overrides=frontmatter,
         )
-        return f"Created {result['type']}: {result['path']}"
+        return f"**Created** {result['type']}: {result['path']}"
     except ValueError as e:
         return _fmt_error(str(e))
 
@@ -600,7 +603,7 @@ def brain_edit(operation: str, path: str, body: str = "", frontmatter: dict | No
     _ensure_router_fresh()
 
     if _router is None or _vault_root is None:
-        return "Error: server not initialized"
+        return _fmt_error("server not initialized")
 
     try:
         if operation == "edit":
@@ -616,7 +619,8 @@ def brain_edit(operation: str, path: str, body: str = "", frontmatter: dict | No
             )
         else:
             return _fmt_error(f"Unknown operation '{operation}'. Valid: edit, append")
-        msg = f"{result['operation']}: {result['path']}"
+        past = "Edited" if result["operation"] == "edit" else "Appended"
+        msg = f"**{past}:** {result['path']}"
         if target:
             msg += f" (target: {target})"
         return msg
@@ -649,7 +653,7 @@ def brain_action(action: str, params: dict | None = None) -> str:
     _check_and_reload()
 
     if _vault_root is None:
-        return "Error: server not initialized"
+        return _fmt_error("server not initialized")
 
     if action == "compile":
         _router = _compile_and_save(_vault_root)
@@ -660,7 +664,7 @@ def brain_action(action: str, params: dict | None = None) -> str:
         memory_count = len(_router.get("memories", []))
         living_count = sum(1 for a in _router["artefacts"] if a["classification"] == "living")
         temporal_count = sum(1 for a in _router["artefacts"] if a["classification"] == "temporal")
-        return (f"Compiled: {art_count} artefacts ({configured} configured), "
+        return (f"**Compiled:** {art_count} artefacts ({configured} configured), "
                 f"{trigger_count} triggers, {skill_count} skills, "
                 f"{memory_count} memories, "
                 f"{living_count + temporal_count} colours")
@@ -669,7 +673,7 @@ def brain_action(action: str, params: dict | None = None) -> str:
         _index = _build_index_and_save(_vault_root)
         doc_count = _index["meta"]["document_count"]
         term_count = len(_index["corpus_stats"]["df"])
-        return f"Built index: {doc_count} documents, {term_count} unique terms"
+        return f"**Built index:** {doc_count} documents, {term_count} unique terms"
 
     elif action == "rename":
         if not params or "source" not in params or "dest" not in params:
@@ -683,12 +687,12 @@ def brain_action(action: str, params: dict | None = None) -> str:
             result = obsidian_cli.move(_vault_name, source, dest)
             if result is not None:
                 n = result.get("links_updated", -1)
-                return f"Renamed (obsidian_cli): {source} → {dest}, {n} links updated"
+                return f"**Renamed** (obsidian_cli): {source} → {dest}, {n} links updated"
 
         # Fallback: grep-and-replace wikilinks + os.rename
         try:
             links_updated = rename.rename_and_update_links(_vault_root, source, dest)
-            return f"Renamed (grep_replace): {source} → {dest}, {links_updated} links updated"
+            return f"**Renamed** (grep_replace): {source} → {dest}, {links_updated} links updated"
         except FileNotFoundError as e:
             return _fmt_error(str(e))
 
@@ -697,7 +701,7 @@ def brain_action(action: str, params: dict | None = None) -> str:
             return _fmt_error("delete requires params: {path} (relative path)")
         try:
             links_replaced = rename.delete_and_clean_links(_vault_root, params["path"])
-            return f"Deleted: {params['path']}, {links_replaced} links replaced"
+            return f"**Deleted:** {params['path']}, {links_replaced} links replaced"
         except FileNotFoundError as e:
             return _fmt_error(str(e))
 
@@ -732,7 +736,7 @@ def brain_action(action: str, params: dict | None = None) -> str:
                 _vault_root, params["slug"], params["path"],
             )
             _workspace_registry = workspace_registry.load_registry(_vault_root)
-            return f"Workspace registered: {params['slug']} → {params['path']}"
+            return f"**Workspace registered:** {params['slug']} → {params['path']}"
         except ValueError as e:
             return _fmt_error(str(e))
 
@@ -744,7 +748,7 @@ def brain_action(action: str, params: dict | None = None) -> str:
                 _vault_root, params["slug"],
             )
             _workspace_registry = workspace_registry.load_registry(_vault_root)
-            return f"Workspace unregistered: {params['slug']}"
+            return f"**Workspace unregistered:** {params['slug']}"
         except ValueError as e:
             return _fmt_error(str(e))
 

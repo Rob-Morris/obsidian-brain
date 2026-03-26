@@ -76,11 +76,11 @@ Response format by tool:
 
 - **`brain_session`** — single JSON string, no indentation (token efficiency). Agent-consumed bootstrap payload; readability not a priority.
 - **`brain_read`** — resource-dependent. File content returned as plain text (already optimal). List/object resources (artefact, trigger, memory, etc.) returned as formatted plain text — one item per line, key fields visible. Complex resources (router, compliance) remain JSON where structure aids comprehension.
-- **`brain_search`** — multi-block: metadata block (source, result count) + results as a readable text list (one result per line: title, path, type, score).
-- **`brain_create`** — plain text confirmation: `"Created {type}: {path}"`.
-- **`brain_edit`** — plain text confirmation: `"{operation}: {path}"` (plus target section if specified).
-- **`brain_action`** — plain text status line for simple actions (compile, build_index, rename, delete). JSON for complex responses (upgrade with file lists, convert with link counts).
-- **Errors** — all tools return `"Error: {message}"` as plain text (no JSON wrapper).
+- **`brain_search`** — multi-block: bold past-tense metadata block (`**Searched:** N results (source)`) + results as a readable text list (one result per line: title, path, type, score).
+- **`brain_create`** — plain text confirmation with bold past-tense action: `"**Created** {type}: {path}"`.
+- **`brain_edit`** — plain text confirmation with bold past-tense action: `"**Edited:** {path}"` or `"**Appended:** {path}"` (plus target section if specified).
+- **`brain_action`** — plain text status line with bold past-tense action for simple actions (e.g. `**Compiled:** N artefacts...`, `**Renamed** (method): ...`). JSON for complex responses (upgrade with file lists, convert with link counts).
+- **Errors** — all tools return `CallToolResult(isError=True)` with `"Error: {message}"` text content. The `isError` flag enables error-specific rendering in MCP clients.
 
 **Backward compatibility:** Tests that do `json.loads()` on tool results will need updating to match the new plain-text format. The change is internal to the MCP layer — underlying script functions still return dicts/lists.
 
@@ -313,4 +313,4 @@ python3.12 -m venv .venv
 | DD-023 | init.py setup script | Implemented (v0.10.0) |
 | DD-024 | Core skills in .brain-core/skills/ | Implemented (v0.10.0) |
 | DD-025 | 5 MCP tools: privilege split for granular permissions | Implemented (v0.11.0) |
-| DD-026 | MCP response readability: plain text over JSON blobs | Implemented (v0.14.4) |
+| DD-026 | MCP response readability: plain text over JSON blobs | Implemented (v0.14.4, polished v0.14.5) |
