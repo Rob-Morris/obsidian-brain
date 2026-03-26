@@ -320,6 +320,8 @@ status: draft
 | `published` | Released or delivered. Stays as canonical source. |
 | `parked` | Set aside; not being worked on. |
 
+**Publishing:** When status reaches `published`, date-prefix the filename (`yyyymmdd-{slug}.md`) and move to `Writing/_Published/`. Superseded published writing archives from `_Published/` to `_Archive/`.
+
 Complex writing projects use subfolders: `Writing/my-novel/index.md` with chapter files alongside.
 
 ### Documentation

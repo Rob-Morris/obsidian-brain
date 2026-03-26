@@ -16,9 +16,26 @@ Each file is one self-contained piece of writing — an essay, a blog post, a ch
 | `published` | Released or delivered. Stays as canonical source. |
 | `parked` | Set aside — not abandoned, but not being worked on. |
 
+## Publishing
+
+When a piece reaches `published` status:
+
+1. Set `status: published` in frontmatter
+2. Add `publisheddate: YYYY-MM-DD` to frontmatter
+3. Rename the file to `yyyymmdd-{slug}.md` using `brain_action("rename")` — this updates all wikilinks vault-wide automatically
+4. Move the file to `Writing/_Published/`
+5. Companion files (HTML pastes, exports) move alongside the main file and keep the same prefix
+
 ## Archiving
 
-Published writing that has been superseded (e.g. a rewrite exists elsewhere) can be archived. Published writing that remains canonical stays in place.
+Published writing that has been superseded (e.g. a rewrite exists elsewhere):
+
+1. Set `status: archived` in frontmatter
+2. Add `archiveddate: YYYY-MM-DD` to frontmatter
+3. Add a supersession callout linking to the successor
+4. Move the file from `_Published/` to `_Archive/`
+
+Published writing that remains canonical stays in `_Published/`.
 
 ## Naming
 

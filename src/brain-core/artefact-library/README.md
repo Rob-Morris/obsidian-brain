@@ -19,7 +19,7 @@ The template vault ships with a curated set of defaults (marked below). This lib
 | [Journals](living/journals/) | `journals` | Named journal streams grouping personal journal entries via nested tags. |
 | [People](living/people/) | `people` | Person index files — living hub for everything you know about someone. **Template vault default.** |
 | [Projects](living/projects/) | `projects` | Project index files linking to related artefacts via project tags. |
-| [Workspaces](living/workspaces/) | `workspaces` | Workspace hub files linking brain artefacts to bounded data containers (`_Workspaces/`). |
+| [Workspaces](living/workspaces/) | `workspaces` | Workspace hub files linking brain artefacts to bounded data containers (`_Workspaces/`). **Template vault default.** |
 | [Writing](living/writing/) | `writing` | Long-form written works with lifecycle: draft → published. |
 | [Zettelkasten](living/zettelkasten/) | `zettelkasten` | Auto-maintained atomic concept mesh. One card per concept. |
 
@@ -35,14 +35,14 @@ The template vault ships with a curated set of defaults (marked below). This lib
 | [Friction Logs](temporal/friction-logs/) | `friction-logs` | Signal accumulator — logs missing context, conflicting info, or guesses. **Template vault default.** |
 | [Idea Logs](temporal/idea-logs/) | `idea-logs` | Quick idea captures in rough form. |
 | [Research](temporal/research/) | `research` | In-depth research notes on specific topics. **Template vault default.** |
-| [Thoughts](temporal/thoughts/) | `thoughts` | Raw, unformed thinking captured in the moment. |
-| [Reports](temporal/reports/) | `reports` | Overviews of detailed processes — findings and implications. |
-| [Snippets](temporal/snippets/) | `snippets` | Short, crafted content pieces derived from existing work. |
+| [Thoughts](temporal/thoughts/) | `thoughts` | Raw, unformed thinking captured in the moment. **Template vault default.** |
+| [Reports](temporal/reports/) | `reports` | Overviews of detailed processes — findings and implications. **Template vault default.** |
+| [Snippets](temporal/snippets/) | `snippets` | Short, crafted content pieces derived from existing work. **Template vault default.** |
 | [Cookies](temporal/cookies/) | `cookies` | A measure of user satisfaction — awarded when work lands well. **Template vault default.** |
 | [Journal Entries](temporal/journal-entries/) | `journal-entries` | Personal journal entries — reflections, recollections, and life updates. |
 | [Mockups](temporal/mockups/) | `mockups` | Visual or interactive prototypes generated to explore a design direction. |
 | [Observations](temporal/observations/) | `observations` | Timestamped facts, impressions, and things noticed. Low bar for capture. **Template vault default.** |
-| [Captures](temporal/captures/) | `captures` | External material ingested verbatim — emails, meeting notes, data extracts. Frozen on ingest. |
+| [Captures](temporal/captures/) | `captures` | External material ingested verbatim — emails, meeting notes, data extracts. Frozen on ingest. **Template vault default.** |
 | [Presentations](temporal/presentations/) | `presentations` | Slide decks generated from markdown using Marp CLI. Source is markdown; output is PDF. |
 
 ## Choosing a Knowledge Type

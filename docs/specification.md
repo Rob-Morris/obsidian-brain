@@ -105,6 +105,7 @@ This pattern is useful when a single living artefact organises a stream of relat
 - `Daily Notes/` — end-of-day summaries
 - `Notes/` — low-friction knowledge notes
 - `People/` — person hubs
+- `Workspaces/` — scoped data containers
 
 **Temporal artefacts:**
 - `_Temporal/Logs/` — daily activity logs
@@ -116,10 +117,14 @@ This pattern is useful when a single living artefact organises a stream of relat
 - `_Temporal/Shaping Transcripts/` — Q&A refinement sessions
 - `_Temporal/Observations/` — timestamped facts and things noticed
 - `_Temporal/Cookies/` — user satisfaction tracking
+- `_Temporal/Captures/` — external material ingested verbatim
+- `_Temporal/Reports/` — distilled findings from detailed processes
+- `_Temporal/Snippets/` — short crafted content derived from existing work
+- `_Temporal/Thoughts/` — raw unformed thinking captured in the moment
 
 **System:**
 - `_Assets/` — non-markdown files and generated output (`Attachments/` + `Generated/`)
 - `_Config/` — router, taxonomy, style, colours, templates, user skills, user preferences
 - `_Plugins/` — empty, ready for plugins
 
-Additional types are available in the artefact library (`.brain-core/artefact-library/`) for install as needed: Designs, Documentation, Ideas, Journals, Projects, Workspaces, Writing, Zettelkasten (living); Idea Logs, Journal Entries, Thoughts, Reports, Snippets, Mockups, Captures (temporal).
+Additional types are available in the artefact library (`.brain-core/artefact-library/`) for install as needed: Designs, Documentation, Ideas, Journals, Projects, Writing, Zettelkasten (living); Idea Logs, Journal Entries, Mockups, Presentations (temporal).

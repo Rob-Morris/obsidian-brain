@@ -2,6 +2,14 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.13.5 — 2026-03-26
+
+- **Promote 6 artefact types to template vault defaults** — Workspaces (living); Captures, Reports, Snippets, Thoughts, Shaping Transcripts (temporal, storage folder added). Template vault now ships with 18 defaults (5 living + 13 temporal) out of 30 in the library.
+
+## v0.13.4 — 2026-03-26
+
+- **Writing `_Published/` subfolder convention** — published writing now moves to `Writing/_Published/` with date-prefixed filenames, mirroring the archiving standard's numbered workflow. Publishing adds `publisheddate` to frontmatter and renames via `brain_action("rename")` for wikilink hygiene. Archiving section updated: superseded published writing moves from `_Published/` to `_Archive/`.
+
 ## v0.13.3 — 2026-03-26
 
 - **Doc: guide.md mentions `target` parameter** — brain_edit entry in the quick-start guide now notes the optional `target` parameter for section-level operations.

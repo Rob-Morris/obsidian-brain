@@ -58,8 +58,13 @@ Pick the artefact type that fits, create the file in the right folder with the r
 | Person | `People/` | `{name}.md` |
 | Observation | `_Temporal/Observations/yyyy-mm/` | `yyyymmdd-observation--{slug}.md` |
 | Cookie | `_Temporal/Cookies/yyyy-mm/` | `yyyymmdd-cookie--{slug}.md` |
+| Workspace | `Workspaces/` | `{name}.md` |
+| Capture | `_Temporal/Captures/yyyy-mm/` | `yyyymmdd-capture--{slug}.md` |
+| Report | `_Temporal/Reports/yyyy-mm/` | `yyyymmdd-report--{slug}.md` |
+| Snippet | `_Temporal/Snippets/yyyy-mm/` | `yyyymmdd-snippet--{slug}.md` |
+| Thought | `_Temporal/Thoughts/yyyy-mm/` | `yyyymmdd-thought--{slug}.md` |
 
-Additional types available from the artefact library: Designs, Ideas, Journals, Projects, Workspaces, Writing, Zettelkasten (living); Idea Logs, Journal Entries, Thoughts, Reports, Snippets, Mockups (temporal).
+Additional types available from the artefact library: Designs, Ideas, Journals, Projects, Writing, Zettelkasten (living); Idea Logs, Journal Entries, Mockups, Presentations (temporal).
 
 Every file needs frontmatter with at least `type` and `tags`:
 
@@ -119,6 +124,14 @@ When one artefact spins out of another, link them. Full details in [[.brain-core
 > [[new-design]] — 2026-03-15
 ```
 
+## Publishing (Writing)
+
+Published writing moves to `Writing/_Published/` with date-prefixed filenames. Full details in the writing taxonomy.
+
+1. Set `status: published` and add `publisheddate: YYYY-MM-DD`
+2. Rename to `yyyymmdd-{slug}.md` via `brain_action("rename")`
+3. Move to `Writing/_Published/`
+
 ## Archiving
 
 Living artefacts that reach a terminal status (e.g., `implemented`, `graduated`) get archived. Full details in [[.brain-core/standards/archiving]].
@@ -128,6 +141,8 @@ Living artefacts that reach a terminal status (e.g., `implemented`, `graduated`)
 3. Add a supersession callout linking to the successor
 4. Rename to `yyyymmdd-{slug}.md`
 5. Move to `{Type}/_Archive/`
+
+Superseded published writing archives from `_Published/` to `_Archive/`.
 
 ## Extending Your Vault
 
