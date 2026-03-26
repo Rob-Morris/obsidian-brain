@@ -58,7 +58,7 @@ Four tiers, each with distinct file explorer styling:
 | Temporal | `_Temporal/` | Steel-tinted | Dated working files |
 | Assets | `_Assets/` | Slate | Non-markdown files and generated output |
 | Config | `_Config/` | Purple | System files |
-| Plugin | `_Plugins/` | Gold | External tool data, skills, and MCP integrations |
+| Plugin | `_Plugins/` | Orchid | External tool data, skills, and MCP integrations |
 
 ## Colour System
 
@@ -77,7 +77,7 @@ Documented in `.brain-core/extensions.md`:
 - **New living artefact**: create at root, add taxonomy file, reference standards (provenance/archiving) in taxonomy if applicable, optionally add router trigger, run `brain_action("compile")` — colours are auto-generated
 - **New temporal child**: create under `_Temporal/`, add taxonomy file, reference standards (provenance/archiving) in taxonomy if applicable, optionally add router trigger, run `brain_action("compile")` — rose-blended colours are auto-generated
 - **New config child**: create under `_Config/`, inherits purple styling
-- **New plugin**: create under `_Plugins/`, inherits gold styling, add skill if it has tools
+- **New plugin**: create under `_Plugins/`, inherits orchid styling, add skill if it has tools
 
 ### Hub Pattern
 
