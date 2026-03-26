@@ -2,6 +2,14 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.13.0 — 2026-03-26
+
+- **"Be curious, then capture" core principle** — new principle in index.md. Agents should actively seek signal: notice gaps, ask natural questions at natural moments, capture answers as artefacts. The vault improves by eliciting, not just recording.
+- **Hub pattern elevated to operational standard** — hub-pattern.md now prescribes five behaviours: granularity (decompose into artefacts), temporal handshake (temporals feed the hub), contextual linking (weave, don't list), ingestion (temporals first, hub second), and elicitation (hubs are moments to be curious).
+- **Projects taxonomy expanded** — temporal handshake, ingestion workflow (decompose into research/decisions/plans/ideas, create temporals first), contextual linking guidance.
+- **Journals taxonomy rewritten** — journal hub is now a living summary of the stream's arc, not a passive container. Temporal handshake, ingestion decomposition, contextual linking.
+- **People, Observations promoted to template vault defaults** — ship in starter vault alongside Cookies (already default). Cookie skill added to template vault.
+
 ## v0.12.5 — 2026-03-26
 
 - **People taxonomy refinements** — backported from vault. Observation handshake section explains how observations feed the person card. Ingestion section documents how to decompose a narrative brief into the right artefact types. Template now includes starter sections (Who, How we know each other, Notes).

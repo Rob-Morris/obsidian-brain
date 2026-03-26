@@ -275,7 +275,7 @@ Every artefact related to this project shares the `project/my-app` tag. The proj
 
 ### Starting Small
 
-A new Brain vault ships with a practical starter set: Wiki, Daily Notes, Notes, Logs, Plans, Transcripts, Shaping Transcripts, Research, Decision Logs, Friction Logs, and Cookies. That covers the core workflows — capturing knowledge, logging activity, recording decisions, refining artefacts, tracking friction, and rewarding good work. You can add more types from the library as you need them.
+A new Brain vault ships with a practical starter set: Wiki, Daily Notes, Notes, People, Logs, Plans, Transcripts, Shaping Transcripts, Research, Decision Logs, Friction Logs, Observations, and Cookies. That covers the core workflows — capturing knowledge, tracking people, logging activity, recording decisions and observations, refining artefacts, tracking friction, and rewarding good work. You can add more types from the library as you need them.
 
 ### Adding Types When You Need Them
 

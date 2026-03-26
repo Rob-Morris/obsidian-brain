@@ -104,6 +104,7 @@ This pattern is useful when a single living artefact organises a stream of relat
 - `Wiki/` — interconnected knowledge base
 - `Daily Notes/` — end-of-day summaries
 - `Notes/` — low-friction knowledge notes
+- `People/` — person hubs
 
 **Temporal artefacts:**
 - `_Temporal/Logs/` — daily activity logs
@@ -113,6 +114,7 @@ This pattern is useful when a single living artefact organises a stream of relat
 - `_Temporal/Decision Logs/` — reasoning behind choices
 - `_Temporal/Friction Logs/` — signal accumulator for maintenance
 - `_Temporal/Shaping Transcripts/` — Q&A refinement sessions
+- `_Temporal/Observations/` — timestamped facts and things noticed
 - `_Temporal/Cookies/` — user satisfaction tracking
 
 **System:**
@@ -120,4 +122,4 @@ This pattern is useful when a single living artefact organises a stream of relat
 - `_Config/` — router, taxonomy, style, colours, templates, user skills, user preferences
 - `_Plugins/` — empty, ready for plugins
 
-Additional types are available in the artefact library (`.brain-core/artefact-library/`) for install as needed: Designs, Documentation, Ideas, Journals, People, Projects, Workspaces, Writing, Zettelkasten (living); Idea Logs, Journal Entries, Observations, Thoughts, Reports, Snippets, Mockups, Captures (temporal).
+Additional types are available in the artefact library (`.brain-core/artefact-library/`) for install as needed: Designs, Documentation, Ideas, Journals, Projects, Workspaces, Writing, Zettelkasten (living); Idea Logs, Journal Entries, Thoughts, Reports, Snippets, Mockups, Captures (temporal).

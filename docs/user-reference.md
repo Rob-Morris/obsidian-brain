@@ -739,6 +739,18 @@ Ideas progress through increasing levels of structure:
 
 At each transition, use provenance links (origin on child, callout on parent). Carry forward relevant tags, especially project tags.
 
+### Hub Pattern
+
+Hub artefacts (People, Projects, Journals, Workspaces) are living summaries that group related artefacts via nested tags. See `.brain-core/standards/hub-pattern` for the full standard.
+
+**Temporal handshake:** Tagged temporal artefacts feed their hub. When a temporal changes the current picture, distil the change into the hub. Temporals preserve *when*; the hub reflects *now*.
+
+**Contextual linking:** Weave links into prose — don't list them as changelog entries. Link text should read naturally: `Scope narrowed after the [[decision-log|March review]]` not `- See [[20260320-decision--review]]`.
+
+**Ingestion:** When receiving a dump of information, decompose into artefacts first (observations, research, decisions, entries), then write or update the hub as an interpreted summary.
+
+**Elicitation:** Hubs are natural moments to be curious. When creating or revisiting a hub, notice gaps and ask natural questions. Capture answers as temporals, then update the hub.
+
 ### Provenance
 
 When one artefact spins out of another:

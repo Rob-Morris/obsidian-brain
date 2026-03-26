@@ -4,9 +4,9 @@ Living artefact. Named journal streams.
 
 ## Purpose
 
-A journal is a named container for journal entries — a personal stream of reflections, recollections, and life updates. One file per journal. The journal file describes what the stream is for; the entries themselves are temporal artefacts grouped by the journal's nested tag.
+A journal is a living summary of a personal stream — its themes, patterns, and the current arc. One file per journal. The journal hub evolves as entries accumulate, reflecting what the stream is about *now*, not just what it started as. Journal entries are the moments; the hub is the interpreted picture of the whole.
 
-Follows the same hub pattern as Projects: a living index that groups temporal artefacts via `journal/{slug}` nested tags.
+Follows the same hub pattern as Projects and People: a living summary that groups temporal artefacts via `journal/{slug}` nested tags.
 
 ## Examples
 
@@ -40,6 +40,27 @@ The nested tag (e.g. `journal/personal`) is what connects journal entries to thi
 |---|---|
 | `active` | Default. Accepting new entries. |
 | `archived` | No longer active. Existing entries preserved. |
+
+## Temporal Handshake
+
+Journal entries tagged `journal/{slug}` feed this hub. As entries accumulate, the hub evolves to reflect emerging themes, shifts in focus, recurring topics. Entries preserve the moments; the hub reflects the arc.
+
+Not every entry triggers a hub update. But when entries reveal a shift — a new theme emerging, a concern resolving, a focus changing — distil it into the hub.
+
+## Ingestion
+
+When the user dumps a mix of reflections and observations:
+
+- **Personal reflections and recollections** → journal entries, tagged `journal/{slug}`
+- **Discrete facts learned** → observations, tagged with relevant hubs
+- **Ideas surfaced** → idea logs
+- **Timeline** → log entry
+
+Write entries first, then update the hub with what's shifted.
+
+## Contextual Linking
+
+Weave links to notable entries in prose where they illuminate the arc. Don't list entries chronologically — the tag query handles that. The hub adds interpretation: what the entries mean together, not what they are individually.
 
 ## Template
 

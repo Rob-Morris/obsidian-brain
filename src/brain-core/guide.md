@@ -10,6 +10,7 @@ This guide covers what you need to know day-to-day. For the full reference, see 
 Wiki/                     ← living artefacts (root folders)
 Daily Notes/
 Notes/
+People/
 ...
 _Temporal/                ← temporal artefacts (dated, point-in-time)
   Logs/2026-03/
@@ -17,6 +18,7 @@ _Temporal/                ← temporal artefacts (dated, point-in-time)
   Research/2026-03/
   Decision Logs/2026-03/
   Friction Logs/2026-03/
+  Observations/2026-03/
   Cookies/2026-03/
   ...
 _Assets/             ← images, PDFs, non-markdown files
@@ -53,6 +55,8 @@ Pick the artefact type that fits, create the file in the right folder with the r
 | Research | `_Temporal/Research/yyyy-mm/` | `yyyymmdd-research--{slug}.md` |
 | Decision log | `_Temporal/Decision Logs/yyyy-mm/` | `yyyymmdd-decision--{slug}.md` |
 | Friction log | `_Temporal/Friction Logs/yyyy-mm/` | `yyyymmdd-friction--{slug}.md` |
+| Person | `People/` | `{name}.md` |
+| Observation | `_Temporal/Observations/yyyy-mm/` | `yyyymmdd-observation--{slug}.md` |
 | Cookie | `_Temporal/Cookies/yyyy-mm/` | `yyyymmdd-cookie--{slug}.md` |
 
 Additional types available from the artefact library: Designs, Ideas, Journals, Projects, Workspaces, Writing, Zettelkasten (living); Idea Logs, Journal Entries, Thoughts, Reports, Snippets, Mockups (temporal).

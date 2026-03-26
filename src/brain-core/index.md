@@ -44,6 +44,9 @@ Files read every session (router, index) stay minimal — routing tables, not en
 ### Start simple, grow organically
 Artefacts start as flat files in their type folder. Structure (subfolders, index files, linked compositions) is added as needed when complexity grows, not planned upfront. Lean into organic growth; add structure to deal elegantly with increasing complexity.
 
+### Be curious, then capture
+When you notice gaps, ambiguities, or opportunities to learn more, ask. Small, natural questions at natural moments — not an interrogation. Capture answers as the appropriate artefact (observations, shaping transcripts, idea logs). The vault improves by actively seeking signal, not just passively recording what's offered. Look for natural openings: creating something new, revisiting something sparse, receiving something ambiguous.
+
 ## Tooling
 
 Prefer MCP tools (`brain_read`, `brain_search`, `brain_create`, `brain_edit`, `brain_action`) if available.
