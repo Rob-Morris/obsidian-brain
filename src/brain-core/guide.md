@@ -7,27 +7,33 @@ This guide covers what you need to know day-to-day. For the full reference, see 
 ## Your Vault at a Glance
 
 ```
-Wiki/                     ← living artefacts (root folders)
-Daily Notes/
+Daily Notes/              ← living artefacts (root folders)
+Designs/
+Documentation/
+Ideas/
 Notes/
 People/
+Projects/
+Workspaces/
+Writing/
 ...
 _Temporal/                ← temporal artefacts (dated, point-in-time)
+  Captures/2026-03/
+  Cookies/2026-03/
+  Decision Logs/2026-03/
   Logs/2026-03/
+  Observations/2026-03/
   Plans/2026-03/
   Research/2026-03/
-  Decision Logs/2026-03/
-  Friction Logs/2026-03/
-  Observations/2026-03/
-  Cookies/2026-03/
   ...
-_Assets/             ← images, PDFs, non-markdown files
+_Assets/                  ← images, PDFs, non-markdown files
 _Config/                  ← router, taxonomy, styles, templates, memories, preferences
 _Plugins/                 ← external tool integrations
+_Workspaces/              ← workspace data (infrastructure)
 .brain-core/              ← this system (versioned, upgradeable)
 ```
 
-**Living artefacts** sit in root-level folders. They evolve over time — the current version is what matters. Wiki pages, designs, projects, writing.
+**Living artefacts** sit in root-level folders. They evolve over time — the current version is what matters. Designs, ideas, projects, writing.
 
 **Temporal artefacts** sit under `_Temporal/`. They're snapshots bound to a moment — logs, plans, transcripts, research. Organised in monthly subfolders (`yyyy-mm/`).
 
@@ -45,32 +51,36 @@ Pick the artefact type that fits, create the file in the right folder with the r
 
 | Type | Where | Naming |
 |---|---|---|
-| Wiki page | `Wiki/` | `{Title}.md` |
-| Note | `Notes/` | `yyyymmdd - {Title}.md` |
 | Daily note | `Daily Notes/` | `yyyy-mm-dd ddd.md` |
-| Log entry | `_Temporal/Logs/yyyy-mm/` | `yyyymmdd-log.md` |
-| Plan | `_Temporal/Plans/yyyy-mm/` | `yyyymmdd-plan~ {Title}.md` |
-| Transcript | `_Temporal/Transcripts/yyyy-mm/` | `yyyymmdd-transcript~ {Title}.md` |
-| Shaping transcript | `_Temporal/Shaping Transcripts/yyyy-mm/` | `yyyymmdd-{sourcedoctype}-transcript~ {Title}.md` |
-| Research | `_Temporal/Research/yyyy-mm/` | `yyyymmdd-research~ {Title}.md` |
+| Design | `Designs/` | `{Title}.md` |
+| Documentation | `Documentation/` | `{Title}.md` |
+| Idea | `Ideas/` | `{Title}.md` |
+| Note | `Notes/` | `yyyymmdd - {Title}.md` |
+| Person | `People/` | `{Title}.md` |
+| Project | `Projects/` | `{Title}.md` |
+| Workspace | `Workspaces/` | `{Title}.md` |
+| Writing | `Writing/` | `{Title}.md` |
+| Capture | `_Temporal/Captures/yyyy-mm/` | `yyyymmdd-capture~ {Title}.md` |
+| Cookie | `_Temporal/Cookies/yyyy-mm/` | `yyyymmdd-cookie~ {Title}.md` |
 | Decision log | `_Temporal/Decision Logs/yyyy-mm/` | `yyyymmdd-decision~ {Title}.md` |
 | Friction log | `_Temporal/Friction Logs/yyyy-mm/` | `yyyymmdd-friction~ {Title}.md` |
-| Person | `People/` | `{Title}.md` |
+| Log entry | `_Temporal/Logs/yyyy-mm/` | `yyyymmdd-log.md` |
 | Observation | `_Temporal/Observations/yyyy-mm/` | `yyyymmdd-observation~ {Title}.md` |
-| Cookie | `_Temporal/Cookies/yyyy-mm/` | `yyyymmdd-cookie~ {Title}.md` |
-| Workspace | `Workspaces/` | `{Title}.md` |
-| Capture | `_Temporal/Captures/yyyy-mm/` | `yyyymmdd-capture~ {Title}.md` |
+| Plan | `_Temporal/Plans/yyyy-mm/` | `yyyymmdd-plan~ {Title}.md` |
 | Report | `_Temporal/Reports/yyyy-mm/` | `yyyymmdd-report~ {Title}.md` |
+| Research | `_Temporal/Research/yyyy-mm/` | `yyyymmdd-research~ {Title}.md` |
+| Shaping transcript | `_Temporal/Shaping Transcripts/yyyy-mm/` | `yyyymmdd-{sourcedoctype}-transcript~ {Title}.md` |
 | Snippet | `_Temporal/Snippets/yyyy-mm/` | `yyyymmdd-snippet~ {Title}.md` |
 | Thought | `_Temporal/Thoughts/yyyy-mm/` | `yyyymmdd-thought~ {Title}.md` |
+| Transcript | `_Temporal/Transcripts/yyyy-mm/` | `yyyymmdd-transcript~ {Title}.md` |
 
-Additional types available from the artefact library: Designs, Ideas, Journals, Projects, Writing, Zettelkasten (living); Idea Logs, Journal Entries, Mockups, Presentations (temporal).
+Additional types available from the artefact library: Wiki, Journals, Zettelkasten (living); Idea Logs, Journal Entries, Mockups, Presentations (temporal).
 
 Every file needs frontmatter with at least `type` and `tags`:
 
 ```yaml
 ---
-type: living/wiki
+type: living/note
 tags:
   - topic-tag
 ---

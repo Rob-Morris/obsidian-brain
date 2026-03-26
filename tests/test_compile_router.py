@@ -723,9 +723,9 @@ class TestTemplateVault:
         # Should have the real version
         assert result["meta"]["brain_core_version"]
 
-        # Should find Wiki (living) and Logs/Plans/Transcripts (temporal)
+        # Should find Notes (living) and Logs/Plans/Transcripts (temporal)
         folders = [a["folder"] for a in result["artefacts"]]
-        assert "Wiki" in folders
+        assert "Notes" in folders
 
         temporal = [a for a in result["artefacts"] if a["classification"] == "temporal"]
         temporal_folders = [a["folder"] for a in temporal]

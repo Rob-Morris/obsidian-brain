@@ -101,30 +101,35 @@ This pattern is useful when a single living artefact organises a stream of relat
 ## What Ships in the Starter Vault
 
 **Living artefacts:**
-- `Wiki/` — interconnected knowledge base
 - `Daily Notes/` — end-of-day summaries
+- `Designs/` — design documents, wireframes, and specs
+- `Documentation/` — guides, standards, and reference material
+- `Ideas/` — concepts shaped to clarity through iterative refinement
 - `Notes/` — low-friction knowledge notes
 - `People/` — person hubs
+- `Projects/` — project index files linking related artefacts
 - `Workspaces/` — scoped data containers
+- `Writing/` — long-form written works with lifecycle
 
 **Temporal artefacts:**
-- `_Temporal/Logs/` — daily activity logs
-- `_Temporal/Plans/` — pre-work plans
-- `_Temporal/Transcripts/` — conversation transcripts
-- `_Temporal/Research/` — investigation notes
+- `_Temporal/Captures/` — external material ingested verbatim
+- `_Temporal/Cookies/` — user satisfaction tracking
 - `_Temporal/Decision Logs/` — reasoning behind choices
 - `_Temporal/Friction Logs/` — signal accumulator for maintenance
-- `_Temporal/Shaping Transcripts/` — Q&A refinement sessions
+- `_Temporal/Logs/` — daily activity logs
 - `_Temporal/Observations/` — timestamped facts and things noticed
-- `_Temporal/Cookies/` — user satisfaction tracking
-- `_Temporal/Captures/` — external material ingested verbatim
+- `_Temporal/Plans/` — pre-work plans
 - `_Temporal/Reports/` — distilled findings from detailed processes
+- `_Temporal/Research/` — investigation notes
+- `_Temporal/Shaping Transcripts/` — Q&A refinement sessions
 - `_Temporal/Snippets/` — short crafted content derived from existing work
 - `_Temporal/Thoughts/` — raw unformed thinking captured in the moment
+- `_Temporal/Transcripts/` — conversation transcripts
 
 **System:**
 - `_Assets/` — non-markdown files and generated output (`Attachments/` + `Generated/`)
 - `_Config/` — router, taxonomy, style, colours, templates, user skills, user preferences
 - `_Plugins/` — empty, ready for plugins
+- `_Workspaces/` — workspace data bucket (infrastructure)
 
-Additional types are available in the artefact library (`.brain-core/artefact-library/`) for install as needed: Designs, Documentation, Ideas, Journals, Projects, Writing, Zettelkasten (living); Idea Logs, Journal Entries, Mockups, Presentations (temporal).
+Additional types are available in the artefact library (`.brain-core/artefact-library/`) for install as needed: Wiki, Journals, Zettelkasten (living); Idea Logs, Journal Entries, Mockups, Presentations (temporal).

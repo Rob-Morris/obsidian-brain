@@ -10,17 +10,17 @@ The template vault ships with a curated set of defaults (marked below). This lib
 
 | Type | Key | Description |
 |---|---|---|
-| [Wiki](living/wiki/) | `wiki` | Interconnected knowledge base. One page per concept. **Template vault default.** |
 | [Daily Notes](living/daily-notes/) | `daily-notes` | High-level end-of-day summaries distilled from logs. **Template vault default.** |
-| [Designs](living/designs/) | `designs` | Design documents, wireframes, and specs. |
-| [Documentation](living/documentation/) | `documentation` | Guides, standards, and reference material. |
-| [Ideas](living/ideas/) | `ideas` | Concepts articulated and shaped to clarity through iterative refinement. |
-| [Notes](living/notes/) | `notes` | Flat knowledge base of date-prefixed interconnected notes. **Template vault default.** |
+| [Designs](living/designs/) | `designs` | Design documents, wireframes, and specs. **Template vault default.** |
+| [Documentation](living/documentation/) | `documentation` | Guides, standards, and reference material. **Template vault default.** |
+| [Ideas](living/ideas/) | `ideas` | Concepts articulated and shaped to clarity through iterative refinement. **Template vault default.** |
 | [Journals](living/journals/) | `journals` | Named journal streams grouping personal journal entries via nested tags. |
+| [Notes](living/notes/) | `notes` | Flat knowledge base of date-prefixed interconnected notes. **Template vault default.** |
 | [People](living/people/) | `people` | Person index files — living hub for everything you know about someone. **Template vault default.** |
-| [Projects](living/projects/) | `projects` | Project index files linking to related artefacts via project tags. |
+| [Projects](living/projects/) | `projects` | Project index files linking to related artefacts via project tags. **Template vault default.** |
+| [Wiki](living/wiki/) | `wiki` | Interconnected knowledge base. One page per concept. |
 | [Workspaces](living/workspaces/) | `workspaces` | Workspace hub files linking brain artefacts to bounded data containers (`_Workspaces/`). **Template vault default.** |
-| [Writing](living/writing/) | `writing` | Long-form written works with lifecycle: draft → published. |
+| [Writing](living/writing/) | `writing` | Long-form written works with lifecycle: draft → published. **Template vault default.** |
 | [Zettelkasten](living/zettelkasten/) | `zettelkasten` | Auto-maintained atomic concept mesh. One card per concept. |
 
 ### Temporal

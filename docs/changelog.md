@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.14.2 — 2026-03-27
+
+- **Expand template vault defaults** — add Designs, Documentation, Ideas, Projects, Writing (living) to starter set. Remove Wiki from defaults (still available in artefact library). Add `_Workspaces/` data bucket folder. Add router triggers for Captures and Reports. Template vault now ships with 22 defaults (9 living + 13 temporal) out of 30 in the library.
+
 ## v0.14.1 — 2026-03-27
 
 - **Fix migrate_naming on case-insensitive filesystems** — case-only renames (e.g. `gizmo.md` → `Gizmo.md`) were falsely reported as conflicts on macOS HFS+/APFS. Now detects same-inode case renames and allows them.

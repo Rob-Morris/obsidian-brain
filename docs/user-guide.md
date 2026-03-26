@@ -275,11 +275,11 @@ Every artefact related to this project shares the `project/my-app` tag. The proj
 
 ### Starting Small
 
-A new Brain vault ships with a practical starter set: Wiki, Daily Notes, Notes, People, Workspaces (living); Logs, Plans, Transcripts, Shaping Transcripts, Research, Decision Logs, Friction Logs, Observations, Cookies, Captures, Reports, Snippets, and Thoughts (temporal). That covers the core workflows — capturing knowledge, tracking people, managing workspaces, logging activity, recording decisions and observations, ingesting external material, refining artefacts, tracking friction, capturing raw thinking, and rewarding good work. You can add more types from the library as you need them.
+A new Brain vault ships with a practical starter set: Daily Notes, Designs, Documentation, Ideas, Notes, People, Projects, Workspaces, Writing (living); Captures, Cookies, Decision Logs, Friction Logs, Logs, Observations, Plans, Reports, Research, Shaping Transcripts, Snippets, Thoughts, Transcripts (temporal). That covers the core workflows — capturing knowledge, designing and documenting, tracking people and projects, managing workspaces, writing, logging activity, recording decisions and observations, ingesting external material, refining artefacts, tracking friction, capturing raw thinking, and rewarding good work. You can add more types from the library as you need them.
 
 ### Adding Types When You Need Them
 
-When you find yourself creating content that doesn't fit anywhere, that's the signal to add a type. The artefact library (`.brain-core/artefact-library/`) has ready-to-install definitions for types like Ideas, Designs, People, Observations, Writing, Research, Decision Logs, and more. Each comes with a taxonomy file and template. Folder colours are auto-generated when you run `brain_action("compile")`.
+When you find yourself creating content that doesn't fit anywhere, that's the signal to add a type. The artefact library (`.brain-core/artefact-library/`) has ready-to-install definitions for types like Wiki, Journals, Zettelkasten, and more. Each comes with a taxonomy file and template. Folder colours are auto-generated when you run `brain_action("compile")`.
 
 The rule of thumb: add a type when you'll create multiple files of that kind and they need different conventions from what you already have. If it's a one-off, a subfolder or tag within an existing type is simpler.
 
