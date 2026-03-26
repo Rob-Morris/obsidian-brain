@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.14.1 — 2026-03-27
+
+- **Fix migrate_naming on case-insensitive filesystems** — case-only renames (e.g. `gizmo.md` → `Gizmo.md`) were falsely reported as conflicts on macOS HFS+/APFS. Now detects same-inode case renames and allows them.
+
 ## v0.14.0 — 2026-03-26
 
 - **Generous filenames** — artefact filenames now preserve spaces, capitalisation, and unicode instead of aggressive slugification. `My Project.md` instead of `my-project.md`. New `title_to_filename()` utility in `_common.py`; `title_to_slug()` retained for hub tags only.

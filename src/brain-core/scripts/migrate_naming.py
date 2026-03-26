@@ -129,14 +129,27 @@ def migrate_vault(vault_root, router=None, dry_run=False):
             dir_part = os.path.dirname(rel_path)
             new_rel_path = os.path.join(dir_part, new_filename) if dir_part else new_filename
 
-            # Check if target already exists
-            if os.path.isfile(os.path.join(vault_root, new_rel_path)):
-                errors.append({
-                    "file": rel_path,
-                    "target": new_rel_path,
-                    "error": "Target file already exists",
-                })
-                continue
+            # Check if target already exists (but allow case-only renames
+            # on case-insensitive filesystems like macOS HFS+/APFS)
+            dest_abs = os.path.join(vault_root, new_rel_path)
+            source_abs = os.path.join(vault_root, rel_path)
+            if os.path.isfile(dest_abs):
+                # Same inode = case-only rename on case-insensitive FS — allow it
+                try:
+                    if os.stat(source_abs).st_ino != os.stat(dest_abs).st_ino:
+                        errors.append({
+                            "file": rel_path,
+                            "target": new_rel_path,
+                            "error": "Target file already exists",
+                        })
+                        continue
+                except OSError:
+                    errors.append({
+                        "file": rel_path,
+                        "target": new_rel_path,
+                        "error": "Target file already exists",
+                    })
+                    continue
 
             if dry_run:
                 renamed.append({
