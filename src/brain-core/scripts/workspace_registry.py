@@ -1,0 +1,349 @@
+#!/usr/bin/env python3
+"""
+workspace_registry.py — Workspace slug-to-path resolution.
+
+Maps workspace slugs to their data folder paths. Embedded workspaces
+resolve implicitly (slug → _Workspaces/slug/). Linked workspaces store
+their external path in .brain/workspaces.json.
+
+The MCP server loads the registry on startup and uses it to resolve
+workspace file operations. The registry is machine-local config (in
+.brain/, not in vault content) — the vault remains portable.
+
+Usage:
+    python3 workspace_registry.py                # list all workspaces
+    python3 workspace_registry.py --vault /path
+    python3 workspace_registry.py --register slug /path/to/data
+    python3 workspace_registry.py --unregister slug
+"""
+
+import json
+import os
+import sys
+
+from _common import find_vault_root, is_system_dir, parse_frontmatter
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+BRAIN_DIR = ".brain"
+REGISTRY_FILE = "workspaces.json"
+REGISTRY_REL = os.path.join(BRAIN_DIR, REGISTRY_FILE)
+EMBEDDED_DATA_DIR = "_Workspaces"
+HUB_DIR = "Workspaces"
+
+
+# ---------------------------------------------------------------------------
+# Registry I/O
+# ---------------------------------------------------------------------------
+
+def _registry_path(vault_root):
+    """Return absolute path to .brain/workspaces.json."""
+    return os.path.join(vault_root, REGISTRY_REL)
+
+
+def load_registry(vault_root):
+    """Load the linked workspace registry from .brain/workspaces.json.
+
+    Returns a dict of slug → {"path": absolute_path}.
+    Returns empty dict if the file doesn't exist.
+    Normalises bare-string entries to {"path": value}.
+    """
+    path = _registry_path(vault_root)
+    if not os.path.isfile(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return {}
+    raw = data.get("workspaces", {})
+    return {
+        slug: (entry if isinstance(entry, dict) else {"path": entry})
+        for slug, entry in raw.items()
+    }
+
+
+def save_registry(vault_root, registry):
+    """Write the linked workspace registry to .brain/workspaces.json.
+
+    Args:
+        vault_root: Absolute path to vault root.
+        registry: Dict of slug → {"path": absolute_path}.
+    """
+    path = _registry_path(vault_root)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({"workspaces": registry}, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+
+
+# ---------------------------------------------------------------------------
+# Discovery — embedded workspaces
+# ---------------------------------------------------------------------------
+
+def _scan_embedded(vault_root):
+    """Discover embedded workspaces from _Workspaces/ subdirectories.
+
+    Returns a dict of slug → {"path": absolute_path, "mode": "embedded"}.
+    """
+    data_dir = os.path.join(vault_root, EMBEDDED_DATA_DIR)
+    if not os.path.isdir(data_dir):
+        return {}
+    result = {}
+    for entry in sorted(os.listdir(data_dir)):
+        full = os.path.join(data_dir, entry)
+        if not os.path.isdir(full):
+            continue
+        if is_system_dir(entry):
+            continue
+        result[entry] = {"path": full, "mode": "embedded"}
+    return result
+
+
+def _scan_hub_metadata(vault_root):
+    """Read workspace hub artefacts from Workspaces/ for metadata enrichment.
+
+    Returns a dict of slug → {title, status, workspace_mode, tags}.
+    """
+    hub_dir = os.path.join(vault_root, HUB_DIR)
+    if not os.path.isdir(hub_dir):
+        return {}
+    result = {}
+    for fname in sorted(os.listdir(hub_dir)):
+        if not fname.endswith(".md"):
+            continue
+        fpath = os.path.join(hub_dir, fname)
+        if not os.path.isfile(fpath):
+            continue
+        try:
+            with open(fpath, "r", encoding="utf-8") as f:
+                text = f.read()
+        except OSError:
+            continue
+        fields, _ = parse_frontmatter(text)
+        slug = os.path.splitext(fname)[0]
+        result[slug] = {
+            "title": slug.replace("-", " ").title(),
+            "status": fields.get("status", ""),
+            "workspace_mode": fields.get("workspace_mode", ""),
+            "tags": fields.get("tags", []),
+            "hub_path": os.path.join(HUB_DIR, fname),
+        }
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Resolution
+# ---------------------------------------------------------------------------
+
+def resolve_workspace(vault_root, slug, registry=None):
+    """Resolve a workspace slug to its absolute data folder path.
+
+    Resolution order:
+      1. Embedded: _Workspaces/{slug}/ exists → return that path
+      2. Linked: slug is in the registry → return registered path
+
+    Args:
+        vault_root: Absolute path to vault root.
+        slug: Workspace slug to resolve.
+        registry: Pre-loaded registry dict (loaded from disk if None).
+
+    Returns:
+        dict with "path", "mode", and "slug".
+
+    Raises:
+        ValueError: If the slug cannot be resolved.
+    """
+    # Check embedded first
+    embedded_path = os.path.join(vault_root, EMBEDDED_DATA_DIR, slug)
+    if os.path.isdir(embedded_path):
+        return {"slug": slug, "path": embedded_path, "mode": "embedded"}
+
+    if registry is None:
+        registry = load_registry(vault_root)
+    if slug in registry:
+        path = os.path.expanduser(registry[slug]["path"])
+        return {"slug": slug, "path": path, "mode": "linked"}
+
+    raise ValueError(
+        f"Unknown workspace '{slug}'. "
+        f"No embedded data folder at _Workspaces/{slug}/ "
+        f"and no linked registration in .brain/workspaces.json."
+    )
+
+
+# ---------------------------------------------------------------------------
+# List
+# ---------------------------------------------------------------------------
+
+def _make_entry(slug, mode, path, hub_meta):
+    """Build a workspace list entry, enriched with hub metadata."""
+    meta = hub_meta.get(slug, {})
+    return {
+        "slug": slug,
+        "mode": mode,
+        "path": path,
+        "hub_path": meta.get("hub_path", ""),
+        "title": meta.get("title", slug.replace("-", " ").title()),
+        "status": meta.get("status", ""),
+        "tags": meta.get("tags", []),
+    }
+
+
+def list_workspaces(vault_root, registry=None):
+    """List all workspaces (embedded + linked), enriched with hub metadata.
+
+    Returns a list of dicts, each with: slug, mode, path, hub_path,
+    title, status, tags. Hub metadata is best-effort — missing hub
+    artefacts result in empty fields.
+    """
+    if registry is None:
+        registry = load_registry(vault_root)
+
+    embedded = _scan_embedded(vault_root)
+
+    if not embedded and not registry:
+        return []
+
+    hub_meta = _scan_hub_metadata(vault_root)
+    workspaces = []
+
+    for slug, info in embedded.items():
+        workspaces.append(_make_entry(slug, "embedded", info["path"], hub_meta))
+
+    for slug, entry in registry.items():
+        path = os.path.expanduser(entry["path"])
+        workspaces.append(_make_entry(slug, "linked", path, hub_meta))
+
+    return workspaces
+
+
+# ---------------------------------------------------------------------------
+# Register / Unregister
+# ---------------------------------------------------------------------------
+
+def register_workspace(vault_root, slug, path):
+    """Register a linked workspace in .brain/workspaces.json.
+
+    Args:
+        vault_root: Absolute path to vault root.
+        slug: Workspace slug (e.g. "my-project").
+        path: Absolute path to the external data folder.
+
+    Returns:
+        dict with status and registration details.
+
+    Raises:
+        ValueError: If slug conflicts with an embedded workspace.
+    """
+    # Check for embedded conflict
+    embedded_path = os.path.join(vault_root, EMBEDDED_DATA_DIR, slug)
+    if os.path.isdir(embedded_path):
+        raise ValueError(
+            f"Cannot register linked workspace '{slug}' — "
+            f"an embedded workspace already exists at _Workspaces/{slug}/."
+        )
+
+    registry = load_registry(vault_root)
+    was_update = slug in registry
+    registry[slug] = {"path": path}
+    save_registry(vault_root, registry)
+
+    return {
+        "status": "ok",
+        "action": "updated" if was_update else "registered",
+        "slug": slug,
+        "path": path,
+        "mode": "linked",
+    }
+
+
+def unregister_workspace(vault_root, slug):
+    """Remove a linked workspace from .brain/workspaces.json.
+
+    Args:
+        vault_root: Absolute path to vault root.
+        slug: Workspace slug to remove.
+
+    Returns:
+        dict with status.
+
+    Raises:
+        ValueError: If slug is not in the registry.
+    """
+    registry = load_registry(vault_root)
+    if slug not in registry:
+        raise ValueError(
+            f"Workspace '{slug}' is not registered as a linked workspace. "
+            f"Only linked workspaces (in .brain/workspaces.json) can be unregistered."
+        )
+
+    del registry[slug]
+    save_registry(vault_root, registry)
+
+    return {"status": "ok", "action": "unregistered", "slug": slug}
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+def main():
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Workspace registry management")
+    parser.add_argument("--vault", help="Vault root (auto-detected if omitted)")
+    parser.add_argument("--register", nargs=2, metavar=("SLUG", "PATH"),
+                        help="Register a linked workspace")
+    parser.add_argument("--unregister", metavar="SLUG",
+                        help="Unregister a linked workspace")
+    parser.add_argument("--resolve", metavar="SLUG",
+                        help="Resolve a workspace slug to its path")
+    parser.add_argument("--json", action="store_true", help="JSON output")
+    args = parser.parse_args()
+
+    vault_root = str(find_vault_root(args.vault))
+
+    if args.register:
+        slug, path = args.register
+        path = os.path.abspath(os.path.expanduser(path))
+        result = register_workspace(vault_root, slug, path)
+        if args.json:
+            print(json.dumps(result, indent=2))
+        else:
+            print(f"{result['action']}: {slug} → {path}")
+
+    elif args.unregister:
+        result = unregister_workspace(vault_root, args.unregister)
+        if args.json:
+            print(json.dumps(result, indent=2))
+        else:
+            print(f"Unregistered: {args.unregister}")
+
+    elif args.resolve:
+        try:
+            result = resolve_workspace(vault_root, args.resolve)
+            if args.json:
+                print(json.dumps(result, indent=2))
+            else:
+                print(f"{result['slug']} ({result['mode']}): {result['path']}")
+        except ValueError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            sys.exit(1)
+
+    else:
+        workspaces = list_workspaces(vault_root)
+        if args.json:
+            print(json.dumps(workspaces, indent=2))
+        else:
+            if not workspaces:
+                print("No workspaces registered.")
+            else:
+                for ws in workspaces:
+                    print(f"  {ws['slug']} ({ws['mode']}): {ws['path']}")
+
+
+if __name__ == "__main__":
+    main()

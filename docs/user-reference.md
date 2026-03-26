@@ -866,8 +866,8 @@ If your vault runs the Brain MCP server (`.brain-core/mcp/server.py`), six tools
 - Optional `context` parameter for scoped sessions (not yet implemented)
 
 **brain_read** (safe, no side effects)
-- Look up artefacts, triggers, styles, templates, skills, plugins, memories, environment info, the compiled router, structural compliance results, or read artefact files by path
-- Optional name filter to narrow results (for compliance, filters by severity; for file, the relative path from vault root)
+- Look up artefacts, triggers, styles, templates, skills, plugins, memories, workspaces, environment info, the compiled router, structural compliance results, or read artefact files by path
+- Optional name filter to narrow results (for workspace, resolves a slug; for compliance, filters by severity; for file, the relative path from vault root)
 
 **brain_search** (safe, no side effects)
 - Search vault content by query text
@@ -892,6 +892,9 @@ If your vault runs the Brain MCP server (`.brain-core/mcp/server.py`), six tools
 - `delete` — delete a file and replace wikilinks with strikethrough text
 - `convert` — change artefact type, move file, reconcile frontmatter, update wikilinks
 - `shape-presentation` — create a presentation artefact and launch Marp live preview (params: `{source, slug}`)
+- `upgrade` — upgrade brain-core from a source directory (params: `{source}`, optional `{dry_run, force}`)
+- `register_workspace` — register a linked workspace (params: `{slug, path}`)
+- `unregister_workspace` — remove a linked workspace registration (params: `{slug}`)
 
 ### Scripts
 
@@ -906,6 +909,8 @@ Available in `.brain-core/scripts/`. Scripts are the source of truth for all vau
 | `create.py` | Create a new artefact with template/naming resolution |
 | `edit.py` | Edit, append to, or convert an existing artefact |
 | `rename.py` | Rename a file with automatic wikilink updates |
+| `upgrade.py` | Upgrade brain-core in-place from a source directory |
+| `workspace_registry.py` | Workspace slug→path resolution and registration |
 | `init.py` | Set up Claude Code to use this vault's MCP server |
 | `check.py` | Structural compliance checker — validates naming, frontmatter, month folders, archives, status values |
 

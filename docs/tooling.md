@@ -36,6 +36,8 @@ Scripts in `.brain-core/scripts/` are the **source of truth** for all vault oper
 | `rename.py` | Rename file + update wikilinks | `python3 rename.py "source" "dest" [--json]` |
 | `check.py` | Structural compliance checks | `python3 check.py [--json] [--severity S]` |
 | `shape_presentation.py` | Create presentation + launch preview | `python3 shape_presentation.py --source P --slug S` |
+| `upgrade.py` | In-place brain-core upgrade | `python3 upgrade.py --source P [--vault V] [--dry-run] [--force] [--json]` |
+| `workspace_registry.py` | Workspace slug→path resolution | `python3 workspace_registry.py [--register SLUG PATH] [--unregister SLUG] [--resolve SLUG] [--json]` |
 | `init.py` | MCP server registration | `python3 init.py [--user] [--project PATH]` |
 
 **Why scripts hold all logic:** The MCP server is a thin wrapper that imports functions from scripts and holds the compiled router and search index in memory. Scripts are the single implementation — the server adds only MCP transport, in-memory caching, and Obsidian CLI delegation. This means:
@@ -53,11 +55,11 @@ Scripts in `.brain-core/scripts/` are the **source of truth** for all vault oper
 Long-running MCP server at `.brain-core/mcp/server.py`. Thin wrapper over scripts — exposes 6 MCP tools:
 
 - **`brain_session`** — agent bootstrap, safe, auto-approvable. Compiles a token-efficient session payload in one call: always-rules, user preferences, gotchas, triggers, condensed artefact types, environment, memory/skill/plugin/style indexes. Server actively compiles this — strips frontmatter from user files, condenses artefact metadata, merges environment state. Optional `context` parameter for scoped sessions (forward-compatible, not yet implemented). Delegates to `session.py`.
-- **`brain_read`** — safe, no side effects, auto-approvable. Delegates to `read.py` resource handlers. Resources: `artefact`, `trigger`, `style`, `template`, `skill`, `plugin`, `environment`, `router`, `compliance`, `file`. Optional `name` filter. Environment resource enriched with `obsidian_cli_available` (server-only state). Compliance resource runs check.py checks; `name` parameter filters by severity (`error`/`warning`/`info`). File resource reads any artefact file by relative path; `name` = path from vault root, validated against compiled router (must belong to a configured type folder).
+- **`brain_read`** — safe, no side effects, auto-approvable. Delegates to `read.py` resource handlers. Resources: `artefact`, `trigger`, `style`, `template`, `skill`, `plugin`, `memory`, `workspace`, `environment`, `router`, `compliance`, `file`. Optional `name` filter. Environment resource enriched with `obsidian_cli_available` (server-only state). Compliance resource runs check.py checks; `name` parameter filters by severity (`error`/`warning`/`info`). File resource reads any artefact file by relative path; `name` = path from vault root, validated against compiled router (must belong to a configured type folder). Workspace resource handled by server (not router state): lists all workspaces (embedded + linked, enriched with hub metadata) or resolves a specific slug to its data folder path.
 - **`brain_search`** — safe, no side effects, auto-approvable. Parameters: `query` (required), `type`, `tag`, `top_k`. CLI-first with BM25 fallback (DD-021). Response includes `source` field (`"obsidian_cli"` or `"bm25"`) and `results` array with path, title, type, score, snippet.
 - **`brain_create`** — additive, safe to auto-approve. Creates a new vault artefact. Parameters: `type` (key or full type), `title`, optional `body` and `frontmatter` overrides. Resolves type from compiled router, reads template, generates filename from naming pattern, writes file with merged frontmatter. Returns `{path, type, title}`.
 - **`brain_edit`** — single-file mutation. Parameters: `operation` (`"edit"` or `"append"`), `path`, `body`, optional `frontmatter` changes (edit only). Path validated against compiled router — wrong folder or naming rejected with helpful error. Returns `{path, operation}`.
-- **`brain_action`** — vault-wide/destructive ops, gated by approval. Actions: `compile`, `build_index`, `rename`, `delete`, `convert`, `shape-presentation`. Optional `params` object. `rename` delegates to `rename.py`'s `rename_and_update_links()`, with Obsidian CLI override when available. `delete` removes a file and replaces wikilinks with strikethrough. `convert` changes artefact type, moves file, reconciles frontmatter, and updates wikilinks vault-wide. `shape-presentation` creates a Marp presentation artefact and launches live preview (`params: {source, slug}`).
+- **`brain_action`** — vault-wide/destructive ops, gated by approval. Actions: `compile`, `build_index`, `rename`, `delete`, `convert`, `shape-presentation`, `upgrade`, `register_workspace`, `unregister_workspace`. Optional `params` object. `rename` delegates to `rename.py`'s `rename_and_update_links()`, with Obsidian CLI override when available. `delete` removes a file and replaces wikilinks with strikethrough. `convert` changes artefact type, moves file, reconciles frontmatter, and updates wikilinks vault-wide. `shape-presentation` creates a Marp presentation artefact and launches live preview (`params: {source, slug}`). `upgrade` copies a source brain-core directory into `.brain-core/`, removing obsolete files, then reloads modules, recompiles router, and rebuilds index (`params: {source}`, optional `{dry_run, force}`). `register_workspace` registers a linked workspace in `.brain/workspaces.json` (`params: {slug, path}`). `unregister_workspace` removes a linked workspace registration (`params: {slug}`).
 
 DD-011 established the read/write safety split (2 tools). DD-020 adds `brain_search` as a third tool. DD-021 adds optional Obsidian CLI integration for search and rename. DD-025 splits mutations into three privilege tiers: `brain_create` (additive, safe to auto-approve), `brain_edit` (single-file), and `brain_action` (vault-wide/destructive).
 
@@ -65,15 +67,15 @@ DD-011 established the read/write safety split (2 tools). DD-020 adds `brain_sea
 
 **Obsidian CLI** (DD-022): Internal dependency of the MCP server, not a separate agent-facing tier. The server delegates to the CLI for search and rename when available; agents interact only with MCP tools or scripts. When MCP is unavailable, scripts provide full functionality (read, search, rename, compile, check). The CLI is an optimisation layer, not a requirement.
 
-**Startup:** Auto-compiles router and auto-builds index if stale (compares timestamps against source file mtimes). Both artefacts loaded into memory for the session lifetime. Probes Obsidian CLI availability and derives vault name from directory basename (overridable via `BRAIN_VAULT_NAME` env var).
+**Startup:** Auto-compiles router and auto-builds index if stale (compares timestamps against source file mtimes). Both artefacts loaded into memory for the session lifetime. Loads workspace registry from `.brain/workspaces.json` (empty dict if absent). Probes Obsidian CLI availability and derives vault name from directory basename (overridable via `BRAIN_VAULT_NAME` env var).
 
-**Response payloads:** All tools return JSON strings. `brain_session` returns a compiled payload with version, always_rules, preferences, gotchas, triggers, artefacts (condensed), environment, memories, skills, plugins, styles — no indentation for token efficiency. `brain_read` returns the requested resource data (array or object). `brain_search` returns `{source, results}` where results is a ranked array of `{path, title, type, score, snippet}`. `brain_create` returns `{path, type, title}`. `brain_edit` returns `{path, operation}`. `brain_action` returns `{status, summary, compiled_at|built_at}` for compile/build_index, `{status, method, links_updated}` for rename, `{status, path, links_replaced}` for delete, or `{status, old_path, new_path, type, links_updated}` for convert.
+**Response payloads:** All tools return JSON strings. `brain_session` returns a compiled payload with version, always_rules, preferences, gotchas, triggers, artefacts (condensed), environment, memories, skills, plugins, styles — no indentation for token efficiency. `brain_read` returns the requested resource data (array or object). `brain_search` returns `{source, results}` where results is a ranked array of `{path, title, type, score, snippet}`. `brain_create` returns `{path, type, title}`. `brain_edit` returns `{path, operation}`. `brain_action` returns `{status, summary, compiled_at|built_at}` for compile/build_index, `{status, method, links_updated}` for rename, `{status, path, links_replaced}` for delete, `{status, old_path, new_path, type, links_updated}` for convert, `{status, old_version, new_version, files_added, files_modified, files_removed, files_unchanged, post_upgrade}` for upgrade, or `{status, action, slug, path, mode}` for register_workspace/unregister_workspace.
 
 **Dependencies:** Python >=3.10, `mcp` SDK. The server imports functions directly from scripts — never calls their `main()` (which may `sys.exit`). Optional: dsebastien/obsidian-cli-rest running on localhost:27124 (overridable via `OBSIDIAN_CLI_URL` env var).
 
 **Version drift:** If `.brain-core/` is upgraded while the server is running (e.g. after a brain-core propagation), the server detects the version change on the next tool call and reloads all script modules in-process via `importlib.reload()`. No MCP client cooperation needed — the server self-heals. Read, search, create, and edit tools also auto-recompile the router when new taxonomy files appear mid-session.
 
-**Status:** Implemented in v0.8.0. Script parity completed in v0.10.3 (read.py, rename.py). Privilege split in v0.11.0 — 5 tools with granular permissions (DD-025). Artefact CRUD now implemented: create, edit/append, delete, convert. File resource added in v0.11.2 (read artefact files by path). Module reload on version drift added in v0.11.8.
+**Status:** Implemented in v0.8.0. Script parity completed in v0.10.3 (read.py, rename.py). Privilege split in v0.11.0 — 5 tools with granular permissions (DD-025). Artefact CRUD now implemented: create, edit/append, delete, convert. File resource added in v0.11.2 (read artefact files by path). Module reload on version drift added in v0.11.8. In-place upgrade action added in v0.12.1 (upgrade.py). Workspace registry added in v0.12.2 (workspace_registry.py).
 
 ## Lean Router Format (DD-012, DD-017)
 
@@ -138,6 +140,31 @@ Registration strategy: `claude mcp add-json` when CLI available, direct JSON fil
 
 **Dependencies:** Python 3.8+ stdlib only. Detects a Python with `mcp` package for the server config (vault `.venv` → current Python → PATH search).
 
+## upgrade.py
+
+Upgrade script at `.brain-core/scripts/upgrade.py`. Copies a source brain-core directory into a vault's `.brain-core/`, removing obsolete files, with version awareness. Self-contained (no `_common` imports) because it replaces `_common.py` during execution.
+
+**Design decisions:**
+- Source path is required (`--source`), not auto-detected — explicit is safer for an operation that overwrites system files
+- Script does copy + diff only; post-upgrade steps (recompile, rebuild index) are the caller's responsibility. CLI prints a reminder; MCP action handles them automatically via `_check_and_reload()` + `_compile_and_save()` + `_build_index_and_save()`
+- No backup — the vault is a git repo; `git checkout .brain-core/` is the undo mechanism
+- No migration system yet — just copy and recompile (matches the current manual process). A migration registry (`migrations/` with ordered step files) should be added when there's a concrete breaking change that requires data transformation (e.g. renamed frontmatter fields, moved folders, changed naming patterns)
+
+**CLI:**
+```bash
+python3 upgrade.py --source /path/to/src/brain-core              # upgrade
+python3 upgrade.py --source src/brain-core --vault /path --dry-run  # preview
+python3 upgrade.py --source src/brain-core --force                  # re-apply or downgrade
+python3 upgrade.py --source src/brain-core --json                   # structured output
+```
+
+**MCP:** `brain_action("upgrade", {"source": "/path/to/src/brain-core"})`. Optional params: `dry_run` (bool), `force` (bool). On success, server automatically reloads modules, recompiles router, and rebuilds index.
+
+**Future work:**
+- Migration registry — ordered step files in `migrations/` for breaking changes requiring data transformation
+- Pre/post upgrade hooks — user-defined scripts that run before/after the copy
+- Rollback command — `upgrade.py --rollback` to restore previous version from git
+
 ## Core Skills (DD-024)
 
 Skills in `.brain-core/skills/*/SKILL.md` — system-provided, versioned with brain-core, not user-editable. Discovered by the compiler alongside user skills from `_Config/Skills/`. Tagged `"source": "core"` in the compiled router (user skills tagged `"source": "user"`).
@@ -184,7 +211,7 @@ python3 search_index.py "query" --json  # structured output
 
 The following are accepted but not yet fully shaped:
 
-- **upgrade.py** — in-place upgrade flow, migration steps
+- **upgrade.py** — migration registry for breaking changes (upgrade copy implemented in v0.12.1; migration steps deferred until concrete need)
 - **CLI wrapper** — argument parsing, vault discovery, distribution
 - **Plugin registry** — `plugins.json` schema, install flow
 - **Obsidian plugin** — TypeScript implementation, shared test fixtures (DD-005, DD-006, DD-007)

@@ -9,6 +9,7 @@ import pytest
 
 import server
 import obsidian_cli
+import workspace_registry
 
 
 # ---------------------------------------------------------------------------
@@ -1126,3 +1127,400 @@ class TestBrainSession:
         finally:
             server._router = saved_router
             server._vault_root = saved_root
+
+
+# ---------------------------------------------------------------------------
+# brain_action upgrade tests
+# ---------------------------------------------------------------------------
+
+class TestBrainActionUpgrade:
+    @pytest.fixture
+    def source(self, tmp_path):
+        """Create a source brain-core directory for upgrade tests."""
+        src = tmp_path / "src-brain-core"
+        src.mkdir()
+        (src / "VERSION").write_text("0.8.0\n")
+        (src / "index.md").write_text("# Brain Core\n\nNew version.\n")
+        (src / "guide.md").write_text("# Guide\n\nUpdated guide.\n")
+        scripts = src / "scripts"
+        scripts.mkdir()
+        (scripts / "_common.py").write_text("# common\n")
+        return src
+
+    def test_upgrade_copies_files(self, initialized, source):
+        result = json.loads(server.brain_action("upgrade", {"source": str(source)}))
+        assert result["status"] == "ok"
+        assert (initialized / ".brain-core" / "index.md").read_text() == "# Brain Core\n\nNew version.\n"
+        assert (initialized / ".brain-core" / "guide.md").read_text() == "# Guide\n\nUpdated guide.\n"
+
+    def test_upgrade_reports_diff(self, initialized, source):
+        result = json.loads(server.brain_action("upgrade", {"source": str(source)}))
+        assert result["status"] == "ok"
+        assert isinstance(result["files_added"], list)
+        assert isinstance(result["files_modified"], list)
+        assert isinstance(result["files_removed"], list)
+        assert isinstance(result["files_unchanged"], int)
+
+    def test_upgrade_updates_version(self, initialized, source):
+        result = json.loads(server.brain_action("upgrade", {"source": str(source)}))
+        assert result["old_version"] == "0.7.0"
+        assert result["new_version"] == "0.8.0"
+        assert (initialized / ".brain-core" / "VERSION").read_text().strip() == "0.8.0"
+
+    def test_upgrade_skips_same_version(self, initialized, source):
+        (source / "VERSION").write_text("0.7.0\n")
+        result = json.loads(server.brain_action("upgrade", {"source": str(source)}))
+        assert result["status"] == "skipped"
+
+    def test_upgrade_skips_downgrade(self, initialized, source):
+        (source / "VERSION").write_text("0.6.0\n")
+        result = json.loads(server.brain_action("upgrade", {"source": str(source)}))
+        assert result["status"] == "skipped"
+        assert "Downgrade" in result["message"]
+
+    def test_upgrade_force_downgrade(self, initialized, source):
+        (source / "VERSION").write_text("0.6.0\n")
+        result = json.loads(server.brain_action("upgrade", {
+            "source": str(source), "force": True
+        }))
+        assert result["status"] == "ok"
+        assert result["new_version"] == "0.6.0"
+
+    def test_upgrade_dry_run(self, initialized, source):
+        result = json.loads(server.brain_action("upgrade", {
+            "source": str(source), "dry_run": True
+        }))
+        assert result["status"] == "ok"
+        assert result["dry_run"] is True
+        # Version should NOT have changed on disk
+        assert (initialized / ".brain-core" / "VERSION").read_text().strip() == "0.7.0"
+
+    def test_upgrade_removes_obsolete_files(self, initialized, source):
+        # Add a file only in the vault's .brain-core (not in source)
+        (initialized / ".brain-core" / "obsolete.md").write_text("old\n")
+        result = json.loads(server.brain_action("upgrade", {"source": str(source)}))
+        assert result["status"] == "ok"
+        assert "obsolete.md" in result["files_removed"]
+        assert not (initialized / ".brain-core" / "obsolete.md").exists()
+
+    def test_upgrade_excludes_pycache(self, initialized, source):
+        pycache = source / "__pycache__"
+        pycache.mkdir()
+        (pycache / "module.cpython-312.pyc").write_text("bytecode\n")
+        result = json.loads(server.brain_action("upgrade", {"source": str(source)}))
+        assert result["status"] == "ok"
+        assert not (initialized / ".brain-core" / "__pycache__").exists()
+
+    def test_upgrade_missing_source(self, initialized):
+        result = json.loads(server.brain_action("upgrade", {"source": "/nonexistent/path"}))
+        assert result["status"] == "error"
+
+    def test_upgrade_missing_source_version(self, initialized, tmp_path):
+        empty_src = tmp_path / "empty-src"
+        empty_src.mkdir()
+        result = json.loads(server.brain_action("upgrade", {"source": str(empty_src)}))
+        assert result["status"] == "error"
+
+    def test_upgrade_via_mcp_action(self, initialized, source):
+        """End-to-end: upgrade triggers post-upgrade recompile + index rebuild."""
+        result = json.loads(server.brain_action("upgrade", {"source": str(source)}))
+        assert result["status"] == "ok"
+        assert "post_upgrade" in result
+        # Router and index should still be valid after upgrade
+        assert server._router is not None
+        assert server._index is not None
+
+
+# ---------------------------------------------------------------------------
+# Workspace registry — script tests
+# ---------------------------------------------------------------------------
+
+class TestWorkspaceRegistryScript:
+    """Tests for workspace_registry.py script functions."""
+
+    def test_load_empty_registry(self, vault):
+        """No .brain/ directory → empty registry."""
+        result = workspace_registry.load_registry(str(vault))
+        assert result == {}
+
+    def test_load_malformed_registry(self, vault):
+        """Malformed JSON → empty registry (graceful fallback)."""
+        brain_dir = vault / ".brain"
+        brain_dir.mkdir()
+        (brain_dir / "workspaces.json").write_text("not json{{{")
+        result = workspace_registry.load_registry(str(vault))
+        assert result == {}
+
+    def test_save_and_load_roundtrip(self, vault):
+        """Save then load returns the same data."""
+        registry = {"my-project": {"path": "/tmp/my-project"}}
+        workspace_registry.save_registry(str(vault), registry)
+        loaded = workspace_registry.load_registry(str(vault))
+        assert loaded == registry
+
+    def test_save_creates_brain_dir(self, vault):
+        """save_registry creates .brain/ if it doesn't exist."""
+        assert not (vault / ".brain").exists()
+        workspace_registry.save_registry(str(vault), {"test": {"path": "/tmp"}})
+        assert (vault / ".brain" / "workspaces.json").exists()
+
+    def test_resolve_embedded(self, vault):
+        """Embedded workspace resolves via _Workspaces/{slug}/."""
+        ws_dir = vault / "_Workspaces" / "my-data"
+        ws_dir.mkdir(parents=True)
+        result = workspace_registry.resolve_workspace(str(vault), "my-data")
+        assert result["slug"] == "my-data"
+        assert result["mode"] == "embedded"
+        assert result["path"] == str(ws_dir)
+
+    def test_resolve_linked(self, vault, tmp_path):
+        """Linked workspace resolves via registry."""
+        ext_path = str(tmp_path / "external-project")
+        registry = {"ext-proj": {"path": ext_path}}
+        result = workspace_registry.resolve_workspace(str(vault), "ext-proj", registry=registry)
+        assert result["slug"] == "ext-proj"
+        assert result["mode"] == "linked"
+        assert result["path"] == ext_path
+
+    def test_resolve_embedded_takes_precedence(self, vault, tmp_path):
+        """Embedded workspace takes precedence over linked registration."""
+        ws_dir = vault / "_Workspaces" / "dual"
+        ws_dir.mkdir(parents=True)
+        registry = {"dual": {"path": str(tmp_path / "somewhere-else")}}
+        result = workspace_registry.resolve_workspace(str(vault), "dual", registry=registry)
+        assert result["mode"] == "embedded"
+
+    def test_resolve_unknown_raises(self, vault):
+        """Unknown slug raises ValueError."""
+        with pytest.raises(ValueError, match="Unknown workspace"):
+            workspace_registry.resolve_workspace(str(vault), "nonexistent")
+
+    def test_resolve_tilde_expansion(self, vault):
+        """Linked path with ~ gets expanded."""
+        registry = {"tilde-proj": {"path": "~/my-project"}}
+        result = workspace_registry.resolve_workspace(str(vault), "tilde-proj", registry=registry)
+        assert "~" not in result["path"]
+        assert os.path.expanduser("~") in result["path"]
+
+    def test_list_empty(self, vault):
+        """No workspaces → empty list."""
+        result = workspace_registry.list_workspaces(str(vault))
+        assert result == []
+
+    def test_list_embedded_only(self, vault):
+        """Discovers embedded workspaces from _Workspaces/."""
+        (vault / "_Workspaces" / "alpha").mkdir(parents=True)
+        (vault / "_Workspaces" / "beta").mkdir(parents=True)
+        result = workspace_registry.list_workspaces(str(vault))
+        slugs = [w["slug"] for w in result]
+        assert "alpha" in slugs
+        assert "beta" in slugs
+        assert all(w["mode"] == "embedded" for w in result)
+
+    def test_list_linked_only(self, vault, tmp_path):
+        """Lists linked workspaces from registry."""
+        registry = {"ext": {"path": str(tmp_path / "ext")}}
+        result = workspace_registry.list_workspaces(str(vault), registry=registry)
+        assert len(result) == 1
+        assert result[0]["slug"] == "ext"
+        assert result[0]["mode"] == "linked"
+
+    def test_list_combined(self, vault, tmp_path):
+        """Lists both embedded and linked workspaces."""
+        (vault / "_Workspaces" / "local").mkdir(parents=True)
+        registry = {"remote": {"path": str(tmp_path / "remote")}}
+        result = workspace_registry.list_workspaces(str(vault), registry=registry)
+        slugs = [w["slug"] for w in result]
+        assert "local" in slugs
+        assert "remote" in slugs
+
+    def test_list_skips_system_dirs(self, vault):
+        """System dirs (_Archive, .hidden) in _Workspaces/ are excluded."""
+        ws = vault / "_Workspaces"
+        ws.mkdir(parents=True)
+        (ws / "_Archive").mkdir()
+        (ws / ".hidden").mkdir()
+        (ws / "real-workspace").mkdir()
+        result = workspace_registry.list_workspaces(str(vault))
+        slugs = [w["slug"] for w in result]
+        assert slugs == ["real-workspace"]
+
+    def test_list_enriched_with_hub_metadata(self, vault):
+        """Hub artefact metadata enriches the workspace listing."""
+        (vault / "_Workspaces" / "taxes").mkdir(parents=True)
+        hub_dir = vault / "Workspaces"
+        hub_dir.mkdir(parents=True)
+        (hub_dir / "taxes.md").write_text(
+            "---\ntype: living/workspace\nstatus: active\n"
+            "workspace_mode: embedded\ntags:\n  - workspace/taxes\n---\n\n# Taxes\n"
+        )
+        result = workspace_registry.list_workspaces(str(vault))
+        assert len(result) == 1
+        ws = result[0]
+        assert ws["status"] == "active"
+        assert ws["hub_path"] == "Workspaces/taxes.md"
+
+    def test_register_creates_entry(self, vault, tmp_path):
+        """register_workspace adds to .brain/workspaces.json."""
+        ext_path = str(tmp_path / "my-project")
+        result = workspace_registry.register_workspace(str(vault), "my-project", ext_path)
+        assert result["status"] == "ok"
+        assert result["action"] == "registered"
+        # Verify on disk
+        loaded = workspace_registry.load_registry(str(vault))
+        assert "my-project" in loaded
+        assert loaded["my-project"]["path"] == ext_path
+
+    def test_register_updates_existing(self, vault, tmp_path):
+        """Re-registering updates the path."""
+        workspace_registry.register_workspace(str(vault), "proj", str(tmp_path / "v1"))
+        result = workspace_registry.register_workspace(str(vault), "proj", str(tmp_path / "v2"))
+        assert result["action"] == "updated"
+        loaded = workspace_registry.load_registry(str(vault))
+        assert loaded["proj"]["path"] == str(tmp_path / "v2")
+
+    def test_register_rejects_embedded_conflict(self, vault, tmp_path):
+        """Cannot register linked workspace when embedded exists."""
+        (vault / "_Workspaces" / "conflict").mkdir(parents=True)
+        with pytest.raises(ValueError, match="embedded workspace already exists"):
+            workspace_registry.register_workspace(
+                str(vault), "conflict", str(tmp_path / "elsewhere")
+            )
+
+    def test_unregister_removes_entry(self, vault, tmp_path):
+        """unregister_workspace removes from .brain/workspaces.json."""
+        workspace_registry.register_workspace(str(vault), "temp", str(tmp_path / "temp"))
+        result = workspace_registry.unregister_workspace(str(vault), "temp")
+        assert result["status"] == "ok"
+        loaded = workspace_registry.load_registry(str(vault))
+        assert "temp" not in loaded
+
+    def test_unregister_unknown_raises(self, vault):
+        """Cannot unregister a workspace that isn't registered."""
+        with pytest.raises(ValueError, match="not registered"):
+            workspace_registry.unregister_workspace(str(vault), "ghost")
+
+
+# ---------------------------------------------------------------------------
+# Workspace registry — MCP server integration tests
+# ---------------------------------------------------------------------------
+
+class TestWorkspaceRead:
+    """Tests for brain_read(resource='workspace')."""
+
+    @pytest.fixture(autouse=True)
+    def setup_workspaces(self, initialized):
+        """Add workspace fixtures to the vault."""
+        self.vault = initialized
+        # Embedded workspace
+        (initialized / "_Workspaces" / "analysis").mkdir(parents=True)
+        # Hub artefact
+        (initialized / "Workspaces").mkdir(parents=True)
+        (initialized / "Workspaces" / "analysis.md").write_text(
+            "---\ntype: living/workspace\nstatus: active\n"
+            "workspace_mode: embedded\ntags:\n  - workspace/analysis\n---\n\n# Analysis\n"
+        )
+
+    def test_list_workspaces(self):
+        result = json.loads(server.brain_read("workspace"))
+        assert isinstance(result, list)
+        slugs = [w["slug"] for w in result]
+        assert "analysis" in slugs
+
+    def test_list_workspace_shape(self):
+        result = json.loads(server.brain_read("workspace"))
+        ws = [w for w in result if w["slug"] == "analysis"][0]
+        assert ws["mode"] == "embedded"
+        assert "path" in ws
+        assert ws["hub_path"] == "Workspaces/analysis.md"
+
+    def test_resolve_workspace_by_slug(self):
+        result = json.loads(server.brain_read("workspace", name="analysis"))
+        assert result["slug"] == "analysis"
+        assert result["mode"] == "embedded"
+        assert "path" in result
+
+    def test_resolve_unknown_workspace(self):
+        result = json.loads(server.brain_read("workspace", name="nonexistent"))
+        assert "error" in result
+
+
+class TestWorkspaceActions:
+    """Tests for brain_action register/unregister workspace."""
+
+    def test_register_linked_workspace(self, initialized, tmp_path):
+        ext_path = str(tmp_path / "my-repo")
+        result = json.loads(server.brain_action("register_workspace", {
+            "slug": "my-repo", "path": ext_path,
+        }))
+        assert result["status"] == "ok"
+        assert result["action"] == "registered"
+        # Verify server state was refreshed
+        assert "my-repo" in server._workspace_registry
+
+    def test_register_missing_params(self, initialized):
+        result = json.loads(server.brain_action("register_workspace"))
+        assert "error" in result
+
+    def test_register_missing_path(self, initialized):
+        result = json.loads(server.brain_action("register_workspace", {"slug": "x"}))
+        assert "error" in result
+
+    def test_unregister_workspace(self, initialized, tmp_path):
+        # Register first
+        server.brain_action("register_workspace", {
+            "slug": "temp", "path": str(tmp_path / "temp"),
+        })
+        result = json.loads(server.brain_action("unregister_workspace", {"slug": "temp"}))
+        assert result["status"] == "ok"
+        assert "temp" not in server._workspace_registry
+
+    def test_unregister_missing_params(self, initialized):
+        result = json.loads(server.brain_action("unregister_workspace"))
+        assert "error" in result
+
+    def test_unregister_unknown_slug(self, initialized):
+        result = json.loads(server.brain_action("unregister_workspace", {"slug": "ghost"}))
+        assert "error" in result
+
+    def test_registered_workspace_visible_in_read(self, initialized, tmp_path):
+        """After registering, brain_read workspace should list it."""
+        ext_path = str(tmp_path / "visible-proj")
+        server.brain_action("register_workspace", {
+            "slug": "visible-proj", "path": ext_path,
+        })
+        result = json.loads(server.brain_read("workspace"))
+        slugs = [w["slug"] for w in result]
+        assert "visible-proj" in slugs
+
+    def test_registered_workspace_resolvable(self, initialized, tmp_path):
+        """After registering, brain_read workspace name=slug should resolve."""
+        ext_path = str(tmp_path / "resolvable")
+        server.brain_action("register_workspace", {
+            "slug": "resolvable", "path": ext_path,
+        })
+        result = json.loads(server.brain_read("workspace", name="resolvable"))
+        assert result["slug"] == "resolvable"
+        assert result["mode"] == "linked"
+        assert result["path"] == ext_path
+
+
+# ---------------------------------------------------------------------------
+# Startup loads workspace registry
+# ---------------------------------------------------------------------------
+
+class TestWorkspaceStartup:
+    def test_startup_loads_empty_registry(self, vault):
+        """Startup with no .brain/ → empty registry."""
+        server.startup(vault_root=str(vault))
+        assert server._workspace_registry == {}
+
+    def test_startup_loads_existing_registry(self, vault, tmp_path):
+        """Startup with .brain/workspaces.json → loaded registry."""
+        brain_dir = vault / ".brain"
+        brain_dir.mkdir()
+        (brain_dir / "workspaces.json").write_text(json.dumps({
+            "workspaces": {"pre-existing": {"path": str(tmp_path / "pre")}}
+        }))
+        server.startup(vault_root=str(vault))
+        assert "pre-existing" in server._workspace_registry

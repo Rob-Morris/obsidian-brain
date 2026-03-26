@@ -59,6 +59,8 @@ import edit
 import obsidian_cli
 import session
 import shape_presentation
+import upgrade
+import workspace_registry
 
 # Constants that don't change between versions
 COMPILED_ROUTER_REL = compile_router.OUTPUT_PATH
@@ -76,6 +78,7 @@ _index: dict | None = None
 _cli_available: bool = False
 _vault_name: str | None = None
 _loaded_version: str | None = None
+_workspace_registry: dict | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -98,7 +101,7 @@ def _read_disk_version(vault_root: str) -> str | None:
 _SCRIPT_MODULES = [
     "_common", "compile_router", "compile_colours", "build_index",
     "search_index", "read", "create", "edit", "rename", "obsidian_cli",
-    "session", "shape_presentation",
+    "session", "shape_presentation", "upgrade", "workspace_registry",
 ]
 
 
@@ -250,7 +253,7 @@ def _build_index_and_save(vault_root: str) -> dict:
 
 def startup(vault_root: str | None = None) -> None:
     """Initialize server state: find vault, compile/build if stale, load data."""
-    global _vault_root, _router, _index, _cli_available, _vault_name, _loaded_version
+    global _vault_root, _router, _index, _cli_available, _vault_name, _loaded_version, _workspace_registry
 
     if vault_root is None:
         vault_root = os.environ.get("BRAIN_VAULT_ROOT")
@@ -269,6 +272,9 @@ def startup(vault_root: str | None = None) -> None:
     # Auto-build index if stale
     stale, data = _check_index(_vault_root)
     _index = _build_index_and_save(_vault_root) if stale else data
+
+    # Load workspace registry
+    _workspace_registry = workspace_registry.load_registry(_vault_root)
 
     # Probe Obsidian CLI availability
     _cli_available = obsidian_cli.check_available()
@@ -321,6 +327,7 @@ def brain_read(resource: str, name: str | None = None) -> str:
       skill       — list skills, or read a specific skill file by name
       plugin      — list plugins, or read a specific plugin file by name
       memory      — list memories, or search by trigger/name (case-insensitive substring)
+      workspace   — list workspaces, or resolve a specific workspace by slug (name = slug)
       environment — runtime environment info
       router      — always-rules and metadata
       compliance  — run structural compliance checks (name = severity filter: error/warning/info)
@@ -331,6 +338,22 @@ def brain_read(resource: str, name: str | None = None) -> str:
 
     if _router is None:
         return "Error: server not initialized"
+
+    # Workspace resource: handled by server (registry is server state, not router state)
+    if resource == "workspace":
+        if name:
+            try:
+                result = workspace_registry.resolve_workspace(
+                    _vault_root, name, registry=_workspace_registry,
+                )
+                return json.dumps(result, indent=2, ensure_ascii=False)
+            except ValueError as e:
+                return json.dumps({"error": str(e)})
+        else:
+            result = workspace_registry.list_workspaces(
+                _vault_root, registry=_workspace_registry,
+            )
+            return json.dumps(result, indent=2, ensure_ascii=False)
 
     result = read_mod.read_resource(_router, _vault_root, resource, name)
 
@@ -490,14 +513,17 @@ def brain_action(action: str, params: dict | None = None) -> str:
     """Perform vault-wide actions. Mutations — may modify multiple files.
 
     Actions:
-      compile            — recompile the router from source files
-      build_index        — rebuild the BM25 retrieval index
-      rename             — rename/move a file (params: {source, dest} as relative paths)
-      delete             — delete a file and clean wikilinks (params: {path})
-      convert            — convert artefact to different type (params: {path, target_type})
-      shape-presentation — create presentation + launch live preview (params: {source, slug})
+      compile              — recompile the router from source files
+      build_index          — rebuild the BM25 retrieval index
+      rename               — rename/move a file (params: {source, dest} as relative paths)
+      delete               — delete a file and clean wikilinks (params: {path})
+      convert              — convert artefact to different type (params: {path, target_type})
+      shape-presentation   — create presentation + launch live preview (params: {source, slug})
+      upgrade              — upgrade brain-core from source (params: {source}, optional: {dry_run, force})
+      register_workspace   — register a linked workspace (params: {slug, path})
+      unregister_workspace — remove a linked workspace registration (params: {slug})
     """
-    global _router, _index
+    global _router, _index, _workspace_registry
 
     _check_and_reload()
 
@@ -594,8 +620,47 @@ def brain_action(action: str, params: dict | None = None) -> str:
         result = shape_presentation.shape(_vault_root, params)
         return json.dumps(result, indent=2)
 
+    elif action == "register_workspace":
+        if not params or "slug" not in params or "path" not in params:
+            return json.dumps({"error": "register_workspace requires params: {slug, path}"})
+        try:
+            result = workspace_registry.register_workspace(
+                _vault_root, params["slug"], params["path"],
+            )
+            _workspace_registry[params["slug"]] = {"path": params["path"]}
+            return json.dumps(result, indent=2)
+        except ValueError as e:
+            return json.dumps({"error": str(e)})
+
+    elif action == "unregister_workspace":
+        if not params or "slug" not in params:
+            return json.dumps({"error": "unregister_workspace requires params: {slug}"})
+        try:
+            result = workspace_registry.unregister_workspace(
+                _vault_root, params["slug"],
+            )
+            _workspace_registry.pop(params["slug"], None)
+            return json.dumps(result, indent=2)
+        except ValueError as e:
+            return json.dumps({"error": str(e)})
+
+    elif action == "upgrade":
+        if not params or "source" not in params:
+            return json.dumps({"error": "upgrade requires params: {source} (path to source brain-core dir)"})
+        source = params["source"]
+        dry_run = params.get("dry_run", False)
+        force = params.get("force", False)
+        result = upgrade.upgrade(_vault_root, source, force=force, dry_run=dry_run)
+        if result["status"] == "ok" and not dry_run:
+            _check_and_reload()
+            _router = _compile_and_save(_vault_root)
+            _index = _build_index_and_save(_vault_root)
+            result["post_upgrade"] = "Reloaded modules, recompiled router, rebuilt index."
+        return json.dumps(result, indent=2)
+
     else:
-        valid = ["compile", "build_index", "rename", "delete", "convert", "shape-presentation"]
+        valid = ["compile", "build_index", "rename", "delete", "convert",
+                 "shape-presentation", "upgrade", "register_workspace", "unregister_workspace"]
         return json.dumps({"error": f"Unknown action '{action}'. Valid: {', '.join(valid)}"})
 
 

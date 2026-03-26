@@ -2,6 +2,14 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.12.2 — 2026-03-26
+
+- **Workspace registry** — workspace slug-to-path resolution for linked workspaces. New script: `workspace_registry.py`. Embedded workspaces resolve implicitly (`slug` → `_Workspaces/slug/`); linked workspaces store external paths in `.brain/workspaces.json` (machine-local, not version-controlled). MCP server loads registry on startup. New `brain_read` resource: `workspace` (list all workspaces or resolve by slug). New `brain_action` actions: `register_workspace` and `unregister_workspace` for managing linked workspace registrations. Hub artefact metadata (status, tags) enriches workspace listings. 566 tests (was 532)
+
+## v0.12.1 — 2026-03-26
+
+- **`upgrade` brain_action + standalone script** — in-place brain-core upgrade from a source directory. Copies files, diffs trees, removes obsolete files, reports added/modified/removed/unchanged. Version-aware: skips same-version, warns on downgrade (both overridable with `--force`). Supports `--dry-run` for preview. MCP action triggers post-upgrade module reload, router recompile, and index rebuild automatically. New script: `upgrade.py`. 532 tests (was 520)
+
 ## v0.12.0 — 2026-03-25
 
 - **`brain_session` MCP tool** — new top-level tool for agent session bootstrap. Returns a compiled, token-efficient payload in one round trip: always-rules, user preferences, gotchas, triggers, condensed artefact types, environment, memory/skill/plugin/style indexes. The server actively compiles this — stripping frontmatter from user files, condensing artefact metadata, merging environment state. Accepts an optional `context` parameter (forward-compatible stub for future context-scoped sessions). New script: `session.py`. 6th MCP tool (was 5). 520 tests (was 503)
