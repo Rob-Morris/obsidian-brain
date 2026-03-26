@@ -180,7 +180,7 @@ If your vault has the Brain MCP server running, you get six tools:
 - **brain_read** — look up artefacts, triggers, styles, templates, workspaces, run structural compliance checks, or read artefact files by path
 - **brain_search** — find files by query, type, or tag
 - **brain_create** — create a new artefact (additive, safe to auto-approve)
-- **brain_edit** — edit or append to an existing artefact (single-file mutation)
+- **brain_edit** — edit or append to an existing artefact (single-file mutation); optional `target` parameter for section-level operations
 - **brain_action** — compile the router, build the search index, rename, delete, convert files, register/unregister workspaces
 
 For structural compliance (naming, frontmatter, archives), run `python3 .brain-core/scripts/check.py` or use `brain_read(resource="compliance")` via MCP.
