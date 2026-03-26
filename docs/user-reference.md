@@ -747,7 +747,7 @@ Hub artefacts (People, Projects, Journals, Workspaces) are living summaries that
 
 **Contextual linking:** Weave links into prose — don't list them as changelog entries. Link text should read naturally: `Scope narrowed after the [[decision-log|March review]]` not `- See [[20260320-decision--review]]`.
 
-**Ingestion:** When receiving a dump of information, decompose into artefacts first (observations, research, decisions, entries), then write or update the hub as an interpreted summary.
+**Ingestion:** Match the effort to the input. Minimal info → create a minimal hub, no fuss, grow it later. Rich dump → decompose into artefacts first (observations, research, decisions, entries), then write or update the hub as an interpreted summary.
 
 **Elicitation:** Hubs are natural moments to be curious. When creating or revisiting a hub, notice gaps and ask natural questions. Capture answers as temporals, then update the hub.
 

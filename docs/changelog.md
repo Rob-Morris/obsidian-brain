@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.13.1 — 2026-03-26
+
+- **"Match the effort to the input" ingestion principle** — hub pattern standard and all hub taxonomies (people, projects, journals) now split ingestion into two paths: minimal input creates a minimal hub with no fuss; rich input decomposes into artefacts. Backported from vault-refined people taxonomy. Projects and journals also gain separate Contextual Linking and Create Temporals subsections matching the people taxonomy's structure.
+
 ## v0.13.0 — 2026-03-26
 
 - **"Be curious, then capture" core principle** — new principle in index.md. Agents should actively seek signal: notice gaps, ask natural questions at natural moments, capture answers as artefacts. The vault improves by eliciting, not just recording.

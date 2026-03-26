@@ -49,7 +49,15 @@ Not every entry triggers a hub update. But when entries reveal a shift — a new
 
 ## Ingestion
 
-When the user dumps a mix of reflections and observations:
+Match the effort to the input. Don't ask unnecessary questions — just create what you can and grow it later.
+
+### Minimal input → minimal hub, no fuss
+
+If the user wants to start a journal stream, create the hub with a name and a line about what the stream is for. Don't ask for more detail. The first few entries will shape it naturally.
+
+### Rich input → decompose into artefacts
+
+If the user dumps a mix of reflections and observations, decompose:
 
 - **Personal reflections and recollections** → journal entries, tagged `journal/{slug}`
 - **Discrete facts learned** → observations, tagged with relevant hubs

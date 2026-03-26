@@ -30,9 +30,15 @@ Research, decisions, plans, and logs tagged `project/{slug}` feed this hub. When
 
 ## Ingestion
 
-When creating a project from a brief or dump of information:
+Match the effort to the input. Don't ask unnecessary questions — just create what you can and grow it later.
 
-### 1. Decompose into artefacts
+### Minimal input → minimal hub, no fuss
+
+If the user gives you a project name and a sentence, create the hub immediately with what you have. Leave empty sections empty. Don't ask clarifying questions unless something is genuinely ambiguous. Look for a natural opportunity to expand later.
+
+### Rich input → decompose into artefacts
+
+If the user dumps a brief with lots of detail, decompose:
 
 - **Goals, scope, current status** → the project hub body
 - **Research findings** → research artefacts, tagged `project/{slug}`
@@ -41,13 +47,17 @@ When creating a project from a brief or dump of information:
 - **Ideas surfaced** → idea logs, tagged `project/{slug}`
 - **Timeline of what happened** → log entry
 
-### 2. Write the hub as a summary
+### Writing the hub
 
-The project hub is an interpreted summary, not a raw dump. Sections should read as a concise brief on the current state: what the project is, what it's trying to achieve, where it stands, what's next. Weave contextual links to temporal artefacts where they add depth.
+The project hub is an interpreted summary, not a raw dump. Sections should read as a concise brief on the current state: what the project is, what it's trying to achieve, where it stands, what's next.
 
-### 3. Create temporals first, then write the hub
+### Contextual linking
 
-Spin out research, decisions, plans, and other temporals *before* writing the project hub. This ensures you have links to weave in, and forces you to separate evidence from summary.
+Weave links to temporal artefacts into prose where they add depth. Don't list them as changelog entries — the link text should read naturally as part of the sentence.
+
+### Create temporals first when decomposing
+
+When there's rich input to decompose, spin out research, decisions, plans, and other temporals *before* writing the project hub. This ensures you have links to weave in, and forces you to separate evidence from summary.
 
 ## Template
 

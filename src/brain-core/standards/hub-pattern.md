@@ -47,6 +47,14 @@ Link text should read naturally as part of the sentence. Changelog-style lists l
 
 ## Ingestion
 
+Match the effort to the input. A name and a sentence creates a minimal hub — don't interrogate. A rich dump decomposes into artefacts.
+
+### Minimal input → minimal hub, no fuss
+
+If the user gives you basic info, create the hub immediately with what you have. Leave empty sections empty. Don't ask clarifying questions unless something is genuinely ambiguous. Look for a natural opportunity to expand later — ask a single question at most, or just do it.
+
+### Rich input → decompose into artefacts
+
 When receiving a dump of information about a hub's subject (a project brief, everything someone knows about a person, a journal-worthy reflection), decompose before writing:
 
 1. **Identify artefact types** — what's a durable fact (hub body), what's a discrete observation, what's an idea, what's a timeline event?

@@ -38,16 +38,22 @@ Observations tagged `person/{slug}` feed this card. When an observation changes 
 
 ## Ingestion
 
-When creating a person card from a narrative brief (a user dumping everything they know about someone in one go):
+Match the effort to the input. Don't ask unnecessary questions — just create what you can and grow it later.
 
-### 1. Decompose into artefacts
+### Minimal input → minimal card, no fuss
+
+If the user gives you basic info about a person, create the card immediately with what you have. Leave empty sections empty. Don't ask clarifying questions unless something is genuinely ambiguous (e.g. you can't tell which name to use for the filename). Look for a natural opportunity to expand — ask a single question at most, or just do it.
+
+### Rich input → decompose into artefacts
+
+If the user dumps a narrative brief with lots of detail, decompose:
 
 - **Durable facts** (identity, relationships, traits) → the person card body
 - **Discrete things learned** (terminology, quotes, preferences) → observations, tagged `person/{slug}`
 - **Actionable sparks** (ideas triggered by the interaction) → idea logs, tagged `person/{slug}`
 - **Timeline** → log entry
 
-### 2. Write the card as a summary report
+### Writing the card
 
 The person card is an interpreted summary, not a raw dump. Each section should read as a concise brief on the current picture:
 
@@ -55,17 +61,17 @@ The person card is an interpreted summary, not a raw dump. Each section should r
 - **Relationship** — how you know each other, the nature of the connection. Capture the vibe, not just the facts.
 - **Opportunities** — active threads, things you might do together, what's in play. Forward-looking.
 
-### 3. Link contextually to temporal artefacts
+### Contextual linking
 
-Don't list temporal artefacts as changelog entries. Instead, weave links into the prose where they add depth. The link text should read naturally as part of the sentence — the reader clicks through for evidence, not to understand the summary.
+Don't list temporal artefacts as changelog entries. Weave links into the prose where they add depth. The link text should read naturally as part of the sentence — the reader clicks through for evidence, not to understand the summary.
 
 Good: `[[observation|Interested in the brain system]]. Up for collaborating on a [[idea-log|podcast or screencast demo]].`
 
 Bad: `- 2026-03-26 — See [[observation]] and [[idea-log]].`
 
-### 4. Create temporals first, then write the card
+### Create temporals first when decomposing
 
-Spin out observations, idea logs, and other temporals *before* writing the person card. This ensures you have links to weave in, and forces you to separate raw evidence from interpreted summary.
+When there's rich input to decompose, spin out observations, idea logs, and other temporals *before* writing the person card. This ensures you have links to weave in, and forces you to separate raw evidence from interpreted summary.
 
 The person card is the hub. Temporal artefacts are the evidence trail.
 
