@@ -5,3 +5,8 @@ tags:
 status: active
 ---
 
+## Who
+
+## How we know each other
+
+## Notes

@@ -5,7 +5,7 @@ import os
 import pytest
 
 import edit
-from _common import parse_frontmatter
+from _common import find_section, parse_frontmatter
 
 
 # ---------------------------------------------------------------------------
@@ -204,3 +204,212 @@ class TestConvertArtefact:
     def test_convert_file_not_found(self, vault, router):
         with pytest.raises(FileNotFoundError):
             edit.convert_artefact(str(vault), router, "Wiki/gone.md", "designs")
+
+
+# ---------------------------------------------------------------------------
+# find_section tests
+# ---------------------------------------------------------------------------
+
+class TestFindSection:
+    def test_finds_section_boundaries(self):
+        body = "## Alpha\n\nAlpha content.\n\n## Beta\n\nBeta content.\n"
+        start, end = find_section(body, "Alpha")
+        section = body[start:end]
+        assert "Alpha content." in section
+        assert "Beta content." not in section
+
+    def test_section_at_end_of_file(self):
+        body = "## First\n\nFirst content.\n\n## Last\n\nLast content.\n"
+        start, end = find_section(body, "Last")
+        section = body[start:end]
+        assert "Last content." in section
+        assert end == len(body)
+
+    def test_case_insensitive(self):
+        body = "## Notes\n\nSome notes.\n\n## Other\n\nOther stuff.\n"
+        start, end = find_section(body, "notes")
+        assert "Some notes." in body[start:end]
+
+    def test_sub_headings_included(self):
+        body = "## Parent\n\nIntro.\n\n### Child\n\nChild content.\n\n## Sibling\n\nSibling.\n"
+        start, end = find_section(body, "Parent")
+        section = body[start:end]
+        assert "Intro." in section
+        assert "### Child" in section
+        assert "Child content." in section
+        assert "Sibling." not in section
+
+    def test_missing_section_raises(self):
+        body = "## Alpha\n\nContent.\n"
+        with pytest.raises(ValueError, match="not found"):
+            find_section(body, "Nonexistent")
+
+    def test_skips_headings_in_fenced_code_blocks(self):
+        body = (
+            "## Real\n\nContent.\n\n"
+            "```markdown\n## Fake\n\nFake content.\n```\n\n"
+            "More content.\n\n## Next\n\nNext stuff.\n"
+        )
+        start, end = find_section(body, "Real")
+        section = body[start:end]
+        assert "Content." in section
+        assert "## Fake" in section  # fence is part of Real's section
+        assert "More content." in section
+        assert "Next stuff." not in section
+
+    def test_heading_in_fence_not_found_as_section(self):
+        body = "## Real\n\n```\n## OnlyInFence\n```\n"
+        with pytest.raises(ValueError, match="not found"):
+            find_section(body, "OnlyInFence")
+
+    def test_level_specific_match(self):
+        body = "## Notes\n\nTop.\n\n### Notes\n\nSub.\n\n## Other\n\nOther.\n"
+        # "### Notes" matches the h3 specifically
+        start, end = find_section(body, "### Notes")
+        section = body[start:end]
+        assert "Sub." in section
+        assert "Top." not in section
+
+    def test_plain_match_gets_first(self):
+        body = "## Notes\n\nTop.\n\n### Notes\n\nSub.\n\n## Other\n\nOther.\n"
+        # "Notes" without markers matches the first (## Notes)
+        start, end = find_section(body, "Notes")
+        section = body[start:end]
+        assert "Top." in section
+        assert "Sub." in section  # sub-heading is part of parent section
+
+
+# ---------------------------------------------------------------------------
+# Append with section tests
+# ---------------------------------------------------------------------------
+
+class TestAppendWithSection:
+    def test_append_to_middle_section(self, vault, router):
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "## Alpha\n\nAlpha content.\n\n## Beta\n\nBeta content.\n"
+        )
+        edit.append_to_artefact(
+            str(vault), router, "Wiki/test-page.md",
+            "Appended to alpha.\n", target="Alpha",
+        )
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        _, body = parse_frontmatter(content)
+        # Appended content should appear before ## Beta
+        alpha_end = body.index("## Beta")
+        assert "Appended to alpha.\n" in body[:alpha_end]
+        assert "Beta content." in body
+
+    def test_append_to_last_section(self, vault, router):
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "## Only\n\nOnly content.\n"
+        )
+        edit.append_to_artefact(
+            str(vault), router, "Wiki/test-page.md",
+            "More stuff.\n", target="Only",
+        )
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        _, body = parse_frontmatter(content)
+        assert body.endswith("More stuff.\n")
+
+    def test_append_section_not_found(self, vault, router):
+        with pytest.raises(ValueError, match="not found"):
+            edit.append_to_artefact(
+                str(vault), router, "Wiki/test-page.md",
+                "text", target="Nonexistent",
+            )
+
+    def test_append_without_section_unchanged(self, vault, router):
+        edit.append_to_artefact(
+            str(vault), router, "Wiki/test-page.md", "\nAppended.\n",
+        )
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        assert content.endswith("\nAppended.\n")
+
+    def test_append_to_sub_heading(self, vault, router):
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "## Parent\n\nIntro.\n\n### Child\n\n- Item 1\n\n"
+            "### Sibling\n\nSibling content.\n\n## Other\n\nOther.\n"
+        )
+        edit.append_to_artefact(
+            str(vault), router, "Wiki/test-page.md",
+            "- Item 2\n", target="### Child",
+        )
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        _, body = parse_frontmatter(content)
+        # New item should be in Child section, before Sibling
+        child_end = body.index("### Sibling")
+        assert "- Item 2" in body[:child_end]
+        assert "Sibling content." in body
+        assert "Other." in body
+
+
+# ---------------------------------------------------------------------------
+# Edit with section tests
+# ---------------------------------------------------------------------------
+
+class TestEditWithSection:
+    def test_edit_replaces_section_only(self, vault, router):
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "## Alpha\n\nAlpha content.\n\n## Beta\n\nBeta content.\n"
+        )
+        edit.edit_artefact(
+            str(vault), router, "Wiki/test-page.md",
+            "\nReplaced alpha.\n\n", target="Alpha",
+        )
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        _, body = parse_frontmatter(content)
+        assert "Replaced alpha." in body
+        assert "Alpha content." not in body
+        assert "Beta content." in body
+
+    def test_edit_replaces_last_section(self, vault, router):
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "## First\n\nFirst content.\n\n## Last\n\nLast content.\n"
+        )
+        edit.edit_artefact(
+            str(vault), router, "Wiki/test-page.md",
+            "\nNew last.\n", target="Last",
+        )
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        _, body = parse_frontmatter(content)
+        assert "New last." in body
+        assert "Last content." not in body
+        assert "First content." in body
+
+    def test_edit_section_not_found(self, vault, router):
+        with pytest.raises(ValueError, match="not found"):
+            edit.edit_artefact(
+                str(vault), router, "Wiki/test-page.md",
+                "text", target="Nonexistent",
+            )
+
+    def test_edit_without_section_replaces_all(self, vault, router):
+        edit.edit_artefact(
+            str(vault), router, "Wiki/test-page.md", "# Whole new body.\n",
+        )
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        _, body = parse_frontmatter(content)
+        assert body == "# Whole new body.\n"
+
+    def test_edit_sub_heading_only(self, vault, router):
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "## Parent\n\nIntro.\n\n### Child\n\nOld child content.\n\n"
+            "### Sibling\n\nSibling content.\n\n## Other\n\nOther.\n"
+        )
+        edit.edit_artefact(
+            str(vault), router, "Wiki/test-page.md",
+            "\nNew child content.\n\n", target="### Child",
+        )
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        _, body = parse_frontmatter(content)
+        assert "New child content." in body
+        assert "Old child content." not in body
+        assert "Intro." in body
+        assert "Sibling content." in body
+        assert "Other." in body

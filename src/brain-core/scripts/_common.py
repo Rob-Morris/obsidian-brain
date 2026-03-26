@@ -297,6 +297,87 @@ def serialize_frontmatter(fields, body=""):
 
 
 # ---------------------------------------------------------------------------
+# Markdown section parsing
+# ---------------------------------------------------------------------------
+
+_HEADING_RE = re.compile(r"^(#{1,6})\s+(.*?)[^\S\n]*$", re.MULTILINE)
+_FENCE_RE = re.compile(r"^(`{3,}|~{3,})", re.MULTILINE)
+
+
+def _fenced_ranges(body):
+    """Return list of (start, end) character ranges for fenced code blocks."""
+    fences = [(m.start(), m.end(), m.group(1)[0]) for m in _FENCE_RE.finditer(body)]
+    ranges = []
+    i = 0
+    while i < len(fences):
+        open_start, _, char = fences[i]
+        close_idx = None
+        for j in range(i + 1, len(fences)):
+            if fences[j][2] == char:
+                close_idx = j
+                break
+        if close_idx is not None:
+            ranges.append((open_start, fences[close_idx][1]))
+            i = close_idx + 1
+        else:
+            ranges.append((open_start, len(body)))
+            i += 1
+    return ranges
+
+
+def find_section(body, heading):
+    """Find start/end of a markdown section by heading text.
+
+    Returns (start, end) character offsets into body, where:
+    - start is the position after the heading line (including its newline)
+    - end is the position before the next heading of same or higher level (or EOF)
+
+    Matching is case-insensitive on the heading text.
+    If heading includes # markers (e.g. "## Notes"), matches on level AND text.
+    If heading is plain text (e.g. "Notes"), matches on text at any level.
+    Sub-headings are part of the parent section (lower-level headings don't end it).
+    Headings inside fenced code blocks are ignored.
+
+    Raises ValueError if heading not found.
+    """
+    stripped = heading.strip()
+    if stripped.startswith("#"):
+        markers = stripped.split()[0]
+        target_level = len(markers)
+        target_text = stripped[len(markers):].strip().lower()
+    else:
+        target_level = None
+        target_text = stripped.lower()
+
+    fenced = _fenced_ranges(body)
+    headings = []
+    for m in _HEADING_RE.finditer(body):
+        if any(fs <= m.start() < fe for fs, fe in fenced):
+            continue
+        headings.append((m, len(m.group(1)), m.group(2).strip().lower()))
+
+    for idx, (m, level, text) in enumerate(headings):
+        if text != target_text:
+            continue
+        if target_level is not None and level != target_level:
+            continue
+
+        start = m.end()
+        if start < len(body) and body[start] == "\n":
+            start += 1
+
+        end = len(body)
+        for m2, level2, _ in headings[idx + 1:]:
+            if level2 <= level:
+                end = m2.start()
+                break
+
+        return start, end
+
+    raise ValueError(f"Section '{heading}' not found")
+
+
+# ---------------------------------------------------------------------------
 # BM25 tokenisation
 # ---------------------------------------------------------------------------
 

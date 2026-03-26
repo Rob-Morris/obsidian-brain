@@ -472,7 +472,7 @@ def brain_create(type: str, title: str, body: str = "", frontmatter: dict | None
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def brain_edit(operation: str, path: str, body: str = "", frontmatter: dict | None = None) -> str:
+def brain_edit(operation: str, path: str, body: str = "", frontmatter: dict | None = None, target: str | None = None) -> str:
     """Modify an existing vault artefact. Single-file mutation.
 
     Parameters:
@@ -480,6 +480,10 @@ def brain_edit(operation: str, path: str, body: str = "", frontmatter: dict | No
       path       — relative path from vault root (e.g. "Ideas/my-idea.md")
       body       — new body content (edit) or content to append (append)
       frontmatter — optional frontmatter changes (edit only, merged with existing)
+      target     — optional heading text (e.g. "Outstanding Work"). When given,
+                   edit replaces only that section's content; append inserts at
+                   the end of that section instead of EOF. Include # markers to
+                   disambiguate duplicate headings (e.g. "### Notes").
 
     Path validated against compiled router — wrong folder or naming rejected with helpful error.
     """
@@ -494,9 +498,13 @@ def brain_edit(operation: str, path: str, body: str = "", frontmatter: dict | No
             result = edit.edit_artefact(
                 _vault_root, _router, path, body,
                 frontmatter_changes=frontmatter,
+                target=target,
             )
         elif operation == "append":
-            result = edit.append_to_artefact(_vault_root, _router, path, body)
+            result = edit.append_to_artefact(
+                _vault_root, _router, path, body,
+                target=target,
+            )
         else:
             return json.dumps({"error": f"Unknown operation '{operation}'. Valid: edit, append"})
         return json.dumps(result, indent=2)

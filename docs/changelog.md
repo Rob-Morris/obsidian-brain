@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.13.2 — 2026-03-26
+
+- **`target` parameter for brain_edit** — both `edit` and `append` operations now accept an optional `target` parameter (heading text). `edit` replaces only that section's content; `append` inserts at the end of that section instead of EOF. Matching is case-insensitive; include `#` markers (e.g. `"### Notes"`) to disambiguate duplicate headings at different levels. Headings inside fenced code blocks are ignored. Append normalizes whitespace (one blank line before next heading). New `find_section()` helper in `_common.py`. CLI gets `--target` flag.
+
 ## v0.13.1 — 2026-03-26
 
 - **"Match the effort to the input" ingestion principle** — hub pattern standard and all hub taxonomies (people, projects, journals) now split ingestion into two paths: minimal input creates a minimal hub with no fuss; rich input decomposes into artefacts. Backported from vault-refined people taxonomy. Projects and journals also gain separate Contextual Linking and Create Temporals subsections matching the people taxonomy's structure.
