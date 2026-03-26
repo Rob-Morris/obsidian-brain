@@ -313,4 +313,4 @@ python3.12 -m venv .venv
 | DD-023 | init.py setup script | Implemented (v0.10.0) |
 | DD-024 | Core skills in .brain-core/skills/ | Implemented (v0.10.0) |
 | DD-025 | 5 MCP tools: privilege split for granular permissions | Implemented (v0.11.0) |
-| DD-026 | MCP response readability: plain text over JSON blobs | Accepted |
+| DD-026 | MCP response readability: plain text over JSON blobs | Implemented (v0.14.4) |

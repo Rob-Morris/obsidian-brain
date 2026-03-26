@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.14.4 — 2026-03-27
+
+- **MCP response readability (DD-026)** — MCP tool responses now return plain text instead of JSON blobs for confirmations, list resources, and errors. Search results use multi-block `TextContent` for structured rendering. Complex/nested responses (router, compliance, convert, upgrade, migrate_naming) still return JSON. Design doc and implementation in `server.py`.
+
 ## v0.14.3 — 2026-03-27
 
 - **Drop trailing space from tilde separator** — temporal separator is now `~` (tilde only), not `~ ` (tilde + space). All taxonomy patterns, examples, scripts, standards, and tests updated.

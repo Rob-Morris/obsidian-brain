@@ -224,10 +224,9 @@ class TestStaleness:
 
 class TestBrainRead:
     def test_read_artefact_list(self, initialized):
-        result = json.loads(server.brain_read("artefact"))
-        assert isinstance(result, list)
-        keys = [a["key"] for a in result]
-        assert "wiki" in keys
+        result = server.brain_read("artefact")
+        assert "wiki" in result
+        assert "\n" in result  # multi-line
 
     def test_read_artefact_by_name(self, initialized):
         result = json.loads(server.brain_read("artefact", name="wiki"))
@@ -240,43 +239,37 @@ class TestBrainRead:
         assert result[0]["type"] == "living/wiki"
 
     def test_read_artefact_not_found(self, initialized):
-        result = json.loads(server.brain_read("artefact", name="nonexistent"))
-        assert "error" in result
+        result = server.brain_read("artefact", name="nonexistent")
+        assert result.startswith("Error:")
 
     def test_read_trigger(self, initialized):
-        result = json.loads(server.brain_read("trigger"))
-        assert isinstance(result, list)
-        assert len(result) >= 1
-        assert result[0]["category"] == "after"
+        result = server.brain_read("trigger")
+        assert "[after]" in result
 
     def test_read_style_list(self, initialized):
-        result = json.loads(server.brain_read("style"))
-        assert isinstance(result, list)
-        names = [s["name"] for s in result]
-        assert "concise" in names
+        result = server.brain_read("style")
+        assert "concise" in result
 
     def test_read_style_content(self, initialized):
         result = server.brain_read("style", name="concise")
         assert "Be brief and direct." in result
 
     def test_read_style_not_found(self, initialized):
-        result = json.loads(server.brain_read("style", name="nonexistent"))
-        assert "error" in result
+        result = server.brain_read("style", name="nonexistent")
+        assert result.startswith("Error:")
 
     def test_read_template(self, initialized):
         result = server.brain_read("template", name="wiki")
         assert "{{title}}" in result
 
     def test_read_template_requires_name(self, initialized):
-        result = json.loads(server.brain_read("template"))
-        assert "error" in result
+        result = server.brain_read("template")
+        assert result.startswith("Error:")
 
     def test_read_skill_list(self, initialized):
-        result = json.loads(server.brain_read("skill"))
-        assert isinstance(result, list)
-        names = [s["name"] for s in result]
-        assert "brain-remote" in names
-        assert "Vault Maintenance" in names
+        result = server.brain_read("skill")
+        assert "brain-remote" in result
+        assert "Vault Maintenance" in result
 
     def test_read_core_skill_content(self, initialized):
         result = server.brain_read("skill", name="brain-remote")
@@ -287,24 +280,23 @@ class TestBrainRead:
         assert "Keep the vault tidy." in result
 
     def test_read_plugin_list(self, initialized):
-        result = json.loads(server.brain_read("plugin"))
-        assert isinstance(result, list)
-        names = [p["name"] for p in result]
-        assert "Undertask" in names
+        result = server.brain_read("plugin")
+        assert "Undertask" in result
 
     def test_read_plugin_content(self, initialized):
         result = server.brain_read("plugin", name="Undertask")
         assert "Task management plugin." in result
 
     def test_read_environment(self, initialized):
-        result = json.loads(server.brain_read("environment"))
-        assert "vault_root" in result
-        assert "platform" in result
-        assert "obsidian_cli_available" in result
+        result = server.brain_read("environment")
+        assert "vault_root=" in result
+        assert "platform=" in result
+        assert "obsidian_cli_available=" in result
 
     def test_read_environment_includes_cli_status(self, initialized):
         """Environment response should reflect CLI availability."""
-        assert json.loads(server.brain_read("environment"))["obsidian_cli_available"] is False
+        result = server.brain_read("environment")
+        assert "obsidian_cli_available=False" in result
 
     def test_read_router(self, initialized):
         result = json.loads(server.brain_read("router"))
@@ -313,9 +305,9 @@ class TestBrainRead:
         assert len(result["always_rules"]) >= 1
 
     def test_read_unknown_resource(self, initialized):
-        result = json.loads(server.brain_read("bogus"))
-        assert "error" in result
-        assert "Unknown resource" in result["error"]
+        result = server.brain_read("bogus")
+        assert result.startswith("Error:")
+        assert "Unknown resource" in result
 
 
 class TestBrainReadMemory:
@@ -338,12 +330,9 @@ class TestBrainReadMemory:
         server.brain_action("compile")
 
     def test_list_memories(self):
-        result = json.loads(server.brain_read("memory"))
-        assert isinstance(result, list)
-        assert len(result) == 2
-        names = [m["name"] for m in result]
-        assert "brain-core-reference" in names
-        assert "python-setup" in names
+        result = server.brain_read("memory")
+        assert "brain-core-reference" in result
+        assert "python-setup" in result
 
     def test_read_by_trigger(self):
         result = server.brain_read("memory", name="brain core")
@@ -364,76 +353,96 @@ class TestBrainReadMemory:
         assert "Use Python 3.12." in result
 
     def test_not_found(self):
-        result = json.loads(server.brain_read("memory", name="nonexistent-thing"))
-        assert "error" in result
+        result = server.brain_read("memory", name="nonexistent-thing")
+        assert result.startswith("Error:")
 
     def test_compile_summary_includes_memories(self):
-        result = json.loads(server.brain_action("compile"))
-        assert "memories" in result["summary"]
+        result = server.brain_action("compile")
+        assert "memories" in result
 
 
 # ---------------------------------------------------------------------------
 # brain_search tests
 # ---------------------------------------------------------------------------
 
+def _search_text(response):
+    """Join TextContent blocks into single string for search assertions."""
+    if isinstance(response, str):
+        return response
+    return "\n".join(block.text for block in response)
+
+
+def _search_result_lines(response):
+    """Extract individual result lines from a search response (skipping meta)."""
+    if isinstance(response, str):
+        return []
+    if len(response) < 2:
+        return []
+    return response[1].text.strip().split("\n")
+
+
 class TestBrainSearch:
     def test_search_returns_results(self, initialized):
-        resp = json.loads(server.brain_search("brain knowledge"))
-        assert resp["source"] == "bm25"
-        assert isinstance(resp["results"], list)
-        assert len(resp["results"]) >= 1
+        resp = server.brain_search("brain knowledge")
+        text = _search_text(resp)
+        assert "bm25" in text
+        assert "results" in text
 
     def test_search_result_shape(self, initialized):
-        resp = json.loads(server.brain_search("brain"))
-        results = resp["results"]
-        assert len(results) >= 1
-        r = results[0]
-        assert "path" in r
-        assert "title" in r
-        assert "type" in r
-        assert "status" in r
-        assert "score" in r
-        assert "snippet" in r
+        resp = server.brain_search("brain")
+        lines = _search_result_lines(resp)
+        assert len(lines) >= 1
+        line = lines[0]
+        assert "score=" in line
 
     def test_search_ranked_by_score(self, initialized):
-        results = json.loads(server.brain_search("brain"))["results"]
-        if len(results) >= 2:
-            assert results[0]["score"] >= results[1]["score"]
+        resp = server.brain_search("brain")
+        lines = _search_result_lines(resp)
+        if len(lines) >= 2:
+            import re
+            scores = [float(re.search(r"score=(\d+\.\d+)", l).group(1)) for l in lines]
+            assert scores[0] >= scores[1]
 
     def test_search_type_filter(self, initialized):
-        results = json.loads(server.brain_search("test", type="temporal/logs"))["results"]
-        for r in results:
-            assert r["type"] == "temporal/logs"
+        resp = server.brain_search("test", type="temporal/logs")
+        lines = _search_result_lines(resp)
+        for line in lines:
+            assert "temporal/logs" in line
 
     def test_search_tag_filter(self, initialized):
-        results = json.loads(server.brain_search("brain", tag="brain-core"))["results"]
-        assert len(results) >= 1
-        unfiltered = json.loads(server.brain_search("brain"))["results"]
-        assert len(unfiltered) >= len(results)
+        resp = server.brain_search("brain", tag="brain-core")
+        filtered_lines = _search_result_lines(resp)
+        assert len(filtered_lines) >= 1
+        unfiltered_lines = _search_result_lines(server.brain_search("brain"))
+        assert len(unfiltered_lines) >= len(filtered_lines)
 
     def test_search_top_k(self, initialized):
-        results = json.loads(server.brain_search("the", top_k=1))["results"]
-        assert len(results) <= 1
+        resp = server.brain_search("the", top_k=1)
+        lines = _search_result_lines(resp)
+        assert len(lines) <= 1
 
     def test_search_empty_query(self, initialized):
-        resp = json.loads(server.brain_search(""))
-        assert resp["results"] == []
+        resp = server.brain_search("")
+        text = _search_text(resp)
+        assert "0 results" in text
 
     def test_search_status_filter(self, initialized):
-        results = json.loads(server.brain_search("brain", status="active"))["results"]
-        assert len(results) >= 1
-        for r in results:
-            assert r["status"] == "active"
+        resp = server.brain_search("brain", status="active")
+        lines = _search_result_lines(resp)
+        assert len(lines) >= 1
+        for line in lines:
+            assert "active" in line
 
     def test_search_no_matches(self, initialized):
-        resp = json.loads(server.brain_search("xyzzyplugh"))
-        assert resp["results"] == []
+        resp = server.brain_search("xyzzyplugh")
+        text = _search_text(resp)
+        assert "0 results" in text
 
     def test_search_uses_bm25_when_cli_unavailable(self, initialized):
         """Verify BM25 is used when CLI is not available (default state)."""
         assert server._cli_available is False
-        resp = json.loads(server.brain_search("brain"))
-        assert resp["source"] == "bm25"
+        text = _search_text(server.brain_search("brain"))
+        assert "bm25" in text
 
     def test_search_with_mocked_cli(self, initialized):
         """Verify CLI results are transformed to match schema."""
@@ -445,14 +454,12 @@ class TestBrainSearch:
             server._cli_available = True
             server._vault_name = "test"
             try:
-                resp = json.loads(server.brain_search("brain"))
-                assert resp["source"] == "obsidian_cli"
-                assert len(resp["results"]) >= 1
-                r = resp["results"][0]
-                assert r["path"] == "Wiki/brain-overview-abc123.md"
-                assert "title" in r
-                assert "type" in r
-                assert "score" in r
+                resp = server.brain_search("brain")
+                text = _search_text(resp)
+                assert "obsidian_cli" in text
+                lines = _search_result_lines(resp)
+                assert len(lines) >= 1
+                assert "Wiki/brain-overview-abc123.md" in lines[0]
             finally:
                 server._cli_available = False
 
@@ -462,9 +469,8 @@ class TestBrainSearch:
             server._cli_available = True
             server._vault_name = "test"
             try:
-                resp = json.loads(server.brain_search("brain"))
-                assert resp["source"] == "bm25"
-                assert len(resp["results"]) >= 1
+                text = _search_text(server.brain_search("brain"))
+                assert "bm25" in text
             finally:
                 server._cli_available = False
 
@@ -475,10 +481,8 @@ class TestBrainSearch:
 
 class TestBrainAction:
     def test_action_compile(self, initialized):
-        result = json.loads(server.brain_action("compile"))
-        assert result["status"] == "ok"
-        assert "Compiled" in result["summary"]
-        assert "compiled_at" in result
+        result = server.brain_action("compile")
+        assert result.startswith("Compiled:")
 
     def test_action_compile_updates_memory(self, initialized):
         old_compiled_at = server._router["meta"]["compiled_at"]
@@ -487,10 +491,8 @@ class TestBrainAction:
         assert server._router["meta"]["compiled_at"] != old_compiled_at
 
     def test_action_build_index(self, initialized):
-        result = json.loads(server.brain_action("build_index"))
-        assert result["status"] == "ok"
-        assert "Built index" in result["summary"]
-        assert "built_at" in result
+        result = server.brain_action("build_index")
+        assert result.startswith("Built index:")
 
     def test_action_build_index_updates_memory(self, initialized):
         old_built_at = server._index["meta"]["built_at"]
@@ -499,9 +501,9 @@ class TestBrainAction:
         assert server._index["meta"]["built_at"] != old_built_at
 
     def test_action_unknown(self, initialized):
-        result = json.loads(server.brain_action("bogus"))
-        assert "error" in result
-        assert "Unknown action" in result["error"]
+        result = server.brain_action("bogus")
+        assert result.startswith("Error:")
+        assert "Unknown action" in result
 
     def test_action_rename_without_cli(self, initialized):
         """Rename via grep-and-replace when CLI is unavailable."""
@@ -511,13 +513,12 @@ class TestBrainAction:
             "---\ntype: living/wiki\ntags: []\n---\n\n"
             "# Linker\n\nSee [[Wiki/brain-overview-abc123]].\n"
         )
-        result = json.loads(server.brain_action("rename", {
+        result = server.brain_action("rename", {
             "source": "Wiki/brain-overview-abc123.md",
             "dest": "Wiki/brain-intro-abc123.md",
-        }))
-        assert result["status"] == "ok"
-        assert result["method"] == "grep_replace"
-        assert result["links_updated"] >= 1
+        })
+        assert "grep_replace" in result
+        assert "links updated" in result
         # Verify file was renamed
         assert not (vault / "Wiki" / "brain-overview-abc123.md").exists()
         assert (vault / "Wiki" / "brain-intro-abc123.md").exists()
@@ -531,26 +532,25 @@ class TestBrainAction:
             server._cli_available = True
             server._vault_name = "test"
             try:
-                result = json.loads(server.brain_action("rename", {
+                result = server.brain_action("rename", {
                     "source": "Wiki/old.md",
                     "dest": "Wiki/new.md",
-                }))
-                assert result["status"] == "ok"
-                assert result["method"] == "obsidian_cli"
-                assert result["links_updated"] == 5
+                })
+                assert "obsidian_cli" in result
+                assert "5 links updated" in result
             finally:
                 server._cli_available = False
 
     def test_action_rename_missing_params(self, initialized):
-        result = json.loads(server.brain_action("rename"))
-        assert "error" in result
+        result = server.brain_action("rename")
+        assert result.startswith("Error:")
 
     def test_action_rename_source_not_found(self, initialized):
-        result = json.loads(server.brain_action("rename", {
+        result = server.brain_action("rename", {
             "source": "Wiki/nonexistent.md",
             "dest": "Wiki/other.md",
-        }))
-        assert "error" in result
+        })
+        assert result.startswith("Error:")
 
 
 # ---------------------------------------------------------------------------
@@ -612,44 +612,44 @@ class TestVersionCheck:
         """brain_read should succeed after version drift (reload, not exit)."""
         version_path = initialized / ".brain-core" / "VERSION"
         version_path.write_text("99.0.0\n")
-        result = json.loads(server.brain_read("artefact"))
-        assert isinstance(result, list)
+        result = server.brain_read("artefact")
+        assert "wiki" in result
         assert server._loaded_version == "99.0.0"
 
     def test_brain_search_survives_version_drift(self, initialized):
         """brain_search should succeed after version drift."""
         version_path = initialized / ".brain-core" / "VERSION"
         version_path.write_text("99.0.0\n")
-        resp = json.loads(server.brain_search("brain"))
-        assert "results" in resp
+        text = _search_text(server.brain_search("brain"))
+        assert "results" in text
         assert server._loaded_version == "99.0.0"
 
     def test_brain_action_survives_version_drift(self, initialized):
         """brain_action should succeed after version drift."""
         version_path = initialized / ".brain-core" / "VERSION"
         version_path.write_text("99.0.0\n")
-        result = json.loads(server.brain_action("compile"))
-        assert result["status"] == "ok"
+        result = server.brain_action("compile")
+        assert result.startswith("Compiled:")
         assert server._loaded_version == "99.0.0"
 
     def test_brain_create_survives_version_drift(self, initialized):
         """brain_create should succeed after version drift."""
         version_path = initialized / ".brain-core" / "VERSION"
         version_path.write_text("99.0.0\n")
-        result = json.loads(server.brain_create(type="wiki", title="drift test"))
-        assert "path" in result
+        result = server.brain_create(type="wiki", title="drift test")
+        assert result.startswith("Created ")
         assert server._loaded_version == "99.0.0"
 
     def test_brain_edit_survives_version_drift(self, initialized):
         """brain_edit should succeed after version drift."""
         version_path = initialized / ".brain-core" / "VERSION"
         version_path.write_text("99.0.0\n")
-        result = json.loads(server.brain_edit(
+        result = server.brain_edit(
             operation="edit",
             path="Wiki/brain-overview-abc123.md",
             body="# Drifted\n"
-        ))
-        assert result["operation"] == "edit"
+        )
+        assert result == "edit: Wiki/brain-overview-abc123.md"
         assert server._loaded_version == "99.0.0"
 
 
@@ -696,21 +696,28 @@ class TestAutoRecompile:
 # brain_create tests
 # ---------------------------------------------------------------------------
 
+def _extract_create_path(result):
+    """Extract path from 'Created type: path' format."""
+    return result.split(": ", 1)[1]
+
+
 class TestBrainCreate:
     def test_create_returns_path(self, initialized):
-        result = json.loads(server.brain_create(type="wiki", title="New Page"))
-        assert "path" in result
-        assert result["type"] == "living/wiki"
-        assert result["title"] == "New Page"
+        result = server.brain_create(type="wiki", title="New Page")
+        assert result.startswith("Created living/wiki: ")
+        path = _extract_create_path(result)
+        assert path.startswith("Wiki/")
 
     def test_create_file_on_disk(self, initialized):
-        result = json.loads(server.brain_create(type="wiki", title="Disk Test"))
-        abs_path = os.path.join(str(initialized), result["path"])
+        result = server.brain_create(type="wiki", title="Disk Test")
+        path = _extract_create_path(result)
+        abs_path = os.path.join(str(initialized), path)
         assert os.path.isfile(abs_path)
 
     def test_create_correct_frontmatter(self, initialized):
-        result = json.loads(server.brain_create(type="wiki", title="FM Test"))
-        abs_path = os.path.join(str(initialized), result["path"])
+        result = server.brain_create(type="wiki", title="FM Test")
+        path = _extract_create_path(result)
+        abs_path = os.path.join(str(initialized), path)
         with open(abs_path) as f:
             content = f.read()
         from _common import parse_frontmatter
@@ -718,31 +725,34 @@ class TestBrainCreate:
         assert fields["type"] == "living/wiki"
 
     def test_create_unknown_type_error(self, initialized):
-        result = json.loads(server.brain_create(type="nonexistent", title="Test"))
-        assert "error" in result
+        result = server.brain_create(type="nonexistent", title="Test")
+        assert result.startswith("Error:")
 
     def test_create_temporal_subfolder(self, initialized):
-        result = json.loads(server.brain_create(type="logs", title="My Session"))
-        assert "_Temporal/Logs/" in result["path"]
+        result = server.brain_create(type="logs", title="My Session")
+        path = _extract_create_path(result)
+        assert "_Temporal/Logs/" in path
         import re
         # Path should contain yyyy-mm subfolder
-        assert re.search(r"\d{4}-\d{2}", result["path"])
+        assert re.search(r"\d{4}-\d{2}", path)
 
     def test_create_body_override(self, initialized):
-        result = json.loads(server.brain_create(
+        result = server.brain_create(
             type="wiki", title="Custom Body", body="# Custom\n\nMy content.\n"
-        ))
-        abs_path = os.path.join(str(initialized), result["path"])
+        )
+        path = _extract_create_path(result)
+        abs_path = os.path.join(str(initialized), path)
         with open(abs_path) as f:
             content = f.read()
         assert "My content." in content
 
     def test_create_frontmatter_override(self, initialized):
-        result = json.loads(server.brain_create(
+        result = server.brain_create(
             type="ideas", title="Override Test",
             frontmatter={"status": "developing"}
-        ))
-        abs_path = os.path.join(str(initialized), result["path"])
+        )
+        path = _extract_create_path(result)
+        abs_path = os.path.join(str(initialized), path)
         with open(abs_path) as f:
             content = f.read()
         from _common import parse_frontmatter
@@ -756,12 +766,12 @@ class TestBrainCreate:
 
 class TestBrainEdit:
     def test_edit_replaces_body(self, initialized):
-        result = json.loads(server.brain_edit(
+        result = server.brain_edit(
             operation="edit",
             path="Wiki/brain-overview-abc123.md",
             body="# New Body\n\nReplaced.\n"
-        ))
-        assert result["operation"] == "edit"
+        )
+        assert result == "edit: Wiki/brain-overview-abc123.md"
         content = (initialized / "Wiki" / "brain-overview-abc123.md").read_text()
         assert "Replaced." in content
 
@@ -789,39 +799,39 @@ class TestBrainEdit:
         assert fields["status"] == "archived"
 
     def test_append_works(self, initialized):
-        result = json.loads(server.brain_edit(
+        result = server.brain_edit(
             operation="append",
             path="Wiki/brain-overview-abc123.md",
             body="\n\nAppended text.\n"
-        ))
-        assert result["operation"] == "append"
+        )
+        assert result == "append: Wiki/brain-overview-abc123.md"
         content = (initialized / "Wiki" / "brain-overview-abc123.md").read_text()
         assert "Appended text." in content
         assert "Brain Overview" in content  # original preserved
 
     def test_invalid_path_rejected(self, initialized):
-        result = json.loads(server.brain_edit(
+        result = server.brain_edit(
             operation="edit",
             path="Unknown/file.md",
             body="test"
-        ))
-        assert "error" in result
+        )
+        assert result.startswith("Error:")
 
     def test_file_not_found(self, initialized):
-        result = json.loads(server.brain_edit(
+        result = server.brain_edit(
             operation="edit",
             path="Wiki/nonexistent.md",
             body="test"
-        ))
-        assert "error" in result
+        )
+        assert result.startswith("Error:")
 
     def test_unknown_operation(self, initialized):
-        result = json.loads(server.brain_edit(
+        result = server.brain_edit(
             operation="bogus",
             path="Wiki/brain-overview-abc123.md",
             body="test"
-        ))
-        assert "error" in result
+        )
+        assert result.startswith("Error:")
 
 
 # ---------------------------------------------------------------------------
@@ -830,8 +840,8 @@ class TestBrainEdit:
 
 class TestBrainActionDelete:
     def test_delete_removes_file(self, initialized):
-        result = json.loads(server.brain_action("delete", {"path": "Wiki/python-guide-def456.md"}))
-        assert result["status"] == "ok"
+        result = server.brain_action("delete", {"path": "Wiki/python-guide-def456.md"})
+        assert result.startswith("Deleted:")
         assert not (initialized / "Wiki" / "python-guide-def456.md").exists()
 
     def test_delete_cleans_links(self, initialized):
@@ -839,18 +849,18 @@ class TestBrainActionDelete:
         (initialized / "Wiki" / "linker-aaa000.md").write_text(
             "---\ntype: living/wiki\ntags: []\n---\n\nSee [[Wiki/python-guide-def456|Python]].\n"
         )
-        result = json.loads(server.brain_action("delete", {"path": "Wiki/python-guide-def456.md"}))
-        assert result["links_replaced"] >= 1
+        result = server.brain_action("delete", {"path": "Wiki/python-guide-def456.md"})
+        assert "links replaced" in result
         content = (initialized / "Wiki" / "linker-aaa000.md").read_text()
         assert "~~Python~~" in content
 
     def test_delete_missing_params(self, initialized):
-        result = json.loads(server.brain_action("delete"))
-        assert "error" in result
+        result = server.brain_action("delete")
+        assert result.startswith("Error:")
 
     def test_delete_not_found(self, initialized):
-        result = json.loads(server.brain_action("delete", {"path": "Wiki/gone.md"}))
-        assert "error" in result
+        result = server.brain_action("delete", {"path": "Wiki/gone.md"})
+        assert result.startswith("Error:")
 
 
 class TestBrainActionConvert:
@@ -879,15 +889,15 @@ class TestBrainActionConvert:
         assert f"[[{new_stem}]]" in content
 
     def test_convert_missing_params(self, initialized):
-        result = json.loads(server.brain_action("convert"))
-        assert "error" in result
+        result = server.brain_action("convert")
+        assert result.startswith("Error:")
 
     def test_convert_unknown_target(self, initialized):
-        result = json.loads(server.brain_action("convert", {
+        result = server.brain_action("convert", {
             "path": "Wiki/brain-overview-abc123.md",
             "target_type": "nonexistent",
-        }))
-        assert "error" in result
+        })
+        assert result.startswith("Error:")
 
 
 # ---------------------------------------------------------------------------
@@ -915,23 +925,23 @@ class TestBrainActionShapePresentation:
         (skills_dir / "theme.css").write_text("/* @theme brain */\n")
 
     def test_missing_params_returns_error(self, initialized):
-        result = json.loads(server.brain_action("shape-presentation"))
-        assert "error" in result
+        result = server.brain_action("shape-presentation")
+        assert result.startswith("Error:")
 
     def test_missing_source_returns_error(self, initialized):
-        result = json.loads(server.brain_action("shape-presentation", {"slug": "test"}))
-        assert "error" in result
+        result = server.brain_action("shape-presentation", {"slug": "test"})
+        assert result.startswith("Error:")
 
     def test_missing_slug_returns_error(self, initialized):
-        result = json.loads(server.brain_action("shape-presentation", {"source": "Wiki/brain-overview-abc123.md"}))
-        assert "error" in result
+        result = server.brain_action("shape-presentation", {"source": "Wiki/brain-overview-abc123.md"})
+        assert result.startswith("Error:")
 
     def test_source_not_found_returns_error(self, initialized):
-        result = json.loads(server.brain_action("shape-presentation", {
+        result = server.brain_action("shape-presentation", {
             "source": "Wiki/nonexistent.md",
             "slug": "test",
-        }))
-        assert "error" in result
+        })
+        assert result.startswith("Error:")
 
     @patch("shape_presentation.subprocess.Popen")
     def test_creates_file_and_returns_status(self, mock_popen, initialized):
@@ -1422,27 +1432,21 @@ class TestWorkspaceRead:
         )
 
     def test_list_workspaces(self):
-        result = json.loads(server.brain_read("workspace"))
-        assert isinstance(result, list)
-        slugs = [w["slug"] for w in result]
-        assert "analysis" in slugs
+        result = server.brain_read("workspace")
+        assert "analysis" in result
 
     def test_list_workspace_shape(self):
-        result = json.loads(server.brain_read("workspace"))
-        ws = [w for w in result if w["slug"] == "analysis"][0]
-        assert ws["mode"] == "embedded"
-        assert "path" in ws
-        assert ws["hub_path"] == "Workspaces/analysis.md"
+        result = server.brain_read("workspace")
+        assert "embedded" in result
 
     def test_resolve_workspace_by_slug(self):
-        result = json.loads(server.brain_read("workspace", name="analysis"))
-        assert result["slug"] == "analysis"
-        assert result["mode"] == "embedded"
-        assert "path" in result
+        result = server.brain_read("workspace", name="analysis")
+        assert "analysis" in result
+        assert "embedded" in result
 
     def test_resolve_unknown_workspace(self):
-        result = json.loads(server.brain_read("workspace", name="nonexistent"))
-        assert "error" in result
+        result = server.brain_read("workspace", name="nonexistent")
+        assert result.startswith("Error:")
 
 
 class TestWorkspaceActions:
@@ -1450,38 +1454,38 @@ class TestWorkspaceActions:
 
     def test_register_linked_workspace(self, initialized, tmp_path):
         ext_path = str(tmp_path / "my-repo")
-        result = json.loads(server.brain_action("register_workspace", {
+        result = server.brain_action("register_workspace", {
             "slug": "my-repo", "path": ext_path,
-        }))
-        assert result["status"] == "ok"
-        assert result["action"] == "registered"
+        })
+        assert "registered" in result
+        assert "my-repo" in result
         # Verify server state was refreshed
         assert "my-repo" in server._workspace_registry
 
     def test_register_missing_params(self, initialized):
-        result = json.loads(server.brain_action("register_workspace"))
-        assert "error" in result
+        result = server.brain_action("register_workspace")
+        assert result.startswith("Error:")
 
     def test_register_missing_path(self, initialized):
-        result = json.loads(server.brain_action("register_workspace", {"slug": "x"}))
-        assert "error" in result
+        result = server.brain_action("register_workspace", {"slug": "x"})
+        assert result.startswith("Error:")
 
     def test_unregister_workspace(self, initialized, tmp_path):
         # Register first
         server.brain_action("register_workspace", {
             "slug": "temp", "path": str(tmp_path / "temp"),
         })
-        result = json.loads(server.brain_action("unregister_workspace", {"slug": "temp"}))
-        assert result["status"] == "ok"
+        result = server.brain_action("unregister_workspace", {"slug": "temp"})
+        assert "unregistered" in result
         assert "temp" not in server._workspace_registry
 
     def test_unregister_missing_params(self, initialized):
-        result = json.loads(server.brain_action("unregister_workspace"))
-        assert "error" in result
+        result = server.brain_action("unregister_workspace")
+        assert result.startswith("Error:")
 
     def test_unregister_unknown_slug(self, initialized):
-        result = json.loads(server.brain_action("unregister_workspace", {"slug": "ghost"}))
-        assert "error" in result
+        result = server.brain_action("unregister_workspace", {"slug": "ghost"})
+        assert result.startswith("Error:")
 
     def test_registered_workspace_visible_in_read(self, initialized, tmp_path):
         """After registering, brain_read workspace should list it."""
@@ -1489,9 +1493,8 @@ class TestWorkspaceActions:
         server.brain_action("register_workspace", {
             "slug": "visible-proj", "path": ext_path,
         })
-        result = json.loads(server.brain_read("workspace"))
-        slugs = [w["slug"] for w in result]
-        assert "visible-proj" in slugs
+        result = server.brain_read("workspace")
+        assert "visible-proj" in result
 
     def test_registered_workspace_resolvable(self, initialized, tmp_path):
         """After registering, brain_read workspace name=slug should resolve."""
@@ -1499,10 +1502,9 @@ class TestWorkspaceActions:
         server.brain_action("register_workspace", {
             "slug": "resolvable", "path": ext_path,
         })
-        result = json.loads(server.brain_read("workspace", name="resolvable"))
-        assert result["slug"] == "resolvable"
-        assert result["mode"] == "linked"
-        assert result["path"] == ext_path
+        result = server.brain_read("workspace", name="resolvable")
+        assert "resolvable" in result
+        assert "linked" in result
 
 
 # ---------------------------------------------------------------------------

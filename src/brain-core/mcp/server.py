@@ -38,6 +38,7 @@ import sys
 from datetime import datetime, timezone
 
 from mcp.server.fastmcp import FastMCP
+from mcp.types import TextContent
 
 # ---------------------------------------------------------------------------
 # Script imports — add scripts dir to sys.path
@@ -284,6 +285,91 @@ def startup(vault_root: str | None = None) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Response formatting helpers (DD-026)
+# ---------------------------------------------------------------------------
+
+def _fmt_error(msg):
+    """Format an error message as plain text."""
+    return f"Error: {msg}"
+
+
+def _fmt_artefact_list(artefacts):
+    """Format artefact list as readable plain text."""
+    lines = []
+    for a in artefacts:
+        status = "configured" if a["configured"] else "unconfigured"
+        naming = (a.get("naming") or {}).get("pattern", "")
+        lines.append(f"{a['type']}\t{a['key']}\t{a['path']}/\t{naming}\t[{status}]")
+    return "\n".join(lines)
+
+
+def _fmt_trigger_list(triggers):
+    """Format trigger list as readable plain text."""
+    lines = []
+    for t in triggers:
+        detail = f" — {t['detail']}" if t.get("detail") else ""
+        lines.append(f"[{t['category']}] {t['condition']}{detail} → {t['target']}")
+    return "\n".join(lines)
+
+
+def _fmt_named_list(items, doc_key="skill_doc"):
+    """Format a list of {name, doc_path} items as plain text."""
+    lines = []
+    for item in items:
+        doc = item.get(doc_key) or ""
+        lines.append(f"{item['name']}\t{doc}")
+    return "\n".join(lines)
+
+
+def _fmt_memory_list(memories):
+    """Format memory list as readable plain text."""
+    lines = []
+    for m in memories:
+        triggers = ", ".join(m.get("triggers", []))
+        lines.append(f"{m['name']}\t[{triggers}]\t{m['memory_doc']}")
+    return "\n".join(lines)
+
+
+def _fmt_environment(env):
+    """Format environment dict as key=value lines."""
+    return "\n".join(f"{k}={v}" for k, v in env.items())
+
+
+def _fmt_workspace_list(workspaces):
+    """Format workspace list as readable plain text."""
+    lines = []
+    for ws in workspaces:
+        status = ws.get("status", "")
+        status_part = f"\t[{status}]" if status else ""
+        lines.append(f"{ws['slug']}\t{ws['mode']}\t{ws['path']}{status_part}")
+    return "\n".join(lines)
+
+
+def _fmt_workspace_single(ws):
+    """Format a single workspace as plain text."""
+    return f"{ws['slug']}\t{ws['mode']}\t{ws['path']}"
+
+
+# Dispatch table for brain_read list resources
+_READ_FORMATTERS = {
+    "artefact": lambda result, name: (
+        json.dumps(result, indent=2, ensure_ascii=False) if name
+        else _fmt_artefact_list(result)
+    ),
+    "trigger": lambda result, name: _fmt_trigger_list(result),
+    "style": lambda result, name: _fmt_named_list(result, "style_doc"),
+    "skill": lambda result, name: _fmt_named_list(result),
+    "plugin": lambda result, name: _fmt_named_list(result),
+    "memory": lambda result, name: (
+        # Multiple matches with name → keep JSON for disambiguation
+        json.dumps(result, indent=2, ensure_ascii=False) if name
+        else _fmt_memory_list(result)
+    ),
+    "environment": lambda result, name: _fmt_environment(result),
+}
+
+
+# ---------------------------------------------------------------------------
 # brain_session — agent bootstrap, one-call session setup
 # ---------------------------------------------------------------------------
 
@@ -348,24 +434,30 @@ def brain_read(resource: str, name: str | None = None) -> str:
                 result = workspace_registry.resolve_workspace(
                     _vault_root, name, registry=_workspace_registry,
                 )
-                return json.dumps(result, indent=2, ensure_ascii=False)
+                return _fmt_workspace_single(result)
             except ValueError as e:
-                return json.dumps({"error": str(e)})
+                return _fmt_error(str(e))
         else:
             result = workspace_registry.list_workspaces(
                 _vault_root, registry=_workspace_registry,
             )
-            return json.dumps(result, indent=2, ensure_ascii=False)
+            return _fmt_workspace_list(result)
 
     result = read_mod.read_resource(_router, _vault_root, resource, name)
 
-    # Environment resource: MCP server enriches with CLI availability
-    if resource == "environment" and isinstance(result, dict) and "error" not in result:
-        result["obsidian_cli_available"] = _cli_available
-
-    # Return strings as-is (file content), dicts/lists as JSON
+    # Return strings as-is (file content)
     if isinstance(result, str):
         return result
+    # Dict results: check for errors, enrich environment
+    if isinstance(result, dict):
+        if "error" in result:
+            return _fmt_error(result["error"])
+        if resource == "environment":
+            result["obsidian_cli_available"] = _cli_available
+    # Use formatter if available (DD-026), else fall through to JSON
+    formatter = _READ_FORMATTERS.get(resource)
+    if formatter:
+        return formatter(result, name)
     return json.dumps(result, indent=2, ensure_ascii=False)
 
 
@@ -410,6 +502,21 @@ def _transform_cli_results(cli_results: list[dict], type_filter: str | None,
     return transformed[:top_k]
 
 
+def _fmt_search(source, results):
+    """Format search results as multi-block TextContent."""
+    meta = f"Search: {len(results)} results (source: {source})"
+    if not results:
+        return [TextContent(type="text", text=meta)]
+    lines = []
+    for r in results:
+        status_part = f"\t{r['status']}" if r.get("status") else ""
+        lines.append(f"{r['title']}\t{r['path']}\t{r['type']}{status_part}\tscore={r['score']:.2f}")
+    return [
+        TextContent(type="text", text=meta),
+        TextContent(type="text", text="\n".join(lines)),
+    ]
+
+
 @mcp.tool()
 def brain_search(query: str, type: str | None = None, tag: str | None = None,
                  status: str | None = None, top_k: int = 10) -> str:
@@ -429,12 +536,12 @@ def brain_search(query: str, type: str | None = None, tag: str | None = None,
         cli_results = obsidian_cli.search(_vault_name, query)
         if cli_results is not None:
             results = _transform_cli_results(cli_results, type, tag, status, top_k)
-            return json.dumps({"source": "obsidian_cli", "results": results}, indent=2)
+            return _fmt_search("obsidian_cli", results)
 
     # BM25 fallback
     results = search_index.search(_index, query, _vault_root, type_filter=type, tag_filter=tag,
                                   status_filter=status, top_k=top_k)
-    return json.dumps({"source": "bm25", "results": results}, indent=2)
+    return _fmt_search("bm25", results)
 
 
 # ---------------------------------------------------------------------------
@@ -464,9 +571,9 @@ def brain_create(type: str, title: str, body: str = "", frontmatter: dict | None
             _vault_root, _router, type, title,
             body=body, frontmatter_overrides=frontmatter,
         )
-        return json.dumps(result, indent=2)
+        return f"Created {result['type']}: {result['path']}"
     except ValueError as e:
-        return json.dumps({"error": str(e)})
+        return _fmt_error(str(e))
 
 
 # ---------------------------------------------------------------------------
@@ -508,10 +615,13 @@ def brain_edit(operation: str, path: str, body: str = "", frontmatter: dict | No
                 target=target,
             )
         else:
-            return json.dumps({"error": f"Unknown operation '{operation}'. Valid: edit, append"})
-        return json.dumps(result, indent=2)
+            return _fmt_error(f"Unknown operation '{operation}'. Valid: edit, append")
+        msg = f"{result['operation']}: {result['path']}"
+        if target:
+            msg += f" (target: {target})"
+        return msg
     except (ValueError, FileNotFoundError) as e:
-        return json.dumps({"error": str(e)})
+        return _fmt_error(str(e))
 
 
 # ---------------------------------------------------------------------------
@@ -550,28 +660,20 @@ def brain_action(action: str, params: dict | None = None) -> str:
         memory_count = len(_router.get("memories", []))
         living_count = sum(1 for a in _router["artefacts"] if a["classification"] == "living")
         temporal_count = sum(1 for a in _router["artefacts"] if a["classification"] == "temporal")
-        return json.dumps({
-            "status": "ok",
-            "summary": f"Compiled: {art_count} artefacts ({configured} configured), "
-                       f"{trigger_count} triggers, {skill_count} skills, "
-                       f"{memory_count} memories, "
-                       f"{living_count + temporal_count} colours",
-            "compiled_at": _router["meta"]["compiled_at"],
-        }, indent=2)
+        return (f"Compiled: {art_count} artefacts ({configured} configured), "
+                f"{trigger_count} triggers, {skill_count} skills, "
+                f"{memory_count} memories, "
+                f"{living_count + temporal_count} colours")
 
     elif action == "build_index":
         _index = _build_index_and_save(_vault_root)
         doc_count = _index["meta"]["document_count"]
         term_count = len(_index["corpus_stats"]["df"])
-        return json.dumps({
-            "status": "ok",
-            "summary": f"Built index: {doc_count} documents, {term_count} unique terms",
-            "built_at": _index["meta"]["built_at"],
-        }, indent=2)
+        return f"Built index: {doc_count} documents, {term_count} unique terms"
 
     elif action == "rename":
         if not params or "source" not in params or "dest" not in params:
-            return json.dumps({"error": "rename requires params: {source, dest} (relative paths)"})
+            return _fmt_error("rename requires params: {source, dest} (relative paths)")
 
         source = params["source"]
         dest = params["dest"]
@@ -580,39 +682,28 @@ def brain_action(action: str, params: dict | None = None) -> str:
         if _cli_available and _vault_name:
             result = obsidian_cli.move(_vault_name, source, dest)
             if result is not None:
-                return json.dumps({
-                    "status": "ok",
-                    "method": "obsidian_cli",
-                    "links_updated": result.get("links_updated", -1),
-                }, indent=2)
+                n = result.get("links_updated", -1)
+                return f"Renamed (obsidian_cli): {source} → {dest}, {n} links updated"
 
         # Fallback: grep-and-replace wikilinks + os.rename
         try:
             links_updated = rename.rename_and_update_links(_vault_root, source, dest)
-            return json.dumps({
-                "status": "ok",
-                "method": "grep_replace",
-                "links_updated": links_updated,
-            }, indent=2)
+            return f"Renamed (grep_replace): {source} → {dest}, {links_updated} links updated"
         except FileNotFoundError as e:
-            return json.dumps({"error": str(e)})
+            return _fmt_error(str(e))
 
     elif action == "delete":
         if not params or "path" not in params:
-            return json.dumps({"error": "delete requires params: {path} (relative path)"})
+            return _fmt_error("delete requires params: {path} (relative path)")
         try:
             links_replaced = rename.delete_and_clean_links(_vault_root, params["path"])
-            return json.dumps({
-                "status": "ok",
-                "path": params["path"],
-                "links_replaced": links_replaced,
-            }, indent=2)
+            return f"Deleted: {params['path']}, {links_replaced} links replaced"
         except FileNotFoundError as e:
-            return json.dumps({"error": str(e)})
+            return _fmt_error(str(e))
 
     elif action == "convert":
         if not params or "path" not in params or "target_type" not in params:
-            return json.dumps({"error": "convert requires params: {path, target_type}"})
+            return _fmt_error("convert requires params: {path, target_type}")
         try:
             result = edit.convert_artefact(
                 _vault_root, _router, params["path"], params["target_type"]
@@ -625,39 +716,41 @@ def brain_action(action: str, params: dict | None = None) -> str:
                 "links_updated": result["links_updated"],
             }, indent=2)
         except (ValueError, FileNotFoundError) as e:
-            return json.dumps({"error": str(e)})
+            return _fmt_error(str(e))
 
     elif action == "shape-presentation":
         result = shape_presentation.shape(_vault_root, params)
+        if isinstance(result, dict) and "error" in result:
+            return _fmt_error(result["error"])
         return json.dumps(result, indent=2)
 
     elif action == "register_workspace":
         if not params or "slug" not in params or "path" not in params:
-            return json.dumps({"error": "register_workspace requires params: {slug, path}"})
+            return _fmt_error("register_workspace requires params: {slug, path}")
         try:
             result = workspace_registry.register_workspace(
                 _vault_root, params["slug"], params["path"],
             )
             _workspace_registry = workspace_registry.load_registry(_vault_root)
-            return json.dumps(result, indent=2)
+            return f"Workspace registered: {params['slug']} → {params['path']}"
         except ValueError as e:
-            return json.dumps({"error": str(e)})
+            return _fmt_error(str(e))
 
     elif action == "unregister_workspace":
         if not params or "slug" not in params:
-            return json.dumps({"error": "unregister_workspace requires params: {slug}"})
+            return _fmt_error("unregister_workspace requires params: {slug}")
         try:
             result = workspace_registry.unregister_workspace(
                 _vault_root, params["slug"],
             )
             _workspace_registry = workspace_registry.load_registry(_vault_root)
-            return json.dumps(result, indent=2)
+            return f"Workspace unregistered: {params['slug']}"
         except ValueError as e:
-            return json.dumps({"error": str(e)})
+            return _fmt_error(str(e))
 
     elif action == "upgrade":
         if not params or "source" not in params:
-            return json.dumps({"error": "upgrade requires params: {source} (path to source brain-core dir)"})
+            return _fmt_error("upgrade requires params: {source} (path to source brain-core dir)")
         source = params["source"]
         dry_run = params.get("dry_run", False)
         force = params.get("force", False)
@@ -672,6 +765,8 @@ def brain_action(action: str, params: dict | None = None) -> str:
     elif action == "migrate_naming":
         dry_run = (params or {}).get("dry_run", False)
         result = migrate_naming.migrate_vault(_vault_root, router=_router, dry_run=dry_run)
+        if isinstance(result, dict) and "error" in result:
+            return _fmt_error(result["error"])
         if not dry_run and result.get("renamed", 0) > 0:
             _router = _compile_and_save(_vault_root)
             _index = _build_index_and_save(_vault_root)
@@ -681,7 +776,7 @@ def brain_action(action: str, params: dict | None = None) -> str:
         valid = ["compile", "build_index", "rename", "delete", "convert",
                  "shape-presentation", "upgrade", "migrate_naming",
                  "register_workspace", "unregister_workspace"]
-        return json.dumps({"error": f"Unknown action '{action}'. Valid: {', '.join(valid)}"})
+        return _fmt_error(f"Unknown action '{action}'. Valid: {', '.join(valid)}")
 
 
 # ---------------------------------------------------------------------------
