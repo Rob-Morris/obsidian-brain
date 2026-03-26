@@ -627,7 +627,7 @@ def brain_action(action: str, params: dict | None = None) -> str:
             result = workspace_registry.register_workspace(
                 _vault_root, params["slug"], params["path"],
             )
-            _workspace_registry[params["slug"]] = {"path": params["path"]}
+            _workspace_registry = workspace_registry.load_registry(_vault_root)
             return json.dumps(result, indent=2)
         except ValueError as e:
             return json.dumps({"error": str(e)})
@@ -639,7 +639,7 @@ def brain_action(action: str, params: dict | None = None) -> str:
             result = workspace_registry.unregister_workspace(
                 _vault_root, params["slug"],
             )
-            _workspace_registry.pop(params["slug"], None)
+            _workspace_registry = workspace_registry.load_registry(_vault_root)
             return json.dumps(result, indent=2)
         except ValueError as e:
             return json.dumps({"error": str(e)})

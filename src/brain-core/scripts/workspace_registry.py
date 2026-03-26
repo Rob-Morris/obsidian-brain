@@ -115,8 +115,6 @@ def _scan_hub_metadata(vault_root):
         if not fname.endswith(".md"):
             continue
         fpath = os.path.join(hub_dir, fname)
-        if not os.path.isfile(fpath):
-            continue
         try:
             with open(fpath, "r", encoding="utf-8") as f:
                 text = f.read()
@@ -246,6 +244,8 @@ def register_workspace(vault_root, slug, path):
             f"an embedded workspace already exists at _Workspaces/{slug}/."
         )
 
+    path = os.path.abspath(os.path.expanduser(path))
+
     registry = load_registry(vault_root)
     was_update = slug in registry
     registry[slug] = {"path": path}
@@ -308,7 +308,6 @@ def main():
 
     if args.register:
         slug, path = args.register
-        path = os.path.abspath(os.path.expanduser(path))
         result = register_workspace(vault_root, slug, path)
         if args.json:
             print(json.dumps(result, indent=2))
