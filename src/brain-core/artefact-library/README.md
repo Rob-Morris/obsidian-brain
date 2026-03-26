@@ -17,6 +17,7 @@ The template vault ships with a curated set of defaults (marked below). This lib
 | [Ideas](living/ideas/) | `ideas` | Concepts articulated and shaped to clarity through iterative refinement. |
 | [Notes](living/notes/) | `notes` | Flat knowledge base of date-prefixed interconnected notes. **Template vault default.** |
 | [Journals](living/journals/) | `journals` | Named journal streams grouping personal journal entries via nested tags. |
+| [People](living/people/) | `people` | Person index files — living hub for everything you know about someone. |
 | [Projects](living/projects/) | `projects` | Project index files linking to related artefacts via project tags. |
 | [Workspaces](living/workspaces/) | `workspaces` | Workspace hub files linking brain artefacts to bounded data containers (`_Workspaces/`). |
 | [Writing](living/writing/) | `writing` | Long-form written works with lifecycle: draft → published. |
@@ -40,6 +41,7 @@ The template vault ships with a curated set of defaults (marked below). This lib
 | [Cookies](temporal/cookies/) | `cookies` | A measure of user satisfaction — awarded when work lands well. **Template vault default.** |
 | [Journal Entries](temporal/journal-entries/) | `journal-entries` | Personal journal entries — reflections, recollections, and life updates. |
 | [Mockups](temporal/mockups/) | `mockups` | Visual or interactive prototypes generated to explore a design direction. |
+| [Observations](temporal/observations/) | `observations` | Timestamped facts, impressions, and things noticed. Low bar for capture. |
 | [Captures](temporal/captures/) | `captures` | External material ingested verbatim — emails, meeting notes, data extracts. Frozen on ingest. |
 | [Presentations](temporal/presentations/) | `presentations` | Slide decks generated from markdown using Marp CLI. Source is markdown; output is PDF. |
 

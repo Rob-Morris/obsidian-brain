@@ -9,6 +9,7 @@ Some living artefact types act as hubs — containers that group related artefac
 This is useful when a stream of related work or content needs a single living touchpoint. The hub file describes the stream and links to key artefacts; the tag makes everything findable.
 
 **Current examples:**
+- **People** — `person/{slug}` groups observations and other artefacts related to a person
 - **Projects** — `project/{slug}` groups plans, research, designs, logs, and other artefacts related to a project
 - **Journals** — `journal/{slug}` groups journal entries belonging to a named journal stream
 - **Workspaces** — `workspace/{slug}` groups brain artefacts related to a bounded working container (`_Workspaces/`). The workspace hub connects brain content to a freeform data folder of non-artefact files

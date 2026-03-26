@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.12.3 — 2026-03-26
+
+- **People + Observations artefact types** — two new artefact types. People (`living/person`) is a hub type for storing what you know about a person — preferences, relationship context, key facts — updated as things change. Observations (`temporal/observation`) captures timestamped facts, impressions, and things noticed. Generic by design: connect observations to any hub via tags (e.g. `person/alice-smith`, `project/my-app`). Hub pattern updated to include People alongside Projects, Journals, and Workspaces.
+
 ## v0.12.2 — 2026-03-26
 
 - **Workspace registry** — workspace slug-to-path resolution for linked workspaces. New script: `workspace_registry.py`. Embedded workspaces resolve implicitly (`slug` → `_Workspaces/slug/`); linked workspaces store external paths in `.brain/workspaces.json` (machine-local, not version-controlled). MCP server loads registry on startup. New `brain_read` resource: `workspace` (list all workspaces or resolve by slug). New `brain_action` actions: `register_workspace` and `unregister_workspace` for managing linked workspace registrations. Hub artefact metadata (status, tags) enriches workspace listings. 566 tests (was 532)

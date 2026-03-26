@@ -97,6 +97,7 @@ Some types have a lifecycle. Status values are defined per type:
 
 - **Designs:** `shaping` → `active` → `implemented` | `parked`
 - **Ideas:** `new` → `developing` → `graduated` | `parked`
+- **People:** `active` → `archived`
 - **Writing:** `draft` → `editing` → `review` → `published` | `parked`
 - **Plans:** `draft` → `approved` → `implementing` → `completed`
 

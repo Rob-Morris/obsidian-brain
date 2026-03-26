@@ -81,9 +81,9 @@ Documented in `.brain-core/extensions.md`:
 
 ### Hub Pattern
 
-Some living artefact types act as hubs — containers that group related artefacts (temporal or living) via nested tags. The hub file carries a nested tag (e.g. `project/{slug}`, `journal/{slug}`), and all related artefacts share that tag. The hub is the index; the tag is the query mechanism.
+Some living artefact types act as hubs — containers that group related artefacts (temporal or living) via nested tags. The hub file carries a nested tag (e.g. `person/{slug}`, `project/{slug}`, `journal/{slug}`), and all related artefacts share that tag. The hub is the index; the tag is the query mechanism.
 
-This pattern is useful when a single living artefact organises a stream of related work or content across the vault. Current examples: Projects (groups plans, research, designs, logs via `project/{slug}`), Journals (groups journal entries via `journal/{slug}`), Workspaces (groups brain artefacts related to a bounded data container via `workspace/{slug}`).
+This pattern is useful when a single living artefact organises a stream of related work or content across the vault. Current examples: People (groups observations and other artefacts related to a person via `person/{slug}`), Projects (groups plans, research, designs, logs via `project/{slug}`), Journals (groups journal entries via `journal/{slug}`), Workspaces (groups brain artefacts related to a bounded data container via `workspace/{slug}`).
 
 ## Documentation
 
@@ -120,4 +120,4 @@ This pattern is useful when a single living artefact organises a stream of relat
 - `_Config/` — router, taxonomy, style, colours, templates, user skills, user preferences
 - `_Plugins/` — empty, ready for plugins
 
-Additional types are available in the artefact library (`.brain-core/artefact-library/`) for install as needed: Designs, Documentation, Ideas, Journals, Projects, Workspaces, Writing, Zettelkasten (living); Idea Logs, Journal Entries, Thoughts, Reports, Snippets, Mockups, Captures (temporal).
+Additional types are available in the artefact library (`.brain-core/artefact-library/`) for install as needed: Designs, Documentation, Ideas, Journals, People, Projects, Workspaces, Writing, Zettelkasten (living); Idea Logs, Journal Entries, Observations, Thoughts, Reports, Snippets, Mockups, Captures (temporal).

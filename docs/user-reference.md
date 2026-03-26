@@ -234,6 +234,28 @@ status: active
 
 **Convention:** All journal entries use the nested journal tag (e.g., `journal/personal`), connecting entries to their journal stream.
 
+### People
+
+**Folder:** `People/` · **Naming:** `{name}.md`
+
+Person index files. One per person, serving as the living source of truth for what you know about them. The hub. Updated as you learn new things; superseded facts are replaced, not accumulated.
+
+```yaml
+type: living/person
+tags:
+  - person/{slug}
+status: active
+```
+
+**Lifecycle:**
+
+| Status | Meaning |
+|---|---|
+| `active` | Default. Actively maintained. |
+| `archived` | No longer in regular contact. Preserved for reference. |
+
+**Convention:** All related files across the vault use a nested person tag (e.g., `person/alice-smith`) so you can find everything connected to a person.
+
 ### Projects
 
 **Folder:** `Projects/` · **Naming:** `{name}.md`
@@ -566,6 +588,20 @@ tags:
 **Conventions:** Link to the design or project being explored. If AI-generated, include the prompt. Note the verdict — what works, what needs iteration. One direction per file.
 
 **Trigger:** When exploring a visual or interactive design direction — UI layouts, component designs, app shells.
+
+### Observations
+
+**Folder:** `_Temporal/Observations/yyyy-mm/` · **Naming:** `yyyymmdd-observation--{slug}.md`
+
+Timestamped facts, impressions, and things noticed. Can be as short as a single sentence. Factual rather than speculative — captures what is or was, not what might be. Use tags to connect observations to relevant hubs (e.g. `person/alice-smith`).
+
+```yaml
+type: temporal/observation
+tags:
+  - observation
+```
+
+**Trigger:** When you notice or learn a discrete fact worth recording.
 
 ### Captures
 
