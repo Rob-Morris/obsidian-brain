@@ -15,9 +15,9 @@ A plan captures the intended approach before implementation starts. It records t
 
 ## Naming
 
-`yyyymmdd-plan--{slug}.md` in `_Temporal/Plans/yyyy-mm/`.
+`yyyymmdd-plan~ {Title}.md` in `_Temporal/Plans/yyyy-mm/`.
 
-Example: `_Temporal/Plans/2026-03/20260315-plan--api-refactor.md`
+Example: `_Temporal/Plans/2026-03/20260315-plan~ API Refactor.md`
 
 ## Frontmatter
 

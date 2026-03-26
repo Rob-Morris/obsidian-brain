@@ -8,9 +8,9 @@ A report is an overview of a detailed process, written to make it easy to unders
 
 ## Naming
 
-`yyyymmdd-report--{slug}.md` in `_Temporal/Reports/yyyy-mm/`.
+`yyyymmdd-report~ {Title}.md` in `_Temporal/Reports/yyyy-mm/`.
 
-Example: `_Temporal/Reports/2026-03/20260320-report--api-performance-audit.md`
+Example: `_Temporal/Reports/2026-03/20260320-report~ API Performance Audit.md`
 
 ## Frontmatter
 

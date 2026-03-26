@@ -20,7 +20,7 @@ Use `brain_action("shape-presentation", {source, slug})` to create the presentat
 1. **Call the tool.** `source` is the vault artefact to present (relative path). `slug` is the deck name (lowercase-hyphenated).
 2. **The tool creates** the presentation file from the template (if it doesn't exist) and launches `marp --preview` with the Brain theme. A browser window opens with live reload.
 3. **Iterate on slides.** Read the source artefact, write slides to the presentation file. The browser updates automatically as you save. Ask the user for feedback — they can see changes in real time.
-4. **Generate PDF.** When the user is happy, the tool can also be used to render the final PDF, or run manually: `marp {path} --theme {theme_path} -o _Assets/Generated/Presentations/yyyymmdd-deck--{slug}.pdf`
+4. **Generate PDF.** When the user is happy, the tool can also be used to render the final PDF, or run manually: `marp {path} --theme {theme_path} -o _Assets/Generated/Presentations/yyyymmdd-deck~ {Title}.pdf`
 
 The shaping workflow is interactive: you write, the user watches, you refine together.
 
@@ -30,7 +30,7 @@ For environments without live preview (remote, mobile, headless):
 
 1. Create the presentation artefact manually using the template
 2. Write slides in markdown with `---` separators
-3. Generate PDF: `marp {path} --theme _Config/Skills/presentations/theme.css -o _Assets/Generated/Presentations/yyyymmdd-deck--{slug}.pdf`
+3. Generate PDF: `marp {path} --theme _Config/Skills/presentations/theme.css -o _Assets/Generated/Presentations/yyyymmdd-deck~ {Title}.pdf`
 
 ## Conventions
 

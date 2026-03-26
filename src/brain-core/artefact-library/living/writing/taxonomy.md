@@ -39,10 +39,10 @@ Published writing that remains canonical stays in `_Published/`.
 
 ## Naming
 
-`{name}.md` in `Writing/` (or `Writing/{project-slug}/{slug}.md` for grouped pieces).
+`{Title}.md` in `Writing/` (or `Writing/{project-slug}/{Title}.md` for grouped pieces).
 
-Example: `Writing/on-tool-use.md`
-Example: `Writing/my-novel/chapter-1.md`
+Example: `Writing/On Tool Use.md`
+Example: `Writing/my-novel/Chapter 1.md`
 
 ## Frontmatter
 

@@ -46,7 +46,7 @@ def vault(tmp_path):
     tax_living.mkdir(parents=True)
     (tax_living / "wiki.md").write_text(
         "# Wiki\n\n"
-        "## Naming\n\n`{slug}.md` in `Wiki/`.\n\n"
+        "## Naming\n\n`{Title}.md` in `Wiki/`.\n\n"
         "## Frontmatter\n\n```yaml\n---\ntype: living/wiki\ntags:\n  - topic-tag\n---\n```\n\n"
         "## Template\n\n[[_Config/Templates/Living/Wiki]]\n"
     )
@@ -54,7 +54,7 @@ def vault(tmp_path):
     # Taxonomy: Ideas
     (tax_living / "ideas.md").write_text(
         "# Ideas\n\n"
-        "## Naming\n\n`{slug}.md` in `Ideas/`.\n\n"
+        "## Naming\n\n`{Title}.md` in `Ideas/`.\n\n"
         "## Frontmatter\n\n```yaml\n---\ntype: living/ideas\ntags:\n  - idea-tag\nstatus: shaping\n---\n```\n\n"
         "## Template\n\n[[_Config/Templates/Living/Ideas]]\n"
     )
@@ -64,7 +64,7 @@ def vault(tmp_path):
     tax_temporal.mkdir(parents=True)
     (tax_temporal / "logs.md").write_text(
         "# Logs\n\n"
-        "## Naming\n\n`log-{slug}.md` in `_Temporal/Logs/yyyy-mm/`.\n\n"
+        "## Naming\n\n`log~ {Title}.md` in `_Temporal/Logs/yyyy-mm/`.\n\n"
         "## Frontmatter\n\n```yaml\n---\ntype: temporal/logs\ntags:\n  - session\n---\n```\n\n"
         "## Template\n\n[[_Config/Templates/Temporal/Logs]]\n"
     )
@@ -104,7 +104,7 @@ class TestCreateArtefact:
         result = create.create_artefact(str(vault), router, "wiki", "My Test Page")
         assert result["type"] == "living/wiki"
         assert result["title"] == "My Test Page"
-        assert result["path"] == os.path.join("Wiki", "my-test-page.md")
+        assert result["path"] == os.path.join("Wiki", "My Test Page.md")
         # File exists on disk
         abs_path = os.path.join(str(vault), result["path"])
         assert os.path.isfile(abs_path)
@@ -159,9 +159,9 @@ class TestCreateArtefact:
         # Type should still be forced from artefact definition
         assert fields["type"] == "living/ideas"
 
-    def test_slug_generation(self, vault, router):
+    def test_filename_generation(self, vault, router):
         result = create.create_artefact(str(vault), router, "wiki", "Hello World! (2026)")
-        assert result["path"] == os.path.join("Wiki", "hello-world-2026.md")
+        assert result["path"] == os.path.join("Wiki", "Hello World! (2026).md")
 
     def test_resolve_by_key(self, vault, router):
         result = create.create_artefact(str(vault), router, "wiki", "By Key")
@@ -193,14 +193,18 @@ class TestCreateArtefact:
 
 class TestResolveNamingPattern:
     def test_slug_pattern(self):
-        assert create.resolve_naming_pattern("{slug}.md", "My Title") == "my-title.md"
+        assert create.resolve_naming_pattern("{slug}.md", "My Title") == "My Title.md"
 
     def test_name_pattern(self):
-        assert create.resolve_naming_pattern("{name}.md", "My Title") == "my-title.md"
+        assert create.resolve_naming_pattern("{name}.md", "My Title") == "My Title.md"
 
     def test_title_pattern(self):
         assert create.resolve_naming_pattern("{Title}.md", "My Title") == "My Title.md"
 
-    def test_prefixed_slug(self):
-        result = create.resolve_naming_pattern("log-{slug}.md", "My Session")
-        assert result == "log-my-session.md"
+    def test_prefixed_title(self):
+        result = create.resolve_naming_pattern("log~ {Title}.md", "My Session")
+        assert result == "log~ My Session.md"
+
+    def test_unsafe_chars_stripped(self):
+        result = create.resolve_naming_pattern("{Title}.md", "Q3 / Q4 Review")
+        assert result == "Q3 Q4 Review.md"

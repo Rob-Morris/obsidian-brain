@@ -47,7 +47,7 @@ Follow [[.brain-core/standards/provenance]]. Designs additionally track transcri
 
 ## Naming
 
-`{name}.md` in `Designs/`.
+`{Title}.md` in `Designs/`.
 
 Example: `Designs/pistols-at-dawn-discord-bot.md`
 

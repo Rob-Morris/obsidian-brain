@@ -17,7 +17,7 @@ Follows the same hub pattern as Projects and People: a living summary that group
 
 ## Naming
 
-`{name}.md` in `Journals/`.
+`{Title}.md` in `Journals/`.
 
 Example: `Journals/Personal.md`
 

@@ -98,7 +98,7 @@ def naming_pattern_to_regex(pattern):
         ("{sourcedoctype}", r"[a-z]+(?:-[a-z]+)*"),
         ("{Title}", r".+"),
         ("{name}", r".+"),
-        ("{slug}", r"[a-z0-9]+(?:--?[a-z0-9]+)*"),
+        ("{slug}", r".+"),
     ]
 
     # Tokenise the pattern: split into placeholder tokens and literal tokens

@@ -16,9 +16,9 @@ A decision log captures the "why" behind choices — the question, the options c
 
 ## Naming
 
-`yyyymmdd-decision--{slug}.md` in `_Temporal/Decision Logs/yyyy-mm/`.
+`yyyymmdd-decision~ {Title}.md` in `_Temporal/Decision Logs/yyyy-mm/`.
 
-Example: `_Temporal/Decision Logs/2026-03/20260321-decision--temporal-vs-living-friction-logs.md`
+Example: `_Temporal/Decision Logs/2026-03/20260321-decision~ Temporal vs Living Friction Logs.md`
 
 ## Frontmatter
 

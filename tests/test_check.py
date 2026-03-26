@@ -242,8 +242,9 @@ class TestNamingPatternToRegex:
         assert r.match("rust-lifetimes.md")
         assert r.match("api.md")
         assert r.match("gap-assessment--brain-inbox.md")
-        assert not r.match("My Page.md")
-        assert not r.match("UPPER.md")
+        # Generous filenames now accepted
+        assert r.match("My Page.md")
+        assert r.match("UPPER.md")
 
     def test_yyyymmdd_slug_pattern(self):
         r = check.naming_pattern_to_regex("yyyymmdd-{slug}.md")
@@ -271,27 +272,26 @@ class TestNamingPatternToRegex:
         assert not r.match("20260315 Sat.md")
 
     def test_shaping_transcript_pattern(self):
-        r = check.naming_pattern_to_regex("yyyymmdd-{sourcedoctype}-transcript--{slug}.md")
-        assert r.match("20260315-design-transcript--auth.md")
-        assert r.match("20260315-project-transcript--my-thing.md")
-        assert not r.match("20260315-Design-transcript--auth.md")
+        r = check.naming_pattern_to_regex("yyyymmdd-{sourcedoctype}-transcript~ {Title}.md")
+        assert r.match("20260315-design-transcript~ Auth.md")
+        assert r.match("20260315-project-transcript~ My Thing.md")
+        assert not r.match("20260315-Design-transcript~ Auth.md")
 
     def test_cookie_pattern(self):
-        r = check.naming_pattern_to_regex("yyyymmdd-cookie--{slug}.md")
-        assert r.match("20260315-cookie--great-refactor.md")
-        assert not r.match("20260315-cookie-great-refactor.md")
+        r = check.naming_pattern_to_regex("yyyymmdd-cookie~ {Title}.md")
+        assert r.match("20260315-cookie~ Great Refactor.md")
+        assert not r.match("20260315-cookie-Great Refactor.md")
 
     def test_idea_log_pattern(self):
-        r = check.naming_pattern_to_regex("yyyymmdd-idea-log--{slug}.md")
-        assert r.match("20260315-idea-log--shared-validation.md")
+        r = check.naming_pattern_to_regex("yyyymmdd-idea-log~ {Title}.md")
+        assert r.match("20260315-idea-log~ Shared Validation.md")
 
-    def test_categorised_slug_pattern(self):
-        """Slugs with -- separators (e.g. gap-assessment--brain-inbox)."""
-        r = check.naming_pattern_to_regex("yyyymmdd-{slug}.md")
-        assert r.match("20260317-gap-assessment--brain-inbox.md")
-        assert r.match("20260317-plan--archive-convention.md")
-        assert r.match("20260317-simple-slug.md")
-        assert not r.match("20260317-.md")
+    def test_temporal_title_pattern(self):
+        """Temporal artefacts with ~ separator and human-readable titles."""
+        r = check.naming_pattern_to_regex("yyyymmdd-plan~ {Title}.md")
+        assert r.match("20260317-plan~ API Refactor.md")
+        assert r.match("20260317-plan~ Simple.md")
+        assert not r.match("20260317-plan~.md")  # missing space + title
 
     def test_name_pattern(self):
         """Living artefacts use {name}.md — freeform names with spaces or hyphens."""

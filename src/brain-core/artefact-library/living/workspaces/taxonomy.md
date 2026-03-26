@@ -10,7 +10,7 @@ Workspaces solve the problem of work that involves non-markdown files (CSVs, JSO
 
 ## Naming
 
-`{name}.md` in `Workspaces/`.
+`{Title}.md` in `Workspaces/`.
 
 Example: `Workspaces/yearly-taxes-2026.md`
 

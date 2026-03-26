@@ -17,9 +17,9 @@ Mockups bridge the gap between abstract design documents and real implementation
 
 ## Naming
 
-`yyyymmdd-mockup--{slug}.md` in `_Temporal/Mockups/yyyy-mm/`.
+`yyyymmdd-mockup~ {Title}.md` in `_Temporal/Mockups/yyyy-mm/`.
 
-Example: `_Temporal/Mockups/2026-03/20260321-mockup--brain-app-main-shell.md`
+Example: `_Temporal/Mockups/2026-03/20260321-mockup~ Brain App Main Shell.md`
 
 ## Frontmatter
 

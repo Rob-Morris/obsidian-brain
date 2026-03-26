@@ -8,7 +8,7 @@ One file per project, serving as the living source of truth for the project's cu
 
 ## Naming
 
-`{name}.md` in `Projects/`.
+`{Title}.md` in `Projects/`.
 
 Example: `Projects/pistols-at-dawn.md`
 

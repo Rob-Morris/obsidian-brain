@@ -31,7 +31,7 @@ When an idea originates from another artefact, follow [[.brain-core/standards/pr
 
 ## Naming
 
-`{name}.md` in `Ideas/`.
+`{Title}.md` in `Ideas/`.
 
 Example: `Ideas/voice-controlled-task-manager.md`
 

@@ -76,7 +76,7 @@ Zettelkasten and wiki form a two-layer semantic graph:
 
 ## Naming
 
-`{name}.md` in `Zettelkasten/`.
+`{Title}.md` in `Zettelkasten/`.
 
 Example: `Zettelkasten/ownership.md`
 

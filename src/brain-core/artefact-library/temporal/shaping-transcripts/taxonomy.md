@@ -15,9 +15,9 @@ A record of a Q&A session that shapes an artefact — a design, research note, i
 
 ## Naming
 
-`yyyymmdd-{sourcedoctype}-transcript--{slug}.md` in `_Temporal/Shaping Transcripts/yyyy-mm/`.
+`yyyymmdd-{sourcedoctype}-transcript~ {Title}.md` in `_Temporal/Shaping Transcripts/yyyy-mm/`.
 
-Example: `_Temporal/Shaping Transcripts/2026-03/20260307-design-transcript--pistols-at-dawn-discord-bot.md`
+Example: `_Temporal/Shaping Transcripts/2026-03/20260307-design-transcript~ Pistols at Dawn Discord Bot.md`
 
 ## Frontmatter
 

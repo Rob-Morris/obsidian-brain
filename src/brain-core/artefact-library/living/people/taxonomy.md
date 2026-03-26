@@ -8,7 +8,7 @@ One file per person, serving as the living source of truth for what you know abo
 
 ## Naming
 
-`{name}.md` in `People/`.
+`{Title}.md` in `People/`.
 
 Example: `People/Alice Smith.md`
 

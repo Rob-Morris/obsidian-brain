@@ -12,9 +12,9 @@ When an observation changes the current picture (a preference shifted, a fact wa
 
 ## Naming
 
-`yyyymmdd-observation--{slug}.md` in `_Temporal/Observations/yyyy-mm/`.
+`yyyymmdd-observation~ {Title}.md` in `_Temporal/Observations/yyyy-mm/`.
 
-Example: `_Temporal/Observations/2026-03/20260326-observation--alice-prefers-pepsi.md`
+Example: `_Temporal/Observations/2026-03/20260326-observation~ Alice Prefers Pepsi.md`
 
 ## Frontmatter
 

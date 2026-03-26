@@ -241,6 +241,55 @@ class TestTitleToSlug:
 
 
 # ---------------------------------------------------------------------------
+# title_to_filename
+# ---------------------------------------------------------------------------
+
+class TestTitleToFilename:
+    def test_basic_title(self):
+        assert common.title_to_filename("My Project") == "My Project"
+
+    def test_preserves_caps(self):
+        assert common.title_to_filename("API Refactor") == "API Refactor"
+
+    def test_strips_unsafe_chars(self):
+        assert common.title_to_filename('Rob\'s Q3/Q4 Review') == "Rob's Q3Q4 Review"
+
+    def test_strips_all_unsafe(self):
+        assert common.title_to_filename('a/b\\c:d*e?f"g<h>i|j') == "abcdefghij"
+
+    def test_preserves_unicode(self):
+        assert common.title_to_filename("Café Notes") == "Café Notes"
+
+    def test_trims_whitespace(self):
+        assert common.title_to_filename("  My Project  ") == "My Project"
+
+    def test_collapses_spaces(self):
+        assert common.title_to_filename("lots   of   spaces") == "lots of spaces"
+
+    def test_collapses_spaces_from_stripped_chars(self):
+        # Stripping / leaves double space which gets collapsed
+        assert common.title_to_filename("Q3 / Q4 Review") == "Q3 Q4 Review"
+
+    def test_empty_title(self):
+        assert common.title_to_filename("") == ""
+
+    def test_all_unsafe(self):
+        assert common.title_to_filename('/:*?"<>|') == ""
+
+    def test_hyphens_preserved(self):
+        assert common.title_to_filename("brain-core") == "brain-core"
+
+    def test_underscores_preserved(self):
+        assert common.title_to_filename("my_project") == "my_project"
+
+    def test_numbers(self):
+        assert common.title_to_filename("3 Ways to Code") == "3 Ways to Code"
+
+    def test_parentheses_preserved(self):
+        assert common.title_to_filename("Hello (World)") == "Hello (World)"
+
+
+# ---------------------------------------------------------------------------
 # serialize_frontmatter
 # ---------------------------------------------------------------------------
 

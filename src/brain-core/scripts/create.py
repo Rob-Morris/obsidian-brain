@@ -20,6 +20,7 @@ from _common import (
     find_vault_root,
     parse_frontmatter,
     serialize_frontmatter,
+    title_to_filename,
     title_to_slug,
 )
 from read import read_file_content
@@ -43,7 +44,7 @@ def resolve_naming_pattern(pattern, title):
       ddd             — three-letter weekday (Mon, Tue, ...)
     """
     now = datetime.now(timezone.utc).astimezone()
-    slug = title_to_slug(title)
+    safe_title = title_to_filename(title)
 
     # Order matters: longer placeholders first to avoid partial matches
     replacements = [
@@ -53,9 +54,9 @@ def resolve_naming_pattern(pattern, title):
         ("ddd", now.strftime("%a")),
         ("mm", now.strftime("%m")),
         ("dd", now.strftime("%d")),
-        ("{slug}", slug),
-        ("{name}", slug),
-        ("{Title}", title),
+        ("{slug}", safe_title),
+        ("{name}", safe_title),
+        ("{Title}", safe_title),
     ]
 
     result = pattern
@@ -99,7 +100,7 @@ def create_artefact(vault_root, router, type_key, title, body="", frontmatter_ov
     if pattern:
         filename = resolve_naming_pattern(pattern, title)
     else:
-        filename = title_to_slug(title) + ".md"
+        filename = title_to_filename(title) + ".md"
 
     # 4. Resolve folder
     folder = resolve_folder(artefact)

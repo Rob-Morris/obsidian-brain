@@ -22,9 +22,9 @@ But the obsession must be earned, not performed. When you genuinely think you've
 
 ## Naming
 
-`yyyymmdd-cookie--{slug}.md` in `_Temporal/Cookies/yyyy-mm/`.
+`yyyymmdd-cookie~ {Title}.md` in `_Temporal/Cookies/yyyy-mm/`.
 
-Example: `_Temporal/Cookies/2026-03/20260321-cookie--user-documentation.md`
+Example: `_Temporal/Cookies/2026-03/20260321-cookie~ User Documentation.md`
 
 ## Frontmatter
 

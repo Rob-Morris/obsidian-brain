@@ -249,12 +249,17 @@ def replace_wikilinks_in_vault(vault_root, pattern, replacement):
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 
+# Characters unsafe in filenames across macOS, Windows, and Linux
+_UNSAFE_FILENAME_RE = re.compile(r'[/\\:*?"<>|]')
+_MULTI_SPACE_RE = re.compile(r"  +")
+
 
 def title_to_slug(title):
-    """Convert a human-readable title to a filename slug.
+    """Convert a human-readable title to a machine slug for hub tags.
 
     Lowercase, replace non-alphanumeric runs with hyphens, strip edges.
-    Output matches the {slug} regex from check.py: [a-z0-9]+(?:-[a-z0-9]+)*
+    Used for hub tags (project/{slug}, workspace/{slug}), not filenames.
+    Output matches: [a-z0-9]+(?:-[a-z0-9]+)*
     """
     # Transliterate unicode to ASCII approximations (e.g. é → e)
     normalised = unicodedata.normalize("NFKD", title)
@@ -264,6 +269,18 @@ def title_to_slug(title):
     while "--" in slug:
         slug = slug.replace("--", "-")
     return slug
+
+
+def title_to_filename(title):
+    """Convert a human-readable title to a filesystem-safe filename stem.
+
+    Generous: preserves spaces, capitalisation, and unicode. Only strips
+    characters that are unsafe on macOS, Windows, or Linux filesystems
+    (/ \\ : * ? \" < > |). Trims whitespace and collapses multiple spaces.
+    """
+    result = _UNSAFE_FILENAME_RE.sub("", title)
+    result = _MULTI_SPACE_RE.sub(" ", result).strip()
+    return result
 
 
 # ---------------------------------------------------------------------------

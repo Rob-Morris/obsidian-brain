@@ -15,9 +15,9 @@ A capture preserves external material exactly as received — emails, meeting no
 
 ## Naming
 
-`yyyymmdd-capture--{slug}.md` in `_Temporal/Captures/yyyy-mm/`.
+`yyyymmdd-capture~ {Title}.md` in `_Temporal/Captures/yyyy-mm/`.
 
-Example: `_Temporal/Captures/2026-03/20260325-capture--james-ward-api-feedback.md`
+Example: `_Temporal/Captures/2026-03/20260325-capture~ James Ward API Feedback.md`
 
 ## Frontmatter
 

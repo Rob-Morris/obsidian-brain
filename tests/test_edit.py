@@ -103,8 +103,12 @@ class TestValidateArtefactPath:
             edit.validate_artefact_path(str(vault), router, "Unknown/file.md")
 
     def test_wrong_naming_pattern(self, vault, router):
+        # Temporal log pattern requires yyyymmdd prefix — a bare name should fail
+        month = vault / "_Temporal" / "Logs" / "2026-03"
+        month.mkdir(parents=True)
+        (month / "bad-name.md").write_text("---\ntype: temporal/logs\n---\n")
         with pytest.raises(ValueError, match="does not match expected pattern"):
-            edit.validate_artefact_path(str(vault), router, "Wiki/Bad Name With Spaces.md")
+            edit.validate_artefact_path(str(vault), router, "_Temporal/Logs/2026-03/bad-name.md")
 
 
 # ---------------------------------------------------------------------------

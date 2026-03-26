@@ -5,7 +5,7 @@ When a living artefact reaches a terminal status (e.g. `implemented` for designs
 1. Set the terminal status in frontmatter
 2. Add `archiveddate: YYYY-MM-DD` to frontmatter
 3. Add a supersession callout linking to the successor (the file that now holds authority)
-4. Rename the file to `yyyymmdd-{slug}.md` using `brain_action("rename")` — this updates all wikilinks vault-wide automatically (Obsidian CLI first, grep-replace fallback)
+4. Rename the file to `yyyymmdd-{Title}.md` using `brain_action("rename")` — this updates all wikilinks vault-wide automatically (Obsidian CLI first, grep-replace fallback)
 5. Move the file to `{Type}/_Archive/`
 
 ## Wikilink hygiene

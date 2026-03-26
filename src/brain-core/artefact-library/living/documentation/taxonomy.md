@@ -8,7 +8,7 @@ Technical docs, style guides, and any prescriptive reference that governs how wo
 
 ## Naming
 
-`{name}.md` in `Documentation/`.
+`{Title}.md` in `Documentation/`.
 
 Example: `Documentation/ai-writing-style-guide.md`
 
