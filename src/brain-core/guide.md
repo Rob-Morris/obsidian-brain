@@ -45,24 +45,24 @@ Pick the artefact type that fits, create the file in the right folder with the r
 
 | Type | Where | Naming |
 |---|---|---|
-| Wiki page | `Wiki/` | `{name}.md` |
+| Wiki page | `Wiki/` | `{Title}.md` |
 | Note | `Notes/` | `yyyymmdd - {Title}.md` |
 | Daily note | `Daily Notes/` | `yyyy-mm-dd ddd.md` |
 | Log entry | `_Temporal/Logs/yyyy-mm/` | `yyyymmdd-log.md` |
-| Plan | `_Temporal/Plans/yyyy-mm/` | `yyyymmdd-plan--{slug}.md` |
-| Transcript | `_Temporal/Transcripts/yyyy-mm/` | `yyyymmdd-transcript--{slug}.md` |
-| Shaping transcript | `_Temporal/Shaping Transcripts/yyyy-mm/` | `yyyymmdd-{sourcedoctype}-transcript--{slug}.md` |
-| Research | `_Temporal/Research/yyyy-mm/` | `yyyymmdd-research--{slug}.md` |
-| Decision log | `_Temporal/Decision Logs/yyyy-mm/` | `yyyymmdd-decision--{slug}.md` |
-| Friction log | `_Temporal/Friction Logs/yyyy-mm/` | `yyyymmdd-friction--{slug}.md` |
-| Person | `People/` | `{name}.md` |
-| Observation | `_Temporal/Observations/yyyy-mm/` | `yyyymmdd-observation--{slug}.md` |
-| Cookie | `_Temporal/Cookies/yyyy-mm/` | `yyyymmdd-cookie--{slug}.md` |
-| Workspace | `Workspaces/` | `{name}.md` |
-| Capture | `_Temporal/Captures/yyyy-mm/` | `yyyymmdd-capture--{slug}.md` |
-| Report | `_Temporal/Reports/yyyy-mm/` | `yyyymmdd-report--{slug}.md` |
-| Snippet | `_Temporal/Snippets/yyyy-mm/` | `yyyymmdd-snippet--{slug}.md` |
-| Thought | `_Temporal/Thoughts/yyyy-mm/` | `yyyymmdd-thought--{slug}.md` |
+| Plan | `_Temporal/Plans/yyyy-mm/` | `yyyymmdd-plan~ {Title}.md` |
+| Transcript | `_Temporal/Transcripts/yyyy-mm/` | `yyyymmdd-transcript~ {Title}.md` |
+| Shaping transcript | `_Temporal/Shaping Transcripts/yyyy-mm/` | `yyyymmdd-{sourcedoctype}-transcript~ {Title}.md` |
+| Research | `_Temporal/Research/yyyy-mm/` | `yyyymmdd-research~ {Title}.md` |
+| Decision log | `_Temporal/Decision Logs/yyyy-mm/` | `yyyymmdd-decision~ {Title}.md` |
+| Friction log | `_Temporal/Friction Logs/yyyy-mm/` | `yyyymmdd-friction~ {Title}.md` |
+| Person | `People/` | `{Title}.md` |
+| Observation | `_Temporal/Observations/yyyy-mm/` | `yyyymmdd-observation~ {Title}.md` |
+| Cookie | `_Temporal/Cookies/yyyy-mm/` | `yyyymmdd-cookie~ {Title}.md` |
+| Workspace | `Workspaces/` | `{Title}.md` |
+| Capture | `_Temporal/Captures/yyyy-mm/` | `yyyymmdd-capture~ {Title}.md` |
+| Report | `_Temporal/Reports/yyyy-mm/` | `yyyymmdd-report~ {Title}.md` |
+| Snippet | `_Temporal/Snippets/yyyy-mm/` | `yyyymmdd-snippet~ {Title}.md` |
+| Thought | `_Temporal/Thoughts/yyyy-mm/` | `yyyymmdd-thought~ {Title}.md` |
 
 Additional types available from the artefact library: Designs, Ideas, Journals, Projects, Writing, Zettelkasten (living); Idea Logs, Journal Entries, Mockups, Presentations (temporal).
 
@@ -129,7 +129,7 @@ When one artefact spins out of another, link them. Full details in [[.brain-core
 Published writing moves to `Writing/_Published/` with date-prefixed filenames. Full details in the writing taxonomy.
 
 1. Set `status: published` and add `publisheddate: YYYY-MM-DD`
-2. Rename to `yyyymmdd-{slug}.md` via `brain_action("rename")`
+2. Rename to `yyyymmdd-{Title}.md` via `brain_action("rename")`
 3. Move to `Writing/_Published/`
 
 ## Archiving
@@ -139,7 +139,7 @@ Living artefacts that reach a terminal status (e.g., `implemented`, `graduated`)
 1. Set the terminal status
 2. Add `archiveddate: YYYY-MM-DD` to frontmatter
 3. Add a supersession callout linking to the successor
-4. Rename to `yyyymmdd-{slug}.md`
+4. Rename to `yyyymmdd-{Title}.md`
 5. Move to `{Type}/_Archive/`
 
 Superseded published writing archives from `_Published/` to `_Archive/`.

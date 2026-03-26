@@ -90,7 +90,7 @@ When temporal work produces something lasting, it spins out to a living artefact
 
 ### Wiki
 
-**Folder:** `Wiki/` · **Naming:** `{name}.md` · **Colour:** Rose
+**Folder:** `Wiki/` · **Naming:** `{Title}.md` · **Colour:** Rose
 
 Interconnected knowledge base. One page per concept. Deliberately human-curated — selective, polished, comprehensive reference.
 
@@ -106,7 +106,7 @@ No status field. Evergreen. Update pages as understanding deepens. One page per 
 
 ### Zettelkasten
 
-**Folder:** `Zettelkasten/` · **Naming:** `{name}.md` · **Colour:** Mint
+**Folder:** `Zettelkasten/` · **Naming:** `{Title}.md` · **Colour:** Mint
 
 Auto-maintained atomic concept mesh. One card per concept (~200–400 words), densely linked to sources and related cards. Makes implicit knowledge structure explicit.
 
@@ -160,7 +160,7 @@ tags:
 
 ### Designs
 
-**Folder:** `Designs/` · **Naming:** `{name}.md`
+**Folder:** `Designs/` · **Naming:** `{Title}.md`
 
 Design documents, wireframes, proposals for features, products, or concepts.
 
@@ -186,11 +186,11 @@ status: shaping
 **Transcripts:** [[transcript-1|Session 1]], [[transcript-2|Session 2]]
 ```
 
-**Archiving:** When `implemented` → add `archiveddate` → add supersession callout → rename to `yyyymmdd-{slug}.md` → move to `Designs/_Archive/`.
+**Archiving:** When `implemented` → add `archiveddate` → add supersession callout → rename to `yyyymmdd-{Title}.md` → move to `Designs/_Archive/`.
 
 ### Ideas
 
-**Folder:** `Ideas/` · **Naming:** `{name}.md`
+**Folder:** `Ideas/` · **Naming:** `{Title}.md`
 
 Loose thoughts and concepts to explore. Loose structure; no prescribed format beyond title and tags.
 
@@ -214,7 +214,7 @@ status: new
 
 ### Journals
 
-**Folder:** `Journals/` · **Naming:** `{name}.md`
+**Folder:** `Journals/` · **Naming:** `{Title}.md`
 
 Named journal streams. One file per journal, grouping personal journal entries via nested tags. Follows the same hub pattern as Projects.
 
@@ -236,7 +236,7 @@ status: active
 
 ### People
 
-**Folder:** `People/` · **Naming:** `{name}.md`
+**Folder:** `People/` · **Naming:** `{Title}.md`
 
 Person index files. One per person, serving as the living source of truth for what you know about them. The hub. Updated as you learn new things; superseded facts are replaced, not accumulated.
 
@@ -258,7 +258,7 @@ status: active
 
 ### Projects
 
-**Folder:** `Projects/` · **Naming:** `{name}.md`
+**Folder:** `Projects/` · **Naming:** `{Title}.md`
 
 Project index files. One per project, linking to all related artefacts — designs, research, plans, transcripts. The hub.
 
@@ -272,7 +272,7 @@ tags:
 
 ### Workspaces
 
-**Folder:** `Workspaces/` · **Naming:** `{name}.md`
+**Folder:** `Workspaces/` · **Naming:** `{Title}.md`
 
 Workspace hub files. One per workspace, linking brain artefacts to a bounded container of working files (`_Workspaces/`) that fall outside the vault's artefact taxonomy. Follows the same hub pattern as Projects.
 
@@ -299,7 +299,7 @@ workspace_mode: embedded
 
 ### Writing
 
-**Folder:** `Writing/` · **Naming:** `{name}.md`
+**Folder:** `Writing/` · **Naming:** `{Title}.md`
 
 Atomic pieces of written work — essays, blog posts, chapters, letters, scripts.
 
@@ -320,13 +320,13 @@ status: draft
 | `published` | Released or delivered. Stays as canonical source. |
 | `parked` | Set aside; not being worked on. |
 
-**Publishing:** When status reaches `published`, date-prefix the filename (`yyyymmdd-{slug}.md`) and move to `Writing/_Published/`. Superseded published writing archives from `_Published/` to `_Archive/`.
+**Publishing:** When status reaches `published`, date-prefix the filename (`yyyymmdd-{Title}.md`) and move to `Writing/_Published/`. Superseded published writing archives from `_Published/` to `_Archive/`.
 
 Complex writing projects use subfolders: `Writing/my-novel/index.md` with chapter files alongside.
 
 ### Documentation
 
-**Folder:** `Documentation/` · **Naming:** `{name}.md`
+**Folder:** `Documentation/` · **Naming:** `{Title}.md`
 
 Technical docs, style guides, prescriptive reference that governs how work gets done.
 
@@ -367,7 +367,7 @@ tags:
 
 ### Plans
 
-**Folder:** `_Temporal/Plans/yyyy-mm/` · **Naming:** `yyyymmdd-plan--{slug}.md`
+**Folder:** `_Temporal/Plans/yyyy-mm/` · **Naming:** `yyyymmdd-plan~ {Title}.md`
 
 Pre-work plans written before complex work begins. Records intended approach, goal, and strategy.
 
@@ -386,7 +386,7 @@ status: draft
 
 ### Transcripts
 
-**Folder:** `_Temporal/Transcripts/yyyy-mm/` · **Naming:** `yyyymmdd-transcript--{slug}.md`
+**Folder:** `_Temporal/Transcripts/yyyy-mm/` · **Naming:** `yyyymmdd-transcript~ {Title}.md`
 
 Conversation transcripts — person-to-person, AI conversations, Q&A sessions.
 
@@ -402,7 +402,7 @@ tags:
 
 ### Shaping Transcripts
 
-**Folder:** `_Temporal/Shaping Transcripts/yyyy-mm/` · **Naming:** `yyyymmdd-{sourcedoctype}-transcript--{slug}.md`
+**Folder:** `_Temporal/Shaping Transcripts/yyyy-mm/` · **Naming:** `yyyymmdd-{sourcedoctype}-transcript~ {Title}.md`
 
 Q&A refinement transcripts tied to a source artefact. Each transcript is bound to one source document.
 
@@ -419,7 +419,7 @@ File begins with a wikilink to the source. Q&A format: `Q.` prefix for questions
 
 ### Research
 
-**Folder:** `_Temporal/Research/yyyy-mm/` · **Naming:** `yyyymmdd-research--{slug}.md`
+**Folder:** `_Temporal/Research/yyyy-mm/` · **Naming:** `yyyymmdd-research~ {Title}.md`
 
 In-depth research notes and findings on specific topics.
 
@@ -433,7 +433,7 @@ tags:
 
 ### Idea Logs
 
-**Folder:** `_Temporal/Idea Logs/yyyy-mm/` · **Naming:** `yyyymmdd-idea-log--{slug}.md`
+**Folder:** `_Temporal/Idea Logs/yyyy-mm/` · **Naming:** `yyyymmdd-idea-log~ {Title}.md`
 
 Low-friction idea captures. Raw, quick captures with a deliberately low bar for entry.
 
@@ -450,7 +450,7 @@ tags:
 
 ### Thoughts
 
-**Folder:** `_Temporal/Thoughts/yyyy-mm/` · **Naming:** `yyyymmdd-thought--{slug}.md`
+**Folder:** `_Temporal/Thoughts/yyyy-mm/` · **Naming:** `yyyymmdd-thought~ {Title}.md`
 
 Raw, unformed thinking captured in the moment. Precursor to ideas. Deliberately low bar — if it crosses your mind and feels worth noting, write it down. Most thoughts won't go anywhere, and that's fine.
 
@@ -487,7 +487,7 @@ tags:
 
 ### Decision Logs
 
-**Folder:** `_Temporal/Decision Logs/yyyy-mm/` · **Naming:** `yyyymmdd-decision--{slug}.md`
+**Folder:** `_Temporal/Decision Logs/yyyy-mm/` · **Naming:** `yyyymmdd-decision~ {Title}.md`
 
 Point-in-time records of decisions, capturing the "why" behind choices.
 
@@ -508,7 +508,7 @@ tags:
 
 ### Friction Logs
 
-**Folder:** `_Temporal/Friction Logs/yyyy-mm/` · **Naming:** `yyyymmdd-friction--{slug}.md`
+**Folder:** `_Temporal/Friction Logs/yyyy-mm/` · **Naming:** `yyyymmdd-friction~ {Title}.md`
 
 Signal accumulator for maintenance. Logs moments where context was missing, information conflicted, or assumptions had to be made. Not a bug tracker — a pattern detector. Individual entries are low-cost; value emerges when signals accumulate.
 
@@ -526,7 +526,7 @@ tags:
 
 ### Reports
 
-**Folder:** `_Temporal/Reports/yyyy-mm/` · **Naming:** `yyyymmdd-report--{slug}.md`
+**Folder:** `_Temporal/Reports/yyyy-mm/` · **Naming:** `yyyymmdd-report~ {Title}.md`
 
 Overviews of detailed processes. Distils a process (research, diagnosis, investigation, audit) into findings, implications, and recommended next steps.
 
@@ -540,7 +540,7 @@ tags:
 
 ### Snippets
 
-**Folder:** `_Temporal/Snippets/yyyy-mm/` · **Naming:** `yyyymmdd-snippet--{slug}.md`
+**Folder:** `_Temporal/Snippets/yyyy-mm/` · **Naming:** `yyyymmdd-snippet~ {Title}.md`
 
 Short, crafted content pieces derived from existing work — tweets, blurbs, product descriptions, taglines, bios.
 
@@ -556,7 +556,7 @@ tags:
 
 ### 🍪 Cookies
 
-**Folder:** `_Temporal/Cookies/yyyy-mm/` · **Naming:** `yyyymmdd-cookie--{slug}.md`
+**Folder:** `_Temporal/Cookies/yyyy-mm/` · **Naming:** `yyyymmdd-cookie~ {Title}.md`
 
 A measure of user satisfaction. When work lands well, the user awards a 🍪. Over time, the 🍪 log reveals what kinds of work resonate and what approaches are worth repeating.
 
@@ -577,7 +577,7 @@ tags:
 
 ### Mockups
 
-**Folder:** `_Temporal/Mockups/yyyy-mm/` · **Naming:** `yyyymmdd-mockup--{slug}.md`
+**Folder:** `_Temporal/Mockups/yyyy-mm/` · **Naming:** `yyyymmdd-mockup~ {Title}.md`
 
 Visual or interactive prototypes generated to explore a design direction. Mockups bridge the gap between abstract design documents and real implementation.
 
@@ -593,7 +593,7 @@ tags:
 
 ### Observations
 
-**Folder:** `_Temporal/Observations/yyyy-mm/` · **Naming:** `yyyymmdd-observation--{slug}.md`
+**Folder:** `_Temporal/Observations/yyyy-mm/` · **Naming:** `yyyymmdd-observation~ {Title}.md`
 
 Timestamped facts, impressions, and things noticed. Can be as short as a single sentence. Factual rather than speculative — captures what is or was, not what might be. Use tags to connect observations to relevant hubs (e.g. `person/alice-smith`).
 
@@ -607,7 +607,7 @@ tags:
 
 ### Captures
 
-**Folder:** `_Temporal/Captures/yyyy-mm/` · **Naming:** `yyyymmdd-capture--{slug}.md`
+**Folder:** `_Temporal/Captures/yyyy-mm/` · **Naming:** `yyyymmdd-capture~ {Title}.md`
 
 External material ingested into the vault verbatim — emails, meeting notes, Slack threads, data extracts, documents. Preserved exactly as received, frozen on ingest. Never edited after creation. Downstream artefacts link back to captures as source material.
 
@@ -624,7 +624,7 @@ tags:
 
 ### Presentations
 
-**Folder:** `_Temporal/Presentations/yyyy-mm/` · **Naming:** `yyyymmdd-presentation--{slug}.md`
+**Folder:** `_Temporal/Presentations/yyyy-mm/` · **Naming:** `yyyymmdd-presentation~ {Title}.md`
 
 Slide decks generated from markdown content using Marp CLI. The markdown source is the artefact; the PDF is output. Presentations draw from existing artefacts (designs, research, reports) and distil them into a structured narrative.
 
@@ -647,7 +647,7 @@ tags:
 ### Living Artefacts
 
 - Root-level folder, one per type
-- Freeform naming for most types: `{name}.md` (spaces and mixed case allowed)
+- Freeform naming for most types: `{Title}.md` (spaces and mixed case allowed)
 - Some types use date prefixes: Notes (`yyyymmdd - {Title}.md`), Daily Notes (`yyyy-mm-dd ddd.md`)
 - Start flat; subfolders emerge organically when a single work outgrows one file
 - One file acts as the index in a subfolder (`index.md` or `project-slug.md`)
@@ -662,7 +662,7 @@ tags:
 ### Archives
 
 - `{Type}/_Archive/` for living artefacts that reach terminal status
-- Files renamed to `yyyymmdd-{slug}.md` before moving
+- Files renamed to `yyyymmdd-{Title}.md` before moving
 - Styled in slate to signal "inactive infrastructure"
 
 ---
@@ -747,7 +747,7 @@ Hub artefacts (People, Projects, Journals, Workspaces) are living summaries that
 
 **Temporal handshake:** Tagged temporal artefacts feed their hub. When a temporal changes the current picture, distil the change into the hub. Temporals preserve *when*; the hub reflects *now*.
 
-**Contextual linking:** Weave links into prose — don't list them as changelog entries. Link text should read naturally: `Scope narrowed after the [[decision-log|March review]]` not `- See [[20260320-decision--review]]`.
+**Contextual linking:** Weave links into prose — don't list them as changelog entries. Link text should read naturally: `Scope narrowed after the [[decision-log|March review]]` not `- See [[20260320-decision~ Review]]`.
 
 **Ingestion:** Match the effort to the input. Minimal info → create a minimal hub, no fuss, grow it later. Rich dump → decompose into artefacts first (observations, research, decisions, entries), then write or update the hub as an interpreted summary.
 
@@ -777,7 +777,7 @@ For living artefacts reaching terminal status:
 1. Set the terminal status in frontmatter (e.g., `status: implemented`)
 2. Add `archiveddate: YYYY-MM-DD` to frontmatter
 3. Add a supersession callout at the top of the body linking to the successor
-4. Rename to `yyyymmdd-{slug}.md` (use `brain_action("rename")` for automatic wikilink updates)
+4. Rename to `yyyymmdd-{Title}.md` (use `brain_action("rename")` for automatic wikilink updates)
 5. Move to `{Type}/_Archive/`
 
 **Wikilink hygiene:** The rename disambiguates the archived file from any successor that reuses the original slug. Use a path-qualified wikilink in the supersession callout (e.g. `[[Designs/brain-workspaces]]`) and the renamed identifier in the origin link on the successor (e.g. `[[20260324-brain-workspaces]]`). See `archiving.md` for details.

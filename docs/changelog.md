@@ -2,6 +2,14 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.14.0 — 2026-03-26
+
+- **Generous filenames** — artefact filenames now preserve spaces, capitalisation, and unicode instead of aggressive slugification. `My Project.md` instead of `my-project.md`. New `title_to_filename()` utility in `_common.py`; `title_to_slug()` retained for hub tags only.
+- **Temporal separator change** — temporal artefacts use `~ ` (tilde + space) instead of `--` between the type prefix and title. `20260324-plan~ API Refactor.md` instead of `20260324-plan--api-refactor.md`.
+- **Updated all taxonomy naming patterns** — living types: `{name}.md` → `{Title}.md`. Temporal types: `yyyymmdd-{prefix}--{slug}.md` → `yyyymmdd-{prefix}~ {Title}.md`. Naming conventions standard rewritten.
+- **Migration script** — `migrate_naming.py` renames existing vault files from old conventions to new, updating all wikilinks. Available via CLI and `brain_action("migrate_naming")`. Supports `--dry-run`.
+- **Design spike: Artefact Naming and Title System** — design artefact capturing decisions on slug vs in-doc H1 title relationships, with open questions for future phases (H1 indexing, per-type conventions, sync).
+
 ## v0.13.5 — 2026-03-26
 
 - **Promote 6 artefact types to template vault defaults** — Workspaces (living); Captures, Reports, Snippets, Thoughts, Shaping Transcripts (temporal, storage folder added). Template vault now ships with 18 defaults (5 living + 13 temporal) out of 30 in the library.

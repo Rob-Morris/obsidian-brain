@@ -38,6 +38,7 @@ Scripts in `.brain-core/scripts/` are the **source of truth** for all vault oper
 | `shape_presentation.py` | Create presentation + launch preview | `python3 shape_presentation.py --source P --slug S` |
 | `upgrade.py` | In-place brain-core upgrade | `python3 upgrade.py --source P [--vault V] [--dry-run] [--force] [--json]` |
 | `workspace_registry.py` | Workspace slug→path resolution | `python3 workspace_registry.py [--register SLUG PATH] [--unregister SLUG] [--resolve SLUG] [--json]` |
+| `migrate_naming.py` | Migrate filenames to generous conventions | `python3 migrate_naming.py [--vault V] [--dry-run] [--json]` |
 | `init.py` | MCP server registration | `python3 init.py [--user] [--project PATH]` |
 
 **Why scripts hold all logic:** The MCP server is a thin wrapper that imports functions from scripts and holds the compiled router and search index in memory. Scripts are the single implementation — the server adds only MCP transport, in-memory caching, and Obsidian CLI delegation. This means:
@@ -69,13 +70,50 @@ DD-011 established the read/write safety split (2 tools). DD-020 adds `brain_sea
 
 **Startup:** Auto-compiles router and auto-builds index if stale (compares timestamps against source file mtimes). Both artefacts loaded into memory for the session lifetime. Loads workspace registry from `.brain/workspaces.json` (empty dict if absent). Probes Obsidian CLI availability and derives vault name from directory basename (overridable via `BRAIN_VAULT_NAME` env var).
 
-**Response payloads:** All tools return JSON strings. `brain_session` returns a compiled payload with version, always_rules, preferences, gotchas, triggers, artefacts (condensed), environment, memories, skills, plugins, styles — no indentation for token efficiency. `brain_read` returns the requested resource data (array or object). `brain_search` returns `{source, results}` where results is a ranked array of `{path, title, type, score, snippet}`. `brain_create` returns `{path, type, title}`. `brain_edit` returns `{path, operation}`. `brain_action` returns `{status, summary, compiled_at|built_at}` for compile/build_index, `{status, method, links_updated}` for rename, `{status, path, links_replaced}` for delete, `{status, old_path, new_path, type, links_updated}` for convert, `{status, old_version, new_version, files_added, files_modified, files_removed, files_unchanged, post_upgrade}` for upgrade, or `{status, action, slug, path, mode}` for register_workspace/unregister_workspace.
+**Response payloads (DD-026):** Tools return either plain text or `list[TextContent]` multi-block responses for readability in MCP clients (see DD-026 for rationale). The FastMCP SDK natively supports both — `str` returns become a single `TextContent` block; `list[TextContent]` returns become multiple content blocks rendered separately.
+
+Response format by tool:
+
+- **`brain_session`** — single JSON string, no indentation (token efficiency). Agent-consumed bootstrap payload; readability not a priority.
+- **`brain_read`** — resource-dependent. File content returned as plain text (already optimal). List/object resources (artefact, trigger, memory, etc.) returned as formatted plain text — one item per line, key fields visible. Complex resources (router, compliance) remain JSON where structure aids comprehension.
+- **`brain_search`** — multi-block: metadata block (source, result count) + results as a readable text list (one result per line: title, path, type, score).
+- **`brain_create`** — plain text confirmation: `"Created {type}: {path}"`.
+- **`brain_edit`** — plain text confirmation: `"{operation}: {path}"` (plus target section if specified).
+- **`brain_action`** — plain text status line for simple actions (compile, build_index, rename, delete). JSON for complex responses (upgrade with file lists, convert with link counts).
+- **Errors** — all tools return `"Error: {message}"` as plain text (no JSON wrapper).
+
+**Backward compatibility:** Tests that do `json.loads()` on tool results will need updating to match the new plain-text format. The change is internal to the MCP layer — underlying script functions still return dicts/lists.
 
 **Dependencies:** Python >=3.10, `mcp` SDK. The server imports functions directly from scripts — never calls their `main()` (which may `sys.exit`). Optional: dsebastien/obsidian-cli-rest running on localhost:27124 (overridable via `OBSIDIAN_CLI_URL` env var).
 
 **Version drift:** If `.brain-core/` is upgraded while the server is running (e.g. after a brain-core propagation), the server detects the version change on the next tool call and reloads all script modules in-process via `importlib.reload()`. No MCP client cooperation needed — the server self-heals. Read, search, create, and edit tools also auto-recompile the router when new taxonomy files appear mid-session.
 
 **Status:** Implemented in v0.8.0. Script parity completed in v0.10.3 (read.py, rename.py). Privilege split in v0.11.0 — 5 tools with granular permissions (DD-025). Artefact CRUD now implemented: create, edit/append, delete, convert. File resource added in v0.11.2 (read artefact files by path). Module reload on version drift added in v0.11.8. In-place upgrade action added in v0.12.1 (upgrade.py). Workspace registry added in v0.12.2 (workspace_registry.py).
+
+## MCP Response Readability (DD-026)
+
+MCP tool results are displayed inline in agent UIs (Claude Code, Cursor, etc.). JSON blobs with escaped newlines and nested objects are hard to scan. Plain text renders cleanly.
+
+**Problem:** When tools return `json.dumps({...})`, the MCP SDK wraps the string in a single `TextContent` block. The client renders it as a collapsed JSON blob — functional for the agent but unreadable for the human watching the session.
+
+**Mechanism:** FastMCP's `_convert_to_content()` handles three return shapes:
+1. `str` → single `TextContent` block (current behaviour — everything is this)
+2. `list[TextContent]` → multiple content blocks rendered separately
+3. `dict`/`list` (non-string) → auto-serialised to JSON with indent=2
+
+Option 2 is the key lever. Returning `[TextContent(type="text", text=metadata), TextContent(type="text", text=body)]` produces two separate blocks that clients can render, collapse, or highlight independently.
+
+**Design rules:**
+- **Confirmations → plain text.** `brain_create`, `brain_edit`, simple `brain_action` results. One line, human-scannable. `"Created living/idea: Ideas/my-idea.md"`
+- **Content retrieval → plain text.** `brain_read(resource="file")` already does this. Extend to list resources — one item per line, tab-separated key fields.
+- **Structured data → JSON only when structure adds value.** Router dumps, compliance check arrays, upgrade file manifests. These are genuinely tabular/nested.
+- **Errors → plain text.** `"Error: {message}"` — no JSON wrapper. The error key convention (`{"error": "..."}`) added a parse step with zero benefit.
+- **Session → unchanged.** `brain_session` is agent-consumed, never human-read. Keep as compact JSON.
+- **Multi-block for mixed responses.** When a tool returns both metadata and content (e.g. search results with source attribution), use `list[TextContent]` — metadata in one block, results in another.
+
+**What this does NOT do:** It does not change the underlying script functions. Scripts still return dicts/lists. The MCP server layer formats them for readability. This is a presentation concern, not a logic change.
+
+**Migration:** Update `server.py` handler return values + corresponding test assertions. No changes to scripts, CLI, or compiled router.
 
 ## Lean Router Format (DD-012, DD-017)
 
@@ -274,3 +312,4 @@ python3.12 -m venv .venv
 | DD-023 | init.py setup script | Implemented (v0.10.0) |
 | DD-024 | Core skills in .brain-core/skills/ | Implemented (v0.10.0) |
 | DD-025 | 5 MCP tools: privilege split for granular permissions | Implemented (v0.11.0) |
+| DD-026 | MCP response readability: plain text over JSON blobs | Accepted |
