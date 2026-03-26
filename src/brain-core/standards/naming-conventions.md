@@ -17,31 +17,31 @@ The `title_to_filename()` function in `_common.py` implements this.
 
 ## Temporal Artefacts
 
-**Pattern:** `yyyymmdd-{type-prefix}~ {Title}.md`
+**Pattern:** `yyyymmdd-{type-prefix}~{Title}.md`
 
 - The date prefix is the creation date in `yyyymmdd` format (no separators).
 - The type prefix is a short, lowercase, hyphenated identifier matching the artefact type.
-- A tilde followed by a space (`~ `) separates the type prefix from the title.
+- A tilde (`~`) separates the type prefix from the title.
 - The title is a human-readable description of the content, preserving spaces and capitalisation.
 
-**Why the prefix matters:** Wikilinks become self-documenting. `[[20260324-report~ Session Failure Analysis]]` tells you the artefact type without opening the file. Without the prefix, `[[20260324-Session Failure Analysis]]` could be research, a plan, a transcript, or anything else. Temporal artefacts share a flat date-ordered namespace within their month folder, so the prefix is the only type signal in the filename.
+**Why the prefix matters:** Wikilinks become self-documenting. `[[20260324-report~Session Failure Analysis]]` tells you the artefact type without opening the file. Without the prefix, `[[20260324-Session Failure Analysis]]` could be research, a plan, a transcript, or anything else. Temporal artefacts share a flat date-ordered namespace within their month folder, so the prefix is the only type signal in the filename.
 
 **Special cases:**
 - **Logs** use `yyyymmdd-log.md` (no title). One log per day — the date is the only identifier.
-- **Shaping Transcripts** embed the source document type: `yyyymmdd-{sourcedoctype}-transcript~ {Title}.md`.
+- **Shaping Transcripts** embed the source document type: `yyyymmdd-{sourcedoctype}-transcript~{Title}.md`.
 
 **Examples:**
 
-- `20260324-plan~ API Refactor.md`
-- `20260324-research~ Tailscale Overview.md`
-- `20260324-decision~ Session Storage Approach.md`
+- `20260324-plan~API Refactor.md`
+- `20260324-research~Tailscale Overview.md`
+- `20260324-decision~Session Storage Approach.md`
 - `20260324-log.md`
 
 For the full list of types and their specific patterns, see the taxonomy files in `_Config/Taxonomy/`.
 
 ### Adding a New Temporal Type
 
-When creating a new temporal artefact type, choose a short prefix that matches the type name (e.g. `report` for Reports, `friction` for Friction Logs). Follow the standard `yyyymmdd-{prefix}~ {Title}.md` pattern unless the type has a genuine reason to differ (as logs do — one per day, no title needed).
+When creating a new temporal artefact type, choose a short prefix that matches the type name (e.g. `report` for Reports, `friction` for Friction Logs). Follow the standard `yyyymmdd-{prefix}~{Title}.md` pattern unless the type has a genuine reason to differ (as logs do — one per day, no title needed).
 
 ## Living Artefacts
 

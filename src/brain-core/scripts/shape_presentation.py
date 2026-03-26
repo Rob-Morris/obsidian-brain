@@ -89,7 +89,7 @@ def shape(vault_root, params):
     date_prefix = now.strftime("%Y%m%d")
     month_folder = now.strftime("%Y-%m")
     safe_slug = title_to_filename(slug)
-    filename = f"{date_prefix}-presentation~ {safe_slug}.md"
+    filename = f"{date_prefix}-presentation~{safe_slug}.md"
     rel_path = os.path.join("_Temporal", "Presentations", month_folder, filename)
     abs_path = os.path.join(vault_root, rel_path)
 

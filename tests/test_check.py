@@ -129,12 +129,12 @@ def vault(tmp_path):
         "template_file": None, "trigger": None,
     }
 
-    # Plans — temporal, configured, yyyymmdd-plan~ {Title}.md
+    # Plans — temporal, configured, yyyymmdd-plan~{Title}.md
     plans_art = {
         "folder": "Plans", "type": "temporal/plan", "key": "plans",
         "classification": "temporal", "configured": True,
         "path": os.path.join("_Temporal", "Plans"),
-        "naming": {"pattern": "yyyymmdd-plan~ {Title}.md", "folder": "_Temporal/Plans/yyyy-mm/"},
+        "naming": {"pattern": "yyyymmdd-plan~{Title}.md", "folder": "_Temporal/Plans/yyyy-mm/"},
         "frontmatter": {
             "type": "temporal/plan",
             "required": ["type", "tags", "status"],
@@ -151,7 +151,7 @@ def vault(tmp_path):
         "key": "shaping-transcripts",
         "classification": "temporal", "configured": True,
         "path": os.path.join("_Temporal", "Shaping Transcripts"),
-        "naming": {"pattern": "yyyymmdd-{sourcedoctype}-transcript~ {Title}.md",
+        "naming": {"pattern": "yyyymmdd-{sourcedoctype}-transcript~{Title}.md",
                     "folder": "_Temporal/Shaping Transcripts/yyyy-mm/"},
         "frontmatter": {
             "type": "temporal/shaping-transcript",
@@ -167,7 +167,7 @@ def vault(tmp_path):
         "folder": "Cookies", "type": "temporal/cookie", "key": "cookies",
         "classification": "temporal", "configured": True,
         "path": os.path.join("_Temporal", "Cookies"),
-        "naming": {"pattern": "yyyymmdd-cookie~ {Title}.md",
+        "naming": {"pattern": "yyyymmdd-cookie~{Title}.md",
                     "folder": "_Temporal/Cookies/yyyy-mm/"},
         "frontmatter": {
             "type": "temporal/cookie",
@@ -223,10 +223,10 @@ def vault(tmp_path):
     write_md(tmp_path / "_Temporal" / "Logs" / "2026-03" / "20260315-log.md",
              {"type": "temporal/log", "tags": ["log"]}, "09:00 Started work.")
     write_md(tmp_path / "_Temporal" / "Shaping Transcripts" / "2026-03" /
-             "20260315-design-transcript~ Auth.md",
+             "20260315-design-transcript~Auth.md",
              {"type": "temporal/shaping-transcript", "tags": ["transcript"]}, "Q. What?")
     write_md(tmp_path / "_Temporal" / "Cookies" / "2026-03" /
-             "20260315-cookie~ Great Refactor.md",
+             "20260315-cookie~Great Refactor.md",
              {"type": "temporal/cookie", "tags": ["cookie"]}, "# Cookie")
 
     return tmp_path, router
@@ -272,25 +272,25 @@ class TestNamingPatternToRegex:
         assert not r.match("20260315 Sat.md")
 
     def test_shaping_transcript_pattern(self):
-        r = check.naming_pattern_to_regex("yyyymmdd-{sourcedoctype}-transcript~ {Title}.md")
-        assert r.match("20260315-design-transcript~ Auth.md")
-        assert r.match("20260315-project-transcript~ My Thing.md")
-        assert not r.match("20260315-Design-transcript~ Auth.md")
+        r = check.naming_pattern_to_regex("yyyymmdd-{sourcedoctype}-transcript~{Title}.md")
+        assert r.match("20260315-design-transcript~Auth.md")
+        assert r.match("20260315-project-transcript~My Thing.md")
+        assert not r.match("20260315-Design-transcript~Auth.md")
 
     def test_cookie_pattern(self):
-        r = check.naming_pattern_to_regex("yyyymmdd-cookie~ {Title}.md")
-        assert r.match("20260315-cookie~ Great Refactor.md")
+        r = check.naming_pattern_to_regex("yyyymmdd-cookie~{Title}.md")
+        assert r.match("20260315-cookie~Great Refactor.md")
         assert not r.match("20260315-cookie-Great Refactor.md")
 
     def test_idea_log_pattern(self):
-        r = check.naming_pattern_to_regex("yyyymmdd-idea-log~ {Title}.md")
-        assert r.match("20260315-idea-log~ Shared Validation.md")
+        r = check.naming_pattern_to_regex("yyyymmdd-idea-log~{Title}.md")
+        assert r.match("20260315-idea-log~Shared Validation.md")
 
     def test_temporal_title_pattern(self):
         """Temporal artefacts with ~ separator and human-readable titles."""
-        r = check.naming_pattern_to_regex("yyyymmdd-plan~ {Title}.md")
-        assert r.match("20260317-plan~ API Refactor.md")
-        assert r.match("20260317-plan~ Simple.md")
+        r = check.naming_pattern_to_regex("yyyymmdd-plan~{Title}.md")
+        assert r.match("20260317-plan~API Refactor.md")
+        assert r.match("20260317-plan~Simple.md")
         assert not r.match("20260317-plan~.md")  # missing space + title
 
     def test_name_pattern(self):

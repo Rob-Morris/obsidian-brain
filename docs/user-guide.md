@@ -73,7 +73,7 @@ _Temporal/Logs/2026-03/20260321-log.md
 ```
 09:30 Started auth redesign. Replacing session tokens with JWTs.
 11:15 Hit a snag with refresh token rotation. See [[auth-redesign]].
-14:00 Resolved — using sliding window expiry. Decision captured in [[20260321-decision~ JWT Refresh Strategy]].
+14:00 Resolved — using sliding window expiry. Decision captured in [[20260321-decision~JWT Refresh Strategy]].
 ```
 
 Entries are brief, timestamped, and link to relevant artefacts. The log is append-only — you never go back and edit it. It's the raw timeline.
@@ -83,7 +83,7 @@ Entries are brief, timestamped, and link to relevant artefacts. The log is appen
 That JWT refresh strategy was a real fork in the road. You had three options, debated the tradeoffs, and chose one. Before the reasoning fades, you capture it:
 
 ```
-_Temporal/Decision Logs/2026-03/20260321-decision~ JWT Refresh Strategy.md
+_Temporal/Decision Logs/2026-03/20260321-decision~JWT Refresh Strategy.md
 ```
 
 The decision log records what question you faced, what options you considered, and why you chose what you chose. Six months from now when someone asks "why sliding window?", the answer is right there.
@@ -93,7 +93,7 @@ The decision log records what question you faced, what options you considered, a
 While debugging, you notice the token validation could be generalised into a shared library. It's not what you're working on, but you don't want to lose it:
 
 ```
-_Temporal/Idea Logs/2026-03/20260321-idea-log~ Shared Token Validation.md
+_Temporal/Idea Logs/2026-03/20260321-idea-log~Shared Token Validation.md
 ```
 
 Captured in 30 seconds. The bar is deliberately low. Most idea logs won't go anywhere, and that's fine. The ones that matter will graduate later.
@@ -103,7 +103,7 @@ Captured in 30 seconds. The bar is deliberately low. Most idea logs won't go any
 The API docs say one thing but the code does another. You waste 20 minutes figuring out the actual behaviour. Before moving on, you log the friction:
 
 ```
-_Temporal/Friction Logs/2026-03/20260321-friction~ API Docs Mismatch.md
+_Temporal/Friction Logs/2026-03/20260321-friction~API Docs Mismatch.md
 ```
 
 One friction log is just a note. But when the same kind of friction keeps showing up, you distil it into a gotcha (`_Config/User/gotchas.md`) so your agents know to watch for it.
@@ -149,7 +149,7 @@ Daily Notes/2026-03-21 Fri.md
 ### Auth Redesign
 Replaced session tokens with JWTs. Main decision was refresh strategy —
 went with sliding window expiry over fixed-lifetime tokens. See
-[[20260321-decision~ JWT Refresh Strategy]].
+[[20260321-decision~JWT Refresh Strategy]].
 ```
 
 The log is the raw timeline. The daily note is the digest.
@@ -183,7 +183,7 @@ status: new
 ```
 
 ```markdown
-**Origin:** [[20260321-idea-log~ Shared Token Validation|Original idea log]] (2026-03-21)
+**Origin:** [[20260321-idea-log~Shared Token Validation|Original idea log]] (2026-03-21)
 ```
 
 The idea doc explores the concept: what would this library look like? What would it need to handle? It's still loose — no prescribed format beyond the frontmatter.

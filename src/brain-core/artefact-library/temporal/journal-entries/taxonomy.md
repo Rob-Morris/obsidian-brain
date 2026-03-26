@@ -50,18 +50,18 @@ Journal slug required, topic slug optional.
 
 | Variant | Pattern |
 |---|---|
-| General | `yyyymmdd-journal--{journal-slug}.md` |
-| Topic | `yyyymmdd-journal--{journal-slug}--{topic}.md` |
+| General | `yyyymmdd-journal~{journal-slug}.md` |
+| Topic | `yyyymmdd-journal~{journal-slug}~{topic}.md` |
 
 In `_Temporal/Journal Entries/yyyy-mm/`.
 
 Examples:
 ```
 _Temporal/Journal Entries/2026-03/
-  20260322-journal--personal.md                     ← general daily entry
-  20260322-journal--personal--moving-house.md       ← topic-specific
-  20260322-journal--health.md                       ← different journal
-  20260322-journal--health--knee-rehab.md           ← topic in health journal
+  20260322-journal~personal.md                     ← general daily entry
+  20260322-journal~personal~moving-house.md       ← topic-specific
+  20260322-journal~health.md                       ← different journal
+  20260322-journal~health~knee-rehab.md           ← topic in health journal
 ```
 
 ## Frontmatter

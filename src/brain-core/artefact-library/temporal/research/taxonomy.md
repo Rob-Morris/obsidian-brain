@@ -14,9 +14,9 @@ Research files capture investigation into a topic at a point in time. All files 
 
 ## Naming
 
-`yyyymmdd-research~ {Title}.md` in `_Temporal/Research/yyyy-mm/`.
+`yyyymmdd-research~{Title}.md` in `_Temporal/Research/yyyy-mm/`.
 
-Example: `_Temporal/Research/2026-03/20260307-research~ Discord Animation Research.md`
+Example: `_Temporal/Research/2026-03/20260307-research~Discord Animation Research.md`
 
 ## Frontmatter
 

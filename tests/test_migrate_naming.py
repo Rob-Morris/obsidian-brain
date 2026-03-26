@@ -33,19 +33,19 @@ class TestComputeNewFilename:
     def test_old_temporal_pattern(self):
         art = {"classification": "temporal"}
         result = migrate_naming.compute_new_filename("20260324-plan--api-refactor.md", art)
-        assert result == "20260324-plan~ Api Refactor.md"
+        assert result == "20260324-plan~Api Refactor.md"
 
     def test_old_temporal_multi_word_prefix(self):
         art = {"classification": "temporal"}
         result = migrate_naming.compute_new_filename("20260324-idea-log--voice-memo.md", art)
-        assert result == "20260324-idea-log~ Voice Memo.md"
+        assert result == "20260324-idea-log~Voice Memo.md"
 
     def test_old_shaping_transcript(self):
         art = {"classification": "temporal"}
         result = migrate_naming.compute_new_filename(
             "20260307-design-transcript--pistols-at-dawn.md", art
         )
-        assert result == "20260307-design-transcript~ Pistols At Dawn.md"
+        assert result == "20260307-design-transcript~Pistols At Dawn.md"
 
     def test_log_no_migration(self):
         art = {"classification": "temporal"}
@@ -64,8 +64,27 @@ class TestComputeNewFilename:
 
     def test_temporal_already_new_style(self):
         art = {"classification": "temporal"}
-        result = migrate_naming.compute_new_filename("20260324-plan~ API Refactor.md", art)
+        result = migrate_naming.compute_new_filename("20260324-plan~API Refactor.md", art)
         assert result is None  # doesn't match old -- pattern
+
+    def test_prefixless_temporal(self):
+        """Old research/plan/transcript files without a type prefix."""
+        art = {"classification": "temporal", "naming": {"pattern": "yyyymmdd-research~{Title}.md"}}
+        result = migrate_naming.compute_new_filename(
+            "20260307-discord-animation-research.md", art
+        )
+        assert result == "20260307-research~Discord Animation Research.md"
+
+    def test_prefixless_temporal_plan(self):
+        art = {"classification": "temporal", "naming": {"pattern": "yyyymmdd-plan~{Title}.md"}}
+        result = migrate_naming.compute_new_filename("20260309-obsidian-brain-standard.md", art)
+        assert result == "20260309-plan~Obsidian Brain Standard.md"
+
+    def test_prefixless_temporal_no_naming_pattern(self):
+        """Prefixless temporal without a naming pattern should not migrate."""
+        art = {"classification": "temporal"}
+        result = migrate_naming.compute_new_filename("20260307-some-slug.md", art)
+        assert result is None
 
     def test_single_word_slug(self):
         art = {"classification": "living"}
@@ -132,7 +151,7 @@ def vault(tmp_path):
     tax_temporal.mkdir(parents=True)
     (tax_temporal / "plans.md").write_text(
         "# Plans\n\n"
-        "## Naming\n\n`yyyymmdd-plan~ {Title}.md` in `_Temporal/Plans/yyyy-mm/`.\n\n"
+        "## Naming\n\n`yyyymmdd-plan~{Title}.md` in `_Temporal/Plans/yyyy-mm/`.\n\n"
         "## Frontmatter\n\n```yaml\n---\ntype: temporal/plans\ntags:\n  - plan-tag\n---\n```\n"
     )
 
@@ -167,7 +186,7 @@ class TestMigrateVault:
 
         # New files should exist
         assert (vault / "Wiki" / "Rust Lifetimes.md").is_file()
-        assert (vault / "_Temporal" / "Plans" / "2026-03" / "20260324-plan~ Api Refactor.md").is_file()
+        assert (vault / "_Temporal" / "Plans" / "2026-03" / "20260324-plan~Api Refactor.md").is_file()
 
     def test_wikilinks_updated(self, vault, router):
         migrate_naming.migrate_vault(str(vault), router=router, dry_run=False)
@@ -175,7 +194,7 @@ class TestMigrateVault:
         index_path = vault / "Wiki" / "index.md"
         content = index_path.read_text()
         assert "[[Wiki/Rust Lifetimes]]" in content
-        assert "[[_Temporal/Plans/2026-03/20260324-plan~ Api Refactor]]" in content
+        assert "[[_Temporal/Plans/2026-03/20260324-plan~Api Refactor]]" in content
         # Old links should be gone
         assert "rust-lifetimes" not in content
         assert "plan--api-refactor" not in content

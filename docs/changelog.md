@@ -2,6 +2,12 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.14.3 — 2026-03-27
+
+- **Drop trailing space from tilde separator** — temporal separator is now `~` (tilde only), not `~ ` (tilde + space). All taxonomy patterns, examples, scripts, standards, and tests updated.
+- **Align journal-entries to tilde separator** — journal entry naming changed from `yyyymmdd-journal--{journal-slug}.md` to `yyyymmdd-journal~{journal-slug}.md`. Topic variant follows the same pattern.
+- **Migrate prefixless temporal files** — `migrate_naming.py` now handles research, plans, and transcripts that predate type prefixes (e.g. `20260307-discord-animation-research.md` → `20260307-research~Discord Animation Research.md`). The type prefix is derived from the artefact's naming pattern.
+
 ## v0.14.2 — 2026-03-27
 
 - **Expand template vault defaults** — add Designs, Documentation, Ideas, Projects, Writing (living) to starter set. Remove Wiki from defaults (still available in artefact library). Add `_Workspaces/` data bucket folder. Add router triggers for Captures and Reports. Template vault now ships with 22 defaults (9 living + 13 temporal) out of 30 in the library.
@@ -13,8 +19,8 @@ Follows [semver](https://semver.org/). Changes to vault structure (renamed/remov
 ## v0.14.0 — 2026-03-26
 
 - **Generous filenames** — artefact filenames now preserve spaces, capitalisation, and unicode instead of aggressive slugification. `My Project.md` instead of `my-project.md`. New `title_to_filename()` utility in `_common.py`; `title_to_slug()` retained for hub tags only.
-- **Temporal separator change** — temporal artefacts use `~ ` (tilde + space) instead of `--` between the type prefix and title. `20260324-plan~ API Refactor.md` instead of `20260324-plan--api-refactor.md`.
-- **Updated all taxonomy naming patterns** — living types: `{name}.md` → `{Title}.md`. Temporal types: `yyyymmdd-{prefix}--{slug}.md` → `yyyymmdd-{prefix}~ {Title}.md`. Naming conventions standard rewritten.
+- **Temporal separator change** — temporal artefacts use `~` (tilde) instead of `--` between the type prefix and title. `20260324-plan~API Refactor.md` instead of `20260324-plan--api-refactor.md`.
+- **Updated all taxonomy naming patterns** — living types: `{name}.md` → `{Title}.md`. Temporal types: `yyyymmdd-{prefix}--{slug}.md` → `yyyymmdd-{prefix}~{Title}.md`. Naming conventions standard rewritten.
 - **Migration script** — `migrate_naming.py` renames existing vault files from old conventions to new, updating all wikilinks. Available via CLI and `brain_action("migrate_naming")`. Supports `--dry-run`.
 - **Design spike: Artefact Naming and Title System** — design artefact capturing decisions on slug vs in-doc H1 title relationships, with open questions for future phases (H1 indexing, per-type conventions, sync).
 

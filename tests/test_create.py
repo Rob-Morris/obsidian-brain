@@ -64,7 +64,7 @@ def vault(tmp_path):
     tax_temporal.mkdir(parents=True)
     (tax_temporal / "logs.md").write_text(
         "# Logs\n\n"
-        "## Naming\n\n`log~ {Title}.md` in `_Temporal/Logs/yyyy-mm/`.\n\n"
+        "## Naming\n\n`log~{Title}.md` in `_Temporal/Logs/yyyy-mm/`.\n\n"
         "## Frontmatter\n\n```yaml\n---\ntype: temporal/logs\ntags:\n  - session\n---\n```\n\n"
         "## Template\n\n[[_Config/Templates/Temporal/Logs]]\n"
     )
@@ -202,8 +202,8 @@ class TestResolveNamingPattern:
         assert create.resolve_naming_pattern("{Title}.md", "My Title") == "My Title.md"
 
     def test_prefixed_title(self):
-        result = create.resolve_naming_pattern("log~ {Title}.md", "My Session")
-        assert result == "log~ My Session.md"
+        result = create.resolve_naming_pattern("log~{Title}.md", "My Session")
+        assert result == "log~My Session.md"
 
     def test_unsafe_chars_stripped(self):
         result = create.resolve_naming_pattern("{Title}.md", "Q3 / Q4 Review")

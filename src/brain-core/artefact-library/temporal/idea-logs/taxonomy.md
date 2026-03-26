@@ -29,9 +29,9 @@ When an idea log entry has enough substance to become a new artefact, follow [[.
 
 ## Naming
 
-`yyyymmdd-idea-log~ {Title}.md` in `_Temporal/Idea Logs/yyyy-mm/`.
+`yyyymmdd-idea-log~{Title}.md` in `_Temporal/Idea Logs/yyyy-mm/`.
 
-Example: `_Temporal/Idea Logs/2026-03/20260316-idea-log~ Voice Memo Transcriber.md`
+Example: `_Temporal/Idea Logs/2026-03/20260316-idea-log~Voice Memo Transcriber.md`
 
 ## Frontmatter
 

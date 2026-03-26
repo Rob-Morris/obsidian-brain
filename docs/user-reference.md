@@ -369,7 +369,7 @@ tags:
 
 ### Plans
 
-**Folder:** `_Temporal/Plans/yyyy-mm/` · **Naming:** `yyyymmdd-plan~ {Title}.md`
+**Folder:** `_Temporal/Plans/yyyy-mm/` · **Naming:** `yyyymmdd-plan~{Title}.md`
 
 Pre-work plans written before complex work begins. Records intended approach, goal, and strategy.
 
@@ -388,7 +388,7 @@ status: draft
 
 ### Transcripts
 
-**Folder:** `_Temporal/Transcripts/yyyy-mm/` · **Naming:** `yyyymmdd-transcript~ {Title}.md`
+**Folder:** `_Temporal/Transcripts/yyyy-mm/` · **Naming:** `yyyymmdd-transcript~{Title}.md`
 
 Conversation transcripts — person-to-person, AI conversations, Q&A sessions.
 
@@ -404,7 +404,7 @@ tags:
 
 ### Shaping Transcripts
 
-**Folder:** `_Temporal/Shaping Transcripts/yyyy-mm/` · **Naming:** `yyyymmdd-{sourcedoctype}-transcript~ {Title}.md`
+**Folder:** `_Temporal/Shaping Transcripts/yyyy-mm/` · **Naming:** `yyyymmdd-{sourcedoctype}-transcript~{Title}.md`
 
 Q&A refinement transcripts tied to a source artefact. Each transcript is bound to one source document.
 
@@ -421,7 +421,7 @@ File begins with a wikilink to the source. Q&A format: `Q.` prefix for questions
 
 ### Research
 
-**Folder:** `_Temporal/Research/yyyy-mm/` · **Naming:** `yyyymmdd-research~ {Title}.md`
+**Folder:** `_Temporal/Research/yyyy-mm/` · **Naming:** `yyyymmdd-research~{Title}.md`
 
 In-depth research notes and findings on specific topics.
 
@@ -435,7 +435,7 @@ tags:
 
 ### Idea Logs
 
-**Folder:** `_Temporal/Idea Logs/yyyy-mm/` · **Naming:** `yyyymmdd-idea-log~ {Title}.md`
+**Folder:** `_Temporal/Idea Logs/yyyy-mm/` · **Naming:** `yyyymmdd-idea-log~{Title}.md`
 
 Low-friction idea captures. Raw, quick captures with a deliberately low bar for entry.
 
@@ -452,7 +452,7 @@ tags:
 
 ### Thoughts
 
-**Folder:** `_Temporal/Thoughts/yyyy-mm/` · **Naming:** `yyyymmdd-thought~ {Title}.md`
+**Folder:** `_Temporal/Thoughts/yyyy-mm/` · **Naming:** `yyyymmdd-thought~{Title}.md`
 
 Raw, unformed thinking captured in the moment. Precursor to ideas. Deliberately low bar — if it crosses your mind and feels worth noting, write it down. Most thoughts won't go anywhere, and that's fine.
 
@@ -489,7 +489,7 @@ tags:
 
 ### Decision Logs
 
-**Folder:** `_Temporal/Decision Logs/yyyy-mm/` · **Naming:** `yyyymmdd-decision~ {Title}.md`
+**Folder:** `_Temporal/Decision Logs/yyyy-mm/` · **Naming:** `yyyymmdd-decision~{Title}.md`
 
 Point-in-time records of decisions, capturing the "why" behind choices.
 
@@ -510,7 +510,7 @@ tags:
 
 ### Friction Logs
 
-**Folder:** `_Temporal/Friction Logs/yyyy-mm/` · **Naming:** `yyyymmdd-friction~ {Title}.md`
+**Folder:** `_Temporal/Friction Logs/yyyy-mm/` · **Naming:** `yyyymmdd-friction~{Title}.md`
 
 Signal accumulator for maintenance. Logs moments where context was missing, information conflicted, or assumptions had to be made. Not a bug tracker — a pattern detector. Individual entries are low-cost; value emerges when signals accumulate.
 
@@ -528,7 +528,7 @@ tags:
 
 ### Reports
 
-**Folder:** `_Temporal/Reports/yyyy-mm/` · **Naming:** `yyyymmdd-report~ {Title}.md`
+**Folder:** `_Temporal/Reports/yyyy-mm/` · **Naming:** `yyyymmdd-report~{Title}.md`
 
 Overviews of detailed processes. Distils a process (research, diagnosis, investigation, audit) into findings, implications, and recommended next steps.
 
@@ -542,7 +542,7 @@ tags:
 
 ### Snippets
 
-**Folder:** `_Temporal/Snippets/yyyy-mm/` · **Naming:** `yyyymmdd-snippet~ {Title}.md`
+**Folder:** `_Temporal/Snippets/yyyy-mm/` · **Naming:** `yyyymmdd-snippet~{Title}.md`
 
 Short, crafted content pieces derived from existing work — tweets, blurbs, product descriptions, taglines, bios.
 
@@ -558,7 +558,7 @@ tags:
 
 ### 🍪 Cookies
 
-**Folder:** `_Temporal/Cookies/yyyy-mm/` · **Naming:** `yyyymmdd-cookie~ {Title}.md`
+**Folder:** `_Temporal/Cookies/yyyy-mm/` · **Naming:** `yyyymmdd-cookie~{Title}.md`
 
 A measure of user satisfaction. When work lands well, the user awards a 🍪. Over time, the 🍪 log reveals what kinds of work resonate and what approaches are worth repeating.
 
@@ -579,7 +579,7 @@ tags:
 
 ### Mockups
 
-**Folder:** `_Temporal/Mockups/yyyy-mm/` · **Naming:** `yyyymmdd-mockup~ {Title}.md`
+**Folder:** `_Temporal/Mockups/yyyy-mm/` · **Naming:** `yyyymmdd-mockup~{Title}.md`
 
 Visual or interactive prototypes generated to explore a design direction. Mockups bridge the gap between abstract design documents and real implementation.
 
@@ -595,7 +595,7 @@ tags:
 
 ### Observations
 
-**Folder:** `_Temporal/Observations/yyyy-mm/` · **Naming:** `yyyymmdd-observation~ {Title}.md`
+**Folder:** `_Temporal/Observations/yyyy-mm/` · **Naming:** `yyyymmdd-observation~{Title}.md`
 
 Timestamped facts, impressions, and things noticed. Can be as short as a single sentence. Factual rather than speculative — captures what is or was, not what might be. Use tags to connect observations to relevant hubs (e.g. `person/alice-smith`).
 
@@ -609,7 +609,7 @@ tags:
 
 ### Captures
 
-**Folder:** `_Temporal/Captures/yyyy-mm/` · **Naming:** `yyyymmdd-capture~ {Title}.md`
+**Folder:** `_Temporal/Captures/yyyy-mm/` · **Naming:** `yyyymmdd-capture~{Title}.md`
 
 External material ingested into the vault verbatim — emails, meeting notes, Slack threads, data extracts, documents. Preserved exactly as received, frozen on ingest. Never edited after creation. Downstream artefacts link back to captures as source material.
 
@@ -626,7 +626,7 @@ tags:
 
 ### Presentations
 
-**Folder:** `_Temporal/Presentations/yyyy-mm/` · **Naming:** `yyyymmdd-presentation~ {Title}.md`
+**Folder:** `_Temporal/Presentations/yyyy-mm/` · **Naming:** `yyyymmdd-presentation~{Title}.md`
 
 Slide decks generated from markdown content using Marp CLI. The markdown source is the artefact; the PDF is output. Presentations draw from existing artefacts (designs, research, reports) and distil them into a structured narrative.
 
@@ -749,7 +749,7 @@ Hub artefacts (People, Projects, Journals, Workspaces) are living summaries that
 
 **Temporal handshake:** Tagged temporal artefacts feed their hub. When a temporal changes the current picture, distil the change into the hub. Temporals preserve *when*; the hub reflects *now*.
 
-**Contextual linking:** Weave links into prose — don't list them as changelog entries. Link text should read naturally: `Scope narrowed after the [[decision-log|March review]]` not `- See [[20260320-decision~ Review]]`.
+**Contextual linking:** Weave links into prose — don't list them as changelog entries. Link text should read naturally: `Scope narrowed after the [[decision-log|March review]]` not `- See [[20260320-decision~Review]]`.
 
 **Ingestion:** Match the effort to the input. Minimal info → create a minimal hub, no fuss, grow it later. Rich dump → decompose into artefacts first (observations, research, decisions, entries), then write or update the hub as an interpreted summary.
 

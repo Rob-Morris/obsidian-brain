@@ -4,7 +4,8 @@ migrate_naming.py — Migrate vault filenames to generous naming conventions.
 
 Renames existing artefact files from aggressive slugs to human-readable titles:
   - Living: my-project.md → My Project.md
-  - Temporal: 20260324-plan--api-refactor.md → 20260324-plan~ API Refactor.md
+  - Temporal: 20260324-plan--api-refactor.md → 20260324-plan~API Refactor.md
+  - Prefixless temporal: 20260307-discord-animation-research.md → 20260307-research~Discord Animation Research.md
 
 Updates all wikilinks vault-wide for each rename.
 
@@ -33,6 +34,12 @@ _OLD_TEMPORAL_RE = re.compile(
     r"^(\d{8}-[a-z]+(?:-[a-z]+)*)--([a-z0-9]+(?:-[a-z0-9]+)*)\.md$"
 )
 
+# Old prefixless temporal pattern: yyyymmdd-{slug}.md (used by research, plans, transcripts
+# before they adopted type prefixes)
+_OLD_PREFIXLESS_RE = re.compile(
+    r"^(\d{8})-([a-z0-9]+(?:-[a-z0-9]+)*)\.md$"
+)
+
 # Old living pattern: aggressive-slug.md (all lowercase, hyphens, no spaces)
 _OLD_LIVING_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*\.md$")
 
@@ -52,7 +59,19 @@ def compute_new_filename(filename, artefact):
         m = _OLD_TEMPORAL_RE.match(filename)
         if m:
             prefix, slug = m.group(1), m.group(2)
-            return f"{prefix}~ {slug_to_title(slug)}.md"
+            return f"{prefix}~{slug_to_title(slug)}.md"
+
+        # Prefixless temporal: yyyymmdd-{slug}.md → yyyymmdd-{type-prefix}~{Title}.md
+        # Extract the type prefix from the artefact's naming pattern (e.g. "research" from
+        # "yyyymmdd-research~{Title}.md")
+        m = _OLD_PREFIXLESS_RE.match(filename)
+        if m:
+            naming_pattern = (artefact.get("naming") or {}).get("pattern", "")
+            prefix_match = re.match(r"yyyymmdd-([a-z]+(?:-[a-z]+)*)~", naming_pattern)
+            if prefix_match:
+                date, slug = m.group(1), m.group(2)
+                type_prefix = prefix_match.group(1)
+                return f"{date}-{type_prefix}~{slug_to_title(slug)}.md"
 
         return None  # doesn't match old pattern (e.g. logs, daily notes)
 
