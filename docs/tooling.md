@@ -255,6 +255,7 @@ The following are accepted but not yet fully shaped:
 - **Obsidian plugin** — TypeScript implementation, shared test fixtures (DD-005, DD-006, DD-007)
 - **Frontmatter timestamps absorption** (DD-004) — ignore rules, agent-aware stamping
 - **Procedures directory** — `.brain-core/procedures/`, structured step-by-step instructions for agents without code execution
+- **Init wizard** — interactive setup that helps new users choose a starting set of artefact types. Includes a vault archetype library (e.g. "Personal Knowledge Base", "Writing Studio", "Software Project") — each archetype bundles a curated set of types as a starting point, with the option to customise after selection
 
 ## Development
 
