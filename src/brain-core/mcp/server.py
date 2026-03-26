@@ -60,6 +60,7 @@ import obsidian_cli
 import session
 import shape_presentation
 import upgrade
+import migrate_naming
 import workspace_registry
 
 # Constants that don't change between versions
@@ -101,7 +102,8 @@ def _read_disk_version(vault_root: str) -> str | None:
 _SCRIPT_MODULES = [
     "_common", "compile_router", "compile_colours", "build_index",
     "search_index", "read", "create", "edit", "rename", "obsidian_cli",
-    "session", "shape_presentation", "upgrade", "workspace_registry",
+    "session", "shape_presentation", "upgrade", "migrate_naming",
+    "workspace_registry",
 ]
 
 
@@ -528,6 +530,7 @@ def brain_action(action: str, params: dict | None = None) -> str:
       convert              — convert artefact to different type (params: {path, target_type})
       shape-presentation   — create presentation + launch live preview (params: {source, slug})
       upgrade              — upgrade brain-core from source (params: {source}, optional: {dry_run, force})
+      migrate_naming       — migrate vault filenames to generous naming conventions (optional: {dry_run})
       register_workspace   — register a linked workspace (params: {slug, path})
       unregister_workspace — remove a linked workspace registration (params: {slug})
     """
@@ -666,9 +669,18 @@ def brain_action(action: str, params: dict | None = None) -> str:
             result["post_upgrade"] = "Reloaded modules, recompiled router, rebuilt index."
         return json.dumps(result, indent=2)
 
+    elif action == "migrate_naming":
+        dry_run = (params or {}).get("dry_run", False)
+        result = migrate_naming.migrate_vault(_vault_root, router=_router, dry_run=dry_run)
+        if not dry_run and result.get("renamed", 0) > 0:
+            _router = _compile_and_save(_vault_root)
+            _index = _build_index_and_save(_vault_root)
+        return json.dumps(result, indent=2)
+
     else:
         valid = ["compile", "build_index", "rename", "delete", "convert",
-                 "shape-presentation", "upgrade", "register_workspace", "unregister_workspace"]
+                 "shape-presentation", "upgrade", "migrate_naming",
+                 "register_workspace", "unregister_workspace"]
         return json.dumps({"error": f"Unknown action '{action}'. Valid: {', '.join(valid)}"})
 
 
