@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.12.4 — 2026-03-26
+
+- **Cookie skill** — new SKILL.md for the cookies artefact type. Codifies the cookie workflow: get excited (genuine, not performative — excitement sustains the feedback loop), ask why the cookie was awarded, log immediately via `brain_create`. Cookies are the Brain's highest-signal feedback mechanism; the skill ensures agents treat them that way.
+
 ## v0.12.3 — 2026-03-26
 
 - **People + Observations artefact types** — two new artefact types. People (`living/person`) is a hub type for storing what you know about a person — preferences, relationship context, key facts — updated as things change. Observations (`temporal/observation`) captures timestamped facts, impressions, and things noticed. Generic by design: connect observations to any hub via tags (e.g. `person/alice-smith`, `project/my-app`). Hub pattern updated to include People alongside Projects, Journals, and Workspaces.

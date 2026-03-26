@@ -9,6 +9,7 @@ Agents should prompt for cookies honestly: "Was that good enough to earn a cooki
 ```
 _Config/Taxonomy/Temporal/cookies.md       ← taxonomy.md
 _Config/Templates/Temporal/Cookies.md      ← template.md
+_Config/Skills/cookies/SKILL.md            ← SKILL.md
 _Temporal/Cookies/                         ← create folder
 ```
 
