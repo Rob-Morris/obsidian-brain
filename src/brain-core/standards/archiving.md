@@ -10,11 +10,11 @@ When a living artefact reaches a terminal status (e.g. `implemented` for designs
 
 ## Wikilink hygiene
 
-The rename in step 4 disambiguates the archived file from any successor that reuses the original name (e.g. idea `brain-workspaces` graduating to design `brain-workspaces`). After archiving:
+The rename in step 4 disambiguates the archived file from any successor that reuses the original name (e.g. idea `Brain Workspaces` graduating to design `Brain Workspaces`). After archiving:
 
-- **Supersession callout** (on the archived file): link to the successor using a path-qualified wikilink — `[[Designs/brain-workspaces]]` — so it can't accidentally resolve to the archived file itself
-- **Origin link** (on the successor): link back using the renamed identifier — `[[20260324-brain-workspaces|Workspaces Idea]]` — so it resolves to the archived file, not itself
-- **All other existing links** to the original name (`[[brain-workspaces]]`) naturally resolve to the successor since the archived file no longer shares that name
+- **Supersession callout** (on the archived file): link to the successor using a path-qualified wikilink — `[[Designs/Brain Workspaces]]` — so it can't accidentally resolve to the archived file itself
+- **Origin link** (on the successor): link back using the renamed identifier — `[[20260324-Brain Workspaces|Workspaces Idea]]` — so it resolves to the archived file, not itself
+- **All other existing links** to the original name (`[[Brain Workspaces]]`) naturally resolve to the successor since the archived file no longer shares that name
 
 ## Notes
 

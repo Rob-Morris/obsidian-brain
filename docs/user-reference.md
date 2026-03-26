@@ -51,6 +51,8 @@ Complete reference for every artefact type, convention, configuration point, and
 | `.brain-core/` | The Brain system itself (versioned, upgradeable) |
 | `.obsidian/` | Obsidian vault config and CSS snippets |
 
+`.brain-core/` is committed into the vault rather than gitignored. This is intentional — it makes the vault self-describing so that any agent can read the router and understand the system without needing access to the upstream `obsidian-brain` repository.
+
 Folders starting with `_` or `.` are infrastructure — excluded from content indexing and search.
 
 ### Archive Subfolders
@@ -780,7 +782,7 @@ For living artefacts reaching terminal status:
 4. Rename to `yyyymmdd-{Title}.md` (use `brain_action("rename")` for automatic wikilink updates)
 5. Move to `{Type}/_Archive/`
 
-**Wikilink hygiene:** The rename disambiguates the archived file from any successor that reuses the original slug. Use a path-qualified wikilink in the supersession callout (e.g. `[[Designs/brain-workspaces]]`) and the renamed identifier in the origin link on the successor (e.g. `[[20260324-brain-workspaces]]`). See `archiving.md` for details.
+**Wikilink hygiene:** The rename disambiguates the archived file from any successor that reuses the original name. Use a path-qualified wikilink in the supersession callout (e.g. `[[Designs/Brain Workspaces]]`) and the renamed identifier in the origin link on the successor (e.g. `[[20260324-Brain Workspaces]]`). See `archiving.md` for details.
 
 ### Friction to Gotcha
 
@@ -944,6 +946,7 @@ If your vault runs the Brain MCP server (`.brain-core/mcp/server.py`), six tools
 - `convert` — change artefact type, move file, reconcile frontmatter, update wikilinks
 - `shape-presentation` — create a presentation artefact and launch Marp live preview (params: `{source, slug}`)
 - `upgrade` — upgrade brain-core from a source directory (params: `{source}`, optional `{dry_run, force}`)
+- `migrate_naming` — migrate vault filenames from old aggressive slugs to generous naming conventions (optional `{dry_run}`)
 - `register_workspace` — register a linked workspace (params: `{slug, path}`)
 - `unregister_workspace` — remove a linked workspace registration (params: `{slug}`)
 
@@ -964,6 +967,7 @@ Available in `.brain-core/scripts/`. Scripts are the source of truth for all vau
 | `workspace_registry.py` | Workspace slug→path resolution and registration |
 | `init.py` | Set up Claude Code to use this vault's MCP server |
 | `check.py` | Structural compliance checker — validates naming, frontmatter, month folders, archives, status values |
+| `migrate_naming.py` | Migrate vault filenames from old aggressive slugs to generous naming conventions |
 
 ### Compliance Checks
 

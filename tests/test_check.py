@@ -129,12 +129,12 @@ def vault(tmp_path):
         "template_file": None, "trigger": None,
     }
 
-    # Plans — temporal, configured, yyyymmdd-plan--{slug}.md
+    # Plans — temporal, configured, yyyymmdd-plan~ {Title}.md
     plans_art = {
         "folder": "Plans", "type": "temporal/plan", "key": "plans",
         "classification": "temporal", "configured": True,
         "path": os.path.join("_Temporal", "Plans"),
-        "naming": {"pattern": "yyyymmdd-plan--{slug}.md", "folder": "_Temporal/Plans/yyyy-mm/"},
+        "naming": {"pattern": "yyyymmdd-plan~ {Title}.md", "folder": "_Temporal/Plans/yyyy-mm/"},
         "frontmatter": {
             "type": "temporal/plan",
             "required": ["type", "tags", "status"],
@@ -151,7 +151,7 @@ def vault(tmp_path):
         "key": "shaping-transcripts",
         "classification": "temporal", "configured": True,
         "path": os.path.join("_Temporal", "Shaping Transcripts"),
-        "naming": {"pattern": "yyyymmdd-{sourcedoctype}-transcript--{slug}.md",
+        "naming": {"pattern": "yyyymmdd-{sourcedoctype}-transcript~ {Title}.md",
                     "folder": "_Temporal/Shaping Transcripts/yyyy-mm/"},
         "frontmatter": {
             "type": "temporal/shaping-transcript",
@@ -167,7 +167,7 @@ def vault(tmp_path):
         "folder": "Cookies", "type": "temporal/cookie", "key": "cookies",
         "classification": "temporal", "configured": True,
         "path": os.path.join("_Temporal", "Cookies"),
-        "naming": {"pattern": "yyyymmdd-cookie--{slug}.md",
+        "naming": {"pattern": "yyyymmdd-cookie~ {Title}.md",
                     "folder": "_Temporal/Cookies/yyyy-mm/"},
         "frontmatter": {
             "type": "temporal/cookie",
@@ -223,10 +223,10 @@ def vault(tmp_path):
     write_md(tmp_path / "_Temporal" / "Logs" / "2026-03" / "20260315-log.md",
              {"type": "temporal/log", "tags": ["log"]}, "09:00 Started work.")
     write_md(tmp_path / "_Temporal" / "Shaping Transcripts" / "2026-03" /
-             "20260315-design-transcript--auth.md",
+             "20260315-design-transcript~ Auth.md",
              {"type": "temporal/shaping-transcript", "tags": ["transcript"]}, "Q. What?")
     write_md(tmp_path / "_Temporal" / "Cookies" / "2026-03" /
-             "20260315-cookie--great-refactor.md",
+             "20260315-cookie~ Great Refactor.md",
              {"type": "temporal/cookie", "tags": ["cookie"]}, "# Cookie")
 
     return tmp_path, router
