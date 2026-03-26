@@ -17,3 +17,6 @@ __pycache__/
 
 # Local overrides
 agents.local.md
+
+# MCP config (machine-local server paths)
+.mcp.json
