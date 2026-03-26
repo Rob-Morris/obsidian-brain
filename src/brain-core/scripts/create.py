@@ -34,8 +34,7 @@ def resolve_naming_pattern(pattern, title):
     """Resolve a naming pattern to a filename using the given title and today's date.
 
     Placeholders:
-      {slug}, {name}  — title_to_slug(title)
-      {Title}         — title as-is
+      {slug}, {name}, {Title}  — title_to_filename(title)
       yyyymmdd        — today as YYYYMMDD
       yyyy-mm-dd      — today as YYYY-MM-DD
       yyyy            — four-digit year

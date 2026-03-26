@@ -21,7 +21,7 @@ import json
 import os
 import sys
 
-from _common import find_vault_root, is_system_dir, parse_frontmatter
+from _common import find_vault_root, is_system_dir, parse_frontmatter, slug_to_title
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -123,7 +123,7 @@ def _scan_hub_metadata(vault_root):
         fields, _ = parse_frontmatter(text)
         slug = os.path.splitext(fname)[0]
         result[slug] = {
-            "title": slug.replace("-", " ").title(),
+            "title": slug_to_title(slug),
             "status": fields.get("status", ""),
             "workspace_mode": fields.get("workspace_mode", ""),
             "tags": fields.get("tags", []),
@@ -184,7 +184,7 @@ def _make_entry(slug, mode, path, hub_meta):
         "mode": mode,
         "path": path,
         "hub_path": meta.get("hub_path", ""),
-        "title": meta.get("title", slug.replace("-", " ").title()),
+        "title": meta.get("title", slug_to_title(slug)),
         "status": meta.get("status", ""),
         "tags": meta.get("tags", []),
     }

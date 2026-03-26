@@ -19,7 +19,7 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 
-from _common import find_vault_root, parse_frontmatter, serialize_frontmatter
+from _common import find_vault_root, parse_frontmatter, serialize_frontmatter, slug_to_title, title_to_filename
 
 
 # ---------------------------------------------------------------------------
@@ -88,7 +88,6 @@ def shape(vault_root, params):
     now = datetime.now(timezone.utc).astimezone()
     date_prefix = now.strftime("%Y%m%d")
     month_folder = now.strftime("%Y-%m")
-    from _common import title_to_filename
     safe_slug = title_to_filename(slug)
     filename = f"{date_prefix}-presentation~ {safe_slug}.md"
     rel_path = os.path.join("_Temporal", "Presentations", month_folder, filename)
@@ -104,7 +103,7 @@ def shape(vault_root, params):
             return {"error": "Presentation template not found"}
 
         # Fill template placeholders
-        content = template_content.replace("PRESENTATION TITLE", slug.replace("-", " ").title())
+        content = template_content.replace("PRESENTATION TITLE", slug_to_title(slug))
         content = content.replace("{{date:YYYY-MM-DD}}", now.strftime("%Y-%m-%d"))
         content = content.replace(
             "[[source-artefact|Source document]]",

@@ -19,24 +19,9 @@ import os
 import re
 import sys
 
-from _common import find_vault_root, title_to_filename
+from _common import find_vault_root, slug_to_title, title_to_filename
 from check import find_type_files, load_router, naming_pattern_to_regex
 from rename import rename_and_update_links
-
-
-# ---------------------------------------------------------------------------
-# Slug humanisation
-# ---------------------------------------------------------------------------
-
-def slug_to_title(slug):
-    """Convert a hyphenated slug to a human-readable title.
-
-    Replaces hyphens with spaces and title-cases each word.
-    This is a best-guess reverse of title_to_slug() — it won't recover
-    the original title exactly (e.g. acronyms, punctuation) but gives
-    a reasonable starting point.
-    """
-    return slug.replace("-", " ").title()
 
 
 # ---------------------------------------------------------------------------
@@ -46,11 +31,6 @@ def slug_to_title(slug):
 # Old temporal pattern: yyyymmdd-{prefix}--{slug}.md
 _OLD_TEMPORAL_RE = re.compile(
     r"^(\d{8}-[a-z]+(?:-[a-z]+)*)--([a-z0-9]+(?:-[a-z0-9]+)*)\.md$"
-)
-
-# Old shaping transcript: yyyymmdd-{doctype}-transcript--{slug}.md
-_OLD_SHAPING_RE = re.compile(
-    r"^(\d{8}-[a-z]+-transcript)--([a-z0-9]+(?:-[a-z0-9]+)*)\.md$"
 )
 
 # Old living pattern: aggressive-slug.md (all lowercase, hyphens, no spaces)
@@ -69,13 +49,6 @@ def compute_new_filename(filename, artefact):
     classification = artefact.get("classification", "living")
 
     if classification == "temporal":
-        # Try shaping transcript first (more specific pattern)
-        m = _OLD_SHAPING_RE.match(filename)
-        if m:
-            prefix, slug = m.group(1), m.group(2)
-            return f"{prefix}~ {slug_to_title(slug)}.md"
-
-        # Standard temporal: yyyymmdd-{prefix}--{slug}.md
         m = _OLD_TEMPORAL_RE.match(filename)
         if m:
             prefix, slug = m.group(1), m.group(2)
@@ -134,9 +107,8 @@ def migrate_vault(vault_root, router=None, dry_run=False):
             dest_abs = os.path.join(vault_root, new_rel_path)
             source_abs = os.path.join(vault_root, rel_path)
             if os.path.isfile(dest_abs):
-                # Same inode = case-only rename on case-insensitive FS — allow it
                 try:
-                    if os.stat(source_abs).st_ino != os.stat(dest_abs).st_ino:
+                    if not os.path.samefile(source_abs, dest_abs):
                         errors.append({
                             "file": rel_path,
                             "target": new_rel_path,

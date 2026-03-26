@@ -275,12 +275,22 @@ def title_to_filename(title):
     """Convert a human-readable title to a filesystem-safe filename stem.
 
     Generous: preserves spaces, capitalisation, and unicode. Only strips
-    characters that are unsafe on macOS, Windows, or Linux filesystems
-    (/ \\ : * ? \" < > |). Trims whitespace and collapses multiple spaces.
+    characters unsafe on macOS/Windows/Linux filesystems. Trims whitespace
+    and collapses multiple spaces.
     """
     result = _UNSAFE_FILENAME_RE.sub("", title)
     result = _MULTI_SPACE_RE.sub(" ", result).strip()
     return result
+
+
+def slug_to_title(slug):
+    """Convert a hyphenated slug to a human-readable title.
+
+    Best-guess reverse of title_to_slug() — replaces hyphens with spaces
+    and title-cases each word. Won't recover the original title exactly
+    (e.g. acronyms, punctuation).
+    """
+    return slug.replace("-", " ").title()
 
 
 # ---------------------------------------------------------------------------
