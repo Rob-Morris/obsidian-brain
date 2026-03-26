@@ -18,3 +18,12 @@
 
 # Skill workspace artefacts (eval outputs, benchmarks)
 _Config/Skills/*-workspace/
+
+# Compiled router (local, environment-specific, hash-invalidated)
+_Config/.compiled-router.json
+
+# Retrieval index (local, built by build_index.py)
+_Config/.retrieval-index.json
+
+# Canary log files (consumed by hooks, not vault content)
+.canary--*
