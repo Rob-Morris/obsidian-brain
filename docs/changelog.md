@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.15.0 — 2026-03-27
+
+- **Brain classification tools (v0.15.0)** — New `brain_process` MCP tool (7th tool) with three operations: `classify` (embedding → BM25 → context_assembly fallback for artefact type matching), `resolve` (filename + BM25 + embedding duplicate detection), `ingest` (full classify → resolve → create/update pipeline). Backed by `process.py` script and `build_index.py` extensions for type description extraction and optional sentence-transformers embeddings. Graceful degradation: works without numpy/sentence-transformers via BM25 or context assembly. Tooling, user-reference, and guide docs updated.
+
 ## v0.14.12 — 2026-03-27
 
 - **Add `brain_process` MCP tool** — 7th MCP tool with operation dispatcher for `classify` (ranked type matching with confidence), `resolve` (duplicate detection via filename + BM25 + embedding search), and `ingest` (full classify → resolve → create/update pipeline). DD-026 compliant response formatting. Index auto-refreshes after successful mutations.

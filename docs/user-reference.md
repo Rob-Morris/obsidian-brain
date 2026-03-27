@@ -926,7 +926,7 @@ Skill documents for MCP tools, CLI commands, or plugin workflows. One folder per
 
 ### MCP Tools
 
-If your vault runs the Brain MCP server (`.brain-core/mcp/server.py`), six tools are available:
+If your vault runs the Brain MCP server (`.brain-core/mcp/server.py`), seven tools are available:
 
 **brain_session** (safe, auto-approvable)
 - Bootstrap an agent session in one call — returns a compiled, token-efficient payload
@@ -965,6 +965,11 @@ If your vault runs the Brain MCP server (`.brain-core/mcp/server.py`), six tools
 - `migrate_naming` — migrate vault filenames from old aggressive slugs to generous naming conventions (optional `{dry_run}`)
 - `register_workspace` — register a linked workspace (params: `{slug, path}`)
 - `unregister_workspace` — remove a linked workspace registration (params: `{slug}`)
+
+**brain_process** (content processing — classify/resolve are read-only, ingest can create/update)
+- `classify` — determine the best artefact type for content; returns ranked matches with confidence scores. Modes: `auto` (default), `embedding`, `bm25_only`, `context_assembly`
+- `resolve` — check if content should create a new artefact or update an existing one (requires `type` and `title`); returns create/update/ambiguous decision with candidate paths
+- `ingest` — full pipeline: classify → infer title → resolve → create/update. Optional `type`/`title` hints skip their respective steps
 
 ### Scripts
 

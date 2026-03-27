@@ -1,1 +1,4 @@
 mcp>=1.0.0
+# Optional: embedding support for brain_process classify/resolve
+# numpy
+# sentence-transformers
