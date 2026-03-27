@@ -19,11 +19,11 @@ from check import naming_pattern_to_regex
 from create import resolve_naming_pattern, resolve_type, resolve_folder
 
 from _common import (
-    build_wikilink_pattern,
     find_section,
     find_vault_root,
     parse_frontmatter,
     replace_wikilinks_in_vault,
+    resolve_wikilink_stems,
     serialize_frontmatter,
     strip_md_ext,
     title_to_slug,
@@ -229,12 +229,10 @@ def convert_artefact(vault_root, router, path, target_type):
         f.write(new_content)
 
     # Update wikilinks vault-wide (old stem → new stem)
-    old_stem = strip_md_ext(path)
-    new_stem = strip_md_ext(new_path)
-    pattern = build_wikilink_pattern(old_stem)
+    pattern, stem_map = resolve_wikilink_stems(vault_root, path, new_path)
     links_updated = replace_wikilinks_in_vault(
         vault_root, pattern,
-        lambda m: f"[[{new_stem}{m.group(1) or ''}]]",
+        lambda m: f"[[{stem_map[m.group(1)]}{m.group(2) or ''}]]",
     )
 
     # Remove old file

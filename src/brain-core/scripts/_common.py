@@ -202,14 +202,89 @@ def strip_md_ext(path):
     return path[:-3] if path.endswith(".md") else path
 
 
-def build_wikilink_pattern(stem):
-    """Build a compiled regex matching wikilinks to the given stem.
+def build_wikilink_pattern(*stems):
+    """Build a compiled regex matching wikilinks to any of the given stems.
 
-    Matches [[stem]] and [[stem|alias]], capturing the optional alias group.
+    Matches ``[[stem]]`` and ``[[stem|alias]]`` for each stem provided.
+    Longer stems are tried first so a full-path stem is preferred over a
+    filename-only stem when both could match.
+
+    Groups:
+        1 — the stem that matched
+        2 — the alias portion including the leading ``|``, or *None*
     """
-    return re.compile(
-        r'\[\[' + re.escape(stem) + r'(\|[^\]]*)?'r'\]\]'
-    )
+    sorted_stems = sorted(stems, key=len, reverse=True)
+    alt = "|".join(re.escape(s) for s in sorted_stems)
+    return re.compile(r"\[\[(" + alt + r")(\|[^\]]*)?" r"\]\]")
+
+
+def _iter_vault_md_files(vault_root):
+    """Yield ``(dirpath, filename)`` for every ``.md`` file in user-facing dirs.
+
+    Skips system directories (``_Config``, ``.obsidian``, …) except
+    ``_Temporal`` which contains artefacts.
+    """
+    for dirpath, _dirnames, filenames in os.walk(vault_root):
+        rel_dir = os.path.relpath(dirpath, vault_root)
+        if rel_dir != "." and is_system_dir(os.path.basename(dirpath)):
+            if not rel_dir.startswith(TEMPORAL_DIR):
+                continue
+        for fname in filenames:
+            if fname.endswith(".md"):
+                yield dirpath, fname
+
+
+def find_duplicate_basenames(vault_root, basename_stem, limit=None):
+    """Return relative paths of .md files whose basename stem matches.
+
+    When *limit* is set the search stops as soon as that many matches are
+    found, which avoids a full vault walk when the caller only needs to
+    know whether the name is unique (``limit=2``).
+    """
+    matches = []
+    for dirpath, fname in _iter_vault_md_files(vault_root):
+        if os.path.splitext(fname)[0] == basename_stem:
+            matches.append(
+                os.path.relpath(os.path.join(dirpath, fname), vault_root)
+            )
+            if limit is not None and len(matches) >= limit:
+                return matches
+    return matches
+
+
+def resolve_wikilink_stems(vault_root, old_path, new_path=None):
+    """Build multi-stem matching data for wikilink rewriting.
+
+    Returns ``(pattern, stem_map)`` where *pattern* is a compiled regex
+    matching both full-path and (if unambiguous) filename-only wikilinks,
+    and *stem_map* maps each matched stem to its replacement.
+
+    When *new_path* is ``None`` (delete case) the map values are the
+    basename stem (used for strikethrough display).
+    """
+    old_stem = strip_md_ext(old_path)
+    old_basename = os.path.splitext(os.path.basename(old_path))[0]
+
+    stems = [old_stem]
+    stem_map = {}
+
+    if new_path is not None:
+        new_stem = strip_md_ext(new_path)
+        new_basename = os.path.splitext(os.path.basename(new_path))[0]
+        stem_map[old_stem] = new_stem
+    else:
+        stem_map[old_stem] = old_basename
+
+    if old_basename != old_stem:
+        if len(find_duplicate_basenames(vault_root, old_basename, limit=2)) <= 1:
+            stems.append(old_basename)
+            if new_path is not None:
+                stem_map[old_basename] = new_basename
+            else:
+                stem_map[old_basename] = old_basename
+
+    pattern = build_wikilink_pattern(*stems)
+    return pattern, stem_map
 
 
 def replace_wikilinks_in_vault(vault_root, pattern, replacement):
@@ -221,25 +296,18 @@ def replace_wikilinks_in_vault(vault_root, pattern, replacement):
     Returns the total number of substitutions made.
     """
     total = 0
-    for dirpath, _dirnames, filenames in os.walk(vault_root):
-        rel_dir = os.path.relpath(dirpath, vault_root)
-        if rel_dir != "." and is_system_dir(os.path.basename(dirpath)):
-            if not rel_dir.startswith(TEMPORAL_DIR):
-                continue
-        for fname in filenames:
-            if not fname.endswith(".md"):
-                continue
-            fpath = os.path.join(dirpath, fname)
-            try:
-                with open(fpath, "r", encoding="utf-8") as f:
-                    content = f.read()
-            except OSError:
-                continue
-            new_content, count = pattern.subn(replacement, content)
-            if count > 0:
-                with open(fpath, "w", encoding="utf-8") as f:
-                    f.write(new_content)
-                total += count
+    for dirpath, fname in _iter_vault_md_files(vault_root):
+        fpath = os.path.join(dirpath, fname)
+        try:
+            with open(fpath, "r", encoding="utf-8") as f:
+                content = f.read()
+        except OSError:
+            continue
+        new_content, count = pattern.subn(replacement, content)
+        if count > 0:
+            with open(fpath, "w", encoding="utf-8") as f:
+                f.write(new_content)
+            total += count
     return total
 
 

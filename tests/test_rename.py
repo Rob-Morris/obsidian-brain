@@ -145,3 +145,101 @@ class TestDeleteAndCleanLinks:
         count = rename.delete_and_clean_links(str(vault), "Wiki/topic-b.md")
         assert count == 0
         assert not (vault / "Wiki" / "topic-b.md").exists()
+
+
+# ---------------------------------------------------------------------------
+# Filename-only wikilinks
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def vault_with_filename_links(tmp_path):
+    """Vault where wikilinks use filename-only format (Obsidian default)."""
+    bc = tmp_path / ".brain-core"
+    bc.mkdir()
+    (bc / "VERSION").write_text("0.7.0\n")
+
+    wiki = tmp_path / "Wiki"
+    wiki.mkdir()
+    (wiki / "topic-a.md").write_text(
+        "---\ntype: living/wiki\ntags: []\n---\n\n# Topic A\n"
+    )
+    (wiki / "topic-b.md").write_text(
+        "---\ntype: living/wiki\ntags: []\n---\n\n# Topic B\n\n"
+        "Related to [[topic-a|Topic A]] and [[topic-a]].\n"
+    )
+
+    temporal = tmp_path / "_Temporal" / "Logs" / "2026-03"
+    temporal.mkdir(parents=True)
+    (temporal / "20260324-log.md").write_text(
+        "---\ntype: temporal/logs\ntags: []\n---\n\nWorked on [[topic-a]] today.\n"
+    )
+
+    return tmp_path
+
+
+class TestFilenameOnlyRename:
+    def test_updates_filename_only_wikilinks(self, vault_with_filename_links):
+        vault = vault_with_filename_links
+        rename.rename_and_update_links(str(vault), "Wiki/topic-a.md", "Wiki/new-name.md")
+        content = (vault / "Wiki" / "topic-b.md").read_text()
+        assert "[[new-name]]" in content
+
+    def test_preserves_filename_only_format(self, vault_with_filename_links):
+        vault = vault_with_filename_links
+        rename.rename_and_update_links(str(vault), "Wiki/topic-a.md", "Wiki/new-name.md")
+        content = (vault / "Wiki" / "topic-b.md").read_text()
+        # Should NOT upgrade to full-path format
+        assert "[[Wiki/new-name]]" not in content
+        assert "[[new-name|Topic A]]" in content
+        assert "[[new-name]]" in content
+
+    def test_updates_both_full_path_and_filename_links(self, vault_with_filename_links):
+        vault = vault_with_filename_links
+        # Add a full-path link alongside the existing filename-only links
+        (vault / "_Temporal" / "Logs" / "2026-03" / "20260324-log.md").write_text(
+            "---\ntype: temporal/logs\ntags: []\n---\n\n"
+            "Full: [[Wiki/topic-a]]. Short: [[topic-a]].\n"
+        )
+        rename.rename_and_update_links(str(vault), "Wiki/topic-a.md", "Wiki/new-name.md")
+        content = (vault / "_Temporal" / "Logs" / "2026-03" / "20260324-log.md").read_text()
+        assert "[[Wiki/new-name]]" in content
+        assert "[[new-name]]" in content
+
+    def test_returns_correct_count_with_filename_links(self, vault_with_filename_links):
+        vault = vault_with_filename_links
+        count = rename.rename_and_update_links(
+            str(vault), "Wiki/topic-a.md", "Wiki/new-name.md"
+        )
+        # topic-b has 2 links ([[topic-a|Topic A]] and [[topic-a]]), log has 1
+        assert count == 3
+
+    def test_skips_filename_match_when_ambiguous(self, vault_with_filename_links):
+        vault = vault_with_filename_links
+        # Create a second file with the same basename in a different folder
+        other = vault / "Notes"
+        other.mkdir()
+        (other / "topic-a.md").write_text("---\ntype: living/note\n---\n\n# Other\n")
+        count = rename.rename_and_update_links(
+            str(vault), "Wiki/topic-a.md", "Wiki/new-name.md"
+        )
+        # Ambiguous: only full-path links matched; filename-only links are skipped
+        assert count == 0
+        content = (vault / "Wiki" / "topic-b.md").read_text()
+        assert "[[topic-a|Topic A]]" in content  # unchanged
+        assert "[[topic-a]]" in content  # unchanged
+
+
+class TestFilenameOnlyDelete:
+    def test_cleans_filename_only_wikilinks(self, vault_with_filename_links):
+        vault = vault_with_filename_links
+        rename.delete_and_clean_links(str(vault), "Wiki/topic-a.md")
+        content = (vault / "Wiki" / "topic-b.md").read_text()
+        assert "~~topic-a~~" in content
+        assert "[[topic-a]]" not in content
+
+    def test_cleans_filename_only_with_alias(self, vault_with_filename_links):
+        vault = vault_with_filename_links
+        rename.delete_and_clean_links(str(vault), "Wiki/topic-a.md")
+        content = (vault / "Wiki" / "topic-b.md").read_text()
+        assert "~~Topic A~~" in content
+        assert "[[topic-a|Topic A]]" not in content

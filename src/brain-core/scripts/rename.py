@@ -14,14 +14,12 @@ Usage:
 
 import json
 import os
-import re
 import sys
 
 from _common import (
-    build_wikilink_pattern,
     find_vault_root,
     replace_wikilinks_in_vault,
-    strip_md_ext,
+    resolve_wikilink_stems,
 )
 
 
@@ -49,13 +47,10 @@ def rename_and_update_links(vault_root, source, dest):
     if not os.path.isfile(abs_source):
         raise FileNotFoundError(f"Source file not found: {source}")
 
-    old_stem = strip_md_ext(source)
-    new_stem = strip_md_ext(dest)
-
-    pattern = build_wikilink_pattern(old_stem)
+    pattern, stem_map = resolve_wikilink_stems(vault_root, source, dest)
     links_updated = replace_wikilinks_in_vault(
         vault_root, pattern,
-        lambda m: f"[[{new_stem}{m.group(1) or ''}]]",
+        lambda m: f"[[{stem_map[m.group(1)]}{m.group(2) or ''}]]",
     )
 
     # Create destination directory if needed and rename the file
@@ -85,17 +80,12 @@ def delete_and_clean_links(vault_root, path):
     if not os.path.isfile(abs_path):
         raise FileNotFoundError(f"File not found: {path}")
 
-    stem = strip_md_ext(path)
     display_name = os.path.splitext(os.path.basename(path))[0]
-
-    # Use a capturing pattern for alias to distinguish [[path|alias]] from [[path]]
-    pattern = re.compile(
-        r'\[\[' + re.escape(stem) + r'(?:\|([^\]]*))?' + r'\]\]'
-    )
+    pattern, _stem_map = resolve_wikilink_stems(vault_root, path)
 
     def replacement(m):
-        alias = m.group(1)
-        return f"~~{alias}~~" if alias else f"~~{display_name}~~"
+        alias = m.group(2)
+        return f"~~{alias[1:]}~~" if alias else f"~~{display_name}~~"
 
     links_replaced = replace_wikilinks_in_vault(vault_root, pattern, replacement)
 
