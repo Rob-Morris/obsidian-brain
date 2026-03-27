@@ -14,9 +14,9 @@ A snippet is a small, polished piece of text crafted from existing vault content
 
 ## Naming
 
-`yyyymmdd-snippet--{slug}.md` in `_Temporal/Snippets/yyyy-mm/`.
+`yyyymmdd-snippet~{Title}.md` in `_Temporal/Snippets/yyyy-mm/`.
 
-Example: `_Temporal/Snippets/2026-03/20260320-snippet--brain-launch-post.md`
+Example: `_Temporal/Snippets/2026-03/20260320-snippet~Brain Launch Post.md`
 
 ## Frontmatter
 

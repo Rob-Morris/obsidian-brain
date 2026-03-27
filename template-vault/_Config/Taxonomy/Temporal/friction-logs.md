@@ -19,9 +19,9 @@ When reviewing accumulated friction logs (end of session or periodic maintenance
 
 ## Naming
 
-`yyyymmdd-friction--{slug}.md` in `_Temporal/Friction Logs/yyyy-mm/`.
+`yyyymmdd-friction~{Title}.md` in `_Temporal/Friction Logs/yyyy-mm/`.
 
-Example: `_Temporal/Friction Logs/2026-03/20260321-friction--missing-archive-convention.md`
+Example: `_Temporal/Friction Logs/2026-03/20260321-friction~Missing Archive Convention.md`
 
 ## Frontmatter
 

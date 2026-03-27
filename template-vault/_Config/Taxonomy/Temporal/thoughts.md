@@ -12,9 +12,9 @@ A thought can become anything it makes sense to become. There is no prescribed p
 
 ## Naming
 
-`yyyymmdd-thought--{slug}.md` in `_Temporal/Thoughts/yyyy-mm/`.
+`yyyymmdd-thought~{Title}.md` in `_Temporal/Thoughts/yyyy-mm/`.
 
-Example: `_Temporal/Thoughts/2026-03/20260320-thought--writing-as-thinking.md`
+Example: `_Temporal/Thoughts/2026-03/20260320-thought~Writing as Thinking.md`
 
 ## Frontmatter
 

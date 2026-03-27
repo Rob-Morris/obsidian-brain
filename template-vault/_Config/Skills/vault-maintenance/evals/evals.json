@@ -10,7 +10,7 @@
     {
       "id": 1,
       "prompt": "Capture our conversation about the colour system as a transcript",
-      "expected_output": "Creates a transcript file under _Temporal/Transcripts/yyyy-mm/ with correct yyyymmdd-transcript--{slug}.md naming, type and tags frontmatter, creates month folder if needed, and appends a timestamped log entry",
+      "expected_output": "Creates a transcript file under _Temporal/Transcripts/yyyy-mm/ with correct yyyymmdd-transcript~{Title}.md naming, type and tags frontmatter, creates month folder if needed, and appends a timestamped log entry",
       "files": []
     },
     {

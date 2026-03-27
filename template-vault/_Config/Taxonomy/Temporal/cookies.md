@@ -22,9 +22,9 @@ Don't fish for cookies on trivial work. Don't assume you've earned one. Let the 
 
 ## Naming
 
-`yyyymmdd-cookie--{slug}.md` in `_Temporal/Cookies/yyyy-mm/`.
+`yyyymmdd-cookie~{Title}.md` in `_Temporal/Cookies/yyyy-mm/`.
 
-Example: `_Temporal/Cookies/2026-03/20260321-cookie--user-documentation.md`
+Example: `_Temporal/Cookies/2026-03/20260321-cookie~User Documentation.md`
 
 ## Frontmatter
 
