@@ -2,6 +2,7 @@
 
 import json
 import os
+from unittest.mock import patch
 
 import pytest
 
@@ -308,3 +309,95 @@ class TestBuildIndex:
         index = bi.build_index(vault)
         doc = next(d for d in index["documents"] if "no-type" in d["path"])
         assert doc["type"] == "living/wiki"
+
+
+# ---------------------------------------------------------------------------
+# Type description extraction
+# ---------------------------------------------------------------------------
+
+class TestExtractTypeDescription:
+    @pytest.fixture
+    def vault_with_taxonomy(self, tmp_path):
+        """Vault with a taxonomy file containing Purpose + When To Use."""
+        bc = tmp_path / ".brain-core"
+        bc.mkdir()
+        (bc / "VERSION").write_text("1.0.0\n")
+        cfg = tmp_path / "_Config" / "Taxonomy" / "Living"
+        cfg.mkdir(parents=True)
+        (cfg / "wiki.md").write_text(
+            "# Wiki\n\n"
+            "Living artefact. Interconnected knowledge base.\n\n"
+            "## Purpose\n\n"
+            "One page per concept. Reference knowledge.\n\n"
+            "## When To Use\n\n"
+            "When building reference knowledge about a concept.\n\n"
+            "## Naming\n\n"
+            "`{Title}.md` in `Wiki/`.\n"
+        )
+        return tmp_path
+
+    def test_extracts_one_liner_purpose_and_when_to_use(self, vault_with_taxonomy):
+        artefact = {"taxonomy_file": "_Config/Taxonomy/Living/wiki.md"}
+        desc = bi.extract_type_description(vault_with_taxonomy, artefact)
+        assert "Interconnected knowledge base" in desc
+        assert "One page per concept" in desc
+        assert "When building reference knowledge" in desc
+
+    def test_no_purpose_returns_one_liner(self, tmp_path):
+        bc = tmp_path / ".brain-core"
+        bc.mkdir()
+        (bc / "VERSION").write_text("1.0.0\n")
+        cfg = tmp_path / "_Config" / "Taxonomy" / "Living"
+        cfg.mkdir(parents=True)
+        (cfg / "notes.md").write_text(
+            "# Notes\n\n"
+            "Living artefact. Flat knowledge base.\n\n"
+            "## Naming\n\n"
+            "`{Title}.md` in `Notes/`.\n"
+        )
+        artefact = {"taxonomy_file": "_Config/Taxonomy/Living/notes.md"}
+        desc = bi.extract_type_description(tmp_path, artefact)
+        assert "Flat knowledge base" in desc
+        assert "Naming" not in desc
+
+    def test_missing_file_returns_empty(self, tmp_path):
+        artefact = {"taxonomy_file": "_Config/Taxonomy/Living/nonexistent.md"}
+        desc = bi.extract_type_description(tmp_path, artefact)
+        assert desc == ""
+
+    def test_no_taxonomy_file_key_returns_empty(self, tmp_path):
+        artefact = {}
+        desc = bi.extract_type_description(tmp_path, artefact)
+        assert desc == ""
+
+    def test_extracts_trigger_section(self, tmp_path):
+        bc = tmp_path / ".brain-core"
+        bc.mkdir()
+        (bc / "VERSION").write_text("1.0.0\n")
+        cfg = tmp_path / "_Config" / "Taxonomy" / "Temporal"
+        cfg.mkdir(parents=True)
+        (cfg / "logs.md").write_text(
+            "# Logs\n\n"
+            "Temporal artefact. Daily logs.\n\n"
+            "## Purpose\n\n"
+            "One file per day.\n\n"
+            "## Trigger\n\n"
+            "After completing meaningful work.\n\n"
+            "## Template\n\n"
+            "[[_Config/Templates/Temporal/Logs]]\n"
+        )
+        artefact = {"taxonomy_file": "_Config/Taxonomy/Temporal/logs.md"}
+        desc = bi.extract_type_description(tmp_path, artefact)
+        assert "After completing meaningful work" in desc
+
+
+# ---------------------------------------------------------------------------
+# Embedding building
+# ---------------------------------------------------------------------------
+
+class TestBuildEmbeddings:
+    def test_returns_none_without_deps(self, vault):
+        """When sentence-transformers is unavailable, returns None."""
+        with patch.object(bi, "_HAS_EMBEDDINGS", False):
+            result = bi.build_embeddings(vault, {"artefacts": []}, [])
+            assert result is None

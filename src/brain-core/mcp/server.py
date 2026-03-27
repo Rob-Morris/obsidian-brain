@@ -81,6 +81,9 @@ _cli_available: bool = False
 _vault_name: str | None = None
 _loaded_version: str | None = None
 _workspace_registry: dict | None = None
+_type_embeddings = None       # numpy array or None
+_type_embeddings_meta = None  # dict or None
+_doc_embeddings = None        # numpy array or None
 
 
 # ---------------------------------------------------------------------------
@@ -104,7 +107,7 @@ _SCRIPT_MODULES = [
     "_common", "compile_router", "compile_colours", "build_index",
     "search_index", "read", "create", "edit", "rename", "obsidian_cli",
     "session", "shape_presentation", "upgrade", "migrate_naming",
-    "workspace_registry",
+    "workspace_registry", "process",
 ]
 
 
@@ -245,9 +248,37 @@ def _compile_and_save(vault_root: str) -> dict:
 
 def _build_index_and_save(vault_root: str) -> dict:
     """Build retrieval index, write to disk, return index data."""
+    global _type_embeddings, _type_embeddings_meta, _doc_embeddings
     index = build_index.build_index(vault_root)
     _save_json(index, vault_root, RETRIEVAL_INDEX_REL)
+    # Build embeddings if deps available and router is loaded
+    if _router is not None:
+        meta = build_index.build_embeddings(vault_root, _router, index["documents"])
+        if meta is not None:
+            _type_embeddings_meta = meta
+            _load_embeddings(vault_root)
     return index
+
+
+def _load_embeddings(vault_root: str) -> None:
+    """Load pre-built embeddings from disk if available."""
+    global _type_embeddings, _type_embeddings_meta, _doc_embeddings
+    try:
+        import numpy as np
+    except ImportError:
+        return
+    type_path = os.path.join(vault_root, build_index.TYPE_EMBEDDINGS_REL)
+    doc_path = os.path.join(vault_root, build_index.DOC_EMBEDDINGS_REL)
+    meta_path = os.path.join(vault_root, build_index.EMBEDDINGS_META_REL)
+    try:
+        if os.path.isfile(type_path) and os.path.isfile(meta_path):
+            _type_embeddings = np.load(type_path)
+            with open(meta_path, "r", encoding="utf-8") as f:
+                _type_embeddings_meta = json.load(f)
+        if os.path.isfile(doc_path):
+            _doc_embeddings = np.load(doc_path)
+    except (OSError, ValueError):
+        pass  # embeddings unavailable — graceful degradation
 
 
 # ---------------------------------------------------------------------------
@@ -275,6 +306,9 @@ def startup(vault_root: str | None = None) -> None:
     # Auto-build index if stale
     stale, data = _check_index(_vault_root)
     _index = _build_index_and_save(_vault_root) if stale else data
+
+    # Load pre-built embeddings if available
+    _load_embeddings(_vault_root)
 
     # Load workspace registry
     _workspace_registry = workspace_registry.load_registry(_vault_root)
