@@ -373,6 +373,7 @@ _Temporal/
   Observations/               ← timestamped facts and things noticed
   Mockups/                    ← visual/interactive prototypes
   Captures/                   ← ingested external material
+  Ingestions/                  ← processing records for content decomposition
   Presentations/              ← slide decks (Marp)
 
 _Workspaces/                  ← freeform data containers for workspaces

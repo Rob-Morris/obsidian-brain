@@ -43,6 +43,7 @@ The template vault ships with a curated set of defaults (marked below). This lib
 | [Mockups](temporal/mockups/) | `mockups` | Visual or interactive prototypes generated to explore a design direction. |
 | [Observations](temporal/observations/) | `observations` | Timestamped facts, impressions, and things noticed. Low bar for capture. **Template vault default.** |
 | [Captures](temporal/captures/) | `captures` | External material ingested verbatim — emails, meeting notes, data extracts. Frozen on ingest. **Template vault default.** |
+| [Ingestions](temporal/ingestions/) | `ingestions` | Processing records for content decomposition — links captures to created artefacts. **Template vault default.** |
 | [Presentations](temporal/presentations/) | `presentations` | Slide decks generated from markdown using Marp CLI. Source is markdown; output is PDF. |
 
 ## Choosing a Knowledge Type

@@ -418,9 +418,9 @@ class TestTemplateVault:
         router = _load_router(template_vault)
         assignments = cc.compute_colours(router)
 
-        # Template vault has 9 living + 13 temporal types
+        # Template vault has 9 living + 14 temporal types
         assert len(assignments["living"]) == 9
-        assert len(assignments["temporal"]) == 13
+        assert len(assignments["temporal"]) == 14
 
         # All should have valid hex colours
         for a in assignments["living"]:
@@ -446,20 +446,23 @@ class TestTemplateVault:
 
 
 # ---------------------------------------------------------------------------
-# Rob's vault shape (8 living + 13 temporal)
+# Rob's vault shape (11 living + 18 temporal)
 # ---------------------------------------------------------------------------
 
 class TestRobVaultShape:
-    """Simulate Rob's vault with 8 living + 13 temporal types."""
+    """Simulate Rob's vault with 11 living + 18 temporal types."""
 
     @pytest.fixture
     def rob_router(self, tmp_path):
         living_names = ["Daily Notes", "Designs", "Documentation", "Ideas",
-                        "Notes", "Projects", "Wiki", "Writing"]
-        temporal_names = ["Cookies", "Decision Logs", "Friction Logs",
-                         "Idea Logs", "Logs", "Mockups", "Plans", "Reports",
-                         "Research", "Shaping Transcripts", "Snippets",
-                         "Thoughts", "Transcripts"]
+                        "Journals", "Notes", "People", "Projects", "Wiki",
+                        "Workspaces", "Writing"]
+        temporal_names = ["Captures", "Cookies", "Decision Logs",
+                         "Friction Logs", "Idea Logs", "Ingestions",
+                         "Journal Entries", "Logs", "Mockups", "Observations",
+                         "Plans", "Presentations", "Reports", "Research",
+                         "Shaping Transcripts", "Snippets", "Thoughts",
+                         "Transcripts"]
 
         artefacts = []
         for name in sorted(living_names):
@@ -485,12 +488,12 @@ class TestRobVaultShape:
             "artefacts": artefacts,
         }
 
-    def test_all_21_types_get_colours(self, rob_router):
+    def test_all_29_types_get_colours(self, rob_router):
         assignments = cc.compute_colours(rob_router)
-        assert len(assignments["living"]) == 8
-        assert len(assignments["temporal"]) == 13
+        assert len(assignments["living"]) == 11
+        assert len(assignments["temporal"]) == 18
         total = len(assignments["living"]) + len(assignments["temporal"])
-        assert total == 21
+        assert total == 29
 
     def test_all_colours_valid_hex(self, rob_router):
         assignments = cc.compute_colours(rob_router)

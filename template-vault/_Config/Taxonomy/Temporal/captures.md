@@ -4,7 +4,9 @@ Temporal artefact. External material ingested into the vault verbatim.
 
 ## Purpose
 
-A capture preserves external material exactly as received — emails, meeting notes, Slack threads, data extracts, documents. Captures are frozen on ingest: never summarised, restructured, or edited after creation. They serve as source material that downstream artefacts (wiki pages, designs, plans) can link back to.
+A capture preserves external material exactly as received — emails, meeting notes, Slack threads, data extracts, documents, voice memo transcriptions, brain dumps. Captures are frozen on ingest: never summarised, restructured, or edited after creation. They serve as source material that downstream artefacts (wiki pages, designs, plans) can link back to.
+
+A capture is always the raw content layer. When content needs further processing — decomposition into multiple artefacts, enrichment, thread analysis — an [[_Config/Taxonomy/Temporal/ingestions|ingestion record]] is created alongside the capture. The capture holds the immutable source; the ingestion record holds the processing. This separation keeps raw material cleanly preserved regardless of what processing happens on top of it.
 
 ## How to Write Captures
 
@@ -15,9 +17,9 @@ A capture preserves external material exactly as received — emails, meeting no
 
 ## Naming
 
-`yyyymmdd-capture--{slug}.md` in `_Temporal/Captures/yyyy-mm/`.
+`yyyymmdd-capture~{Title}.md` in `_Temporal/Captures/yyyy-mm/`.
 
-Example: `_Temporal/Captures/2026-03/20260325-capture--james-ward-api-feedback.md`
+Example: `_Temporal/Captures/2026-03/20260325-capture~James Ward API Feedback.md`
 
 ## Frontmatter
 

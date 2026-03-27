@@ -624,6 +624,22 @@ tags:
 
 **Trigger:** When ingesting external material into the vault.
 
+### Ingestions
+
+**Folder:** `_Temporal/Ingestions/yyyy-mm/` · **Naming:** `yyyymmdd-ingestion~{Title}.md`
+
+Processing record for content decomposition. Links to a capture that holds the raw source material, then records agent enrichment and analysis, documents the thread-by-thread breakdown, and links to every artefact created from that source. The authoritative record of how content was decomposed and integrated into the vault.
+
+```yaml
+type: temporal/ingestion
+tags:
+  - ingestion
+```
+
+**Conventions:** Create the capture first — the raw content is always preserved separately. The ingestion body opens with a wikilink to the source capture. Enrich before decomposing: write the enrichment section before the thread inventory. Account for every thread in the source, including deferred ones with reasoning. Link bidirectionally — created artefacts link back to the ingestion, the ingestion links forward.
+
+**Trigger:** When ingesting content that warrants decomposition — multi-topic brain dumps, voice memos, documents with multiple threads.
+
 ### Presentations
 
 **Folder:** `_Temporal/Presentations/yyyy-mm/` · **Naming:** `yyyymmdd-presentation~{Title}.md`

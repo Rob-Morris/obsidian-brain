@@ -62,6 +62,7 @@ Pick the artefact type that fits, create the file in the right folder with the r
 | Writing | `Writing/` | `{Title}.md` |
 | Capture | `_Temporal/Captures/yyyy-mm/` | `yyyymmdd-capture~{Title}.md` |
 | Cookie | `_Temporal/Cookies/yyyy-mm/` | `yyyymmdd-cookie~{Title}.md` |
+| Ingestion | `_Temporal/Ingestions/yyyy-mm/` | `yyyymmdd-ingestion~{Title}.md` |
 | Decision log | `_Temporal/Decision Logs/yyyy-mm/` | `yyyymmdd-decision~{Title}.md` |
 | Friction log | `_Temporal/Friction Logs/yyyy-mm/` | `yyyymmdd-friction~{Title}.md` |
 | Log entry | `_Temporal/Logs/yyyy-mm/` | `yyyymmdd-log.md` |

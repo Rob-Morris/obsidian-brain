@@ -2,6 +2,11 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.14.6 — 2026-03-27
+
+- **Add ingestions artefact type** — new temporal type for content decomposition processing records. Links captures to created artefacts via enrichment, thread inventory, and artefact tracking. Update captures taxonomy to document the capture/ingestion relationship. Template vault now ships with 23 defaults (9 living + 14 temporal) out of 31 in the library.
+- **Align template vault naming convention** — migrate all 13 temporal taxonomy files from `--{slug}` to `~{Title}` tilde separator, matching brain-core artefact library. Update Rob vault shape test fixture to current state (11 living + 18 temporal).
+
 ## v0.14.5 — 2026-03-27
 
 - **MCP output polish (DD-026 cont.)** — Bold past-tense action labels on confirmations (`**Compiled:**`, `**Created**`, `**Edited:**`, etc.) and proper `isError` flag via `CallToolResult` for error responses (enables error styling in MCP clients).
