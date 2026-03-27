@@ -25,7 +25,7 @@ Follow before every commit.
 
 [5] **Shared facts cross-checked.** Grep for the specific values you changed to catch stale references in other files:
 
-    [5a] **Type counts** — living/temporal counts in library README, changelog, specification
+    [5a] **Type counts** — count `artefact-library/{living,temporal}/` directories as canonical source, then verify prose counts match in library README, specification, and any other references. Do not trust existing prose numbers — always recount from directories.
     [5b] **Template vault defaults list** — user-guide, quick-start guide, specification
     [5c] **Status values** — user-reference, library README, quick-start guide
     [5d] **Install step counts** — user-reference, library README, extensions.md
