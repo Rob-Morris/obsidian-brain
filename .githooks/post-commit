@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+#
+# Post-commit dispatcher: core.hooksPath points here, so local hooks
+# in .git/hooks/ won't run automatically.  Forward to the local hook
+# if one exists.
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+LOCAL_HOOK="$REPO_ROOT/.git/hooks/post-commit"
+
+if [[ -x "$LOCAL_HOOK" ]]; then
+  exec "$LOCAL_HOOK" "$@"
+fi

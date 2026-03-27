@@ -83,3 +83,9 @@ fi
 
 # Clean up — remove canary log so it can't go stale
 rm -f "$CANARY_LOG"
+
+# Dispatch to local pre-commit hook if one exists
+LOCAL_HOOK="$REPO_ROOT/.git/hooks/pre-commit"
+if [[ -x "$LOCAL_HOOK" ]]; then
+  exec "$LOCAL_HOOK" "$@"
+fi
