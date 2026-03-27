@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.14.11 — 2026-03-27
+
+- **Add process.py script** — New script module with `classify_content()` (embedding → BM25 → context_assembly fallback), `resolve_content()` (filename match + search-based duplicate detection), and `ingest_content()` (full classify → resolve → create/update pipeline). Also `infer_title()` for extracting titles from content.
+
 ## v0.14.10 — 2026-03-26
 
 - **Type description extraction and optional embedding support** — `build_index.py` now extracts taxonomy descriptions (one-liner + Purpose + When To Use/Trigger sections) via `extract_type_description()`. Optional `build_embeddings()` encodes type descriptions and documents using sentence-transformers (all-MiniLM-L6-v2) with graceful degradation when dependencies unavailable. Server loads embeddings at startup and refreshes on index rebuild.
