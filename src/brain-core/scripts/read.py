@@ -148,17 +148,11 @@ def read_file(router, vault_root, name=None):
     if not name:
         return {"error": "file resource requires a name parameter (relative path from vault root)"}
     # Router-driven containment: path must belong to a known artefact type folder
-    matched = False
-    for art in router.get("artefacts", []):
-        art_path = art["path"]
-        if name.startswith(art_path + os.sep) or name.startswith(art_path + "/"):
-            if not art.get("configured"):
-                return {"error": f"Path '{name}' belongs to unconfigured type '{art['key']}'."}
-            matched = True
-            break
-    if not matched:
-        known = [a["path"] for a in router.get("artefacts", [])]
-        return {"error": f"Path '{name}' does not belong to any known artefact folder. Known: {', '.join(known)}"}
+    try:
+        from edit import validate_artefact_folder
+        validate_artefact_folder(str(vault_root), router, name)
+    except ValueError as e:
+        return {"error": str(e)}
     return read_file_content(vault_root, name)
 
 

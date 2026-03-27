@@ -459,9 +459,10 @@ class TestBrainSearch:
             {"filename": "Wiki/brain-overview-abc123.md", "score": 2.0,
              "matches": [{"content": "The Brain is a system"}]},
         ]
-        with patch.object(obsidian_cli, "search", return_value=cli_results):
-            server._cli_available = True
+        with patch.object(obsidian_cli, "search", return_value=cli_results), \
+             patch.object(obsidian_cli, "check_available", return_value=True):
             server._vault_name = "test"
+            server._cli_probed_at = 0.0  # force TTL expiry
             try:
                 resp = server.brain_search("brain")
                 text = _search_text(resp)
@@ -474,9 +475,10 @@ class TestBrainSearch:
 
     def test_search_cli_failure_falls_back_to_bm25(self, initialized):
         """Verify fallback to BM25 when CLI search returns None."""
-        with patch.object(obsidian_cli, "search", return_value=None):
-            server._cli_available = True
+        with patch.object(obsidian_cli, "search", return_value=None), \
+             patch.object(obsidian_cli, "check_available", return_value=True):
             server._vault_name = "test"
+            server._cli_probed_at = 0.0  # force TTL expiry
             try:
                 text = _search_text(server.brain_search("brain"))
                 assert "bm25" in text

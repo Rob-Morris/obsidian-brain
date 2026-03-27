@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.15.2 — 2026-03-28
+
+- **MCP tool robustness and hardening** — Full audit of all 7 MCP tools. Split `validate_artefact_path` into `validate_artefact_folder` (folder-only) and `validate_artefact_naming` (pattern-only); edit/append/convert now skip naming checks, fixing failures on existing files with non-conforming names. Added `except Exception` catch-all to all mutating handlers. Defensive fixes: `_fmt_search` score fallback, empty-body guard on `brain_edit`, shape-presentation params validation, migrate_naming null check. Fixed partial global state with atomic temp assignment. Deduplicated folder validation in `read.py`. Replaced per-call Obsidian CLI probe with TTL-gated `_refresh_cli_available()` (30s). Removed `-> str` return type annotations (MCP SDK 1.26.0 strict output validation rejects `list[TextContent]` and `CallToolResult` returns). Fixed stale vault-level taxonomy override for `temporal/logs` naming pattern (`log--yyyy-mm-dd.md` → `yyyymmdd-log.md`).
+
 ## v0.15.1 — 2026-03-28
 
 - **Broaden friction logs, add bug logs artefact type** — Friction logs now capture any source of friction (inconsistencies, unintended outcomes, suboptimal experiences), not just missing context. New `bug-logs` temporal artefact type in the library for correctness failures that need resolution — distinct from friction because a single bug is individually actionable. Bug logs track status (`open` → `resolved`). Library-only; not a template vault default.

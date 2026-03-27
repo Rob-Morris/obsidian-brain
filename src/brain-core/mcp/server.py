@@ -36,6 +36,7 @@ Requires Python >=3.10 and the `mcp` SDK (see requirements.txt).
 import json
 import os
 import sys
+import time
 from datetime import datetime, timezone
 
 from mcp.server.fastmcp import FastMCP
@@ -80,12 +81,25 @@ _vault_root: str | None = None
 _router: dict | None = None
 _index: dict | None = None
 _cli_available: bool = False
+_cli_probed_at: float = 0.0  # monotonic timestamp of last CLI probe
 _vault_name: str | None = None
 _loaded_version: str | None = None
 _workspace_registry: dict | None = None
 _type_embeddings = None    # numpy array or None
 _embeddings_meta = None    # dict with "types" and "documents" keys, or None
 _doc_embeddings = None     # numpy array or None
+
+
+_CLI_PROBE_TTL = 30  # seconds between CLI availability re-probes
+
+
+def _refresh_cli_available():
+    """Re-probe Obsidian CLI availability if TTL has elapsed."""
+    global _cli_available, _cli_probed_at
+    now = time.monotonic()
+    if now - _cli_probed_at >= _CLI_PROBE_TTL:
+        _cli_available = obsidian_cli.check_available()
+        _cli_probed_at = now
 
 
 # ---------------------------------------------------------------------------
@@ -317,6 +331,7 @@ def startup(vault_root: str | None = None) -> None:
 
     # Probe Obsidian CLI availability
     _cli_available = obsidian_cli.check_available()
+    _cli_probed_at = time.monotonic()
     _vault_name = os.environ.get("BRAIN_VAULT_NAME") or os.path.basename(_vault_root)
 
 
@@ -413,7 +428,7 @@ _READ_FORMATTERS = {
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def brain_session(context: str | None = None) -> str:
+def brain_session(context: str | None = None):
     """Bootstrap an agent session. Returns everything needed to work with the Brain in one call.
 
     Args:
@@ -443,7 +458,7 @@ def brain_session(context: str | None = None) -> str:
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def brain_read(resource: str, name: str | None = None) -> str:
+def brain_read(resource: str, name: str | None = None):
     """Read Brain vault resources. Safe, no side effects.
 
     Resources:
@@ -549,7 +564,7 @@ def _fmt_search(source, results):
     lines = []
     for r in results:
         status_part = f"\t{r['status']}" if r.get("status") else ""
-        lines.append(f"{r['title']}\t{r['path']}\t{r['type']}{status_part}\tscore={r['score']:.2f}")
+        lines.append(f"{r['title']}\t{r['path']}\t{r['type']}{status_part}\tscore={r.get('score', 0.0):.2f}")
     return [
         TextContent(type="text", text=meta),
         TextContent(type="text", text="\n".join(lines)),
@@ -558,7 +573,7 @@ def _fmt_search(source, results):
 
 @mcp.tool()
 def brain_search(query: str, type: str | None = None, tag: str | None = None,
-                 status: str | None = None, top_k: int = 10) -> str:
+                 status: str | None = None, top_k: int = 10):
     """Search vault content. Uses Obsidian CLI live index when available, BM25 fallback.
 
     Returns ranked results with path, title, type, status, score, snippet, and source.
@@ -569,6 +584,8 @@ def brain_search(query: str, type: str | None = None, tag: str | None = None,
 
     if _index is None:
         return _fmt_error("server not initialized")
+
+    _refresh_cli_available()
 
     # CLI-first: Obsidian's live index is always current
     if _cli_available and _vault_name and query:
@@ -588,7 +605,7 @@ def brain_search(query: str, type: str | None = None, tag: str | None = None,
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def brain_create(type: str, title: str, body: str = "", frontmatter: dict | None = None) -> str:
+def brain_create(type: str, title: str, body: str = "", frontmatter: dict | None = None):
     """Create a new vault artefact. Additive — creates a file, cannot destroy existing work.
 
     Parameters:
@@ -613,6 +630,8 @@ def brain_create(type: str, title: str, body: str = "", frontmatter: dict | None
         return f"**Created** {result['type']}: {result['path']}"
     except ValueError as e:
         return _fmt_error(str(e))
+    except Exception as e:
+        return _fmt_error(f"Unexpected error: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -620,7 +639,7 @@ def brain_create(type: str, title: str, body: str = "", frontmatter: dict | None
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def brain_edit(operation: str, path: str, body: str = "", frontmatter: dict | None = None, target: str | None = None) -> str:
+def brain_edit(operation: str, path: str, body: str = "", frontmatter: dict | None = None, target: str | None = None):
     """Modify an existing vault artefact. Single-file mutation.
 
     Parameters:
@@ -640,6 +659,10 @@ def brain_edit(operation: str, path: str, body: str = "", frontmatter: dict | No
 
     if _router is None or _vault_root is None:
         return _fmt_error("server not initialized")
+
+    if operation == "edit" and body == "" and not frontmatter and not target:
+        return _fmt_error("edit with empty body and no frontmatter changes would erase file content. "
+                          "Pass body content, frontmatter changes, or use append instead.")
 
     try:
         if operation == "edit":
@@ -662,6 +685,8 @@ def brain_edit(operation: str, path: str, body: str = "", frontmatter: dict | No
         return msg
     except (ValueError, FileNotFoundError) as e:
         return _fmt_error(str(e))
+    except Exception as e:
+        return _fmt_error(f"Unexpected error: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -669,7 +694,7 @@ def brain_edit(operation: str, path: str, body: str = "", frontmatter: dict | No
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def brain_action(action: str, params: dict | None = None) -> str:
+def brain_action(action: str, params: dict | None = None):
     """Perform vault-wide actions. Mutations — may modify multiple files.
 
     Actions:
@@ -692,24 +717,34 @@ def brain_action(action: str, params: dict | None = None) -> str:
         return _fmt_error("server not initialized")
 
     if action == "compile":
-        _router = _compile_and_save(_vault_root)
-        art_count = len(_router["artefacts"])
-        configured = sum(1 for a in _router["artefacts"] if a["configured"])
-        trigger_count = len(_router["triggers"])
-        skill_count = len(_router["skills"])
-        memory_count = len(_router.get("memories", []))
-        living_count = sum(1 for a in _router["artefacts"] if a["classification"] == "living")
-        temporal_count = sum(1 for a in _router["artefacts"] if a["classification"] == "temporal")
-        return (f"**Compiled:** {art_count} artefacts ({configured} configured), "
-                f"{trigger_count} triggers, {skill_count} skills, "
-                f"{memory_count} memories, "
-                f"{living_count + temporal_count} colours")
+        try:
+            _router = _compile_and_save(_vault_root)
+            art_count = len(_router["artefacts"])
+            configured = sum(1 for a in _router["artefacts"] if a["configured"])
+            trigger_count = len(_router["triggers"])
+            skill_count = len(_router["skills"])
+            memory_count = len(_router.get("memories", []))
+            living_count = sum(1 for a in _router["artefacts"] if a["classification"] == "living")
+            temporal_count = sum(1 for a in _router["artefacts"] if a["classification"] == "temporal")
+            return (f"**Compiled:** {art_count} artefacts ({configured} configured), "
+                    f"{trigger_count} triggers, {skill_count} skills, "
+                    f"{memory_count} memories, "
+                    f"{living_count + temporal_count} colours")
+        except (ValueError, OSError) as e:
+            return _fmt_error(str(e))
+        except Exception as e:
+            return _fmt_error(f"Unexpected error: {e}")
 
     elif action == "build_index":
-        _index = _build_index_and_save(_vault_root)
-        doc_count = _index["meta"]["document_count"]
-        term_count = len(_index["corpus_stats"]["df"])
-        return f"**Built index:** {doc_count} documents, {term_count} unique terms"
+        try:
+            _index = _build_index_and_save(_vault_root)
+            doc_count = _index["meta"]["document_count"]
+            term_count = len(_index["corpus_stats"]["df"])
+            return f"**Built index:** {doc_count} documents, {term_count} unique terms"
+        except (ValueError, OSError) as e:
+            return _fmt_error(str(e))
+        except Exception as e:
+            return _fmt_error(f"Unexpected error: {e}")
 
     elif action == "rename":
         if not params or "source" not in params or "dest" not in params:
@@ -719,6 +754,7 @@ def brain_action(action: str, params: dict | None = None) -> str:
         dest = params["dest"]
 
         # CLI-first: Obsidian auto-updates wikilinks
+        _refresh_cli_available()
         if _cli_available and _vault_name:
             result = obsidian_cli.move(_vault_name, source, dest)
             if result is not None:
@@ -731,6 +767,8 @@ def brain_action(action: str, params: dict | None = None) -> str:
             return f"**Renamed** (grep_replace): {source} → {dest}, {links_updated} links updated"
         except FileNotFoundError as e:
             return _fmt_error(str(e))
+        except Exception as e:
+            return _fmt_error(f"Unexpected error: {e}")
 
     elif action == "delete":
         if not params or "path" not in params:
@@ -740,6 +778,8 @@ def brain_action(action: str, params: dict | None = None) -> str:
             return f"**Deleted:** {params['path']}, {links_replaced} links replaced"
         except FileNotFoundError as e:
             return _fmt_error(str(e))
+        except Exception as e:
+            return _fmt_error(f"Unexpected error: {e}")
 
     elif action == "convert":
         if not params or "path" not in params or "target_type" not in params:
@@ -757,12 +797,21 @@ def brain_action(action: str, params: dict | None = None) -> str:
             }, indent=2)
         except (ValueError, FileNotFoundError) as e:
             return _fmt_error(str(e))
+        except Exception as e:
+            return _fmt_error(f"Unexpected error: {e}")
 
     elif action == "shape-presentation":
-        result = shape_presentation.shape(_vault_root, params)
-        if isinstance(result, dict) and "error" in result:
-            return _fmt_error(result["error"])
-        return json.dumps(result, indent=2)
+        if not params or "source" not in params or "slug" not in params:
+            return _fmt_error("shape-presentation requires params: {source, slug}")
+        try:
+            result = shape_presentation.shape(_vault_root, params)
+            if isinstance(result, dict) and "error" in result:
+                return _fmt_error(result["error"])
+            return json.dumps(result, indent=2)
+        except (ValueError, FileNotFoundError) as e:
+            return _fmt_error(str(e))
+        except Exception as e:
+            return _fmt_error(f"Unexpected error: {e}")
 
     elif action == "register_workspace":
         if not params or "slug" not in params or "path" not in params:
@@ -775,6 +824,8 @@ def brain_action(action: str, params: dict | None = None) -> str:
             return f"**Workspace registered:** {params['slug']} → {params['path']}"
         except ValueError as e:
             return _fmt_error(str(e))
+        except Exception as e:
+            return _fmt_error(f"Unexpected error: {e}")
 
     elif action == "unregister_workspace":
         if not params or "slug" not in params:
@@ -787,30 +838,44 @@ def brain_action(action: str, params: dict | None = None) -> str:
             return f"**Workspace unregistered:** {params['slug']}"
         except ValueError as e:
             return _fmt_error(str(e))
+        except Exception as e:
+            return _fmt_error(f"Unexpected error: {e}")
 
     elif action == "upgrade":
         if not params or "source" not in params:
             return _fmt_error("upgrade requires params: {source} (path to source brain-core dir)")
-        source = params["source"]
-        dry_run = params.get("dry_run", False)
-        force = params.get("force", False)
-        result = upgrade.upgrade(_vault_root, source, force=force, dry_run=dry_run)
-        if result["status"] == "ok" and not dry_run:
-            _check_and_reload()
-            _router = _compile_and_save(_vault_root)
-            _index = _build_index_and_save(_vault_root)
-            result["post_upgrade"] = "Reloaded modules, recompiled router, rebuilt index."
-        return json.dumps(result, indent=2)
+        try:
+            source = params["source"]
+            dry_run = params.get("dry_run", False)
+            force = params.get("force", False)
+            result = upgrade.upgrade(_vault_root, source, force=force, dry_run=dry_run)
+            if result["status"] == "ok" and not dry_run:
+                _check_and_reload()
+                new_router = _compile_and_save(_vault_root)
+                new_index = _build_index_and_save(_vault_root)
+                _router = new_router
+                _index = new_index
+                result["post_upgrade"] = "Reloaded modules, recompiled router, rebuilt index."
+            return json.dumps(result, indent=2)
+        except Exception as e:
+            return _fmt_error(f"Unexpected error: {e}")
 
     elif action == "migrate_naming":
-        dry_run = (params or {}).get("dry_run", False)
-        result = migrate_naming.migrate_vault(_vault_root, router=_router, dry_run=dry_run)
-        if isinstance(result, dict) and "error" in result:
-            return _fmt_error(result["error"])
-        if not dry_run and result.get("renamed", 0) > 0:
-            _router = _compile_and_save(_vault_root)
-            _index = _build_index_and_save(_vault_root)
-        return json.dumps(result, indent=2)
+        if _router is None:
+            return _fmt_error("router not initialized")
+        try:
+            dry_run = (params or {}).get("dry_run", False)
+            result = migrate_naming.migrate_vault(_vault_root, router=_router, dry_run=dry_run)
+            if isinstance(result, dict) and "error" in result:
+                return _fmt_error(result["error"])
+            if not dry_run and result.get("renamed", 0) > 0:
+                new_router = _compile_and_save(_vault_root)
+                new_index = _build_index_and_save(_vault_root)
+                _router = new_router
+                _index = new_index
+            return json.dumps(result, indent=2)
+        except Exception as e:
+            return _fmt_error(f"Unexpected error: {e}")
 
     else:
         valid = ["compile", "build_index", "rename", "delete", "convert",
@@ -891,7 +956,7 @@ def _fmt_ingest(result):
 @mcp.tool()
 def brain_process(operation: str, content: str,
                   type: str | None = None, title: str | None = None,
-                  mode: str = "auto") -> str:
+                  mode: str = "auto"):
     """Process content for vault operations.
 
     Operations:
@@ -912,51 +977,54 @@ def brain_process(operation: str, content: str,
     if _router is None or _vault_root is None:
         return _fmt_error("server not initialized")
 
-    if operation == "classify":
-        result = process.classify_content(
-            _router, _vault_root, content,
-            index=_index,
-            type_embeddings=_type_embeddings,
-            type_embeddings_meta=_embeddings_meta,
-            mode=mode,
-        )
-        return _fmt_classify(result)
+    try:
+        if operation == "classify":
+            result = process.classify_content(
+                _router, _vault_root, content,
+                index=_index,
+                type_embeddings=_type_embeddings,
+                type_embeddings_meta=_embeddings_meta,
+                mode=mode,
+            )
+            return _fmt_classify(result)
 
-    elif operation == "resolve":
-        if not type or not title:
-            return _fmt_error("resolve requires type and title parameters")
-        result = process.resolve_content(
-            _router, _vault_root, type, title, content=content,
-            index=_index,
-            doc_embeddings=_doc_embeddings,
-            doc_embeddings_meta=_embeddings_meta,
-        )
-        if result.get("action") == "error":
-            return _fmt_error(result["reasoning"])
-        return _fmt_resolve(result)
+        elif operation == "resolve":
+            if not type or not title:
+                return _fmt_error("resolve requires type and title parameters")
+            result = process.resolve_content(
+                _router, _vault_root, type, title, content=content,
+                index=_index,
+                doc_embeddings=_doc_embeddings,
+                doc_embeddings_meta=_embeddings_meta,
+            )
+            if result.get("action") == "error":
+                return _fmt_error(result["reasoning"])
+            return _fmt_resolve(result)
 
-    elif operation == "ingest":
-        result = process.ingest_content(
-            _router, _vault_root, content,
-            title=title, type_hint=type,
-            index=_index,
-            type_embeddings=_type_embeddings,
-            type_embeddings_meta=_embeddings_meta,
-            doc_embeddings=_doc_embeddings,
-            doc_embeddings_meta=_embeddings_meta,
-        )
-        formatted = _fmt_ingest(result)
-        if formatted is None:
-            return _fmt_error(result.get("message", "Unknown error"))
-        # Refresh index after successful mutation
-        if result.get("action_taken") in ("created", "updated"):
-            _index = _build_index_and_save(_vault_root)
-        return formatted
+        elif operation == "ingest":
+            result = process.ingest_content(
+                _router, _vault_root, content,
+                title=title, type_hint=type,
+                index=_index,
+                type_embeddings=_type_embeddings,
+                type_embeddings_meta=_embeddings_meta,
+                doc_embeddings=_doc_embeddings,
+                doc_embeddings_meta=_embeddings_meta,
+            )
+            formatted = _fmt_ingest(result)
+            if formatted is None:
+                return _fmt_error(result.get("message", "Unknown error"))
+            # Refresh index after successful mutation
+            if result.get("action_taken") in ("created", "updated"):
+                _index = _build_index_and_save(_vault_root)
+            return formatted
 
-    else:
-        return _fmt_error(
-            f"Unknown operation '{operation}'. Valid: classify, resolve, ingest"
-        )
+        else:
+            return _fmt_error(
+                f"Unknown operation '{operation}'. Valid: classify, resolve, ingest"
+            )
+    except Exception as e:
+        return _fmt_error(f"Unexpected error: {e}")
 
 
 # ---------------------------------------------------------------------------

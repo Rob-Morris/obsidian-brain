@@ -111,6 +111,69 @@ class TestValidateArtefactPath:
             edit.validate_artefact_path(str(vault), router, "_Temporal/Logs/2026-03/bad-name.md")
 
 
+class TestValidateArtefactFolder:
+    def test_valid_folder_returns_artefact(self, vault, router):
+        art = edit.validate_artefact_folder(str(vault), router, "Wiki/test-page.md")
+        assert art["key"] == "wiki"
+
+    def test_invalid_folder_raises(self, vault, router):
+        with pytest.raises(ValueError, match="does not belong"):
+            edit.validate_artefact_folder(str(vault), router, "Unknown/file.md")
+
+    def test_ignores_naming_pattern(self, vault, router):
+        """File with non-conforming name in valid folder succeeds."""
+        month = vault / "_Temporal" / "Logs" / "2026-03"
+        month.mkdir(parents=True)
+        (month / "bad-name.md").write_text("---\ntype: temporal/logs\n---\n")
+        art = edit.validate_artefact_folder(str(vault), router, "_Temporal/Logs/2026-03/bad-name.md")
+        assert art["key"] == "logs"
+
+
+class TestValidateArtefactNaming:
+    def test_rejects_bad_name(self, vault, router):
+        art = edit.validate_artefact_folder(str(vault), router, "_Temporal/Logs/2026-03/bad-name.md")
+        with pytest.raises(ValueError, match="does not match expected pattern"):
+            edit.validate_artefact_naming(art, "_Temporal/Logs/2026-03/bad-name.md")
+
+    def test_accepts_conforming_name(self, vault, router):
+        art = edit.validate_artefact_folder(str(vault), router, "Wiki/test-page.md")
+        # Should not raise
+        edit.validate_artefact_naming(art, "Wiki/test-page.md")
+
+
+class TestNonConformingNameOperations:
+    """Edit/append succeed on existing files with non-conforming names."""
+
+    def test_edit_existing_file_with_nonconforming_name(self, vault, router):
+        month = vault / "_Temporal" / "Logs" / "2026-03"
+        month.mkdir(parents=True)
+        (month / "legacy-log.md").write_text(
+            "---\ntype: temporal/logs\ntags:\n  - log\n---\n\n# Old Log\n\nOld content.\n"
+        )
+        result = edit.edit_artefact(
+            str(vault), router, "_Temporal/Logs/2026-03/legacy-log.md",
+            "# New Log\n\nReplaced.\n",
+        )
+        assert result["operation"] == "edit"
+        content = (month / "legacy-log.md").read_text()
+        assert "Replaced." in content
+
+    def test_append_existing_file_with_nonconforming_name(self, vault, router):
+        month = vault / "_Temporal" / "Logs" / "2026-03"
+        month.mkdir(parents=True)
+        (month / "legacy-log.md").write_text(
+            "---\ntype: temporal/logs\ntags:\n  - log\n---\n\n# Old Log\n\nExisting.\n"
+        )
+        result = edit.append_to_artefact(
+            str(vault), router, "_Temporal/Logs/2026-03/legacy-log.md",
+            "\nAppended.\n",
+        )
+        assert result["operation"] == "append"
+        content = (month / "legacy-log.md").read_text()
+        assert "Existing." in content
+        assert "Appended." in content
+
+
 # ---------------------------------------------------------------------------
 # Edit tests
 # ---------------------------------------------------------------------------
