@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.14.9 — 2026-03-27
+
+- **Targeted copy in upgrade to prevent sync conflicts** — `upgrade.py` now copies only added and modified files instead of bulk-overwriting the entire `.brain-core/` directory. Unchanged files are never touched, eliminating race conditions that cause cloud sync services (iCloud, Dropbox, Google Drive, OneDrive, Syncthing) to create conflict copies.
+
 ## v0.14.8 — 2026-03-27
 
 - **Wikilink matching now covers all Obsidian link forms** — heading anchors (`[[file#heading]]`), block references (`[[file#^id]]`), and embeds (`![[file]]`) are now matched and preserved during rename, delete, and convert operations. Extracted `make_wikilink_replacer()` helper and switched to named regex groups for maintainability.

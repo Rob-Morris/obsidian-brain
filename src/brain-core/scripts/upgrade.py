@@ -210,12 +210,13 @@ def upgrade(vault_root: str, source: str, *, force: bool = False, dry_run: bool 
         result["message"] = f"Dry run: {old_version or '(none)'} → {new_version}"
         return result
 
-    # Copy source → target (dirs_exist_ok handles merging)
-    shutil.copytree(
-        source, target,
-        dirs_exist_ok=True,
-        ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".DS_Store"),
-    )
+    # Copy only added and modified files (avoids touching unchanged files,
+    # which prevents sync-service conflict copies on iCloud/Dropbox/etc.)
+    for rel in diff["files_added"] + diff["files_modified"]:
+        src = os.path.join(source, rel)
+        dst = os.path.join(target, rel)
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        shutil.copy2(src, dst)
 
     # Remove obsolete files and clean up empty parent directories
     for rel in diff["files_removed"]:
