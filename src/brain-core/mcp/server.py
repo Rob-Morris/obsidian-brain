@@ -83,9 +83,9 @@ _cli_available: bool = False
 _vault_name: str | None = None
 _loaded_version: str | None = None
 _workspace_registry: dict | None = None
-_type_embeddings = None       # numpy array or None
-_type_embeddings_meta = None  # dict or None
-_doc_embeddings = None        # numpy array or None
+_type_embeddings = None    # numpy array or None
+_embeddings_meta = None    # dict with "types" and "documents" keys, or None
+_doc_embeddings = None     # numpy array or None
 
 
 # ---------------------------------------------------------------------------
@@ -250,21 +250,21 @@ def _compile_and_save(vault_root: str) -> dict:
 
 def _build_index_and_save(vault_root: str) -> dict:
     """Build retrieval index, write to disk, return index data."""
-    global _type_embeddings, _type_embeddings_meta, _doc_embeddings
+    global _type_embeddings, _embeddings_meta, _doc_embeddings
     index = build_index.build_index(vault_root)
     _save_json(index, vault_root, RETRIEVAL_INDEX_REL)
     # Build embeddings if deps available and router is loaded
     if _router is not None:
         meta = build_index.build_embeddings(vault_root, _router, index["documents"])
         if meta is not None:
-            _type_embeddings_meta = meta
+            _embeddings_meta = meta
             _load_embeddings(vault_root)
     return index
 
 
 def _load_embeddings(vault_root: str) -> None:
     """Load pre-built embeddings from disk if available."""
-    global _type_embeddings, _type_embeddings_meta, _doc_embeddings
+    global _type_embeddings, _embeddings_meta, _doc_embeddings
     try:
         import numpy as np
     except ImportError:
@@ -276,7 +276,7 @@ def _load_embeddings(vault_root: str) -> None:
         if os.path.isfile(type_path) and os.path.isfile(meta_path):
             _type_embeddings = np.load(type_path)
             with open(meta_path, "r", encoding="utf-8") as f:
-                _type_embeddings_meta = json.load(f)
+                _embeddings_meta = json.load(f)
         if os.path.isfile(doc_path):
             _doc_embeddings = np.load(doc_path)
     except (OSError, ValueError):
@@ -917,7 +917,7 @@ def brain_process(operation: str, content: str,
             _router, _vault_root, content,
             index=_index,
             type_embeddings=_type_embeddings,
-            type_embeddings_meta=_type_embeddings_meta,
+            type_embeddings_meta=_embeddings_meta,
             mode=mode,
         )
         return _fmt_classify(result)
@@ -929,7 +929,7 @@ def brain_process(operation: str, content: str,
             _router, _vault_root, type, title, content=content,
             index=_index,
             doc_embeddings=_doc_embeddings,
-            doc_embeddings_meta=_type_embeddings_meta,
+            doc_embeddings_meta=_embeddings_meta,
         )
         if result.get("action") == "error":
             return _fmt_error(result["reasoning"])
@@ -941,9 +941,9 @@ def brain_process(operation: str, content: str,
             title=title, type_hint=type,
             index=_index,
             type_embeddings=_type_embeddings,
-            type_embeddings_meta=_type_embeddings_meta,
+            type_embeddings_meta=_embeddings_meta,
             doc_embeddings=_doc_embeddings,
-            doc_embeddings_meta=_type_embeddings_meta,
+            doc_embeddings_meta=_embeddings_meta,
         )
         formatted = _fmt_ingest(result)
         if formatted is None:

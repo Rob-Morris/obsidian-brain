@@ -10,6 +10,7 @@ Provides three operations for the brain_process MCP tool:
 
 import math
 import os
+from collections import Counter
 
 from _common import title_to_filename, title_to_slug, tokenise
 
@@ -28,15 +29,15 @@ def infer_title(content):
 
     Truncates to 60 characters.
     """
-    for line in content.splitlines():
+    lines = content.splitlines()
+    first_nonempty = None
+    for line in lines:
         stripped = line.strip()
         if stripped.startswith("# "):
             return stripped[2:].strip()[:60]
-    for line in content.splitlines():
-        stripped = line.strip()
-        if stripped:
-            return stripped[:60]
-    return "Untitled"
+        if first_nonempty is None and stripped:
+            first_nonempty = stripped[:60]
+    return first_nonempty or "Untitled"
 
 
 # ---------------------------------------------------------------------------
@@ -86,7 +87,6 @@ def _classify_embedding(content, type_embeddings, type_embeddings_meta):
     model = SentenceTransformer(build_index.EMBEDDING_MODEL)
     query_vec = model.encode([content], normalize_embeddings=True)[0]
 
-    # Cosine similarity (already L2-normalised)
     similarities = type_embeddings @ query_vec
 
     ranked = sorted(
@@ -127,6 +127,7 @@ def _classify_bm25(router, vault_root, content, index):
     content_tokens = tokenise(content)
     if not content_tokens:
         return None
+    content_token_counts = Counter(content_tokens)
 
     artefacts = [a for a in router.get("artefacts", []) if a.get("configured")]
     if not artefacts:
@@ -146,11 +147,11 @@ def _classify_bm25(router, vault_root, content, index):
         desc_token_set = set(desc_tokens)
 
         score = 0.0
-        for token in content_tokens:
+        for token, count in content_token_counts.items():
             if token in desc_token_set:
                 token_df = df.get(token, 0)
                 idf = math.log((total_docs - token_df + 0.5) / (token_df + 0.5) + 1)
-                score += idf
+                score += idf * count
 
         scored.append({
             "type": artefact["type"],

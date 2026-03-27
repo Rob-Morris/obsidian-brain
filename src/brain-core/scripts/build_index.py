@@ -89,9 +89,6 @@ BM25_B = 0.75
 # Type description extraction (for classification + embeddings)
 # ---------------------------------------------------------------------------
 
-_SECTION_RE = re.compile(r"^## (.+)", re.MULTILINE)
-
-
 def extract_type_description(vault_root, artefact):
     """Read taxonomy file and extract one-liner + Purpose + When To Use/Trigger.
 
@@ -125,12 +122,18 @@ def extract_type_description(vault_root, artefact):
     return "\n\n".join(parts)
 
 
+_section_cache: dict[str, re.Pattern] = {}
+
+
 def _extract_section(content, heading):
     """Extract the body of a ## heading section, stopping at the next ## or EOF."""
-    pattern = re.compile(
-        rf"^## {re.escape(heading)}\s*\n(.*?)(?=^## |\Z)",
-        re.MULTILINE | re.DOTALL,
-    )
+    pattern = _section_cache.get(heading)
+    if pattern is None:
+        pattern = re.compile(
+            rf"^## {re.escape(heading)}\s*\n(.*?)(?=^## |\Z)",
+            re.MULTILINE | re.DOTALL,
+        )
+        _section_cache[heading] = pattern
     match = pattern.search(content)
     if match:
         return match.group(1).strip()
