@@ -205,17 +205,37 @@ def strip_md_ext(path):
 def build_wikilink_pattern(*stems):
     """Build a compiled regex matching wikilinks to any of the given stems.
 
-    Matches ``[[stem]]`` and ``[[stem|alias]]`` for each stem provided.
+    Matches all Obsidian wikilink forms: plain, with heading anchors,
+    block references, aliases, and embed prefixes (``![[…]]``).
     Longer stems are tried first so a full-path stem is preferred over a
     filename-only stem when both could match.
 
-    Groups:
-        1 — the stem that matched
-        2 — the alias portion including the leading ``|``, or *None*
+    Named groups:
+        ``prefix`` — ``[[`` or ``![[``
+        ``stem``   — the stem that matched
+        ``anchor`` — heading/block-ref including leading ``#``, or *None*
+        ``alias``  — display text including leading ``|``, or *None*
     """
     sorted_stems = sorted(stems, key=len, reverse=True)
     alt = "|".join(re.escape(s) for s in sorted_stems)
-    return re.compile(r"\[\[(" + alt + r")(\|[^\]]*)?" r"\]\]")
+    return re.compile(
+        r"(?P<prefix>!?\[\[)(?P<stem>" + alt + r")"
+        r"(?P<anchor>#[^\]|]*)?(?P<alias>\|[^\]]*)?\]\]"
+    )
+
+
+def make_wikilink_replacer(stem_map):
+    """Return a :func:`re.sub` callable that rewrites matched wikilink stems.
+
+    Preserves the embed prefix, heading anchor, and alias exactly as
+    written — only the stem portion is replaced via *stem_map*.
+    """
+    def _replace(m):
+        return (
+            f"{m.group('prefix')}{stem_map[m.group('stem')]}"
+            f"{m.group('anchor') or ''}{m.group('alias') or ''}]]"
+        )
+    return _replace
 
 
 def _iter_vault_md_files(vault_root):

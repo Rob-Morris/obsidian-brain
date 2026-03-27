@@ -243,3 +243,107 @@ class TestFilenameOnlyDelete:
         content = (vault / "Wiki" / "topic-b.md").read_text()
         assert "~~Topic A~~" in content
         assert "[[topic-a|Topic A]]" not in content
+
+
+# ---------------------------------------------------------------------------
+# Heading anchors, block refs, and embeds
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def vault_with_anchors(tmp_path):
+    """Vault with heading anchors, block refs, and embeds."""
+    bc = tmp_path / ".brain-core"
+    bc.mkdir()
+    (bc / "VERSION").write_text("0.7.0\n")
+
+    wiki = tmp_path / "Wiki"
+    wiki.mkdir()
+    (wiki / "topic-a.md").write_text(
+        "---\ntype: living/wiki\ntags: []\n---\n\n# Topic A\n\n"
+        "Some content. ^block123\n"
+    )
+    (wiki / "topic-b.md").write_text(
+        "---\ntype: living/wiki\ntags: []\n---\n\n# Topic B\n\n"
+        "Anchor: [[Wiki/topic-a#Overview]].\n"
+        "Anchor alias: [[Wiki/topic-a#Overview|see overview]].\n"
+        "Block ref: [[Wiki/topic-a#^block123]].\n"
+        "Embed: ![[Wiki/topic-a]].\n"
+        "Embed anchor: ![[Wiki/topic-a#Overview]].\n"
+        "Filename anchor: [[topic-a#Details]].\n"
+        "Plain: [[Wiki/topic-a]].\n"
+    )
+
+    return tmp_path
+
+
+class TestAnchorAndEmbedRename:
+    def test_preserves_heading_anchor(self, vault_with_anchors):
+        vault = vault_with_anchors
+        rename.rename_and_update_links(str(vault), "Wiki/topic-a.md", "Wiki/new-name.md")
+        content = (vault / "Wiki" / "topic-b.md").read_text()
+        assert "[[Wiki/new-name#Overview]]" in content
+
+    def test_preserves_anchor_with_alias(self, vault_with_anchors):
+        vault = vault_with_anchors
+        rename.rename_and_update_links(str(vault), "Wiki/topic-a.md", "Wiki/new-name.md")
+        content = (vault / "Wiki" / "topic-b.md").read_text()
+        assert "[[Wiki/new-name#Overview|see overview]]" in content
+
+    def test_preserves_block_ref(self, vault_with_anchors):
+        vault = vault_with_anchors
+        rename.rename_and_update_links(str(vault), "Wiki/topic-a.md", "Wiki/new-name.md")
+        content = (vault / "Wiki" / "topic-b.md").read_text()
+        assert "[[Wiki/new-name#^block123]]" in content
+
+    def test_preserves_embed_prefix(self, vault_with_anchors):
+        vault = vault_with_anchors
+        rename.rename_and_update_links(str(vault), "Wiki/topic-a.md", "Wiki/new-name.md")
+        content = (vault / "Wiki" / "topic-b.md").read_text()
+        assert "![[Wiki/new-name]]" in content
+
+    def test_preserves_embed_with_anchor(self, vault_with_anchors):
+        vault = vault_with_anchors
+        rename.rename_and_update_links(str(vault), "Wiki/topic-a.md", "Wiki/new-name.md")
+        content = (vault / "Wiki" / "topic-b.md").read_text()
+        assert "![[Wiki/new-name#Overview]]" in content
+
+    def test_filename_only_with_anchor(self, vault_with_anchors):
+        vault = vault_with_anchors
+        rename.rename_and_update_links(str(vault), "Wiki/topic-a.md", "Wiki/new-name.md")
+        content = (vault / "Wiki" / "topic-b.md").read_text()
+        assert "[[new-name#Details]]" in content
+
+    def test_plain_link_still_works(self, vault_with_anchors):
+        vault = vault_with_anchors
+        rename.rename_and_update_links(str(vault), "Wiki/topic-a.md", "Wiki/new-name.md")
+        content = (vault / "Wiki" / "topic-b.md").read_text()
+        assert "[[Wiki/new-name]]" in content
+
+    def test_returns_correct_count(self, vault_with_anchors):
+        vault = vault_with_anchors
+        count = rename.rename_and_update_links(
+            str(vault), "Wiki/topic-a.md", "Wiki/new-name.md"
+        )
+        # 7 links in topic-b: anchor, anchor+alias, blockref, embed, embed+anchor, filename+anchor, plain
+        assert count == 7
+
+
+class TestAnchorAndEmbedDelete:
+    def test_delete_anchor_link(self, vault_with_anchors):
+        vault = vault_with_anchors
+        rename.delete_and_clean_links(str(vault), "Wiki/topic-a.md")
+        content = (vault / "Wiki" / "topic-b.md").read_text()
+        assert "~~topic-a~~" in content
+        assert "[[Wiki/topic-a#Overview]]" not in content
+
+    def test_delete_anchor_alias_uses_alias(self, vault_with_anchors):
+        vault = vault_with_anchors
+        rename.delete_and_clean_links(str(vault), "Wiki/topic-a.md")
+        content = (vault / "Wiki" / "topic-b.md").read_text()
+        assert "~~see overview~~" in content
+
+    def test_delete_embed(self, vault_with_anchors):
+        vault = vault_with_anchors
+        rename.delete_and_clean_links(str(vault), "Wiki/topic-a.md")
+        content = (vault / "Wiki" / "topic-b.md").read_text()
+        assert "![[Wiki/topic-a]]" not in content

@@ -21,6 +21,7 @@ from create import resolve_naming_pattern, resolve_type, resolve_folder
 from _common import (
     find_section,
     find_vault_root,
+    make_wikilink_replacer,
     parse_frontmatter,
     replace_wikilinks_in_vault,
     resolve_wikilink_stems,
@@ -231,8 +232,7 @@ def convert_artefact(vault_root, router, path, target_type):
     # Update wikilinks vault-wide (old stem → new stem)
     pattern, stem_map = resolve_wikilink_stems(vault_root, path, new_path)
     links_updated = replace_wikilinks_in_vault(
-        vault_root, pattern,
-        lambda m: f"[[{stem_map[m.group(1)]}{m.group(2) or ''}]]",
+        vault_root, pattern, make_wikilink_replacer(stem_map),
     )
 
     # Remove old file

@@ -18,6 +18,7 @@ import sys
 
 from _common import (
     find_vault_root,
+    make_wikilink_replacer,
     replace_wikilinks_in_vault,
     resolve_wikilink_stems,
 )
@@ -49,8 +50,7 @@ def rename_and_update_links(vault_root, source, dest):
 
     pattern, stem_map = resolve_wikilink_stems(vault_root, source, dest)
     links_updated = replace_wikilinks_in_vault(
-        vault_root, pattern,
-        lambda m: f"[[{stem_map[m.group(1)]}{m.group(2) or ''}]]",
+        vault_root, pattern, make_wikilink_replacer(stem_map),
     )
 
     # Create destination directory if needed and rename the file
@@ -84,7 +84,7 @@ def delete_and_clean_links(vault_root, path):
     pattern, _stem_map = resolve_wikilink_stems(vault_root, path)
 
     def replacement(m):
-        alias = m.group(2)
+        alias = m.group("alias")
         return f"~~{alias[1:]}~~" if alias else f"~~{display_name}~~"
 
     links_replaced = replace_wikilinks_in_vault(vault_root, pattern, replacement)

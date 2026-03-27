@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.14.8 — 2026-03-27
+
+- **Wikilink matching now covers all Obsidian link forms** — heading anchors (`[[file#heading]]`), block references (`[[file#^id]]`), and embeds (`![[file]]`) are now matched and preserved during rename, delete, and convert operations. Extracted `make_wikilink_replacer()` helper and switched to named regex groups for maintainability.
+
 ## v0.14.7 — 2026-03-27
 
 - **Fix rename/delete to match filename-only wikilinks** — `rename.py` only matched full-path wikilinks (e.g. `[[Wiki/topic-a]]`) but Obsidian's default format is filename-only (`[[topic-a]]`). Now matches both forms and preserves the original link format in replacements. Skips filename-only matching when the basename is ambiguous (multiple files with the same name). Same fix applied to delete and convert operations. Refactored shared logic into `resolve_wikilink_stems()` and `_iter_vault_md_files()`. Updated tooling docs to describe multi-stem wikilink matching behaviour.
