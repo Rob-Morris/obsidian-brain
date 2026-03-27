@@ -4,7 +4,7 @@ Follows [semver](https://semver.org/). Changes to vault structure (renamed/remov
 
 ## v0.14.7 — 2026-03-27
 
-- **Fix rename/delete to match filename-only wikilinks** — `rename.py` only matched full-path wikilinks (e.g. `[[Wiki/topic-a]]`) but Obsidian's default format is filename-only (`[[topic-a]]`). Now matches both forms and preserves the original link format in replacements. Skips filename-only matching when the basename is ambiguous (multiple files with the same name). Same fix applied to delete and convert operations. Refactored shared logic into `resolve_wikilink_stems()` and `_iter_vault_md_files()`.
+- **Fix rename/delete to match filename-only wikilinks** — `rename.py` only matched full-path wikilinks (e.g. `[[Wiki/topic-a]]`) but Obsidian's default format is filename-only (`[[topic-a]]`). Now matches both forms and preserves the original link format in replacements. Skips filename-only matching when the basename is ambiguous (multiple files with the same name). Same fix applied to delete and convert operations. Refactored shared logic into `resolve_wikilink_stems()` and `_iter_vault_md_files()`. Updated tooling docs to describe multi-stem wikilink matching behaviour.
 
 ## v0.14.6 — 2026-03-27
 
