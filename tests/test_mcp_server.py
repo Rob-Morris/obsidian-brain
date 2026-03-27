@@ -1519,6 +1519,101 @@ class TestWorkspaceActions:
 # Startup loads workspace registry
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# brain_process tool
+# ---------------------------------------------------------------------------
+
+class TestBrainProcess:
+    def test_process_classify_context_assembly(self, initialized):
+        result = server.brain_process(
+            operation="classify",
+            content="I have a new idea for solar powered keyboards",
+            mode="context_assembly",
+        )
+        assert isinstance(result, str)
+        assert "context_assembly" in result
+
+    def test_process_classify_bm25(self, initialized):
+        # Add Purpose/When To Use to taxonomy for BM25 scoring
+        tax_ideas = os.path.join(str(initialized), "_Config", "Taxonomy", "Living", "ideas.md")
+        with open(tax_ideas, "w") as f:
+            f.write(
+                "# Ideas\n\n"
+                "A concept that needs iterative refinement.\n\n"
+                "## Naming\n\n`{slug}.md` in `Ideas/`.\n\n"
+                "## Frontmatter\n\n```yaml\n---\ntype: living/ideas\n---\n```\n\n"
+                "## Purpose\n\nCapture concepts that need development.\n\n"
+                "## When To Use\n\nWhen developing a concept that needs iterative refinement.\n\n"
+                "## Template\n\n[[_Config/Templates/Living/Ideas]]\n"
+            )
+        # Re-initialize to rebuild index
+        server.startup(vault_root=str(initialized))
+        result = server.brain_process(
+            operation="classify",
+            content="a new concept idea that needs iterative development and refinement",
+            mode="bm25_only",
+        )
+        assert isinstance(result, str)
+        assert "**Classified**" in result
+        assert "bm25_only" in result
+
+    def test_process_resolve_create(self, initialized):
+        result = server.brain_process(
+            operation="resolve",
+            content="Some content about a brand new topic",
+            type="wiki",
+            title="Quantum Computing Primer",
+        )
+        assert isinstance(result, str)
+        assert "**Resolve**" in result
+        assert "create" in result
+
+    def test_process_resolve_update(self, initialized):
+        result = server.brain_process(
+            operation="resolve",
+            content="Updated information",
+            type="wiki",
+            title="brain-overview-abc123",
+        )
+        assert isinstance(result, str)
+        assert "**Resolve**" in result
+        assert "update" in result
+
+    def test_process_resolve_missing_params(self, initialized):
+        result = server.brain_process(
+            operation="resolve",
+            content="Some content",
+        )
+        _assert_error(result, "resolve requires type and title")
+
+    def test_process_ingest_creates_file(self, initialized):
+        result = server.brain_process(
+            operation="ingest",
+            content="# Quantum Coffee\n\nWhat if coffee brewed itself?",
+            type="ideas",
+        )
+        assert isinstance(result, str)
+        assert "**Ingested**" in result
+        assert "created" in result
+
+    def test_process_ingest_needs_classification(self, initialized):
+        # Without embeddings or BM25 type descriptions, falls to context_assembly
+        result = server.brain_process(
+            operation="ingest",
+            content="Random content without hints",
+        )
+        # Should return context_assembly since no scoring available
+        assert isinstance(result, str)
+        assert "context_assembly" in result
+
+    def test_process_unknown_operation(self, initialized):
+        result = server.brain_process(
+            operation="nonexistent",
+            content="test",
+        )
+        _assert_error(result, "Unknown operation")
+
+
 class TestWorkspaceStartup:
     def test_startup_loads_empty_registry(self, vault):
         """Startup with no .brain/ → empty registry."""

@@ -4,13 +4,14 @@ Brain MCP Server — thin MCP wrapper over brain-core scripts.
 
 All logic lives in `.brain-core/scripts/` as importable functions.
 The server imports them, holds the compiled router and search index in memory,
-and exposes 6 MCP tools:
+and exposes 7 MCP tools:
   brain_session — bootstrap an agent session (compiled payload, one call)
   brain_read    — read compiled router resources (safe, no side effects)
   brain_search  — BM25 keyword search, with optional Obsidian CLI live search
   brain_create  — create new vault artefacts (additive, safe to auto-approve)
   brain_edit    — modify existing vault artefacts (single-file mutation)
   brain_action  — vault-wide/destructive ops: compile, build_index, rename, delete, convert
+  brain_process — content processing: classify, resolve duplicates, ingest
 
 Why this pattern: scripts are the source of truth for all vault operations.
 The MCP server gets in-memory caching for free (router/index loaded once at
@@ -63,6 +64,7 @@ import shape_presentation
 import upgrade
 import migrate_naming
 import workspace_registry
+import process
 
 # Constants that don't change between versions
 COMPILED_ROUTER_REL = compile_router.OUTPUT_PATH
@@ -815,6 +817,146 @@ def brain_action(action: str, params: dict | None = None) -> str:
                  "shape-presentation", "upgrade", "migrate_naming",
                  "register_workspace", "unregister_workspace"]
         return _fmt_error(f"Unknown action '{action}'. Valid: {', '.join(valid)}")
+
+
+# ---------------------------------------------------------------------------
+# brain_process — content classification, resolution, ingestion
+# ---------------------------------------------------------------------------
+
+def _fmt_classify(result):
+    """Format classification result as DD-026 plain text."""
+    if result.get("mode") == "context_assembly":
+        lines = ["**Classify** → context_assembly (no scoring available)\n"]
+        for td in result.get("type_descriptions", []):
+            lines.append(f"**{td['key']}** ({td['type']})")
+            lines.append(td["description"])
+            lines.append("")
+        lines.append(result.get("instruction", ""))
+        return "\n".join(lines)
+
+    alt_lines = []
+    for alt in result.get("alternatives", []):
+        alt_lines.append(f"- {alt['key']} ({alt['type']}) — {alt['confidence']}%")
+
+    parts = [f"**Classified** ({result['mode']}) → {result['key']} ({result['confidence']}%)"]
+    if result.get("reasoning"):
+        parts.append(result["reasoning"])
+    if alt_lines:
+        parts.append("\nAlternatives:")
+        parts.extend(alt_lines)
+    return "\n".join(parts)
+
+
+def _fmt_resolve(result):
+    """Format resolution result as DD-026 plain text."""
+    if result.get("action") == "error":
+        return None  # caller uses _fmt_error
+
+    action = result["action"]
+    if action == "create":
+        return f"**Resolve** → create {result['key']}: {result['title']}\n{result['reasoning']}"
+    elif action == "update":
+        return f"**Resolve** → update {result['target_path']}\n{result['reasoning']}"
+    elif action == "ambiguous":
+        lines = [f"**Resolve** → ambiguous ({len(result.get('candidates', []))} candidates)"]
+        lines.append(result["reasoning"])
+        lines.append("\nCandidates:")
+        for c in result.get("candidates", []):
+            lines.append(f"- {c}")
+        return "\n".join(lines)
+    return json.dumps(result, indent=2)
+
+
+def _fmt_ingest(result):
+    """Format ingestion result as DD-026 plain text."""
+    action = result.get("action_taken")
+    if action == "created":
+        return f"**Ingested** → created {result['type']}: {result['path']}"
+    elif action == "updated":
+        return f"**Ingested** → updated {result['path']}"
+    elif action == "ambiguous":
+        lines = [f"**Ingest paused** — needs decision"]
+        if result.get("resolution", {}).get("candidates"):
+            lines.append("\nCandidates:")
+            for c in result["resolution"]["candidates"]:
+                lines.append(f"- {c}")
+        return "\n".join(lines)
+    elif action == "needs_classification":
+        return _fmt_classify(result.get("classification", {}))
+    elif action == "error":
+        return None  # caller uses _fmt_error
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+def brain_process(operation: str, content: str,
+                  type: str | None = None, title: str | None = None,
+                  mode: str = "auto") -> str:
+    """Process content for vault operations.
+
+    Operations:
+      classify  — Determine the best artefact type for content.
+                  Returns ranked type matches with confidence scores.
+      resolve   — Check if content should create a new artefact or update an existing one.
+                  Requires type and title. Returns create/update/ambiguous decision.
+      ingest    — Full pipeline: classify → resolve → create/update.
+                  Optional type/title hints skip their respective steps.
+
+    Modes (for classify/ingest): "auto", "embedding", "bm25_only", "context_assembly".
+    """
+    global _index
+
+    _check_and_reload()
+    _ensure_router_fresh()
+
+    if _router is None or _vault_root is None:
+        return _fmt_error("server not initialized")
+
+    if operation == "classify":
+        result = process.classify_content(
+            _router, _vault_root, content,
+            index=_index,
+            type_embeddings=_type_embeddings,
+            type_embeddings_meta=_type_embeddings_meta,
+            mode=mode,
+        )
+        return _fmt_classify(result)
+
+    elif operation == "resolve":
+        if not type or not title:
+            return _fmt_error("resolve requires type and title parameters")
+        result = process.resolve_content(
+            _router, _vault_root, type, title, content=content,
+            index=_index,
+            doc_embeddings=_doc_embeddings,
+            doc_embeddings_meta=_type_embeddings_meta,
+        )
+        if result.get("action") == "error":
+            return _fmt_error(result["reasoning"])
+        return _fmt_resolve(result)
+
+    elif operation == "ingest":
+        result = process.ingest_content(
+            _router, _vault_root, content,
+            title=title, type_hint=type,
+            index=_index,
+            type_embeddings=_type_embeddings,
+            type_embeddings_meta=_type_embeddings_meta,
+            doc_embeddings=_doc_embeddings,
+            doc_embeddings_meta=_type_embeddings_meta,
+        )
+        formatted = _fmt_ingest(result)
+        if formatted is None:
+            return _fmt_error(result.get("message", "Unknown error"))
+        # Refresh index after successful mutation
+        if result.get("action_taken") in ("created", "updated"):
+            _index = _build_index_and_save(_vault_root)
+        return formatted
+
+    else:
+        return _fmt_error(
+            f"Unknown operation '{operation}'. Valid: classify, resolve, ingest"
+        )
 
 
 # ---------------------------------------------------------------------------

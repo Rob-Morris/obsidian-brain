@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.14.12 — 2026-03-27
+
+- **Add `brain_process` MCP tool** — 7th MCP tool with operation dispatcher for `classify` (ranked type matching with confidence), `resolve` (duplicate detection via filename + BM25 + embedding search), and `ingest` (full classify → resolve → create/update pipeline). DD-026 compliant response formatting. Index auto-refreshes after successful mutations.
+
 ## v0.14.11 — 2026-03-27
 
 - **Add process.py script** — New script module with `classify_content()` (embedding → BM25 → context_assembly fallback), `resolve_content()` (filename match + search-based duplicate detection), and `ingest_content()` (full classify → resolve → create/update pipeline). Also `infer_title()` for extracting titles from content.
