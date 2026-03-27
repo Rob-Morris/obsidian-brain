@@ -32,7 +32,8 @@ The template vault ships with a curated set of defaults (marked below). This lib
 | [Transcripts](temporal/transcripts/) | `transcripts` | Conversation transcripts. **Template vault default.** |
 | [Decision Logs](temporal/decision-logs/) | `decision-logs` | Point-in-time records of decisions — captures the "why" behind choices. **Template vault default.** |
 | [Shaping Transcripts](temporal/shaping-transcripts/) | `shaping-transcripts` | Q&A refinement transcripts tied to a source artefact. **Template vault default.** |
-| [Friction Logs](temporal/friction-logs/) | `friction-logs` | Signal accumulator — logs missing context, conflicting info, or guesses. **Template vault default.** |
+| [Friction Logs](temporal/friction-logs/) | `friction-logs` | Signal accumulator — logs friction: missing context, inconsistencies, suboptimal outcomes. **Template vault default.** |
+| [Bug Logs](temporal/bug-logs/) | `bug-logs` | Point-in-time records of broken behaviour — correctness failures that need resolution. |
 | [Idea Logs](temporal/idea-logs/) | `idea-logs` | Quick idea captures in rough form. |
 | [Research](temporal/research/) | `research` | In-depth research notes on specific topics. **Template vault default.** |
 | [Thoughts](temporal/thoughts/) | `thoughts` | Raw, unformed thinking captured in the moment. **Template vault default.** |

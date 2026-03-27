@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.15.1 — 2026-03-28
+
+- **Broaden friction logs, add bug logs artefact type** — Friction logs now capture any source of friction (inconsistencies, unintended outcomes, suboptimal experiences), not just missing context. New `bug-logs` temporal artefact type in the library for correctness failures that need resolution — distinct from friction because a single bug is individually actionable. Bug logs track status (`open` → `resolved`). Library-only; not a template vault default.
+
 ## v0.15.0 — 2026-03-27
 
 - **Brain classification tools (v0.15.0)** — New `brain_process` MCP tool (7th tool) with three operations: `classify` (embedding → BM25 → context_assembly fallback for artefact type matching), `resolve` (filename + BM25 + embedding duplicate detection), `ingest` (full classify → resolve → create/update pipeline). Backed by `process.py` script and `build_index.py` extensions for type description extraction and optional sentence-transformers embeddings. Graceful degradation: works without numpy/sentence-transformers via BM25 or context assembly. Tooling, user-reference, and guide docs updated.

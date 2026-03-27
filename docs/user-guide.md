@@ -98,7 +98,7 @@ _Temporal/Idea Logs/2026-03/20260321-idea-log~Shared Token Validation.md
 
 Captured in 30 seconds. The bar is deliberately low. Most idea logs won't go anywhere, and that's fine. The ones that matter will graduate later.
 
-### Something Frustrates You
+### Something Generates Friction
 
 The API docs say one thing but the code does another. You waste 20 minutes figuring out the actual behaviour. Before moving on, you log the friction:
 
@@ -275,7 +275,7 @@ Every artefact related to this project shares the `project/my-app` tag. The proj
 
 ### Starting Small
 
-A new Brain vault ships with a practical starter set: Daily Notes, Designs, Documentation, Ideas, Notes, People, Projects, Workspaces, Writing (living); Captures, Cookies, Decision Logs, Friction Logs, Logs, Observations, Plans, Reports, Research, Shaping Transcripts, Snippets, Thoughts, Transcripts (temporal). That covers the core workflows — capturing knowledge, designing and documenting, tracking people and projects, managing workspaces, writing, logging activity, recording decisions and observations, ingesting external material, refining artefacts, tracking friction, capturing raw thinking, and rewarding good work. You can add more types from the library as you need them.
+A new Brain vault ships with a practical starter set: Daily Notes, Designs, Documentation, Ideas, Notes, People, Projects, Workspaces, Writing (living); Captures, Cookies, Decision Logs, Friction Logs, Logs, Observations, Plans, Reports, Research, Shaping Transcripts, Snippets, Thoughts, Transcripts (temporal). That covers the core workflows — capturing knowledge, designing and documenting, tracking people and projects, managing workspaces, writing, logging activity, recording decisions and observations, ingesting external material, refining artefacts, logging friction, capturing raw thinking, and rewarding good work. You can add more types from the library as you need them.
 
 ### Adding Types When You Need Them
 
@@ -366,7 +366,7 @@ _Temporal/
   Journal Entries/             ← personal reflections
   Thoughts/                   ← unformed thinking
   Decision Logs/              ← "why we chose X"
-  Friction Logs/              ← "this was confusing"
+  Friction Logs/              ← "this generated friction"
   Reports/                    ← process overviews
   Snippets/                   ← crafted short-form content
   Cookies/                    ← "that earned a cookie"

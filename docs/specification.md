@@ -116,7 +116,7 @@ This pattern is useful when a single living artefact organises a stream of relat
 - `_Temporal/Cookies/` — user satisfaction tracking
 - `_Temporal/Ingestions/` — processing records for content decomposition
 - `_Temporal/Decision Logs/` — reasoning behind choices
-- `_Temporal/Friction Logs/` — signal accumulator for maintenance
+- `_Temporal/Friction Logs/` — signal accumulator for friction: missing context, inconsistencies, suboptimal outcomes
 - `_Temporal/Logs/` — daily activity logs
 - `_Temporal/Observations/` — timestamped facts and things noticed
 - `_Temporal/Plans/` — pre-work plans
@@ -133,6 +133,6 @@ This pattern is useful when a single living artefact organises a stream of relat
 - `_Plugins/` — empty, ready for plugins
 - `_Workspaces/` — workspace data bucket (infrastructure)
 
-Additional types are available in the artefact library (`.brain-core/artefact-library/`) for install as needed: Wiki, Journals, Zettelkasten (living); Idea Logs, Journal Entries, Mockups, Presentations (temporal).
+Additional types are available in the artefact library (`.brain-core/artefact-library/`) for install as needed: Wiki, Journals, Zettelkasten (living); Bug Logs, Idea Logs, Journal Entries, Mockups, Presentations (temporal).
 
 The starter vault ships 23 defaults (9 living + 14 temporal) out of 31 in the library.

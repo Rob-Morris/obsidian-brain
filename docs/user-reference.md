@@ -512,7 +512,7 @@ tags:
 
 **Folder:** `_Temporal/Friction Logs/yyyy-mm/` · **Naming:** `yyyymmdd-friction~{Title}.md`
 
-Signal accumulator for maintenance. Logs moments where context was missing, information conflicted, or assumptions had to be made. Not a bug tracker — a pattern detector. Individual entries are low-cost; value emerges when signals accumulate.
+Signal accumulator for maintenance. Logs any moment where something generated friction — missing context, conflicting information, inconsistencies, unintended outcomes, or suboptimal experiences. Not a bug tracker — a pattern detector. Individual entries are low-cost; value emerges when signals accumulate.
 
 ```yaml
 type: temporal/friction-log
@@ -524,7 +524,26 @@ tags:
 
 **Review pattern:** When friction patterns recur across multiple logs, distil them into a gotcha in `_Config/User/gotchas.md`.
 
-**Trigger:** When encountering missing context, conflicting info, or making assumptions.
+**Trigger:** When encountering friction — missing context, conflicting info, inconsistencies, or suboptimal outcomes.
+
+### Bug Logs
+
+**Folder:** `_Temporal/Bug Logs/yyyy-mm/` · **Naming:** `yyyymmdd-bug~{Title}.md`
+
+Point-in-time records of broken behaviour — something that is objectively wrong or producing incorrect output. Unlike friction logs (which accumulate signals about suboptimal experiences), a single bug is individually actionable and needs resolution.
+
+```yaml
+type: temporal/bug-log
+status: open
+tags:
+  - bug
+```
+
+**Lifecycle:** `open` → `resolved`. Update status and fill in the Resolution section when fixed.
+
+**Bug vs friction:** Bug = correctness failure (it's wrong). Friction = quality/experience issue (it's harder than it should be). If unsure, it's probably friction.
+
+**Trigger:** When encountering something that is objectively broken or producing wrong output.
 
 ### Reports
 

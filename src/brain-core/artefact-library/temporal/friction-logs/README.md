@@ -1,6 +1,6 @@
 # Friction Logs
 
-Signal accumulator for maintenance — agents log when they can't find something, hit conflicting info, or have to guess.
+Signal accumulator for maintenance — agents log when they encounter friction: missing context, conflicting info, inconsistencies, unintended outcomes, or suboptimal experiences.
 
 ## Install
 
@@ -13,5 +13,5 @@ _Temporal/Friction Logs/                     ← create folder
 ### Router trigger (optional)
 
 ```
-- When encountering missing context or conflicting info → [[_Config/Taxonomy/Temporal/friction-logs]]
+- When encountering friction — missing context, conflicting info, inconsistencies, or suboptimal outcomes → [[_Config/Taxonomy/Temporal/friction-logs]]
 ```
