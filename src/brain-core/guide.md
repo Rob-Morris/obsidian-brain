@@ -64,6 +64,7 @@ Pick the artefact type that fits, create the file in the right folder with the r
 | Cookie | `_Temporal/Cookies/yyyy-mm/` | `yyyymmdd-cookie~{Title}.md` |
 | Ingestion | `_Temporal/Ingestions/yyyy-mm/` | `yyyymmdd-ingestion~{Title}.md` |
 | Decision log | `_Temporal/Decision Logs/yyyy-mm/` | `yyyymmdd-decision~{Title}.md` |
+| Design proposal | `_Temporal/Design Proposals/yyyy-mm/` | `yyyymmdd-design-proposal~{Title}.md` |
 | Friction log | `_Temporal/Friction Logs/yyyy-mm/` | `yyyymmdd-friction~{Title}.md` |
 | Log entry | `_Temporal/Logs/yyyy-mm/` | `yyyymmdd-log.md` |
 | Observation | `_Temporal/Observations/yyyy-mm/` | `yyyymmdd-observation~{Title}.md` |
@@ -116,7 +117,9 @@ Why the split? Obsidian's backlinks and graph view work from body wikilinks. Sea
 Some types have a lifecycle. Status values are defined per type:
 
 - **Designs:** `shaping` → `active` → `implemented` | `parked`
+- **Design Proposals:** `proposed` → `accepted` | `rejected` | `deferred`
 - **Ideas:** `new` → `developing` → `graduated` | `parked`
+- **Idea Logs:** `open` → `graduated` | `parked`
 - **People:** `active` → `archived`
 - **Writing:** `draft` → `editing` → `review` → `published` | `parked`
 - **Plans:** `draft` → `approved` → `implementing` → `completed`

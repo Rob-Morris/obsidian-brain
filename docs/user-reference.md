@@ -423,13 +423,15 @@ File begins with a wikilink to the source. Q&A format: `Q.` prefix for questions
 
 **Folder:** `_Temporal/Research/yyyy-mm/` · **Naming:** `yyyymmdd-research~{Title}.md`
 
-In-depth research notes and findings on specific topics.
+Investigation into a subject and capture of what is found. Research is about what you *learned*; a Report is about what you *did*.
 
 ```yaml
 type: temporal/research
 tags:
   - research
 ```
+
+**Trigger:** When investigating a subject in depth and/or capturing what was found from investigation — comparing approaches, gathering sources, or synthesising findings.
 
 **Conventions:** One topic per file. Link to the context that prompted the research (project, design, idea). Include sources.
 
@@ -444,9 +446,10 @@ type: temporal/idea-log
 tags:
   - idea
   - topic-tag
+status: open              # open | graduated | parked
 ```
 
-**Graduation path:** Idea log (raw capture) → living Idea (fleshed out) → Design (shaped proposal). At each transition, use provenance links.
+**Graduation path:** Idea log (raw capture) → living Idea (fleshed out) → Design (shaped proposal). When concrete enough to be a specific recommendation needing a decision, can also become a Design Proposal. At each transition, set `status: graduated` and use provenance links.
 
 **Trigger:** When a new idea strikes, capture before it slips away.
 
@@ -508,6 +511,32 @@ tags:
 
 **Trigger:** After a significant decision, capture the reasoning.
 
+### Design Proposals
+
+**Folder:** `_Temporal/Design Proposals/yyyy-mm/` · **Naming:** `yyyymmdd-design-proposal~{Title}.md`
+
+Structured recommendations for contemplated changes that need a decision before action. Sits between ideas and plans: "we found something concrete that should change, here's what we recommend, but it needs a decision first."
+
+```yaml
+type: temporal/design-proposal
+tags:
+  - design-proposal
+status: proposed
+```
+
+**Lifecycle:** `proposed` → `accepted` / `rejected` / `deferred`. Each transition requires a decision log recording the verdict.
+
+**Structure:** Origin, Target (may be multi-target), Finding, Recommendation, Decision needed.
+
+**Conventions:**
+- Be self-contained — readable without the originating session
+- Be specific about targets — name each affected file, system, or design
+- Separate finding (factual) from recommendation (judgement)
+- Link from each target's open questions section
+- Create a decision log before changing proposal status
+
+**Trigger:** When vault work surfaces a contemplated design change that needs a decision but isn't in scope for the current session.
+
 ### Friction Logs
 
 **Folder:** `_Temporal/Friction Logs/yyyy-mm/` · **Naming:** `yyyymmdd-friction~{Title}.md`
@@ -549,7 +578,7 @@ tags:
 
 **Folder:** `_Temporal/Reports/yyyy-mm/` · **Naming:** `yyyymmdd-report~{Title}.md`
 
-Overviews of detailed processes. Distils a process (research, diagnosis, investigation, audit) into findings, implications, and recommended next steps.
+Overviews of detailed processes. Distils a process (research, diagnosis, investigation, audit) into findings, implications, and recommended next steps. A Report is about what you *did*; Research is about what you *learned*.
 
 ```yaml
 type: temporal/report
@@ -722,12 +751,15 @@ Only types with a defined lifecycle have status. Current types with status:
 
 | Type | Status values |
 |---|---|
+| Bug Logs | `open`, `resolved` |
 | Designs | `shaping`, `active`, `implemented`, `parked` |
+| Design Proposals | `proposed`, `accepted`, `rejected`, `deferred` |
 | Ideas | `new`, `developing`, `graduated`, `parked` |
+| Idea Logs | `open`, `graduated`, `parked` |
 | Journals | `active`, `archived` |
+| Plans | `draft`, `approved`, `implementing`, `completed` |
 | Workspaces | `active`, `paused`, `completed`, `archived` |
 | Writing | `draft`, `editing`, `review`, `published`, `parked` |
-| Plans | `draft`, `approved`, `implementing`, `completed` |
 
 ### Archive Fields
 

@@ -31,6 +31,7 @@ The template vault ships with a curated set of defaults (marked below). This lib
 | [Plans](temporal/plans/) | `plans` | Pre-work plans before complex work begins. **Template vault default.** |
 | [Transcripts](temporal/transcripts/) | `transcripts` | Conversation transcripts. **Template vault default.** |
 | [Decision Logs](temporal/decision-logs/) | `decision-logs` | Point-in-time records of decisions — captures the "why" behind choices. **Template vault default.** |
+| [Design Proposals](temporal/design-proposals/) | `design-proposals` | Structured recommendations for contemplated changes that need a decision before action. **Template vault default.** |
 | [Shaping Transcripts](temporal/shaping-transcripts/) | `shaping-transcripts` | Q&A refinement transcripts tied to a source artefact. **Template vault default.** |
 | [Friction Logs](temporal/friction-logs/) | `friction-logs` | Signal accumulator — logs friction: missing context, inconsistencies, suboptimal outcomes. **Template vault default.** |
 | [Bug Logs](temporal/bug-logs/) | `bug-logs` | Point-in-time records of broken behaviour — correctness failures that need resolution. |
@@ -89,12 +90,14 @@ Frontmatter fields should be **queryable metadata** — fields agents and Datavi
 
 ### Status fields
 
-Living artefact types that have a lifecycle should include a `status` field in frontmatter. Each type defines its own status values. Common patterns:
+Artefact types that have a lifecycle should include a `status` field in frontmatter. Each type defines its own status values. Common patterns:
 
 - **Ideas:** `new` → `developing` → `graduated` → `parked`
 - **Designs:** `shaping` → `active` → `implemented` → `parked`
 - **Workspaces:** `active` → `paused` → `completed` → `archived`
 - **Plans:** `draft` → `approved` → `implementing` → `completed`
+- **Design Proposals:** `proposed` → `accepted` / `rejected` / `deferred`
+- **Idea Logs:** `open` → `graduated` / `parked`
 
 ## Installing a type
 

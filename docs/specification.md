@@ -135,4 +135,4 @@ This pattern is useful when a single living artefact organises a stream of relat
 
 Additional types are available in the artefact library (`.brain-core/artefact-library/`) for install as needed: Wiki, Journals, Zettelkasten (living); Bug Logs, Idea Logs, Journal Entries, Mockups, Presentations (temporal).
 
-The starter vault ships 23 defaults (9 living + 14 temporal) out of 31 in the library.
+The starter vault ships 24 defaults (9 living + 15 temporal) out of 32 in the library.
