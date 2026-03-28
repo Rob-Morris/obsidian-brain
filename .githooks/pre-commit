@@ -9,6 +9,18 @@
 set -euo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
+
+# Sync README version badge with VERSION file
+VERSION_FILE="$REPO_ROOT/src/brain-core/VERSION"
+README_FILE="$REPO_ROOT/README.md"
+if [[ -f "$VERSION_FILE" && -f "$README_FILE" ]]; then
+  version=$(tr -d '[:space:]' < "$VERSION_FILE")
+  sed -i '' "s|version-[0-9][0-9.]*-blue|version-${version}-blue|" "$README_FILE"
+  if ! git diff --quiet "$README_FILE" 2>/dev/null; then
+    git add "$README_FILE"
+  fi
+fi
+
 CANARY_DEF="$REPO_ROOT/.canaries/pre-commit.md"
 CANARY_LOG="$REPO_ROOT/.canary--pre-commit"
 
