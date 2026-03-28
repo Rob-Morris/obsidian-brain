@@ -1,0 +1,10 @@
+files:
+  taxonomy:
+    source: taxonomy.md
+    target: _Config/Taxonomy/Temporal/plans.md
+  template:
+    source: template.md
+    target: _Config/Templates/Temporal/Plans.md
+folders:
+  - _Temporal/Plans/
+router_trigger: "Before complex work \u2192 [[_Config/Taxonomy/Temporal/plans]]"

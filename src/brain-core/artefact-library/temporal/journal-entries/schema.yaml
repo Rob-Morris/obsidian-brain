@@ -1,0 +1,6 @@
+required:
+  type:
+    const: "temporal/journal-entry"
+  tags:
+    type: array
+    contains: "journal-entry"

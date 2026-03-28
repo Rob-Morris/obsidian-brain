@@ -1,0 +1,6 @@
+required:
+  type:
+    const: "temporal/ingestion"
+  tags:
+    type: array
+    contains: "ingestion"

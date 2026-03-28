@@ -1,0 +1,6 @@
+required:
+  type:
+    const: "temporal/capture"
+  tags:
+    type: array
+    contains: "capture"

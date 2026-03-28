@@ -1,0 +1,10 @@
+files:
+  taxonomy:
+    source: taxonomy.md
+    target: _Config/Taxonomy/Temporal/bug-logs.md
+  template:
+    source: template.md
+    target: _Config/Templates/Temporal/Bug Logs.md
+folders:
+  - _Temporal/Bug Logs/
+router_trigger: "When encountering something that is objectively broken or producing wrong output → [[_Config/Taxonomy/Temporal/bug-logs]]"

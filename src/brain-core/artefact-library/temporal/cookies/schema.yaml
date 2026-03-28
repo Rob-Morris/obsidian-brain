@@ -1,0 +1,6 @@
+required:
+  type:
+    const: "temporal/cookie"
+  tags:
+    type: array
+    contains: "cookie"

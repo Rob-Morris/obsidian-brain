@@ -1,0 +1,10 @@
+required:
+  type:
+    const: "living/design"
+  tags:
+    type: array
+    contains: "design"
+optional:
+  status:
+    enum: [proposed, shaping, active, implemented, parked, rejected]
+    default: shaping

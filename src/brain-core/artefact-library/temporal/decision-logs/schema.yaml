@@ -1,0 +1,6 @@
+required:
+  type:
+    const: "temporal/decision-log"
+  tags:
+    type: array
+    contains: "decision"

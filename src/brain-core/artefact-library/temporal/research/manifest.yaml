@@ -1,0 +1,9 @@
+files:
+  taxonomy:
+    source: taxonomy.md
+    target: _Config/Taxonomy/Temporal/research.md
+  template:
+    source: template.md
+    target: _Config/Templates/Temporal/Research.md
+folders:
+  - _Temporal/Research/

@@ -1,0 +1,6 @@
+required:
+  type:
+    const: "temporal/report"
+  tags:
+    type: array
+    contains: "report"

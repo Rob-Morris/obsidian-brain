@@ -1,0 +1,10 @@
+files:
+  taxonomy:
+    source: taxonomy.md
+    target: _Config/Taxonomy/Temporal/captures.md
+  template:
+    source: template.md
+    target: _Config/Templates/Temporal/Captures.md
+folders:
+  - _Temporal/Captures/
+router_trigger: "When ingesting external material \u2192 [[_Config/Taxonomy/Temporal/captures]]"

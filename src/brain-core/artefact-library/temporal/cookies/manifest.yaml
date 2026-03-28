@@ -1,0 +1,13 @@
+files:
+  taxonomy:
+    source: taxonomy.md
+    target: _Config/Taxonomy/Temporal/cookies.md
+  template:
+    source: template.md
+    target: _Config/Templates/Temporal/Cookies.md
+  skill:
+    source: SKILL.md
+    target: _Config/Skills/cookies/SKILL.md
+folders:
+  - _Temporal/Cookies/
+router_trigger: "After completing work the user is happy with \u2192 [[_Config/Taxonomy/Temporal/cookies]]"

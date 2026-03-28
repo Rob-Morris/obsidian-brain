@@ -1,0 +1,6 @@
+required:
+  type:
+    const: "temporal/transcript"
+  tags:
+    type: array
+    contains: "transcript"

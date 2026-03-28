@@ -1,0 +1,6 @@
+required:
+  type:
+    const: "temporal/mockup"
+  tags:
+    type: array
+    contains: "mockup"

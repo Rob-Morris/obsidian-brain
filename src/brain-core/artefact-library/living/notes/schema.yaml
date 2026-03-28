@@ -1,0 +1,6 @@
+required:
+  type:
+    const: "living/note"
+  tags:
+    type: array
+    contains: "topic-tag"

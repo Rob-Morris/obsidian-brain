@@ -1,0 +1,10 @@
+files:
+  taxonomy:
+    source: taxonomy.md
+    target: _Config/Taxonomy/Temporal/thoughts.md
+  template:
+    source: template.md
+    target: _Config/Templates/Temporal/Thoughts.md
+folders:
+  - _Temporal/Thoughts/
+router_trigger: "When a raw thought surfaces \u2192 [[_Config/Taxonomy/Temporal/thoughts]]"

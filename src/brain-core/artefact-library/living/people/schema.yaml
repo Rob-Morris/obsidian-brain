@@ -1,0 +1,10 @@
+required:
+  type:
+    const: "living/person"
+  tags:
+    type: array
+    contains: "person/{slug}"
+optional:
+  status:
+    enum: [active, archived]
+    default: active

@@ -1,0 +1,13 @@
+required:
+  type:
+    const: "living/workspace"
+  tags:
+    type: array
+    contains: "workspace/{slug}"
+optional:
+  status:
+    enum: [active, paused, completed, archived]
+    default: active
+  workspace_mode:
+    enum: [embedded, linked]
+    default: embedded

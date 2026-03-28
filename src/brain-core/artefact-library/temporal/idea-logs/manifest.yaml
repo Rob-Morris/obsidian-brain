@@ -1,0 +1,10 @@
+files:
+  taxonomy:
+    source: taxonomy.md
+    target: _Config/Taxonomy/Temporal/idea-logs.md
+  template:
+    source: template.md
+    target: _Config/Templates/Temporal/Idea Logs.md
+folders:
+  - _Temporal/Idea Logs/
+router_trigger: "When a new idea strikes \u2192 [[_Config/Taxonomy/Temporal/idea-logs]]"

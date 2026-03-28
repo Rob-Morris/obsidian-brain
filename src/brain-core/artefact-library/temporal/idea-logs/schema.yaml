@@ -1,0 +1,10 @@
+required:
+  type:
+    const: "temporal/idea-log"
+  tags:
+    type: array
+    contains: "idea"
+optional:
+  status:
+    enum: [open, graduated, parked]
+    default: open

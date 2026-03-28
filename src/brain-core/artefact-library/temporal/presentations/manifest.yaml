@@ -1,0 +1,16 @@
+files:
+  taxonomy:
+    source: taxonomy.md
+    target: _Config/Taxonomy/Temporal/presentations.md
+  template:
+    source: template.md
+    target: _Config/Templates/Temporal/Presentations.md
+  skill:
+    source: SKILL.md
+    target: _Config/Skills/presentations/SKILL.md
+  theme:
+    source: theme.css
+    target: _Config/Skills/presentations/theme.css
+folders:
+  - _Temporal/Presentations/
+router_trigger: "When creating a presentation or slide deck \u2192 [[_Config/Taxonomy/Temporal/presentations]]"

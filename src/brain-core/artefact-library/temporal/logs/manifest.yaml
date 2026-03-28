@@ -1,0 +1,10 @@
+files:
+  taxonomy:
+    source: taxonomy.md
+    target: _Config/Taxonomy/Temporal/logs.md
+  template:
+    source: template.md
+    target: _Config/Templates/Temporal/Logs.md
+folders:
+  - _Temporal/Logs/
+router_trigger: "After meaningful work \u2192 [[_Config/Taxonomy/Temporal/logs]]"

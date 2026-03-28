@@ -1,0 +1,10 @@
+required:
+  type:
+    const: "living/idea"
+  tags:
+    type: array
+    contains: "idea"
+optional:
+  status:
+    enum: [new, developing, graduated, parked]
+    default: new

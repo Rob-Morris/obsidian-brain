@@ -1,0 +1,6 @@
+required:
+  type:
+    const: "temporal/thought"
+  tags:
+    type: array
+    contains: "thought"

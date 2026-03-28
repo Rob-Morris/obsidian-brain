@@ -1,0 +1,10 @@
+required:
+  type:
+    const: "temporal/plan"
+  tags:
+    type: array
+    contains: "plan"
+optional:
+  status:
+    enum: [draft, approved, implementing, completed]
+    default: draft

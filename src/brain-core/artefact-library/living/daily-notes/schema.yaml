@@ -1,0 +1,6 @@
+required:
+  type:
+    const: "living/daily-note"
+  tags:
+    type: array
+    contains: "daily-note"

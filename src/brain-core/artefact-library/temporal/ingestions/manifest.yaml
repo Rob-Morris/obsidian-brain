@@ -1,0 +1,10 @@
+files:
+  taxonomy:
+    source: taxonomy.md
+    target: _Config/Taxonomy/Temporal/ingestions.md
+  template:
+    source: template.md
+    target: _Config/Templates/Temporal/Ingestions.md
+folders:
+  - _Temporal/Ingestions/
+router_trigger: "When ingesting content that warrants decomposition \u2192 [[_Config/Taxonomy/Temporal/ingestions]]"

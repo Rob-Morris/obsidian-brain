@@ -1,0 +1,10 @@
+files:
+  taxonomy:
+    source: taxonomy.md
+    target: _Config/Taxonomy/Temporal/observations.md
+  template:
+    source: template.md
+    target: _Config/Templates/Temporal/Observations.md
+folders:
+  - _Temporal/Observations/
+router_trigger: "When you notice or learn a discrete fact worth recording \u2192 [[_Config/Taxonomy/Temporal/observations]]"

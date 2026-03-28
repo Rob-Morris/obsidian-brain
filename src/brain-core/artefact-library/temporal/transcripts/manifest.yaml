@@ -1,0 +1,10 @@
+files:
+  taxonomy:
+    source: taxonomy.md
+    target: _Config/Taxonomy/Temporal/transcripts.md
+  template:
+    source: template.md
+    target: _Config/Templates/Temporal/Transcripts.md
+folders:
+  - _Temporal/Transcripts/
+router_trigger: "After conversation worth preserving \u2192 [[_Config/Taxonomy/Temporal/transcripts]]"

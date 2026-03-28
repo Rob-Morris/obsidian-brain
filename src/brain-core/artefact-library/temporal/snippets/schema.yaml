@@ -1,0 +1,6 @@
+required:
+  type:
+    const: "temporal/snippet"
+  tags:
+    type: array
+    contains: "snippet"

@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.15.12 — 2026-03-28
+
+- **Artefact library manifests and schemas** — Added `manifest.yaml` and `schema.yaml` to all 31 artefact type directories. Manifests provide machine-readable install mappings (source→target file paths, folders to create, router triggers). Schemas document the frontmatter tooling contract per type (required fields, optional status enums). Phase 1 of the artefact library sync system — no enforcement, documentation only.
+
 ## v0.15.11 — 2026-03-28
 
 - **Callout section targeting for brain_edit** — `find_section` now supports Obsidian callouts as targets using the `[!type] title` syntax (e.g. `target="[!note] Implementation status"`). Edit replaces callout content, append inserts at end. Callouts inside fenced code blocks are correctly skipped. Docstrings updated across `server.py`, `edit.py`, and `_common.py`.

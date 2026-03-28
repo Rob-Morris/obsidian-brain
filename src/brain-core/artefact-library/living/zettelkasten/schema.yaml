@@ -1,0 +1,11 @@
+required:
+  type:
+    const: "living/zettelkasten"
+  tags:
+    type: array
+    contains: "topic-tag"
+optional:
+  sources:
+    type: array
+  related:
+    type: array

@@ -1,0 +1,6 @@
+required:
+  type:
+    const: "temporal/log"
+  tags:
+    type: array
+    contains: "log"

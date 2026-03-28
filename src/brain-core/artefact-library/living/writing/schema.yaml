@@ -1,0 +1,10 @@
+required:
+  type:
+    const: "living/writing"
+  tags:
+    type: array
+    contains: "writing"
+optional:
+  status:
+    enum: [draft, editing, review, published, parked]
+    default: draft

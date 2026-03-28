@@ -1,0 +1,6 @@
+required:
+  type:
+    const: "temporal/research"
+  tags:
+    type: array
+    contains: "research"

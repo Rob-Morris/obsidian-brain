@@ -1,0 +1,10 @@
+files:
+  taxonomy:
+    source: taxonomy.md
+    target: _Config/Taxonomy/Temporal/reports.md
+  template:
+    source: template.md
+    target: _Config/Templates/Temporal/Reports.md
+folders:
+  - _Temporal/Reports/
+router_trigger: "After completing a detailed process \u2192 [[_Config/Taxonomy/Temporal/reports]]"

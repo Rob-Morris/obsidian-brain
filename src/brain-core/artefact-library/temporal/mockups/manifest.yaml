@@ -1,0 +1,10 @@
+files:
+  taxonomy:
+    source: taxonomy.md
+    target: _Config/Taxonomy/Temporal/mockups.md
+  template:
+    source: template.md
+    target: _Config/Templates/Temporal/Mockups.md
+folders:
+  - _Temporal/Mockups/
+router_trigger: "When exploring a visual design direction \u2192 [[_Config/Taxonomy/Temporal/mockups]]"

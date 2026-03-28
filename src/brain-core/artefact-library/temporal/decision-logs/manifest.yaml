@@ -1,0 +1,10 @@
+files:
+  taxonomy:
+    source: taxonomy.md
+    target: _Config/Taxonomy/Temporal/decision-logs.md
+  template:
+    source: template.md
+    target: _Config/Templates/Temporal/Decision Logs.md
+folders:
+  - _Temporal/Decision Logs/
+router_trigger: "After making a significant decision \u2192 [[_Config/Taxonomy/Temporal/decision-logs]]"

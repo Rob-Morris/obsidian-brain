@@ -1,0 +1,10 @@
+files:
+  taxonomy:
+    source: taxonomy.md
+    target: _Config/Taxonomy/Temporal/shaping-transcripts.md
+  template:
+    source: template.md
+    target: _Config/Templates/Temporal/Shaping Transcripts.md
+folders:
+  - _Temporal/Shaping Transcripts/
+router_trigger: "After Q&A refinement \u2192 [[_Config/Taxonomy/Temporal/shaping-transcripts]]"

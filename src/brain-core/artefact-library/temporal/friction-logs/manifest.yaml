@@ -1,0 +1,10 @@
+files:
+  taxonomy:
+    source: taxonomy.md
+    target: _Config/Taxonomy/Temporal/friction-logs.md
+  template:
+    source: template.md
+    target: _Config/Templates/Temporal/Friction Logs.md
+folders:
+  - _Temporal/Friction Logs/
+router_trigger: "When encountering friction \u2014 missing context, conflicting info, inconsistencies, or suboptimal outcomes \u2192 [[_Config/Taxonomy/Temporal/friction-logs]]"

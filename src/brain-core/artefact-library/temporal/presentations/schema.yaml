@@ -1,0 +1,6 @@
+required:
+  type:
+    const: "temporal/presentation"
+  tags:
+    type: array
+    contains: "presentation"

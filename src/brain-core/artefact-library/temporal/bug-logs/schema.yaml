@@ -1,0 +1,10 @@
+required:
+  type:
+    const: "temporal/bug-log"
+  tags:
+    type: array
+    contains: "bug"
+optional:
+  status:
+    enum: [open, resolved]
+    default: open

@@ -1,0 +1,10 @@
+files:
+  taxonomy:
+    source: taxonomy.md
+    target: _Config/Taxonomy/Temporal/journal-entries.md
+  template:
+    source: template.md
+    target: _Config/Templates/Temporal/Journal Entries.md
+folders:
+  - _Temporal/Journal Entries/
+router_trigger: "When the user wants to journal or reflect on their life \u2192 [[_Config/Taxonomy/Temporal/journal-entries]]"

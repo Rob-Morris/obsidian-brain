@@ -1,0 +1,6 @@
+required:
+  type:
+    const: "temporal/friction-log"
+  tags:
+    type: array
+    contains: "friction"

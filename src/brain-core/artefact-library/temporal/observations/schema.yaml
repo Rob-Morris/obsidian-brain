@@ -1,0 +1,6 @@
+required:
+  type:
+    const: "temporal/observation"
+  tags:
+    type: array
+    contains: "observation"

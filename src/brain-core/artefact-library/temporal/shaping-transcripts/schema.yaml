@@ -1,0 +1,6 @@
+required:
+  type:
+    const: "temporal/shaping-transcript"
+  tags:
+    type: array
+    contains: "transcript"
