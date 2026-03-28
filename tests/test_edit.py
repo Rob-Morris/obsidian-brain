@@ -345,6 +345,89 @@ class TestFindSection:
         assert "Top." in section
         assert "Sub." in section  # sub-heading is part of parent section
 
+    def test_callout_section_boundaries(self):
+        body = (
+            "Some intro.\n\n"
+            "> [!note] Implementation status\n"
+            "> This is the note content.\n"
+            "> More note content.\n"
+            "\n"
+            "After the callout.\n"
+        )
+        start, end = find_section(body, "[!note] Implementation status")
+        section = body[start:end]
+        assert "This is the note content." in section
+        assert "More note content." in section
+        assert "After the callout." not in section
+        assert "Some intro." not in section
+
+    def test_callout_at_end_of_file(self):
+        body = (
+            "## Heading\n\nContent.\n\n"
+            "> [!warning] Deprecation\n"
+            "> This API is deprecated.\n"
+        )
+        start, end = find_section(body, "[!warning] Deprecation")
+        section = body[start:end]
+        assert "This API is deprecated." in section
+        assert end == len(body)
+
+    def test_callout_case_insensitive(self):
+        body = "> [!note] My Note\n> Content here.\n"
+        start, end = find_section(body, "[!note] my note")
+        assert "Content here." in body[start:end]
+
+    def test_callout_missing_raises(self):
+        body = "> [!note] Exists\n> Content.\n"
+        with pytest.raises(ValueError, match="not found"):
+            find_section(body, "[!tip] Nonexistent")
+
+    def test_callout_between_headings(self):
+        body = (
+            "## Alpha\n\nAlpha text.\n\n"
+            "> [!note] Status\n"
+            "> Status content.\n"
+            "\n"
+            "## Beta\n\nBeta text.\n"
+        )
+        start, end = find_section(body, "[!note] Status")
+        section = body[start:end]
+        assert "Status content." in section
+        assert "Alpha text." not in section
+        assert "Beta text." not in section
+
+    def test_callout_inside_fenced_code_block_ignored(self):
+        body = (
+            "```markdown\n"
+            "> [!note] Fake\n"
+            "> Not a real callout.\n"
+            "```\n"
+            "\n"
+            "> [!note] Real\n"
+            "> Real content.\n"
+        )
+        start, end = find_section(body, "[!note] Real")
+        section = body[start:end]
+        assert "Real content." in section
+        # The fenced one should not be findable
+        with pytest.raises(ValueError, match="not found"):
+            find_section(body, "[!note] Fake")
+
+    def test_callout_multiline_with_blank_quoted_lines(self):
+        body = (
+            "> [!note] Complex\n"
+            "> First paragraph.\n"
+            ">\n"
+            "> Second paragraph.\n"
+            "\n"
+            "Outside.\n"
+        )
+        start, end = find_section(body, "[!note] Complex")
+        section = body[start:end]
+        assert "First paragraph." in section
+        assert "Second paragraph." in section
+        assert "Outside." not in section
+
 
 # ---------------------------------------------------------------------------
 # Append with section tests
@@ -411,6 +494,26 @@ class TestAppendWithSection:
         assert "- Item 2" in body[:child_end]
         assert "Sibling content." in body
         assert "Other." in body
+
+    def test_append_to_callout(self, vault, router):
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "## Section\n\n"
+            "> [!note] Status\n"
+            "> First line.\n"
+            "\n"
+            "After callout.\n"
+        )
+        edit.append_to_artefact(
+            str(vault), router, "Wiki/test-page.md",
+            "> Appended line.\n", target="[!note] Status",
+        )
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        _, body = parse_frontmatter(content)
+        assert "> Appended line." in body
+        assert "After callout." in body
+        # Appended line should be before "After callout"
+        assert body.index("> Appended line.") < body.index("After callout.")
 
 
 # ---------------------------------------------------------------------------
@@ -480,3 +583,23 @@ class TestEditWithSection:
         assert "Intro." in body
         assert "Sibling content." in body
         assert "Other." in body
+
+    def test_edit_callout_content(self, vault, router):
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "## Section\n\n"
+            "> [!note] Implementation status\n"
+            "> Old status content.\n"
+            "\n"
+            "After callout.\n"
+        )
+        edit.edit_artefact(
+            str(vault), router, "Wiki/test-page.md",
+            "> New status content.\n", target="[!note] Implementation status",
+        )
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        _, body = parse_frontmatter(content)
+        assert "> New status content." in body
+        assert "Old status content." not in body
+        assert "After callout." in body
+        assert "> [!note] Implementation status" in body

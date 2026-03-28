@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.15.11 — 2026-03-28
+
+- **Callout section targeting for brain_edit** — `find_section` now supports Obsidian callouts as targets using the `[!type] title` syntax (e.g. `target="[!note] Implementation status"`). Edit replaces callout content, append inserts at end. Callouts inside fenced code blocks are correctly skipped. Docstrings updated across `server.py`, `edit.py`, and `_common.py`.
+
 ## v0.15.10 — 2026-03-28
 
 - **Incremental index updates and staleness TTL** — `brain_create`/`brain_edit` now queue single-file upserts (`index_update`) instead of triggering full index rebuilds; destructive actions (rename/delete/convert) set a dirty flag for full rebuild on next search. Filesystem staleness checks for router and index throttled by 5-second TTL. Corpus stats recomputation deferred when batching updates. `build_index.py` refactored: extracted `parse_doc()`, `_recompute_corpus_stats()`, and `index_update()` (upsert semantics, replaces `index_add`). Version drift now auto-recompiles router and marks index dirty.

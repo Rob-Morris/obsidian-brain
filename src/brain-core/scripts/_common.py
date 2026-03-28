@@ -441,21 +441,28 @@ def _fenced_ranges(body):
 
 
 def find_section(body, heading):
-    """Find start/end of a markdown section by heading text.
+    """Find start/end of a markdown section by heading or callout title.
 
     Returns (start, end) character offsets into body, where:
-    - start is the position after the heading line (including its newline)
-    - end is the position before the next heading of same or higher level (or EOF)
+    - start is the position after the heading/callout title line (including its newline)
+    - end is the position before the next heading of same or higher level (or EOF);
+      for callouts, end is the last contiguous blockquote line
 
-    Matching is case-insensitive on the heading text.
+    Matching is case-insensitive on the text.
     If heading includes # markers (e.g. "## Notes"), matches on level AND text.
+    If heading starts with [! (e.g. "[!note] Status"), matches a callout title.
     If heading is plain text (e.g. "Notes"), matches on text at any level.
     Sub-headings are part of the parent section (lower-level headings don't end it).
     Headings inside fenced code blocks are ignored.
 
-    Raises ValueError if heading not found.
+    Raises ValueError if heading/callout not found.
     """
     stripped = heading.strip()
+
+    # Callout matching: [!type] title
+    if stripped.startswith("[!"):
+        return _find_callout_section(body, stripped)
+
     if stripped.startswith("#"):
         markers = stripped.split()[0]
         target_level = len(markers)
@@ -490,6 +497,45 @@ def find_section(body, heading):
         return start, end
 
     raise ValueError(f"Section '{heading}' not found")
+
+
+def _find_callout_section(body, target):
+    """Find start/end of an Obsidian callout by its [!type] title.
+
+    The section includes all contiguous blockquote lines after the title.
+    A non-blockquote line (including blank) ends the section.
+    Callouts inside fenced code blocks are ignored.
+    """
+    target_lower = target.lower()
+    fenced = _fenced_ranges(body)
+    lines = body.split("\n")
+    pos = 0
+
+    for i, line in enumerate(lines):
+        if any(fs <= pos < fe for fs, fe in fenced):
+            pos += len(line) + 1
+            continue
+        after_gt = line.lstrip()[1:].lstrip() if line.lstrip().startswith(">") else None
+        if after_gt is not None and after_gt.lower().startswith(target_lower):
+            start = pos + len(line) + 1
+            if start > len(body):
+                start = len(body)
+
+            end = start
+            for j in range(i + 1, len(lines)):
+                next_line = lines[j]
+                if next_line.lstrip().startswith(">"):
+                    end += len(next_line) + 1
+                else:
+                    break
+
+            if end > len(body):
+                end = len(body)
+            return start, end
+
+        pos += len(line) + 1
+
+    raise ValueError(f"Section '{target}' not found")
 
 
 # ---------------------------------------------------------------------------

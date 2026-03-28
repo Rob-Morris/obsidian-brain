@@ -986,7 +986,7 @@ If your vault runs the Brain MCP server (`.brain-core/mcp/server.py`), seven too
 **brain_edit** (single-file mutation)
 - `edit` — replace body content, optionally merge frontmatter changes
 - `append` — add content to end of existing body
-- Optional `target` parameter (heading text) — `edit` replaces only that section; `append` inserts at the end of that section instead of EOF. Include `#` markers to disambiguate duplicate headings (e.g. `"### Notes"`)
+- Optional `target` parameter (heading or callout title) — `edit` replaces only that section; `append` inserts at the end of that section instead of EOF. Include `#` markers to disambiguate duplicate headings (e.g. `"### Notes"`). For callouts, use the `[!type]` prefix (e.g. `"[!note] Implementation status"`)
 - Path validated against compiled router (folder + naming pattern)
 
 **brain_action** (vault-wide/destructive, requires approval)

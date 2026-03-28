@@ -762,10 +762,11 @@ def brain_edit(operation: str, path: str, body: str = "", frontmatter: dict | No
       path       — relative path from vault root (e.g. "Ideas/my-idea.md")
       body       — new body content (edit) or content to append (append)
       frontmatter — optional frontmatter changes (edit only, merged with existing)
-      target     — optional heading text (e.g. "Outstanding Work"). When given,
-                   edit replaces only that section's content; append inserts at
-                   the end of that section instead of EOF. Include # markers to
-                   disambiguate duplicate headings (e.g. "### Notes").
+      target     — optional heading or callout title. When given, edit replaces
+                   only that section's content; append inserts at the end of that
+                   section instead of EOF. Include # markers to disambiguate
+                   duplicate headings (e.g. "### Notes"). For callouts, use the
+                   [!type] prefix (e.g. "[!note] Implementation status").
 
     Path validated against compiled router — wrong folder or naming rejected with helpful error.
     """

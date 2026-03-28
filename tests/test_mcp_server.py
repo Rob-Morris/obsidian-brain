@@ -1284,6 +1284,7 @@ class TestBrainActionUpgrade:
         assert server._index is not None
 
 
+
 # ---------------------------------------------------------------------------
 # Workspace registry — script tests
 # ---------------------------------------------------------------------------

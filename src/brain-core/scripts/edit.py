@@ -49,7 +49,7 @@ def edit_artefact(vault_root, router, path, body, frontmatter_changes=None, targ
         path: Relative path from vault root.
         body: New body content (replaces existing body, or target content if target given).
         frontmatter_changes: Optional dict of frontmatter field changes.
-        target: Optional heading text. When given, replaces only that target's content.
+        target: Optional heading or callout title. When given, replaces only that section's content.
 
     Returns:
         Dict with path and operation.
@@ -95,7 +95,7 @@ def append_to_artefact(vault_root, router, path, content, target=None):
         router: Compiled router dict.
         path: Relative path from vault root.
         content: Content to append.
-        target: Optional heading text. When given, appends at the end of that target.
+        target: Optional heading or callout title. When given, appends at the end of that section.
 
     Returns:
         Dict with path and operation.
