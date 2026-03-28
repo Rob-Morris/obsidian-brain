@@ -24,7 +24,7 @@ All content in the vault is an artefact, classified into two types:
 | **Living** | Vault root (e.g. `Wiki/`) | Evolves over time. Current version is the source of truth. |
 | **Temporal** | `_Temporal/` (e.g. `_Temporal/Logs/`) | Bound to a moment. Written once, rarely edited. |
 
-System folders (`_Assets/`, `_Config/`, `_Plugins/`, `.obsidian/`) are infrastructure, not artefacts. Living artefact folders may contain an `_Archive/` subfolder for documents that have reached a terminal status and transferred authority to a successor. Archived files are date-prefixed (`yyyymmdd-slug.md`) and carry `archiveddate: YYYY-MM-DD` in frontmatter. `brain_action("rename")` handles wikilink updates automatically during archiving (Obsidian CLI first, grep-replace fallback). Archived files are excluded from search indexing.
+System folders (`_Assets/`, `_Config/`, `_Plugins/`, `.obsidian/`) are infrastructure, not artefacts. Living artefact folders may contain an `_Archive/` subfolder for documents that have reached a terminal status and transferred authority to a successor. Archived files are date-prefixed (`yyyymmdd-Title.md`) and carry `archiveddate: YYYY-MM-DD` in frontmatter. `brain_action("rename")` handles wikilink updates automatically during archiving (Obsidian CLI first, grep-replace fallback). Archived files are excluded from search indexing.
 
 ## Architecture
 

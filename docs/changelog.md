@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.15.7 — 2026-03-28
+
+- **Canary maintenance: version gap and doc sync** — Version bump to cover three previously unversioned brain-core commits: extract `slug_to_title()` to `_common.py` and remove dead code across 5 scripts; fix stale archiving examples in `standards/archiving.md`; simplify `process.py`/`build_index.py` (dead code removal, regex caching, IDF fix). Doc sync: add `brain_session` and `brain_process` to `index.md` tool list, expand script fallback lists in `index.md` and `guide.md`, fix stale `yyyymmdd-slug` naming example in `specification.md`. Document singular type key matching in `tooling.md` and `user-reference.md` (v0.15.6 cont.).
+
 ## v0.15.6 — 2026-03-28
 
 - **Accept singular artefact type keys across all MCP tools** — Agents frequently pass singular forms like `"report"` instead of `"reports"`. Added `match_artefact()` helper to `_common.py` with normalised singular/plural fallback (strips trailing "s" from both sides). Applied consistently to `resolve_type()`, `read_artefact()`, `read_template()`, and `brain_search` type filter. Fixed `brain_create` docstring example from `"idea"` to `"ideas"`.

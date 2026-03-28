@@ -967,12 +967,12 @@ If your vault runs the Brain MCP server (`.brain-core/mcp/server.py`), seven too
 
 **brain_search** (safe, no side effects)
 - Search vault content by query text
-- Filter by `type` and/or `tag`
+- Filter by `type` (key, full type, or singular form) and/or `tag`
 - Returns ranked results with paths, titles, scores, and text snippets
 - Uses Obsidian CLI when available, falls back to BM25 index
 
 **brain_create** (additive, safe to auto-approve)
-- Create a new vault artefact from type, title, and optional body/frontmatter overrides
+- Create a new vault artefact from type (key, full type, or singular form — e.g. `"ideas"`, `"living/ideas"`, or `"idea"`), title, and optional body/frontmatter overrides
 - Resolves template and naming pattern from the compiled router
 - Returns the created file's path, type, and title
 
