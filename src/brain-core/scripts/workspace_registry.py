@@ -4,11 +4,11 @@ workspace_registry.py — Workspace slug-to-path resolution.
 
 Maps workspace slugs to their data folder paths. Embedded workspaces
 resolve implicitly (slug → _Workspaces/slug/). Linked workspaces store
-their external path in .brain/workspaces.json.
+their external path in .brain/local/workspaces.json.
 
 The MCP server loads the registry on startup and uses it to resolve
 workspace file operations. The registry is machine-local config (in
-.brain/, not in vault content) — the vault remains portable.
+.brain/local/, gitignored) — the vault remains portable.
 
 Usage:
     python3 workspace_registry.py                # list all workspaces
@@ -27,9 +27,9 @@ from _common import find_vault_root, is_system_dir, parse_frontmatter, slug_to_t
 # Constants
 # ---------------------------------------------------------------------------
 
-BRAIN_DIR = ".brain"
+BRAIN_LOCAL_DIR = os.path.join(".brain", "local")
 REGISTRY_FILE = "workspaces.json"
-REGISTRY_REL = os.path.join(BRAIN_DIR, REGISTRY_FILE)
+REGISTRY_REL = os.path.join(BRAIN_LOCAL_DIR, REGISTRY_FILE)
 EMBEDDED_DATA_DIR = "_Workspaces"
 HUB_DIR = "Workspaces"
 
@@ -39,12 +39,12 @@ HUB_DIR = "Workspaces"
 # ---------------------------------------------------------------------------
 
 def _registry_path(vault_root):
-    """Return absolute path to .brain/workspaces.json."""
+    """Return absolute path to .brain/local/workspaces.json."""
     return os.path.join(vault_root, REGISTRY_REL)
 
 
 def load_registry(vault_root):
-    """Load the linked workspace registry from .brain/workspaces.json.
+    """Load the linked workspace registry from .brain/local/workspaces.json.
 
     Returns a dict of slug → {"path": absolute_path}.
     Returns empty dict if the file doesn't exist.
@@ -66,7 +66,7 @@ def load_registry(vault_root):
 
 
 def save_registry(vault_root, registry):
-    """Write the linked workspace registry to .brain/workspaces.json.
+    """Write the linked workspace registry to .brain/local/workspaces.json.
 
     Args:
         vault_root: Absolute path to vault root.
@@ -168,7 +168,7 @@ def resolve_workspace(vault_root, slug, registry=None):
     raise ValueError(
         f"Unknown workspace '{slug}'. "
         f"No embedded data folder at _Workspaces/{slug}/ "
-        f"and no linked registration in .brain/workspaces.json."
+        f"and no linked registration in .brain/local/workspaces.json."
     )
 
 
@@ -223,7 +223,7 @@ def list_workspaces(vault_root, registry=None):
 # ---------------------------------------------------------------------------
 
 def register_workspace(vault_root, slug, path):
-    """Register a linked workspace in .brain/workspaces.json.
+    """Register a linked workspace in .brain/local/workspaces.json.
 
     Args:
         vault_root: Absolute path to vault root.
@@ -261,7 +261,7 @@ def register_workspace(vault_root, slug, path):
 
 
 def unregister_workspace(vault_root, slug):
-    """Remove a linked workspace from .brain/workspaces.json.
+    """Remove a linked workspace from .brain/local/workspaces.json.
 
     Args:
         vault_root: Absolute path to vault root.
@@ -277,7 +277,7 @@ def unregister_workspace(vault_root, slug):
     if slug not in registry:
         raise ValueError(
             f"Workspace '{slug}' is not registered as a linked workspace. "
-            f"Only linked workspaces (in .brain/workspaces.json) can be unregistered."
+            f"Only linked workspaces (in .brain/local/workspaces.json) can be unregistered."
         )
 
     del registry[slug]

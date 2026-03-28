@@ -69,7 +69,9 @@ def vault(tmp_path):
         "always_rules": [], "artefacts": artefacts,
         "triggers": [], "skills": [], "plugins": [], "styles": [],
     }
-    (config / ".compiled-router.json").write_text(json.dumps(router, indent=2))
+    brain_local = tmp_path / ".brain" / "local"
+    brain_local.mkdir(parents=True, exist_ok=True)
+    (brain_local / "compiled-router.json").write_text(json.dumps(router, indent=2))
 
     # .obsidian/snippets/ directory
     snippets = tmp_path / ".obsidian" / "snippets"

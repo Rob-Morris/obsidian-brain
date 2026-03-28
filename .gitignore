@@ -5,9 +5,8 @@
 __pycache__/
 .venv/
 
-# Generated files
-.compiled-router.json
-.retrieval-index.json
+# Generated files (machine-local caches)
+.brain/local/
 
 # Canary logs (transient, checked by hooks)
 .canary--*

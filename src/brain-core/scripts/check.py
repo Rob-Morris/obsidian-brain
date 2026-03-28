@@ -27,7 +27,7 @@ from _common import find_vault_root, is_system_dir, parse_frontmatter
 # Constants
 # ---------------------------------------------------------------------------
 
-COMPILED_ROUTER_REL = os.path.join("_Config", ".compiled-router.json")
+COMPILED_ROUTER_REL = os.path.join(".brain", "local", "compiled-router.json")
 
 ROOT_ALLOW = {
     "Agents.md", "CLAUDE.md", "agents.local.md",

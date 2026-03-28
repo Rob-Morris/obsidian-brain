@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.16.0 — 2026-03-28
+
+- **`.brain/` directory restructure** — Machine-local generated caches (compiled router, retrieval index, embeddings) move from `_Config/` dotfiles to `.brain/local/` (gitignored). Workspace registry moves from `.brain/workspaces.json` to `.brain/local/workspaces.json`. New vault-portable files: `.brain/preferences.json`, `.brain/tracking.json` (Phase 2 prep for artefact library sync). Split rule: `_Config/` is prose you edit, `.brain/` is data the system manages. Migration framework added (`scripts/migrations/`) — versioned scripts run automatically during upgrade. Template vault updated with `.brain/` seed files. All script path constants, MCP server startup, tests, and docs updated.
+
 ## v0.15.12 — 2026-03-28
 
 - **Artefact library manifests and schemas** — Added `manifest.yaml` and `schema.yaml` to all 31 artefact type directories. Manifests provide machine-readable install mappings (source→target file paths, folders to create, router triggers). Schemas document the frontmatter tooling contract per type (required fields, optional status enums). Phase 1 of the artefact library sync system — no enforcement, documentation only.

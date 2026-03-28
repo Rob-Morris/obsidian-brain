@@ -18,8 +18,10 @@ the MCP server wrapper handles them automatically.
 
 import argparse
 import filecmp
+import importlib
 import json
 import os
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -149,6 +151,104 @@ def _diff_trees(source: str, target: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Migration runner
+# ---------------------------------------------------------------------------
+
+_MIGRATION_RE_PATTERN = r"^migrate_to_(\d+(?:_\d+)*)\.py$"
+
+
+def _discover_migrations(migrations_dir: str) -> list[tuple[tuple, str]]:
+    """Find all migration scripts and return sorted (version_tuple, path) pairs."""
+    pattern = re.compile(_MIGRATION_RE_PATTERN)
+    migrations = []
+    if not os.path.isdir(migrations_dir):
+        return migrations
+    for name in os.listdir(migrations_dir):
+        m = pattern.match(name)
+        if m:
+            version_str = m.group(1).replace("_", ".")
+            version_tuple = _parse_version(version_str)
+            migrations.append((version_tuple, os.path.join(migrations_dir, name)))
+    return sorted(migrations)
+
+
+def _run_migrations(vault_root: str, old_version: Optional[str], new_version: str) -> list[dict]:
+    """Run pending migrations between old_version and new_version.
+
+    Discovers migration scripts in .brain-core/scripts/migrations/,
+    runs those whose version is > old_version and <= new_version.
+    Returns list of migration results.
+    """
+    migrations_dir = os.path.join(vault_root, BRAIN_CORE_DIR, "scripts", "migrations")
+    all_migrations = _discover_migrations(migrations_dir)
+    if not all_migrations:
+        return []
+
+    old_tuple = _parse_version(old_version) if old_version else (0,)
+    new_tuple = _parse_version(new_version)
+
+    results = []
+    for version_tuple, script_path in all_migrations:
+        if version_tuple <= old_tuple or version_tuple > new_tuple:
+            continue
+        version_str = ".".join(str(p) for p in version_tuple)
+        try:
+            spec = importlib.util.spec_from_file_location(
+                f"migration_{version_str}", script_path,
+            )
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            result = mod.migrate(vault_root)
+            result["version"] = version_str
+            results.append(result)
+        except Exception as e:
+            results.append({
+                "version": version_str,
+                "status": "error",
+                "message": str(e),
+            })
+    return results
+
+
+_MIGRATED_VERSION_FILE = os.path.join(".brain", "local", ".migrated-version")
+
+
+def run_pending_migrations(vault_root: str) -> list[dict]:
+    """Run any migrations needed for the current vault version.
+
+    Reads the installed version from .brain-core/VERSION and runs
+    all migrations up to that version. For use by MCP server startup
+    and other non-upgrade entry points.
+
+    Writes a marker file (.brain/local/.migrated-version) after success
+    so subsequent startups skip discovery entirely when the version
+    hasn't changed.
+    """
+    target = os.path.join(vault_root, BRAIN_CORE_DIR)
+    current_version = _read_version(target)
+    if not current_version:
+        return []
+
+    # Fast path: skip if already migrated to this version
+    marker = os.path.join(vault_root, _MIGRATED_VERSION_FILE)
+    try:
+        with open(marker, "r", encoding="utf-8") as f:
+            if f.read().strip() == current_version:
+                return []
+    except OSError:
+        pass
+
+    results = _run_migrations(vault_root, "0.0.0", current_version)
+
+    # Record that all migrations up to current_version have been applied
+    os.makedirs(os.path.dirname(marker), exist_ok=True)
+    with open(marker, "w", encoding="utf-8") as f:
+        f.write(current_version + "\n")
+
+    return results
+
+
+# ---------------------------------------------------------------------------
 # Core upgrade function
 # ---------------------------------------------------------------------------
 
@@ -232,6 +332,11 @@ def upgrade(vault_root: str, source: str, *, force: bool = False, dry_run: bool 
                 dir_path = os.path.dirname(dir_path)
         except OSError:
             pass
+
+    # Run pending migrations
+    migrations = _run_migrations(vault_root, old_version, new_version)
+    if migrations:
+        result["migrations"] = migrations
 
     result["message"] = f"Upgraded {old_version or '(none)'} → {new_version}"
     return result

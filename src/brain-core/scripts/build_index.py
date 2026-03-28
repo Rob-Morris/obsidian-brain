@@ -4,10 +4,10 @@ build_index.py — Brain-core BM25 retrieval index builder
 
 Walks all .md files in living + temporal type folders, extracts frontmatter
 and body text, computes BM25 corpus stats and per-doc term frequencies,
-and writes _Config/.retrieval-index.json.
+and writes .brain/local/retrieval-index.json.
 
 Usage:
-    python3 build_index.py           # write _Config/.retrieval-index.json
+    python3 build_index.py           # write .brain/local/retrieval-index.json
     python3 build_index.py --json    # output JSON to stdout
 """
 
@@ -74,10 +74,10 @@ def extract_title(body, filename):
 # Constants
 # ---------------------------------------------------------------------------
 
-OUTPUT_PATH = os.path.join("_Config", ".retrieval-index.json")
-TYPE_EMBEDDINGS_REL = os.path.join("_Config", ".type-embeddings.npy")
-DOC_EMBEDDINGS_REL = os.path.join("_Config", ".doc-embeddings.npy")
-EMBEDDINGS_META_REL = os.path.join("_Config", ".embeddings-meta.json")
+OUTPUT_PATH = os.path.join(".brain", "local", "retrieval-index.json")
+TYPE_EMBEDDINGS_REL = os.path.join(".brain", "local", "type-embeddings.npy")
+DOC_EMBEDDINGS_REL = os.path.join(".brain", "local", "doc-embeddings.npy")
+EMBEDDINGS_META_REL = os.path.join(".brain", "local", "embeddings-meta.json")
 EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 EMBEDDING_DIM = 384
 INDEX_VERSION = "1.0.0"
@@ -190,7 +190,8 @@ def build_embeddings(vault_root, router, documents):
     type_embeddings = model.encode(type_texts, normalize_embeddings=True) if type_texts else np.zeros((0, EMBEDDING_DIM))
     doc_embeddings = model.encode(doc_texts, normalize_embeddings=True) if doc_texts else np.zeros((0, EMBEDDING_DIM))
 
-    # Save
+    # .brain/local/ may not exist yet (directory changed from _Config/ in v0.16.0)
+    os.makedirs(os.path.join(vault_str, os.path.dirname(TYPE_EMBEDDINGS_REL)), exist_ok=True)
     np.save(os.path.join(vault_str, TYPE_EMBEDDINGS_REL), type_embeddings)
     np.save(os.path.join(vault_str, DOC_EMBEDDINGS_REL), doc_embeddings)
 

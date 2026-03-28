@@ -22,6 +22,7 @@ Follow before every commit.
     [4h] **Tooling** — scripts, MCP tools: `docs/tooling.md`, `docs/user-reference.md` (Tooling), `src/brain-core/guide.md` (Tooling)
     [4i] **General pattern** — hub, provenance, archiving: `src/brain-core/standards/`, `docs/specification.md`, `docs/user-reference.md` (Workflows)
     [4j] **Template vault** — if artefact types, taxonomy, config, or default structure changed: update `template-vault/` to match
+    [4k] **Artefact library metadata** — if taxonomy, README, template, or SKILL changed in `artefact-library/`: update `manifest.yaml` and `schema.yaml` in the same type directory to match
 
 [5] **Shared facts cross-checked.** Grep for the specific values you changed to catch stale references in other files:
 
@@ -66,6 +67,7 @@ Note: `skip` uses a comma separator (not colon) to avoid ambiguity with the labe
     [4h] Tooling: skip, no changes
     [4i] General pattern: skip, no changes
     [4j] Template vault: skip, no structure changes
+    [4k] Artefact library metadata: skip, no artefact-library changes
 [5] Shared facts cross-checked: done
     [5a] Type counts: skip, no changes
     [5b] Template vault defaults list: skip, no changes

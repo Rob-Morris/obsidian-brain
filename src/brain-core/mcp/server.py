@@ -419,6 +419,9 @@ def startup(vault_root: str | None = None) -> None:
     # Record loaded version for drift detection
     _loaded_version = _read_disk_version(_vault_root)
 
+    # Run any pending migrations (e.g. vaults upgraded via manual file copy)
+    upgrade.run_pending_migrations(_vault_root)
+
     # Auto-compile router if stale (reuse parsed data when fresh)
     stale, data = _check_router(_vault_root)
     _router = _compile_and_save(_vault_root) if stale else data

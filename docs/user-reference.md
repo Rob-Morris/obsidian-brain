@@ -299,7 +299,7 @@ workspace_mode: embedded
 | `completed` | Work is done. Terminal — archive. |
 | `archived` | Preserved for reference. Terminal — archive. |
 
-**Data folder:** `_Workspaces/{slug}/` is a freeform data bucket (embedded mode). Any file type — no frontmatter, naming, or taxonomy rules. Not indexed or compliance-checked. For linked mode (`workspace_mode: linked`), data lives in an external folder connected via `.brain/config`.
+**Data folder:** `_Workspaces/{slug}/` is a freeform data bucket (embedded mode). Any file type — no frontmatter, naming, or taxonomy rules. Not indexed or compliance-checked. For linked mode (`workspace_mode: linked`), data lives in an external folder connected via `.brain/local/workspaces.json`.
 
 **Convention:** All related brain artefacts use the nested workspace tag (e.g., `workspace/yearly-taxes-2026`).
 

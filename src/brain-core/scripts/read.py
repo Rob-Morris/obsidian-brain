@@ -29,7 +29,7 @@ import sys
 
 from _common import find_vault_root, match_artefact
 
-COMPILED_ROUTER_REL = os.path.join("_Config", ".compiled-router.json")
+COMPILED_ROUTER_REL = os.path.join(".brain", "local", "compiled-router.json")
 
 
 # ---------------------------------------------------------------------------

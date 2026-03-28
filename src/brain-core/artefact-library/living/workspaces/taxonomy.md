@@ -28,7 +28,7 @@ workspace_mode: embedded
 
 Every file related to a workspace should use the nested workspace tag, e.g. `workspace/yearly-taxes-2026`.
 
-`workspace_mode` is `embedded` (data in `_Workspaces/`) or `linked` (data in an external folder connected via `.brain/config`).
+`workspace_mode` is `embedded` (data in `_Workspaces/`) or `linked` (data in an external folder connected via `.brain/local/workspaces.json`).
 
 ## Lifecycle
 

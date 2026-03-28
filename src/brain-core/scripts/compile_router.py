@@ -3,11 +3,11 @@
 compile_router.py — Brain-core compiled router generator
 
 Transforms human-readable vault config (router.md, taxonomy files, skills,
-styles, plugins) into _Config/.compiled-router.json — a local, gitignored,
+styles, plugins) into .brain/local/compiled-router.json — a local, gitignored,
 hash-invalidated cache that all brain-core tools read.
 
 Usage:
-    python3 compile_router.py           # write _Config/.compiled-router.json
+    python3 compile_router.py           # write .brain/local/compiled-router.json
     python3 compile_router.py --json    # output JSON to stdout
 """
 
@@ -30,7 +30,7 @@ from _common import (
     scan_temporal_types,
 )
 
-OUTPUT_PATH = os.path.join("_Config", ".compiled-router.json")
+OUTPUT_PATH = os.path.join(".brain", "local", "compiled-router.json")
 
 
 # ---------------------------------------------------------------------------

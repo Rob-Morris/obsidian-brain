@@ -157,14 +157,14 @@ def initialized(vault):
 class TestStartup:
     def test_startup_compiles_router(self, vault):
         """Startup should compile the router when none exists."""
-        router_path = vault / "_Config" / ".compiled-router.json"
+        router_path = vault / ".brain" / "local" / "compiled-router.json"
         assert not router_path.exists()
         server.startup(vault_root=str(vault))
         assert router_path.exists()
 
     def test_startup_builds_index(self, vault):
         """Startup should build the index when none exists."""
-        index_path = vault / "_Config" / ".retrieval-index.json"
+        index_path = vault / ".brain" / "local" / "retrieval-index.json"
         assert not index_path.exists()
         server.startup(vault_root=str(vault))
         assert index_path.exists()
@@ -1299,9 +1299,9 @@ class TestWorkspaceRegistryScript:
 
     def test_load_malformed_registry(self, vault):
         """Malformed JSON → empty registry (graceful fallback)."""
-        brain_dir = vault / ".brain"
-        brain_dir.mkdir()
-        (brain_dir / "workspaces.json").write_text("not json{{{")
+        brain_local = vault / ".brain" / "local"
+        brain_local.mkdir(parents=True)
+        (brain_local / "workspaces.json").write_text("not json{{{")
         result = workspace_registry.load_registry(str(vault))
         assert result == {}
 
@@ -1313,10 +1313,10 @@ class TestWorkspaceRegistryScript:
         assert loaded == registry
 
     def test_save_creates_brain_dir(self, vault):
-        """save_registry creates .brain/ if it doesn't exist."""
-        assert not (vault / ".brain").exists()
+        """save_registry creates .brain/local/ if it doesn't exist."""
+        assert not (vault / ".brain" / "local").exists()
         workspace_registry.save_registry(str(vault), {"test": {"path": "/tmp"}})
-        assert (vault / ".brain" / "workspaces.json").exists()
+        assert (vault / ".brain" / "local" / "workspaces.json").exists()
 
     def test_resolve_embedded(self, vault):
         """Embedded workspace resolves via _Workspaces/{slug}/."""
@@ -1415,7 +1415,7 @@ class TestWorkspaceRegistryScript:
         assert ws["hub_path"] == "Workspaces/taxes.md"
 
     def test_register_creates_entry(self, vault, tmp_path):
-        """register_workspace adds to .brain/workspaces.json."""
+        """register_workspace adds to .brain/local/workspaces.json."""
         ext_path = str(tmp_path / "my-project")
         result = workspace_registry.register_workspace(str(vault), "my-project", ext_path)
         assert result["status"] == "ok"
@@ -1442,7 +1442,7 @@ class TestWorkspaceRegistryScript:
             )
 
     def test_unregister_removes_entry(self, vault, tmp_path):
-        """unregister_workspace removes from .brain/workspaces.json."""
+        """unregister_workspace removes from .brain/local/workspaces.json."""
         workspace_registry.register_workspace(str(vault), "temp", str(tmp_path / "temp"))
         result = workspace_registry.unregister_workspace(str(vault), "temp")
         assert result["status"] == "ok"
@@ -1657,10 +1657,10 @@ class TestWorkspaceStartup:
         assert server._workspace_registry == {}
 
     def test_startup_loads_existing_registry(self, vault, tmp_path):
-        """Startup with .brain/workspaces.json → loaded registry."""
-        brain_dir = vault / ".brain"
-        brain_dir.mkdir()
-        (brain_dir / "workspaces.json").write_text(json.dumps({
+        """Startup with .brain/local/workspaces.json → loaded registry."""
+        brain_local = vault / ".brain" / "local"
+        brain_local.mkdir(parents=True)
+        (brain_local / "workspaces.json").write_text(json.dumps({
             "workspaces": {"pre-existing": {"path": str(tmp_path / "pre")}}
         }))
         server.startup(vault_root=str(vault))

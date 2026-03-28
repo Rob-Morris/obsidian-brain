@@ -57,7 +57,7 @@ ROSE_BLEND_FACTOR = 0.35
 
 OUTPUT_REL = os.path.join(".obsidian", "snippets", "folder-colours.css")
 GRAPH_JSON_REL = os.path.join(".obsidian", "graph.json")
-COMPILED_ROUTER_REL = os.path.join("_Config", ".compiled-router.json")
+COMPILED_ROUTER_REL = os.path.join(".brain", "local", "compiled-router.json")
 
 
 # ---------------------------------------------------------------------------
@@ -65,7 +65,7 @@ COMPILED_ROUTER_REL = os.path.join("_Config", ".compiled-router.json")
 # ---------------------------------------------------------------------------
 
 def load_router(vault_root):
-    """Read _Config/.compiled-router.json and return parsed dict."""
+    """Read .brain/local/compiled-router.json and return parsed dict."""
     router_path = os.path.join(str(vault_root), COMPILED_ROUTER_REL)
     if not os.path.isfile(router_path):
         print(f"Error: compiled router not found at {router_path}", file=sys.stderr)

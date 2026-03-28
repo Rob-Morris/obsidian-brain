@@ -193,9 +193,9 @@ def vault(tmp_path):
     router = make_router(artefacts)
 
     # Write compiled router
-    config = tmp_path / "_Config"
-    config.mkdir(parents=True, exist_ok=True)
-    (config / ".compiled-router.json").write_text(
+    brain_local = tmp_path / ".brain" / "local"
+    brain_local.mkdir(parents=True, exist_ok=True)
+    (brain_local / "compiled-router.json").write_text(
         json.dumps(router, indent=2) + "\n"
     )
 

@@ -155,7 +155,7 @@ def main():
         sys.exit(1)
 
     # Load compiled router from disk
-    router_path = os.path.join(vault_root, "_Config", ".compiled-router.json")
+    router_path = os.path.join(vault_root, ".brain", "local", "compiled-router.json")
     if not os.path.isfile(router_path):
         print("Error: compiled router not found — run compile_router.py first", file=sys.stderr)
         sys.exit(1)

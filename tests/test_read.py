@@ -106,7 +106,9 @@ def vault(tmp_path):
     # Compile the router
     from compile_router import compile as compile_router
     compiled = compile_router(str(tmp_path))
-    router_path = config / ".compiled-router.json"
+    brain_local = tmp_path / ".brain" / "local"
+    brain_local.mkdir(parents=True, exist_ok=True)
+    router_path = brain_local / "compiled-router.json"
     with open(router_path, "w") as f:
         json.dump(compiled, f, indent=2)
 

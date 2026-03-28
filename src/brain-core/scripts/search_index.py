@@ -25,7 +25,7 @@ from _common import _FM_RE, find_vault_root, tokenise
 # Constants
 # ---------------------------------------------------------------------------
 
-INDEX_PATH = os.path.join("_Config", ".retrieval-index.json")
+INDEX_PATH = os.path.join(".brain", "local", "retrieval-index.json")
 DEFAULT_TOP_K = 10
 SNIPPET_LENGTH = 200
 TITLE_BOOST = 3.0
