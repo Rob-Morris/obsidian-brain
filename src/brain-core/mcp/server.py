@@ -817,7 +817,7 @@ def brain_action(action: str, params: dict | None = None):
         if not params or "slug" not in params or "path" not in params:
             return _fmt_error("register_workspace requires params: {slug, path}")
         try:
-            result = workspace_registry.register_workspace(
+            workspace_registry.register_workspace(
                 _vault_root, params["slug"], params["path"],
             )
             _workspace_registry = workspace_registry.load_registry(_vault_root)
@@ -831,7 +831,7 @@ def brain_action(action: str, params: dict | None = None):
         if not params or "slug" not in params:
             return _fmt_error("unregister_workspace requires params: {slug}")
         try:
-            result = workspace_registry.unregister_workspace(
+            workspace_registry.unregister_workspace(
                 _vault_root, params["slug"],
             )
             _workspace_registry = workspace_registry.load_registry(_vault_root)

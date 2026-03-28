@@ -15,7 +15,12 @@ import json
 import os
 import sys
 
-from check import naming_pattern_to_regex
+from check import (
+    naming_pattern_to_regex,
+    validate_artefact_folder,
+    validate_artefact_naming,
+    validate_artefact_path,
+)
 from create import resolve_naming_pattern, resolve_type, resolve_folder
 
 from _common import (
@@ -29,61 +34,6 @@ from _common import (
     strip_md_ext,
     title_to_slug,
 )
-
-
-# ---------------------------------------------------------------------------
-# Path validation
-# ---------------------------------------------------------------------------
-
-def validate_artefact_folder(vault_root, router, path):
-    """Validate path belongs to a known, configured type folder.
-
-    Returns artefact dict or raises ValueError.  Does **not** check the
-    filename against the type's naming pattern — use this for edit/append/
-    convert where the file already exists and its name may predate the
-    current naming convention.
-    """
-    vault_root = str(vault_root)
-
-    for art in router.get("artefacts", []):
-        art_path = art["path"]
-        if path.startswith(art_path + os.sep) or path.startswith(art_path + "/"):
-            if not art.get("configured"):
-                raise ValueError(
-                    f"Path '{path}' belongs to unconfigured type '{art['key']}'. "
-                    f"Create a taxonomy file first."
-                )
-            return art
-
-    known_paths = [a["path"] for a in router.get("artefacts", [])]
-    raise ValueError(
-        f"Path '{path}' does not belong to any known artefact folder. "
-        f"Known: {', '.join(known_paths)}"
-    )
-
-
-def validate_artefact_naming(artefact, path):
-    """Validate filename matches the type's naming pattern. Raises ValueError if not."""
-    naming = artefact.get("naming")
-    if naming and naming.get("pattern"):
-        regex = naming_pattern_to_regex(naming["pattern"])
-        if regex:
-            filename = os.path.basename(path)
-            if not regex.match(filename):
-                raise ValueError(
-                    f"Filename '{filename}' does not match expected pattern "
-                    f"'{naming['pattern']}' for type '{artefact['key']}'"
-                )
-
-
-def validate_artefact_path(vault_root, router, path):
-    """Validate folder membership AND naming pattern (strict).
-
-    Used by compliance checks — not by edit/append/convert.
-    """
-    art = validate_artefact_folder(vault_root, router, path)
-    validate_artefact_naming(art, path)
-    return art
 
 
 # ---------------------------------------------------------------------------

@@ -149,7 +149,7 @@ def read_file(router, vault_root, name=None):
         return {"error": "file resource requires a name parameter (relative path from vault root)"}
     # Router-driven containment: path must belong to a known artefact type folder
     try:
-        from edit import validate_artefact_folder
+        from check import validate_artefact_folder
         validate_artefact_folder(str(vault_root), router, name)
     except ValueError as e:
         return {"error": str(e)}

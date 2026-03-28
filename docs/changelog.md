@@ -2,6 +2,14 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.15.4 — 2026-03-28
+
+- **Artefact library taxonomy improvements** — Research definition rewritten: investigation and/or capture, "in depth" substance qualifier, broader source types. New `design-proposals` temporal artefact type for contemplated changes needing a decision before action — supports multi-target proposals and requires decision logs for acceptance. Four existing types (Designs, Idea Logs, Plans, Decision Logs) get cross-references and lifecycle chain enforcement. Idea Logs gain a `status` field (`open` / `graduated` / `parked`). Ingestions get enrichment boundary clarification and thread inventory principle; removed leaky "Step 6c" implementation reference. Reports get trigger section. Bug-logs: `->` → `→` arrow style. Research and Reports get one-line disambiguation in `user-reference.md`.
+
+## v0.15.3 — 2026-03-28
+
+- **Simplify review code fixes** — Moved `validate_artefact_folder/naming/path` from `edit.py` to `check.py` — validation belongs in the compliance module, not the mutation module; removes `read.py` → `edit.py` coupling. Removed unused `result` variables in workspace registry handlers.
+
 ## v0.15.2 — 2026-03-28
 
 - **MCP tool robustness and hardening** — Full audit of all 7 MCP tools. Split `validate_artefact_path` into `validate_artefact_folder` (folder-only) and `validate_artefact_naming` (pattern-only); edit/append/convert now skip naming checks, fixing failures on existing files with non-conforming names. Added `except Exception` catch-all to all mutating handlers. Defensive fixes: `_fmt_search` score fallback, empty-body guard on `brain_edit`, shape-presentation params validation, migrate_naming null check. Fixed partial global state with atomic temp assignment. Deduplicated folder validation in `read.py`. Replaced per-call Obsidian CLI probe with TTL-gated `_refresh_cli_available()` (30s). Removed `-> str` return type annotations (MCP SDK 1.26.0 strict output validation rejects `list[TextContent]` and `CallToolResult` returns). Fixed stale vault-level taxonomy override for `temporal/logs` naming pattern (`log--yyyy-mm-dd.md` → `yyyymmdd-log.md`).
