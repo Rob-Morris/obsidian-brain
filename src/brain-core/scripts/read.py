@@ -27,7 +27,7 @@ import json
 import os
 import sys
 
-from _common import find_vault_root
+from _common import find_vault_root, match_artefact
 
 COMPILED_ROUTER_REL = os.path.join("_Config", ".compiled-router.json")
 
@@ -71,9 +71,10 @@ def read_artefact(router, vault_root, name=None):
     """List artefact types, or filter by key/type name."""
     artefacts = router["artefacts"]
     if name:
-        matches = [a for a in artefacts if a["key"] == name or a["type"] == name]
-        if not matches:
+        match = match_artefact(artefacts, name)
+        if not match:
             return {"error": f"No artefact matching '{name}'"}
+        matches = [match]
         return matches
     return artefacts
 
@@ -93,7 +94,7 @@ def read_template(router, vault_root, name=None):
     if not name:
         return {"error": "template resource requires a name parameter (artefact type key)"}
     artefacts = router["artefacts"]
-    match = next((a for a in artefacts if a["key"] == name or a["type"] == name), None)
+    match = match_artefact(artefacts, name)
     if not match:
         return {"error": f"No artefact matching '{name}'"}
     if not match.get("template_file"):

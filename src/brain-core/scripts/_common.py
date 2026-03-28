@@ -493,6 +493,26 @@ def find_section(body, heading):
 
 
 # ---------------------------------------------------------------------------
+# Artefact type matching
+# ---------------------------------------------------------------------------
+
+
+def match_artefact(artefacts, type_key):
+    """Find an artefact dict matching type_key (key, full type, or singular form).
+
+    Returns the matched artefact dict, or None if no match found.
+    Handles singular/plural mismatches by stripping trailing 's' from both sides.
+    """
+    # Exact match on key or full type (e.g. "ideas" or "living/ideas")
+    match = next((a for a in artefacts if a["key"] == type_key or a["type"] == type_key), None)
+    if match is not None:
+        return match
+    # Normalised: strip trailing "s" to handle singular/plural ("report" vs "reports")
+    norm = type_key.removesuffix("s")
+    return next((a for a in artefacts if a["key"].removesuffix("s") == norm), None)
+
+
+# ---------------------------------------------------------------------------
 # BM25 tokenisation
 # ---------------------------------------------------------------------------
 

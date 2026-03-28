@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.15.6 — 2026-03-28
+
+- **Accept singular artefact type keys across all MCP tools** — Agents frequently pass singular forms like `"report"` instead of `"reports"`. Added `match_artefact()` helper to `_common.py` with normalised singular/plural fallback (strips trailing "s" from both sides). Applied consistently to `resolve_type()`, `read_artefact()`, `read_template()`, and `brain_search` type filter. Fixed `brain_create` docstring example from `"idea"` to `"ideas"`.
+
 ## v0.15.5 — 2026-03-28
 
 - **Remove design-proposals, absorb into designs lifecycle** — Removed `design-proposals` temporal artefact type. Designs gain `proposed` and `rejected` statuses, absorbing the proposal workflow: a design at `proposed` status captures a candidate needing a decision, and a decision log records the accept/reject verdict. Design template gains a "Decision Needed" section. Updated cross-references in Idea Logs, Plans, Decision Logs, guide, and user-reference. Template vault updated accordingly.

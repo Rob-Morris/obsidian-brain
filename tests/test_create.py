@@ -171,6 +171,11 @@ class TestCreateArtefact:
         result = create.create_artefact(str(vault), router, "living/wiki", "By Full Type")
         assert result["type"] == "living/wiki"
 
+    def test_resolve_singular_form(self, vault, router):
+        """Agents often pass singular type keys like 'log' instead of 'logs'."""
+        result = create.create_artefact(str(vault), router, "log", "Singular Test")
+        assert result["type"] == "temporal/logs"
+
     def test_unknown_type_error(self, vault, router):
         with pytest.raises(ValueError, match="Unknown artefact type"):
             create.create_artefact(str(vault), router, "nonexistent", "Title")

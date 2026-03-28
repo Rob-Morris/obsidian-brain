@@ -585,17 +585,24 @@ def brain_search(query: str, type: str | None = None, tag: str | None = None,
     if _index is None:
         return _fmt_error("server not initialized")
 
+    # Resolve type filter to full type (e.g. "idea" → "living/ideas")
+    type_filter = type
+    if type_filter and _router:
+        art = _common.match_artefact(_router.get("artefacts", []), type_filter)
+        if art:
+            type_filter = art["type"]
+
     _refresh_cli_available()
 
     # CLI-first: Obsidian's live index is always current
     if _cli_available and _vault_name and query:
         cli_results = obsidian_cli.search(_vault_name, query)
         if cli_results is not None:
-            results = _transform_cli_results(cli_results, type, tag, status, top_k)
+            results = _transform_cli_results(cli_results, type_filter, tag, status, top_k)
             return _fmt_search("obsidian_cli", results)
 
     # BM25 fallback
-    results = search_index.search(_index, query, _vault_root, type_filter=type, tag_filter=tag,
+    results = search_index.search(_index, query, _vault_root, type_filter=type_filter, tag_filter=tag,
                                   status_filter=status, top_k=top_k)
     return _fmt_search("bm25", results)
 
@@ -609,7 +616,7 @@ def brain_create(type: str, title: str, body: str = "", frontmatter: dict | None
     """Create a new vault artefact. Additive — creates a file, cannot destroy existing work.
 
     Parameters:
-      type       — artefact type key (e.g. "idea") or full type (e.g. "living/idea")
+      type       — artefact type key (e.g. "ideas") or full type (e.g. "living/ideas")
       title      — human-readable title, used for filename generation
       body       — markdown body content (optional, template body used if empty)
       frontmatter — optional frontmatter field overrides (e.g. {"status": "developing"})

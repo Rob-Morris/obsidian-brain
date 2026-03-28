@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 
 from _common import (
     find_vault_root,
+    match_artefact,
     parse_frontmatter,
     serialize_frontmatter,
     title_to_filename,
@@ -129,19 +130,20 @@ def create_artefact(vault_root, router, type_key, title, body="", frontmatter_ov
 
 
 def resolve_type(router, type_key):
-    """Match type_key against router artefacts by key or full type."""
-    for art in router.get("artefacts", []):
-        if art["key"] == type_key or art["type"] == type_key:
-            if not art.get("configured"):
-                raise ValueError(
-                    f"Type '{type_key}' exists but is not configured "
-                    f"(no taxonomy file). Create a taxonomy file first."
-                )
-            return art
-    raise ValueError(
-        f"Unknown artefact type '{type_key}'. "
-        f"Valid types: {', '.join(a['key'] for a in router.get('artefacts', []))}"
-    )
+    """Match type_key against router artefacts by key, full type, or singular form."""
+    artefacts = router.get("artefacts", [])
+    match = match_artefact(artefacts, type_key)
+    if match is None:
+        raise ValueError(
+            f"Unknown artefact type '{type_key}'. "
+            f"Valid types: {', '.join(a['key'] for a in artefacts)}"
+        )
+    if not match.get("configured"):
+        raise ValueError(
+            f"Type '{type_key}' exists but is not configured "
+            f"(no taxonomy file). Create a taxonomy file first."
+        )
+    return match
 
 
 def _read_template(vault_root, artefact):
