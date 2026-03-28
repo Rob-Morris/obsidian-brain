@@ -21,9 +21,9 @@ These are patterns, not a required pipeline — each artefact type can be create
 2. **Living artefact** — fleshed out, explored, living document
 3. **Design** — shaped proposal with decisions and structure
 
-When an idea is concrete enough to be a specific recommendation but needs a decision before action, it can become a design proposal — the intermediary between "we identified something" and "here's the plan."
+When an idea is concrete enough to be a specific recommendation but needs a decision before action, it can become a design at `proposed` status — capturing the recommendation and what needs to be decided.
 
-When an idea is spun out into a design proposal, design, or other artefact, set `status: graduated` and add a provenance link to the successor artefact.
+When an idea is spun out into a design or other artefact, set `status: graduated` and add a provenance link to the successor artefact.
 
 ## Spinning Out
 

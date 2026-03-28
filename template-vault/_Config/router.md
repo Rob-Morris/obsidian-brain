@@ -11,6 +11,5 @@ Conditional:
 - When ingesting external material → [[_Config/Taxonomy/Temporal/captures]]
 - When ingesting content that warrants decomposition → [[_Config/Taxonomy/Temporal/ingestions]]
 - After completing a detailed process → [[_Config/Taxonomy/Temporal/reports]]
-- When vault work surfaces a contemplated design change → [[_Config/Taxonomy/Temporal/design-proposals]]
 - When working via MCP from an external project → [[.brain-core/skills/brain-remote/SKILL]]
 - When the user references a project, tool, or concept and you lack context → [[_Config/Memories/README]]

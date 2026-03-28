@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.15.5 — 2026-03-28
+
+- **Remove design-proposals, absorb into designs lifecycle** — Removed `design-proposals` temporal artefact type. Designs gain `proposed` and `rejected` statuses, absorbing the proposal workflow: a design at `proposed` status captures a candidate needing a decision, and a decision log records the accept/reject verdict. Design template gains a "Decision Needed" section. Updated cross-references in Idea Logs, Plans, Decision Logs, guide, and user-reference. Template vault updated accordingly.
+
 ## v0.15.4 — 2026-03-28
 
 - **Artefact library taxonomy improvements** — Research definition rewritten: investigation and/or capture, "in depth" substance qualifier, broader source types. New `design-proposals` temporal artefact type for contemplated changes needing a decision before action — supports multi-target proposals and requires decision logs for acceptance. Four existing types (Designs, Idea Logs, Plans, Decision Logs) get cross-references and lifecycle chain enforcement. Idea Logs gain a `status` field (`open` / `graduated` / `parked`). Ingestions get enrichment boundary clarification and thread inventory principle; removed leaky "Step 6c" implementation reference. Reports get trigger section. Bug-logs: `->` → `→` arrow style. Research and Reports get one-line disambiguation in `user-reference.md`.

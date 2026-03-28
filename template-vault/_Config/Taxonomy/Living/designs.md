@@ -10,10 +10,20 @@ A home for visual and structural design work. Each file captures a design for a 
 
 | Status | Meaning |
 |---|---|
+| `proposed` | Candidate design awaiting a decision on whether to proceed. May still be shaped. |
 | `shaping` | Default. The design is being explored and shaped — decisions are open. |
 | `active` | The design is agreed and being implemented. |
 | `implemented` | The design has been fully built. |
 | `parked` | Set aside — not abandoned, but not being pursued. |
+| `rejected` | Evaluated and declined. Kept as a record. |
+
+## Graduating from Proposed
+
+When a design at `proposed` status is ready for a decision:
+
+1. Create a decision log recording the verdict and reasoning
+2. If accepted: set `status: shaping` and begin active design work
+3. If rejected: set `status: rejected` — the design stays as a record of what was considered and why it was declined
 
 ## Archiving
 
@@ -58,7 +68,7 @@ Example: `Designs/pistols-at-dawn-discord-bot.md`
 type: living/design
 tags:
   - design
-status: shaping             # shaping | active | implemented | parked
+status: shaping             # proposed | shaping | active | implemented | parked | rejected
 ---
 ```
 

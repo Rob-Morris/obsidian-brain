@@ -177,10 +177,14 @@ status: shaping
 
 | Status | Meaning |
 |---|---|
+| `proposed` | Candidate design awaiting a decision on whether to proceed. May still be shaped. |
 | `shaping` | Default. Being explored; decisions open. |
 | `active` | Agreed and being implemented. |
 | `implemented` | Fully built; authority transfers to implementation. Terminal — archive. |
 | `parked` | Set aside; not abandoned, not being pursued. |
+| `rejected` | Evaluated and declined. Kept as a record. |
+
+**Graduating from proposed:** Create a decision log recording the verdict. If accepted, set `shaping`. If rejected, set `rejected`.
 
 **Body lineage:**
 ```markdown
@@ -449,7 +453,7 @@ tags:
 status: open              # open | graduated | parked
 ```
 
-**Graduation path:** Idea log (raw capture) → living Idea (fleshed out) → Design (shaped proposal). When concrete enough to be a specific recommendation needing a decision, can also become a Design Proposal. At each transition, set `status: graduated` and use provenance links.
+**Graduation path:** Idea log (raw capture) → living Idea (fleshed out) → Design (shaped). When concrete enough to be a specific recommendation but needing a decision first, can become a Design at `proposed` status. At each transition, set `status: graduated` and use provenance links.
 
 **Trigger:** When a new idea strikes, capture before it slips away.
 
@@ -510,32 +514,6 @@ tags:
 - Write before the reasoning fades
 
 **Trigger:** After a significant decision, capture the reasoning.
-
-### Design Proposals
-
-**Folder:** `_Temporal/Design Proposals/yyyy-mm/` · **Naming:** `yyyymmdd-design-proposal~{Title}.md`
-
-Structured recommendations for contemplated changes that need a decision before action. Sits between ideas and plans: "we found something concrete that should change, here's what we recommend, but it needs a decision first."
-
-```yaml
-type: temporal/design-proposal
-tags:
-  - design-proposal
-status: proposed
-```
-
-**Lifecycle:** `proposed` → `accepted` / `rejected` / `deferred`. Each transition requires a decision log recording the verdict.
-
-**Structure:** Origin, Target (may be multi-target), Finding, Recommendation, Decision needed.
-
-**Conventions:**
-- Be self-contained — readable without the originating session
-- Be specific about targets — name each affected file, system, or design
-- Separate finding (factual) from recommendation (judgement)
-- Link from each target's open questions section
-- Create a decision log before changing proposal status
-
-**Trigger:** When vault work surfaces a contemplated design change that needs a decision but isn't in scope for the current session.
 
 ### Friction Logs
 
@@ -752,8 +730,7 @@ Only types with a defined lifecycle have status. Current types with status:
 | Type | Status values |
 |---|---|
 | Bug Logs | `open`, `resolved` |
-| Designs | `shaping`, `active`, `implemented`, `parked` |
-| Design Proposals | `proposed`, `accepted`, `rejected`, `deferred` |
+| Designs | `proposed`, `shaping`, `active`, `implemented`, `parked`, `rejected` |
 | Ideas | `new`, `developing`, `graduated`, `parked` |
 | Idea Logs | `open`, `graduated`, `parked` |
 | Journals | `active`, `archived` |

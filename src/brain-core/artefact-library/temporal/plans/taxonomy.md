@@ -8,11 +8,11 @@ A plan captures the intended approach before implementation starts. It records t
 
 ## How to Write Plans
 
-- **Write before you start.** The plan comes first; implementation follows. A plan may originate from an accepted design proposal, from a design doc, or from scratch. If from a design proposal, link to both the proposal and the decision log that accepted it in the plan's Origin line.
+- **Write before you start.** The plan comes first; implementation follows. A plan may originate from a design doc (including one accepted from `proposed` status), or from scratch. If the design was accepted from `proposed`, link to both the design and the decision log that accepted it in the plan's Origin line.
 - **Keep it concise.** Enough detail to align on approach, not a full specification.
 - **Link to artefacts.** Reference the files, wiki pages, or tasks involved.
 - **Update status.** Move from `draft` → `approved` → `implementing` → `completed` as the work progresses.
-- **Close the loop on completion.** When marking a plan `completed`: if the plan originated from a design proposal, confirm the proposal's status is `accepted`. If the plan targets a design doc, update the design to reflect what was implemented. Link the completed plan from any artefacts it fulfilled.
+- **Close the loop on completion.** When marking a plan `completed`: if the plan targets a design doc, update the design to reflect what was implemented. Link the completed plan from any artefacts it fulfilled.
 
 ## Naming
 

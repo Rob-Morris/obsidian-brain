@@ -11,7 +11,7 @@ A decision log captures the "why" behind choices — the question, the options c
 - **State the question clearly.** What decision needed to be made? Frame it as a question.
 - **List options considered.** Even options that were rejected — especially those. Future readers need to know what was weighed.
 - **Be honest about tradeoffs.** Every option has downsides. Name them.
-- **Link to origin.** What prompted the decision? A task, a friction log, a design proposal, a conversation — link to it.
+- **Link to origin.** What prompted the decision? A task, a friction log, a proposed design, a conversation — link to it.
 - **Write it before the reasoning fades.** The decision is easy to remember; the reasoning is not.
 
 ## Naming
@@ -32,7 +32,7 @@ tags:
 
 ## Trigger
 
-After making a significant decision during work, capture the reasoning before it fades. When a design proposal is being accepted, rejected, or deferred — the decision log captures the reasoning behind the verdict.
+After making a significant decision during work, capture the reasoning before it fades. When a proposed design is being accepted or rejected — the decision log captures the reasoning behind the verdict.
 
 ## Template
 
