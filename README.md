@@ -1,8 +1,10 @@
 # Obsidian Brain
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-0.15.12-blue)
+![Version](https://img.shields.io/badge/version-0.16.0-blue)
 ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED)
+![Python](https://img.shields.io/badge/python-≥3.10-3776AB?logo=python&logoColor=white)
+![MCP](https://img.shields.io/badge/MCP-server-green?logo=data:image/svg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0id2hpdGUiPjxwYXRoIGQ9Ik0xMiAyQzYuNDggMiAyIDYuNDggMiAxMnM0LjQ4IDEwIDEwIDEwIDEwLTQuNDggMTAtMTBTMTcuNTIgMiAxMiAyem0wIDE4Yy00LjQyIDAtOC0zLjU4LTgtOHMzLjU4LTggOC04IDggMy41OCA4IDgtMy41OCA4LTggOHptLTEtMTNoMnY2aC0yem0wIDhoMnYyaC0yeiIvPjwvc3ZnPg==)
 
 A self-evolving knowledge base for agents and humans working together on what matters. Local-first. Built for Obsidian.
 
@@ -91,7 +93,7 @@ To upgrade brain-core:
 - [Specification](docs/specification.md) — design rationale and structural decisions
 - [Plugins](docs/plugins.md) — how to install and write plugins
 - [Changelog](docs/changelog.md) — version history
-- [Contributing](docs/contributing.md) — guide for humans and agents working on brain-core
+- [Contributing](docs/contributing.md) — contributor guide (general + [agent-specific](docs/contributing-agents.md))
 
 ## Repository Structure
 
