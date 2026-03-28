@@ -154,6 +154,7 @@ def _check_and_reload() -> None:
             if mod is not None:
                 importlib.reload(mod)
         _loaded_version = disk_version
+        upgrade.run_pending_migrations(_vault_root)
         _router = _compile_and_save(_vault_root)
         _mark_index_dirty()
         print(f"brain-core reloaded ({old} → {disk_version}): recompiled router, index marked dirty", file=sys.stderr)
