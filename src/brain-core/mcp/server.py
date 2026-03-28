@@ -67,9 +67,13 @@ import migrate_naming
 import workspace_registry
 import process
 
-# Constants that don't change between versions
-COMPILED_ROUTER_REL = compile_router.OUTPUT_PATH
-RETRIEVAL_INDEX_REL = build_index.OUTPUT_PATH
+# Path constants — read dynamically from script modules so they stay
+# current after _check_and_reload() reloads upgraded modules.
+def _router_rel() -> str:
+    return compile_router.OUTPUT_PATH
+
+def _index_rel() -> str:
+    return build_index.OUTPUT_PATH
 
 # ---------------------------------------------------------------------------
 # Server state
@@ -161,7 +165,7 @@ def _check_and_reload() -> None:
 
 def _check_router(vault_root: str) -> tuple[bool, dict | None]:
     """Check staleness and return parsed data if fresh. (stale, data|None)"""
-    router_path = os.path.join(vault_root, COMPILED_ROUTER_REL)
+    router_path = os.path.join(vault_root, _router_rel())
     if not os.path.isfile(router_path):
         return True, None
 
@@ -194,7 +198,7 @@ def _check_router(vault_root: str) -> tuple[bool, dict | None]:
 
 def _check_index(vault_root: str) -> tuple[bool, dict | None]:
     """Check staleness and return parsed data if fresh. (stale, data|None)"""
-    index_path = os.path.join(vault_root, RETRIEVAL_INDEX_REL)
+    index_path = os.path.join(vault_root, _index_rel())
     if not os.path.isfile(index_path):
         return True, None
 
@@ -316,7 +320,7 @@ def _ensure_index_fresh() -> None:
         for rel_path, type_hint in pending:
             build_index.index_update(_index, _vault_root, rel_path, type_hint=type_hint, recompute=False)
         build_index._recompute_corpus_stats(_index)
-        _save_json(_index, _vault_root, RETRIEVAL_INDEX_REL)
+        _save_json(_index, _vault_root, _index_rel())
         _mark_embeddings_dirty()
         _index_checked_at = time.monotonic()
         return
@@ -352,7 +356,7 @@ def _compile_and_save(vault_root: str) -> dict:
     """
     global _router_checked_at
     compiled = compile_router.compile(vault_root)
-    _save_json(compiled, vault_root, COMPILED_ROUTER_REL)
+    _save_json(compiled, vault_root, _router_rel())
     compile_colours.generate(vault_root, compiled)
     _router_checked_at = time.monotonic()
     return compiled
@@ -366,7 +370,7 @@ def _build_index_and_save(vault_root: str) -> dict:
     """
     global _type_embeddings, _embeddings_meta, _doc_embeddings, _index_dirty, _index_checked_at, _embeddings_dirty
     index = build_index.build_index(vault_root)
-    _save_json(index, vault_root, RETRIEVAL_INDEX_REL)
+    _save_json(index, vault_root, _index_rel())
     _index_dirty = False
     _embeddings_dirty = False
     _index_pending.clear()
