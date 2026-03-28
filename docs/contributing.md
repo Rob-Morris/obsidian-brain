@@ -108,3 +108,32 @@ After committing brain-core changes in this repo, follow `.canaries/post-core-co
 ## Standards vs Docs
 
 `docs/standards/` contains generic, reusable patterns — things that could be adopted by any project without modification. The rest of `docs/` contains brain-specific conventions, guides, and references. When a pattern emerges from brain-specific work but has no inherent dependency on brain, extract the generic version into `docs/standards/` and keep project-specific usage in `docs/`.
+
+## Repository Structure
+
+```
+obsidian-brain/
+├── src/
+│   └── brain-core/              # core methodology (source of truth)
+│       ├── VERSION              # brain-core version
+│       ├── index.md             # entry point; links to all core docs
+│       ├── guide.md             # quick-start guide (ships into vaults)
+│       ├── artefact-library/    # ready-to-install type definitions
+│       ├── taxonomy/readme.md   # artefact classification guide
+│       ├── extensions.md        # how to add types, colours, triggers
+│       ├── triggers.md          # workflow trigger system
+│       ├── colours.md           # folder colour system design
+│       ├── plugins.md           # plugin system
+│       ├── scripts/             # tooling (compile_router, check, build_index, search)
+│       └── mcp/                 # MCP server (brain_read, brain_search, brain_action)
+├── tests/                       # test suite (make test)
+├── docs/
+│   ├── user-guide.md            # walkthrough with examples
+│   ├── user-reference.md        # full reference for all types and conventions
+│   ├── tooling.md               # technical design and development setup
+│   ├── changelog.md             # version history
+│   ├── plugins.md               # how to install and write plugins
+│   └── specification.md         # design rationale and structural decisions
+├── template-vault/              # starter vault; copy to create a new Brain
+└── README.md
+```

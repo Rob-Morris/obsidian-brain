@@ -6,30 +6,32 @@
 ![Python](https://img.shields.io/badge/python-≥3.10-3776AB?logo=python&logoColor=white)
 ![MCP](https://img.shields.io/badge/MCP-server-green?logo=data:image/svg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0id2hpdGUiPjxwYXRoIGQ9Ik0xMiAyQzYuNDggMiAyIDYuNDggMiAxMnM0LjQ4IDEwIDEwIDEwIDEwLTQuNDggMTAtMTBTMTcuNTIgMiAxMiAyem0wIDE4Yy00LjQyIDAtOC0zLjU4LTgtOHMzLjU4LTggOC04IDggMy41OCA4IDgtMy41OCA4LTggOHptLTEtMTNoMnY2aC0yem0wIDhoMnYyaC0yeiIvPjwvc3ZnPg==)
 
-A self-evolving knowledge base for agents and humans working together on what matters. Local-first. Built for Obsidian.
+A self-evolving knowledge base for agents and humans working together on what matters.
+
+Agents are getting increasingly capable, but they're forgetful; and so are you. The brain gives you and your agent a long-term memory. Forget something? Ask your agent; it will find it. Working on a task? Your agent remembers what you mean, what you care about, what you've done. As you work, the brain builds a rich, linked graph of everything that matters: ideas connect to projects, decisions connect to context, notes connect to sources. Everything you do together makes your brain, your agent, and you, smarter. Plain Markdown in a local Obsidian vault; human-readable, editable in any tool, no lock-in.
 
 ## Why Obsidian Brain?
 
-- **It gets better, not worse.** Most note systems start organised and slowly decay. Brain's structure is self-reinforcing — agents maintain conventions as they go, so the vault stays useful over time.
-- **Agents that understand your knowledge.** Your agent reads the vault's router and taxonomy, finds existing work before creating new work, and files things in the right place without being told. It surfaces the right context when you need it and connects related ideas across your vault.
-- **Plain Markdown, no lock-in.** Everything is stored as Markdown files in an Obsidian vault. Browse on desktop or mobile, edit in any text editor, back up with git. No database, no proprietary format.
-- **Less organising, more thinking.** Capture ideas without worrying about where they go. Come back after a break and find things where you expect them.
-
-## What Does It Look Like?
-
-You talk to your agent. It reads your vault's router, finds relevant artefacts, and updates your knowledge base — creating new files, connecting ideas, and following your vault's conventions automatically. You can also browse and edit directly in Obsidian at any time. The structure holds either way.
-
-See the [User Guide](docs/user-guide.md) for a full walkthrough with examples.
+| Feature | Benefit |
+|:--|:--|
+| **Never forget** | Every conversation, decision, and idea goes into a linked graph. Your agent finds it when you need it; it remembers so you don't have to. |
+| **Context compounds** | The richer the vault, the better the answers. Ideas link to projects, decisions link to reasons, notes link to sources. Every session builds on the last. |
+| **Self-evolving** | Like a real brain, it grows around you and how you think. Your agent builds the vault out as you work; no one size fits all, and yours won't look like anyone else's. |
+| **Designed for retrieval** | The faster your agent finds the right context, the smarter it can be. A single router file tells your agent where everything lives. Taxonomy files describe each type. No searching blind. |
+| **Works with any agent** | Any agent that can read files can understand the brain out of the box; the conventions are clear and the structure is self-documenting. We ship tooling that makes it even better. |
+| **You can read it too** | This isn't a hidden vector database. Everything is human-readable Markdown in an Obsidian vault. Browse it, search it, edit it. You see what your agent sees. |
+| **Free your data** | Your data is valuable and it's yours; put it to work. It stays on your machine by default. Keep it private, sync it to the cloud, access it from anywhere. |
+| **Durable** | No database, no proprietary format, no lock-in. Standard files that any tool can read. Your knowledge survives tool changes, agent changes, platform changes. |
 
 ## How It Works
 
-The intended way to interact with your brain is by talking with your agent. The brain is designed to be easy for your agent to understand, find what matters, and expand.
+Each brain is an Obsidian vault. You talk to your agent; the agent reads the vault's structure, finds what matters, and extends it. You can browse and edit in Obsidian at any time. The structure holds either way.
 
-Each brain is an Obsidian vault, with content stored in Markdown files. You can browse and edit your files with Obsidian on desktop or mobile, or with a text editor. No database, no lock-in.
+All vault content is an **artefact**, either **living** (evolves over time; current version is truth) or **temporal** (bound to a moment; written once). Folders starting with `_` or `.` are infrastructure, not artefacts. Living artefacts sit at the vault root; temporal artefacts sit under `_Temporal/`.
 
-All brain content in the vault is an **artefact** — either **living** (evolves over time, current version is truth) or **temporal** (bound to a moment, written once). Folders starting with `_` or `.` are infrastructure, not artefacts. Living artefacts sit at the vault root; temporal artefacts sit under `_Temporal/`. Other files go in **_Assets**, or if you want to work on something with many files, you can set up a **_Workspace**.
+The **router** (`_Config/router.md`) is the single file agents read every session. It lists artefact types, workflow triggers, and links to configuration. **Taxonomy** files (`_Config/Taxonomy/`) describe each type in detail; agents read only the types they need.
 
-The **router** (`_Config/router.md`) is the single file agents read every session. It lists which artefact types exist, workflow triggers to follow, and links to configuration. **Taxonomy** files (`_Config/Taxonomy/`) describe each artefact type in detail — agents read only the types they need.
+The [User Guide](docs/user-guide.md) walks through all of this with examples.
 
 ## Quick Start
 
@@ -47,79 +49,30 @@ The **router** (`_Config/router.md`) is the single file agents read every sessio
 4. Open the folder as an Obsidian vault
 5. Enable the CSS snippet in **Settings > Appearance > CSS Snippets** (`folder-colours`)
 6. Register the Brain MCP server: `python3 .brain-core/scripts/init.py` (or `--user` for all projects)
-7. Start a conversation — try "what's in my vault?" or "I have an idea about..."
+7. Start a conversation
 
-## Customisation
+### Hello, Is It Me You're Looking For?
 
-**Identity & preferences**
-
-- **`Agents.md`** — your name and context so agents know who they're working with
-- **`_Config/User/preferences-always.md`** — standing instructions for agents
-- **`_Config/User/gotchas.md`** — learned pitfalls from previous sessions
-
-**Vault structure**
-
-- **`_Config/router.md`** — workflow triggers and vault-level constraints
-- **`_Config/Taxonomy/`** — type definitions for artefact types
-- **`.brain-core/artefact-library/`** — ready-made types to browse and install
-
-**Style**
-
-- **`_Config/Styles/writing.md`** — language preferences (defaults to Australian English)
-- **`_Config/Styles/obsidian.md`** — folder colours and file explorer styling
-
-## Plugins
-
-The `_Plugins/` folder holds data managed by external tools. Each tool installs its own subfolder, skill doc, and MCP config. See the [plugin guide](docs/plugins.md) to install or write your own.
-
-Available plugins:
-
-- [Undertask](https://github.com/Rob-Morris/undertask/tree/main/plugins/obsidian-brain) — task management via MCP tools
-
-## Upgrading
-
-To upgrade brain-core:
-
-- **MCP**: ask your agent to run `brain_action(action="upgrade", ...)`
-- **CLI**: `python3 .brain-core/scripts/upgrade.py --source /path/to/src/brain-core`
-- **Manual**: replace `.brain-core/` with the new version from `src/brain-core/`
+| You Can Just | Do Things |
+|:--|:--|
+| "I just had an idea about..." | "Build a board presentation from this quarter's work on Cairn" |
+| "What did we decide about pricing for Longboard?" | "Optimise the pricing model for Tidepool based on user purchase behaviour to maximise gross revenue" |
+| "What's changed on Helios since I went on leave?" | "Research real-time sync approaches that would work with Mosaic's event-driven architecture" |
+| "Why did we drop the subscription model for Pace?" | "I have an idea for a preference engine. Interview me to shape it." |
+| "We're getting Redis timeouts on Atlas. What could be causing them?" | "Turn my notes from the Sequoia offsite into something the product team can use" |
+| "What went wrong with the Kite launch?" | "Write a brief for the new designer on Lantern. Bring them up to speed on everything we've decided." |
+| "What's the status of everything I'm working on?" | "Draft a competitive analysis for Ridgeline. How are others solving the same distribution problem?" |
+| "Who was that person I met at the conference in March?" | "Start planning the kitchen renovation. Start with the quotes and inspiration I've been collecting." |
+| "Recommend three books I might like to read next" | "Put together talking points for my 1:1 with Marcus about the Rivian partnership" |
+| "What are 3 high-impact things I could do differently next quarter?" | "Brainstorm ideas for something special for my anniversary with Sam. She loved that place in Byron last time." |
 
 ## Documentation
 
 - [Quick-Start Guide](src/brain-core/guide.md) — day-to-day essentials (ships as `.brain-core/guide.md` in vaults)
-- [User Guide](docs/user-guide.md) — walkthrough with examples: workflows, idea graduation, building knowledge
-- [User Reference](docs/user-reference.md) — every artefact type, configuration point, and convention in detail
-- [Tooling](docs/tooling.md) — technical design for scripts, MCP server, and development setup
+- [User Guide](docs/user-guide.md) — workflows, idea graduation, building knowledge
+- [User Reference](docs/user-reference.md) — every artefact type, configuration point, and convention
+- [Tooling](docs/tooling.md) — scripts, MCP server, development setup
 - [Specification](docs/specification.md) — design rationale and structural decisions
-- [Plugins](docs/plugins.md) — how to install and write plugins
+- [Plugins](docs/plugins.md) — install and write plugins
 - [Changelog](docs/changelog.md) — version history
 - [Contributing](docs/contributing.md) — contributor guide (general + [agent-specific](docs/contributing-agents.md))
-
-## Repository Structure
-
-```
-obsidian-brain/
-├── src/
-│   └── brain-core/              # core methodology (source of truth)
-│       ├── VERSION              # brain-core version
-│       ├── index.md             # entry point — links to all core docs
-│       ├── guide.md             # quick-start guide (ships into vaults)
-│       ├── artefact-library/    # ready-to-install type definitions
-│       ├── taxonomy/readme.md   # artefact classification guide
-│       ├── extensions.md        # how to add types, colours, triggers
-│       ├── triggers.md          # workflow trigger system
-│       ├── colours.md           # folder colour system design
-│       ├── plugins.md           # plugin system
-│       ├── scripts/             # tooling (compile_router, check, build_index, search)
-│       └── mcp/                 # MCP server (brain_read, brain_search, brain_action)
-├── tests/                       # test suite (make test)
-├── docs/
-│   ├── user-guide.md            # walkthrough with examples
-│   ├── user-reference.md        # full reference for all types and conventions
-│   ├── tooling.md               # technical design and development setup
-│   ├── changelog.md             # version history
-│   ├── plugins.md               # how to install and write plugins
-│   └── specification.md         # design rationale and structural decisions
-├── template-vault/              # starter vault — copy to create a new Brain
-└── README.md
-```
