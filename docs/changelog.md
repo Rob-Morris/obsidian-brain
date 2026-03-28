@@ -8,7 +8,7 @@ Follows [semver](https://semver.org/). Changes to vault structure (renamed/remov
 
 ## v0.15.3 — 2026-03-28
 
-- **Simplify review code fixes** — Moved `validate_artefact_folder/naming/path` from `edit.py` to `check.py` — validation belongs in the compliance module, not the mutation module; removes `read.py` → `edit.py` coupling. Removed unused `result` variables in workspace registry handlers.
+- **Simplify review code fixes** — Moved `validate_artefact_folder/naming/path` from `edit.py` to `check.py` — validation belongs in the compliance module, not the mutation module; removes `read.py` → `edit.py` coupling. Removed unused `result` variables in workspace registry handlers. Added `check` to `_SCRIPT_MODULES` reload list so hot-reload picks up the moved validation functions.
 
 ## v0.15.2 — 2026-03-28
 

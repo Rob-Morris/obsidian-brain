@@ -121,7 +121,7 @@ def _read_disk_version(vault_root: str) -> str | None:
 
 _SCRIPT_MODULES = [
     "_common", "compile_router", "compile_colours", "build_index",
-    "search_index", "read", "create", "edit", "rename", "obsidian_cli",
+    "search_index", "check", "read", "create", "edit", "rename", "obsidian_cli",
     "session", "shape_presentation", "upgrade", "migrate_naming",
     "workspace_registry", "process",
 ]
