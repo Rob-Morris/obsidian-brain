@@ -421,7 +421,11 @@ tags:
 
 File begins with a wikilink to the source. Q&A format: `Q.` prefix for questions, `> A.` blockquote for answers.
 
-**Trigger:** After refining an artefact through Q&A, capture the raw Q&A.
+**Topic switching:** If the conversation pivots to a different source artefact, save the current transcript and start a new one. The boundary is the source artefact, not the conversation.
+
+**Back-linking:** The shaped artefact should list its transcripts: `**Transcripts:** [[transcript-1|Session 1]]`. See [[.brain-core/standards/provenance]] for the full convention.
+
+**Trigger:** After shaping each artefact through Q&A, capture the raw Q&A.
 
 ### Research
 
@@ -816,6 +820,8 @@ When one artefact spins out of another:
 ```
 
 If the source transfers all authority, set its terminal status and archive it. Otherwise the callout alone suffices — the source stays active.
+
+**Transcript linking:** When an artefact is shaped through Q&A, the shaped artefact lists its transcripts: `**Transcripts:** [[transcript-1|Session 1]], [[transcript-2|Session 2]]`. Applies to any shaped artefact type, not just designs.
 
 ### Archiving
 

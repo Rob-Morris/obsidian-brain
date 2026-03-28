@@ -43,7 +43,7 @@ When a design reaches `implemented` status, authority transfers from the design 
 
 ## Lineage
 
-Follow [[.brain-core/standards/provenance]]. Designs additionally track transcripts:
+Follow [[.brain-core/standards/provenance]], including transcript linking for Q&A sessions:
 
 ```markdown
 **Origin:** [[idea-slug|Source idea]]

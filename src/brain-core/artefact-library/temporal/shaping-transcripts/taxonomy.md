@@ -9,6 +9,7 @@ A record of a Q&A session that shapes an artefact — a design, research note, i
 ## How to Write Shaping Transcripts
 
 - **One transcript per source artefact.** Don't merge separate Q&A sessions into one file.
+- **Topic switch = new transcript.** If the conversation pivots to shaping a different source artefact, save the current transcript and start a new one for the new source. The boundary is the source artefact, not the conversation.
 - **Link to the source.** The first line after frontmatter is a wikilink to the source document.
 - **Preserve the flow.** Record Q&A in order. Don't reorganise or editorialize.
 - **Tag the source type.** Include the source document type (e.g. `design`, `research`) in tags and filename.
@@ -32,7 +33,7 @@ tags:
 
 ## Trigger
 
-After refining an artefact through Q&A, capture the raw Q&A as a shaping transcript.
+After shaping each artefact through Q&A, capture the raw Q&A as a shaping transcript.
 
 ## Template
 

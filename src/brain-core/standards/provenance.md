@@ -18,3 +18,18 @@ When an artefact spins out of another (e.g. an idea graduating to a design, or a
 **Terminal status:** If the source artefact has transferred all authority to the new one, set the terminal status in frontmatter and archive if the type supports it (see [[.brain-core/standards/archiving]]). Otherwise the callout alone suffices — the source remains active.
 
 Individual artefact taxonomy files may document specific provenance patterns (e.g. idea graduation, log spinout) with their own terminology, but the underlying mechanism is always this: origin link on the child, callout on the parent.
+
+## Transcript linking
+
+When an artefact is shaped through Q&A (producing a shaping transcript), link bidirectionally:
+
+**On the shaping transcript** (already required by the shaping-transcript taxonomy):
+- First line after frontmatter: `Q&A transcript for [[Source/Path|Source Title]].`
+
+**On the shaped artefact:**
+- Add a `**Transcripts:**` line in the body listing all shaping sessions:
+  ```markdown
+  **Transcripts:** [[transcript-1|Session 1]], [[transcript-2|Session 2]]
+  ```
+
+This applies to any artefact type that gets shaped — designs, ideas, research, wiki, or anything else. The transcript list grows as new sessions occur.
