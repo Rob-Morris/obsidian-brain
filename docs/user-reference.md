@@ -706,6 +706,7 @@ tags:
 ### Archives
 
 - `{Type}/_Archive/` for living artefacts that reach terminal status
+- `{Type}/{Project}/_Archive/` for sub-artefacts archived while the project is still active
 - Files renamed to `yyyymmdd-{Title}.md` before moving
 - Styled in slate to signal "inactive infrastructure"
 
@@ -824,7 +825,7 @@ For living artefacts reaching terminal status:
 2. Add `archiveddate: YYYY-MM-DD` to frontmatter
 3. Add a supersession callout at the top of the body linking to the successor
 4. Rename to `yyyymmdd-{Title}.md` (use `brain_action("rename")` for automatic wikilink updates)
-5. Move to `{Type}/_Archive/`
+5. Move to `{Type}/_Archive/` (or `{Type}/{Project}/_Archive/` for sub-artefacts in a project subfolder)
 
 **Wikilink hygiene:** The rename disambiguates the archived file from any successor that reuses the original name. Use a path-qualified wikilink in the supersession callout (e.g. `[[Designs/Brain Workspaces]]`) and the renamed identifier in the origin link on the successor (e.g. `[[20260324-Brain Workspaces]]`). See `archiving.md` for details.
 
@@ -972,7 +973,7 @@ If your vault runs the Brain MCP server (`.brain-core/mcp/server.py`), seven too
 - Uses Obsidian CLI when available, falls back to BM25 index
 
 **brain_create** (additive, safe to auto-approve)
-- Create a new vault artefact from type (key, full type, or singular form — e.g. `"ideas"`, `"living/ideas"`, or `"idea"`), title, and optional body/frontmatter overrides
+- Create a new vault artefact from type (key, full type, or singular form — e.g. `"ideas"`, `"living/ideas"`, or `"idea"`), title, and optional body/frontmatter overrides. Optional `parent` parameter places living artefacts in a project subfolder (e.g. `parent="Brain"` → `Ideas/Brain/`; ignored for temporal types)
 - Resolves template and naming pattern from the compiled router
 - Returns the created file's path, type, and title
 

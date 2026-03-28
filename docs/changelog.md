@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.15.8 — 2026-03-28
+
+- **Project subfolder support for living artefacts** — `brain_create` gains optional `parent` parameter to place artefacts in `{Type}/{Project}/` subfolders (living types only; ignored for temporal). Archive validation (`check.py`) now scans `{Type}/{Project}/_Archive/` in addition to `{Type}/_Archive/`. New standards documentation for master/sub-artefact conventions (`subfolders.md`) and project subfolder archiving patterns (`archiving.md`). Doc sync across tooling, user-reference, and guide.
+
 ## v0.15.7 — 2026-03-28
 
 - **Canary maintenance: version gap and doc sync** — Version bump to cover three previously unversioned brain-core commits: extract `slug_to_title()` to `_common.py` and remove dead code across 5 scripts; fix stale archiving examples in `standards/archiving.md`; simplify `process.py`/`build_index.py` (dead code removal, regex caching, IDF fix). Doc sync: add `brain_session` and `brain_process` to `index.md` tool list, expand script fallback lists in `index.md` and `guide.md`, fix stale `yyyymmdd-slug` naming example in `specification.md`. Document singular type key matching in `tooling.md` and `user-reference.md` (v0.15.6 cont.).

@@ -152,7 +152,7 @@ Living artefacts that reach a terminal status (e.g., `implemented`, `graduated`)
 2. Add `archiveddate: YYYY-MM-DD` to frontmatter
 3. Add a supersession callout linking to the successor
 4. Rename to `yyyymmdd-{Title}.md`
-5. Move to `{Type}/_Archive/`
+5. Move to `{Type}/_Archive/` (or `{Type}/{Project}/_Archive/` for sub-artefacts in a project subfolder)
 
 Superseded published writing archives from `_Published/` to `_Archive/`.
 

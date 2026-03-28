@@ -16,6 +16,36 @@ The rename in step 4 disambiguates the archived file from any successor that reu
 - **Origin link** (on the successor): link back using the renamed identifier — `[[20260324-Brain Workspaces|Workspaces Idea]]` — so it resolves to the archived file, not itself
 - **All other existing links** to the original name (`[[Brain Workspaces]]`) naturally resolve to the successor since the archived file no longer shares that name
 
+## Project subfolder archiving
+
+When artefacts are organised in a project subfolder (see [[.brain-core/standards/subfolders]]), archiving follows two patterns depending on scope.
+
+### Sub-artefact reaches terminal status (project still active)
+
+The sub-artefact archives to `{Type}/{Project}/_Archive/` — the archive lives with the sub-artefacts, not in the type root's `_Archive/`. Follow the same steps (terminal status, archiveddate, rename, move).
+
+```
+Designs/
+  Brain Master Design.md
+  Brain/
+    Brain Inbox.md                    <- still active
+    _Archive/
+      20260317-Brain Tooling Architecture.md   <- archived sub-artefact
+```
+
+### Whole project reaches terminal status
+
+When the master artefact itself reaches terminal status, the entire subfolder (master included) moves to `{Type}/_Archive/{Project}/`. The inner `_Archive/` is flattened at this point — everything is terminal, so the distinction is redundant.
+
+```
+Designs/
+  _Archive/
+    Brain/
+      Brain Master Design.md
+      Brain Inbox.md
+      20260317-Brain Tooling Architecture.md
+```
+
 ## Notes
 
 - `brain_action("rename")` handles wikilink updates automatically — no manual link maintenance needed
