@@ -70,7 +70,7 @@ def resolve_naming_pattern(pattern, title):
 # Core logic
 # ---------------------------------------------------------------------------
 
-def create_artefact(vault_root, router, type_key, title, body="", frontmatter_overrides=None):
+def create_artefact(vault_root, router, type_key, title, body="", frontmatter_overrides=None, parent=None):
     """Create a new artefact. Returns {"path": relative_path, "type": ..., "title": ...}.
 
     Args:
@@ -80,6 +80,8 @@ def create_artefact(vault_root, router, type_key, title, body="", frontmatter_ov
         title: Human-readable title, used for filename generation.
         body: Markdown body content (optional, template body used if empty).
         frontmatter_overrides: Optional dict of frontmatter field overrides.
+        parent: Optional project subfolder name for living types (e.g. "Brain").
+                Places the artefact in {Type}/{parent}/ instead of {Type}/.
 
     Returns:
         Dict with path, type, and title.
@@ -103,7 +105,7 @@ def create_artefact(vault_root, router, type_key, title, body="", frontmatter_ov
         filename = title_to_filename(title) + ".md"
 
     # 4. Resolve folder
-    folder = resolve_folder(artefact)
+    folder = resolve_folder(artefact, parent=parent)
 
     # 5. Merge frontmatter: template → overrides → force type
     fields = dict(template_fields)
@@ -159,17 +161,19 @@ def _read_template(vault_root, artefact):
     return parse_frontmatter(content)
 
 
-def resolve_folder(artefact):
+def resolve_folder(artefact, parent=None):
     """Resolve the target folder for a new artefact.
 
-    Living types: use artefact["path"].
-    Temporal types: append yyyy-mm/ subfolder.
+    Living types: use artefact["path"], optionally with a parent subfolder.
+    Temporal types: append yyyy-mm/ subfolder (parent ignored).
     """
     base_path = artefact["path"]
     if artefact.get("classification") == "temporal":
         now = datetime.now(timezone.utc).astimezone()
         month_folder = now.strftime("%Y-%m")
         return os.path.join(base_path, month_folder)
+    if parent:
+        return os.path.join(base_path, parent)
     return base_path
 
 
@@ -182,6 +186,7 @@ def main():
     title = None
     body = ""
     vault_arg = None
+    parent = None
     json_mode = False
 
     i = 1
@@ -199,6 +204,9 @@ def main():
         elif arg == "--vault" and i + 1 < len(sys.argv):
             vault_arg = sys.argv[i + 1]
             i += 2
+        elif arg == "--parent" and i + 1 < len(sys.argv):
+            parent = sys.argv[i + 1]
+            i += 2
         elif arg == "--json":
             json_mode = True
             i += 1
@@ -207,7 +215,7 @@ def main():
 
     if not type_key or not title:
         print(
-            'Usage: create.py --type TYPE --title TITLE [--body BODY] [--vault PATH] [--json]',
+            'Usage: create.py --type TYPE --title TITLE [--body BODY] [--parent NAME] [--vault PATH] [--json]',
             file=sys.stderr,
         )
         sys.exit(1)
@@ -225,7 +233,7 @@ def main():
         sys.exit(1)
 
     try:
-        result = create_artefact(vault_root, router, type_key, title, body=body)
+        result = create_artefact(vault_root, router, type_key, title, body=body, parent=parent)
     except ValueError as e:
         if json_mode:
             print(json.dumps({"error": str(e)}))

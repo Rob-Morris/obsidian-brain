@@ -195,6 +195,24 @@ class TestCreateArtefact:
         with pytest.raises(ValueError, match="already exists"):
             create.create_artefact(str(vault), router, "wiki", "Duplicate")
 
+    def test_create_with_parent_subfolder(self, vault, router):
+        """Parent parameter places living artefact in a project subfolder."""
+        result = create.create_artefact(str(vault), router, "ideas", "Sub Idea", parent="Brain")
+        assert result["path"] == os.path.join("Ideas", "Brain", "Sub Idea.md")
+        abs_path = os.path.join(str(vault), result["path"])
+        assert os.path.isfile(abs_path)
+
+    def test_parent_creates_directory(self, vault, router):
+        """Parent subfolder is created automatically if it doesn't exist."""
+        result = create.create_artefact(str(vault), router, "wiki", "New Sub", parent="Project")
+        assert os.path.isdir(os.path.join(str(vault), "Wiki", "Project"))
+
+    def test_parent_ignored_for_temporal(self, vault, router):
+        """Temporal types always use yyyy-mm/ regardless of parent."""
+        result = create.create_artefact(str(vault), router, "logs", "Session", parent="Brain")
+        assert "_Temporal/Logs/" in result["path"]
+        assert "Brain" not in result["path"]
+
 
 class TestResolveNamingPattern:
     def test_slug_pattern(self):

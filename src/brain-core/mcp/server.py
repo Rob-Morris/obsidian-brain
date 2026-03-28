@@ -612,7 +612,7 @@ def brain_search(query: str, type: str | None = None, tag: str | None = None,
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def brain_create(type: str, title: str, body: str = "", frontmatter: dict | None = None):
+def brain_create(type: str, title: str, body: str = "", frontmatter: dict | None = None, parent: str | None = None):
     """Create a new vault artefact. Additive — creates a file, cannot destroy existing work.
 
     Parameters:
@@ -620,6 +620,8 @@ def brain_create(type: str, title: str, body: str = "", frontmatter: dict | None
       title      — human-readable title, used for filename generation
       body       — markdown body content (optional, template body used if empty)
       frontmatter — optional frontmatter field overrides (e.g. {"status": "developing"})
+      parent     — optional project name to group this artefact under (e.g. "Brain").
+                   Living types only; ignored for temporal types.
 
     Returns JSON: {path, type, title}
     """
@@ -632,7 +634,7 @@ def brain_create(type: str, title: str, body: str = "", frontmatter: dict | None
     try:
         result = create.create_artefact(
             _vault_root, _router, type, title,
-            body=body, frontmatter_overrides=frontmatter,
+            body=body, frontmatter_overrides=frontmatter, parent=parent,
         )
         return f"**Created** {result['type']}: {result['path']}"
     except ValueError as e:

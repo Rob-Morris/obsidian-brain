@@ -1,7 +1,7 @@
 # Obsidian Brain
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-0.15.7-blue)
+![Version](https://img.shields.io/badge/version-0.15.8-blue)
 ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED)
 
 A self-evolving knowledge base for agents and humans working together on what matters. Local-first. Built for Obsidian.
