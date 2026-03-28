@@ -561,6 +561,29 @@ class TestCheckArchiveMetadata:
         findings = check.check_archive_metadata(str(tmp_path), router)
         assert not any("terminal" in f.get("message", "").lower() for f in findings)
 
+    def test_project_subfolder_archive_passes(self, vault):
+        """Archives in project subfolders are validated too."""
+        tmp_path, router = vault
+        archive = tmp_path / "Designs" / "Brain" / "_Archive"
+        archive.mkdir(parents=True)
+        write_md(archive / "20260317-old-sub.md",
+                 {"type": "living/design", "tags": ["design"],
+                  "status": "implemented", "archiveddate": "2026-03-17"})
+        findings = check.check_archive_metadata(str(tmp_path), router)
+        assert len(findings) == 0
+
+    def test_project_subfolder_archive_missing_archiveddate(self, vault):
+        """Findings generated for bad metadata in project subfolder archives."""
+        tmp_path, router = vault
+        archive = tmp_path / "Designs" / "Brain" / "_Archive"
+        archive.mkdir(parents=True)
+        write_md(archive / "20260317-bad.md",
+                 {"type": "living/design", "tags": ["design"],
+                  "status": "implemented"})
+        findings = check.check_archive_metadata(str(tmp_path), router)
+        assert any("archiveddate" in f["message"] for f in findings)
+        assert any("Brain" in f["file"] for f in findings)
+
 
 # ---------------------------------------------------------------------------
 # TestCheckStatusValues

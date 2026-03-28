@@ -21,7 +21,7 @@ import re
 import sys
 from datetime import datetime, timezone
 
-from _common import find_vault_root, parse_frontmatter
+from _common import find_vault_root, is_system_dir, parse_frontmatter
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -344,8 +344,43 @@ def check_month_folders(vault_root, router):
     return findings
 
 
+def _find_archive_dirs(vault_root, art_path):
+    """Find all _Archive/ directories for a living type.
+
+    Returns list of (abs_archive_dir, rel_prefix) tuples. Covers both the
+    type-root archive ({Type}/_Archive/) and project-subfolder archives
+    ({Type}/{Project}/_Archive/).
+    """
+    dirs = []
+    type_dir = os.path.join(vault_root, art_path)
+    if not os.path.isdir(type_dir):
+        return dirs
+
+    # Type-root archive
+    root_archive = os.path.join(type_dir, "_Archive")
+    if os.path.isdir(root_archive):
+        dirs.append((root_archive, os.path.join(art_path, "_Archive")))
+
+    # Project-subfolder archives
+    for entry in os.listdir(type_dir):
+        if is_system_dir(entry):
+            continue
+        subfolder = os.path.join(type_dir, entry)
+        if not os.path.isdir(subfolder):
+            continue
+        sub_archive = os.path.join(subfolder, "_Archive")
+        if os.path.isdir(sub_archive):
+            dirs.append((sub_archive, os.path.join(art_path, entry, "_Archive")))
+
+    return dirs
+
+
 def check_archive_metadata(vault_root, router):
-    """Check _Archive/ files have archiveddate, yyyymmdd- prefix, and terminal status."""
+    """Check _Archive/ files have archiveddate, yyyymmdd- prefix, and terminal status.
+
+    Checks both type-root archives ({Type}/_Archive/) and project-subfolder
+    archives ({Type}/{Project}/_Archive/).
+    """
     findings = []
     date_prefix_re = re.compile(r"\d{8}-")
 
@@ -353,60 +388,57 @@ def check_archive_metadata(vault_root, router):
         if art.get("classification") != "living":
             continue
 
-        archive_dir = os.path.join(vault_root, art["path"], "_Archive")
-        if not os.path.isdir(archive_dir):
-            continue
-
         terminal = None
         if art.get("frontmatter") and art["frontmatter"].get("terminal_statuses"):
             terminal = art["frontmatter"]["terminal_statuses"]
 
-        for fname in os.listdir(archive_dir):
-            if not fname.endswith(".md"):
-                continue
-            rel_path = os.path.join(art["path"], "_Archive", fname)
-            abs_path = os.path.join(archive_dir, fname)
+        for archive_dir, rel_prefix in _find_archive_dirs(vault_root, art["path"]):
+            for fname in os.listdir(archive_dir):
+                if not fname.endswith(".md"):
+                    continue
+                rel_path = os.path.join(rel_prefix, fname)
+                abs_path = os.path.join(archive_dir, fname)
 
-            # Sub-check 1: filename prefix
-            if not date_prefix_re.match(fname):
-                findings.append({
-                    "check": "archive_metadata",
-                    "severity": "warning",
-                    "file": rel_path,
-                    "message": "Archive filename missing yyyymmdd- prefix",
-                    "fix": "Rename to yyyymmdd-{slug}.md",
-                })
-
-            # Read frontmatter for remaining checks
-            try:
-                with open(abs_path, "r", encoding="utf-8") as f:
-                    text = f.read()
-            except (OSError, UnicodeDecodeError):
-                continue
-
-            fields, _ = parse_frontmatter(text)
-
-            # Sub-check 2: archiveddate field
-            if "archiveddate" not in fields:
-                findings.append({
-                    "check": "archive_metadata",
-                    "severity": "warning",
-                    "file": rel_path,
-                    "message": "Missing archiveddate field",
-                    "fix": "Add 'archiveddate: YYYY-MM-DD' to frontmatter",
-                })
-
-            # Sub-check 3: terminal status (only if type defines terminal_statuses)
-            if terminal and fields:
-                status = fields.get("status")
-                if status and status not in terminal:
+                # Sub-check 1: filename prefix
+                if not date_prefix_re.match(fname):
                     findings.append({
                         "check": "archive_metadata",
                         "severity": "warning",
                         "file": rel_path,
-                        "message": f"Status '{status}' is not a terminal status ({', '.join(terminal)})",
-                        "fix": f"Set status to one of: {', '.join(terminal)}",
+                        "message": "Archive filename missing yyyymmdd- prefix",
+                        "fix": "Rename to yyyymmdd-{slug}.md",
                     })
+
+                # Read frontmatter for remaining checks
+                try:
+                    with open(abs_path, "r", encoding="utf-8") as f:
+                        text = f.read()
+                except (OSError, UnicodeDecodeError):
+                    continue
+
+                fields, _ = parse_frontmatter(text)
+
+                # Sub-check 2: archiveddate field
+                if "archiveddate" not in fields:
+                    findings.append({
+                        "check": "archive_metadata",
+                        "severity": "warning",
+                        "file": rel_path,
+                        "message": "Missing archiveddate field",
+                        "fix": "Add 'archiveddate: YYYY-MM-DD' to frontmatter",
+                    })
+
+                # Sub-check 3: terminal status (only if type defines terminal_statuses)
+                if terminal and fields:
+                    status = fields.get("status")
+                    if status and status not in terminal:
+                        findings.append({
+                            "check": "archive_metadata",
+                            "severity": "warning",
+                            "file": rel_path,
+                            "message": f"Status '{status}' is not a terminal status ({', '.join(terminal)})",
+                            "fix": f"Set status to one of: {', '.join(terminal)}",
+                        })
 
     return findings
 
