@@ -392,6 +392,62 @@ class TestExtractTypeDescription:
 
 
 # ---------------------------------------------------------------------------
+# Incremental index updates
+# ---------------------------------------------------------------------------
+
+class TestIncrementalIndex:
+    def test_index_add_new_document(self, vault):
+        """index_add should add a new document and update corpus stats."""
+        index = bi.build_index(vault)
+        old_count = index["meta"]["document_count"]
+        # Write a new file
+        (vault / "Wiki" / "new-topic.md").write_text(
+            "---\ntype: living/wiki\ntags: []\nstatus: active\n---\n\n"
+            "# New Topic\n\nUnique xylophonic content here.\n"
+        )
+        doc = bi.index_add(index, vault, "Wiki/new-topic.md", type_hint="living/wiki")
+        assert doc is not None
+        assert doc["title"] == "new-topic"
+        assert index["meta"]["document_count"] == old_count + 1
+        assert "xylophonic" in index["corpus_stats"]["df"]
+        paths = [d["path"] for d in index["documents"]]
+        assert "Wiki/new-topic.md" in paths
+
+    def test_index_add_unreadable_returns_none(self, vault):
+        """index_add returns None for a path that doesn't exist."""
+        index = bi.build_index(vault)
+        old_count = index["meta"]["document_count"]
+        doc = bi.index_add(index, vault, "Wiki/nonexistent.md")
+        assert doc is None
+        assert index["meta"]["document_count"] == old_count
+
+    def test_index_update_existing_document(self, vault):
+        """index_update should replace an existing document's data."""
+        index = bi.build_index(vault)
+        old_count = index["meta"]["document_count"]
+        # Overwrite an existing file with new content
+        (vault / "Wiki" / "python-basics.md").write_text(
+            "---\ntype: living/wiki\ntags: []\nstatus: active\n---\n\n"
+            "# Python Basics\n\nCompletely rewritten with plumbiferous content.\n"
+        )
+        doc = bi.index_update(index, vault, "Wiki/python-basics.md", type_hint="living/wiki")
+        assert doc is not None
+        assert index["meta"]["document_count"] == old_count  # count unchanged
+        assert "plumbiferous" in index["corpus_stats"]["df"]
+
+    def test_index_update_missing_path_falls_back_to_add(self, vault):
+        """index_update should add the document if path not found in index."""
+        index = bi.build_index(vault)
+        old_count = index["meta"]["document_count"]
+        (vault / "Wiki" / "brand-new.md").write_text(
+            "---\ntype: living/wiki\ntags: []\nstatus: active\n---\n\n# Brand New\n\nContent.\n"
+        )
+        doc = bi.index_update(index, vault, "Wiki/brand-new.md", type_hint="living/wiki")
+        assert doc is not None
+        assert index["meta"]["document_count"] == old_count + 1
+
+
+# ---------------------------------------------------------------------------
 # Embedding building
 # ---------------------------------------------------------------------------
 

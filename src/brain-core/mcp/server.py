@@ -80,6 +80,8 @@ mcp = FastMCP(name="brain")
 _vault_root: str | None = None
 _router: dict | None = None
 _index: dict | None = None
+_index_dirty: bool = False       # set True for full rebuild (e.g. version drift)
+_index_pending: list[tuple[str, str | None]] = []  # [(rel_path, type_hint), ...] for incremental updates
 _cli_available: bool = False
 _cli_probed_at: float = 0.0  # monotonic timestamp of last CLI probe
 _vault_name: str | None = None
@@ -88,9 +90,13 @@ _workspace_registry: dict | None = None
 _type_embeddings = None    # numpy array or None
 _embeddings_meta = None    # dict with "types" and "documents" keys, or None
 _doc_embeddings = None     # numpy array or None
+_embeddings_dirty: bool = False  # set True when doc embeddings are out of sync with index
 
 
-_CLI_PROBE_TTL = 30  # seconds between CLI availability re-probes
+_CLI_PROBE_TTL = 30      # seconds between CLI availability re-probes
+_STALENESS_CHECK_TTL = 5  # seconds between router/index filesystem staleness checks
+_router_checked_at: float = 0.0
+_index_checked_at: float = 0.0
 
 
 def _refresh_cli_available():
@@ -128,8 +134,12 @@ _SCRIPT_MODULES = [
 
 
 def _check_and_reload() -> None:
-    """Reload script modules if brain-core on disk has been upgraded."""
-    global _loaded_version
+    """Reload script modules if brain-core on disk has been upgraded.
+
+    After reloading, recompile the router (version change implies config
+    changes) and mark the index dirty (new logic may affect indexing).
+    """
+    global _loaded_version, _router
     if _vault_root is None or _loaded_version is None:
         return
     disk_version = _read_disk_version(_vault_root)
@@ -140,7 +150,9 @@ def _check_and_reload() -> None:
             if mod is not None:
                 importlib.reload(mod)
         _loaded_version = disk_version
-        print(f"brain-core reloaded ({old} → {disk_version})", file=sys.stderr)
+        _router = _compile_and_save(_vault_root)
+        _mark_index_dirty()
+        print(f"brain-core reloaded ({old} → {disk_version}): recompiled router, index marked dirty", file=sys.stderr)
 
 
 # ---------------------------------------------------------------------------
@@ -231,14 +243,93 @@ def _check_router_type_count(vault_root: str, router: dict) -> bool:
 
 
 def _ensure_router_fresh() -> None:
-    """Auto-recompile if the router is stale (new types or modified sources)."""
-    global _router
+    """Auto-recompile if the router is stale (new types or modified sources).
+
+    Filesystem staleness checks are throttled by _STALENESS_CHECK_TTL to
+    avoid per-call I/O overhead. External changes are still detected within
+    a few seconds.
+    """
+    global _router, _router_checked_at
     if _vault_root is None or _router is None:
         return
+    now = time.monotonic()
+    if now - _router_checked_at < _STALENESS_CHECK_TTL:
+        return
+    _router_checked_at = now
     stale, data = _check_router(_vault_root)
     if not stale and not _check_router_type_count(_vault_root, _router):
         return
     _router = _compile_and_save(_vault_root)
+
+
+def _mark_index_dirty() -> None:
+    """Flag the index for a full rebuild (e.g. version drift, unknown scope of change)."""
+    global _index_dirty
+    _index_dirty = True
+
+
+def _mark_embeddings_dirty() -> None:
+    """Flag doc embeddings as out of sync with the index."""
+    global _embeddings_dirty
+    _embeddings_dirty = True
+
+
+def _ensure_embeddings_fresh() -> None:
+    """Rebuild doc embeddings if they're out of sync with the index.
+
+    Called lazily before brain_process operations that use embeddings.
+    Only rebuilds if deps are available and the router is loaded.
+    """
+    global _embeddings_dirty, _doc_embeddings, _embeddings_meta
+    if not _embeddings_dirty or _vault_root is None or _index is None:
+        return
+    if _router is not None:
+        meta = build_index.build_embeddings(_vault_root, _router, _index["documents"])
+        if meta is not None:
+            _embeddings_meta = meta
+            _load_embeddings(_vault_root)
+    _embeddings_dirty = False
+
+
+def _mark_index_pending(rel_path: str, type_hint: str | None = None) -> None:
+    """Queue a single file for incremental index update on the next search."""
+    _index_pending.append((rel_path, type_hint))
+
+
+def _ensure_index_fresh() -> None:
+    """Update the index if needed: incremental for queued paths, full rebuild
+    if dirty flag is set, filesystem staleness check on TTL for external changes.
+    """
+    global _index, _index_checked_at
+    if _vault_root is None:
+        return
+
+    # Full rebuild takes priority over incremental
+    if _index_dirty:
+        _index = _build_index_and_save(_vault_root)
+        return
+
+    # Incremental updates for paths queued by brain_create/brain_edit
+    if _index_pending and _index is not None:
+        pending = _index_pending[:]
+        _index_pending.clear()
+        for rel_path, type_hint in pending:
+            build_index.index_update(_index, _vault_root, rel_path, type_hint=type_hint, recompute=False)
+        build_index._recompute_corpus_stats(_index)
+        _save_json(_index, _vault_root, RETRIEVAL_INDEX_REL)
+        _mark_embeddings_dirty()
+        _index_checked_at = time.monotonic()
+        return
+
+    # Filesystem staleness check for external changes (throttled)
+    now = time.monotonic()
+    if now - _index_checked_at < _STALENESS_CHECK_TTL:
+        return
+    _index_checked_at = now
+    stale, data = _check_index(_vault_root)
+    if not stale:
+        return
+    _index = _build_index_and_save(_vault_root)
 
 
 # ---------------------------------------------------------------------------
@@ -255,18 +346,31 @@ def _save_json(data: dict, vault_root: str, rel_path: str) -> None:
 
 
 def _compile_and_save(vault_root: str) -> dict:
-    """Compile router and colours, write to disk, return compiled data."""
+    """Compile router and colours, write to disk, return compiled data.
+
+    Resets the router staleness-check TTL so callers don't need to.
+    """
+    global _router_checked_at
     compiled = compile_router.compile(vault_root)
     _save_json(compiled, vault_root, COMPILED_ROUTER_REL)
     compile_colours.generate(vault_root, compiled)
+    _router_checked_at = time.monotonic()
     return compiled
 
 
 def _build_index_and_save(vault_root: str) -> dict:
-    """Build retrieval index, write to disk, return index data."""
-    global _type_embeddings, _embeddings_meta, _doc_embeddings
+    """Build retrieval index, write to disk, return index data.
+
+    Always clears _index_dirty, _index_pending, and resets the staleness-check
+    TTL so that callers don't need to remember to do it themselves.
+    """
+    global _type_embeddings, _embeddings_meta, _doc_embeddings, _index_dirty, _index_checked_at, _embeddings_dirty
     index = build_index.build_index(vault_root)
     _save_json(index, vault_root, RETRIEVAL_INDEX_REL)
+    _index_dirty = False
+    _embeddings_dirty = False
+    _index_pending.clear()
+    _index_checked_at = time.monotonic()
     # Build embeddings if deps available and router is loaded
     if _router is not None:
         meta = build_index.build_embeddings(vault_root, _router, index["documents"])
@@ -581,6 +685,7 @@ def brain_search(query: str, type: str | None = None, tag: str | None = None,
     """
     _check_and_reload()
     _ensure_router_fresh()
+    _ensure_index_fresh()
 
     if _index is None:
         return _fmt_error("server not initialized")
@@ -636,6 +741,7 @@ def brain_create(type: str, title: str, body: str = "", frontmatter: dict | None
             _vault_root, _router, type, title,
             body=body, frontmatter_overrides=frontmatter, parent=parent,
         )
+        _mark_index_pending(result["path"], type_hint=result["type"])
         return f"**Created** {result['type']}: {result['path']}"
     except ValueError as e:
         return _fmt_error(str(e))
@@ -687,6 +793,7 @@ def brain_edit(operation: str, path: str, body: str = "", frontmatter: dict | No
             )
         else:
             return _fmt_error(f"Unknown operation '{operation}'. Valid: edit, append")
+        _mark_index_pending(result["path"])
         past = "Edited" if result["operation"] == "edit" else "Appended"
         msg = f"**{past}:** {result['path']}"
         if target:
@@ -767,12 +874,14 @@ def brain_action(action: str, params: dict | None = None):
         if _cli_available and _vault_name:
             result = obsidian_cli.move(_vault_name, source, dest)
             if result is not None:
+                _mark_index_dirty()
                 n = result.get("links_updated", -1)
                 return f"**Renamed** (obsidian_cli): {source} → {dest}, {n} links updated"
 
         # Fallback: grep-and-replace wikilinks + os.rename
         try:
             links_updated = rename.rename_and_update_links(_vault_root, source, dest)
+            _mark_index_dirty()
             return f"**Renamed** (grep_replace): {source} → {dest}, {links_updated} links updated"
         except FileNotFoundError as e:
             return _fmt_error(str(e))
@@ -784,6 +893,7 @@ def brain_action(action: str, params: dict | None = None):
             return _fmt_error("delete requires params: {path} (relative path)")
         try:
             links_replaced = rename.delete_and_clean_links(_vault_root, params["path"])
+            _mark_index_dirty()
             return f"**Deleted:** {params['path']}, {links_replaced} links replaced"
         except FileNotFoundError as e:
             return _fmt_error(str(e))
@@ -797,6 +907,7 @@ def brain_action(action: str, params: dict | None = None):
             result = edit.convert_artefact(
                 _vault_root, _router, params["path"], params["target_type"]
             )
+            _mark_index_dirty()
             return json.dumps({
                 "status": "ok",
                 "old_path": result["old_path"],
@@ -982,6 +1093,8 @@ def brain_process(operation: str, content: str,
 
     _check_and_reload()
     _ensure_router_fresh()
+    _ensure_index_fresh()
+    _ensure_embeddings_fresh()
 
     if _router is None or _vault_root is None:
         return _fmt_error("server not initialized")
@@ -1023,9 +1136,10 @@ def brain_process(operation: str, content: str,
             formatted = _fmt_ingest(result)
             if formatted is None:
                 return _fmt_error(result.get("message", "Unknown error"))
-            # Refresh index after successful mutation
-            if result.get("action_taken") in ("created", "updated"):
-                _index = _build_index_and_save(_vault_root)
+            # Queue incremental index update after successful mutation
+            if result.get("action_taken") in ("created", "updated") and result.get("path"):
+                _mark_index_pending(result["path"], type_hint=result.get("type"))
+                _ensure_index_fresh()
             return formatted
 
         else:

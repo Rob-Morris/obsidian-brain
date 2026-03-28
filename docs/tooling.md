@@ -70,7 +70,7 @@ DD-011 established the read/write safety split (2 tools). DD-020 adds `brain_sea
 
 **Obsidian CLI** (DD-022): Internal dependency of the MCP server, not a separate agent-facing tier. The server delegates to the CLI for search and rename when available; agents interact only with MCP tools or scripts. When MCP is unavailable, scripts provide full functionality (read, search, rename, compile, check). The CLI is an optimisation layer, not a requirement.
 
-**Startup:** Auto-compiles router and auto-builds index if stale (compares timestamps against source file mtimes). Both artefacts loaded into memory for the session lifetime. Loads workspace registry from `.brain/workspaces.json` (empty dict if absent). Probes Obsidian CLI availability and derives vault name from directory basename (overridable via `BRAIN_VAULT_NAME` env var).
+**Startup:** Auto-compiles router and auto-builds index if stale (compares timestamps against source file mtimes). Both artefacts loaded into memory for the session lifetime. Mid-session, the server detects version drift and auto-reloads modules, recompiles the router, and marks the index for rebuild. Loads workspace registry from `.brain/workspaces.json` (empty dict if absent). Probes Obsidian CLI availability and derives vault name from directory basename (overridable via `BRAIN_VAULT_NAME` env var).
 
 **Response payloads (DD-026):** Tools return either plain text or `list[TextContent]` multi-block responses for readability in MCP clients (see DD-026 for rationale). The FastMCP SDK natively supports both — `str` returns become a single `TextContent` block; `list[TextContent]` returns become multiple content blocks rendered separately.
 
@@ -243,7 +243,7 @@ python3 search_index.py "query" --json  # structured output
 
 **Build trigger:**
 
-- **MCP server** (implemented v0.7.0) — rebuilds on startup if stale (compares index timestamp against file mtimes), exposes `build_index` as a `brain_action` for mid-session refresh. Same pattern as compiled router auto-compile (DD-014). Phase 4 incremental updates make this cheap.
+- **MCP server** (implemented v0.7.0) — rebuilds on startup if stale (compares index timestamp against file mtimes), exposes `build_index` as a `brain_action` for mid-session refresh. Same pattern as compiled router auto-compile (DD-014). Incremental updates (v0.15.10): `brain_create`/`brain_edit` queue single-file upserts via `index_update()` instead of triggering full rebuilds; destructive actions (rename/delete/convert) set a dirty flag for full rebuild on next search. Filesystem staleness checks for both router and index are throttled by a 5-second TTL to reduce per-call I/O.
 - **Obsidian plugin** (planned) — watch for `.md` file changes and trigger rebuild so the index stays fresh for non-agent use cases (in-Obsidian search UI, etc.). Vault files can be modified by agents, by Obsidian, or directly via the filesystem — all three paths need to result in a fresh index. The plugin would either shell out to Python or use a TypeScript reimplementation (DD-007 anticipates dual implementations).
 - **Manual** — `python3 build_index.py` from the vault root.
 

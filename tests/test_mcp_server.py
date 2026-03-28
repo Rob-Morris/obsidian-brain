@@ -144,6 +144,9 @@ def vault(tmp_path):
 def initialized(vault):
     """Return vault root after initializing the server against the vault fixture."""
     server.startup(vault_root=str(vault))
+    # Reset staleness-check TTLs so tests can trigger checks immediately
+    server._router_checked_at = 0.0
+    server._index_checked_at = 0.0
     return vault
 
 
@@ -484,6 +487,36 @@ class TestBrainSearch:
                 assert "bm25" in text
             finally:
                 server._cli_available = False
+
+    def test_search_finds_newly_created_artefact(self, initialized):
+        """brain_search should find an artefact created via brain_create (incremental index)."""
+        # Verify the unique term isn't already in the index
+        text = _search_text(server.brain_search("zorblaxian"))
+        assert "0 results" in text
+        # Create an artefact containing a unique term
+        server.brain_create(type="ideas", title="Zorblaxian Discovery", body="The zorblaxian method is novel.")
+        # Search should find it without a full rebuild
+        text = _search_text(server.brain_search("zorblaxian"))
+        assert "1 results" in text
+
+    def test_search_reflects_edited_artefact(self, initialized):
+        """brain_search should reflect edits made via brain_edit (incremental index)."""
+        # Create an artefact, then search to flush the pending queue
+        result = server.brain_create(type="ideas", title="Editable Idea", body="Original content here.")
+        server.brain_search("editable")
+        # Extract created path from result
+        created_path = result.split(": ", 1)[1]
+        # Verify unique term not yet present
+        text = _search_text(server.brain_search("qwertymorphic"))
+        assert "0 results" in text
+        # Edit the artefact to include a unique term
+        edit_result = server.brain_edit(operation="edit", path=created_path, body="Now has qwertymorphic content.")
+        assert "Error" not in edit_result
+        # Verify the file on disk has the new content
+        file_path = initialized / created_path
+        assert "qwertymorphic" in file_path.read_text()
+        text = _search_text(server.brain_search("qwertymorphic"))
+        assert "1 results" in text
 
 
 # ---------------------------------------------------------------------------
