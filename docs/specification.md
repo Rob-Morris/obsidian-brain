@@ -62,7 +62,7 @@ Four tiers, each with distinct file explorer styling:
 
 ## Colour System
 
-CSS snippet at `.obsidian/snippets/folder-colours.css` driven by a palette of CSS variables. Graph view colours at `.obsidian/graph.json` `colorGroups`. System design documented in `.brain-core/colours.md`; instance assignments in `_Config/Styles/obsidian.md`.
+CSS snippet at `.obsidian/snippets/brain-folder-colours.css` driven by a palette of CSS variables. Graph view colours at `.obsidian/graph.json` `colorGroups`. System design documented in `.brain-core/colours.md`; instance assignments in `_Config/Styles/obsidian.md`.
 
 - Palette colours defined as `--palette-*` variables
 - Theme variables (`--theme-*-fg`, `--theme-*-bg`) reference palette colours

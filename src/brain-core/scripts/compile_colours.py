@@ -4,7 +4,7 @@ compile_colours.py — Brain-core CSS colour generator
 
 Reads the compiled router to discover artefact types, distributes hues evenly
 across available colour space (avoiding system-reserved zones), and generates
-`.obsidian/snippets/folder-colours.css`.
+`.obsidian/snippets/brain-folder-colours.css`.
 
 Algorithm:
   1. Four system colours occupy exclusion zones (±15° each, 120° total)
@@ -13,7 +13,7 @@ Algorithm:
   4. Deterministic: same sorted type list always produces the same colours
 
 Usage:
-    python3 compile_colours.py              # write folder-colours.css
+    python3 compile_colours.py              # write brain-folder-colours.css
     python3 compile_colours.py --json       # output colour assignments to stdout
     python3 compile_colours.py --dry-run    # print CSS to stdout without writing
     python3 compile_colours.py --vault /path/to/vault
@@ -55,7 +55,7 @@ PALETTE_ORCHID = "#DBA8D6"
 ROSE_RGB = (242, 168, 196)
 ROSE_BLEND_FACTOR = 0.35
 
-OUTPUT_REL = os.path.join(".obsidian", "snippets", "folder-colours.css")
+OUTPUT_REL = os.path.join(".obsidian", "snippets", "brain-folder-colours.css")
 GRAPH_JSON_REL = os.path.join(".obsidian", "graph.json")
 COMPILED_ROUTER_REL = os.path.join(".brain", "local", "compiled-router.json")
 
@@ -689,7 +689,12 @@ def render_graph_color_groups(assignments):
 
 
 def write_graph_json(vault_root, color_groups):
-    """Write colorGroups to .obsidian/graph.json, preserving other settings."""
+    """Write colorGroups to .obsidian/graph.json, preserving other settings.
+
+    Merges brain-generated entries (path: queries) with any user-defined
+    entries (tag:, file:, freetext, etc.) so manual graph colours survive
+    recompiles.
+    """
     graph_path = os.path.join(str(vault_root), GRAPH_JSON_REL)
 
     try:
@@ -698,7 +703,13 @@ def write_graph_json(vault_root, color_groups):
     except (json.JSONDecodeError, OSError):
         existing = {}
 
-    existing["colorGroups"] = color_groups
+    # Preserve user-defined colorGroups that don't use path: queries
+    brain_queries = {g["query"] for g in color_groups}
+    user_groups = [
+        g for g in existing.get("colorGroups", [])
+        if not g.get("query", "").startswith("path:") and g.get("query") not in brain_queries
+    ]
+    existing["colorGroups"] = user_groups + color_groups
 
     os.makedirs(os.path.dirname(graph_path), exist_ok=True)
     with open(graph_path, "w", encoding="utf-8") as f:

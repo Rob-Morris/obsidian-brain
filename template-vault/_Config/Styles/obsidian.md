@@ -2,7 +2,7 @@
 
 Custom styling for this vault's Obsidian file explorer. For palette design and CSS templates, see [[.brain-core/colours]].
 
-**Active CSS:** `.obsidian/snippets/folder-colours.css`
+**Active CSS:** `.obsidian/snippets/brain-folder-colours.css`
 
 ## System Folder Colours
 

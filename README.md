@@ -1,7 +1,7 @@
 # Obsidian Brain
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-0.16.0-blue)
+![Version](https://img.shields.io/badge/version-0.16.1-blue)
 ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED)
 ![Python](https://img.shields.io/badge/python-≥3.10-3776AB?logo=python&logoColor=white)
 ![MCP](https://img.shields.io/badge/MCP-server-green?logo=data:image/svg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0id2hpdGUiPjxwYXRoIGQ9Ik0xMiAyQzYuNDggMiAyIDYuNDggMiAxMnM0LjQ4IDEwIDEwIDEwIDEwLTQuNDggMTAtMTBTMTcuNTIgMiAxMiAyem0wIDE4Yy00LjQyIDAtOC0zLjU4LTgtOHMzLjU4LTggOC04IDggMy41OCA4IDgtMy41OCA4LTggOHptLTEtMTNoMnY2aC0yem0wIDhoMnYyaC0yeiIvPjwvc3ZnPg==)
@@ -37,7 +37,7 @@ The [User Guide](docs/user-guide.md) walks through all of this with examples.
 
 1. **Install [prerequisites](#prerequisites)**
 2. **Create your vault.** Run the [install command](#install) below.
-3. **Open as a vault in Obsidian.** Select the folder you created in step 2, then enable the `folder-colours` CSS snippet in Obsidian's Settings > Appearance > CSS Snippets.
+3. **Open as a vault in Obsidian.** Select the folder you created in step 2, then enable the `brain-folder-colours` CSS snippet in Obsidian's Settings > Appearance > CSS Snippets.
 4. **Connect your agent.** Open your agent in the vault folder, or register the MCP server for other directories (see [Connecting from other projects](#connecting-from-other-projects)).
 
 That's it. Start talking. The agent reads the vault structure and knows what to do. See [A Day in the Life](docs/user-guide.md#a-day-in-the-life) for what working with the brain looks like in practice.
@@ -79,7 +79,7 @@ If you prefer to do it yourself:
 3. Create a venv and install dependencies: `cd ~/brain && python3 -m venv .venv && .venv/bin/pip install "mcp>=1.0.0"`
 4. Register the MCP server: `python3 .brain-core/scripts/init.py` (or `--user` for all projects)
 5. Open the folder as an Obsidian vault
-6. Enable the CSS snippet in **Settings > Appearance > CSS Snippets** (`folder-colours`)
+6. Enable the CSS snippet in **Settings > Appearance > CSS Snippets** (`brain-folder-colours`)
 
 </details>
 

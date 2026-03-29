@@ -1080,7 +1080,7 @@ The `graph.json` merge preserves all existing graph settings (scale, forces, dis
 
 ### File Locations
 
-- **Sidebar colours:** `.obsidian/snippets/folder-colours.css` — auto-generated CSS snippet
+- **Sidebar colours:** `.obsidian/snippets/brain-folder-colours.css` — auto-generated CSS snippet
 - **Graph colours:** `.obsidian/graph.json` `colorGroups` — auto-generated, other settings preserved
 
 Both files are auto-generated — do not edit colour entries manually. Regenerate with `brain_action("compile")` or `python3 compile_colours.py`. Algorithm details and CSS selector templates are in `.brain-core/colours.md`.

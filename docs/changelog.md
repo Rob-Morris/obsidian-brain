@@ -2,6 +2,12 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.16.1 — 2026-03-29
+
+- **Namespace CSS snippet to `brain-folder-colours`** — Renamed `folder-colours.css` → `brain-folder-colours.css` to avoid collisions when installing brain into existing vaults. Updated compile script, template vault, install script, and all docs.
+- **Preserve user graph colours across recompiles** — `write_graph_json` now merges brain-generated `path:` entries with user-defined colorGroups (tag:, file:, freetext queries) instead of replacing the entire array.
+- **Install script hardening** — Stdin pipe detection with helpful `bash <(curl ...)` guidance, `--force` flag for non-interactive use, safety guards against system/home directories, existing-vault detection (installs brain-core without clobbering user files), spinner elapsed-time display with stderr capture, graceful fallback when Python <3.10.
+
 ## v0.16.0 — 2026-03-28
 
 - **`.brain/` directory restructure** — Machine-local generated caches (compiled router, retrieval index, embeddings) move from `_Config/` dotfiles to `.brain/local/` (gitignored). Workspace registry moves from `.brain/workspaces.json` to `.brain/local/workspaces.json`. New vault-portable files: `.brain/preferences.json`, `.brain/tracking.json` (Phase 2 prep for artefact library sync). Split rule: `_Config/` is prose you edit, `.brain/` is data the system manages. Migration framework added (`scripts/migrations/`) — versioned scripts run automatically during upgrade. Template vault updated with `.brain/` seed files. All script path constants, MCP server startup, tests, and docs updated.

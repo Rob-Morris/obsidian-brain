@@ -400,7 +400,7 @@ class TestGenerate:
         router = _load_router(vault)
         assignments, css_path = cc.generate(vault, router)
         assert os.path.isfile(css_path)
-        assert css_path.endswith("folder-colours.css")
+        assert css_path.endswith("brain-folder-colours.css")
 
     def test_written_css_is_valid(self, vault):
         router = _load_router(vault)
@@ -662,8 +662,10 @@ class TestWriteGraphJson:
         with open(graph_path) as f:
             data = json.load(f)
 
-        # colorGroups replaced
-        assert data["colorGroups"] == new_groups
+        # User entries (non-path: queries) preserved, brain entries added
+        assert data["colorGroups"] == [
+            {"query": "old", "color": {"a": 1, "rgb": 0}},
+        ] + new_groups
         # Other settings preserved
         assert data["collapse-filter"] is True
         assert data["repelStrength"] == 10
