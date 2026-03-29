@@ -99,6 +99,10 @@ Artefact types that have a lifecycle should include a `status` field in frontmat
 
 ## Installing a type
 
+**Automated:** `brain_action("sync_definitions")` syncs all library definitions to vault `_Config/` using three-way hash comparison. Chains automatically after `brain_action("upgrade")`. Handles new installs, upstream updates, and user-customised files; conflicts go to an interview flow resolved via `brain_action("resolve_sync_interview", {type, role, decision})`.
+
+**Manual:**
+
 1. Copy `taxonomy.md` to `_Config/Taxonomy/{Living|Temporal}/{key}.md`
 2. Copy `template.md` to `_Config/Templates/{Living|Temporal}/{Type Name}.md`
 3. Create the storage folder (e.g. `_Temporal/{Type Name}/` or `{Type Name}/`)

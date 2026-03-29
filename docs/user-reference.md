@@ -808,9 +808,9 @@ Hub artefacts (People, Projects, Journals, Workspaces) are living summaries that
 
 Use **basename-only** wikilinks by default: `[[My Page]]`, not `[[Wiki/My Page]]`. Basename links survive folder moves, subfolder grouping, and archiving. Path-qualified links break when files move.
 
-Before creating a living artefact, check that the basename doesn't already exist in another type folder — duplicates make every link to that name ambiguous. If there's a collision, differentiate the name (e.g. `jwt-refresh-design` vs `jwt-refresh`). Temporal artefacts have date-prefixed filenames that are naturally unique — no collision risk.
+When `brain_create` detects a basename collision with a file in a different type folder, it automatically appends the type key to disambiguate: `Three Men in a Tub (idea).md`. The original file keeps its clean name. Temporal artefacts have date-prefixed filenames that are naturally unique — no collision risk.
 
-The compliance checker detects broken and ambiguous wikilinks. `brain_create` warns when a new file's basename collides with an existing file. Full rules in `.brain-core/standards/linking`.
+The compliance checker detects broken and ambiguous wikilinks. Full rules in `.brain-core/standards/linking`.
 
 ### Provenance
 
@@ -978,7 +978,7 @@ If your vault runs the Brain MCP server (`.brain-core/mcp/server.py`), seven too
 
 **brain_read** (safe, no side effects)
 - Look up artefacts, triggers, styles, templates, skills, plugins, memories, workspaces, environment info, the compiled router, structural compliance results, or read artefact files by path
-- Optional name filter to narrow results (for workspace, resolves a slug; for compliance, filters by severity; for file, the relative path from vault root)
+- Optional name filter to narrow results (for workspace, resolves a slug; for compliance, filters by severity; for file, a relative path or basename — resolves like wikilinks)
 
 **brain_search** (safe, no side effects)
 - Search vault content by query text
@@ -995,7 +995,7 @@ If your vault runs the Brain MCP server (`.brain-core/mcp/server.py`), seven too
 - `edit` — replace body content, optionally merge frontmatter changes
 - `append` — add content to end of existing body
 - Optional `target` parameter (heading or callout title) — `edit` replaces only that section; `append` inserts at the end of that section instead of EOF. Include `#` markers to disambiguate duplicate headings (e.g. `"### Notes"`). For callouts, use the `[!type]` prefix (e.g. `"[!note] Implementation status"`)
-- Path validated against compiled router (folder + naming pattern)
+- Path accepts relative path or basename (resolves like wikilinks); validated against compiled router
 
 **brain_action** (vault-wide/destructive, requires approval)
 - `compile` — rebuild the compiled router from source files
@@ -1004,11 +1004,13 @@ If your vault runs the Brain MCP server (`.brain-core/mcp/server.py`), seven too
 - `delete` — delete a file and replace wikilinks with strikethrough text
 - `convert` — change artefact type, move file, reconcile frontmatter, update wikilinks
 - `shape-presentation` — create a presentation artefact and launch Marp live preview (params: `{source, slug}`)
-- `upgrade` — upgrade brain-core from a source directory (params: `{source}`, optional `{dry_run, force}`)
+- `upgrade` — upgrade brain-core from a source directory; chains definition sync automatically (params: `{source}`, optional `{dry_run, force}`)
 - `migrate_naming` — migrate vault filenames from old aggressive slugs to generous naming conventions (optional `{dry_run}`)
 - `register_workspace` — register a linked workspace (params: `{slug, path}`)
 - `unregister_workspace` — remove a linked workspace registration (params: `{slug}`)
 - `fix-links` — scan for broken wikilinks and attempt auto-resolution; optional `{fix: true}` applies unambiguous fixes; returns JSON report
+- `sync_definitions` — sync artefact library definitions to vault `_Config/` using three-way hash comparison (optional `{dry_run, types}`)
+- `resolve_sync_interview` — resolve a sync conflict for a single definition file (params: `{type, role, decision}` where decision is `accept`/`decline`/`pin`)
 
 **brain_process** (content processing — classify/resolve are read-only, ingest can create/update)
 - `classify` — determine the best artefact type for content; returns ranked matches with confidence scores. Modes: `auto` (default), `embedding`, `bm25_only`, `context_assembly`
@@ -1034,6 +1036,7 @@ Available in `.brain-core/scripts/`. Scripts are the source of truth for all vau
 | `check.py` | Structural compliance checker — validates naming, frontmatter, month folders, archives, status values |
 | `migrate_naming.py` | Migrate vault filenames from old aggressive slugs to generous naming conventions |
 | `fix_links.py` | Auto-repair broken wikilinks using naming convention heuristics |
+| `sync_definitions.py` | Sync artefact library definitions to vault `_Config/` using three-way hash comparison |
 
 ### Compliance Checks
 

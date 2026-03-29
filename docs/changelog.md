@@ -2,6 +2,12 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.16.5 — 2026-03-29
+
+- **Basename resolution for `brain_read` and `brain_edit`** — `brain_read(resource="file")` and `brain_edit` now accept basenames in addition to full relative paths, resolving them like wikilinks (case-insensitive, `.md`-optional). Exact paths still work; basename lookup is a fallback. Ambiguous basenames (matching multiple files) return all candidates. New `resolve_artefact_path()` utility in `_common.py`.
+- **Basename disambiguation for `brain_create`** — when a new artefact's basename collides with an existing file in a different type folder, the filename is automatically disambiguated by appending the type key: `Three Men in a Tub (idea).md`. Same-folder collisions (duplicate title in same type) append a random 3-character suffix: `Three Men in a Tub k7f.md`. Replaces the previous warning-only approach.
+- **Artefact library definition sync** — new `sync_definitions.py` script and `brain_action("sync_definitions")` MCP action. Three-way hash comparison (upstream vs installed vs local) syncs library definitions to vault `_Config/` files. Auto-updates unmodified files; preserves user customisations; surfaces conflicts as interviews resolved via `resolve_sync_interview`. Supports pin and decline. Chains automatically after `brain_action("upgrade")`.
+
 ## v0.16.4 — 2026-03-29
 
 - **Broken link auto-repair** — New `fix_links.py` script and `brain_action("fix-links")` MCP action. Scans for broken wikilinks and attempts resolution using 8 naming-convention heuristics (slug→title, double-dash→tilde, temporal prefix matching, path stripping, tilde-space normalization, archive matching). Dry-run by default; `--fix` / `{fix: true}` applies unambiguous fixes. New `resolve_broken_link()` utility in `_common.py` for single-link resolution.
