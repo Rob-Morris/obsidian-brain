@@ -197,12 +197,22 @@ class TestParseFrontmatter:
         assert fields == {}
         assert body == text
 
-    def test_empty_value_skipped(self):
+    def test_empty_value_becomes_empty_list(self):
         text = "---\ntype: living/wiki\nempty_field:\nstatus: active\n---\nBody"
         fields, body = common.parse_frontmatter(text)
-        assert "empty_field" not in fields
+        assert fields["empty_field"] == []
         assert fields["type"] == "living/wiki"
         assert fields["status"] == "active"
+
+    def test_multiline_aliases(self):
+        text = "---\ntype: x\naliases:\n  - brain-master-design\n  - master-design\n---\nBody"
+        fields, body = common.parse_frontmatter(text)
+        assert fields["aliases"] == ["brain-master-design", "master-design"]
+
+    def test_inline_aliases(self):
+        text = "---\ntype: x\naliases: [foo, bar]\n---\nBody"
+        fields, body = common.parse_frontmatter(text)
+        assert fields["aliases"] == ["foo", "bar"]
 
     def test_quoted_values(self):
         text = "---\ntitle: 'Hello World'\n---\nBody"
@@ -331,6 +341,24 @@ class TestSerializeFrontmatter:
         serialized = common.serialize_frontmatter(original_fields)
         parsed_fields, _ = common.parse_frontmatter(serialized)
         assert parsed_fields["tags"] == ["alpha", "beta"]
+
+    def test_aliases_list(self):
+        result = common.serialize_frontmatter({"aliases": ["brain-master", "master"]})
+        assert "aliases:\n  - brain-master\n  - master\n" in result
+
+    def test_roundtrip_aliases(self):
+        original_fields = {"type": "x", "aliases": ["brain-master-design"]}
+        serialized = common.serialize_frontmatter(original_fields)
+        parsed_fields, _ = common.parse_frontmatter(serialized)
+        assert parsed_fields["aliases"] == ["brain-master-design"]
+
+    def test_roundtrip_multiple_list_fields(self):
+        original_fields = {"type": "x", "tags": ["a", "b"], "aliases": ["c"], "cssclasses": ["d"]}
+        serialized = common.serialize_frontmatter(original_fields)
+        parsed_fields, _ = common.parse_frontmatter(serialized)
+        assert parsed_fields["tags"] == ["a", "b"]
+        assert parsed_fields["aliases"] == ["c"]
+        assert parsed_fields["cssclasses"] == ["d"]
 
 
 # ---------------------------------------------------------------------------

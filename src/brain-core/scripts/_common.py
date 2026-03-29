@@ -141,31 +141,41 @@ def parse_frontmatter(text):
     fm_text = m.group(1)
     body = text[m.end():]
     fields = {}
+    # Simple YAML parser for flat fields and list fields
+    fm_lines = fm_text.split("\n")
+    pending_list_key = None
 
-    # Simple YAML parser for flat fields — handles type, status, tags
-    for line in fm_text.split("\n"):
-        line = line.strip()
-        if not line or line.startswith("#"):
+    for line in fm_lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
             continue
 
-        colon_idx = line.find(":")
+        # List item under a pending key
+        if stripped.startswith("- ") and pending_list_key:
+            fields[pending_list_key].append(stripped[2:].strip().strip("'\""))
+            continue
+
+        # Non-list-item ends any pending list collection
+        if pending_list_key:
+            pending_list_key = None
+
+        colon_idx = stripped.find(":")
         if colon_idx < 0:
             continue
 
-        key = line[:colon_idx].strip()
-        value = line[colon_idx + 1:].strip()
+        key = stripped[:colon_idx].strip()
+        value = stripped[colon_idx + 1:].strip()
 
-        if key == "tags":
-            # Handle inline list: [tag1, tag2] or multi-line
-            if value.startswith("["):
-                inner = value.strip("[]")
-                fields["tags"] = [t.strip().strip("'\"") for t in inner.split(",") if t.strip()]
-            elif not value:
-                # Multi-line tags follow; collect them
-                fields["tags"] = []
+        # Handle inline list: [item1, item2]
+        if value.startswith("["):
+            inner = value.strip("[]")
+            fields[key] = [t.strip().strip("'\"") for t in inner.split(",") if t.strip()]
             continue
 
         if not value:
+            # Empty value after colon — could be a multi-line list; collect on next lines
+            fields[key] = []
+            pending_list_key = key
             continue
 
         # Strip quotes
@@ -174,22 +184,6 @@ def parse_frontmatter(text):
             value = value[1:-1]
 
         fields[key] = value
-
-    # Handle multi-line tags (- tag format)
-    if "tags" in fields and fields["tags"] == []:
-        tags = []
-        in_tags = False
-        for line in fm_text.split("\n"):
-            stripped = line.strip()
-            if stripped.startswith("tags:"):
-                in_tags = True
-                continue
-            if in_tags:
-                if stripped.startswith("- "):
-                    tags.append(stripped[2:].strip().strip("'\""))
-                elif stripped and not stripped.startswith("-"):
-                    break
-        fields["tags"] = tags
 
     return fields, body
 
@@ -673,18 +667,18 @@ def slug_to_title(slug):
 def serialize_frontmatter(fields, body=""):
     """Produce markdown with YAML frontmatter from a fields dict and body.
 
-    Handles scalars and `tags` as a multi-line list (- tag).
-    Round-trips with parse_frontmatter().
+    Handles scalars and list fields (tags, aliases, cssclasses, etc.)
+    as multi-line YAML lists (- item). Round-trips with parse_frontmatter().
     """
     lines = ["---"]
     for key, value in fields.items():
-        if key == "tags" and isinstance(value, list):
+        if isinstance(value, list):
             if value:
-                lines.append("tags:")
-                for tag in value:
-                    lines.append(f"  - {tag}")
+                lines.append(f"{key}:")
+                for item in value:
+                    lines.append(f"  - {item}")
             else:
-                lines.append("tags: []")
+                lines.append(f"{key}: []")
         else:
             lines.append(f"{key}: {value}")
     lines.append("---")

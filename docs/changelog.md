@@ -2,6 +2,11 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.16.6 — 2026-03-29
+
+- **Fix section-targeted edit corrupting following headings** — `brain_edit` with a `target` section would concatenate replacement content directly with the next heading when the body lacked a trailing newline, corrupting the heading and making it invisible to subsequent section-targeted operations. Now normalizes spacing between replaced content and following sections.
+- **Fix frontmatter list field data loss on round-trip** — `parse_frontmatter` and `serialize_frontmatter` only handled `tags` as a list field. Other multi-line list fields (`aliases`, `cssclasses`, etc.) were silently dropped during edit operations. Both functions now handle any list field generically. Parser rewritten as single-pass (was two-pass).
+
 ## v0.16.5 — 2026-03-29
 
 - **Basename resolution for `brain_read` and `brain_edit`** — `brain_read(resource="file")` and `brain_edit` now accept basenames in addition to full relative paths, resolving them like wikilinks (case-insensitive, `.md`-optional). Exact paths still work; basename lookup is a fallback. Ambiguous basenames (matching multiple files) return all candidates. New `resolve_artefact_path()` utility in `_common.py`.
