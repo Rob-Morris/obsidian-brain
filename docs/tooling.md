@@ -170,34 +170,84 @@ Conditional:
 
 ## install.sh
 
-Top-level install script for new users. Creates a complete vault from scratch:
+Top-level script for installing, upgrading, and uninstalling the brain. Handles four modes depending on what it finds at the target path.
+
+### Usage
 
 ```bash
-# One-liner (downloads everything automatically)
+# Fresh install (downloads repo, creates vault, sets up MCP)
 bash <(curl -fsSL https://raw.githubusercontent.com/robmorris/obsidian-brain/main/install.sh)
-
-# With path argument
 bash <(curl -fsSL https://raw.githubusercontent.com/robmorris/obsidian-brain/main/install.sh) ~/brain
 
-# From a local clone
+# From a local clone (skips download)
 bash install.sh ~/brain
-```
 
-**What it does:** clones the repo (or uses existing clone) → copies template-vault → copies brain-core as `.brain-core/` → creates `.venv` with `mcp` installed → runs `init.py` to register the MCP server. Temp clone is cleaned up automatically.
+# Upgrade an existing brain vault
+bash install.sh ~/brain          # detects .brain-core/, offers upgrade
 
-**Requirements:** git, python3 (3.10+). No other dependencies. The script searches for the best available Python (3.13 down to 3.10) so it works even if `python3` points to an older version.
+# Install into an existing Obsidian vault or directory
+bash install.sh ~/my-vault       # detects non-empty dir, installs brain-core only
 
-**When running from an existing clone**, the script detects the repo and skips the download step.
-
-**Uninstall:** removes brain system files (`.brain-core/`, `.brain/`, `.venv/`, `.mcp.json`, `CLAUDE.md`) while keeping your Obsidian vault and notes intact. Optionally offers to delete the entire vault.
-
-```bash
+# Uninstall
 bash install.sh --uninstall ~/brain
+
+# Non-interactive (for scripts/agents)
+bash install.sh --force ~/brain
+bash install.sh --uninstall --force ~/brain
 ```
 
-**Flags:**
+### Modes
 
-- `--force` / `-f` — skip interactive prompts (for agent/scripted use). On uninstall, only skips the brain-files prompt; vault deletion always requires interactive confirmation.
+| Mode | Trigger | What happens |
+|---|---|---|
+| **Fresh install** | Target is empty or doesn't exist | Copies template vault + brain-core, creates `.venv`, registers MCP server |
+| **Upgrade** | Target contains `.brain-core/` | Shows installed vs source version, confirms, runs `upgrade.py` |
+| **Existing vault** | Target is non-empty but has no `.brain-core/` | Installs brain-core + config scaffolding only — existing files are never overwritten |
+| **Uninstall** | `--uninstall` flag | Removes brain system files; optionally deletes the entire vault |
+
+### Flags
+
+- `--force` / `-f` — skip all interactive prompts. On install/upgrade: accepts defaults, auto-registers MCP. On uninstall: skips the system-files confirmation only — vault deletion always requires interactive confirmation. Also bypasses the stdin pipe detection error.
+- `--uninstall` — enter uninstall mode. Must be the first argument.
+- **Path** (positional, optional) — target directory. Defaults to current directory (prompted interactively, or `pwd` with `--force`).
+
+### Requirements
+
+- **git** — required (for cloning the repo when not running from a local clone)
+- **python3** — required (any version, for basic preflight)
+- **Python 3.10+** — recommended. The script searches for `python3.13` down to `python3.10`, then falls back to `python3`. If no 3.10+ is found, the vault is still created but `.venv` and MCP server setup are skipped. The script prints guidance for installing Python later and running `init.py` manually.
+
+### Safety guards
+
+The script refuses dangerous target paths:
+
+- System directories: `/`, `/usr`, `/usr/*`, `/bin`, `/sbin`, `/etc`, `/var`, `/tmp`, `/System`, `/Library`
+- Home directory directly (`$HOME`) — must be a subdirectory
+- The source repo itself (when running from a clone)
+- Any path whose parent directory doesn't exist
+
+**Stdin pipe detection:** running `curl ... | bash` breaks interactive prompts. The script detects this and exits with a message showing the correct `bash <(curl ...)` invocation. Pass `--force` to skip all prompts and bypass the check.
+
+### Existing vault behaviour
+
+When the target is a non-empty directory without `.brain-core/`, the script installs brain-core alongside existing files:
+
+- **Always installed:** `.brain-core/` (the brain engine)
+- **Created if missing:** `_Config/`, `_Assets/`, `_Temporal/`, `_Plugins/`, `_Workspaces/`, `.backups/`
+- **Copied if absent:** `Agents.md`, `CLAUDE.md`
+- **Always overwritten:** `.obsidian/snippets/brain-folder-colours.css` (namespaced, safe — this file is ours)
+
+Existing files and directories are never touched. The script detects `.obsidian/` and adjusts its messaging accordingly ("Existing Obsidian vault detected" vs "Existing directory detected").
+
+### Uninstall
+
+Three-stage confirmation protects against accidental data loss:
+
+1. **System files** — confirms removal of `.brain-core/`, `.brain/`, `.venv/`, `.mcp.json`, `CLAUDE.md`. Your notes and vault structure are untouched. With `--force`, this stage is skipped (auto-confirmed).
+2. **Full vault deletion** — optionally offers to delete the entire directory. Counts and displays the number of artefacts that would be lost.
+3. **Final confirmation** — requires typing `"farewell, cruel world"` to proceed with full deletion. This stage is always interactive, even with `--force`.
+
+After uninstall, the script reminds you to clean up global MCP registration if applicable: `claude mcp remove brain --scope user`.
 
 ## init.py (DD-023)
 

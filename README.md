@@ -46,7 +46,7 @@ That's it. Start talking. The agent reads the vault structure and knows what to 
 
 - [Obsidian](https://obsidian.md)
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (or any MCP-capable agent)
-- Python 3.10+ (the install script will check and guide you if needed)
+- Python 3.10+ (recommended; the installer works without it but skips MCP server setup)
 - git
 
 ### Install
@@ -68,6 +68,43 @@ If you've already cloned the repo, run the install script directly. It will use 
 ```bash
 bash install.sh ~/brain
 ```
+
+#### Upgrade
+
+Re-run the install script on an existing vault to upgrade brain-core:
+
+```bash
+bash install.sh ~/brain
+```
+
+The script detects the existing installation, shows the version change, and asks to confirm.
+
+#### Existing vault
+
+Point the script at a non-empty directory (with or without Obsidian) and it installs brain-core without touching your files:
+
+```bash
+bash install.sh ~/my-existing-vault
+```
+
+#### Uninstall
+
+```bash
+bash install.sh --uninstall ~/brain
+```
+
+Removes brain system files (`.brain-core/`, `.brain/`, `.venv/`, `.mcp.json`, `CLAUDE.md`). Your notes are not affected. Optionally offers to delete the entire vault with a multi-stage confirmation.
+
+#### Non-interactive mode
+
+```bash
+bash install.sh --force ~/brain
+bash install.sh --uninstall --force ~/brain
+```
+
+Skips all prompts. Useful for scripted or agent-driven installs. On uninstall, `--force` only skips the system-files prompt; vault deletion always requires interactive confirmation.
+
+> **Full reference:** [docs/tooling.md — install.sh](docs/tooling.md#installsh) covers all flags, safety guards, and edge-case behaviour.
 
 <details>
 <summary>Fully manual setup</summary>
