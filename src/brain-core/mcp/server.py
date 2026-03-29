@@ -837,7 +837,10 @@ def brain_create(type: str, title: str, body: str = "", frontmatter: dict | None
             body=body, frontmatter_overrides=frontmatter, parent=parent,
         )
         _mark_index_pending(result["path"], type_hint=result["type"])
-        return f"**Created** {result['type']}: {result['path']}"
+        msg = f"**Created** {result['type']}: {result['path']}"
+        if result.get("warning"):
+            msg += f"\n\n**Warning:** {result['warning']}"
+        return msg
     except ValueError as e:
         return _fmt_error(str(e))
     except Exception as e:

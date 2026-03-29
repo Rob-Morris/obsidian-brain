@@ -17,6 +17,7 @@ import sys
 from datetime import datetime, timezone
 
 from _common import (
+    find_duplicate_basenames,
     find_vault_root,
     match_artefact,
     parse_frontmatter,
@@ -128,7 +129,20 @@ def create_artefact(vault_root, router, type_key, title, body="", frontmatter_ov
     except FileExistsError:
         raise ValueError(f"File already exists: {rel_path}")
 
-    return {"path": rel_path, "type": artefact["type"], "title": title}
+    result = {"path": rel_path, "type": artefact["type"], "title": title}
+
+    # 8. Warn if basename collides with an existing file in another folder
+    basename_stem = os.path.splitext(filename)[0]
+    duplicates = find_duplicate_basenames(vault_root, basename_stem, limit=2)
+    # Exclude the file we just created
+    others = [p for p in duplicates if p != rel_path]
+    if others:
+        result["warning"] = (
+            f"Basename '{basename_stem}' also exists at {others[0]}"
+            f" — wikilinks to this name will be ambiguous"
+        )
+
+    return result
 
 
 def resolve_type(router, type_key):

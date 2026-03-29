@@ -231,3 +231,22 @@ class TestResolveNamingPattern:
     def test_unsafe_chars_stripped(self):
         result = create.resolve_naming_pattern("{Title}.md", "Q3 / Q4 Review")
         assert result == "Q3 Q4 Review.md"
+
+
+# ---------------------------------------------------------------------------
+# Duplicate basename warning
+# ---------------------------------------------------------------------------
+
+class TestDuplicateBasenameWarning:
+    def test_no_warning_when_unique(self, vault, router):
+        result = create.create_artefact(str(vault), router, "wiki", "Unique Page")
+        assert "warning" not in result
+
+    def test_warning_on_duplicate_basename(self, vault, router):
+        # Create a wiki page first
+        create.create_artefact(str(vault), router, "wiki", "JWT Refresh")
+        # Create an idea with the same title (different type folder, same basename)
+        result = create.create_artefact(str(vault), router, "ideas", "JWT Refresh")
+        assert "warning" in result
+        assert "ambiguous" in result["warning"]
+        assert "JWT Refresh" in result["warning"]
