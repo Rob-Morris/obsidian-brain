@@ -31,6 +31,7 @@ Optional classification of the work:
 | `feature` | New capability or deliverable. |
 | `chore` | Maintenance, cleanup, or infrastructure. |
 | `spike` | Timeboxed investigation or research. |
+| `decision` | Resolve a design question and commit to a choice. |
 
 ## Priority
 
@@ -99,7 +100,7 @@ status: open                 # open | in-progress | done | blocked
 Optional fields:
 
 ```yaml
-kind: feature                # bug | feature | chore | spike
+kind: feature                # bug | feature | chore | spike | decision
 priority: medium             # critical | high | medium | low
 assigned: claude             # freeform — agent name, human name
 claimed_at: 2026-03-30T14:00:00+11:00  # ISO timestamp, set on claim

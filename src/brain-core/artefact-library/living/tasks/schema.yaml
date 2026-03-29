@@ -9,7 +9,7 @@ optional:
     enum: [open, in-progress, done, blocked]
     default: open
   kind:
-    enum: [bug, feature, chore, spike]
+    enum: [bug, feature, chore, spike, decision]
   priority:
     enum: [critical, high, medium, low]
   assigned:

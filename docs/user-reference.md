@@ -298,7 +298,7 @@ status: open
 | `done` | Completed. Terminal — archive. |
 | `blocked` | Can't proceed — dependency or external blocker. |
 
-**Optional fields:** `kind` (`bug`, `feature`, `chore`, `spike`), `priority` (`critical`, `high`, `medium`, `low`), `assigned` (freeform string), `claimed_at` (ISO timestamp, set when claimed).
+**Optional fields:** `kind` (`bug`, `feature`, `chore`, `spike`, `decision`), `priority` (`critical`, `high`, `medium`, `low`), `assigned` (freeform string), `claimed_at` (ISO timestamp, set when claimed).
 
 **Board-per-artefact:** Each artefact with associated work gets a board task (`Design~Name.md`) that wikilinks up to the artefact. Child tasks live in a subfolder (`Design~Name/`). Subtask nesting follows the same recursive pattern.
 
