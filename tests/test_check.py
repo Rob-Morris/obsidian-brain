@@ -746,3 +746,152 @@ class TestOutput:
             assert "severity" in f
             assert "message" in f
             # file can be None for folder-level checks
+
+
+# ---------------------------------------------------------------------------
+# TestCheckBrokenWikilinks
+# ---------------------------------------------------------------------------
+
+class TestCheckBrokenWikilinks:
+    def test_valid_wikilinks_no_findings(self, vault):
+        tmp_path, router = vault
+        # rust-lifetimes.md already exists in the vault fixture
+        write_md(tmp_path / "Wiki" / "linking-page.md",
+                 {"type": "living/wiki", "tags": ["test"]},
+                 "See [[rust-lifetimes]] for details.")
+        findings = check.check_broken_wikilinks(str(tmp_path), router)
+        broken = [f for f in findings if f["check"] == "broken_wikilinks"]
+        assert broken == []
+
+    def test_broken_link_detected(self, vault):
+        tmp_path, router = vault
+        write_md(tmp_path / "Wiki" / "has-broken-link.md",
+                 {"type": "living/wiki", "tags": ["test"]},
+                 "See [[nonexistent-page]] for details.")
+        findings = check.check_broken_wikilinks(str(tmp_path), router)
+        broken = [f for f in findings if f["check"] == "broken_wikilinks"]
+        assert len(broken) >= 1
+        assert any("nonexistent-page" in f["message"] for f in broken)
+
+    def test_anchor_only_skipped(self, vault):
+        tmp_path, router = vault
+        write_md(tmp_path / "Wiki" / "self-ref.md",
+                 {"type": "living/wiki", "tags": ["test"]},
+                 "See [[#heading]] above.")
+        findings = check.check_broken_wikilinks(str(tmp_path), router)
+        broken = [f for f in findings if f["check"] == "broken_wikilinks"
+                  and "self-ref.md" in f.get("file", "")]
+        assert broken == []
+
+    def test_link_with_anchor_resolves(self, vault):
+        tmp_path, router = vault
+        write_md(tmp_path / "Wiki" / "linking-anchor.md",
+                 {"type": "living/wiki", "tags": ["test"]},
+                 "See [[rust-lifetimes#section]] for details.")
+        findings = check.check_broken_wikilinks(str(tmp_path), router)
+        broken = [f for f in findings if f["check"] == "broken_wikilinks"
+                  and "rust-lifetimes" in f["message"]]
+        assert broken == []
+
+    def test_link_with_alias_resolves(self, vault):
+        tmp_path, router = vault
+        write_md(tmp_path / "Wiki" / "linking-alias.md",
+                 {"type": "living/wiki", "tags": ["test"]},
+                 "See [[rust-lifetimes|Rust Ownership]] for details.")
+        findings = check.check_broken_wikilinks(str(tmp_path), router)
+        broken = [f for f in findings if f["check"] == "broken_wikilinks"
+                  and "rust-lifetimes" in f["message"]]
+        assert broken == []
+
+    def test_embed_resolves(self, vault):
+        tmp_path, router = vault
+        assets = tmp_path / "_Assets"
+        assets.mkdir(exist_ok=True)
+        (assets / "photo.png").write_bytes(b"\x89PNG")
+        write_md(tmp_path / "Wiki" / "with-image.md",
+                 {"type": "living/wiki", "tags": ["test"]},
+                 "Image: ![[photo.png]]")
+        findings = check.check_broken_wikilinks(str(tmp_path), router)
+        broken = [f for f in findings if f["check"] == "broken_wikilinks"
+                  and "photo.png" in f["message"]]
+        assert broken == []
+
+    def test_embed_broken(self, vault):
+        tmp_path, router = vault
+        write_md(tmp_path / "Wiki" / "missing-image.md",
+                 {"type": "living/wiki", "tags": ["test"]},
+                 "Image: ![[missing.png]]")
+        findings = check.check_broken_wikilinks(str(tmp_path), router)
+        broken = [f for f in findings if f["check"] == "broken_wikilinks"
+                  and "missing.png" in f["message"]]
+        assert len(broken) == 1
+
+    def test_template_placeholder_skipped(self, vault):
+        tmp_path, router = vault
+        write_md(tmp_path / "Wiki" / "with-template.md",
+                 {"type": "living/wiki", "tags": ["test"]},
+                 "Yesterday: [[{{yesterday}}]]")
+        findings = check.check_broken_wikilinks(str(tmp_path), router)
+        broken = [f for f in findings if f["check"] == "broken_wikilinks"
+                  and "with-template.md" in f.get("file", "")]
+        assert broken == []
+
+    def test_case_insensitive(self, vault):
+        tmp_path, router = vault
+        write_md(tmp_path / "Wiki" / "case-test.md",
+                 {"type": "living/wiki", "tags": ["test"]},
+                 "See [[Rust-Lifetimes]] for details.")
+        findings = check.check_broken_wikilinks(str(tmp_path), router)
+        broken = [f for f in findings if f["check"] == "broken_wikilinks"
+                  and "Rust-Lifetimes" in f["message"]]
+        assert broken == []
+
+    def test_path_qualified_resolves(self, vault):
+        tmp_path, router = vault
+        write_md(tmp_path / "Wiki" / "path-link.md",
+                 {"type": "living/wiki", "tags": ["test"]},
+                 "See [[Wiki/rust-lifetimes]] for details.")
+        findings = check.check_broken_wikilinks(str(tmp_path), router)
+        broken = [f for f in findings if f["check"] == "broken_wikilinks"
+                  and "rust-lifetimes" in f["message"]]
+        assert broken == []
+
+    def test_code_block_ignored(self, vault):
+        tmp_path, router = vault
+        body = "Before\n\n```\n[[nonexistent-in-code]]\n```\n\nAfter"
+        write_md(tmp_path / "Wiki" / "with-code.md",
+                 {"type": "living/wiki", "tags": ["test"]}, body)
+        findings = check.check_broken_wikilinks(str(tmp_path), router)
+        broken = [f for f in findings if f["check"] == "broken_wikilinks"
+                  and "nonexistent-in-code" in f["message"]]
+        assert broken == []
+
+    def test_ambiguous_link_flagged(self, vault):
+        tmp_path, router = vault
+        # Create a second file with same basename in different type folder
+        write_md(tmp_path / "Designs" / "rust-lifetimes.md",
+                 {"type": "living/design", "tags": ["design"], "status": "shaping"},
+                 "# Rust Lifetimes Design")
+        # Link using basename only
+        write_md(tmp_path / "Wiki" / "ambig-link.md",
+                 {"type": "living/wiki", "tags": ["test"]},
+                 "See [[rust-lifetimes]] for details.")
+        findings = check.check_broken_wikilinks(str(tmp_path), router)
+        ambiguous = [f for f in findings if f["check"] == "ambiguous_wikilinks"
+                     and "rust-lifetimes" in f["message"]]
+        assert len(ambiguous) >= 1
+
+    def test_ambiguous_path_qualified_not_flagged(self, vault):
+        tmp_path, router = vault
+        # Create duplicate basename
+        write_md(tmp_path / "Designs" / "rust-lifetimes.md",
+                 {"type": "living/design", "tags": ["design"], "status": "shaping"},
+                 "# Rust Lifetimes Design")
+        # Link using path-qualified form — unambiguous
+        write_md(tmp_path / "Wiki" / "precise-link.md",
+                 {"type": "living/wiki", "tags": ["test"]},
+                 "See [[Wiki/rust-lifetimes]] for details.")
+        findings = check.check_broken_wikilinks(str(tmp_path), router)
+        ambiguous = [f for f in findings if f["check"] == "ambiguous_wikilinks"
+                     and "precise-link.md" in f.get("file", "")]
+        assert ambiguous == []

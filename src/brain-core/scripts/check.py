@@ -21,7 +21,17 @@ import re
 import sys
 from datetime import datetime, timezone
 
-from _common import find_vault_root, is_system_dir, parse_frontmatter
+from _common import (
+    find_vault_root,
+    is_system_dir,
+    parse_frontmatter,
+    extract_wikilinks,
+    build_vault_file_index,
+    _fenced_ranges,
+    _INDEX_SKIP_DIRS,
+    strip_md_ext,
+    _FM_RE,
+)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -497,6 +507,109 @@ def check_unconfigured_type(vault_root, router):
 
 
 # ---------------------------------------------------------------------------
+# Broken and ambiguous wikilinks
+# ---------------------------------------------------------------------------
+
+# File extensions that indicate a non-markdown link target (embeds, etc.)
+_ASSET_EXTENSIONS = {
+    ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".bmp",
+    ".pdf", ".mp3", ".mp4", ".wav", ".webm", ".mov",
+    ".csv", ".json", ".xml", ".html", ".css", ".js",
+}
+
+
+def _has_file_extension(stem):
+    """Return True if the stem ends with a known file extension."""
+    _, ext = os.path.splitext(stem)
+    return ext.lower() in _ASSET_EXTENSIONS
+
+
+def check_broken_wikilinks(vault_root, router):
+    """Check for wikilinks that target non-existent or ambiguous files."""
+    findings = []
+    file_index = build_vault_file_index(vault_root)
+    md_basenames = file_index["md_basenames"]
+    all_basenames = file_index["all_basenames"]
+    md_relpaths = file_index["md_relpaths"]
+
+    for dirpath, dirnames, filenames in os.walk(vault_root):
+        dirnames[:] = [d for d in dirnames if d not in _INDEX_SKIP_DIRS]
+        for fname in filenames:
+            if not fname.endswith(".md"):
+                continue
+            fpath = os.path.join(dirpath, fname)
+            rel_path = os.path.relpath(fpath, vault_root)
+            try:
+                with open(fpath, "r", encoding="utf-8") as f:
+                    text = f.read()
+            except OSError:
+                continue
+
+            # Compute ranges to skip: frontmatter and fenced code blocks
+            skip_ranges = []
+            fm_match = _FM_RE.match(text)
+            if fm_match:
+                skip_ranges.append((0, fm_match.end()))
+            skip_ranges.extend(_fenced_ranges(text))
+
+            links = extract_wikilinks(text)
+            for link in links:
+                # Skip links inside frontmatter or code blocks
+                pos = link["start"]
+                if any(start <= pos < end for start, end in skip_ranges):
+                    continue
+
+                stem = link["stem"]
+                is_embed = link["is_embed"]
+                resolved = False
+                ambiguous = False
+
+                if is_embed or _has_file_extension(stem):
+                    # Embed or asset link — check all files by basename
+                    basename_key = os.path.basename(stem).lower()
+                    if basename_key in all_basenames:
+                        resolved = True
+                elif "/" in stem:
+                    # Path-qualified link — try exact relpath, then basename fallback
+                    stem_lower = strip_md_ext(stem).lower()
+                    if stem_lower in md_relpaths:
+                        resolved = True
+                    else:
+                        # Basename fallback
+                        basename_key = os.path.splitext(os.path.basename(stem))[0].lower()
+                        if basename_key in md_basenames:
+                            resolved = True
+                else:
+                    # Basename-only link
+                    stem_lower = stem.lower()
+                    matches = md_basenames.get(stem_lower, [])
+                    if matches:
+                        resolved = True
+                        if len(matches) > 1:
+                            ambiguous = True
+
+                if not resolved:
+                    findings.append({
+                        "check": "broken_wikilinks",
+                        "severity": "warning",
+                        "file": rel_path,
+                        "message": f"Broken wikilink: [[{stem}]]",
+                    })
+                elif ambiguous:
+                    file_list = ', '.join(matches[:5])
+                    if len(matches) > 5:
+                        file_list += f", ... and {len(matches) - 5} more"
+                    findings.append({
+                        "check": "ambiguous_wikilinks",
+                        "severity": "info",
+                        "file": rel_path,
+                        "message": f"Ambiguous wikilink: [[{stem}]] matches {len(matches)} files: {file_list}",
+                    })
+
+    return findings
+
+
+# ---------------------------------------------------------------------------
 # Orchestration
 # ---------------------------------------------------------------------------
 
@@ -508,6 +621,7 @@ ALL_CHECKS = [
     check_month_folders,
     check_archive_metadata,
     check_status_values,
+    check_broken_wikilinks,
     check_unconfigured_type,
 ]
 
