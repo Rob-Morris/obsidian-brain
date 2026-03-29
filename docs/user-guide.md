@@ -287,6 +287,18 @@ The rule of thumb: add a type when you'll create multiple files of that kind and
 
 Artefacts start as single files. When something outgrows one file, structure emerges naturally. Your novel starts as `Writing/my-novel.md` and eventually becomes `Writing/my-novel/index.md` with chapter files alongside. No upfront planning needed — the Brain adapts as your content grows.
 
+A common pattern is **master/sub-artefacts**: when a master artefact accumulates enough related files to crowd the type folder, sub-artefacts move into a named subfolder while the master stays in the type root as the entry point.
+
+```
+Designs/
+  Brain Master Design.md          ← master stays in root
+  Brain/                          ← sub-artefacts cluster here
+    Brain Inbox.md
+    Brain Mcp Server.md
+```
+
+This works for any living type — designs, ideas, wiki pages. Sub-artefacts inherit the parent type, so no separate taxonomy or CSS is needed. When a sub-artefact reaches a terminal status, it archives to `{Type}/{Project}/_Archive/` — within the subfolder, not the type root. When the whole project reaches terminal status, everything flattens into `{Type}/_Archive/{Project}/`.
+
 ### Giving Agents Context with Memories
 
 When you mention a project, tool, or concept and your agent doesn't know what you're talking about, it can look it up. Memories (`_Config/Memories/`) are reference cards — factual context that agents load on demand.

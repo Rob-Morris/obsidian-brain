@@ -85,6 +85,23 @@ Some living artefact types act as hubs — containers that group related artefac
 
 This pattern is useful when a single living artefact organises a stream of related work or content across the vault. Current examples: People (groups observations and other artefacts related to a person via `person/{slug}`), Projects (groups plans, research, designs, logs via `project/{slug}`), Journals (groups journal entries via `journal/{slug}`), Workspaces (groups brain artefacts related to a bounded data container via `workspace/{slug}`).
 
+### Master/Sub-Artefact Convention
+
+When a master artefact accumulates enough related sub-artefacts to crowd the type folder, sub-artefacts move into a named subfolder. The master stays in the type root as the entry point; the subfolder groups its children. Sub-artefacts inherit the parent type — no separate taxonomy or CSS needed.
+
+```
+Designs/
+  Brain Master Design.md          ← master stays in root
+  Brain/                          ← sub-artefacts cluster here
+    Brain Inbox.md
+    Brain Mcp Server.md
+```
+
+Archiving follows two patterns depending on scope:
+
+- **Sub-artefact reaches terminal status** (project still active): archives to `{Type}/{Project}/_Archive/`, not the type root's `_Archive/`.
+- **Whole project reaches terminal status**: the entire subfolder (master included) moves to `{Type}/_Archive/{Project}/`. The inner `_Archive/` is flattened — all files sit at the same level since everything is terminal.
+
 ## Documentation
 
 - `docs/specification.md` — this file; design rationale and structural decisions
