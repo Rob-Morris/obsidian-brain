@@ -18,21 +18,19 @@ Path-qualified links like `[[Wiki/My Page]]` match only if the file sits at that
 **Use basename-only links by default.** They survive folder moves, archiving, and subfolder reorganisation.
 
 - **Temporal artefacts**: always basename. Dated filenames (`20260329-decision~JWT Refresh Strategy`) are naturally unique across the vault.
-- **Living artefacts**: basename by default. Check for collisions before creating (see below).
-- **Path-qualified links**: avoid. They break when files move into subfolders, get archived, or get reorganised. Use only to resolve a known collision where renaming isn't practical.
+- **Living artefacts**: basename by default. `brain_create` auto-disambiguates collisions (see below).
+- **Path-qualified links**: avoid. They break when files move into subfolders, get archived, or get reorganised.
 
 ## Namespace Collisions
 
-A collision happens when two files share the same basename (e.g. `Wiki/jwt-refresh.md` and `Ideas/jwt-refresh.md`). Every `[[jwt-refresh]]` link becomes ambiguous — Obsidian picks whichever is "closest", which may not be what the author intended.
+A collision happens when two files share the same basename (e.g. `Wiki/JWT Refresh.md` and `Ideas/JWT Refresh.md`). Every `[[JWT Refresh]]` link becomes ambiguous — Obsidian picks whichever is "closest", which may not be what the author intended.
 
-**Before creating a living artefact**, check whether the basename already exists in another type folder. If it does, differentiate the name:
+**Automatic disambiguation:** `brain_create` handles collisions automatically:
 
-- `jwt-refresh` (wiki page) and `jwt-refresh-design` (design doc)
-- `auth-redesign` (design) and `auth-redesign-research` (research notes)
+- **Cross-folder** (same basename in a different type folder): appends the type key — `JWT Refresh (ideas).md`. Links use the full name: `[[JWT Refresh (ideas)]]`.
+- **Same-folder** (duplicate title in the same type): appends a random 3-character suffix — `JWT Refresh k7f.md`.
 
-Do not create duplicate basenames and rely on path-qualification to disambiguate — the path breaks on subfolder or archive moves.
-
-The compliance checker flags ambiguous links at `info` severity. `brain_create` warns when a new file would create a collision.
+The original file always keeps its clean name. The compliance checker flags ambiguous links at `info` severity.
 
 ## Link Maintenance
 

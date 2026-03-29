@@ -13,6 +13,8 @@ Usage:
 
 import json
 import os
+import random
+import string
 import sys
 from datetime import datetime, timezone
 
@@ -118,31 +120,32 @@ def create_artefact(vault_root, router, type_key, title, body="", frontmatter_ov
     # 6. Determine body
     final_body = body if body else template_body
 
-    # 7. Write (exclusive create — fails atomically if file exists)
+    # 7. Disambiguate basename collisions
+    basename_stem = os.path.splitext(filename)[0]
+
+    # Same-folder: append random 3-char suffix to make filename unique
+    candidate = os.path.join(vault_root, folder, filename)
+    os.makedirs(os.path.dirname(candidate), exist_ok=True)
+    while os.path.isfile(candidate):
+        suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=3))
+        filename = f"{basename_stem} {suffix}.md"
+        candidate = os.path.join(vault_root, folder, filename)
+
+    # Cross-folder: append type key if original basename exists elsewhere
+    duplicates = find_duplicate_basenames(vault_root, basename_stem, limit=1)
+    folder_prefix = os.path.join(folder, "")
+    if duplicates and not any(d.startswith(folder_prefix) for d in duplicates):
+        current_stem = os.path.splitext(filename)[0]
+        filename = f"{current_stem} ({artefact['key']}).md"
+
+    # 8. Write
     rel_path = os.path.join(folder, filename)
     abs_path = os.path.join(vault_root, rel_path)
     content = serialize_frontmatter(fields, body=final_body)
-    os.makedirs(os.path.dirname(abs_path), exist_ok=True)
-    try:
-        with open(abs_path, "x", encoding="utf-8") as f:
-            f.write(content)
-    except FileExistsError:
-        raise ValueError(f"File already exists: {rel_path}")
+    with open(abs_path, "x", encoding="utf-8") as f:
+        f.write(content)
 
-    result = {"path": rel_path, "type": artefact["type"], "title": title}
-
-    # 8. Warn if basename collides with an existing file in another folder
-    basename_stem = os.path.splitext(filename)[0]
-    duplicates = find_duplicate_basenames(vault_root, basename_stem, limit=2)
-    # Exclude the file we just created
-    others = [p for p in duplicates if p != rel_path]
-    if others:
-        result["warning"] = (
-            f"Basename '{basename_stem}' also exists at {others[0]}"
-            f" — wikilinks to this name will be ambiguous"
-        )
-
-    return result
+    return {"path": rel_path, "type": artefact["type"], "title": title}
 
 
 def resolve_type(router, type_key):

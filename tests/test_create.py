@@ -188,12 +188,22 @@ class TestCreateArtefact:
         with pytest.raises(ValueError, match="not configured"):
             create.create_artefact(str(vault), router, "scratch", "Title")
 
-    def test_collision_error(self, vault, router):
-        # Create a file first
+    def test_same_folder_collision_appends_suffix(self, vault, router):
         create.create_artefact(str(vault), router, "wiki", "Duplicate")
-        # Try to create the same file
-        with pytest.raises(ValueError, match="already exists"):
-            create.create_artefact(str(vault), router, "wiki", "Duplicate")
+        result = create.create_artefact(str(vault), router, "wiki", "Duplicate")
+        # Gets a random 3-char suffix: "Wiki/Duplicate xxx.md"
+        assert result["path"].startswith("Wiki/Duplicate ")
+        assert result["path"] != "Wiki/Duplicate.md"
+        assert result["path"].endswith(".md")
+        assert os.path.isfile(os.path.join(str(vault), result["path"]))
+
+    def test_same_folder_collision_suffix_is_3_chars(self, vault, router):
+        create.create_artefact(str(vault), router, "wiki", "Check")
+        result = create.create_artefact(str(vault), router, "wiki", "Check")
+        # Extract suffix: "Check xxx.md" → "xxx"
+        stem = os.path.splitext(os.path.basename(result["path"]))[0]
+        suffix = stem.removeprefix("Check ")
+        assert len(suffix) == 3
 
     def test_create_with_parent_subfolder(self, vault, router):
         """Parent parameter places living artefact in a project subfolder."""
@@ -234,19 +244,24 @@ class TestResolveNamingPattern:
 
 
 # ---------------------------------------------------------------------------
-# Duplicate basename warning
+# Basename disambiguation
 # ---------------------------------------------------------------------------
 
-class TestDuplicateBasenameWarning:
-    def test_no_warning_when_unique(self, vault, router):
+class TestBasenameDisambiguation:
+    def test_no_suffix_when_unique(self, vault, router):
         result = create.create_artefact(str(vault), router, "wiki", "Unique Page")
-        assert "warning" not in result
+        assert result["path"] == "Wiki/Unique Page.md"
 
-    def test_warning_on_duplicate_basename(self, vault, router):
+    def test_appends_type_on_collision(self, vault, router):
         # Create a wiki page first
         create.create_artefact(str(vault), router, "wiki", "JWT Refresh")
-        # Create an idea with the same title (different type folder, same basename)
+        # Create an idea with the same title — should get (ideas) suffix
         result = create.create_artefact(str(vault), router, "ideas", "JWT Refresh")
-        assert "warning" in result
-        assert "ambiguous" in result["warning"]
-        assert "JWT Refresh" in result["warning"]
+        assert result["path"] == "Ideas/JWT Refresh (ideas).md"
+        assert os.path.isfile(os.path.join(str(vault), result["path"]))
+
+    def test_disambiguated_file_has_correct_content(self, vault, router):
+        create.create_artefact(str(vault), router, "wiki", "Overlap")
+        result = create.create_artefact(str(vault), router, "ideas", "Overlap", body="# My Idea\n")
+        content = (vault / "Ideas" / "Overlap (ideas).md").read_text()
+        assert "# My Idea" in content
