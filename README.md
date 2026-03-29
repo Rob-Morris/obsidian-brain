@@ -36,11 +36,11 @@ The [User Guide](docs/user-guide.md) walks through all of this with examples.
 ## Quick Start
 
 1. **Install [prerequisites](#prerequisites)**
-2. **Create your vault** — run the [install command](#install) below
-3. **Open as a vault in Obsidian** — select the folder you created in step 2, then enable the `folder-colours` CSS snippet in Obsidian's Settings > Appearance > CSS Snippets
-4. **Connect your agent** — open your agent in the vault folder, or register the MCP server for other directories (see [Connecting from other projects](#connecting-from-other-projects))
+2. **Create your vault.** Run the [install command](#install) below.
+3. **Open as a vault in Obsidian.** Select the folder you created in step 2, then enable the `folder-colours` CSS snippet in Obsidian's Settings > Appearance > CSS Snippets.
+4. **Connect your agent.** Open your agent in the vault folder, or register the MCP server for other directories (see [Connecting from other projects](#connecting-from-other-projects)).
 
-That's it. Start talking — the agent reads the vault structure and knows what to do. See [A Day in the Life](docs/user-guide.md#a-day-in-the-life) for what working with the brain looks like in practice.
+That's it. Start talking. The agent reads the vault structure and knows what to do. See [A Day in the Life](docs/user-guide.md#a-day-in-the-life) for what working with the brain looks like in practice.
 
 ### Prerequisites
 
@@ -63,7 +63,7 @@ The script will ask where to create the vault (defaults to the current directory
 bash <(curl -fsSL https://raw.githubusercontent.com/robmorris/obsidian-brain/main/install.sh) ~/brain
 ```
 
-If you've already cloned the repo, run the install script directly — it will use local files instead of downloading:
+If you've already cloned the repo, run the install script directly. It will use local files instead of downloading:
 
 ```bash
 bash install.sh ~/brain
