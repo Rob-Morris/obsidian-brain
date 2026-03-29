@@ -524,10 +524,11 @@ def _has_file_extension(stem):
     return ext.lower() in _ASSET_EXTENSIONS
 
 
-def check_broken_wikilinks(vault_root, router):
+def check_broken_wikilinks(vault_root, router, file_index=None):
     """Check for wikilinks that target non-existent or ambiguous files."""
     findings = []
-    file_index = build_vault_file_index(vault_root)
+    if file_index is None:
+        file_index = build_vault_file_index(vault_root)
     md_basenames = file_index["md_basenames"]
     all_basenames = file_index["all_basenames"]
     md_relpaths = file_index["md_relpaths"]
@@ -593,6 +594,7 @@ def check_broken_wikilinks(vault_root, router):
                         "check": "broken_wikilinks",
                         "severity": "warning",
                         "file": rel_path,
+                        "stem": stem,
                         "message": f"Broken wikilink: [[{stem}]]",
                     })
                 elif ambiguous:
@@ -603,6 +605,7 @@ def check_broken_wikilinks(vault_root, router):
                         "check": "ambiguous_wikilinks",
                         "severity": "info",
                         "file": rel_path,
+                        "stem": stem,
                         "message": f"Ambiguous wikilink: [[{stem}]] matches {len(matches)} files: {file_list}",
                     })
 

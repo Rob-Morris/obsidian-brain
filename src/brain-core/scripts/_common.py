@@ -12,6 +12,7 @@ import os
 import re
 import sys
 import unicodedata
+from collections import namedtuple
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -425,6 +426,165 @@ def build_vault_file_index(vault_root):
         "all_basenames": dict(all_basenames),
         "md_relpaths": md_relpaths,
     }
+
+
+# ---------------------------------------------------------------------------
+# Broken wikilink resolution
+# ---------------------------------------------------------------------------
+
+Resolution = namedtuple("Resolution", ["status", "resolved_to", "candidates", "strategy"])
+
+_DATED_PREFIX_RE = re.compile(r"^(\d{8})-([a-z][a-z0-9-]*)~", re.IGNORECASE)
+_DATED_STEM_RE = re.compile(r"^(\d{8})-(.+)$")
+_DOUBLEDASH_RE = re.compile(r"^(\d{8}-[a-z][a-z0-9-]*)--(.+)$", re.IGNORECASE)
+_TILDE_SPACE_RE = re.compile(r"~\s+")
+
+
+def _basename_stem(path):
+    """Extract filename stem (no extension) from a path."""
+    return os.path.splitext(os.path.basename(path))[0]
+
+
+def _discover_temporal_prefixes(md_basenames):
+    """Scan the file index to discover temporal artefact prefixes dynamically."""
+    prefixes = set()
+    for stem in md_basenames:
+        m = _DATED_PREFIX_RE.match(stem)
+        if m:
+            prefixes.add(m.group(2).lower())
+    return prefixes
+
+
+def _lookup_basename(candidate_stem, md_basenames):
+    """Look up files matching a basename stem (case-insensitive). Returns list of paths."""
+    return md_basenames.get(candidate_stem.lower(), [])
+
+
+def _resolved(matches, strategy):
+    """Build a resolved Resolution from a single-match list."""
+    return Resolution("resolved", _basename_stem(matches[0]), matches, strategy)
+
+
+def resolve_broken_link(target, file_index, temporal_prefixes=None):
+    """Attempt to resolve a broken wikilink target.
+
+    Tries a series of strategies to find the intended file when a wikilink
+    target doesn't match any existing file by basename.
+
+    Args:
+        target: the wikilink stem (e.g. ``brain-inbox``, ``20260324-idea-log--x``)
+        file_index: dict from ``build_vault_file_index()``
+        temporal_prefixes: optional set of known prefixes (e.g. ``{"research", "plan"}``).
+            If None, discovered automatically from the file index.
+
+    Returns:
+        Resolution(status, resolved_to, candidates, strategy)
+    """
+    md_basenames = file_index["md_basenames"]
+
+    if temporal_prefixes is None:
+        temporal_prefixes = _discover_temporal_prefixes(md_basenames)
+
+    # Strategy 0: trailing backslash cleanup
+    if target.endswith("\\"):
+        cleaned = target.rstrip("\\")
+        matches = _lookup_basename(cleaned, md_basenames)
+        if len(matches) == 1:
+            return _resolved(matches, "trailing_backslash")
+        sub = resolve_broken_link(cleaned, file_index, temporal_prefixes)
+        if sub.status == "resolved":
+            return Resolution("resolved", sub.resolved_to, sub.candidates,
+                              f"trailing_backslash+{sub.strategy}")
+
+    working = target
+
+    # Strategy 1: tilde-space normalization (run early, feeds into other strategies)
+    if "~ " in working:
+        normalised = _TILDE_SPACE_RE.sub("~", working)
+        matches = _lookup_basename(normalised, md_basenames)
+        if len(matches) == 1:
+            return _resolved(matches, "tilde_space")
+        working = normalised
+
+    # Strategy 2: slug_to_title basename
+    titled = slug_to_title(working)
+    matches = _lookup_basename(titled, md_basenames)
+    if len(matches) == 1:
+        return _resolved(matches, "slug_to_title")
+    elif len(matches) > 1:
+        return Resolution("ambiguous", None, matches, "slug_to_title")
+
+    # Strategy 3: dated double-dash → tilde
+    dd_match = _DOUBLEDASH_RE.match(working)
+    if dd_match:
+        prefix_part = dd_match.group(1)
+        slug_part = dd_match.group(2)
+        candidate = f"{prefix_part}~{slug_to_title(slug_part)}"
+        matches = _lookup_basename(candidate, md_basenames)
+        if len(matches) == 1:
+            return _resolved(matches, "doubledash_to_tilde")
+        elif len(matches) > 1:
+            return Resolution("ambiguous", None, matches, "doubledash_to_tilde")
+
+    # Strategy 4: dated slug + temporal prefix
+    dated_match = _DATED_STEM_RE.match(working)
+    if dated_match and not dd_match:
+        date_part = dated_match.group(1)
+        slug_part = dated_match.group(2)
+        titled_slug = slug_to_title(slug_part)
+        for prefix in sorted(temporal_prefixes):
+            candidate = f"{date_part}-{prefix}~{titled_slug}"
+            matches = _lookup_basename(candidate, md_basenames)
+            if len(matches) == 1:
+                return _resolved(matches, f"dated_slug_prefix:{prefix}")
+
+    # Strategy 5: path stripping — re-run strategies on the basename
+    if "/" in working:
+        basename_part = os.path.basename(working)
+        matches = _lookup_basename(basename_part, md_basenames)
+        if len(matches) == 1:
+            return _resolved(matches, "path_strip")
+        stripped = strip_md_ext(basename_part)
+        matches = _lookup_basename(stripped, md_basenames)
+        if len(matches) == 1:
+            return _resolved(matches, "path_strip")
+        sub = resolve_broken_link(stripped, file_index, temporal_prefixes)
+        if sub.status == "resolved":
+            return Resolution("resolved", sub.resolved_to, sub.candidates,
+                              f"path_strip+{sub.strategy}")
+        elif sub.status == "ambiguous":
+            return Resolution("ambiguous", None, sub.candidates,
+                              f"path_strip+{sub.strategy}")
+
+    # Strategy 6: path segment title-casing
+    if "/" in working:
+        segments = working.split("/")
+        basename_titled = slug_to_title(segments[-1])
+        matches = _lookup_basename(basename_titled, md_basenames)
+        if len(matches) == 1:
+            return _resolved(matches, "path_segment_title")
+        elif len(matches) > 1:
+            return Resolution("ambiguous", None, matches, "path_segment_title")
+
+    # Strategy 7: archive matching — check pre-filtered archive files
+    archive_files = file_index.get("_archive_files")
+    if archive_files is None:
+        archive_files = [
+            p for paths in md_basenames.values() for p in paths
+            if "/_Archive/" in p
+        ]
+    target_lower = os.path.basename(working).lower()
+    archive_matches = []
+    for p in archive_files:
+        archived = _basename_stem(p).lower()
+        if target_lower in archived or archived.endswith(target_lower):
+            archive_matches.append(p)
+    if len(archive_matches) == 1:
+        return _resolved(archive_matches, "archive_match")
+    elif len(archive_matches) > 1:
+        return Resolution("ambiguous", None, archive_matches, "archive_match")
+
+    return Resolution("unresolvable", None, [], "none")
 
 
 # ---------------------------------------------------------------------------

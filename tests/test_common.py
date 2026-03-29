@@ -465,3 +465,112 @@ class TestBuildVaultFileIndex:
         (vault / "Designs" / "jwt-refresh.md").write_text("# JWT Design\n")
         idx = common.build_vault_file_index(str(vault))
         assert len(idx["md_basenames"]["jwt-refresh"]) == 2
+
+
+# ---------------------------------------------------------------------------
+# Broken wikilink resolution
+# ---------------------------------------------------------------------------
+
+class TestResolveBrokenLink:
+    @pytest.fixture
+    def vault_with_files(self, vault):
+        """Vault with a realistic set of files for resolution testing."""
+        (vault / "Wiki" / "Brain Inbox.md").write_text("# Brain Inbox\n")
+        (vault / "Designs" / "Auth Redesign.md").write_text("# Auth\n")
+        temporal = vault / "_Temporal" / "Research" / "2026-03"
+        temporal.mkdir(parents=True, exist_ok=True)
+        (temporal / "20260325-research~Foo Bar.md").write_text("# Foo\n")
+        plans = vault / "_Temporal" / "Plans" / "2026-03"
+        plans.mkdir(parents=True, exist_ok=True)
+        (plans / "20260317-plan~My Plan.md").write_text("# Plan\n")
+        logs = vault / "_Temporal" / "Idea Logs" / "2026-03"
+        logs.mkdir(parents=True, exist_ok=True)
+        (logs / "20260324-idea-log~Brain Heartbeat System.md").write_text("# Idea\n")
+        archive = vault / "Designs" / "_Archive"
+        archive.mkdir(parents=True, exist_ok=True)
+        (archive / "20260317-Old Design.md").write_text("# Old\n")
+        return vault
+
+    def _index(self, vault):
+        return common.build_vault_file_index(str(vault))
+
+    def test_slug_to_title(self, vault_with_files):
+        idx = self._index(vault_with_files)
+        r = common.resolve_broken_link("brain-inbox", idx)
+        assert r.status == "resolved"
+        assert r.resolved_to == "Brain Inbox"
+        assert r.strategy == "slug_to_title"
+
+    def test_doubledash_to_tilde(self, vault_with_files):
+        idx = self._index(vault_with_files)
+        r = common.resolve_broken_link("20260324-idea-log--brain-heartbeat-system", idx)
+        assert r.status == "resolved"
+        assert r.resolved_to == "20260324-idea-log~Brain Heartbeat System"
+        assert r.strategy == "doubledash_to_tilde"
+
+    def test_dated_slug_prefix(self, vault_with_files):
+        idx = self._index(vault_with_files)
+        r = common.resolve_broken_link("20260325-foo-bar", idx)
+        assert r.status == "resolved"
+        assert r.resolved_to == "20260325-research~Foo Bar"
+        assert "dated_slug_prefix:research" == r.strategy
+
+    def test_trailing_backslash(self, vault_with_files):
+        idx = self._index(vault_with_files)
+        r = common.resolve_broken_link("brain-inbox\\", idx)
+        assert r.status == "resolved"
+        assert r.resolved_to == "Brain Inbox"
+        assert r.strategy.startswith("trailing_backslash")
+
+    def test_path_stripping(self, vault_with_files):
+        idx = self._index(vault_with_files)
+        r = common.resolve_broken_link("Designs/auth-redesign", idx)
+        assert r.status == "resolved"
+        assert r.resolved_to == "Auth Redesign"
+        assert "path_strip" in r.strategy
+
+    def test_tilde_space(self, vault_with_files):
+        idx = self._index(vault_with_files)
+        r = common.resolve_broken_link("20260317-plan~ My Plan", idx)
+        assert r.status == "resolved"
+        assert r.resolved_to == "20260317-plan~My Plan"
+        assert r.strategy == "tilde_space"
+
+    def test_ambiguous(self, vault_with_files):
+        vault = vault_with_files
+        # Create a second file that slug_to_title would also match
+        (vault / "Ideas").mkdir(exist_ok=True)
+        (vault / "Ideas" / "Brain Inbox.md").write_text("# Dup\n")
+        idx = self._index(vault)
+        r = common.resolve_broken_link("brain-inbox", idx)
+        assert r.status == "ambiguous"
+        assert len(r.candidates) == 2
+
+    def test_unresolvable(self, vault_with_files):
+        idx = self._index(vault_with_files)
+        r = common.resolve_broken_link("completely-nonexistent-thing", idx)
+        assert r.status == "unresolvable"
+        assert r.resolved_to is None
+        assert r.candidates == []
+
+    def test_archive_match(self, vault_with_files):
+        idx = self._index(vault_with_files)
+        r = common.resolve_broken_link("Old Design", idx)
+        # "Old Design" doesn't match directly (it's "20260317-Old Design" in archive)
+        # but archive matching looks for substring containment
+        assert r.status == "resolved"
+        assert "20260317-Old Design" in r.resolved_to
+        assert r.strategy == "archive_match"
+
+    def test_path_segment_title_casing(self, vault_with_files):
+        idx = self._index(vault_with_files)
+        r = common.resolve_broken_link("Designs/auth-redesign", idx)
+        assert r.status == "resolved"
+        assert r.resolved_to == "Auth Redesign"
+
+    def test_temporal_prefix_discovery(self, vault_with_files):
+        idx = self._index(vault_with_files)
+        prefixes = common._discover_temporal_prefixes(idx["md_basenames"])
+        assert "research" in prefixes
+        assert "plan" in prefixes
+        assert "idea-log" in prefixes

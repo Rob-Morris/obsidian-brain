@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.16.4 — 2026-03-29
+
+- **Broken link auto-repair** — New `fix_links.py` script and `brain_action("fix-links")` MCP action. Scans for broken wikilinks and attempts resolution using 8 naming-convention heuristics (slug→title, double-dash→tilde, temporal prefix matching, path stripping, tilde-space normalization, archive matching). Dry-run by default; `--fix` / `{fix: true}` applies unambiguous fixes. New `resolve_broken_link()` utility in `_common.py` for single-link resolution.
+
 ## v0.16.3 — 2026-03-29
 
 - **Broken link prevention** — New `check_broken_wikilinks` compliance check detects broken wikilinks (`warning`) and ambiguous wikilinks where the basename matches multiple files (`info`). New `extract_wikilinks()` and `build_vault_file_index()` utilities in `_common.py`. `brain_create` now warns when a new file's basename collides with an existing file. New `standards/linking.md` documents the wikilink contract: basename-only by default, collision avoidance rules, link maintenance procedures, and guidance for agents without MCP tools.

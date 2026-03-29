@@ -1008,6 +1008,7 @@ If your vault runs the Brain MCP server (`.brain-core/mcp/server.py`), seven too
 - `migrate_naming` — migrate vault filenames from old aggressive slugs to generous naming conventions (optional `{dry_run}`)
 - `register_workspace` — register a linked workspace (params: `{slug, path}`)
 - `unregister_workspace` — remove a linked workspace registration (params: `{slug}`)
+- `fix-links` — scan for broken wikilinks and attempt auto-resolution; optional `{fix: true}` applies unambiguous fixes; returns JSON report
 
 **brain_process** (content processing — classify/resolve are read-only, ingest can create/update)
 - `classify` — determine the best artefact type for content; returns ranked matches with confidence scores. Modes: `auto` (default), `embedding`, `bm25_only`, `context_assembly`
@@ -1032,6 +1033,7 @@ Available in `.brain-core/scripts/`. Scripts are the source of truth for all vau
 | `init.py` | Set up Claude Code to use this vault's MCP server |
 | `check.py` | Structural compliance checker — validates naming, frontmatter, month folders, archives, status values |
 | `migrate_naming.py` | Migrate vault filenames from old aggressive slugs to generous naming conventions |
+| `fix_links.py` | Auto-repair broken wikilinks using naming convention heuristics |
 
 ### Compliance Checks
 

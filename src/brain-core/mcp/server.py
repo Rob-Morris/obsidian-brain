@@ -67,6 +67,7 @@ import upgrade
 import migrate_naming
 import workspace_registry
 import process
+import fix_links
 
 # Path constants — read dynamically from script modules so they stay
 # current after _check_and_reload() reloads upgraded modules.
@@ -1096,10 +1097,25 @@ def brain_action(action: str, params: dict | None = None):
         except Exception as e:
             return _fmt_error(f"Unexpected error: {e}")
 
+    elif action == "fix-links":
+        if _router is None:
+            return _fmt_error("router not initialized")
+        try:
+            do_fix = (params or {}).get("fix", False)
+            result = fix_links.scan_and_resolve(_vault_root, router=_router)
+            if do_fix and result["fixed"]:
+                total = fix_links.apply_fixes(_vault_root, result["fixed"])
+                result["substitutions"] = total
+                _mark_index_dirty()
+            result["mode"] = "fix" if do_fix else "dry_run"
+            return json.dumps(result, indent=2)
+        except Exception as e:
+            return _fmt_error(f"Unexpected error: {e}")
+
     else:
         valid = ["compile", "build_index", "rename", "delete", "convert",
                  "shape-presentation", "upgrade", "migrate_naming",
-                 "register_workspace", "unregister_workspace"]
+                 "register_workspace", "unregister_workspace", "fix-links"]
         return _fmt_error(f"Unknown action '{action}'. Valid: {', '.join(valid)}")
 
 
