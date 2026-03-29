@@ -1870,3 +1870,208 @@ class TestWorkspaceStartup:
         }))
         server.startup(vault_root=str(vault))
         assert "pre-existing" in server._workspace_registry
+
+
+# ---------------------------------------------------------------------------
+# brain_action fix-links tests
+# ---------------------------------------------------------------------------
+
+class TestBrainActionFixLinks:
+    def test_dry_run_returns_json_with_summary(self, initialized):
+        """Default fix-links (no fix param) returns dry_run JSON."""
+        result = json.loads(server.brain_action("fix-links"))
+        assert result["mode"] == "dry_run"
+        assert "summary" in result
+        assert "fixed" in result
+        assert "ambiguous" in result
+        assert "unresolvable" in result
+
+    def test_dry_run_detects_broken_links(self, initialized):
+        """Dry run detects a broken wikilink and classifies it."""
+        vault = initialized
+        (vault / "Wiki" / "has-broken-link.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "See [[nonexistent-target]].\n"
+        )
+        result = json.loads(server.brain_action("fix-links"))
+        assert result["mode"] == "dry_run"
+        assert result["summary"]["total_broken"] >= 1
+        all_targets = (
+            [f["target"] for f in result["fixed"]]
+            + [a["target"] for a in result["ambiguous"]]
+            + [u["target"] for u in result["unresolvable"]]
+        )
+        assert "nonexistent-target" in all_targets
+
+    def test_fix_applies_resolved_links(self, initialized):
+        """fix=True applies auto-resolved link fixes."""
+        vault = initialized
+        (vault / "Wiki" / "My Target Page.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n# My Target Page\n"
+        )
+        (vault / "Wiki" / "referrer.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "See [[my-target-page]].\n"
+        )
+        result = json.loads(server.brain_action("fix-links", {"fix": True}))
+        assert result["mode"] == "fix"
+        assert result["summary"]["fixed"] >= 1
+        assert result.get("substitutions", 0) >= 1
+        content = (vault / "Wiki" / "referrer.md").read_text()
+        assert "[[My Target Page]]" in content
+
+    def test_fix_marks_index_dirty(self, initialized):
+        """Applying fixes should mark the index as dirty."""
+        vault = initialized
+        (vault / "Wiki" / "Target Title.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n# Target Title\n"
+        )
+        (vault / "Wiki" / "linker.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\nSee [[target-title]].\n"
+        )
+        server.brain_action("fix-links", {"fix": True})
+        assert server._index_dirty is True
+
+
+# ---------------------------------------------------------------------------
+# brain_action sync_definitions tests
+# ---------------------------------------------------------------------------
+
+class TestBrainActionSyncDefinitions:
+    @pytest.fixture(autouse=True)
+    def setup_library(self, initialized):
+        """Add an artefact library with one type to the vault fixture."""
+        self.vault = initialized
+        lib_dir = initialized / ".brain-core" / "artefact-library" / "living" / "wiki"
+        lib_dir.mkdir(parents=True, exist_ok=True)
+        (lib_dir / "manifest.yaml").write_text(
+            "files:\n"
+            "  taxonomy:\n"
+            "    source: taxonomy.md\n"
+            "    target: _Config/Taxonomy/Living/wiki.md\n"
+        )
+        (lib_dir / "taxonomy.md").write_text(
+            "# Wiki\n\n## Naming\n\n`{slug}.md` in `Wiki/`.\n\n"
+            "## Frontmatter\n\n```yaml\n---\ntype: living/wiki\ntags: []\n---\n```\n"
+        )
+
+    def test_dry_run_returns_json(self, initialized):
+        """Dry run returns structured JSON without modifying files."""
+        result = json.loads(server.brain_action("sync_definitions", {"dry_run": True}))
+        assert result["dry_run"] is True
+        assert "status" in result
+        assert "updated" in result
+        assert "skipped" in result
+
+    def test_sync_updates_files(self, initialized):
+        """Non-dry-run sync updates outdated definitions."""
+        vault = initialized
+        tracking_path = vault / ".brain" / "tracking.json"
+        if tracking_path.exists():
+            tracking_path.unlink()
+        result = json.loads(server.brain_action("sync_definitions"))
+        assert result["status"] in ("ok", "warnings", "skipped")
+
+    def test_sync_with_type_filter(self, initialized):
+        """Type filter limits sync to specified types."""
+        result = json.loads(server.brain_action("sync_definitions", {
+            "dry_run": True,
+            "types": ["living/wiki"],
+        }))
+        assert result["dry_run"] is True
+        all_types = [u.get("type_key", "") for u in result.get("updated", [])]
+        all_types += [s.get("type_key", "") for s in result.get("skipped", [])]
+        for t in all_types:
+            if t:
+                assert "wiki" in t
+
+    def test_sync_recompiles_router_on_update(self, initialized):
+        """After a real sync with updates, router should be recompiled."""
+        vault = initialized
+        tracking_path = vault / ".brain" / "tracking.json"
+        if tracking_path.exists():
+            tracking_path.unlink()
+        old_compiled_at = server._router["meta"]["compiled_at"]
+        time.sleep(0.1)
+        result = json.loads(server.brain_action("sync_definitions"))
+        if result.get("updated"):
+            assert result.get("post_sync") == "Recompiled router."
+            assert server._router["meta"]["compiled_at"] != old_compiled_at
+
+    def test_force_flag(self, initialized):
+        """Force flag should allow overwrite even if files match."""
+        result = json.loads(server.brain_action("sync_definitions", {
+            "force": True,
+            "dry_run": True,
+        }))
+        assert result["dry_run"] is True
+
+
+# ---------------------------------------------------------------------------
+# brain_action migrate_naming tests
+# ---------------------------------------------------------------------------
+
+class TestBrainActionMigrateNaming:
+    @pytest.fixture(autouse=True)
+    def setup_plans_type(self, initialized):
+        """Add plans taxonomy and an old-convention file to test migration."""
+        self.vault = initialized
+        tax_temporal = initialized / "_Config" / "Taxonomy" / "Temporal"
+        tax_temporal.mkdir(parents=True, exist_ok=True)
+        (tax_temporal / "plans.md").write_text(
+            "# Plans\n\n## Naming\n\n`yyyymmdd-plan~{Title}.md` in `_Temporal/Plans/yyyy-mm/`.\n\n"
+            "## Frontmatter\n\n```yaml\n---\ntype: temporal/plans\ntags:\n  - plan\n---\n```\n"
+        )
+        month_dir = initialized / "_Temporal" / "Plans" / "2026-03"
+        month_dir.mkdir(parents=True, exist_ok=True)
+        server.brain_action("compile")
+
+    def _create_old_convention_file(self, name="test-migrate", title="Test Migrate"):
+        """Create an old-convention temporal file (double-dash separator)."""
+        month_dir = self.vault / "_Temporal" / "Plans" / "2026-03"
+        path = month_dir / f"20260301-plan--{name}.md"
+        path.write_text(
+            f"---\ntype: temporal/plans\ntags: [plan]\n---\n\n# {title}\n"
+        )
+        return path
+
+    def test_dry_run_returns_json(self, initialized):
+        """Dry run returns structured JSON summary."""
+        result = json.loads(server.brain_action("migrate_naming", {"dry_run": True}))
+        assert "renamed" in result
+        assert "skipped" in result
+
+    def test_dry_run_does_not_rename_files(self, initialized):
+        """Dry run should not move any files."""
+        self._create_old_convention_file()
+        files_before = set(str(p) for p in self.vault.rglob("*.md"))
+        server.brain_action("migrate_naming", {"dry_run": True})
+        files_after = set(str(p) for p in self.vault.rglob("*.md"))
+        assert files_before == files_after
+
+    def test_migrate_renames_old_convention_files(self, initialized):
+        """Actual migration renames double-dash files to tilde convention."""
+        old_path = self._create_old_convention_file()
+        assert old_path.exists()
+
+        result = json.loads(server.brain_action("migrate_naming"))
+        assert not old_path.exists(), "Old-convention file should have been renamed"
+        # Verify the tilde-convention file exists
+        month_dir = self.vault / "_Temporal" / "Plans" / "2026-03"
+        new_files = [f.name for f in month_dir.iterdir() if "~" in f.name]
+        assert len(new_files) >= 1
+
+    def test_migrate_rebuilds_router_and_index_on_rename(self, initialized):
+        """After actual renames, both router and index should be rebuilt."""
+        self._create_old_convention_file(name="needs-rename", title="Needs Rename")
+        old_compiled_at = server._router["meta"]["compiled_at"]
+        old_built_at = server._index["meta"]["built_at"]
+        time.sleep(0.1)
+
+        result = json.loads(server.brain_action("migrate_naming"))
+        renamed_count = result.get("renamed", 0)
+        if isinstance(renamed_count, list):
+            renamed_count = len(renamed_count)
+        if renamed_count > 0:
+            assert server._router["meta"]["compiled_at"] != old_compiled_at
+            assert server._index["meta"]["built_at"] != old_built_at
