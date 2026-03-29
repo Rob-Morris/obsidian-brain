@@ -818,6 +818,8 @@ def brain_search(query: str, type: str | None = None, tag: str | None = None,
 def brain_create(type: str, title: str, body: str = "", body_file: str = "", frontmatter: dict | None = None, parent: str | None = None):
     """Create a new vault artefact. Additive — creates a file, cannot destroy existing work.
 
+    For bodies over ~1 KB, prefer body_file over body to save tokens in the tool call.
+
     Parameters:
       type       — artefact type key (e.g. "ideas") or full type (e.g. "living/ideas")
       title      — human-readable title, used for filename generation
@@ -869,6 +871,8 @@ def brain_create(type: str, title: str, body: str = "", body_file: str = "", fro
 @mcp.tool()
 def brain_edit(operation: str, path: str, body: str = "", body_file: str = "", frontmatter: dict | None = None, target: str | None = None):
     """Modify an existing vault artefact. Single-file mutation.
+
+    For bodies over ~1 KB, prefer body_file over body to save tokens in the tool call.
 
     Parameters:
       operation  — "edit" (replace body) or "append" (add to body)

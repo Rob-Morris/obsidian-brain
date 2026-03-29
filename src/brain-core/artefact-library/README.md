@@ -18,6 +18,7 @@ The template vault ships with a curated set of defaults (marked below). This lib
 | [Notes](living/notes/) | `notes` | Flat knowledge base of date-prefixed interconnected notes. **Template vault default.** |
 | [People](living/people/) | `people` | Person index files — living hub for everything you know about someone. **Template vault default.** |
 | [Projects](living/projects/) | `projects` | Project index files linking to related artefacts via project tags. **Template vault default.** |
+| [Tasks](living/tasks/) | `tasks` | Persistent units of work — tracked, prioritised, and linked to artefacts. **Template vault default.** |
 | [Wiki](living/wiki/) | `wiki` | Interconnected knowledge base. One page per concept. |
 | [Workspaces](living/workspaces/) | `workspaces` | Workspace hub files linking brain artefacts to bounded data containers (`_Workspaces/`). **Template vault default.** |
 | [Writing](living/writing/) | `writing` | Long-form written works with lifecycle: draft → published. **Template vault default.** |
@@ -93,6 +94,7 @@ Artefact types that have a lifecycle should include a `status` field in frontmat
 
 - **Ideas:** `new` → `developing` → `graduated` → `parked`
 - **Designs:** `proposed` → `shaping` → `active` → `implemented` | `parked` | `rejected`
+- **Tasks:** `open` → `in-progress` → `done` | `blocked`
 - **Workspaces:** `active` → `paused` → `completed` → `archived`
 - **Plans:** `draft` → `approved` → `implementing` → `completed`
 - **Idea Logs:** `open` → `graduated` / `parked`

@@ -125,6 +125,7 @@ Archiving follows two patterns depending on scope:
 - `Notes/` — low-friction knowledge notes
 - `People/` — person hubs
 - `Projects/` — project index files linking related artefacts
+- `Tasks/` — persistent units of work, tracked and linked to artefacts
 - `Workspaces/` — scoped data containers
 - `Writing/` — long-form written works with lifecycle
 
@@ -152,4 +153,4 @@ Archiving follows two patterns depending on scope:
 
 Additional types are available in the artefact library (`.brain-core/artefact-library/`) for install as needed: Wiki, Journals, Zettelkasten (living); Bug Logs, Idea Logs, Journal Entries, Mockups, Presentations (temporal).
 
-The starter vault ships 23 defaults (9 living + 14 temporal) out of 31 in the library.
+The starter vault ships 24 defaults (10 living + 14 temporal) out of 32 in the library.

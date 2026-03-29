@@ -275,7 +275,7 @@ Every artefact related to this project shares the `project/my-app` tag. The proj
 
 ### Starting Small
 
-A new Brain vault ships with a practical starter set: Daily Notes, Designs, Documentation, Ideas, Notes, People, Projects, Workspaces, Writing (living); Captures, Cookies, Decision Logs, Friction Logs, Logs, Observations, Plans, Reports, Research, Shaping Transcripts, Snippets, Thoughts, Transcripts (temporal). That covers the core workflows — capturing knowledge, designing and documenting, tracking people and projects, managing workspaces, writing, logging activity, recording decisions and observations, ingesting external material, refining artefacts, logging friction, capturing raw thinking, and rewarding good work. You can add more types from the library as you need them.
+A new Brain vault ships with a practical starter set: Daily Notes, Designs, Documentation, Ideas, Notes, People, Projects, Tasks, Workspaces, Writing (living); Captures, Cookies, Decision Logs, Friction Logs, Logs, Observations, Plans, Reports, Research, Shaping Transcripts, Snippets, Thoughts, Transcripts (temporal). That covers the core workflows — capturing knowledge, designing and documenting, tracking people and projects, managing tasks, managing workspaces, writing, logging activity, recording decisions and observations, ingesting external material, refining artefacts, logging friction, capturing raw thinking, and rewarding good work. You can add more types from the library as you need them.
 
 ### Adding Types When You Need Them
 
@@ -363,6 +363,7 @@ Workspaces/                   ← workspace hubs (linked to _Workspaces/ data)
 Designs/                      ← design docs and proposals
 Ideas/                        ← concepts being explored
 Journals/                     ← named journal streams
+Tasks/                        ← persistent units of work
 Writing/                      ← essays, posts, chapters
 Documentation/                ← technical docs and style guides
 Notes/                        ← low-friction knowledge notes

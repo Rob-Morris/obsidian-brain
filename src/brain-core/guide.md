@@ -14,6 +14,7 @@ Ideas/
 Notes/
 People/
 Projects/
+Tasks/
 Workspaces/
 Writing/
 ...
@@ -58,6 +59,7 @@ Pick the artefact type that fits, create the file in the right folder with the r
 | Note | `Notes/` | `yyyymmdd - {Title}.md` |
 | Person | `People/` | `{Title}.md` |
 | Project | `Projects/` | `{Title}.md` |
+| Task | `Tasks/` | `{Title}.md` |
 | Workspace | `Workspaces/` | `{Title}.md` |
 | Writing | `Writing/` | `{Title}.md` |
 | Capture | `_Temporal/Captures/yyyy-mm/` | `yyyymmdd-capture~{Title}.md` |
@@ -119,6 +121,7 @@ Some types have a lifecycle. Status values are defined per type:
 - **Ideas:** `new` → `developing` → `graduated` | `parked`
 - **Idea Logs:** `open` → `graduated` | `parked`
 - **People:** `active` → `archived`
+- **Tasks:** `open` → `in-progress` → `done` | `blocked`
 - **Writing:** `draft` → `editing` → `review` → `published` | `parked`
 - **Plans:** `draft` → `approved` → `implementing` → `completed`
 

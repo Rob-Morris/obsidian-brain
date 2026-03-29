@@ -1,0 +1,19 @@
+required:
+  type:
+    const: "living/task"
+  tags:
+    type: array
+    contains: "task"
+optional:
+  status:
+    enum: [open, in-progress, done, blocked]
+    default: open
+  kind:
+    enum: [bug, feature, chore, spike]
+  priority:
+    enum: [critical, high, medium, low]
+  assigned:
+    type: string
+  claimed_at:
+    type: string
+    format: iso-datetime

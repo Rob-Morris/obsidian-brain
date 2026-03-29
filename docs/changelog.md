@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.16.9 — 2026-03-30
+
+- **Add `living/task` artefact type** — brain-native tasks as persistent, queryable units of work. Tracks status (`open`, `in-progress`, `done`, `blocked`), optional kind/priority, and agent assignment with claim timestamps. Board-per-artefact pattern links task boards to designs and other artefacts via hub subfolders. Phase 1 of the Brain Task Management design — internal task artefacts only, no external tool integration.
+
 ## v0.16.8 — 2026-03-30
 
 - **Normalise `.md` extension in artefact and file paths** — agents no longer need to include the `.md` extension when passing paths to `brain_edit`, `brain_read`, or other artefact operations. `resolve_and_validate_folder` and `read_file_content` now normalise upfront since all vault content files are `.md`.

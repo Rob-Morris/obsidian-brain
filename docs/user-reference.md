@@ -276,6 +276,32 @@ tags:
 
 **Convention:** All related files across the vault use a nested project tag (e.g., `project/pistols-at-dawn`) so you can find everything connected to a project.
 
+### Tasks
+
+**Folder:** `Tasks/` · **Naming:** `{Title}.md`
+
+Persistent units of work — tracked, prioritised, and linked to artefacts via the board-per-artefact pattern. Brain-native tasks are deliberately minimal: status frontmatter and wikilinks. Use a task plugin (Undertask, Linear) for richer UX.
+
+```yaml
+type: living/task
+tags:
+  - task
+status: open
+```
+
+**Lifecycle:**
+
+| Status | Meaning |
+|---|---|
+| `open` | Default. Work hasn't started. |
+| `in-progress` | Actively being worked on. |
+| `done` | Completed. Terminal — archive. |
+| `blocked` | Can't proceed — dependency or external blocker. |
+
+**Optional fields:** `kind` (`bug`, `feature`, `chore`, `spike`), `priority` (`critical`, `high`, `medium`, `low`), `assigned` (freeform string), `claimed_at` (ISO timestamp, set when claimed).
+
+**Board-per-artefact:** Each artefact with associated work gets a board task (`Design~Name.md`) that wikilinks up to the artefact. Child tasks live in a subfolder (`Design~Name/`). Subtask nesting follows the same recursive pattern.
+
 ### Workspaces
 
 **Folder:** `Workspaces/` · **Naming:** `{Title}.md`
