@@ -896,15 +896,9 @@ class TestStartupRobustness:
         """If vault root discovery fails, main should exit with code 1."""
         with patch("server.compile_router.find_vault_root", side_effect=FileNotFoundError("no vault")), \
              patch.dict(os.environ, {}, clear=True):
-            # Remove BRAIN_VAULT_ROOT from env so find_vault_root is called
-            env_backup = os.environ.pop("BRAIN_VAULT_ROOT", None)
-            try:
-                with pytest.raises(SystemExit) as exc_info:
-                    server.main()
-                assert exc_info.value.code == 1
-            finally:
-                if env_backup is not None:
-                    os.environ["BRAIN_VAULT_ROOT"] = env_backup
+            with pytest.raises(SystemExit) as exc_info:
+                server.main()
+            assert exc_info.value.code == 1
 
 
 # ---------------------------------------------------------------------------
