@@ -570,6 +570,25 @@ class TestEditWithSection:
                 "text", target="Nonexistent",
             )
 
+    def test_edit_section_preserves_following_heading(self, vault, router):
+        """Body without trailing newline must not corrupt the next section heading."""
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "## Alpha\n\nAlpha content.\n\n## Beta\n\nBeta content.\n"
+        )
+        # Body with NO trailing newline — the bug concatenated it with ## Beta
+        edit.edit_artefact(
+            str(vault), router, "Wiki/test-page.md",
+            "New alpha content.", target="Alpha",
+        )
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        _, body = parse_frontmatter(content)
+        assert "New alpha content." in body
+        assert "## Beta" in body
+        assert "Beta content." in body
+        # The heading must be on its own line, not glued to body
+        assert "content.## Beta" not in body
+
     def test_edit_without_section_replaces_all(self, vault, router):
         edit.edit_artefact(
             str(vault), router, "Wiki/test-page.md", "# Whole new body.\n",

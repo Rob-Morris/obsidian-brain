@@ -77,7 +77,11 @@ def edit_artefact(vault_root, router, path, body, frontmatter_changes=None, targ
 
     if target:
         start, end = find_section(existing_body, target)
-        new_body = existing_body[:start] + body + existing_body[end:]
+        # Ensure clean join: body ends with newline, blank line before next section
+        normalized = body.rstrip("\n") + "\n"
+        if end < len(existing_body):
+            normalized += "\n"  # blank line before next heading
+        new_body = existing_body[:start] + normalized + existing_body[end:]
     else:
         new_body = body
 
