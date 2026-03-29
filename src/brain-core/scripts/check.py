@@ -170,10 +170,13 @@ def resolve_and_validate_folder(vault_root, router, path):
     """Validate path belongs to a known artefact folder, falling back to basename resolution.
 
     Tries exact path first. If that fails, resolves by basename (like wikilinks)
-    and re-validates. Returns the (possibly resolved) path.
+    and re-validates. Returns the (possibly resolved) path.  Artefacts are always
+    ``.md`` files, so a missing extension is normalised automatically.
 
     Raises ValueError if neither the exact path nor basename resolution succeeds.
     """
+    if not path.endswith(".md"):
+        path += ".md"
     try:
         validate_artefact_folder(vault_root, router, path)
         return path

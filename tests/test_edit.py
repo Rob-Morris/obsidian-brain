@@ -213,6 +213,12 @@ class TestEditArtefact:
         assert "Resolved Body" in content
         assert "Original body." not in content
 
+    def test_edit_full_path_without_md_extension(self, vault, router):
+        """Agents should not need to pass the .md extension on full paths."""
+        edit.edit_artefact(str(vault), router, "Wiki/test-page", "# No Extension\n")
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        assert "No Extension" in content
+
 
 # ---------------------------------------------------------------------------
 # Append tests
@@ -234,6 +240,12 @@ class TestAppendToArtefact:
         content = (vault / "Wiki" / "test-page.md").read_text()
         assert "Original body." in content
         assert "Appended via basename." in content
+
+    def test_append_full_path_without_md_extension(self, vault, router):
+        """Agents should not need to pass the .md extension on full paths."""
+        edit.append_to_artefact(str(vault), router, "Wiki/test-page", "\n\nNo ext append.\n")
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        assert "No ext append." in content
 
 
 # ---------------------------------------------------------------------------

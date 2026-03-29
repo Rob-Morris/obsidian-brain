@@ -37,15 +37,19 @@ COMPILED_ROUTER_REL = os.path.join(".brain", "local", "compiled-router.json")
 # ---------------------------------------------------------------------------
 
 def read_file_content(vault_root, rel_path):
-    """Read a file's content given a relative path from vault root.
+    """Read a vault file's content given a relative path from vault root.
 
-    Resolves wikilink-style paths (no extension → try .md).
+    All vault content files are ``.md``; the extension is normalised if missing.
+    Falls back to the original path if the normalised path doesn't exist.
     Returns file content as string, or an error message.
     """
+    original = rel_path
+    if not rel_path.endswith(".md"):
+        rel_path += ".md"
     abs_path = os.path.join(vault_root, rel_path)
-    # Resolve wikilink-style paths (no extension → try .md)
-    if not os.path.isfile(abs_path) and not rel_path.endswith(".md"):
-        abs_path += ".md"
+    if not os.path.isfile(abs_path) and original != rel_path:
+        abs_path = os.path.join(vault_root, original)
+        rel_path = original
     if not os.path.isfile(abs_path):
         return f"Error: file not found: {rel_path}"
     with open(abs_path, "r", encoding="utf-8") as f:
