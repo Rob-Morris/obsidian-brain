@@ -68,6 +68,7 @@ import migrate_naming
 import workspace_registry
 import process
 import fix_links
+import sync_definitions
 
 # Path constants — read dynamically from script modules so they stay
 # current after _check_and_reload() reloads upgraded modules.
@@ -135,7 +136,7 @@ _SCRIPT_MODULES = [
     "_common", "compile_router", "compile_colours", "build_index",
     "search_index", "check", "read", "create", "edit", "rename", "obsidian_cli",
     "session", "shape_presentation", "upgrade", "migrate_naming",
-    "workspace_registry", "process",
+    "workspace_registry", "process", "fix_links", "sync_definitions",
 ]
 
 
@@ -673,7 +674,7 @@ def brain_read(resource: str, name: str | None = None):
       environment — runtime environment info
       router      — always-rules and metadata
       compliance  — run structural compliance checks (name = severity filter: error/warning/info)
-      file        — read any artefact file by relative path (name = path from vault root)
+      file        — read any artefact file (name = relative path or basename; resolves like wikilinks)
     """
     _check_and_reload()
     _ensure_router_fresh()
@@ -838,10 +839,7 @@ def brain_create(type: str, title: str, body: str = "", frontmatter: dict | None
             body=body, frontmatter_overrides=frontmatter, parent=parent,
         )
         _mark_index_pending(result["path"], type_hint=result["type"])
-        msg = f"**Created** {result['type']}: {result['path']}"
-        if result.get("warning"):
-            msg += f"\n\n**Warning:** {result['warning']}"
-        return msg
+        return f"**Created** {result['type']}: {result['path']}"
     except ValueError as e:
         return _fmt_error(str(e))
     except Exception as e:
@@ -858,7 +856,7 @@ def brain_edit(operation: str, path: str, body: str = "", frontmatter: dict | No
 
     Parameters:
       operation  — "edit" (replace body) or "append" (add to body)
-      path       — relative path from vault root (e.g. "Ideas/my-idea.md")
+      path       — relative path or basename (resolves like wikilinks; e.g. "Ideas/my-idea.md" or "my-idea")
       body       — new body content (edit) or content to append (append)
       frontmatter — optional frontmatter changes (edit only, merged with existing)
       target     — optional heading or callout title. When given, edit replaces
@@ -924,6 +922,9 @@ def brain_action(action: str, params: dict | None = None):
       migrate_naming       — migrate vault filenames to generous naming conventions (optional: {dry_run})
       register_workspace   — register a linked workspace (params: {slug, path})
       unregister_workspace — remove a linked workspace registration (params: {slug})
+      fix-links            — scan/fix broken wikilinks (optional: {fix} to apply)
+      sync_definitions     — sync artefact library definitions to vault (optional: {dry_run, types})
+      resolve_sync_interview — resolve a sync conflict (params: {type, role, decision})
     """
     global _router, _index, _workspace_registry
 
@@ -1071,11 +1072,45 @@ def brain_action(action: str, params: dict | None = None):
             result = upgrade.upgrade(_vault_root, source, force=force, dry_run=dry_run)
             if result["status"] == "ok" and not dry_run:
                 _check_and_reload()
-                new_router = _compile_and_save(_vault_root)
-                new_index = _build_index_and_save(_vault_root)
-                _router = new_router
-                _index = new_index
+                # Chain definition sync before final compile — sync may
+                # update config files that affect the compiled router.
+                sync_result = sync_definitions.sync_definitions(_vault_root)
+                _router = _compile_and_save(_vault_root)
+                _index = _build_index_and_save(_vault_root)
                 result["post_upgrade"] = "Reloaded modules, recompiled router, rebuilt index."
+                if sync_result.get("updated"):
+                    result["sync_updated"] = sync_result["updated"]
+                if sync_result.get("interviews"):
+                    result["sync_interviews"] = sync_result["interviews"]
+            return json.dumps(result, indent=2)
+        except Exception as e:
+            return _fmt_error(f"Unexpected error: {e}")
+
+    elif action == "sync_definitions":
+        try:
+            dry_run = (params or {}).get("dry_run", False)
+            types = (params or {}).get("types", None)
+            result = sync_definitions.sync_definitions(
+                _vault_root, dry_run=dry_run, types=types,
+            )
+            if result["status"] == "ok" and not dry_run and result["updated"]:
+                _router = _compile_and_save(_vault_root)
+                result["post_sync"] = "Recompiled router."
+            return json.dumps(result, indent=2)
+        except Exception as e:
+            return _fmt_error(f"Unexpected error: {e}")
+
+    elif action == "resolve_sync_interview":
+        if not params or not all(k in params for k in ("type", "role", "decision")):
+            return _fmt_error(
+                "resolve_sync_interview requires params: {type, role, decision}"
+            )
+        try:
+            result = sync_definitions.resolve_interview(
+                _vault_root, params["type"], params["role"], params["decision"],
+            )
+            if result["status"] == "ok" and params["decision"] == "accept":
+                _router = _compile_and_save(_vault_root)
             return json.dumps(result, indent=2)
         except Exception as e:
             return _fmt_error(f"Unexpected error: {e}")
@@ -1115,7 +1150,8 @@ def brain_action(action: str, params: dict | None = None):
     else:
         valid = ["compile", "build_index", "rename", "delete", "convert",
                  "shape-presentation", "upgrade", "migrate_naming",
-                 "register_workspace", "unregister_workspace", "fix-links"]
+                 "register_workspace", "unregister_workspace", "fix-links",
+                 "sync_definitions", "resolve_sync_interview"]
         return _fmt_error(f"Unknown action '{action}'. Valid: {', '.join(valid)}")
 
 
