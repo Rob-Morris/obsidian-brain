@@ -72,6 +72,31 @@ def read_version(vault_root):
 
 
 # ---------------------------------------------------------------------------
+# Body file resolution
+# ---------------------------------------------------------------------------
+
+def resolve_body_file(body, body_file):
+    """Return body content, reading from body_file if provided.
+
+    Raises ValueError if both are specified or the file cannot be read.
+    Returns (body, cleanup_path) — cleanup_path is the resolved absolute path
+    when body_file was used (caller decides whether to delete), else None.
+    """
+    if body_file and body:
+        raise ValueError("Cannot specify both 'body' and 'body_file'. Use one or the other.")
+    if not body_file:
+        return body, None
+    abs_path = os.path.abspath(body_file)
+    try:
+        with open(abs_path, "r", encoding="utf-8") as f:
+            return f.read(), abs_path
+    except FileNotFoundError:
+        raise ValueError(f"body_file not found: {body_file}")
+    except Exception as e:
+        raise ValueError(f"Failed to read body_file: {e}")
+
+
+# ---------------------------------------------------------------------------
 # Filesystem scanning (DD-016)
 # ---------------------------------------------------------------------------
 

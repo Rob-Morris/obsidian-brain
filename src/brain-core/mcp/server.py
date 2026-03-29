@@ -59,6 +59,7 @@ import search_index
 import read as read_mod
 import rename
 import create
+from _common import resolve_body_file
 import edit
 import obsidian_cli
 import session
@@ -814,13 +815,18 @@ def brain_search(query: str, type: str | None = None, tag: str | None = None,
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def brain_create(type: str, title: str, body: str = "", frontmatter: dict | None = None, parent: str | None = None):
+def brain_create(type: str, title: str, body: str = "", body_file: str = "", frontmatter: dict | None = None, parent: str | None = None):
     """Create a new vault artefact. Additive — creates a file, cannot destroy existing work.
 
     Parameters:
       type       — artefact type key (e.g. "ideas") or full type (e.g. "living/ideas")
       title      — human-readable title, used for filename generation
-      body       — markdown body content (optional, template body used if empty)
+      body       — markdown body content (optional, template body used if empty).
+                   Mutually exclusive with body_file.
+      body_file  — absolute path to a file containing the body content (optional).
+                   The file is read and deleted after successful creation.
+                   Use for large content to keep MCP call displays compact.
+                   Mutually exclusive with body.
       frontmatter — optional frontmatter field overrides (e.g. {"status": "developing"})
       parent     — optional project name to group this artefact under (e.g. "Brain").
                    Living types only; ignored for temporal types.
@@ -834,11 +840,21 @@ def brain_create(type: str, title: str, body: str = "", frontmatter: dict | None
         return _fmt_error("server not initialized")
 
     try:
+        body, cleanup_path = resolve_body_file(body, body_file)
+    except ValueError as e:
+        return _fmt_error(str(e))
+
+    try:
         result = create.create_artefact(
             _vault_root, _router, type, title,
             body=body, frontmatter_overrides=frontmatter, parent=parent,
         )
         _mark_index_pending(result["path"], type_hint=result["type"])
+        if cleanup_path:
+            try:
+                os.remove(cleanup_path)
+            except OSError:
+                pass
         return f"**Created** {result['type']}: {result['path']}"
     except ValueError as e:
         return _fmt_error(str(e))
@@ -851,13 +867,18 @@ def brain_create(type: str, title: str, body: str = "", frontmatter: dict | None
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def brain_edit(operation: str, path: str, body: str = "", frontmatter: dict | None = None, target: str | None = None):
+def brain_edit(operation: str, path: str, body: str = "", body_file: str = "", frontmatter: dict | None = None, target: str | None = None):
     """Modify an existing vault artefact. Single-file mutation.
 
     Parameters:
       operation  — "edit" (replace body) or "append" (add to body)
       path       — relative path or basename (resolves like wikilinks; e.g. "Ideas/my-idea.md" or "my-idea")
-      body       — new body content (edit) or content to append (append)
+      body       — new body content (edit) or content to append (append).
+                   Mutually exclusive with body_file.
+      body_file  — absolute path to a file containing the body content (optional).
+                   The file is read and deleted after successful edit.
+                   Use for large content to keep MCP call displays compact.
+                   Mutually exclusive with body.
       frontmatter — optional frontmatter changes (edit only, merged with existing)
       target     — optional heading or callout title. When given, edit replaces
                    only that section's content; append inserts at the end of that
@@ -872,6 +893,11 @@ def brain_edit(operation: str, path: str, body: str = "", frontmatter: dict | No
 
     if _router is None or _vault_root is None:
         return _fmt_error("server not initialized")
+
+    try:
+        body, cleanup_path = resolve_body_file(body, body_file)
+    except ValueError as e:
+        return _fmt_error(str(e))
 
     if operation == "edit" and body == "" and not frontmatter and not target:
         return _fmt_error("edit with empty body and no frontmatter changes would erase file content. "
@@ -892,6 +918,11 @@ def brain_edit(operation: str, path: str, body: str = "", frontmatter: dict | No
         else:
             return _fmt_error(f"Unknown operation '{operation}'. Valid: edit, append")
         _mark_index_pending(result["path"])
+        if cleanup_path:
+            try:
+                os.remove(cleanup_path)
+            except OSError:
+                pass
         past = "Edited" if result["operation"] == "edit" else "Appended"
         msg = f"**{past}:** {result['path']}"
         if target:

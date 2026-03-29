@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.16.7 — 2026-03-30
+
+- **`body_file` parameter for `brain_create` and `brain_edit`** — agents can pass large body content via a temp file path instead of inline, keeping MCP call displays compact. The server reads the file, uses its content as the body, and deletes the temp file after successful operation. Mutually exclusive with `body`. Shared `resolve_body_file()` helper in `_common.py`. Also adds `--body-file` CLI flag to `create.py` and `edit.py` for parity.
+
 ## v0.16.6 — 2026-03-29
 
 - **Fix section-targeted edit corrupting following headings** — `brain_edit` with a `target` section would concatenate replacement content directly with the next heading when the body lacked a trailing newline, corrupting the heading and making it invisible to subsequent section-targeted operations. Now normalizes spacing between replaced content and following sections.

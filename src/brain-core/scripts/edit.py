@@ -30,6 +30,7 @@ from _common import (
     make_wikilink_replacer,
     parse_frontmatter,
     replace_wikilinks_in_vault,
+    resolve_body_file,
     resolve_wikilink_stems,
     serialize_frontmatter,
     strip_md_ext,
@@ -224,6 +225,7 @@ def main():
     operation = None
     path = None
     body = ""
+    body_file_path = ""
     vault_arg = None
     json_mode = False
     fm_json = None
@@ -237,6 +239,9 @@ def main():
             i += 2
         elif arg == "--body" and i + 1 < len(sys.argv):
             body = sys.argv[i + 1]
+            i += 2
+        elif arg == "--body-file" and i + 1 < len(sys.argv):
+            body_file_path = sys.argv[i + 1]
             i += 2
         elif arg == "--frontmatter" and i + 1 < len(sys.argv):
             fm_json = sys.argv[i + 1]
@@ -258,9 +263,15 @@ def main():
 
     if operation not in ("edit", "append") or not path:
         print(
-            'Usage: edit.py edit|append --path PATH --body BODY [--target HEADING] [--vault PATH] [--json]',
+            'Usage: edit.py edit|append --path PATH --body BODY [--body-file PATH] [--target HEADING] [--vault PATH] [--json]',
             file=sys.stderr,
         )
+        sys.exit(1)
+
+    try:
+        body, _ = resolve_body_file(body, body_file_path)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
 
     vault_root = str(find_vault_root(vault_arg))

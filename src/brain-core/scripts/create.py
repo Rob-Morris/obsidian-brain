@@ -23,6 +23,7 @@ from _common import (
     find_vault_root,
     match_artefact,
     parse_frontmatter,
+    resolve_body_file,
     serialize_frontmatter,
     title_to_filename,
     title_to_slug,
@@ -202,6 +203,7 @@ def main():
     type_key = None
     title = None
     body = ""
+    body_file_path = ""
     vault_arg = None
     parent = None
     json_mode = False
@@ -218,6 +220,9 @@ def main():
         elif arg == "--body" and i + 1 < len(sys.argv):
             body = sys.argv[i + 1]
             i += 2
+        elif arg == "--body-file" and i + 1 < len(sys.argv):
+            body_file_path = sys.argv[i + 1]
+            i += 2
         elif arg == "--vault" and i + 1 < len(sys.argv):
             vault_arg = sys.argv[i + 1]
             i += 2
@@ -232,9 +237,15 @@ def main():
 
     if not type_key or not title:
         print(
-            'Usage: create.py --type TYPE --title TITLE [--body BODY] [--parent NAME] [--vault PATH] [--json]',
+            'Usage: create.py --type TYPE --title TITLE [--body BODY] [--body-file PATH] [--parent NAME] [--vault PATH] [--json]',
             file=sys.stderr,
         )
+        sys.exit(1)
+
+    try:
+        body, _ = resolve_body_file(body, body_file_path)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
 
     vault_root = str(find_vault_root(vault_arg))
