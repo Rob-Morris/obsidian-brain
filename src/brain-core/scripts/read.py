@@ -145,13 +145,12 @@ def read_router_meta(router, vault_root, name=None):
 
 
 def read_file(router, vault_root, name=None):
-    """Read any artefact file by relative path from vault root."""
+    """Read any artefact file by relative path or basename (resolves like wikilinks)."""
     if not name:
-        return {"error": "file resource requires a name parameter (relative path from vault root)"}
-    # Router-driven containment: path must belong to a known artefact type folder
+        return {"error": "file resource requires a name parameter (relative path or basename)"}
     try:
-        from check import validate_artefact_folder
-        validate_artefact_folder(str(vault_root), router, name)
+        from check import resolve_and_validate_folder
+        name = resolve_and_validate_folder(str(vault_root), router, name)
     except ValueError as e:
         return {"error": str(e)}
     return read_file_content(vault_root, name)

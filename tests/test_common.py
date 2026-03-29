@@ -574,3 +574,50 @@ class TestResolveBrokenLink:
         assert "research" in prefixes
         assert "plan" in prefixes
         assert "idea-log" in prefixes
+
+
+class TestResolveArtefactPath:
+    @pytest.fixture
+    def vault_with_files(self, vault):
+        (vault / "Wiki").mkdir(exist_ok=True)
+        (vault / "Wiki" / "Brain Inbox.md").write_text("# Brain Inbox\n")
+        (vault / "Ideas").mkdir(exist_ok=True)
+        (vault / "Ideas" / "My Idea.md").write_text("# My Idea\n")
+        temporal = vault / "_Temporal" / "Reports" / "2026-03"
+        temporal.mkdir(parents=True, exist_ok=True)
+        (temporal / "20260329-report~Broken Link Prevention Briefing.md").write_text("# Report\n")
+        return vault
+
+    def test_exact_basename_resolves(self, vault_with_files):
+        result = common.resolve_artefact_path("Brain Inbox", vault_with_files)
+        assert result == "Wiki/Brain Inbox.md"
+
+    def test_basename_with_md_extension(self, vault_with_files):
+        result = common.resolve_artefact_path("Brain Inbox.md", vault_with_files)
+        assert result == "Wiki/Brain Inbox.md"
+
+    def test_case_insensitive(self, vault_with_files):
+        result = common.resolve_artefact_path("brain inbox", vault_with_files)
+        assert result == "Wiki/Brain Inbox.md"
+
+    def test_no_match_raises(self, vault_with_files):
+        with pytest.raises(ValueError, match="No artefact found"):
+            common.resolve_artefact_path("nonexistent", vault_with_files)
+
+    def test_ambiguous_raises_with_candidates(self, vault_with_files):
+        # Create a duplicate basename in a different folder
+        other = vault_with_files / "Notes"
+        other.mkdir(exist_ok=True)
+        (other / "Brain Inbox.md").write_text("# Duplicate\n")
+        with pytest.raises(ValueError, match="matches multiple files"):
+            common.resolve_artefact_path("Brain Inbox", vault_with_files)
+
+    def test_partial_path_extracts_basename(self, vault_with_files):
+        result = common.resolve_artefact_path("Wrong/Folder/My Idea", vault_with_files)
+        assert result == "Ideas/My Idea.md"
+
+    def test_temporal_basename(self, vault_with_files):
+        result = common.resolve_artefact_path(
+            "20260329-report~Broken Link Prevention Briefing", vault_with_files
+        )
+        assert result == "_Temporal/Reports/2026-03/20260329-report~Broken Link Prevention Briefing.md"

@@ -460,6 +460,35 @@ def _lookup_basename(candidate_stem, md_basenames):
     return md_basenames.get(candidate_stem.lower(), [])
 
 
+def resolve_artefact_path(name, vault_root, file_index=None):
+    """Resolve a basename or partial path to a vault-relative artefact path.
+
+    Tries case-insensitive basename lookup against the vault file index.
+    Accepts names with or without .md extension, and with or without folder prefixes.
+    Returns the single matching relative path.
+
+    Args:
+        file_index: optional pre-built index from build_vault_file_index() to
+            avoid redundant vault walks.
+
+    Raises:
+        ValueError: if no match found or multiple matches (ambiguous).
+    """
+    stem = _basename_stem(name)
+    if file_index is None:
+        file_index = build_vault_file_index(vault_root)
+    matches = _lookup_basename(stem, file_index["md_basenames"])
+    if len(matches) == 1:
+        return matches[0]
+    if not matches:
+        raise ValueError(f"No artefact found matching '{name}'")
+    listing = "\n".join(f"  - {m}" for m in matches)
+    raise ValueError(
+        f"Basename '{stem}' matches multiple files:\n{listing}\n"
+        "Use the full relative path to disambiguate."
+    )
+
+
 def _resolved(matches, strategy):
     """Build a resolved Resolution from a single-match list."""
     return Resolution("resolved", _basename_stem(matches[0]), matches, strategy)

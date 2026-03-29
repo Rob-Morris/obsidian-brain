@@ -27,6 +27,7 @@ from _common import (
     parse_frontmatter,
     extract_wikilinks,
     build_vault_file_index,
+    resolve_artefact_path,
     _fenced_ranges,
     _INDEX_SKIP_DIRS,
     strip_md_ext,
@@ -163,6 +164,23 @@ def validate_artefact_folder(vault_root, router, path):
         f"Path '{path}' does not belong to any known artefact folder. "
         f"Known: {', '.join(known_paths)}"
     )
+
+
+def resolve_and_validate_folder(vault_root, router, path):
+    """Validate path belongs to a known artefact folder, falling back to basename resolution.
+
+    Tries exact path first. If that fails, resolves by basename (like wikilinks)
+    and re-validates. Returns the (possibly resolved) path.
+
+    Raises ValueError if neither the exact path nor basename resolution succeeds.
+    """
+    try:
+        validate_artefact_folder(vault_root, router, path)
+        return path
+    except ValueError:
+        resolved = resolve_artefact_path(path, vault_root)
+        validate_artefact_folder(vault_root, router, resolved)
+        return resolved
 
 
 def validate_artefact_naming(artefact, path):

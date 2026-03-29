@@ -17,6 +17,7 @@ import sys
 
 from check import (
     naming_pattern_to_regex,
+    resolve_and_validate_folder,
     validate_artefact_folder,
     validate_artefact_naming,
     validate_artefact_path,
@@ -59,7 +60,7 @@ def edit_artefact(vault_root, router, path, body, frontmatter_changes=None, targ
         FileNotFoundError: If the file does not exist.
     """
     vault_root = str(vault_root)
-    validate_artefact_folder(vault_root, router, path)
+    path = resolve_and_validate_folder(vault_root, router, path)
 
     abs_path = os.path.join(vault_root, path)
     if not os.path.isfile(abs_path):
@@ -105,7 +106,7 @@ def append_to_artefact(vault_root, router, path, content, target=None):
         FileNotFoundError: If the file does not exist.
     """
     vault_root = str(vault_root)
-    validate_artefact_folder(vault_root, router, path)
+    path = resolve_and_validate_folder(vault_root, router, path)
 
     abs_path = os.path.join(vault_root, path)
     if not os.path.isfile(abs_path):
@@ -158,14 +159,13 @@ def convert_artefact(vault_root, router, path, target_type):
     """
     vault_root = str(vault_root)
 
-    # Validate source
+    # Resolve path (basename fallback) and validate
+    path = resolve_and_validate_folder(vault_root, router, path)
+    target_art = resolve_type(router, target_type)
+
     abs_source = os.path.join(vault_root, path)
     if not os.path.isfile(abs_source):
         raise FileNotFoundError(f"File not found: {path}")
-
-    # Resolve source and target artefact types
-    validate_artefact_folder(vault_root, router, path)
-    target_art = resolve_type(router, target_type)
 
     # Read and parse source file
     with open(abs_source, "r", encoding="utf-8") as f:

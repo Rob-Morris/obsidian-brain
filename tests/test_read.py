@@ -320,6 +320,30 @@ class TestReadFile:
         assert "error" in result
         assert "unconfigured" in result["error"].lower()
 
+    def test_basename_fallback(self, vault):
+        tmp_path, router = vault
+        result = read.read_resource(router, str(tmp_path), "file", name="test-page")
+        assert isinstance(result, str)
+        assert "# Test Page" in result
+
+    def test_basename_fallback_with_extension(self, vault):
+        tmp_path, router = vault
+        result = read.read_resource(router, str(tmp_path), "file", name="test-page.md")
+        assert isinstance(result, str)
+        assert "# Test Page" in result
+
+    def test_exact_path_still_works(self, vault):
+        tmp_path, router = vault
+        result = read.read_resource(router, str(tmp_path), "file", name="Wiki/test-page.md")
+        assert isinstance(result, str)
+        assert "# Test Page" in result
+
+    def test_basename_no_match(self, vault):
+        tmp_path, router = vault
+        result = read.read_resource(router, str(tmp_path), "file", name="totally-nonexistent")
+        assert "error" in result
+        assert "No artefact found" in result["error"]
+
 
 # ---------------------------------------------------------------------------
 # CLI compiled router loading

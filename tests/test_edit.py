@@ -207,6 +207,12 @@ class TestEditArtefact:
         with pytest.raises(FileNotFoundError):
             edit.edit_artefact(str(vault), router, "Wiki/nonexistent.md", "body")
 
+    def test_edit_basename_fallback(self, vault, router):
+        edit.edit_artefact(str(vault), router, "test-page", "# Resolved Body\n")
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        assert "Resolved Body" in content
+        assert "Original body." not in content
+
 
 # ---------------------------------------------------------------------------
 # Append tests
@@ -222,6 +228,12 @@ class TestAppendToArtefact:
     def test_append_file_not_found(self, vault, router):
         with pytest.raises(FileNotFoundError):
             edit.append_to_artefact(str(vault), router, "Wiki/nonexistent.md", "text")
+
+    def test_append_basename_fallback(self, vault, router):
+        edit.append_to_artefact(str(vault), router, "test-page", "\n\nAppended via basename.\n")
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        assert "Original body." in content
+        assert "Appended via basename." in content
 
 
 # ---------------------------------------------------------------------------
