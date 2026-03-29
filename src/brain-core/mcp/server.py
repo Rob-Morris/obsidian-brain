@@ -36,6 +36,7 @@ Requires Python >=3.10 and the `mcp` SDK (see requirements.txt).
 import json
 import os
 import sys
+import tempfile
 import time
 from datetime import datetime, timezone
 
@@ -142,22 +143,60 @@ def _check_and_reload() -> None:
 
     After reloading, recompile the router (version change implies config
     changes) and mark the index dirty (new logic may affect indexing).
+
+    On failure at any phase the function logs to stderr and returns without
+    updating _loaded_version, so the next tool call retries the reload.
+    This function never raises — callers can rely on it being safe to call.
     """
     global _loaded_version, _router
     if _vault_root is None or _loaded_version is None:
         return
-    disk_version = _read_disk_version(_vault_root)
-    if disk_version is not None and disk_version != _loaded_version:
-        old = _loaded_version
+
+    try:
+        disk_version = _read_disk_version(_vault_root)
+    except Exception as e:
+        print(f"brain-core version check failed: {e}", file=sys.stderr)
+        return
+    if disk_version is None or disk_version == _loaded_version:
+        return
+
+    old = _loaded_version
+
+    try:
+        # Phase 1: snapshot current modules for rollback
+        snapshots = {}
         for name in _SCRIPT_MODULES:
             mod = sys.modules.get(name)
             if mod is not None:
-                importlib.reload(mod)
+                snapshots[name] = mod
+
+        # Phase 2: reload all modules; roll back on any failure
+        try:
+            for name in _SCRIPT_MODULES:
+                mod = sys.modules.get(name)
+                if mod is not None:
+                    importlib.reload(mod)
+        except Exception as e:
+            for name, snapshot in snapshots.items():
+                sys.modules[name] = snapshot
+            print(f"brain-core reload failed ({old} → {disk_version}): {e}; rolled back modules", file=sys.stderr)
+            return
+
+        # Phase 3: post-reload work (migrations, recompile, mark index dirty)
+        try:
+            upgrade.run_pending_migrations(_vault_root)
+            _router = _compile_and_save(_vault_root)
+            _mark_index_dirty()
+        except Exception as e:
+            print(f"brain-core post-reload failed ({old} → {disk_version}): {e}; version not updated", file=sys.stderr)
+            return
+
+        # Phase 4: only update version after everything succeeded
         _loaded_version = disk_version
-        upgrade.run_pending_migrations(_vault_root)
-        _router = _compile_and_save(_vault_root)
-        _mark_index_dirty()
         print(f"brain-core reloaded ({old} → {disk_version}): recompiled router, index marked dirty", file=sys.stderr)
+
+    except Exception as e:
+        print(f"brain-core reload unexpected error: {e}", file=sys.stderr)
 
 
 # ---------------------------------------------------------------------------
@@ -264,7 +303,10 @@ def _ensure_router_fresh() -> None:
     stale, data = _check_router(_vault_root)
     if not stale and not _check_router_type_count(_vault_root, _router):
         return
-    _router = _compile_and_save(_vault_root)
+    try:
+        _router = _compile_and_save(_vault_root)
+    except Exception as e:
+        print(f"brain-core router recompile failed: {e}", file=sys.stderr)
 
 
 def _mark_index_dirty() -> None:
@@ -305,25 +347,34 @@ def _ensure_index_fresh() -> None:
     """Update the index if needed: incremental for queued paths, full rebuild
     if dirty flag is set, filesystem staleness check on TTL for external changes.
     """
-    global _index, _index_checked_at
+    global _index, _index_checked_at, _index_dirty
     if _vault_root is None:
         return
 
     # Full rebuild takes priority over incremental
     if _index_dirty:
-        _index = _build_index_and_save(_vault_root)
+        try:
+            _index = _build_index_and_save(_vault_root)
+        except Exception as e:
+            print(f"brain-core index full rebuild failed: {e}", file=sys.stderr)
+            _index_dirty = False  # prevent tight retry loop; staleness TTL will re-detect
+            _index_checked_at = time.monotonic()
         return
 
     # Incremental updates for paths queued by brain_create/brain_edit
     if _index_pending and _index is not None:
         pending = _index_pending[:]
         _index_pending.clear()
-        for rel_path, type_hint in pending:
-            build_index.index_update(_index, _vault_root, rel_path, type_hint=type_hint, recompute=False)
-        build_index._recompute_corpus_stats(_index)
-        _save_json(_index, _vault_root, _index_rel())
-        _mark_embeddings_dirty()
-        _index_checked_at = time.monotonic()
+        try:
+            for rel_path, type_hint in pending:
+                build_index.index_update(_index, _vault_root, rel_path, type_hint=type_hint, recompute=False)
+            build_index._recompute_corpus_stats(_index)
+            _save_json(_index, _vault_root, _index_rel())
+            _mark_embeddings_dirty()
+            _index_checked_at = time.monotonic()
+        except Exception as e:
+            print(f"brain-core index incremental update failed: {e}", file=sys.stderr)
+            _mark_index_dirty()
         return
 
     # Filesystem staleness check for external changes (throttled)
@@ -334,7 +385,10 @@ def _ensure_index_fresh() -> None:
     stale, data = _check_index(_vault_root)
     if not stale:
         return
-    _index = _build_index_and_save(_vault_root)
+    try:
+        _index = _build_index_and_save(_vault_root)
+    except Exception as e:
+        print(f"brain-core index staleness rebuild failed: {e}", file=sys.stderr)
 
 
 # ---------------------------------------------------------------------------
@@ -342,12 +396,27 @@ def _ensure_index_fresh() -> None:
 # ---------------------------------------------------------------------------
 
 def _save_json(data: dict, vault_root: str, rel_path: str) -> None:
-    """Write a dict as JSON to vault_root/rel_path."""
+    """Write a dict as JSON to vault_root/rel_path (atomic via temp+rename)."""
     output_path = os.path.join(vault_root, rel_path)
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
-        f.write("\n")
+    parent = os.path.dirname(output_path)
+    os.makedirs(parent, exist_ok=True)
+    fd = tempfile.NamedTemporaryFile(
+        mode="w", encoding="utf-8", suffix=".tmp", dir=parent, delete=False,
+    )
+    try:
+        json.dump(data, fd, indent=2, ensure_ascii=False)
+        fd.write("\n")
+        fd.flush()
+        os.fsync(fd.fileno())
+        fd.close()
+        os.replace(fd.name, output_path)
+    except BaseException:
+        fd.close()
+        try:
+            os.unlink(fd.name)
+        except OSError:
+            pass
+        raise
 
 
 def _compile_and_save(vault_root: str) -> dict:
@@ -425,24 +494,42 @@ def startup(vault_root: str | None = None) -> None:
     _loaded_version = _read_disk_version(_vault_root)
 
     # Run any pending migrations (e.g. vaults upgraded via manual file copy)
-    upgrade.run_pending_migrations(_vault_root)
+    try:
+        upgrade.run_pending_migrations(_vault_root)
+    except Exception as e:
+        print(f"brain-core startup: migrations failed: {e}", file=sys.stderr)
 
     # Auto-compile router if stale (reuse parsed data when fresh)
-    stale, data = _check_router(_vault_root)
-    _router = _compile_and_save(_vault_root) if stale else data
+    try:
+        stale, data = _check_router(_vault_root)
+        _router = _compile_and_save(_vault_root) if stale else data
+    except Exception as e:
+        print(f"brain-core startup: router compile failed: {e}", file=sys.stderr)
 
     # Auto-build index if stale
-    stale, data = _check_index(_vault_root)
-    _index = _build_index_and_save(_vault_root) if stale else data
+    try:
+        stale, data = _check_index(_vault_root)
+        _index = _build_index_and_save(_vault_root) if stale else data
+    except Exception as e:
+        print(f"brain-core startup: index build failed: {e}", file=sys.stderr)
 
     # Load pre-built embeddings if available
-    _load_embeddings(_vault_root)
+    try:
+        _load_embeddings(_vault_root)
+    except Exception as e:
+        print(f"brain-core startup: embeddings load failed: {e}", file=sys.stderr)
 
     # Load workspace registry
-    _workspace_registry = workspace_registry.load_registry(_vault_root)
+    try:
+        _workspace_registry = workspace_registry.load_registry(_vault_root)
+    except Exception as e:
+        print(f"brain-core startup: workspace registry failed: {e}", file=sys.stderr)
 
     # Probe Obsidian CLI availability
-    _cli_available = obsidian_cli.check_available()
+    try:
+        _cli_available = obsidian_cli.check_available()
+    except Exception as e:
+        print(f"brain-core startup: CLI probe failed: {e}", file=sys.stderr)
     _cli_probed_at = time.monotonic()
     _vault_name = os.environ.get("BRAIN_VAULT_NAME") or os.path.basename(_vault_root)
 
@@ -1164,7 +1251,11 @@ def brain_process(operation: str, content: str,
 # ---------------------------------------------------------------------------
 
 def main():
-    startup()
+    try:
+        startup()
+    except Exception as e:
+        print(f"brain-core fatal startup error: {e}", file=sys.stderr)
+        sys.exit(1)
     mcp.run(transport="stdio")
 
 

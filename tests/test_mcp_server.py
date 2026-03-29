@@ -1,5 +1,6 @@
 """Tests for Brain MCP server — unit tests with a minimal vault fixture."""
 
+import importlib
 import json
 import os
 import time
@@ -694,6 +695,216 @@ class TestVersionCheck:
         )
         assert result == "**Edited:** Wiki/brain-overview-abc123.md"
         assert server._loaded_version == "99.0.0"
+
+
+# ---------------------------------------------------------------------------
+# Atomic JSON save
+# ---------------------------------------------------------------------------
+
+class TestAtomicSave:
+    def test_save_json_creates_file(self, tmp_path):
+        """_save_json should create the file with correct content."""
+        data = {"key": "value", "nested": [1, 2, 3]}
+        server._save_json(data, str(tmp_path), "sub/data.json")
+        result = json.loads((tmp_path / "sub" / "data.json").read_text())
+        assert result == data
+
+    def test_save_json_overwrites_existing(self, tmp_path):
+        """_save_json should atomically replace an existing file."""
+        path = tmp_path / "data.json"
+        path.write_text('{"old": true}\n')
+        server._save_json({"new": True}, str(tmp_path), "data.json")
+        result = json.loads(path.read_text())
+        assert result == {"new": True}
+
+    def test_save_json_atomic_no_corruption_on_error(self, tmp_path):
+        """If json.dump fails mid-write, the original file should be intact."""
+        path = tmp_path / "data.json"
+        original = {"original": True}
+        server._save_json(original, str(tmp_path), "data.json")
+
+        def bad_dump(*args, **kwargs):
+            raise OSError("disk full")
+
+        with patch("server.json.dump", side_effect=bad_dump):
+            with pytest.raises(OSError, match="disk full"):
+                server._save_json({"corrupt": True}, str(tmp_path), "data.json")
+
+        # Original file should be untouched
+        result = json.loads(path.read_text())
+        assert result == original
+
+    def test_save_json_cleans_up_temp_on_failure(self, tmp_path):
+        """No .tmp files should remain after a failed write."""
+        (tmp_path / "sub").mkdir()
+        server._save_json({"ok": True}, str(tmp_path), "sub/data.json")
+
+        with patch("server.os.replace", side_effect=OSError("replace failed")):
+            with pytest.raises(OSError, match="replace failed"):
+                server._save_json({"bad": True}, str(tmp_path), "sub/data.json")
+
+        tmp_files = list((tmp_path / "sub").glob("*.tmp"))
+        assert tmp_files == [], f"Temp files not cleaned up: {tmp_files}"
+
+
+# ---------------------------------------------------------------------------
+# Reload robustness
+# ---------------------------------------------------------------------------
+
+class TestReloadRobustness:
+    def test_reload_rolls_back_on_module_failure(self, initialized):
+        """If a module fails to reload, all modules should be rolled back."""
+        version_path = initialized / ".brain-core" / "VERSION"
+        version_path.write_text("99.0.0\n")
+        old_version = server._loaded_version
+        old_router = server._router
+
+        call_count = 0
+        original_reload = importlib.reload
+
+        def fail_on_third(mod):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 3:
+                raise ImportError("simulated module failure")
+            return original_reload(mod)
+
+        with patch("server.importlib.reload", side_effect=fail_on_third):
+            server._check_and_reload()
+
+        assert server._loaded_version == old_version, "Version should not update after failed reload"
+        assert server._router is old_router, "Router should be unchanged after failed reload"
+
+    def test_reload_post_reload_failure_leaves_version_unchanged(self, initialized):
+        """If post-reload work (migration+compile) fails, version should not update."""
+        version_path = initialized / ".brain-core" / "VERSION"
+        version_path.write_text("99.0.0\n")
+        old_version = server._loaded_version
+
+        # _compile_and_save is defined in server.py (not reloaded), so this patch survives reload
+        with patch.object(server, "_compile_and_save", side_effect=OSError("post-reload boom")):
+            server._check_and_reload()
+
+        assert server._loaded_version == old_version, "Version should not update after post-reload failure"
+
+    def test_reload_compile_failure_leaves_version_unchanged(self, initialized):
+        """If router recompile fails after reload, version should not update."""
+        version_path = initialized / ".brain-core" / "VERSION"
+        version_path.write_text("99.0.0\n")
+        old_version = server._loaded_version
+
+        with patch("server._compile_and_save", side_effect=OSError("compile boom")):
+            server._check_and_reload()
+
+        assert server._loaded_version == old_version
+
+    def test_reload_retries_after_failure(self, initialized):
+        """After a failed reload, the next call should retry (version still mismatches)."""
+        version_path = initialized / ".brain-core" / "VERSION"
+        version_path.write_text("99.0.0\n")
+
+        with patch("server._compile_and_save", side_effect=OSError("boom")):
+            server._check_and_reload()
+        assert server._loaded_version != "99.0.0"
+
+        # Second call should retry and succeed (no patch)
+        server._check_and_reload()
+        assert server._loaded_version == "99.0.0"
+
+    def test_reload_success_updates_version_last(self, initialized):
+        """On successful reload, version should be updated to disk version."""
+        version_path = initialized / ".brain-core" / "VERSION"
+        version_path.write_text("99.0.0\n")
+        server._check_and_reload()
+        assert server._loaded_version == "99.0.0"
+
+    def test_check_and_reload_never_raises(self, initialized):
+        """_check_and_reload should never raise, even on unexpected errors."""
+        version_path = initialized / ".brain-core" / "VERSION"
+        version_path.write_text("99.0.0\n")
+
+        with patch("server._read_disk_version", side_effect=Exception("unexpected")):
+            server._check_and_reload()  # should not raise
+
+
+class TestEnsureFreshRobustness:
+    def test_ensure_router_fresh_survives_compile_error(self, initialized):
+        """If _compile_and_save raises, the old router should be preserved."""
+        old_router = server._router
+        # Force staleness by bumping a taxonomy file's mtime
+        time.sleep(0.1)
+        tax_file = initialized / "_Config" / "Taxonomy" / "Living" / "wiki.md"
+        tax_file.write_text(tax_file.read_text() + "\n")
+
+        with patch.object(server, "_compile_and_save", side_effect=OSError("boom")):
+            server._ensure_router_fresh()
+
+        assert server._router is old_router, "Old router should be preserved on compile failure"
+
+    def test_ensure_index_fresh_survives_build_error(self, initialized):
+        """If _build_index_and_save raises during dirty rebuild, old index should be preserved."""
+        old_index = server._index
+        server._mark_index_dirty()
+
+        with patch.object(server, "_build_index_and_save", side_effect=OSError("boom")):
+            server._ensure_index_fresh()
+
+        assert server._index is old_index, "Old index should be preserved on build failure"
+        assert not server._index_dirty, "Dirty flag should be cleared to prevent tight retry loop"
+
+    def test_ensure_index_fresh_incremental_failure_marks_dirty(self, initialized):
+        """If incremental update fails, index should be marked dirty for full rebuild."""
+        server._index_dirty = False
+        server._mark_index_pending("Wiki/brain-overview-abc123.md", "wiki")
+
+        with patch("server.build_index.index_update", side_effect=OSError("boom")):
+            server._ensure_index_fresh()
+
+        assert server._index_dirty, "Index should be marked dirty after incremental failure"
+
+
+class TestStartupRobustness:
+    def test_startup_survives_migration_failure(self, vault):
+        """If migrations fail, startup should still load router and index."""
+        with patch("server.upgrade.run_pending_migrations", side_effect=OSError("boom")):
+            server.startup(vault_root=str(vault))
+
+        assert server._router is not None
+        assert server._index is not None
+
+    def test_startup_survives_router_compile_failure(self, vault):
+        """If router compile fails, _router is None but index still loads."""
+        server._router = None
+        with patch.object(server, "_compile_and_save", side_effect=OSError("boom")), \
+             patch.object(server, "_check_router", return_value=(True, None)):
+            server.startup(vault_root=str(vault))
+
+        assert server._router is None
+        assert server._index is not None
+
+    def test_startup_survives_index_build_failure(self, vault):
+        """If index build fails, _index is None but router still loads."""
+        server._index = None
+        with patch.object(server, "_build_index_and_save", side_effect=OSError("boom")), \
+             patch.object(server, "_check_index", return_value=(True, None)):
+            server.startup(vault_root=str(vault))
+
+        assert server._router is not None
+        assert server._index is None
+
+    def test_main_exits_on_vault_discovery_failure(self):
+        """If vault root discovery fails, main should exit with code 1."""
+        with patch("server.compile_router.find_vault_root", side_effect=FileNotFoundError("no vault")), \
+             patch.dict(os.environ, {}, clear=True):
+            # Remove BRAIN_VAULT_ROOT from env so find_vault_root is called
+            env_backup = os.environ.pop("BRAIN_VAULT_ROOT", None)
+            try:
+                with pytest.raises(SystemExit) as exc_info:
+                    server.main()
+                assert exc_info.value.code == 1
+            finally:
+                if env_backup is not None:
+                    os.environ["BRAIN_VAULT_ROOT"] = env_backup
 
 
 # ---------------------------------------------------------------------------

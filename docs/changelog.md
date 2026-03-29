@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.16.2 — 2026-03-29
+
+- **MCP server robustness** — Atomic JSON writes (temp+rename) prevent index/router corruption on crash. Module hot-reload with snapshot/rollback prevents mixed old/new state on partial failure. Router and index ensure-fresh helpers catch errors gracefully (stale data beats no data). Startup wraps each subsystem independently so one failure doesn't prevent others from loading. `main()` catches fatal startup errors and exits cleanly.
+
 ## v0.16.1 — 2026-03-29
 
 - **Namespace CSS snippet to `brain-folder-colours`** — Renamed `folder-colours.css` → `brain-folder-colours.css` to avoid collisions when installing brain into existing vaults. Updated compile script, template vault, install script, and all docs.
