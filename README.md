@@ -35,21 +35,65 @@ The [User Guide](docs/user-guide.md) walks through all of this with examples.
 
 ## Quick Start
 
+1. **Install [prerequisites](#prerequisites)**
+2. **Create your vault** — run the [install command](#install) below
+3. **Open as a vault in Obsidian** — select the folder you created in step 2, then enable the `folder-colours` CSS snippet in Obsidian's Settings > Appearance > CSS Snippets
+4. **Connect your agent** — open your agent in the vault folder, or register the MCP server for other directories (see [Connecting from other projects](#connecting-from-other-projects))
+
+That's it. Start talking — the agent reads the vault structure and knows what to do. See [A Day in the Life](docs/user-guide.md#a-day-in-the-life) for what working with the brain looks like in practice.
+
 ### Prerequisites
 
 - [Obsidian](https://obsidian.md)
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (or any MCP-capable agent)
-- Python 3.12+
+- Python 3.10+ (the install script will check and guide you if needed)
+- git
 
-### Setup
+### Install
 
-1. Clone this repo (or download the template vault)
-2. Copy `template-vault/` to your preferred location
-3. Copy `src/brain-core/` into the vault as `.brain-core/`
-4. Open the folder as an Obsidian vault
-5. Enable the CSS snippet in **Settings > Appearance > CSS Snippets** (`folder-colours`)
-6. Register the Brain MCP server: `python3 .brain-core/scripts/init.py` (or `--user` for all projects)
-7. Start a conversation
+Run this from any terminal. It downloads the repo, creates a vault, installs dependencies, and registers the MCP server:
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/robmorris/obsidian-brain/main/install.sh)
+```
+
+The script will ask where to create the vault (defaults to the current directory). You can also pass the path directly:
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/robmorris/obsidian-brain/main/install.sh) ~/brain
+```
+
+If you've already cloned the repo, run the install script directly — it will use local files instead of downloading:
+
+```bash
+bash install.sh ~/brain
+```
+
+<details>
+<summary>Fully manual setup</summary>
+
+If you prefer to do it yourself:
+
+1. Clone this repo: `git clone https://github.com/robmorris/obsidian-brain.git`
+2. Copy `template-vault/` to your preferred location: `cp -RL template-vault ~/brain` (the `-L` flag resolves the `.brain-core` symlink)
+3. Create a venv and install dependencies: `cd ~/brain && python3 -m venv .venv && .venv/bin/pip install "mcp>=1.0.0"`
+4. Register the MCP server: `python3 .brain-core/scripts/init.py` (or `--user` for all projects)
+5. Open the folder as an Obsidian vault
+6. Enable the CSS snippet in **Settings > Appearance > CSS Snippets** (`folder-colours`)
+
+</details>
+
+### Connecting from Other Projects
+
+The install script registers the MCP server for the vault directory. To connect your agent from other directories:
+
+```bash
+# Make the brain available to all projects
+python3 .brain-core/scripts/init.py --user
+
+# Or link a specific project
+python3 .brain-core/scripts/init.py --project /path/to/project
+```
 
 ### Hello, Is It Me You're Looking For?
 

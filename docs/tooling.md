@@ -168,6 +168,37 @@ Conditional:
 
 **Key derivation convention** (DD-018): type key = lowercase folder name, spaces to hyphens. e.g. `Daily Notes` → `daily-notes` → `_Config/Taxonomy/{classification}/daily-notes.md`. No manual registry needed. All MCP tools that accept a type parameter tolerate singular forms — `"report"` resolves to `"reports"`, `"idea"` to `"ideas"` — via normalised matching in `_common.match_artefact()`.
 
+## install.sh
+
+Top-level install script for new users. Creates a complete vault from scratch:
+
+```bash
+# One-liner (downloads everything automatically)
+bash <(curl -fsSL https://raw.githubusercontent.com/robmorris/obsidian-brain/main/install.sh)
+
+# With path argument
+bash <(curl -fsSL https://raw.githubusercontent.com/robmorris/obsidian-brain/main/install.sh) ~/brain
+
+# From a local clone
+bash install.sh ~/brain
+```
+
+**What it does:** clones the repo (or uses existing clone) → copies template-vault → copies brain-core as `.brain-core/` → creates `.venv` with `mcp` installed → runs `init.py` to register the MCP server. Temp clone is cleaned up automatically.
+
+**Requirements:** git, python3 (3.10+). No other dependencies. The script searches for the best available Python (3.13 down to 3.10) so it works even if `python3` points to an older version.
+
+**When running from an existing clone**, the script detects the repo and skips the download step.
+
+**Uninstall:** removes brain system files (`.brain-core/`, `.brain/`, `.venv/`, `.mcp.json`, `CLAUDE.md`) while keeping your Obsidian vault and notes intact. Optionally offers to delete the entire vault.
+
+```bash
+bash install.sh --uninstall ~/brain
+```
+
+**Flags:**
+
+- `--force` / `-f` — skip interactive prompts (for agent/scripted use). On uninstall, only skips the brain-files prompt; vault deletion always requires interactive confirmation.
+
 ## init.py (DD-023)
 
 Setup script at `.brain-core/scripts/init.py`. Configures Claude Code to use the brain MCP server. Self-contained (no `_common` imports), idempotent, supports three scopes:
@@ -175,6 +206,8 @@ Setup script at `.brain-core/scripts/init.py`. Configures Claude Code to use the
 - **Local** (default): `.mcp.json` in the vault root. For using Claude Code inside the vault.
 - **User** (`--user`): `~/.claude.json` top-level `mcpServers`. Default brain for all projects.
 - **Project** (`--project <dir>`): `.mcp.json` in the project folder. Per-project vault override.
+
+Optional: `--vault <path>` overrides vault root auto-detection (used by `install.sh` when the script isn't inside the vault).
 
 Registration strategy: `claude mcp add-json` when CLI available, direct JSON file editing otherwise. Both produce equivalent config. Project scope also writes a CLAUDE.md bootstrap line.
 
