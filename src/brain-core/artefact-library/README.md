@@ -99,7 +99,7 @@ Artefact types that have a lifecycle should include a `status` field in frontmat
 
 ## Installing a type
 
-**Automated:** `brain_action("sync_definitions")` syncs all library definitions to vault `_Config/` using three-way hash comparison. Chains automatically after `brain_action("upgrade")`. Handles new installs, upstream updates, and user-customised files; conflicts go to an interview flow resolved via `brain_action("resolve_sync_interview", {type, role, decision})`.
+**Automated:** `brain_action("sync_definitions")` syncs all library definitions to vault `_Config/` using three-way hash comparison. Chains automatically after `brain_action("upgrade")`. Auto-updates unmodified files; preserves user customisations; returns warnings for conflicts. Use `force` to override, or `artefact_sync_exclude` in `.brain/preferences.json` to permanently skip specific files.
 
 **Manual:**
 

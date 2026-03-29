@@ -8,9 +8,11 @@ comparison, and updates safely.
 
 Chained after upgrade: upgrade.py → sync_definitions.py → compile_router.py.
 
+Returns warnings for conflicts/collisions — callers decide how to act
+(agents can mediate interactively, deterministic pipelines can use force).
+
 Usage:
-  python3 sync_definitions.py [--vault /path] [--dry-run] [--types t1,t2] [--json]
-  python3 sync_definitions.py --resolve TYPE ROLE DECISION [--vault /path] [--json]
+  python3 sync_definitions.py [--vault /path] [--dry-run] [--force] [--types t1,t2] [--json]
 """
 
 import argparse
@@ -230,43 +232,33 @@ def compute_file_status(
     }
 
 
-def is_pinned(entry: Optional[dict]) -> bool:
-    """Check if a tracking entry is pinned."""
-    return bool(entry and entry.get("pinned"))
-
-
-def is_declined(entry: Optional[dict], upstream_hash: str) -> bool:
-    """Check if user already declined this exact upstream version."""
-    return bool(entry and entry.get("override_since") == upstream_hash)
-
-
 # ---------------------------------------------------------------------------
 # Core sync
 # ---------------------------------------------------------------------------
 
-def _make_tracking_entry(
-    upstream_hash: str,
-    target: str,
-    existing: Optional[dict] = None,
-) -> dict:
-    """Build a tracking file entry, preserving pinned/override fields if present."""
-    entry = {"source_hash": upstream_hash, "target": target}
-    if existing:
-        if existing.get("pinned"):
-            entry["pinned"] = True
-        # Clear override_since when accepting an update
-    return entry
+def load_exclude_set(prefs: dict) -> set:
+    """Read artefact_sync_exclude list from preferences as a set."""
+    raw = prefs.get("artefact_sync_exclude", [])
+    return set(raw) if isinstance(raw, list) else set()
+
+
+def _make_tracking_entry(upstream_hash: str, target: str) -> dict:
+    """Build a tracking file entry."""
+    return {"source_hash": upstream_hash, "target": target}
 
 
 def sync_definitions(
     vault_root: str,
     *,
     dry_run: bool = False,
+    force: bool = False,
     types: Optional[list[str]] = None,
 ) -> dict:
     """Sync artefact library definitions to vault _Config/ files.
 
-    Returns a structured result with updated, skipped, and interview lists.
+    Returns a structured result with updated, skipped, and warnings lists.
+    Warnings indicate conflicts/collisions that need caller attention.
+    Use force=True to overwrite despite warnings.
     """
     prefs = load_preferences(vault_root)
     preference = prefs.get("artefact_sync", "auto")
@@ -279,13 +271,14 @@ def sync_definitions(
             "preference": "skip",
             "updated": [],
             "skipped": [],
-            "interviews": [],
+            "warnings": [],
             "errors": [],
             "dry_run": dry_run,
             "message": "Sync disabled (artefact_sync: skip).",
         }
     tracking = load_tracking(vault_root)
     library_types = discover_library_types(vault_root)
+    exclude_set = load_exclude_set(prefs)
 
     if types is not None:
         type_set = set(types)
@@ -293,7 +286,7 @@ def sync_definitions(
 
     updated = []
     skipped = []
-    interviews = []
+    warnings = []
     errors = []
     now = datetime.now(timezone.utc).isoformat()
 
@@ -306,7 +299,7 @@ def sync_definitions(
         type_files_tracking = type_tracking.get("files", {})
 
         new_type_files = {}
-        type_changed = False  # track whether any role was updated or newly tracked
+        type_changed = False
 
         for role, file_info in manifest["files"].items():
             source_path = os.path.join(lib_dir, file_info["source"])
@@ -323,32 +316,20 @@ def sync_definitions(
 
             installed_entry = type_files_tracking.get(role)
 
-            # Check pin/decline before computing status
-            if is_pinned(installed_entry):
+            # Check exclusion list
+            exclude_key = f"{type_key}/{role}"
+            if exclude_key in exclude_set:
                 skipped.append({
                     "type": type_key,
                     "role": role,
                     "target": target_rel,
-                    "reason": "pinned",
+                    "reason": "excluded",
                 })
-                # Preserve existing tracking entry
-                new_type_files[role] = dict(installed_entry)
+                if installed_entry:
+                    new_type_files[role] = dict(installed_entry)
                 continue
 
             status = compute_file_status(source_path, installed_entry, vault_path)
-
-            # Check decline (only relevant for update/conflict)
-            if status["action"] in ("update", "conflict") and is_declined(
-                installed_entry, status["upstream_hash"]
-            ):
-                skipped.append({
-                    "type": type_key,
-                    "role": role,
-                    "target": target_rel,
-                    "reason": "declined",
-                })
-                new_type_files[role] = dict(installed_entry)
-                continue
 
             if status["action"] == "skip":
                 skipped.append({
@@ -358,14 +339,12 @@ def sync_definitions(
                     "reason": "in_sync" if status["local_hash"] == status["upstream_hash"]
                     else "user_customised",
                 })
-                # Preserve or create tracking entry
                 new_type_files[role] = installed_entry if installed_entry else _make_tracking_entry(
                     status["upstream_hash"], target_rel,
                 )
                 continue
 
             if status["action"] == "baseline":
-                # Bootstrap: local matches upstream, silently establish tracking
                 new_type_files[role] = _make_tracking_entry(
                     status["upstream_hash"], target_rel,
                 )
@@ -378,7 +357,12 @@ def sync_definitions(
                 })
                 continue
 
-            if status["action"] == "update" and preference == "auto":
+            # Apply update: auto-update safe changes, or force all changes
+            should_apply = (
+                (status["action"] == "update" and preference == "auto")
+                or force
+            )
+            if should_apply:
                 if not dry_run:
                     os.makedirs(os.path.dirname(vault_path), exist_ok=True)
                     shutil.copy2(source_path, vault_path)
@@ -390,14 +374,11 @@ def sync_definitions(
                     "type": type_key,
                     "role": role,
                     "target": target_rel,
-                    "action": "update",
+                    "action": status["action"],
                 })
                 continue
 
-            # Everything else goes to interviews:
-            # - "new", "collision", "conflict"
-            # - "update" when preference == "manual"
-            interviews.append({
+            warnings.append({
                 "type": type_key,
                 "role": role,
                 "target": target_rel,
@@ -405,31 +386,20 @@ def sync_definitions(
                 "upstream_hash": status["upstream_hash"],
                 "local_hash": status["local_hash"],
             })
-            # Preserve existing tracking for now
             if installed_entry:
                 new_type_files[role] = dict(installed_entry)
 
-        # Update tracking for this type — only rewrite the entry when
-        # something actually changed (update, baseline) to avoid bumping
-        # installed_at on every sync run for unchanged types.
+        # Update tracking — only rewrite entry when something changed
         if new_type_files:
-            if type_changed:
-                tracking["installed"][type_key] = {
-                    "brain_core_version": brain_core_version,
-                    "installed_at": now,
-                    "files": new_type_files,
-                }
-            elif type_key not in tracking["installed"]:
+            if type_changed or type_key not in tracking["installed"]:
                 tracking["installed"][type_key] = {
                     "brain_core_version": brain_core_version,
                     "installed_at": now,
                     "files": new_type_files,
                 }
             else:
-                # Preserve existing metadata, just update files dict
                 tracking["installed"][type_key]["files"] = new_type_files
 
-        # Create folders from manifest (always safe, non-destructive)
         for folder in manifest.get("folders", []):
             folder_path = os.path.join(vault_root, folder)
             if not dry_run:
@@ -438,14 +408,14 @@ def sync_definitions(
     if not dry_run:
         save_tracking(vault_root, tracking)
 
-    status_val = "interviews_needed" if interviews else "ok"
+    status_val = "warnings" if warnings else "ok"
     parts = []
     if updated:
         parts.append(f"{len(updated)} updated")
     if skipped:
         parts.append(f"{len(skipped)} skipped")
-    if interviews:
-        parts.append(f"{len(interviews)} need{'s' if len(interviews) == 1 else ''} interview")
+    if warnings:
+        parts.append(f"{len(warnings)} warning{'s' if len(warnings) != 1 else ''}")
     if errors:
         parts.append(f"{len(errors)} error{'s' if len(errors) != 1 else ''}")
     message = ", ".join(parts) if parts else "Nothing to do."
@@ -456,120 +426,11 @@ def sync_definitions(
         "preference": preference,
         "updated": updated,
         "skipped": skipped,
-        "interviews": interviews,
+        "warnings": warnings,
         "errors": errors,
         "dry_run": dry_run,
         "message": message,
     }
-
-
-# ---------------------------------------------------------------------------
-# Interview resolution
-# ---------------------------------------------------------------------------
-
-def resolve_interview(
-    vault_root: str,
-    type_key: str,
-    role: str,
-    decision: str,
-) -> dict:
-    """Resolve a sync interview for a single file.
-
-    Args:
-        type_key: e.g. "temporal/cookies"
-        role: e.g. "taxonomy"
-        decision: "accept" | "decline" | "pin"
-
-    Returns dict with status and action details.
-    """
-    if decision not in ("accept", "decline", "pin"):
-        return {"status": "error", "message": f"Invalid decision: {decision}"}
-
-    tracking = load_tracking(vault_root)
-    library_types = discover_library_types(vault_root)
-
-    type_info = None
-    for t in library_types:
-        if t["type_key"] == type_key:
-            type_info = t
-            break
-
-    if type_info is None:
-        return {"status": "error", "message": f"Type not found in library: {type_key}"}
-
-    manifest = type_info["manifest"]
-    if role not in manifest["files"]:
-        return {"status": "error", "message": f"Role not in manifest: {role}"}
-
-    file_info = manifest["files"][role]
-    source_path = os.path.join(type_info["library_dir"], file_info["source"])
-    target_rel = file_info["target"]
-    vault_path = os.path.join(vault_root, target_rel)
-    upstream_hash = hash_file(source_path)
-
-    type_tracking = tracking["installed"].get(type_key, {})
-    type_files = type_tracking.get("files", {})
-    existing_entry = type_files.get(role)
-
-    brain_core_version = read_version(vault_root) or "unknown"
-    now = datetime.now(timezone.utc).isoformat()
-
-    if decision == "accept":
-        os.makedirs(os.path.dirname(vault_path), exist_ok=True)
-        shutil.copy2(source_path, vault_path)
-        new_entry = _make_tracking_entry(upstream_hash, target_rel, existing_entry)
-
-    elif decision == "decline":
-        new_entry = _make_tracking_entry(upstream_hash, target_rel, existing_entry)
-        new_entry["override_since"] = upstream_hash
-
-    elif decision == "pin":
-        new_entry = _make_tracking_entry(upstream_hash, target_rel, existing_entry)
-        new_entry["pinned"] = True
-
-    # Update tracking
-    if type_key not in tracking["installed"]:
-        tracking["installed"][type_key] = {
-            "brain_core_version": brain_core_version,
-            "installed_at": now,
-            "files": {},
-        }
-    tracking["installed"][type_key]["files"][role] = new_entry
-    tracking["installed"][type_key]["brain_core_version"] = brain_core_version
-    tracking["installed"][type_key]["installed_at"] = now
-    save_tracking(vault_root, tracking)
-
-    return {
-        "status": "ok",
-        "action": decision,
-        "type": type_key,
-        "role": role,
-        "target": target_rel,
-    }
-
-
-def unpin(vault_root: str, type_key: str, role: str) -> dict:
-    """Remove the pinned flag from a tracked file.
-
-    Returns dict with status and details.
-    """
-    tracking = load_tracking(vault_root)
-    type_tracking = tracking["installed"].get(type_key)
-    if not type_tracking:
-        return {"status": "error", "message": f"Type not tracked: {type_key}"}
-
-    entry = type_tracking.get("files", {}).get(role)
-    if not entry:
-        return {"status": "error", "message": f"Role not tracked: {role}"}
-
-    if not entry.get("pinned"):
-        return {"status": "ok", "action": "unpin", "type": type_key, "role": role,
-                "message": "Already unpinned."}
-
-    del entry["pinned"]
-    save_tracking(vault_root, tracking)
-
-    return {"status": "ok", "action": "unpin", "type": type_key, "role": role}
 
 
 # ---------------------------------------------------------------------------
@@ -585,25 +446,18 @@ def main() -> None:
             "      Sync all types, JSON output\n\n"
             "  python3 sync_definitions.py --dry-run\n"
             "      Preview what would change\n\n"
+            "  python3 sync_definitions.py --force\n"
+            "      Overwrite despite conflicts\n\n"
             "  python3 sync_definitions.py --types temporal/cookies,living/wiki\n"
-            "      Sync specific types only\n\n"
-            "  python3 sync_definitions.py --resolve temporal/cookies taxonomy accept\n"
-            "      Resolve an interview\n"
+            "      Sync specific types only\n"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--vault", help="Path to vault root (default: auto-detect)")
     parser.add_argument("--dry-run", action="store_true", help="Preview without modifying")
+    parser.add_argument("--force", action="store_true", help="Overwrite despite conflicts")
     parser.add_argument("--types", help="Comma-separated type keys to sync")
     parser.add_argument("--json", action="store_true", dest="json_output", help="JSON output")
-    parser.add_argument(
-        "--resolve", nargs=3, metavar=("TYPE", "ROLE", "DECISION"),
-        help="Resolve an interview (decision: accept|decline|pin)",
-    )
-    parser.add_argument(
-        "--unpin", nargs=2, metavar=("TYPE", "ROLE"),
-        help="Remove pin from a tracked file",
-    )
     args = parser.parse_args()
 
     try:
@@ -612,15 +466,10 @@ def main() -> None:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
 
-    if args.unpin:
-        type_key, role = args.unpin
-        result = unpin(vault_root, type_key, role)
-    elif args.resolve:
-        type_key, role, decision = args.resolve
-        result = resolve_interview(vault_root, type_key, role, decision)
-    else:
-        type_list = args.types.split(",") if args.types else None
-        result = sync_definitions(vault_root, dry_run=args.dry_run, types=type_list)
+    type_list = args.types.split(",") if args.types else None
+    result = sync_definitions(
+        vault_root, dry_run=args.dry_run, force=args.force, types=type_list,
+    )
 
     if args.json_output:
         print(json.dumps(result, indent=2))
@@ -630,14 +479,6 @@ def main() -> None:
 
 def _print_human(result: dict) -> None:
     """Print sync result in human-readable format."""
-    if "action" in result:
-        # resolve_interview result
-        if result["status"] == "error":
-            print(f"Error: {result['message']}", file=sys.stderr)
-            sys.exit(1)
-        print(f"  Resolved {result['type']} {result['role']}: {result['action']}")
-        return
-
     if result["status"] == "skipped":
         print(f"  {result['message']}", file=sys.stderr)
         return
@@ -649,9 +490,9 @@ def _print_human(result: dict) -> None:
         for item in result["updated"]:
             print(f"    ~ {item['type']} / {item['role']} → {item['target']}", file=sys.stderr)
 
-    if result.get("interviews"):
-        print(f"  Interviews needed ({len(result['interviews'])}):", file=sys.stderr)
-        for item in result["interviews"]:
+    if result.get("warnings"):
+        print(f"  Warnings ({len(result['warnings'])}):", file=sys.stderr)
+        for item in result["warnings"]:
             print(
                 f"    ? {item['type']} / {item['role']} ({item['action']}) → {item['target']}",
                 file=sys.stderr,

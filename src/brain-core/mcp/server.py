@@ -923,8 +923,7 @@ def brain_action(action: str, params: dict | None = None):
       register_workspace   — register a linked workspace (params: {slug, path})
       unregister_workspace — remove a linked workspace registration (params: {slug})
       fix-links            — scan/fix broken wikilinks (optional: {fix} to apply)
-      sync_definitions     — sync artefact library definitions to vault (optional: {dry_run, types})
-      resolve_sync_interview — resolve a sync conflict (params: {type, role, decision})
+      sync_definitions     — sync artefact library definitions to vault (optional: {dry_run, force, types})
     """
     global _router, _index, _workspace_registry
 
@@ -1080,37 +1079,24 @@ def brain_action(action: str, params: dict | None = None):
                 result["post_upgrade"] = "Reloaded modules, recompiled router, rebuilt index."
                 if sync_result.get("updated"):
                     result["sync_updated"] = sync_result["updated"]
-                if sync_result.get("interviews"):
-                    result["sync_interviews"] = sync_result["interviews"]
+                if sync_result.get("warnings"):
+                    result["sync_warnings"] = sync_result["warnings"]
             return json.dumps(result, indent=2)
         except Exception as e:
             return _fmt_error(f"Unexpected error: {e}")
 
     elif action == "sync_definitions":
         try:
-            dry_run = (params or {}).get("dry_run", False)
-            types = (params or {}).get("types", None)
+            p = params or {}
             result = sync_definitions.sync_definitions(
-                _vault_root, dry_run=dry_run, types=types,
+                _vault_root,
+                dry_run=p.get("dry_run", False),
+                force=p.get("force", False),
+                types=p.get("types", None),
             )
-            if result["status"] == "ok" and not dry_run and result["updated"]:
+            if result["status"] == "ok" and not p.get("dry_run") and result["updated"]:
                 _router = _compile_and_save(_vault_root)
                 result["post_sync"] = "Recompiled router."
-            return json.dumps(result, indent=2)
-        except Exception as e:
-            return _fmt_error(f"Unexpected error: {e}")
-
-    elif action == "resolve_sync_interview":
-        if not params or not all(k in params for k in ("type", "role", "decision")):
-            return _fmt_error(
-                "resolve_sync_interview requires params: {type, role, decision}"
-            )
-        try:
-            result = sync_definitions.resolve_interview(
-                _vault_root, params["type"], params["role"], params["decision"],
-            )
-            if result["status"] == "ok" and params["decision"] == "accept":
-                _router = _compile_and_save(_vault_root)
             return json.dumps(result, indent=2)
         except Exception as e:
             return _fmt_error(f"Unexpected error: {e}")
@@ -1151,7 +1137,7 @@ def brain_action(action: str, params: dict | None = None):
         valid = ["compile", "build_index", "rename", "delete", "convert",
                  "shape-presentation", "upgrade", "migrate_naming",
                  "register_workspace", "unregister_workspace", "fix-links",
-                 "sync_definitions", "resolve_sync_interview"]
+                 "sync_definitions"]
         return _fmt_error(f"Unknown action '{action}'. Valid: {', '.join(valid)}")
 
 

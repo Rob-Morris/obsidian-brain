@@ -310,34 +310,16 @@ class TestComputeFileStatus:
 
 
 # ---------------------------------------------------------------------------
-# Pin and decline
-# ---------------------------------------------------------------------------
-
-class TestPinDecline:
-    def test_pinned(self):
-        assert sync.is_pinned({"pinned": True}) is True
-        assert sync.is_pinned({"pinned": False}) is False
-        assert sync.is_pinned({}) is False
-        assert sync.is_pinned(None) is False
-
-    def test_declined(self):
-        assert sync.is_declined({"override_since": "sha256:abc"}, "sha256:abc") is True
-        assert sync.is_declined({"override_since": "sha256:abc"}, "sha256:def") is False
-        assert sync.is_declined({}, "sha256:abc") is False
-        assert sync.is_declined(None, "sha256:abc") is False
-
-
-# ---------------------------------------------------------------------------
 # sync_definitions — full integration
 # ---------------------------------------------------------------------------
 
 class TestSyncDefinitions:
     def test_fresh_install_auto(self, vault):
-        """Empty tracking, targets don't exist → interviews as 'new'."""
+        """Empty tracking, targets don't exist → warnings as 'new'."""
         result = sync.sync_definitions(str(vault))
-        assert result["status"] == "interviews_needed"
-        assert len(result["interviews"]) == 2  # taxonomy + template
-        actions = {i["role"]: i["action"] for i in result["interviews"]}
+        assert result["status"] == "warnings"
+        assert len(result["warnings"]) == 2  # taxonomy + template
+        actions = {w["role"]: w["action"] for w in result["warnings"]}
         assert actions["taxonomy"] == "new"
         assert actions["template"] == "new"
 
@@ -354,7 +336,7 @@ class TestSyncDefinitions:
         )
         result = sync.sync_definitions(str(vault))
         assert result["status"] == "ok"
-        assert len(result["interviews"]) == 0
+        assert len(result["warnings"]) == 0
         reasons = {s["role"]: s["reason"] for s in result["skipped"]}
         assert reasons["taxonomy"] == "baseline_established"
 
@@ -369,7 +351,7 @@ class TestSyncDefinitions:
         result = sync.sync_definitions(str(vault))
         assert result["status"] == "ok"
         assert len(result["updated"]) == 0
-        assert len(result["interviews"]) == 0
+        assert len(result["warnings"]) == 0
         assert all(s["reason"] == "in_sync" for s in result["skipped"])
 
     def test_user_customised_skip(self, vault):
@@ -394,66 +376,66 @@ class TestSyncDefinitions:
         # Verify file was actually updated
         assert _read(str(vault / "_Config" / "Taxonomy" / "Temporal" / "cookies.md")) == "# Updated cookies taxonomy\n"
 
-    def test_conflict_interview(self, vault):
-        """Both upstream and local changed → conflict interview."""
+    def test_conflict_warning(self, vault):
+        """Both upstream and local changed → conflict warning."""
         _install_type(vault)
         lib_tax = vault / ".brain-core" / "artefact-library" / "temporal" / "cookies" / "taxonomy.md"
         lib_tax.write_text("# Upstream change\n")
         _write(str(vault / "_Config" / "Taxonomy" / "Temporal" / "cookies.md"), "# Local change\n")
         result = sync.sync_definitions(str(vault))
-        assert result["status"] == "interviews_needed"
-        conflict = next(i for i in result["interviews"] if i["role"] == "taxonomy")
+        assert result["status"] == "warnings"
+        conflict = next(w for w in result["warnings"] if w["role"] == "taxonomy")
         assert conflict["action"] == "conflict"
 
-    def test_collision_interview(self, vault):
-        """No tracking, target exists with different content → collision."""
+    def test_collision_warning(self, vault):
+        """No tracking, target exists with different content → collision warning."""
         _write(str(vault / "_Config" / "Taxonomy" / "Temporal" / "cookies.md"), "user created\n")
         result = sync.sync_definitions(str(vault))
-        collisions = [i for i in result["interviews"] if i["action"] == "collision"]
+        collisions = [w for w in result["warnings"] if w["action"] == "collision"]
         assert len(collisions) >= 1
 
-    def test_pinned_skip(self, vault):
-        """Pinned file skips even with upstream change."""
+    def test_excluded_skip(self, vault):
+        """Entry in artefact_sync_exclude → skipped."""
         _install_type(vault)
-        tracking = sync.load_tracking(str(vault))
-        tracking["installed"]["temporal/cookies"]["files"]["taxonomy"]["pinned"] = True
-        sync.save_tracking(str(vault), tracking)
-        # Change upstream
-        lib_tax = vault / ".brain-core" / "artefact-library" / "temporal" / "cookies" / "taxonomy.md"
-        lib_tax.write_text("# Changed\n")
-        result = sync.sync_definitions(str(vault))
-        pinned = next(s for s in result["skipped"] if s["role"] == "taxonomy")
-        assert pinned["reason"] == "pinned"
-
-    def test_declined_skip(self, vault):
-        """override_since matches current upstream → skip."""
-        _install_type(vault)
-        lib_tax = vault / ".brain-core" / "artefact-library" / "temporal" / "cookies" / "taxonomy.md"
-        lib_tax.write_text("# Changed\n")
-        upstream_hash = _hash(str(lib_tax))
-        tracking = sync.load_tracking(str(vault))
-        tracking["installed"]["temporal/cookies"]["files"]["taxonomy"]["override_since"] = upstream_hash
-        sync.save_tracking(str(vault), tracking)
-        result = sync.sync_definitions(str(vault))
-        declined = next(s for s in result["skipped"] if s["role"] == "taxonomy")
-        assert declined["reason"] == "declined"
-
-    def test_declined_reprompt(self, vault):
-        """override_since doesn't match new upstream → re-interview."""
-        _install_type(vault)
-        tracking = sync.load_tracking(str(vault))
-        tracking["installed"]["temporal/cookies"]["files"]["taxonomy"]["override_since"] = "sha256:old"
-        sync.save_tracking(str(vault), tracking)
-        # Change upstream to something new
-        lib_tax = vault / ".brain-core" / "artefact-library" / "temporal" / "cookies" / "taxonomy.md"
-        lib_tax.write_text("# Brand new change\n")
-        result = sync.sync_definitions(str(vault))
-        # Should be an update (upstream changed, local matches installed_from)
-        taxonomy_result = next(
-            (u for u in result["updated"] if u["role"] == "taxonomy"),
-            next((i for i in result["interviews"] if i["role"] == "taxonomy"), None),
+        (vault / ".brain" / "preferences.json").write_text(
+            json.dumps({"artefact_sync_exclude": ["temporal/cookies/taxonomy"]})
         )
-        assert taxonomy_result is not None
+        lib_tax = vault / ".brain-core" / "artefact-library" / "temporal" / "cookies" / "taxonomy.md"
+        lib_tax.write_text("# Changed\n")
+        result = sync.sync_definitions(str(vault))
+        excluded = next(s for s in result["skipped"] if s["role"] == "taxonomy")
+        assert excluded["reason"] == "excluded"
+
+    def test_exclude_does_not_affect_other_roles(self, vault):
+        """Excluding one role doesn't exclude another."""
+        (vault / ".brain" / "preferences.json").write_text(
+            json.dumps({"artefact_sync_exclude": ["temporal/cookies/taxonomy"]})
+        )
+        result = sync.sync_definitions(str(vault))
+        # template should still appear (as warning for 'new')
+        template_items = [w for w in result["warnings"] if w["role"] == "template"]
+        assert len(template_items) == 1
+
+    def test_force_overwrites_conflict(self, vault):
+        """force=True + conflict → file updated."""
+        _install_type(vault)
+        lib_tax = vault / ".brain-core" / "artefact-library" / "temporal" / "cookies" / "taxonomy.md"
+        lib_tax.write_text("# Upstream change\n")
+        _write(str(vault / "_Config" / "Taxonomy" / "Temporal" / "cookies.md"), "# Local change\n")
+        result = sync.sync_definitions(str(vault), force=True)
+        assert result["status"] == "ok"
+        assert len(result["warnings"]) == 0
+        tax_update = next(u for u in result["updated"] if u["role"] == "taxonomy")
+        assert tax_update["action"] == "conflict"
+        assert _read(str(vault / "_Config" / "Taxonomy" / "Temporal" / "cookies.md")) == "# Upstream change\n"
+
+    def test_force_overwrites_collision(self, vault):
+        """force=True + collision → file updated."""
+        _write(str(vault / "_Config" / "Taxonomy" / "Temporal" / "cookies.md"), "user created\n")
+        result = sync.sync_definitions(str(vault), force=True)
+        assert result["status"] == "ok"
+        assert len(result["warnings"]) == 0
+        assert any(u["action"] == "collision" for u in result["updated"])
 
     def test_preference_skip(self, vault):
         """artefact_sync: skip → return immediately."""
@@ -464,7 +446,7 @@ class TestSyncDefinitions:
         assert result["status"] == "skipped"
 
     def test_preference_manual(self, vault):
-        """artefact_sync: manual → all changes go to interviews."""
+        """artefact_sync: manual → all changes go to warnings."""
         _install_type(vault)
         lib_tax = vault / ".brain-core" / "artefact-library" / "temporal" / "cookies" / "taxonomy.md"
         lib_tax.write_text("# Changed\n")
@@ -472,8 +454,8 @@ class TestSyncDefinitions:
             json.dumps({"artefact_sync": "manual"})
         )
         result = sync.sync_definitions(str(vault))
-        # The update should be in interviews, not auto-applied
-        assert any(i["role"] == "taxonomy" for i in result["interviews"])
+        # The update should be in warnings, not auto-applied
+        assert any(w["role"] == "taxonomy" for w in result["warnings"])
         assert not any(u["role"] == "taxonomy" for u in result["updated"])
 
     def test_dry_run(self, vault):
@@ -492,7 +474,7 @@ class TestSyncDefinitions:
         result2 = sync.sync_definitions(str(vault))
         assert result2["status"] == "ok"
         assert len(result2["updated"]) == 0
-        assert len(result2["interviews"]) == 0
+        assert len(result2["warnings"]) == 0
 
     def test_type_filter(self, vault_two_types):
         """types= parameter filters to specified types only."""
@@ -500,7 +482,7 @@ class TestSyncDefinitions:
             str(vault_two_types), types=["living/wiki"]
         )
         all_types = set()
-        for item in result["interviews"] + result["updated"] + result["skipped"]:
+        for item in result["warnings"] + result["updated"] + result["skipped"]:
             all_types.add(item["type"])
         assert all_types == {"living/wiki"}
 
@@ -516,93 +498,8 @@ class TestSyncDefinitions:
         no_manifest = vault / ".brain-core" / "artefact-library" / "temporal" / "empty"
         no_manifest.mkdir(parents=True)
         result = sync.sync_definitions(str(vault))
-        types_seen = {i["type"] for i in result["interviews"]}
+        types_seen = {w["type"] for w in result["warnings"]}
         assert "temporal/empty" not in types_seen
-
-
-# ---------------------------------------------------------------------------
-# resolve_interview
-# ---------------------------------------------------------------------------
-
-class TestResolveInterview:
-    def test_accept(self, vault):
-        """Accept copies file and updates tracking."""
-        result = sync.resolve_interview(str(vault), "temporal/cookies", "taxonomy", "accept")
-        assert result["status"] == "ok"
-        assert result["action"] == "accept"
-        # File should exist
-        assert os.path.isfile(str(vault / "_Config" / "Taxonomy" / "Temporal" / "cookies.md"))
-        # Tracking should have entry
-        tracking = sync.load_tracking(str(vault))
-        assert "taxonomy" in tracking["installed"]["temporal/cookies"]["files"]
-
-    def test_decline(self, vault):
-        """Decline records override_since."""
-        result = sync.resolve_interview(str(vault), "temporal/cookies", "taxonomy", "decline")
-        assert result["status"] == "ok"
-        tracking = sync.load_tracking(str(vault))
-        entry = tracking["installed"]["temporal/cookies"]["files"]["taxonomy"]
-        assert "override_since" in entry
-
-    def test_pin(self, vault):
-        """Pin sets pinned flag."""
-        result = sync.resolve_interview(str(vault), "temporal/cookies", "taxonomy", "pin")
-        assert result["status"] == "ok"
-        tracking = sync.load_tracking(str(vault))
-        entry = tracking["installed"]["temporal/cookies"]["files"]["taxonomy"]
-        assert entry["pinned"] is True
-
-    def test_invalid_decision(self, vault):
-        result = sync.resolve_interview(str(vault), "temporal/cookies", "taxonomy", "bad")
-        assert result["status"] == "error"
-
-    def test_unknown_type(self, vault):
-        result = sync.resolve_interview(str(vault), "temporal/nonexistent", "taxonomy", "accept")
-        assert result["status"] == "error"
-
-    def test_unknown_role(self, vault):
-        result = sync.resolve_interview(str(vault), "temporal/cookies", "nonexistent", "accept")
-        assert result["status"] == "error"
-
-    def test_accept_after_decline(self, vault):
-        """Accepting clears override_since."""
-        sync.resolve_interview(str(vault), "temporal/cookies", "taxonomy", "decline")
-        sync.resolve_interview(str(vault), "temporal/cookies", "taxonomy", "accept")
-        tracking = sync.load_tracking(str(vault))
-        entry = tracking["installed"]["temporal/cookies"]["files"]["taxonomy"]
-        assert "override_since" not in entry
-
-
-# ---------------------------------------------------------------------------
-# unpin
-# ---------------------------------------------------------------------------
-
-class TestUnpin:
-    def test_unpin_pinned(self, vault):
-        """Unpinning removes the pinned flag."""
-        sync.resolve_interview(str(vault), "temporal/cookies", "taxonomy", "pin")
-        result = sync.unpin(str(vault), "temporal/cookies", "taxonomy")
-        assert result["status"] == "ok"
-        assert result["action"] == "unpin"
-        tracking = sync.load_tracking(str(vault))
-        entry = tracking["installed"]["temporal/cookies"]["files"]["taxonomy"]
-        assert "pinned" not in entry
-
-    def test_unpin_already_unpinned(self, vault):
-        """Unpinning an already-unpinned file succeeds with message."""
-        _install_type(vault)
-        result = sync.unpin(str(vault), "temporal/cookies", "taxonomy")
-        assert result["status"] == "ok"
-        assert "Already unpinned" in result.get("message", "")
-
-    def test_unpin_unknown_type(self, vault):
-        result = sync.unpin(str(vault), "temporal/nonexistent", "taxonomy")
-        assert result["status"] == "error"
-
-    def test_unpin_unknown_role(self, vault):
-        _install_type(vault)
-        result = sync.unpin(str(vault), "temporal/cookies", "nonexistent")
-        assert result["status"] == "error"
 
 
 # ---------------------------------------------------------------------------
