@@ -368,3 +368,100 @@ class TestTokenise:
 
 def test_temporal_dir_constant():
     assert common.TEMPORAL_DIR == "_Temporal"
+
+
+# ---------------------------------------------------------------------------
+# Wikilink extraction
+# ---------------------------------------------------------------------------
+
+class TestExtractWikilinks:
+    def test_basic(self):
+        results = common.extract_wikilinks("See [[my page]] for details.")
+        assert len(results) == 1
+        assert results[0]["stem"] == "my page"
+        assert results[0]["anchor"] is None
+        assert results[0]["alias"] is None
+        assert results[0]["is_embed"] is False
+
+    def test_anchor_and_alias(self):
+        results = common.extract_wikilinks("See [[target#heading|display text]].")
+        assert len(results) == 1
+        r = results[0]
+        assert r["stem"] == "target"
+        assert r["anchor"] == "#heading"
+        assert r["alias"] == "display text"
+
+    def test_embed(self):
+        results = common.extract_wikilinks("Image: ![[photo.png]]")
+        assert len(results) == 1
+        assert results[0]["stem"] == "photo.png"
+        assert results[0]["is_embed"] is True
+
+    def test_skips_anchor_only(self):
+        results = common.extract_wikilinks("See [[#heading]] above.")
+        assert results == []
+
+    def test_skips_template_placeholder(self):
+        results = common.extract_wikilinks("Yesterday: [[{{yesterday}}]]")
+        assert results == []
+
+    def test_multiple_links(self):
+        text = "Links: [[page-a]], [[page-b#sec|alias]], and ![[img.png]]"
+        results = common.extract_wikilinks(text)
+        assert len(results) == 3
+        stems = [r["stem"] for r in results]
+        assert stems == ["page-a", "page-b", "img.png"]
+
+    def test_start_offset(self):
+        text = "Before [[target]] after"
+        results = common.extract_wikilinks(text)
+        assert results[0]["start"] == text.index("[[")
+
+    def test_path_qualified(self):
+        results = common.extract_wikilinks("See [[Wiki/my page]].")
+        assert results[0]["stem"] == "Wiki/my page"
+
+
+# ---------------------------------------------------------------------------
+# Vault file index
+# ---------------------------------------------------------------------------
+
+class TestBuildVaultFileIndex:
+    def test_indexes_md_files(self, vault):
+        (vault / "Wiki" / "my-page.md").write_text("# My Page\n")
+        idx = common.build_vault_file_index(str(vault))
+        assert "my-page" in idx["md_basenames"]
+        assert idx["md_basenames"]["my-page"] == ["Wiki/my-page.md"]
+
+    def test_indexes_non_md_files(self, vault):
+        assets = vault / "_Assets"
+        assets.mkdir()
+        (assets / "photo.png").write_bytes(b"\x89PNG")
+        idx = common.build_vault_file_index(str(vault))
+        assert "photo.png" in idx["all_basenames"]
+
+    def test_md_relpaths(self, vault):
+        (vault / "Wiki" / "my-page.md").write_text("# My Page\n")
+        idx = common.build_vault_file_index(str(vault))
+        assert "wiki/my-page" in idx["md_relpaths"]
+
+    def test_skips_git_and_obsidian(self, vault):
+        (vault / ".obsidian" / "config.json").write_text("{}")
+        (vault / ".git").mkdir(exist_ok=True)
+        (vault / ".git" / "HEAD").write_text("ref: refs/heads/main\n")
+        idx = common.build_vault_file_index(str(vault))
+        assert not any("config.json" == os.path.basename(p)
+                        for paths in idx["all_basenames"].values()
+                        for p in paths
+                        if ".obsidian" in p or ".git" in p)
+
+    def test_case_insensitive_stems(self, vault):
+        (vault / "Wiki" / "My-Page.md").write_text("# My Page\n")
+        idx = common.build_vault_file_index(str(vault))
+        assert "my-page" in idx["md_basenames"]
+
+    def test_duplicate_basenames(self, vault):
+        (vault / "Wiki" / "jwt-refresh.md").write_text("# JWT\n")
+        (vault / "Designs" / "jwt-refresh.md").write_text("# JWT Design\n")
+        idx = common.build_vault_file_index(str(vault))
+        assert len(idx["md_basenames"]["jwt-refresh"]) == 2

@@ -332,6 +332,102 @@ def replace_wikilinks_in_vault(vault_root, pattern, replacement):
 
 
 # ---------------------------------------------------------------------------
+# Wikilink extraction and file index
+# ---------------------------------------------------------------------------
+
+_WIKILINK_EXTRACT_RE = re.compile(r"(!?)\[\[([^\]]+)\]\]")
+
+# Directories to skip entirely when building the vault file index
+_INDEX_SKIP_DIRS = {".git", ".obsidian", ".venv", ".brain-core", "__pycache__"}
+
+
+def extract_wikilinks(text):
+    """Extract all wikilinks from markdown text.
+
+    Returns a list of dicts with keys:
+        stem   — link target (without anchor or alias)
+        anchor — heading/block ref including ``#``, or None
+        alias  — display text (without leading ``|``), or None
+        is_embed — True for ``![[…]]`` embeds
+        start  — character offset of the match (for code-block filtering)
+
+    Skips same-file anchors (``[[#heading]]``) and template placeholders
+    (``[[{{…}}]]``).
+    """
+    results = []
+    for m in _WIKILINK_EXTRACT_RE.finditer(text):
+        is_embed = m.group(1) == "!"
+        inner = m.group(2)
+
+        # Split off alias (last |)
+        alias = None
+        if "|" in inner:
+            inner, alias = inner.rsplit("|", 1)
+
+        # Split off anchor (first #)
+        anchor = None
+        if "#" in inner:
+            inner, anchor_part = inner.split("#", 1)
+            anchor = "#" + anchor_part
+
+        stem = inner.strip()
+
+        # Skip same-file anchors and template placeholders
+        if not stem or stem.startswith("#"):
+            continue
+        if "{{" in stem:
+            continue
+
+        results.append({
+            "stem": stem,
+            "anchor": anchor,
+            "alias": alias,
+            "is_embed": is_embed,
+            "start": m.start(),
+        })
+    return results
+
+
+def build_vault_file_index(vault_root):
+    """Build a complete file index for wikilink resolution.
+
+    Walks the entire vault (skipping ``.git``, ``.obsidian``, ``.venv``,
+    ``.brain-core``, ``__pycache__``).
+
+    Returns a dict with:
+        md_basenames  — ``{lowercase_stem: [rel_path, …]}`` for ``.md`` files
+        all_basenames — ``{lowercase_basename_with_ext: [rel_path, …]}`` for all files
+        md_relpaths   — ``set`` of lowercase relative path stems (no ``.md``) for
+                        path-qualified resolution
+    """
+    from collections import defaultdict
+
+    md_basenames = defaultdict(list)
+    all_basenames = defaultdict(list)
+    md_relpaths = set()
+
+    for dirpath, dirnames, filenames in os.walk(vault_root):
+        # Prune skipped directories in-place so os.walk doesn't descend
+        dirnames[:] = [d for d in dirnames if d not in _INDEX_SKIP_DIRS]
+
+        for fname in filenames:
+            rel_path = os.path.relpath(os.path.join(dirpath, fname), vault_root)
+            basename_lower = fname.lower()
+            all_basenames[basename_lower].append(rel_path)
+
+            if fname.endswith(".md"):
+                stem = os.path.splitext(fname)[0].lower()
+                md_basenames[stem].append(rel_path)
+                md_relpaths.add(strip_md_ext(rel_path).lower())
+
+    return {
+        "md_basenames": dict(md_basenames),
+        "all_basenames": dict(all_basenames),
+        "md_relpaths": md_relpaths,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Slug generation
 # ---------------------------------------------------------------------------
 
