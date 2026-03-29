@@ -804,6 +804,14 @@ Hub artefacts (People, Projects, Journals, Workspaces) are living summaries that
 
 **Elicitation:** Hubs are natural moments to be curious. When creating or revisiting a hub, notice gaps and ask natural questions. Capture answers as temporals, then update the hub.
 
+### Linking
+
+Use **basename-only** wikilinks by default: `[[My Page]]`, not `[[Wiki/My Page]]`. Basename links survive folder moves, subfolder grouping, and archiving. Path-qualified links break when files move.
+
+Before creating a living artefact, check that the basename doesn't already exist in another type folder — duplicates make every link to that name ambiguous. If there's a collision, differentiate the name (e.g. `jwt-refresh-design` vs `jwt-refresh`). Temporal artefacts have date-prefixed filenames that are naturally unique — no collision risk.
+
+The compliance checker detects broken and ambiguous wikilinks. `brain_create` warns when a new file's basename collides with an existing file. Full rules in `.brain-core/standards/linking`.
+
 ### Provenance
 
 When one artefact spins out of another:
@@ -1029,7 +1037,7 @@ Available in `.brain-core/scripts/`. Scripts are the source of truth for all vau
 
 Two complementary tools:
 
-**`check.py`** (structural compliance) — deep scan that validates all files against the compiled router: naming patterns, frontmatter type and required fields, month folders for temporal files, archive metadata, and status values. Run on demand or during maintenance. Flags: `--json` (structured output), `--actionable` (fix suggestions), `--severity <level>` (filter). Also available via MCP: `brain_read(resource="compliance")`.
+**`check.py`** (structural compliance) — deep scan that validates all files against the compiled router: naming patterns, frontmatter type and required fields, month folders for temporal files, archive metadata, status values, and broken or ambiguous wikilinks. Run on demand or during maintenance. Flags: `--json` (structured output), `--actionable` (fix suggestions), `--severity <level>` (filter). Also available via MCP: `brain_read(resource="compliance")`.
 
 ```bash
 python3 .brain-core/scripts/check.py                    # human-readable

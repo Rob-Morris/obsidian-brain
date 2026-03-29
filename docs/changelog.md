@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.16.3 — 2026-03-29
+
+- **Broken link prevention** — New `check_broken_wikilinks` compliance check detects broken wikilinks (`warning`) and ambiguous wikilinks where the basename matches multiple files (`info`). New `extract_wikilinks()` and `build_vault_file_index()` utilities in `_common.py`. `brain_create` now warns when a new file's basename collides with an existing file. New `standards/linking.md` documents the wikilink contract: basename-only by default, collision avoidance rules, link maintenance procedures, and guidance for agents without MCP tools.
+
 ## v0.16.2 — 2026-03-29
 
 - **MCP server robustness** — Atomic JSON writes (temp+rename) prevent index/router corruption on crash. Module hot-reload with snapshot/rollback prevents mixed old/new state on partial failure. Router and index ensure-fresh helpers catch errors gracefully (stale data beats no data). Startup wraps each subsystem independently so one failure doesn't prevent others from loading. `main()` catches fatal startup errors and exits cleanly.

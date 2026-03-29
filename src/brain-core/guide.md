@@ -124,6 +124,12 @@ Some types have a lifecycle. Status values are defined per type:
 
 Not every type has status. Wiki, Notes, Documentation, and most temporal types are evergreen.
 
+## Linking
+
+Use **basename-only** wikilinks: `[[My Page]]`, not `[[Wiki/My Page]]`. Basename links survive folder moves and archiving. Path-qualified links break when files move into subfolders.
+
+Before creating a living artefact, check that the basename doesn't already exist in another type folder — duplicates make every link to that name ambiguous. If there's a collision, differentiate the name. Full details in [[.brain-core/standards/linking]].
+
 ## Provenance
 
 When one artefact spins out of another, link them. Full details in [[.brain-core/standards/provenance]].
