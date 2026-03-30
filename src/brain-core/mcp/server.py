@@ -31,6 +31,10 @@ Startup sequence:
   5. Probe Obsidian CLI availability
   6. Serve via stdio
 
+Single-file by design: splitting into sub-modules (formatters, lifecycle, etc.)
+was considered but adds cross-module state coupling with no hot-reload, reuse,
+or meaningful agent-efficiency gains. Keep vault logic in scripts/, glue here.
+
 Requires Python >=3.10 and the `mcp` SDK (see requirements.txt).
 """
 
@@ -71,6 +75,7 @@ import workspace_registry
 import process
 import fix_links
 import sync_definitions
+import config as config_mod
 
 # Path constants — read dynamically from script modules so they stay
 # current after _check_and_reload() reloads upgraded modules.
@@ -87,6 +92,8 @@ def _index_rel() -> str:
 mcp = FastMCP(name="brain")
 
 _vault_root: str | None = None
+_config: dict | None = None
+_session_profile: str | None = None
 _router: dict | None = None
 _index: dict | None = None
 _index_dirty: bool = False       # set True for full rebuild (e.g. version drift)
@@ -138,7 +145,7 @@ _SCRIPT_MODULES = [
     "_common", "compile_router", "compile_colours", "build_index",
     "search_index", "check", "read", "create", "edit", "rename", "obsidian_cli",
     "session", "shape_presentation", "upgrade", "migrate_naming",
-    "workspace_registry", "process", "fix_links", "sync_definitions",
+    "workspace_registry", "process", "fix_links", "sync_definitions", "config",
 ]
 
 
@@ -485,7 +492,7 @@ def _load_embeddings(vault_root: str) -> None:
 
 def startup(vault_root: str | None = None) -> None:
     """Initialize server state: find vault, compile/build if stale, load data."""
-    global _vault_root, _router, _index, _vault_name, _loaded_version, _workspace_registry
+    global _vault_root, _config, _router, _index, _vault_name, _loaded_version, _workspace_registry
 
     if vault_root is None:
         vault_root = os.environ.get("BRAIN_VAULT_ROOT")
@@ -502,6 +509,12 @@ def startup(vault_root: str | None = None) -> None:
         upgrade.run_pending_migrations(_vault_root)
     except Exception as e:
         print(f"brain-core startup: migrations failed: {e}", file=sys.stderr)
+
+    # Load vault config (three-layer merge: template → vault → local)
+    try:
+        _config = config_mod.load_config(_vault_root)
+    except Exception as e:
+        print(f"brain-core startup: config load failed: {e}", file=sys.stderr)
 
     # Auto-compile router if stale (reuse parsed data when fresh)
     try:
@@ -531,12 +544,33 @@ def startup(vault_root: str | None = None) -> None:
 
     # CLI availability is probed lazily on first tool call via _refresh_cli_available()
     # to avoid blocking startup (the Obsidian IPC socket check is fast but we defer entirely).
-    _vault_name = os.environ.get("BRAIN_VAULT_NAME") or os.path.basename(_vault_root)
+    # Vault name: config > env var > directory basename
+    config_brain_name = (_config or {}).get("vault", {}).get("brain_name", "")
+    _vault_name = config_brain_name or os.environ.get("BRAIN_VAULT_NAME") or os.path.basename(_vault_root)
 
 
 # ---------------------------------------------------------------------------
 # Response formatting helpers (DD-026)
 # ---------------------------------------------------------------------------
+
+def _enforce_profile(tool_name: str) -> CallToolResult | None:
+    """Check if current session profile allows this tool.
+
+    Returns None if allowed, or an error CallToolResult if denied.
+    No enforcement if config or session profile is not set (backward compat).
+    """
+    if _config is None or _session_profile is None:
+        return None
+    profiles = _config.get("vault", {}).get("profiles", {})
+    profile = profiles.get(_session_profile)
+    if profile is None:
+        return None  # unknown profile = no enforcement
+    if tool_name not in profile.get("allow", []):
+        return _fmt_error(
+            f"operator profile '{_session_profile}' does not allow {tool_name}"
+        )
+    return None
+
 
 def _fmt_error(msg):
     """Format an error as a CallToolResult with isError flag."""
@@ -627,17 +661,22 @@ _READ_FORMATTERS = {
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def brain_session(context: str | None = None):
+def brain_session(context: str | None = None, operator_key: str | None = None):
     """Bootstrap an agent session. Returns everything needed to work with the Brain in one call.
 
     Args:
         context: Optional context slug for scoped sessions (e.g., "mcp-spike").
                  Context scoping is not yet implemented — parameter accepted for forward compatibility.
+        operator_key: Optional three-word operator key (e.g., "timber-compass-violet").
+                      Authenticates the caller against registered operators in config.
+                      If omitted, the default profile from config is used.
 
     Returns a compiled JSON payload: always-rules, user preferences, gotchas,
     triggers, artefact type summaries, environment, memory/skill/plugin/style indexes.
     Call this once at session start. Use brain_read for individual resources after.
     """
+    global _session_profile
+
     _check_and_reload()
     _ensure_router_fresh()
     _refresh_cli_available()
@@ -645,11 +684,25 @@ def brain_session(context: str | None = None):
     if _router is None or _vault_root is None:
         return _fmt_error("server not initialized")
 
+    if _config is not None:
+        try:
+            profile, op_id = config_mod.authenticate_operator(operator_key, _config)
+            _session_profile = profile
+        except ValueError as e:
+            return _fmt_error(str(e))
+    else:
+        _session_profile = None
+
     result = session.compile_session(
         _router, _vault_root,
         obsidian_cli_available=_cli_available,
         context=context,
+        config=_config,
     )
+
+    if _session_profile:
+        result["active_profile"] = _session_profile
+
     return json.dumps(result, ensure_ascii=False)
 
 
@@ -677,6 +730,10 @@ def brain_read(resource: str, name: str | None = None):
     """
     _check_and_reload()
     _ensure_router_fresh()
+
+    denied = _enforce_profile("brain_read")
+    if denied:
+        return denied
 
     if _router is None:
         return _fmt_error("server not initialized")
@@ -709,6 +766,8 @@ def brain_read(resource: str, name: str | None = None):
         if resource == "environment":
             _refresh_cli_available()
             result["obsidian_cli_available"] = _cli_available
+            result["has_config"] = _config is not None
+            result["active_profile"] = _session_profile
     # Use formatter if available (DD-026), else fall through to JSON
     formatter = _READ_FORMATTERS.get(resource)
     if formatter:
@@ -778,6 +837,10 @@ def brain_search(query: str, type: str | None = None, tag: str | None = None,
     _ensure_router_fresh()
     _ensure_index_fresh()
 
+    denied = _enforce_profile("brain_search")
+    if denied:
+        return denied
+
     if _index is None:
         return _fmt_error("server not initialized")
 
@@ -830,6 +893,10 @@ def brain_create(type: str, title: str, body: str = "", body_file: str = "", fro
     """
     _check_and_reload()
     _ensure_router_fresh()
+
+    denied = _enforce_profile("brain_create")
+    if denied:
+        return denied
 
     if _router is None or _vault_root is None:
         return _fmt_error("server not initialized")
@@ -887,6 +954,10 @@ def brain_edit(operation: str, path: str, body: str = "", body_file: str = "", f
     """
     _check_and_reload()
     _ensure_router_fresh()
+
+    denied = _enforce_profile("brain_edit")
+    if denied:
+        return denied
 
     if _router is None or _vault_root is None:
         return _fmt_error("server not initialized")
@@ -956,6 +1027,10 @@ def brain_action(action: str, params: dict | None = None):
     global _router, _index, _workspace_registry
 
     _check_and_reload()
+
+    denied = _enforce_profile("brain_action")
+    if denied:
+        return denied
 
     if _vault_root is None:
         return _fmt_error("server not initialized")
@@ -1259,6 +1334,10 @@ def brain_process(operation: str, content: str,
     _ensure_router_fresh()
     _ensure_index_fresh()
     _ensure_embeddings_fresh()
+
+    denied = _enforce_profile("brain_process")
+    if denied:
+        return denied
 
     if _router is None or _vault_root is None:
         return _fmt_error("server not initialized")

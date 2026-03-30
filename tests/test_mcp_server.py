@@ -13,6 +13,7 @@ from mcp.types import CallToolResult
 import server
 import obsidian_cli
 import workspace_registry
+import config as config_mod
 
 
 def _assert_error(result, substring=None):
@@ -1252,6 +1253,7 @@ class TestBrainSession:
             "always_rules", "preferences", "gotchas",
             "triggers", "artefacts", "environment",
             "memories", "skills", "plugins", "styles",
+            "config", "active_profile",
         }
         assert set(result.keys()) == expected_keys
 
@@ -2076,3 +2078,151 @@ class TestBrainActionMigrateNaming:
         if renamed_count > 0:
             assert server._router["meta"]["compiled_at"] != old_compiled_at
             assert server._index["meta"]["built_at"] != old_built_at
+
+
+# ---------------------------------------------------------------------------
+# Operator profile tests
+# ---------------------------------------------------------------------------
+
+class TestOperatorProfiles:
+    def test_session_default_profile(self, initialized):
+        """No operator key → default profile (operator) from template."""
+        result = json.loads(server.brain_session())
+        assert result["active_profile"] == "operator"
+        assert server._session_profile == "operator"
+
+    def test_session_with_operator_key(self, initialized):
+        """Authenticated session returns matched profile."""
+        key = "timber-compass-violet"
+        # Register an operator in config
+        server._config["vault"]["operators"] = [
+            {
+                "id": "test-agent",
+                "profile": "reader",
+                "auth": {"type": "key", "hash": config_mod.hash_key(key)},
+            },
+        ]
+
+        result = json.loads(server.brain_session(operator_key=key))
+        assert result["active_profile"] == "reader"
+        assert server._session_profile == "reader"
+
+    def test_session_bad_operator_key(self, initialized):
+        """Wrong key → error."""
+        server._config["vault"]["operators"] = [
+            {
+                "id": "test-agent",
+                "profile": "reader",
+                "auth": {"type": "key", "hash": "sha256:wrong"},
+            },
+        ]
+
+        result = server.brain_session(operator_key="bad-key")
+        _assert_error(result, "does not match")
+
+    def test_session_no_config(self, initialized):
+        """No config loaded → session still works, no profile set."""
+        server._config = None
+        result = json.loads(server.brain_session())
+        assert "active_profile" not in result
+        assert server._session_profile is None
+
+    def test_config_in_session_payload(self, initialized):
+        """Session payload includes config metadata."""
+        result = json.loads(server.brain_session())
+        assert "config" in result
+        cfg = result["config"]
+        assert "brain_name" in cfg
+        assert "default_profile" in cfg
+        assert "profiles" in cfg
+        assert "reader" in cfg["profiles"]
+        assert "contributor" in cfg["profiles"]
+        assert "operator" in cfg["profiles"]
+
+    def test_environment_includes_config_info(self, initialized):
+        """brain_read(resource="environment") includes config metadata."""
+        server.brain_session()  # set profile
+        result = server.brain_read("environment")
+        assert "has_config=True" in result
+        assert "active_profile=operator" in result
+
+    def test_enforcement_reader_blocked(self, initialized):
+        """Reader profile cannot call brain_create."""
+        key = "timber-compass-violet"
+        server._config["vault"]["operators"] = [
+            {
+                "id": "test-reader",
+                "profile": "reader",
+                "auth": {"type": "key", "hash": config_mod.hash_key(key)},
+            },
+        ]
+        server.brain_session(operator_key=key)
+        assert server._session_profile == "reader"
+
+        # reader can call brain_read and brain_search
+        result = server.brain_read("artefact")
+        assert not isinstance(result, CallToolResult) or not result.isError
+
+        # reader cannot call brain_create
+        result = server.brain_create(type="ideas", title="test")
+        _assert_error(result, "does not allow brain_create")
+
+        # reader cannot call brain_edit
+        result = server.brain_edit(operation="edit", path="test.md", body="test")
+        _assert_error(result, "does not allow brain_edit")
+
+        # reader cannot call brain_action
+        result = server.brain_action(action="compile")
+        _assert_error(result, "does not allow brain_action")
+
+        # reader cannot call brain_process
+        result = server.brain_process(operation="classify", content="test")
+        _assert_error(result, "does not allow brain_process")
+
+    def test_enforcement_contributor_allowed(self, initialized):
+        """Contributor profile can call brain_create but not brain_action."""
+        key = "forest-meadow-stream"
+        server._config["vault"]["operators"] = [
+            {
+                "id": "test-contributor",
+                "profile": "contributor",
+                "auth": {"type": "key", "hash": config_mod.hash_key(key)},
+            },
+        ]
+        server.brain_session(operator_key=key)
+        assert server._session_profile == "contributor"
+
+        # contributor can create
+        result = server.brain_create(type="ideas", title="test idea")
+        assert not isinstance(result, CallToolResult) or not result.isError
+
+        # contributor cannot use brain_action
+        result = server.brain_action(action="compile")
+        _assert_error(result, "does not allow brain_action")
+
+    def test_enforcement_no_config_allows_all(self, initialized):
+        """No config loaded → all tools allowed (backward compat)."""
+        server._config = None
+        server._session_profile = None
+
+        # Should work without enforcement
+        result = server.brain_read("artefact")
+        assert not isinstance(result, CallToolResult) or not result.isError
+
+    def test_enforcement_brain_session_always_allowed(self, initialized):
+        """brain_session works regardless of profile — it's the auth entry point."""
+        key = "timber-compass-violet"
+        server._config["vault"]["operators"] = [
+            {
+                "id": "test-reader",
+                "profile": "reader",
+                "auth": {"type": "key", "hash": config_mod.hash_key(key)},
+            },
+        ]
+        # First session as reader
+        result = json.loads(server.brain_session(operator_key=key))
+        assert result["active_profile"] == "reader"
+
+        # Can call brain_session again (e.g., re-auth with different key)
+        result = json.loads(server.brain_session())
+        assert result["active_profile"] == "operator"

@@ -89,7 +89,7 @@ def _extract_style_names(styles):
 # ---------------------------------------------------------------------------
 
 
-def compile_session(router, vault_root, obsidian_cli_available=False, context=None):
+def compile_session(router, vault_root, obsidian_cli_available=False, context=None, config=None):
     """Compile a bootstrap session payload from router + user files.
 
     Args:
@@ -97,6 +97,7 @@ def compile_session(router, vault_root, obsidian_cli_available=False, context=No
         vault_root: Absolute path to the vault root.
         obsidian_cli_available: Whether the Obsidian REST CLI is reachable.
         context: Optional context slug for scoped sessions (not yet implemented).
+        config: Optional merged config dict from config.load_config().
 
     Returns:
         dict with the compiled session payload.
@@ -120,6 +121,16 @@ def compile_session(router, vault_root, obsidian_cli_available=False, context=No
         "plugins": _condense_plugins(router.get("plugins", [])),
         "styles": _extract_style_names(router.get("styles", [])),
     }
+
+    if config:
+        vault_cfg = config.get("vault", {})
+        defaults_cfg = config.get("defaults", {})
+        profiles = list(vault_cfg.get("profiles", {}).keys())
+        payload["config"] = {
+            "brain_name": vault_cfg.get("brain_name", ""),
+            "default_profile": defaults_cfg.get("default_profile", "operator"),
+            "profiles": profiles,
+        }
 
     if context is not None:
         payload["context"] = {
