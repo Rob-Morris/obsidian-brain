@@ -999,8 +999,9 @@ If your vault runs the Brain MCP server (`.brain-core/mcp/server.py`), seven too
 
 **brain_session** (safe, auto-approvable)
 - Bootstrap an agent session in one call — returns a compiled, token-efficient payload
-- Includes: always-rules, user preferences, gotchas, triggers, condensed artefact types, environment, memory/skill/plugin/style indexes
+- Includes: always-rules, user preferences, gotchas, triggers, condensed artefact types, environment, memory/skill/plugin/style indexes, config metadata
 - Optional `context` parameter for scoped sessions (not yet implemented)
+- Optional `operator_key` parameter for operator authentication — sets the session profile for per-call tool enforcement
 
 **brain_read** (safe, no side effects)
 - Look up artefacts, triggers, styles, templates, skills, plugins, memories, workspaces, environment info, the compiled router, structural compliance results, or read artefact files by path

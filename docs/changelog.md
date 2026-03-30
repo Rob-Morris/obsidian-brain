@@ -2,6 +2,14 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.17.0 — 2026-03-30
+
+- **Vault config system and operator profiles** — new `.brain/config.yaml` with two-zone model: `vault` zone (shared authority, profiles and operators) and `defaults` zone (customisable per-machine). Three-layer merge: shipped template defaults → `.brain/config.yaml` → `.brain/local/config.yaml`. Merge rules within defaults inferred from data type: scalars (local wins), booleans (either-true), lists (additive union).
+- **Operator profile enforcement** — `brain_session` accepts optional `operator_key` parameter for SHA-256-authenticated operator identification. Three built-in profiles: `reader` (read/search only), `contributor` (read/search/create/edit/process), `operator` (all tools). Profile enforced per-call on all tools except `brain_session` (the auth entry point). No config = no enforcement (backward compatible).
+- **Config loader** — new `config.py` script with `load_config()`, validation, and `authenticate_operator()`. Validates profile tool names, operator profile references, and default_profile existence.
+- **Migration: preferences.json → config.yaml** — `migrate_to_0_17_0.py` moves non-default preferences into the new config format. Empty preferences just deleted. Canary-format companion `.md` for naive agents.
+- **Session payload** includes config metadata (brain_name, available profiles, default_profile) and active_profile after authentication.
+
 ## v0.16.10 — 2026-03-30
 
 - **Rewrite Obsidian CLI integration from subprocess to IPC socket** — connects directly to Obsidian's `~/.obsidian-cli.sock` instead of spawning the Obsidian binary as a subprocess. Eliminates 2-3s startup latency, dock icon flash, and stdout noise filtering. Availability detection is instant (socket existence check) and probed lazily on first tool call rather than blocking MCP server startup. Module moved from `mcp/` to `scripts/` (shared layer). Search returns file paths enriched from index; move returns success/failure.
