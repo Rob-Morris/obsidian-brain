@@ -417,15 +417,8 @@ class TestBrainSearch:
         lines = _search_result_lines(resp)
         assert len(lines) >= 1
         line = lines[0]
-        assert "score=" in line
-
-    def test_search_ranked_by_score(self, initialized):
-        resp = server.brain_search("brain")
-        lines = _search_result_lines(resp)
-        if len(lines) >= 2:
-            import re
-            scores = [float(re.search(r"score=(\d+\.\d+)", l).group(1)) for l in lines]
-            assert scores[0] >= scores[1]
+        # Each line has tab-separated: title, path, type[, status]
+        assert "\t" in line
 
     def test_search_type_filter(self, initialized):
         resp = server.brain_search("test", type="temporal/logs")

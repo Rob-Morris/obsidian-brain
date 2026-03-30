@@ -746,8 +746,6 @@ def _transform_cli_results(cli_results: list[str], type_filter: str | None,
             "title": doc_meta.get("title", os.path.splitext(os.path.basename(path))[0]),
             "type": doc_type,
             "status": doc_status,
-            "score": 0,
-            "snippet": "",
         })
 
     return transformed[:top_k]
@@ -761,7 +759,7 @@ def _fmt_search(source, results):
     lines = []
     for r in results:
         status_part = f"\t{r['status']}" if r.get("status") else ""
-        lines.append(f"{r['title']}\t{r['path']}\t{r['type']}{status_part}\tscore={r.get('score', 0.0):.2f}")
+        lines.append(f"{r['title']}\t{r['path']}\t{r['type']}{status_part}")
     return [
         TextContent(type="text", text=meta),
         TextContent(type="text", text="\n".join(lines)),
@@ -773,7 +771,7 @@ def brain_search(query: str, type: str | None = None, tag: str | None = None,
                  status: str | None = None, top_k: int = 10):
     """Search vault content. Uses Obsidian CLI live index when available, BM25 fallback.
 
-    Returns ranked results with path, title, type, status, score, snippet, and source.
+    Returns ranked results with path, title, type, status, and source.
     Optional filters: type (e.g. 'living/wiki'), tag, status (e.g. 'shaping'), top_k (default 10).
     """
     _check_and_reload()
