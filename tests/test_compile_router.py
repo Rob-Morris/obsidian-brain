@@ -244,11 +244,11 @@ class TestParseStatusEnum:
             "# Designs\n\n"
             "## Frontmatter\n\n"
             "```yaml\n---\ntype: living/design\n"
-            "status: shaping             # shaping | active | implemented | parked\n"
+            "status: shaping             # shaping | ready | active | implemented | parked\n"
             "---\n```\n"
         )
         result = cr.parse_status_enum(f.read_text())
-        assert result == ["shaping", "active", "implemented", "parked"]
+        assert result == ["shaping", "ready", "active", "implemented", "parked"]
 
     def test_lifecycle_table(self, tmp_path):
         """Pattern 2: | `value` | description | rows"""
@@ -322,7 +322,7 @@ class TestParseTerminalStatuses:
             "2. Move to `_Archive/`\n\n"
             "## Naming\n"
         )
-        enum = ["shaping", "active", "implemented", "parked"]
+        enum = ["shaping", "ready", "active", "implemented", "parked"]
         result = cr.parse_terminal_statuses(f.read_text(), enum)
         assert result == ["implemented"]
 
@@ -350,7 +350,7 @@ class TestParseTerminalStatuses:
             "1. Set `status: implemented`\n\n"
             "## Naming\n"
         )
-        enum = ["shaping", "active", "implemented", "parked"]
+        enum = ["shaping", "ready", "active", "implemented", "parked"]
         result = cr.parse_terminal_statuses(f.read_text(), enum)
         assert "active" not in result
         assert "implemented" in result
@@ -412,13 +412,13 @@ class TestParseTaxonomyStatusIntegration:
             "# Designs\n\n"
             "## Frontmatter\n\n"
             "```yaml\n---\ntype: living/design\n"
-            "status: shaping  # shaping | active | implemented | parked\n"
+            "status: shaping  # shaping | ready | active | implemented | parked\n"
             "---\n```\n\n"
             "## Archiving\n\n"
             "When `implemented` status is reached, archive.\n"
         )
         result = cr.parse_taxonomy_file(str(f))
-        assert result["frontmatter"]["status_enum"] == ["shaping", "active", "implemented", "parked"]
+        assert result["frontmatter"]["status_enum"] == ["shaping", "ready", "active", "implemented", "parked"]
         assert result["frontmatter"]["terminal_statuses"] == ["implemented"]
 
     def test_no_status_fields_are_null(self, tmp_path):
@@ -443,7 +443,7 @@ class TestParseTaxonomyStatusIntegration:
             "## Naming\n\n`{slug}.md` in `Designs/`.\n\n"
             "## Frontmatter\n\n"
             "```yaml\n---\ntype: living/design\n"
-            "status: shaping  # shaping | active | implemented | parked\n"
+            "status: shaping  # shaping | ready | active | implemented | parked\n"
             "---\n```\n\n"
             "## Archiving\n\n"
             "When a design reaches `implemented` status, archive it.\n"
@@ -452,7 +452,7 @@ class TestParseTaxonomyStatusIntegration:
         )
         result = cr.compile(vault)
         designs = [a for a in result["artefacts"] if a["folder"] == "Designs"][0]
-        assert designs["frontmatter"]["status_enum"] == ["shaping", "active", "implemented", "parked"]
+        assert designs["frontmatter"]["status_enum"] == ["shaping", "ready", "active", "implemented", "parked"]
         assert designs["frontmatter"]["terminal_statuses"] == ["implemented"]
 
         # Wiki should have null for both

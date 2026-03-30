@@ -6,5 +6,5 @@ required:
     contains: "design"
 optional:
   status:
-    enum: [proposed, shaping, active, implemented, parked, rejected]
+    enum: [proposed, shaping, ready, active, implemented, parked, rejected]
     default: shaping

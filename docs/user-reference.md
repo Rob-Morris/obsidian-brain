@@ -761,7 +761,7 @@ Only types with a defined lifecycle have status. Current types with status:
 | Type | Status values |
 |---|---|
 | Bug Logs | `open`, `resolved` |
-| Designs | `proposed`, `shaping`, `active`, `implemented`, `parked`, `rejected` |
+| Designs | `proposed`, `shaping`, `ready`, `active`, `implemented`, `parked`, `rejected` |
 | Ideas | `new`, `developing`, `graduated`, `parked` |
 | Idea Logs | `open`, `graduated`, `parked` |
 | Journals | `active`, `archived` |

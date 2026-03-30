@@ -12,7 +12,8 @@ A home for visual and structural design work. Each file captures a design for a 
 |---|---|
 | `proposed` | Candidate design awaiting a decision on whether to proceed. May still be shaped. |
 | `shaping` | Default. The design is being explored and shaped — decisions are open. |
-| `active` | The design is agreed and being implemented. |
+| `ready` | Design decisions closed — fully shaped and agreed, but implementation not yet started. |
+| `active` | Implementation is in progress. |
 | `implemented` | The design has been fully built. |
 | `parked` | Set aside — not abandoned, but not being pursued. |
 | `rejected` | Evaluated and declined. Kept as a record. |
@@ -68,7 +69,7 @@ Example: `Designs/pistols-at-dawn-discord-bot.md`
 type: living/design
 tags:
   - design
-status: shaping             # proposed | shaping | active | implemented | parked | rejected
+status: shaping             # proposed | shaping | ready | active | implemented | parked | rejected
 ---
 ```
 

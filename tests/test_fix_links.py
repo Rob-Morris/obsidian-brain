@@ -59,7 +59,7 @@ DESIGN_ARTEFACT = {
     "frontmatter": {
         "required_fields": ["type", "tags", "status"],
         "type_value": "living/design",
-        "status_enum": ["proposed", "shaping", "active", "implemented", "parked", "rejected"],
+        "status_enum": ["proposed", "shaping", "ready", "active", "implemented", "parked", "rejected"],
     },
 }
 

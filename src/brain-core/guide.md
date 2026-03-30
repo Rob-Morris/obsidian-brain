@@ -117,7 +117,7 @@ Why the split? Obsidian's backlinks and graph view work from body wikilinks. Sea
 
 Some types have a lifecycle. Status values are defined per type:
 
-- **Designs:** `proposed` → `shaping` → `active` → `implemented` | `parked` | `rejected`
+- **Designs:** `proposed` → `shaping` → `ready` → `active` → `implemented` | `parked` | `rejected`
 - **Ideas:** `new` → `developing` → `graduated` | `parked`
 - **Idea Logs:** `open` → `graduated` | `parked`
 - **People:** `active` → `archived`
@@ -213,7 +213,7 @@ python3 .brain-core/scripts/init.py --project /path/to/project
 If your vault has the Brain MCP server running, you get seven tools:
 
 - **brain_session** — bootstrap an agent session in one call (always-rules, preferences, gotchas, triggers, artefact types, environment)
-- **brain_read** — look up artefacts, triggers, styles, templates, workspaces, run structural compliance checks, or read artefact files (by path or basename — resolves like wikilinks)
+- **brain_read** — look up artefacts, triggers, styles, templates, workspaces, run structural compliance checks, or read vault files (by relative path for any file, or by basename for artefacts — resolves like wikilinks)
 - **brain_search** — find files by query, type, or tag
 - **brain_create** — create a new artefact (additive, safe to auto-approve)
 - **brain_edit** — edit or append to an existing artefact (by path or basename); optional `target` parameter for section-level operations
