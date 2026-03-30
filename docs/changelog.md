@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.16.10 — 2026-03-30
+
+- **Rewrite Obsidian CLI integration from subprocess to IPC socket** — connects directly to Obsidian's `~/.obsidian-cli.sock` instead of spawning the Obsidian binary as a subprocess. Eliminates 2-3s startup latency, dock icon flash, and stdout noise filtering. Availability detection is instant (socket existence check) and probed lazily on first tool call rather than blocking MCP server startup. Module moved from `mcp/` to `scripts/` (shared layer). Search returns file paths enriched from index; move returns success/failure.
+
 ## v0.16.9 — 2026-03-30
 
 - **Add `living/task` artefact type** — brain-native tasks as persistent, queryable units of work. Tracks status (`open`, `in-progress`, `done`, `blocked`), optional kind/priority, and agent assignment with claim timestamps. Board-per-artefact pattern links task boards to designs and other artefacts via hub subfolders. Phase 1 of the Brain Task Management design — internal task artefacts only, no external tool integration.

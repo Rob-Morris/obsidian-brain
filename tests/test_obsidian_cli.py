@@ -1,42 +1,69 @@
-"""Tests for obsidian_cli — HTTP client for the Obsidian CLI REST endpoint."""
+"""Tests for obsidian_cli — IPC socket client for the native Obsidian CLI."""
 
 import json
-import os
-from contextlib import contextmanager
-from http.server import HTTPServer, BaseHTTPRequestHandler
-from threading import Thread, Event
-from unittest.mock import patch
+import socket
+from unittest.mock import patch, MagicMock
 
 import pytest
 
 import obsidian_cli
 
 
-@contextmanager
-def _mock_server(handler_class):
-    """Start a throwaway HTTP server in a background thread, yield its port."""
-    ready = Event()
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
-    class _ReadyServer(HTTPServer):
-        def service_actions(self):
-            ready.set()
-
-    server = _ReadyServer(("127.0.0.1", 0), handler_class)
-    port = server.server_address[1]
-    thread = Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    ready.wait(timeout=2.0)
-    try:
-        yield port
-    finally:
-        server.shutdown()
-        server.server_close()
+def _mock_send(response):
+    """Patch _send to return a fixed response."""
+    return patch.object(obsidian_cli, "_send", return_value=response)
 
 
-class _SilentHandler(BaseHTTPRequestHandler):
-    """Suppress request logging."""
-    def log_message(self, *args):
-        pass
+def _mock_socket_exists(exists):
+    """Patch _socket_exists to return a fixed value."""
+    return patch.object(obsidian_cli, "_socket_exists", return_value=exists)
+
+
+# ---------------------------------------------------------------------------
+# _get_socket_path
+# ---------------------------------------------------------------------------
+
+class TestGetSocketPath:
+    def test_unix_path(self):
+        with patch.object(obsidian_cli.platform, "system", return_value="Darwin"):
+            path = obsidian_cli._get_socket_path()
+            assert path.endswith(".obsidian-cli.sock")
+
+    def test_linux_path(self):
+        with patch.object(obsidian_cli.platform, "system", return_value="Linux"):
+            path = obsidian_cli._get_socket_path()
+            assert path.endswith(".obsidian-cli.sock")
+
+    def test_windows_path(self):
+        with patch.object(obsidian_cli.platform, "system", return_value="Windows"), \
+             patch.object(obsidian_cli.getpass, "getuser", return_value="testuser"):
+            path = obsidian_cli._get_socket_path()
+            assert "obsidian-cli-testuser" in path
+
+
+# ---------------------------------------------------------------------------
+# _socket_exists
+# ---------------------------------------------------------------------------
+
+class TestSocketExists:
+    def test_returns_true_when_socket_file_present(self):
+        with patch.object(obsidian_cli.platform, "system", return_value="Darwin"), \
+             patch.object(obsidian_cli.os.path, "exists", return_value=True):
+            assert obsidian_cli._socket_exists() is True
+
+    def test_returns_false_when_socket_file_missing(self):
+        with patch.object(obsidian_cli.platform, "system", return_value="Darwin"), \
+             patch.object(obsidian_cli.os.path, "exists", return_value=False):
+            assert obsidian_cli._socket_exists() is False
+
+    def test_windows_always_returns_true(self):
+        """Named pipes aren't stat-able; must try connect."""
+        with patch.object(obsidian_cli.platform, "system", return_value="Windows"):
+            assert obsidian_cli._socket_exists() is True
 
 
 # ---------------------------------------------------------------------------
@@ -44,26 +71,20 @@ class _SilentHandler(BaseHTTPRequestHandler):
 # ---------------------------------------------------------------------------
 
 class TestCheckAvailable:
-    def test_returns_false_when_no_server(self):
-        """Should return False when nothing is listening."""
-        with patch.object(obsidian_cli, "OBSIDIAN_CLI_URL", "http://localhost:19999"):
+    def test_returns_false_when_no_socket(self):
+        with _mock_socket_exists(False):
             assert obsidian_cli.check_available() is False
 
-    def test_returns_true_with_mock_server(self):
-        """Should return True when a server responds 200."""
-        class Handler(_SilentHandler):
-            def do_GET(self):
-                self.send_response(200)
-                self.end_headers()
+    def test_returns_true_with_working_socket(self):
+        with _mock_socket_exists(True), _mock_send("1.12.7 (installer 1.8.9)"):
+            assert obsidian_cli.check_available() is True
 
-        with _mock_server(Handler) as port:
-            with patch.object(obsidian_cli, "OBSIDIAN_CLI_URL", f"http://127.0.0.1:{port}"):
-                assert obsidian_cli.check_available() is True
+    def test_returns_false_on_connection_failure(self):
+        with _mock_socket_exists(True), _mock_send(None):
+            assert obsidian_cli.check_available() is False
 
-    def test_returns_false_on_timeout(self):
-        """Should return False on connection timeout (unreachable host)."""
-        # Use a non-routable IP to force timeout
-        with patch.object(obsidian_cli, "OBSIDIAN_CLI_URL", "http://192.0.2.1:27124"):
+    def test_returns_false_on_empty_response(self):
+        with _mock_socket_exists(True), _mock_send(""):
             assert obsidian_cli.check_available() is False
 
 
@@ -72,43 +93,35 @@ class TestCheckAvailable:
 # ---------------------------------------------------------------------------
 
 class TestSearch:
-    def test_returns_none_when_no_server(self):
-        with patch.object(obsidian_cli, "OBSIDIAN_CLI_URL", "http://localhost:19999"):
+    def test_returns_none_when_send_fails(self):
+        with _mock_send(None):
             assert obsidian_cli.search("vault", "test") is None
 
-    def test_parses_result_list(self):
-        """Should parse a JSON array response."""
-        results = [
-            {"filename": "Wiki/test.md", "score": 1.5, "matches": [{"content": "test content"}]},
-            {"filename": "Wiki/other.md", "score": 0.8, "matches": []},
-        ]
-
-        class Handler(_SilentHandler):
-            def do_POST(self):
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.end_headers()
-                self.wfile.write(json.dumps(results).encode())
-
-        with _mock_server(Handler) as port:
-            with patch.object(obsidian_cli, "OBSIDIAN_CLI_URL", f"http://127.0.0.1:{port}"):
-                got = obsidian_cli.search("vault", "test")
-                assert got is not None
-                assert len(got) == 2
-                assert got[0]["filename"] == "Wiki/test.md"
+    def test_parses_json_path_list(self):
+        paths = ["Wiki/test.md", "Wiki/other.md"]
+        with _mock_send(json.dumps(paths)):
+            result = obsidian_cli.search("vault", "test")
+            assert result == paths
 
     def test_returns_none_on_non_list_response(self):
-        """Should return None if response is not a list."""
-        class Handler(_SilentHandler):
-            def do_POST(self):
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.end_headers()
-                self.wfile.write(b'{"error": "bad"}')
+        with _mock_send('{"error": "bad"}'):
+            assert obsidian_cli.search("vault", "test") is None
 
-        with _mock_server(Handler) as port:
-            with patch.object(obsidian_cli, "OBSIDIAN_CLI_URL", f"http://127.0.0.1:{port}"):
-                assert obsidian_cli.search("vault", "test") is None
+    def test_returns_none_on_invalid_json(self):
+        with _mock_send("not json"):
+            assert obsidian_cli.search("vault", "test") is None
+
+    def test_includes_vault_param(self):
+        with patch.object(obsidian_cli, "_send", return_value="[]") as mock:
+            obsidian_cli.search("Brain", "query")
+            argv = mock.call_args[0][0]
+            assert "vault=Brain" in argv
+
+    def test_omits_vault_when_empty(self):
+        with patch.object(obsidian_cli, "_send", return_value="[]") as mock:
+            obsidian_cli.search("", "query")
+            argv = mock.call_args[0][0]
+            assert not any(a.startswith("vault=") for a in argv)
 
 
 # ---------------------------------------------------------------------------
@@ -116,27 +129,50 @@ class TestSearch:
 # ---------------------------------------------------------------------------
 
 class TestMove:
-    def test_returns_none_when_no_server(self):
-        with patch.object(obsidian_cli, "OBSIDIAN_CLI_URL", "http://localhost:19999"):
+    def test_returns_none_on_failure(self):
+        with _mock_send(None):
             assert obsidian_cli.move("vault", "a.md", "b.md") is None
 
-    def test_parses_result(self):
-        """Should parse a JSON object response."""
-        result = {"status": "ok", "links_updated": 3}
+    def test_returns_true_on_success(self):
+        with _mock_send("Moved a.md to b.md"):
+            assert obsidian_cli.move("vault", "a.md", "b.md") is True
 
-        class Handler(_SilentHandler):
-            def do_POST(self):
-                # Read request body to avoid broken pipe when client is still sending
-                length = int(self.headers.get("Content-Length", 0))
-                if length:
-                    self.rfile.read(length)
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.end_headers()
-                self.wfile.write(json.dumps(result).encode())
+    def test_includes_vault_param(self):
+        with patch.object(obsidian_cli, "_send", return_value="ok") as mock:
+            obsidian_cli.move("Brain", "a.md", "b.md")
+            argv = mock.call_args[0][0]
+            assert "vault=Brain" in argv
 
-        with _mock_server(Handler) as port:
-            with patch.object(obsidian_cli, "OBSIDIAN_CLI_URL", f"http://127.0.0.1:{port}"):
-                got = obsidian_cli.move("vault", "a.md", "b.md")
-                assert got is not None
-                assert got["links_updated"] == 3
+
+# ---------------------------------------------------------------------------
+# _send (integration-style with mock socket)
+# ---------------------------------------------------------------------------
+
+class TestSend:
+    def test_sends_correct_payload(self):
+        mock_sock = MagicMock()
+        mock_sock.recv.side_effect = [b"ok", b""]
+        with patch("obsidian_cli.socket.socket", return_value=mock_sock):
+            result = obsidian_cli._send(["version"])
+            sent = mock_sock.sendall.call_args[0][0].decode("utf-8")
+            payload = json.loads(sent.strip())
+            assert payload == {"argv": ["version"], "tty": False, "cwd": "/tmp"}
+            assert result == "ok"
+
+    def test_returns_none_on_connection_refused(self):
+        mock_sock = MagicMock()
+        mock_sock.connect.side_effect = ConnectionRefusedError
+        with patch("obsidian_cli.socket.socket", return_value=mock_sock):
+            assert obsidian_cli._send(["version"]) is None
+
+    def test_returns_none_on_timeout(self):
+        mock_sock = MagicMock()
+        mock_sock.connect.side_effect = socket.timeout
+        with patch("obsidian_cli.socket.socket", return_value=mock_sock):
+            assert obsidian_cli._send(["version"]) is None
+
+    def test_concatenates_chunks(self):
+        mock_sock = MagicMock()
+        mock_sock.recv.side_effect = [b"hel", b"lo", b""]
+        with patch("obsidian_cli.socket.socket", return_value=mock_sock):
+            assert obsidian_cli._send(["version"]) == "hello"

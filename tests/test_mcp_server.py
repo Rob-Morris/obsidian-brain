@@ -151,6 +151,17 @@ def initialized(vault):
     return vault
 
 
+@pytest.fixture(autouse=True)
+def _block_real_obsidian():
+    """Prevent tests from connecting to a real Obsidian IPC socket.
+
+    Tests that want CLI available mock the public API (check_available, search,
+    move) directly — they never need the real socket.
+    """
+    with patch.object(obsidian_cli, "_socket_exists", return_value=False):
+        yield
+
+
 # ---------------------------------------------------------------------------
 # Startup tests
 # ---------------------------------------------------------------------------
@@ -459,10 +470,7 @@ class TestBrainSearch:
 
     def test_search_with_mocked_cli(self, initialized):
         """Verify CLI results are transformed to match schema."""
-        cli_results = [
-            {"filename": "Wiki/brain-overview-abc123.md", "score": 2.0,
-             "matches": [{"content": "The Brain is a system"}]},
-        ]
+        cli_results = ["Wiki/brain-overview-abc123.md"]
         with patch.object(obsidian_cli, "search", return_value=cli_results), \
              patch.object(obsidian_cli, "check_available", return_value=True):
             server._vault_name = "test"
@@ -572,7 +580,7 @@ class TestBrainAction:
 
     def test_action_rename_with_mocked_cli(self, initialized):
         """Rename via CLI when available."""
-        with patch.object(obsidian_cli, "move", return_value={"status": "ok", "links_updated": 5}):
+        with patch.object(obsidian_cli, "move", return_value=True):
             server._cli_available = True
             server._vault_name = "test"
             try:
@@ -581,7 +589,7 @@ class TestBrainAction:
                     "dest": "Wiki/new.md",
                 })
                 assert "obsidian_cli" in result
-                assert "5 links updated" in result
+                assert "wikilinks auto-updated" in result
             finally:
                 server._cli_available = False
 

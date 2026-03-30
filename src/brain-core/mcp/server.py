@@ -18,9 +18,10 @@ The MCP server gets in-memory caching for free (router/index loaded once at
 startup). Standalone scripts pay a cold-start cost reading JSON from disk.
 Agents without MCP use the scripts directly — same logic, same results.
 
-Optional Obsidian CLI integration (dsebastien/obsidian-cli-rest):
-  - Search: CLI-first with BM25 fallback (CLI index is always current)
-  - Rename: CLI-first with grep-and-replace fallback (CLI updates wikilinks)
+Optional native Obsidian CLI integration (Obsidian 1.12+ IPC socket):
+  - Search: CLI-first with BM25 fallback (CLI uses Obsidian's live index)
+  - Rename: CLI-first with grep-and-replace fallback (CLI auto-updates wikilinks)
+  - Requires Obsidian to be running with CLI enabled (communicates via ~/.obsidian-cli.sock)
 
 Startup sequence:
   1. Find vault root (server always runs from vault via .mcp.json)
@@ -484,7 +485,7 @@ def _load_embeddings(vault_root: str) -> None:
 
 def startup(vault_root: str | None = None) -> None:
     """Initialize server state: find vault, compile/build if stale, load data."""
-    global _vault_root, _router, _index, _cli_available, _vault_name, _loaded_version, _workspace_registry
+    global _vault_root, _router, _index, _vault_name, _loaded_version, _workspace_registry
 
     if vault_root is None:
         vault_root = os.environ.get("BRAIN_VAULT_ROOT")
@@ -528,12 +529,8 @@ def startup(vault_root: str | None = None) -> None:
     except Exception as e:
         print(f"brain-core startup: workspace registry failed: {e}", file=sys.stderr)
 
-    # Probe Obsidian CLI availability
-    try:
-        _cli_available = obsidian_cli.check_available()
-    except Exception as e:
-        print(f"brain-core startup: CLI probe failed: {e}", file=sys.stderr)
-    _cli_probed_at = time.monotonic()
+    # CLI availability is probed lazily on first tool call via _refresh_cli_available()
+    # to avoid blocking startup (the Obsidian IPC socket check is fast but we defer entirely).
     _vault_name = os.environ.get("BRAIN_VAULT_NAME") or os.path.basename(_vault_root)
 
 
@@ -643,6 +640,7 @@ def brain_session(context: str | None = None):
     """
     _check_and_reload()
     _ensure_router_fresh()
+    _refresh_cli_available()
 
     if _router is None or _vault_root is None:
         return _fmt_error("server not initialized")
@@ -709,6 +707,7 @@ def brain_read(resource: str, name: str | None = None):
         if "error" in result:
             return _fmt_error(result["error"])
         if resource == "environment":
+            _refresh_cli_available()
             result["obsidian_cli_available"] = _cli_available
     # Use formatter if available (DD-026), else fall through to JSON
     formatter = _READ_FORMATTERS.get(resource)
@@ -721,20 +720,16 @@ def brain_read(resource: str, name: str | None = None):
 # brain_search — safe, no side effects
 # ---------------------------------------------------------------------------
 
-def _transform_cli_results(cli_results: list[dict], type_filter: str | None,
+def _transform_cli_results(cli_results: list[str], type_filter: str | None,
                            tag_filter: str | None, status_filter: str | None,
                            top_k: int) -> list[dict]:
-    """Transform Obsidian CLI search results to match brain_search schema."""
+    """Transform Obsidian CLI search results (file paths) to match brain_search schema."""
+    index_by_path = {}
+    if _index:
+        index_by_path = {doc["path"]: doc for doc in _index.get("documents", []) if "path" in doc}
     transformed = []
-    for item in cli_results:
-        path = item.get("filename", item.get("path", ""))
-        # Read frontmatter from the index if available
-        doc_meta = {}
-        if _index:
-            for doc in _index.get("documents", []):
-                if doc.get("path") == path:
-                    doc_meta = doc
-                    break
+    for path in cli_results:
+        doc_meta = index_by_path.get(path, {})
         doc_type = doc_meta.get("type", "")
         doc_tags = doc_meta.get("tags", [])
         doc_status = doc_meta.get("status")
@@ -751,8 +746,8 @@ def _transform_cli_results(cli_results: list[dict], type_filter: str | None,
             "title": doc_meta.get("title", os.path.splitext(os.path.basename(path))[0]),
             "type": doc_type,
             "status": doc_status,
-            "score": item.get("score", 0),
-            "snippet": item.get("matches", [{}])[0].get("content", "")[:200] if item.get("matches") else "",
+            "score": 0,
+            "snippet": "",
         })
 
     return transformed[:top_k]
@@ -1010,8 +1005,7 @@ def brain_action(action: str, params: dict | None = None):
             result = obsidian_cli.move(_vault_name, source, dest)
             if result is not None:
                 _mark_index_dirty()
-                n = result.get("links_updated", -1)
-                return f"**Renamed** (obsidian_cli): {source} → {dest}, {n} links updated"
+                return f"**Renamed** (obsidian_cli): {source} → {dest} (wikilinks auto-updated)"
 
         # Fallback: grep-and-replace wikilinks + os.rename
         try:
