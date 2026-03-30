@@ -12,8 +12,6 @@ See migrate_to_0_17_0.md for the canary-format companion.
 import json
 import os
 
-import yaml
-
 VERSION = "0.17.0"
 
 PREFERENCES_PATH = os.path.join(".brain", "preferences.json")
@@ -34,6 +32,31 @@ def _load_preferences(vault_root):
 def _has_non_default_values(prefs):
     """Check if preferences contain any non-default values."""
     return bool(prefs)
+
+
+def _serialize_config(config_data):
+    """Hand-write YAML for the migrated config (no PyYAML dependency).
+
+    Only needs to handle the known migration output shape:
+    defaults.exclude.artefact_sync (list) and defaults.artefact_sync (string).
+    """
+    lines = []
+    defaults = config_data.get("defaults", {})
+    if not defaults:
+        return ""
+    lines.append("defaults:")
+    if "artefact_sync" in defaults:
+        lines.append(f"  artefact_sync: {defaults['artefact_sync']}")
+    exclude = defaults.get("exclude", {})
+    if exclude:
+        lines.append("  exclude:")
+        sync_list = exclude.get("artefact_sync", [])
+        if sync_list:
+            lines.append("    artefact_sync:")
+            for item in sync_list:
+                lines.append(f"      - {item}")
+    lines.append("")
+    return "\n".join(lines)
 
 
 def migrate(vault_root):
@@ -87,7 +110,7 @@ def migrate(vault_root):
         if config_data:
             os.makedirs(os.path.dirname(config_path), exist_ok=True)
             with open(config_path, "w", encoding="utf-8") as f:
-                yaml.safe_dump(config_data, f, default_flow_style=False)
+                f.write(_serialize_config(config_data))
             actions.append(f"created {CONFIG_PATH} from {PREFERENCES_PATH}")
 
     # Delete old preferences file
