@@ -1,0 +1,31 @@
+# Brain vault configuration
+#
+# Two zones:
+#   vault:    shared authority — not overridable by .brain/local/config.yaml
+#   defaults: customisable per-machine via .brain/local/config.yaml
+#
+# Merge rules within defaults (inferred from data type):
+#   Scalars:  local wins if present
+#   Booleans: either-true wins (if either file says true, it's true)
+#   Lists:    additive (union of both lists)
+
+vault:
+  brain_name: ""
+
+  profiles:
+    reader:
+      allow: [brain_session, brain_read, brain_search]
+    contributor:
+      allow: [brain_session, brain_read, brain_search, brain_create, brain_edit, brain_process]
+    operator:
+      allow: [brain_session, brain_read, brain_search, brain_create, brain_edit, brain_process, brain_action]
+
+  operators: []
+
+defaults:
+  default_profile: operator
+
+  flags: {}
+
+  exclude:
+    artefact_sync: []
