@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.17.1 — 2026-03-31
+
+- **Fix `brain_read(resource="file")` for non-artefact paths** — full relative paths (containing `/`) now read any vault file directly, bypassing artefact folder validation. Bare basenames still resolve via wikilink-style lookup with artefact validation. Fixes confusing basename collision errors when reading taxonomy or config files (e.g. `_Config/Taxonomy/Living/designs.md` colliding with `_Config/Templates/Living/Designs.md`).
+
 ## v0.17.0 — 2026-03-30
 
 - **Vault config system and operator profiles** — new `.brain/config.yaml` with two-zone model: `vault` zone (shared authority, profiles and operators) and `defaults` zone (customisable per-machine). Three-layer merge: shipped template defaults → `.brain/config.yaml` → `.brain/local/config.yaml`. Merge rules within defaults inferred from data type: scalars (local wins), booleans (either-true), lists (additive union).

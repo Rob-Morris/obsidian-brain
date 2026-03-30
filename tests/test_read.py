@@ -300,25 +300,53 @@ class TestReadFile:
         assert isinstance(result, str)
         assert result.startswith("Error:")
 
-    def test_rejects_path_outside_type_folders(self, vault):
+    def test_reads_any_vault_file_by_path(self, vault):
         tmp_path, router = vault
-        # _Config is not an artefact type folder
+        # Full relative paths can read any vault file, not just artefacts
         result = read.read_resource(router, str(tmp_path), "file", name="_Config/router.md")
-        assert "error" in result
-        assert "does not belong" in result["error"]
+        assert isinstance(result, str)
+        assert "Prefer MCP tools" in result
 
-    def test_rejects_unconfigured_type(self, vault):
+    def test_reads_taxonomy_file_by_path(self, vault):
         tmp_path, router = vault
-        # Create a folder that the router sees but has no taxonomy
+        result = read.read_resource(
+            router, str(tmp_path), "file",
+            name="_Config/Taxonomy/Living/wiki.md",
+        )
+        assert isinstance(result, str)
+        assert "# Wiki" in result
+
+    def test_reads_unconfigured_type_by_path(self, vault):
+        tmp_path, router = vault
+        # Full paths read any vault file, even in unconfigured type folders
         unknown = tmp_path / "Unconfigured"
         unknown.mkdir()
         (unknown / "test.md").write_text("# Test\n")
-        # Recompile router to pick up the new folder
+        result = read.read_resource(router, str(tmp_path), "file", name="Unconfigured/test.md")
+        assert isinstance(result, str)
+        assert "# Test" in result
+
+    def test_basename_rejects_unconfigured_type(self, vault):
+        tmp_path, router = vault
+        # Basename resolution still validates artefact folders
+        unknown = tmp_path / "Unconfigured"
+        unknown.mkdir()
+        (unknown / "unique-unconfigured-test.md").write_text("# Test\n")
         from compile_router import compile as compile_router
         router = compile_router(str(tmp_path))
-        result = read.read_resource(router, str(tmp_path), "file", name="Unconfigured/test.md")
+        result = read.read_resource(
+            router, str(tmp_path), "file", name="unique-unconfigured-test",
+        )
         assert "error" in result
         assert "unconfigured" in result["error"].lower()
+
+    def test_rejects_path_traversal(self, vault):
+        tmp_path, router = vault
+        result = read.read_resource(
+            router, str(tmp_path), "file", name="../../etc/passwd",
+        )
+        assert "error" in result
+        assert "escapes vault root" in result["error"]
 
     def test_basename_fallback(self, vault):
         tmp_path, router = vault

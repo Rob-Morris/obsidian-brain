@@ -149,9 +149,23 @@ def read_router_meta(router, vault_root, name=None):
 
 
 def read_file(router, vault_root, name=None):
-    """Read any artefact file by relative path or basename (resolves like wikilinks)."""
+    """Read any vault file by relative path, or resolve artefacts by basename.
+
+    Full relative paths (containing '/') read any file in the vault directly.
+    Bare basenames are resolved via wikilink-style lookup and validated against
+    artefact folders.
+    """
     if not name:
         return {"error": "file resource requires a name parameter (relative path or basename)"}
+
+    # Full relative path — read directly if file exists in vault
+    if "/" in name:
+        abs_path = os.path.realpath(os.path.join(vault_root, name))
+        if not abs_path.startswith(os.path.realpath(str(vault_root)) + os.sep):
+            return {"error": "Path escapes vault root"}
+        return read_file_content(vault_root, name)
+
+    # Bare basename — resolve via artefact-aware lookup
     try:
         from check import resolve_and_validate_folder
         name = resolve_and_validate_folder(str(vault_root), router, name)
