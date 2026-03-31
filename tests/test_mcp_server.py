@@ -249,23 +249,23 @@ class TestStaleness:
 # ---------------------------------------------------------------------------
 
 class TestBrainRead:
-    def test_read_artefact_list(self, initialized):
-        result = server.brain_read("artefact")
+    def test_read_type_list(self, initialized):
+        result = server.brain_read("type")
         assert "wiki" in result
         assert "\n" in result  # multi-line
 
-    def test_read_artefact_by_name(self, initialized):
-        result = json.loads(server.brain_read("artefact", name="wiki"))
+    def test_read_type_by_name(self, initialized):
+        result = json.loads(server.brain_read("type", name="wiki"))
         assert len(result) == 1
         assert result[0]["key"] == "wiki"
 
-    def test_read_artefact_by_type(self, initialized):
-        result = json.loads(server.brain_read("artefact", name="living/wiki"))
+    def test_read_type_by_type(self, initialized):
+        result = json.loads(server.brain_read("type", name="living/wiki"))
         assert len(result) == 1
         assert result[0]["type"] == "living/wiki"
 
-    def test_read_artefact_not_found(self, initialized):
-        result = server.brain_read("artefact", name="nonexistent")
+    def test_read_type_not_found(self, initialized):
+        result = server.brain_read("type", name="nonexistent")
         _assert_error(result)
 
     def test_read_trigger(self, initialized):
@@ -658,7 +658,7 @@ class TestVersionCheck:
         """brain_read should succeed after version drift (reload, not exit)."""
         version_path = initialized / ".brain-core" / "VERSION"
         version_path.write_text("99.0.0\n")
-        result = server.brain_read("artefact")
+        result = server.brain_read("type")
         assert "wiki" in result
         assert server._loaded_version == "99.0.0"
 
@@ -2160,7 +2160,7 @@ class TestOperatorProfiles:
         assert server._session_profile == "reader"
 
         # reader can call brain_read and brain_search
-        result = server.brain_read("artefact")
+        result = server.brain_read("type")
         assert not isinstance(result, CallToolResult) or not result.isError
 
         # reader cannot call brain_create
@@ -2206,7 +2206,7 @@ class TestOperatorProfiles:
         server._session_profile = None
 
         # Should work without enforcement
-        result = server.brain_read("artefact")
+        result = server.brain_read("type")
         assert not isinstance(result, CallToolResult) or not result.isError
 
     def test_enforcement_brain_session_always_allowed(self, initialized):

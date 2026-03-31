@@ -126,27 +126,27 @@ class TestReadResource:
         assert "error" in result
         assert "Unknown resource" in result["error"]
 
-    def test_artefact_list(self, vault):
+    def test_type_list(self, vault):
         _, router = vault
-        result = read.read_resource(router, "", "artefact")
+        result = read.read_resource(router, "", "type")
         assert isinstance(result, list)
         keys = [a["key"] for a in result]
         assert "wiki" in keys
 
-    def test_artefact_by_key(self, vault):
+    def test_type_by_key(self, vault):
         _, router = vault
-        result = read.read_resource(router, "", "artefact", name="wiki")
+        result = read.read_resource(router, "", "type", name="wiki")
         assert isinstance(result, list)
         assert result[0]["key"] == "wiki"
 
-    def test_artefact_by_type(self, vault):
+    def test_type_by_type(self, vault):
         _, router = vault
-        result = read.read_resource(router, "", "artefact", name="living/wiki")
+        result = read.read_resource(router, "", "type", name="living/wiki")
         assert result[0]["type"] == "living/wiki"
 
-    def test_artefact_not_found(self, vault):
+    def test_type_not_found(self, vault):
         _, router = vault
-        result = read.read_resource(router, "", "artefact", name="nonexistent")
+        result = read.read_resource(router, "", "type", name="nonexistent")
         assert "error" in result
 
     def test_trigger_list(self, vault):
@@ -273,44 +273,44 @@ class TestReadFileContent:
 
 
 # ---------------------------------------------------------------------------
-# File resource tests (read artefact files by path)
+# Artefact resource tests (read artefact files by path)
 # ---------------------------------------------------------------------------
 
-class TestReadFile:
+class TestReadArtefact:
     def test_reads_file_by_path(self, vault):
         tmp_path, router = vault
-        result = read.read_resource(router, str(tmp_path), "file", name="Wiki/test-page.md")
+        result = read.read_resource(router, str(tmp_path), "artefact", name="Wiki/test-page.md")
         assert isinstance(result, str)
         assert "# Test Page" in result
 
     def test_reads_file_wikilink_style(self, vault):
         tmp_path, router = vault
-        result = read.read_resource(router, str(tmp_path), "file", name="Wiki/test-page")
+        result = read.read_resource(router, str(tmp_path), "artefact", name="Wiki/test-page")
         assert "# Test Page" in result
 
     def test_requires_name(self, vault):
         _, router = vault
-        result = read.read_resource(router, "", "file")
+        result = read.read_resource(router, "", "artefact")
         assert "error" in result
         assert "requires a name" in result["error"]
 
     def test_file_not_found(self, vault):
         tmp_path, router = vault
-        result = read.read_resource(router, str(tmp_path), "file", name="Wiki/nonexistent.md")
+        result = read.read_resource(router, str(tmp_path), "artefact", name="Wiki/nonexistent.md")
         assert isinstance(result, str)
         assert result.startswith("Error:")
 
     def test_reads_any_vault_file_by_path(self, vault):
         tmp_path, router = vault
         # Full relative paths can read any vault file, not just artefacts
-        result = read.read_resource(router, str(tmp_path), "file", name="_Config/router.md")
+        result = read.read_resource(router, str(tmp_path), "artefact", name="_Config/router.md")
         assert isinstance(result, str)
         assert "Prefer MCP tools" in result
 
     def test_reads_taxonomy_file_by_path(self, vault):
         tmp_path, router = vault
         result = read.read_resource(
-            router, str(tmp_path), "file",
+            router, str(tmp_path), "artefact",
             name="_Config/Taxonomy/Living/wiki.md",
         )
         assert isinstance(result, str)
@@ -322,7 +322,7 @@ class TestReadFile:
         unknown = tmp_path / "Unconfigured"
         unknown.mkdir()
         (unknown / "test.md").write_text("# Test\n")
-        result = read.read_resource(router, str(tmp_path), "file", name="Unconfigured/test.md")
+        result = read.read_resource(router, str(tmp_path), "artefact", name="Unconfigured/test.md")
         assert isinstance(result, str)
         assert "# Test" in result
 
@@ -335,7 +335,7 @@ class TestReadFile:
         from compile_router import compile as compile_router
         router = compile_router(str(tmp_path))
         result = read.read_resource(
-            router, str(tmp_path), "file", name="unique-unconfigured-test",
+            router, str(tmp_path), "artefact", name="unique-unconfigured-test",
         )
         assert "error" in result
         assert "unconfigured" in result["error"].lower()
@@ -343,34 +343,82 @@ class TestReadFile:
     def test_rejects_path_traversal(self, vault):
         tmp_path, router = vault
         result = read.read_resource(
-            router, str(tmp_path), "file", name="../../etc/passwd",
+            router, str(tmp_path), "artefact", name="../../etc/passwd",
         )
         assert "error" in result
         assert "escapes vault root" in result["error"]
 
     def test_basename_fallback(self, vault):
         tmp_path, router = vault
-        result = read.read_resource(router, str(tmp_path), "file", name="test-page")
+        result = read.read_resource(router, str(tmp_path), "artefact", name="test-page")
         assert isinstance(result, str)
         assert "# Test Page" in result
 
     def test_basename_fallback_with_extension(self, vault):
         tmp_path, router = vault
-        result = read.read_resource(router, str(tmp_path), "file", name="test-page.md")
+        result = read.read_resource(router, str(tmp_path), "artefact", name="test-page.md")
         assert isinstance(result, str)
         assert "# Test Page" in result
 
     def test_exact_path_still_works(self, vault):
         tmp_path, router = vault
-        result = read.read_resource(router, str(tmp_path), "file", name="Wiki/test-page.md")
+        result = read.read_resource(router, str(tmp_path), "artefact", name="Wiki/test-page.md")
         assert isinstance(result, str)
         assert "# Test Page" in result
 
     def test_basename_no_match(self, vault):
         tmp_path, router = vault
-        result = read.read_resource(router, str(tmp_path), "file", name="totally-nonexistent")
+        result = read.read_resource(router, str(tmp_path), "artefact", name="totally-nonexistent")
         assert "error" in result
         assert "No artefact found" in result["error"]
+
+    def test_config_hint_for_memory(self, vault):
+        tmp_path, router = vault
+        # basename "test-memory" resolves to _Config/Memories/ — should suggest memory resource
+        result = read.read_resource(router, str(tmp_path), "artefact", name="test-memory")
+        assert "error" in result
+        assert 'resource="memory"' in result["error"]
+
+
+# ---------------------------------------------------------------------------
+# File resource tests (smart resolver — delegates to correct handler)
+# ---------------------------------------------------------------------------
+
+class TestReadFile:
+    def test_reads_artefact_by_basename(self, vault):
+        tmp_path, router = vault
+        result = read.read_resource(router, str(tmp_path), "file", name="test-page")
+        assert isinstance(result, str)
+        assert "# Test Page" in result
+
+    def test_reads_artefact_by_path(self, vault):
+        tmp_path, router = vault
+        result = read.read_resource(router, str(tmp_path), "file", name="Wiki/test-page.md")
+        assert isinstance(result, str)
+        assert "# Test Page" in result
+
+    def test_delegates_to_memory(self, vault):
+        tmp_path, router = vault
+        # "test-memory" is in _Config/Memories/ — file should delegate to memory handler
+        result = read.read_resource(router, str(tmp_path), "file", name="test-memory")
+        assert isinstance(result, str)
+        assert "test topic" in result.lower() or "memory" in result.lower()
+
+    def test_requires_name(self, vault):
+        _, router = vault
+        result = read.read_resource(router, "", "file")
+        assert "error" in result
+
+    def test_rejects_path_traversal(self, vault):
+        tmp_path, router = vault
+        result = read.read_resource(router, str(tmp_path), "file", name="../../etc/passwd")
+        assert "error" in result
+        assert "escapes vault root" in result["error"]
+
+    def test_no_match(self, vault):
+        tmp_path, router = vault
+        result = read.read_resource(router, str(tmp_path), "file", name="totally-nonexistent")
+        assert "error" in result
 
 
 # ---------------------------------------------------------------------------

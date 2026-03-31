@@ -639,7 +639,7 @@ def _fmt_workspace_single(ws):
 
 # Dispatch table for brain_read list resources
 _READ_FORMATTERS = {
-    "artefact": lambda result, name: (
+    "type": lambda result, name: (
         json.dumps(result, indent=2, ensure_ascii=False) if name
         else _fmt_artefact_list(result)
     ),
@@ -715,7 +715,7 @@ def brain_read(resource: str, name: str | None = None):
     """Read Brain vault resources. Safe, no side effects.
 
     Resources:
-      artefact    — list artefact types, or filter by name
+      type        — list artefact types, or filter by name
       trigger     — list all triggers
       style       — list styles, or read a specific style file by name
       template    — read a template file (name = artefact type key)
@@ -726,7 +726,8 @@ def brain_read(resource: str, name: str | None = None):
       environment — runtime environment info
       router      — always-rules and metadata
       compliance  — run structural compliance checks (name = severity filter: error/warning/info)
-      file        — read any artefact file (name = relative path or basename; resolves like wikilinks)
+      artefact    — read an artefact file (name = relative path or basename; resolves like wikilinks)
+      file        — read any vault file by name (resolves and delegates to the correct resource handler)
     """
     _check_and_reload()
     _ensure_router_fresh()

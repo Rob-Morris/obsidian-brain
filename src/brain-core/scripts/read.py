@@ -10,8 +10,8 @@ The MCP server imports these functions directly (with its in-memory router),
 avoiding JSON parsing overhead. Standalone CLI reads from disk.
 
 Usage:
-    python3 read.py artefact
-    python3 read.py artefact --name wiki
+    python3 read.py type
+    python3 read.py type --name wiki
     python3 read.py trigger
     python3 read.py style --name concise
     python3 read.py template --name wiki
@@ -20,21 +20,30 @@ Usage:
     python3 read.py environment
     python3 read.py router
     python3 read.py compliance --name error
-    python3 read.py file --name "Designs/brain-master-design.md"
+    python3 read.py artefact --name "Designs/brain-master-design.md"
+    python3 read.py file --name "obsidian-brain-dev"
 """
 
 import json
 import os
 import sys
 
-from _common import find_vault_root, match_artefact
+from _common import find_vault_root, match_artefact, resolve_artefact_path
 
 COMPILED_ROUTER_REL = os.path.join(".brain", "local", "compiled-router.json")
 
 
 # ---------------------------------------------------------------------------
-# File reading helper
+# File reading helpers
 # ---------------------------------------------------------------------------
+
+def _check_vault_containment(vault_root, rel_path):
+    """Return an error dict if rel_path escapes the vault root, else None."""
+    abs_path = os.path.realpath(os.path.join(vault_root, rel_path))
+    if not abs_path.startswith(os.path.realpath(vault_root) + os.sep):
+        return {"error": "Path escapes vault root"}
+    return None
+
 
 def read_file_content(vault_root, rel_path):
     """Read a vault file's content given a relative path from vault root.
@@ -71,7 +80,7 @@ def read_named_resource(router, vault_root, resource_label, name, router_key, do
     return items
 
 
-def read_artefact(router, vault_root, name=None):
+def read_type(router, vault_root, name=None):
     """List artefact types, or filter by key/type name."""
     artefacts = router["artefacts"]
     if name:
@@ -148,30 +157,85 @@ def read_router_meta(router, vault_root, name=None):
     }
 
 
-def read_file(router, vault_root, name=None):
-    """Read any vault file by relative path, or resolve artefacts by basename.
+def read_artefact(router, vault_root, name=None):
+    """Read an artefact file by relative path or basename.
 
     Full relative paths (containing '/') read any file in the vault directly.
     Bare basenames are resolved via wikilink-style lookup and validated against
     artefact folders.
     """
     if not name:
-        return {"error": "file resource requires a name parameter (relative path or basename)"}
+        return {"error": "artefact resource requires a name parameter (relative path or basename)"}
 
-    # Full relative path — read directly if file exists in vault
     if "/" in name:
-        abs_path = os.path.realpath(os.path.join(vault_root, name))
-        if not abs_path.startswith(os.path.realpath(str(vault_root)) + os.sep):
-            return {"error": "Path escapes vault root"}
-        return read_file_content(vault_root, name)
+        return _check_vault_containment(vault_root, name) or read_file_content(vault_root, name)
 
-    # Bare basename — resolve via artefact-aware lookup
     try:
         from check import resolve_and_validate_folder
-        name = resolve_and_validate_folder(str(vault_root), router, name)
+        name = resolve_and_validate_folder(vault_root, router, name)
     except ValueError as e:
+        resource = _resolve_config_resource(vault_root, name)
+        if resource:
+            return {
+                "error": f"'{name}' is in _Config/, not an artefact folder. "
+                f"Use brain_read(resource=\"{resource}\") instead."
+            }
         return {"error": str(e)}
     return read_file_content(vault_root, name)
+
+
+# Mapping from _Config/ subfolder to the correct brain_read resource.
+_CONFIG_RESOURCE_MAP = {
+    "Memories": "memory",
+    "Skills": "skill",
+    "Styles": "style",
+    "Templates": "template",
+    "Plugins": "plugin",
+}
+
+
+def _resolve_config_resource(vault_root, name, file_index=None):
+    """If a basename resolves to a _Config/ file, return the resource key."""
+    try:
+        resolved = resolve_artefact_path(name, vault_root, file_index=file_index)
+    except ValueError:
+        return None
+    if not resolved.startswith("_Config/"):
+        return None
+    parts = resolved.split("/")
+    if len(parts) >= 2:
+        return _CONFIG_RESOURCE_MAP.get(parts[1])
+    return None
+
+
+def read_file(router, vault_root, name=None):
+    """Read any vault file by name, delegating to the correct resource handler.
+
+    Resolves the name and routes to the appropriate handler (artefact, memory,
+    skill, etc.) so the caller doesn't need to know the resource type.
+    """
+    if not name:
+        return {"error": "file resource requires a name parameter"}
+
+    if "/" in name:
+        return _check_vault_containment(vault_root, name) or read_file_content(vault_root, name)
+
+    # Try artefact folders first
+    try:
+        from check import resolve_and_validate_folder
+        resolved = resolve_and_validate_folder(vault_root, router, name)
+        return read_file_content(vault_root, resolved)
+    except ValueError:
+        pass
+
+    # Try _Config/ resources (memory, skill, style, etc.)
+    resource = _resolve_config_resource(vault_root, name)
+    if resource:
+        handler = RESOURCES.get(resource)
+        if handler:
+            return handler(router, vault_root, name)
+
+    return {"error": f"No vault file found matching '{name}'"}
 
 
 def read_compliance(router, vault_root, name=None):
@@ -193,7 +257,7 @@ def read_compliance(router, vault_root, name=None):
 # ---------------------------------------------------------------------------
 
 RESOURCES = {
-    "artefact": read_artefact,
+    "type": read_type,
     "trigger": read_trigger,
     "style": read_style,
     "template": read_template,
@@ -203,6 +267,7 @@ RESOURCES = {
     "environment": read_environment,
     "router": read_router_meta,
     "compliance": read_compliance,
+    "artefact": read_artefact,
     "file": read_file,
 }
 
