@@ -17,14 +17,14 @@ Use the Brain vault's MCP tools from an external project folder. This skill cove
 1. `brain_read(resource="router")` — always-rules and metadata
 2. `brain_read(resource="trigger")` — workflow triggers to follow throughout the session
 3. `brain_read(resource="style", name="writing")` — language and tone preferences
-4. Read taxonomy for artefact types you'll create: `brain_read(resource="artefact", name="{type-key}")`
+4. Read taxonomy for artefact types you'll create: `brain_read(resource="type", name="{type-key}")`
 
 Follow all triggers the same as in-vault work. The router is the source of truth.
 
 ## Key Differences
 
 **Reading vault content:** Use MCP tools, not direct file access:
-- `brain_read(resource=...)` for config (artefacts, triggers, styles, templates, skills, plugins, memories)
+- `brain_read(resource=...)` for config (types, triggers, styles, templates, skills, plugins, memories)
 - `brain_search(query=...)` for finding artefacts by content
 - `brain_read(resource="compliance")` for structural health checks
 

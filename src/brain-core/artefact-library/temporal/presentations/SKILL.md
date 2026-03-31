@@ -8,7 +8,7 @@ Create slide decks from vault content using Marp CLI.
 
 ## Session Start
 
-1. Read the presentations taxonomy: `brain_read(resource="artefact", name="presentation")`
+1. Read the presentations taxonomy: `brain_read(resource="type", name="presentation")`
 2. Check Marp is installed: `marp --version`
    - Install if missing: `npm install -g @marp-team/marp-cli`
 3. Locate the theme: `_Config/Skills/presentations/theme.css`
