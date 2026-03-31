@@ -35,13 +35,12 @@ Every file related to a workspace should use the nested workspace tag, e.g. `wor
 | Status | Meaning |
 |---|---|
 | `active` | Default. Workspace is in use. |
-| `paused` | Set aside temporarily. |
-| `completed` | Work is done. Terminal — archive. |
-| `archived` | Preserved for reference. Terminal — archive. |
+| `parked` | Set aside temporarily. |
+| `completed` | Work is done. Terminal — move to `+Completed/`. |
 
 ## Archiving
 
-When a workspace reaches `completed` status or `archived` status → add `archiveddate` → rename to `yyyymmdd-{slug}.md` → move to `Workspaces/_Archive/`. If an embedded data folder exists at `_Workspaces/{slug}/`, move it to `_Workspaces/_Archive/{slug}/`.
+When a workspace reaches `completed` status → move to `Workspaces/+Completed/`. If an embedded data folder exists at `_Workspaces/{slug}/`, move it to `_Workspaces/+Completed/{slug}/`. No rename, no `archiveddate` — the file stays searchable and indexed in its terminal status folder.
 
 ## Data Folder
 

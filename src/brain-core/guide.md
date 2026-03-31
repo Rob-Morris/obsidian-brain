@@ -120,7 +120,7 @@ Some types have a lifecycle. Status values are defined per type:
 - **Designs:** `proposed` → `shaping` → `ready` → `active` → `implemented` | `parked` | `rejected`
 - **Ideas:** `new` → `developing` → `graduated` | `parked`
 - **Idea Logs:** `open` → `graduated` | `parked`
-- **People:** `active` → `archived`
+- **People:** `active` → `parked`
 - **Tasks:** `open` → `in-progress` → `done` | `blocked`
 - **Writing:** `draft` → `editing` → `review` → `published` | `parked`
 - **Plans:** `draft` → `approved` → `implementing` → `completed`
@@ -147,23 +147,23 @@ When one artefact spins out of another, link them. Full details in [[.brain-core
 
 ## Publishing (Writing)
 
-Published writing moves to `Writing/_Published/` with date-prefixed filenames. Full details in the writing taxonomy.
+Published writing moves to `Writing/+Published/` with date-prefixed filenames. Full details in the writing taxonomy.
 
 1. Set `status: published` and add `publisheddate: YYYY-MM-DD`
 2. Rename to `yyyymmdd-{Title}.md` via `brain_action("rename")`
-3. Move to `Writing/_Published/`
+3. Move to `Writing/+Published/`
 
-## Archiving
+## Terminal Status and Archiving
 
-Living artefacts that reach a terminal status (e.g., `implemented`, `graduated`) get archived. Full details in [[.brain-core/standards/archiving]].
+Living artefacts that reach a terminal status move to a `+Status/` folder within their type directory. These files remain searchable and indexed — no rename, no `archiveddate`. Each type defines its own terminal statuses and `+Status` folders:
 
-1. Set the terminal status
-2. Add `archiveddate: YYYY-MM-DD` to frontmatter
-3. Add a supersession callout linking to the successor
-4. Rename to `yyyymmdd-{Title}.md`
-5. Move to `{Type}/_Archive/` (or `{Type}/{Project}/_Archive/` for sub-artefacts in a project subfolder)
+- **Designs:** `+Implemented/`, `+Rejected/`
+- **Ideas:** `+Graduated/`
+- **Tasks:** `+Done/`
+- **Workspaces:** `+Completed/`
+- **Writing:** `+Published/`
 
-Superseded published writing archives from `_Published/` to `_Archive/`.
+`_Archive/` is reserved for deliberate removal — a "soft delete" that takes files out of search. The archive workflow (rename, `archiveddate`, supersession callout) applies only to `_Archive/` moves. Full details in [[.brain-core/standards/archiving]].
 
 ## Extending Your Vault
 

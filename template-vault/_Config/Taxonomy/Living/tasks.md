@@ -73,12 +73,14 @@ Tasks/
 
 ## Archiving
 
-When a task reaches `done` status, follow [[.brain-core/standards/archiving]]:
+When a task reaches `done` status:
 
 - Set `status: done`
-- Move to `Tasks/_Archive/` (or the parent subfolder's `_Archive/`)
+- Move to `Tasks/+Done/` (or the parent subfolder's `+Done/`)
 
-**Agent contract:** if you land on an archived task, it's completed work. Do not reopen archived tasks — create a new task if follow-up work is needed.
+Done tasks remain searchable and indexed in the `+Done/` folder. No rename, no `archiveddate`.
+
+**Agent contract:** if you land on a done task, it's completed work. Do not reopen done tasks — create a new task if follow-up work is needed.
 
 ## Naming
 

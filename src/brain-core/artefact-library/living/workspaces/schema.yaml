@@ -6,7 +6,7 @@ required:
     contains: "workspace/{slug}"
 optional:
   status:
-    enum: [active, paused, completed, archived]
+    enum: [active, parked, completed]
     default: active
   workspace_mode:
     enum: [embedded, linked]

@@ -28,17 +28,18 @@ When a design at `proposed` status is ready for a decision:
 
 ## Archiving
 
-When a design reaches `implemented` status, authority transfers from the design to the implementation. Follow [[.brain-core/standards/archiving]] with these design-specific details:
+When a design reaches a terminal status (`implemented` or `rejected`), move it to the corresponding `+Status` folder:
 
-- Set `status: implemented`
-- Use this supersession callout:
+- **Implemented:** set `status: implemented`, add a supersession callout, move to `Designs/+Implemented/`
   ```markdown
   > [!info] Implemented
   > This design has been implemented. See [[link|title]] for the current source of truth.
   ```
-- Move to `Designs/_Archive/`
+- **Rejected:** set `status: rejected`, move to `Designs/+Rejected/`
 
-**Agent contract:** if you land on an archived design, follow the supersession link to find the current source of truth. Do not modify archived designs.
+Terminal designs remain searchable and indexed in their `+Status` folder. No rename, no `archiveddate`.
+
+**Agent contract:** if you land on a terminal design, follow the supersession link (if present) to find the current source of truth. Do not modify terminal designs.
 
 ## Lineage
 

@@ -2,6 +2,12 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.18.0 — 2026-03-31
+
+- **`+Status` folders for terminal-status artefacts** — artefacts reaching terminal status now move to `+Status/` folders within their type directory (e.g. `Designs/+Implemented/`, `Tasks/+Done/`, `Ideas/+Graduated/`, `Workspaces/+Completed/`, `Writing/+Published/`). These files remain searchable and indexed — no rename, no `archiveddate`. `_Archive/` is reserved for deliberate removal (soft delete, out of search).
+- **`archived` removed from all status enums** — archiving is an action, not a state. Types that previously had `archived` as a status (workspaces, journals, people) now use `parked` for the "set aside" meaning.
+- **`parked` standardised** — replaces `paused` in workspaces as the universal pause term across all artefact types.
+
 ## v0.17.4 — 2026-03-31
 
 - **Fix `brain_edit` body wipe on frontmatter-only edits** — `edit_artefact` unconditionally replaced the body with the `body` parameter, so a frontmatter-only edit (`body=""`) would silently clear the entire document. Now: empty body with no target preserves existing content. Added `target=":body"` as a reserved keyword for explicit whole-body replacement (including clearing). The `:` prefix avoids collision with markdown headings named "body".

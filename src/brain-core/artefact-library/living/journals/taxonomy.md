@@ -39,7 +39,7 @@ The nested tag (e.g. `journal/personal`) is what connects journal entries to thi
 | Status | Meaning |
 |---|---|
 | `active` | Default. Accepting new entries. |
-| `archived` | No longer active. Existing entries preserved. |
+| `parked` | Set aside — not abandoned, but not accepting new entries. |
 
 ## Temporal Handshake
 

@@ -30,7 +30,7 @@ Every file related to a person should use the nested person tag, e.g. `person/al
 | Status | Meaning |
 |---|---|
 | `active` | Default. Actively maintained. |
-| `archived` | No longer in regular contact. Preserved for reference. |
+| `parked` | No longer in regular contact. Preserved for reference. |
 
 ## Observation Handshake
 

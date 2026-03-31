@@ -6,5 +6,5 @@ required:
     contains: "journal/{slug}"
 optional:
   status:
-    enum: [active, archived]
+    enum: [active, parked]
     default: active
