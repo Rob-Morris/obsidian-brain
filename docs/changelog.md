@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.18.1 — 2026-03-31
+
+- Fix `sync_definitions --force` installing uninstalled artefact types. Force now only overwrites types already present in the vault.
+
 ## v0.18.0 — 2026-03-31
 
 - **`+Status` folders for terminal-status artefacts** — artefacts reaching terminal status now move to `+Status/` folders within their type directory (e.g. `Designs/+Implemented/`, `Tasks/+Done/`, `Ideas/+Graduated/`, `Workspaces/+Completed/`, `Writing/+Published/`). These files remain searchable and indexed — no rename, no `archiveddate`. `_Archive/` is reserved for deliberate removal (soft delete, out of search).

@@ -298,6 +298,15 @@ def sync_definitions(
         type_tracking = tracking["installed"].get(type_key, {})
         type_files_tracking = type_tracking.get("files", {})
 
+        # force syncs existing types — it doesn't install new ones.
+        if force and not type_files_tracking:
+            any_target_exists = any(
+                os.path.isfile(os.path.join(vault_root, fi["target"]))
+                for fi in manifest["files"].values()
+            )
+            if not any_target_exists:
+                continue
+
         new_type_files = {}
         type_changed = False
 
