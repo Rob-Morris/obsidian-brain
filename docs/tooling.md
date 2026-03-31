@@ -16,7 +16,7 @@ The compiled router is the interface contract between human-readable config and 
 
 **Status and archiving extensions (v0.9.9):** The compiler extracts two additional fields per artefact type from taxonomy files, consumed by `check.py` (DD-009):
 - `artefacts[].frontmatter.status_enum` — valid status values, parsed from three patterns: inline YAML comment (`status: default  # val1 | val2 | val3`), markdown lifecycle table (`| \`value\` | meaning |`), or prose line (`Status values: \`val1\`, \`val2\`.`). `null` when the type has no status field.
-- `artefacts[].frontmatter.terminal_statuses` — subset of `status_enum` that trigger archiving (e.g. `implemented`, `graduated`), parsed from the taxonomy's `## Archiving` section. Uses direct references (`status: value`, `` `value` status ``) and cross-references capitalised enum values against the archiving text. `null` when the type doesn't support archiving.
+- `artefacts[].frontmatter.terminal_statuses` — subset of `status_enum` that trigger a `+Status/` folder move or archiving (e.g. `implemented`, `graduated`), parsed from the taxonomy's `## Terminal Status` or `## Archiving` section. Uses direct references (`status: value`, `` `value` status ``) and cross-references capitalised enum values against the section text. `null` when the type has no terminal statuses.
 
 **CLI:** `python3 compile_router.py --json` outputs to stdout; default mode writes `.brain/local/compiled-router.json` with a summary to stderr. Requires Python 3.8+ (stdlib only). On environments without Python (mobile, restricted shells), agents fall back to the lean router and wikilink traversal — see *Agent Reading Flow* in `specification.md`.
 

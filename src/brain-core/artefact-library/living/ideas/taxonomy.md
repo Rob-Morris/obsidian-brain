@@ -17,14 +17,15 @@ Ideas are where you develop a concept — what it is, what problem it solves, an
 
 ## Graduating to Design
 
-When an idea is clear enough for structured design work, you can graduate it. Follow [[.brain-core/standards/provenance]] for lineage. Additionally:
+When an idea is clear enough for structured design work, you can graduate it:
 
-1. Set the idea's `status: graduated`
-2. Move to `Ideas/+Graduated/`
-3. Carry forward open questions from the idea as decisions in the design doc
-4. Carry forward the project tag (e.g. `project/my-project`)
+1. Create the design doc — carry forward open questions as decisions, carry forward the project tag (e.g. `project/my-project`)
+2. Follow [[.brain-core/standards/provenance]] for lineage between the idea and the new design
+3. Set the idea's `status: graduated` and move to `Ideas/+Graduated/`
 
-Graduated ideas remain searchable and indexed in the `+Graduated/` folder. No rename, no `archiveddate`.
+## Terminal Status
+
+When an idea reaches `graduated` status, move it to `Ideas/+Graduated/`. Graduated ideas remain searchable and indexed. No rename, no `archiveddate`.
 
 **Agent contract:** if you land on a graduated idea, follow the graduation callout link to find the design doc. Do not modify graduated ideas.
 

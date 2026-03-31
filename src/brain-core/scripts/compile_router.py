@@ -100,21 +100,21 @@ def parse_terminal_statuses(content, status_enum):
     "status: graduated"). Cross-references against status_enum when the
     section uses natural language (e.g. "Graduated ideas are archived").
     """
-    archive_match = re.search(
+    terminal_match = re.search(
         r"^## (?:Terminal Status|Archiving)\s*\n(.*?)(?=^## |\Z)",
         content,
         re.MULTILINE | re.DOTALL,
     )
-    if not archive_match:
+    if not terminal_match:
         return None
-    archive_text = archive_match.group(1)
+    terminal_text = terminal_match.group(1)
     # Find status values referenced via `status: value` or `value` status
-    candidates = re.findall(r"`(\w+)`\s+status", archive_text)
-    candidates += re.findall(r"status:\s*(\w+)`", archive_text)
+    candidates = re.findall(r"`(\w+)`\s+status", terminal_text)
+    candidates += re.findall(r"status:\s*(\w+)`", terminal_text)
     # Also match "Set `status: value`" pattern
-    candidates += re.findall(r"status:\s*(\w+)", archive_text)
-    # Cross-reference: if archiving text uses a status enum value as an
-    # adjective describing the artefact (e.g. "Graduated ideas are archived",
+    candidates += re.findall(r"status:\s*(\w+)", terminal_text)
+    # Cross-reference: if terminal-status text uses a status enum value as an
+    # adjective describing the artefact (e.g. "Graduated ideas remain searchable",
     # "Published writing...can be archived"). Match at word start to avoid
     # false positives like "active folder".
     if status_enum:
@@ -122,7 +122,7 @@ def parse_terminal_statuses(content, status_enum):
             # Match "Graduated ideas", "Published writing" — capitalised status
             # at sentence/clause start followed by the artefact noun
             pattern = r"(?:^|\.\s+)" + re.escape(val.capitalize()) + r"\b"
-            if re.search(pattern, archive_text) and val not in candidates:
+            if re.search(pattern, terminal_text) and val not in candidates:
                 candidates.append(val)
     # Deduplicate preserving order
     seen = set()
