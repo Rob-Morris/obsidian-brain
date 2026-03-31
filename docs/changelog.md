@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.17.4 — 2026-03-31
+
+- **Fix `brain_edit` body wipe on frontmatter-only edits** — `edit_artefact` unconditionally replaced the body with the `body` parameter, so a frontmatter-only edit (`body=""`) would silently clear the entire document. Now: empty body with no target preserves existing content. Added `target=":body"` as a reserved keyword for explicit whole-body replacement (including clearing). The `:` prefix avoids collision with markdown headings named "body".
+
 ## v0.17.3 — 2026-03-31
 
 - **Fix stale doc references** — updated 6 files still pointing to removed `extensions.md` (decomposed into `standards/extending/` in v0.13.0). Fixed check.py docstring claiming "8 structural rules" when there are 9 (broken wikilinks check was added post-DD-009).

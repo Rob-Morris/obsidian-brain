@@ -939,16 +939,19 @@ def brain_edit(operation: str, path: str, body: str = "", body_file: str = "", f
       path       — relative path or basename (resolves like wikilinks; e.g. "Ideas/my-idea.md" or "my-idea")
       body       — new body content (edit) or content to append (append).
                    Mutually exclusive with body_file.
+                   For edit: omit body to preserve existing content (frontmatter-only edit).
       body_file  — absolute path to a file containing the body content (optional).
                    The file is read and deleted after successful edit.
                    Use for large content to keep MCP call displays compact.
                    Mutually exclusive with body.
       frontmatter — optional frontmatter changes (edit only, merged with existing)
-      target     — optional heading or callout title. When given, edit replaces
-                   only that section's content; append inserts at the end of that
-                   section instead of EOF. Include # markers to disambiguate
-                   duplicate headings (e.g. "### Notes"). For callouts, use the
-                   [!type] prefix (e.g. "[!note] Implementation status").
+      target     — optional heading, callout title, or "body" for whole-body targeting.
+                   When given, edit replaces only that section's content; append inserts
+                   at the end of that section instead of EOF. Include # markers to
+                   disambiguate duplicate headings (e.g. "### Notes"). For callouts, use
+                   the [!type] prefix (e.g. "[!note] Implementation status").
+                   Use target=":body" to explicitly replace the entire body (even with
+                   empty string to clear it).
 
     Path validated against compiled router — wrong folder or naming rejected with helpful error.
     """

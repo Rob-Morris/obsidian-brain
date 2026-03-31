@@ -203,6 +203,43 @@ class TestEditArtefact:
         assert fields["status"] == "archived"
         assert fields["type"] == "living/wiki"  # preserved
 
+    def test_edit_frontmatter_only_preserves_body(self, vault, router):
+        """Editing only frontmatter (no body) must preserve the existing body."""
+        original = (vault / "Wiki" / "test-page.md").read_text()
+        _, original_body = parse_frontmatter(original)
+
+        edit.edit_artefact(
+            str(vault), router, "Wiki/test-page.md", "",
+            frontmatter_changes={"status": "archived"}
+        )
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        fields, body = parse_frontmatter(content)
+        assert fields["status"] == "archived"
+        assert body == original_body  # body preserved, not wiped
+
+    def test_edit_target_body_clears_content(self, vault, router):
+        """target=':body' with empty string should clear the body."""
+        edit.edit_artefact(
+            str(vault), router, "Wiki/test-page.md", "",
+            frontmatter_changes={"status": "archived"},
+            target=":body",
+        )
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        fields, body = parse_frontmatter(content)
+        assert fields["status"] == "archived"
+        assert body.strip() == ""  # body intentionally cleared
+
+    def test_edit_target_body_replaces_content(self, vault, router):
+        """target=':body' with content should replace the entire body."""
+        edit.edit_artefact(
+            str(vault), router, "Wiki/test-page.md", "# New Content\n\nReplaced.",
+            target=":body",
+        )
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        _, body = parse_frontmatter(content)
+        assert "New Content" in body
+        assert "Original body." not in body
+
     def test_edit_file_not_found(self, vault, router):
         with pytest.raises(FileNotFoundError):
             edit.edit_artefact(str(vault), router, "Wiki/nonexistent.md", "body")

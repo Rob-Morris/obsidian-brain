@@ -42,16 +42,18 @@ from _common import (
 # Core operations
 # ---------------------------------------------------------------------------
 
-def edit_artefact(vault_root, router, path, body, frontmatter_changes=None, target=None):
+def edit_artefact(vault_root, router, path, body="", frontmatter_changes=None, target=None):
     """Replace body of existing artefact. Merges frontmatter_changes into existing FM.
 
     Args:
         vault_root: Absolute path to the vault root.
         router: Compiled router dict.
         path: Relative path from vault root.
-        body: New body content (replaces existing body, or target content if target given).
+        body: New body content. Empty string with no target preserves existing body.
+              Use target=":body" to explicitly set body content (including clearing it).
         frontmatter_changes: Optional dict of frontmatter field changes.
-        target: Optional heading or callout title. When given, replaces only that section's content.
+        target: Optional heading, callout title, or ":body" to target the whole document body.
+                When given, replaces that section's content with body parameter.
 
     Returns:
         Dict with path and operation.
@@ -76,15 +78,20 @@ def edit_artefact(vault_root, router, path, body, frontmatter_changes=None, targ
     if frontmatter_changes:
         fields.update(frontmatter_changes)
 
-    if target:
+    if target == ":body":
+        # Explicit whole-body replacement (including clearing with body="")
+        new_body = body
+    elif target:
         start, end = find_section(existing_body, target)
         # Ensure clean join: body ends with newline, blank line before next section
         normalized = body.rstrip("\n") + "\n"
         if end < len(existing_body):
             normalized += "\n"  # blank line before next heading
         new_body = existing_body[:start] + normalized + existing_body[end:]
-    else:
+    elif body:
         new_body = body
+    else:
+        new_body = existing_body
 
     new_content = serialize_frontmatter(fields, body=new_body)
     with open(abs_path, "w", encoding="utf-8") as f:
