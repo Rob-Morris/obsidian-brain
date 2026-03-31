@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.17.2 — 2026-03-31
+
+- **Dependency management for vault MCP server** — `install.sh` now reads from `.brain-core/mcp/requirements.txt` instead of hardcoding dependencies. Fresh installs and upgrades both use the requirements file. `upgrade.py` prints a dependency sync reminder when `requirements.txt` changes. Documented the pattern in `docs/tooling.md`.
+
 ## v0.17.1 — 2026-03-31
 
 - **Fix `brain_read(resource="file")` for non-artefact paths** — full relative paths (containing `/`) now read any vault file directly, bypassing artefact folder validation. Bare basenames still resolve via wikilink-style lookup with artefact validation. Fixes confusing basename collision errors when reading taxonomy or config files (e.g. `_Config/Taxonomy/Living/designs.md` colliding with `_Config/Templates/Living/Designs.md`).

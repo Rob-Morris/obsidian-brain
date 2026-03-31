@@ -208,7 +208,7 @@ bash install.sh --uninstall --force ~/brain
 | Mode | Trigger | What happens |
 |---|---|---|
 | **Fresh install** | Target is empty or doesn't exist | Copies template vault + brain-core, creates `.venv`, registers MCP server |
-| **Upgrade** | Target contains `.brain-core/` | Shows installed vs source version, confirms, runs `upgrade.py` |
+| **Upgrade** | Target contains `.brain-core/` | Shows installed vs source version, confirms, runs `upgrade.py`, syncs Python dependencies |
 | **Existing vault** | Target is non-empty but has no `.brain-core/` | Installs brain-core + config scaffolding only — existing files are never overwritten |
 | **Uninstall** | `--uninstall` flag | Removes brain system files; optionally deletes the entire vault |
 
@@ -276,9 +276,9 @@ Upgrade script at `.brain-core/scripts/upgrade.py`. Copies a source brain-core d
 
 **Design decisions:**
 - Source path is required (`--source`), not auto-detected — explicit is safer for an operation that overwrites system files
-- Script does copy + diff only; post-upgrade steps (recompile, rebuild index, definition sync) are the caller's responsibility. CLI prints a reminder; MCP action handles them automatically via `_check_and_reload()` + `sync_definitions()` + `_compile_and_save()` + `_build_index_and_save()`
+- Script does copy + diff only; post-upgrade steps (recompile, rebuild index, definition sync, dependency sync) are the caller's responsibility. CLI prints reminders; MCP action handles them automatically via `_check_and_reload()` + `sync_definitions()` + `_compile_and_save()` + `_build_index_and_save()`
+- **Dependency management** — MCP server dependencies are declared in `.brain-core/mcp/requirements.txt`. When this file changes during an upgrade, the CLI prints a reminder to run `pip install -r`. `install.sh` handles this automatically for both fresh installs and upgrades. For manual upgrades, re-run: `.venv/bin/pip install -r .brain-core/mcp/requirements.txt`
 - No backup — the vault is a git repo; `git checkout .brain-core/` is the undo mechanism
-- No migration system yet — just copy and recompile (matches the current manual process). A migration registry (`migrations/` with ordered step files) should be added when there's a concrete breaking change that requires data transformation (e.g. renamed frontmatter fields, moved folders, changed naming patterns)
 
 **CLI:**
 ```bash
@@ -291,7 +291,6 @@ python3 upgrade.py --source src/brain-core --json                   # structured
 **MCP:** `brain_action("upgrade", {"source": "/path/to/src/brain-core"})`. Optional params: `dry_run` (bool), `force` (bool). On success, server automatically reloads modules, syncs artefact library definitions, recompiles router, and rebuilds index.
 
 **Future work:**
-- Migration registry — ordered step files in `migrations/` for breaking changes requiring data transformation
 - Pre/post upgrade hooks — user-defined scripts that run before/after the copy
 - Rollback command — `upgrade.py --rollback` to restore previous version from git
 
