@@ -93,15 +93,17 @@ def parse_status_enum(content):
 
 
 def parse_terminal_statuses(content, status_enum):
-    """Extract terminal statuses from the ## Archiving section.
+    """Extract terminal statuses from the ## Terminal Status or ## Archiving section.
 
-    Looks for backtick-delimited status values mentioned in the archiving
-    instructions (e.g. "reaches `implemented` status", "status: graduated").
-    Cross-references against status_enum when the archiving section uses
-    natural language (e.g. "Graduated ideas are archived").
+    Looks for backtick-delimited status values mentioned in terminal status
+    or archiving instructions (e.g. "reaches `implemented` status",
+    "status: graduated"). Cross-references against status_enum when the
+    section uses natural language (e.g. "Graduated ideas are archived").
     """
     archive_match = re.search(
-        r"^## Archiving\s*\n(.*?)(?=^## |\Z)", content, re.MULTILINE | re.DOTALL
+        r"^## (?:Terminal Status|Archiving)\s*\n(.*?)(?=^## |\Z)",
+        content,
+        re.MULTILINE | re.DOTALL,
     )
     if not archive_match:
         return None

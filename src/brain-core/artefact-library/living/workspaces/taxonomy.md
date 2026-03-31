@@ -38,7 +38,7 @@ Every file related to a workspace should use the nested workspace tag, e.g. `wor
 | `parked` | Set aside temporarily. |
 | `completed` | Work is done. Terminal — move to `+Completed/`. |
 
-## Archiving
+## Terminal Status
 
 When a workspace reaches `completed` status → move to `Workspaces/+Completed/`. If an embedded data folder exists at `_Workspaces/{slug}/`, move it to `_Workspaces/+Completed/{slug}/`. No rename, no `archiveddate` — the file stays searchable and indexed in its terminal status folder.
 

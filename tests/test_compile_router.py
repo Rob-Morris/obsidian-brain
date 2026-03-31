@@ -316,10 +316,10 @@ class TestParseTerminalStatuses:
         f = tmp_path / "tax.md"
         f.write_text(
             "# Designs\n\n"
-            "## Archiving\n\n"
-            "When a design reaches `implemented` status, archive it.\n\n"
+            "## Terminal Status\n\n"
+            "When a design reaches `implemented` status, move to +Implemented/.\n\n"
             "1. Set `status: implemented` in frontmatter\n"
-            "2. Move to `_Archive/`\n\n"
+            "2. Move to `Designs/+Implemented/`\n\n"
             "## Naming\n"
         )
         enum = ["shaping", "ready", "active", "implemented", "parked"]
@@ -327,12 +327,12 @@ class TestParseTerminalStatuses:
         assert result == ["implemented"]
 
     def test_cross_reference_capitalised_enum(self, tmp_path):
-        """Detects 'graduated' from 'Graduated ideas are archived'."""
+        """Detects 'graduated' from 'Graduated ideas remain searchable'."""
         f = tmp_path / "tax.md"
         f.write_text(
             "# Ideas\n\n"
-            "## Archiving\n\n"
-            "Graduated ideas are archived automatically.\n\n"
+            "## Terminal Status\n\n"
+            "Graduated ideas remain searchable in the +Graduated/ folder.\n\n"
             "## Naming\n"
         )
         enum = ["new", "graduated", "parked"]
@@ -344,8 +344,8 @@ class TestParseTerminalStatuses:
         f = tmp_path / "tax.md"
         f.write_text(
             "# Designs\n\n"
-            "## Archiving\n\n"
-            "When a design reaches `implemented` status, archive the design "
+            "## Terminal Status\n\n"
+            "When a design reaches `implemented` status, move the design "
             "to keep the active folder clean.\n\n"
             "1. Set `status: implemented`\n\n"
             "## Naming\n"
@@ -355,8 +355,8 @@ class TestParseTerminalStatuses:
         assert "active" not in result
         assert "implemented" in result
 
-    def test_no_archiving_section_returns_none(self, tmp_path):
-        """Types without ## Archiving return None."""
+    def test_no_terminal_or_archiving_section_returns_none(self, tmp_path):
+        """Types without ## Terminal Status or ## Archiving return None."""
         f = tmp_path / "tax.md"
         f.write_text("# Wiki\n\n## Naming\n\nSome naming rules.\n")
         result = cr.parse_terminal_statuses(f.read_text(), ["active"])
@@ -392,12 +392,24 @@ class TestParseTerminalStatuses:
         f = tmp_path / "tax.md"
         f.write_text(
             "# Test\n\n"
-            "## Archiving\n\n"
-            "Set `status: done` and archive.\n\n"
+            "## Terminal Status\n\n"
+            "Set `status: done` and move to +Done/.\n\n"
             "## Naming\n"
         )
         result = cr.parse_terminal_statuses(f.read_text(), None)
         assert result == ["done"]
+
+    def test_archiving_heading_still_works(self, tmp_path):
+        """## Archiving heading is still matched (e.g. writing taxonomy)."""
+        f = tmp_path / "tax.md"
+        f.write_text(
+            "# Writing\n\n"
+            "## Archiving\n\n"
+            "Set `status: published` and move to +Published/.\n\n"
+            "## Naming\n"
+        )
+        result = cr.parse_terminal_statuses(f.read_text(), None)
+        assert result == ["published"]
 
 
 # ---------------------------------------------------------------------------
@@ -414,8 +426,8 @@ class TestParseTaxonomyStatusIntegration:
             "```yaml\n---\ntype: living/design\n"
             "status: shaping  # shaping | ready | active | implemented | parked\n"
             "---\n```\n\n"
-            "## Archiving\n\n"
-            "When `implemented` status is reached, archive.\n"
+            "## Terminal Status\n\n"
+            "When `implemented` status is reached, move to +Implemented/.\n"
         )
         result = cr.parse_taxonomy_file(str(f))
         assert result["frontmatter"]["status_enum"] == ["shaping", "ready", "active", "implemented", "parked"]
@@ -445,8 +457,8 @@ class TestParseTaxonomyStatusIntegration:
             "```yaml\n---\ntype: living/design\n"
             "status: shaping  # shaping | ready | active | implemented | parked\n"
             "---\n```\n\n"
-            "## Archiving\n\n"
-            "When a design reaches `implemented` status, archive it.\n"
+            "## Terminal Status\n\n"
+            "When a design reaches `implemented` status, move to +Implemented/.\n"
             "1. Set `status: implemented`\n\n"
             "## Template\n\n[[_Config/Templates/Living/Design]]\n"
         )

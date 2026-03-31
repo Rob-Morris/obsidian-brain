@@ -71,7 +71,7 @@ Tasks/
       Availability Probing.md
 ```
 
-## Archiving
+## Terminal Status
 
 When a task reaches `done` status:
 

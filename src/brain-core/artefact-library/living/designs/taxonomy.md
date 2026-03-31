@@ -28,7 +28,7 @@ When a design at `proposed` status is ready for a decision:
 2. If accepted: set `status: shaping` and begin active design work
 3. If rejected: set `status: rejected` — the design stays as a record of what was considered and why it was declined
 
-## Archiving
+## Terminal Status
 
 When a design reaches a terminal status (`implemented` or `rejected`), move it to the corresponding `+Status` folder:
 
