@@ -25,7 +25,7 @@ Step 3 depends on having a local vault. Post-core-commit canaries are machine-sp
 
 ### Stale install procedures
 
-Install/extension procedures appear in three places (`user-reference.md`, `extensions.md`, `artefact-library/README.md`). Since v0.9.12, colours are auto-generated — any mention of manual CSS steps or colour picking is stale.
+Install/extension procedures appear in three places (`user-reference.md`, `standards/extending/README.md`, `artefact-library/README.md`). Since v0.9.12, colours are auto-generated — any mention of manual CSS steps or colour picking is stale.
 
 ### Type table vs defaults
 

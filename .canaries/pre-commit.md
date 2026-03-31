@@ -15,9 +15,9 @@ Follow before every commit.
     [4a] **Artefact type** — if added/removed/renamed: `src/brain-core/artefact-library/README.md` (type table), `docs/user-reference.md` (type spec), `docs/specification.md` (starter vault list if default), `docs/user-guide.md` (vault overview)
     [4b] **Template vault defaults** — if added/removed: `docs/user-guide.md` (starter set list), `src/brain-core/guide.md` (type table), `docs/specification.md` (starter vault section)
     [4c] **Status/lifecycle values** — `docs/user-reference.md` (type spec + status table), `src/brain-core/artefact-library/README.md` (conventions section), `src/brain-core/guide.md` (status section)
-    [4d] **Install/extension procedures** — `docs/user-reference.md` (Extending Your Vault), `src/brain-core/extensions.md`, `src/brain-core/artefact-library/README.md` (Installing a type)
+    [4d] **Install/extension procedures** — `docs/user-reference.md` (Extending Your Vault), `src/brain-core/standards/extending/README.md`, `src/brain-core/artefact-library/README.md` (Installing a type)
     [4e] **Colour system** — `src/brain-core/colours.md`, `docs/user-reference.md` (Colour System), `docs/specification.md` (Colour System)
-    [4f] **System design/architecture** — `docs/specification.md`, `src/brain-core/index.md` (if principles change), `src/brain-core/extensions.md` (if patterns change)
+    [4f] **System design/architecture** — `docs/specification.md`, `src/brain-core/index.md` (if principles change), `src/brain-core/standards/extending/README.md` (if patterns change)
     [4g] **Day-to-day workflows** — `docs/user-guide.md`, `src/brain-core/guide.md`, `docs/user-reference.md` (Workflows)
     [4h] **Tooling** — scripts, MCP tools: `docs/tooling.md`, `docs/user-reference.md` (Tooling), `src/brain-core/guide.md` (Tooling)
     [4i] **General pattern** — hub, provenance, archiving: `src/brain-core/standards/`, `docs/specification.md`, `docs/user-reference.md` (Workflows)
@@ -29,7 +29,7 @@ Follow before every commit.
     [5a] **Type counts** — count `artefact-library/{living,temporal}/` directories as canonical source, then verify prose counts match in library README, specification, and any other references. Do not trust existing prose numbers — always recount from directories.
     [5b] **Template vault defaults list** — user-guide, quick-start guide, specification
     [5c] **Status values** — user-reference, library README, quick-start guide
-    [5d] **Install step counts** — user-reference, library README, extensions.md
+    [5d] **Install step counts** — user-reference, library README, standards/extending/
 
 ## Log
 

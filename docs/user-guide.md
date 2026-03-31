@@ -415,7 +415,7 @@ This guide covers how the Brain works in practice. For the full details:
 
 - **[Brain Reference](user-reference.md)** — every artefact type with full frontmatter schemas, all configuration points, colour system, extension procedures step-by-step, tooling details
 - **[Quick-Start Guide](../src/brain-core/guide.md)** — the condensed version that ships with your vault (`.brain-core/guide.md`)
-- **`.brain-core/extensions.md`** — extension procedures (adding types, triggers)
+- **`.brain-core/standards/extending/README.md`** — extension procedures (adding types, triggers)
 - **`.brain-core/standards/`** — operational standards (naming, provenance, archiving, hub pattern)
 - **`.brain-core/index.md`** — system principles and always-rules
 

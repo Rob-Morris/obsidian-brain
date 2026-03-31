@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.17.3 — 2026-03-31
+
+- **Fix stale doc references** — updated 6 files still pointing to removed `extensions.md` (decomposed into `standards/extending/` in v0.13.0). Fixed check.py docstring claiming "8 structural rules" when there are 9 (broken wikilinks check was added post-DD-009).
+
 ## v0.17.2 — 2026-03-31
 
 - **Dependency management for vault MCP server** — `install.sh` now reads from `.brain-core/mcp/requirements.txt` instead of hardcoding dependencies. Fresh installs and upgrades both use the requirements file. `upgrade.py` prints a dependency sync reminder when `requirements.txt` changes. Documented the pattern in `docs/tooling.md`.

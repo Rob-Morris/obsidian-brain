@@ -37,7 +37,7 @@ Brain has multiple documentation layers, each serving a different audience. Keep
 |---|---|---|
 | `guide.md` | Vault users + agents | Quick-start guide, ships in the vault |
 | `index.md` | Agents | System principles and always-rules, read every session |
-| `extensions.md` | Agents + contributors | How to extend the vault (add types, memories, principles) |
+| `standards/extending/README.md` | Agents + contributors | How to extend the vault (add types, memories, principles) |
 | `standards/` | Agents + contributors | Operational standards — naming, provenance, archiving, hub pattern, subfolders, user preferences |
 | `colours.md` | Contributors | Colour system algorithm, CSS templates |
 | `artefact-library/README.md` | Agents + contributors | Type catalogue, install steps, browsing guide |
@@ -120,7 +120,7 @@ obsidian-brain/
 │       ├── guide.md             # quick-start guide (ships into vaults)
 │       ├── artefact-library/    # ready-to-install type definitions
 │       ├── taxonomy/readme.md   # artefact classification guide
-│       ├── extensions.md        # how to add types, colours, triggers
+│       ├── standards/extending/  # how to add types, colours, triggers
 │       ├── triggers.md          # workflow trigger system
 │       ├── colours.md           # folder colour system design
 │       ├── plugins.md           # plugin system

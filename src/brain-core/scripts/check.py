@@ -2,7 +2,7 @@
 """
 check.py — Router-driven vault compliance checker (DD-009)
 
-Reads the compiled router JSON and validates vault files against 8 structural
+Reads the compiled router JSON and validates vault files against 9 structural
 rules. Never parses taxonomy markdown — all per-type rules come from the
 compiled router. The compiler is the single adaptation point.
 

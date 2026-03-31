@@ -72,7 +72,7 @@ CSS snippet at `.obsidian/snippets/brain-folder-colours.css` driven by a palette
 
 ## Extension Procedures
 
-Documented in `.brain-core/extensions.md`:
+Documented in `.brain-core/standards/extending/README.md`:
 
 - **New living artefact**: create at root, add taxonomy file, reference standards (provenance/archiving) in taxonomy if applicable, optionally add router trigger, run `brain_action("compile")` — colours are auto-generated
 - **New temporal child**: create under `_Temporal/`, add taxonomy file, reference standards (provenance/archiving) in taxonomy if applicable, optionally add router trigger, run `brain_action("compile")` — rose-blended colours are auto-generated

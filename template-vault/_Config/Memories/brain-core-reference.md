@@ -21,7 +21,7 @@ Every file belongs in a typed folder. Types are either **living** (evolve over t
 
 - `.brain-core/index.md` — system principles and always-rules
 - `.brain-core/guide.md` — quick-start guide
-- `.brain-core/extensions.md` — how to add types, memories, and other extensions
+- `.brain-core/standards/extending/README.md` — how to add types, memories, and other extensions
 - `_Config/Taxonomy/` — one file per artefact type with full definition
 
 ## Extensions
