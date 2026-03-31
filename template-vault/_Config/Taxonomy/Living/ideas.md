@@ -4,7 +4,11 @@ Living artefact. Where concepts are articulated and shaped to clarity.
 
 ## Purpose
 
-Ideas are where you develop a concept — what it is, what problem it solves, and what's still open — through iterative refinement until it's clear enough to act on or design. An idea might eventually become a design, a project, or a note — or it might stay here as a living reference.
+Ideas are where you work out the conceptual *what* — what the problem is, what a solution might look like, and what's still open. An idea operates at the level of the problem and the concept, not the concrete mechanics (that's a design). Through iterative refinement an idea becomes clear enough to act on or design. It might eventually graduate to a design, become a project, or stay here as a living reference.
+
+## When To Use
+
+When exploring a problem or developing a concept that isn't concrete enough for design work yet. Ideas and designs can both be shaped iteratively, but ideas are about *what* and *why*, while designs are about *how*. For quick, unformed sparks use Idea Logs instead — Ideas are for concepts being actively developed.
 
 ## Lifecycle
 

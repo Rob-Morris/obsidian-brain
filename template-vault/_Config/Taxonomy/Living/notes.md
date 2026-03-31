@@ -6,6 +6,10 @@ Living artefact. Flat knowledge base of interconnected notes.
 
 One page per concept. Intentionally flat — no subfolders. Each note should have at least one tag. Link liberally using wikilinks whenever you mention a concept that has or should have its own page.
 
+## When To Use
+
+When recording standalone knowledge about a concept — more personal and informal than Wiki pages, more about your understanding than objective reference. Use Notes for your perspective; use Wiki for shared, authoritative knowledge.
+
 ## How to Write Notes
 
 - **Title is the concept name.** Short noun-phrase.

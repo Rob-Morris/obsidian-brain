@@ -6,6 +6,10 @@ Living artefact. Atomic pieces of written work.
 
 Each file is one self-contained piece of writing — an essay, a blog post, a chapter, a snippet, a letter, a script. Writing is the atom; complex writing projects (a book, a series, a long-form guide) compose atoms together using an index file that links to its constituent pieces. Subfolders within `Writing/` can group related files (e.g. `Writing/my-novel/index.md`, `Writing/my-novel/chapter-1.md`). Other artefact types like Projects can serve as the organising hub — Writing doesn't prescribe the orchestration layer, only the atoms.
 
+## When To Use
+
+When crafting a self-contained piece of written work — essay, post, chapter, letter, script. For short, derivative text (tweets, blurbs, taglines), use Snippets instead.
+
 ## Lifecycle
 
 | Status | Meaning |

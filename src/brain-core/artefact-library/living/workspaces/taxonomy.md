@@ -8,6 +8,10 @@ One file per workspace, linking to all related artefacts across the vault. The w
 
 Workspaces solve the problem of work that involves non-markdown files (CSVs, JSON, API dumps, spreadsheets), pipelines (raw data, processed output), and scratch material that only makes sense within the scope of that work.
 
+## When To Use
+
+When connecting vault artefacts to an external bounded container of working files — repos, data folders, pipelines, or scratch material that falls outside the vault's artefact taxonomy.
+
 ## Naming
 
 `{Title}.md` in `Workspaces/`.

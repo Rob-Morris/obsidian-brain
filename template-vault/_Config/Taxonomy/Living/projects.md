@@ -6,6 +6,10 @@ Living artefact. Project index files.
 
 One file per project, serving as the living source of truth for the project's current state. The project file is the hub — designs, research, plans, decision logs, and other artefacts link back to it via the project tag. Updated as the project evolves; the hub reflects the current picture, not the history of how it got there.
 
+## When To Use
+
+When starting a new project that will generate multiple artefacts across the vault. The project file is the hub — create it early so other artefacts can link back via the project tag.
+
 ## Naming
 
 `{Title}.md` in `Projects/`.

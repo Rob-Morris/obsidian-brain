@@ -7,6 +7,8 @@ status: active
 
 ## Who
 
-## How we know each other
+## Relationship
 
-## Notes
+## Likes / Dislikes
+
+## Opportunities

@@ -8,6 +8,10 @@ A journal is a living summary of a personal stream — its themes, patterns, and
 
 Follows the same hub pattern as Projects and People: a living summary that groups temporal artefacts via `journal/{slug}` nested tags.
 
+## When To Use
+
+When creating or updating a journal hub that curates a stream of journal entries. Create a new journal when the user wants a named stream for a distinct area of reflection (personal, health, creative writing, etc.).
+
 ## Examples
 
 - **Personal** — general life journal

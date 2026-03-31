@@ -6,6 +6,10 @@ Living artefact. Interconnected knowledge base.
 
 One page per concept. The wiki is for things you want to understand, reference, or build on over time. Not for projects, sessions, or events — those belong in temporal artefacts or other living types.
 
+## When To Use
+
+When building reference knowledge about a concept you want to understand, reference, or build on over time. Wiki pages are authoritative and objective — for personal understanding, use Notes instead.
+
 ## How to Write Wiki Pages
 
 - **Title is the concept name.** Short noun-phrase. "Rust Lifetimes", not "Notes on Rust Lifetimes from March".

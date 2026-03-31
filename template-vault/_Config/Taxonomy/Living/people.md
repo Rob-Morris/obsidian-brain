@@ -6,6 +6,10 @@ Living artefact. Person index files.
 
 One file per person, serving as the living source of truth for what you know about them. The person file is the hub — observations, journal entries, transcripts, and other artefacts link back to it via the person tag. Updated as you learn new things; superseded facts are replaced, not accumulated.
 
+## When To Use
+
+When creating or updating a person card for someone you want to remember. Create a new card when the user mentions a person who doesn't have one yet and there's enough context to be useful.
+
 ## Naming
 
 `{Title}.md` in `People/`.
@@ -31,6 +35,10 @@ Every file related to a person should use the nested person tag, e.g. `person/al
 |---|---|
 | `active` | Default. Actively maintained. |
 | `parked` | No longer in regular contact. Preserved for reference. |
+
+## Discovery
+
+When drafting or reviewing communications that mention or are addressed to a known person, read their person card first. If it has a Triggers section, follow the directives.
 
 ## Observation Handshake
 
@@ -59,6 +67,8 @@ The person card is an interpreted summary, not a raw dump. Each section should r
 
 - **Who** — identity, what they do, defining traits. Interpreted, not quoted.
 - **Relationship** — how you know each other, the nature of the connection. Capture the vibe, not just the facts.
+- **Likes / Dislikes** — preferences, tastes, pet peeves. Things to lean into or avoid.
+- **Triggers** — conditional directives in `trigger → action` format. These fire when the condition is met (e.g. writing comms, discussing a topic). Not every person needs triggers — add them when there's a stylistic or contextual directive worth encoding.
 - **Opportunities** — active threads, things you might do together, what's in play. Forward-looking.
 
 ### Contextual linking

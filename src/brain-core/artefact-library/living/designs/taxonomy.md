@@ -6,6 +6,10 @@ Living artefact. Design documents, wireframes, mockups, and design-related notes
 
 A home for visual and structural design work. Each file captures a design for a specific feature, product, or concept. Link to the relevant project file if one exists.
 
+## When To Use
+
+When working out the concrete shape of something — structure, mechanics, trade-offs. Designs typically focus on *how*, but they can also explore *what* and *why* when the problem space needs structured thinking. Ideas are more conceptual and exploratory; designs are more concrete and specific. Either can be shaped iteratively. For a contemplated change that needs a decision before proceeding, create a design at `proposed` status.
+
 ## Lifecycle
 
 | Status | Meaning |
