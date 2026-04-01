@@ -223,6 +223,17 @@ class TestCreateArtefact:
         assert "_Temporal/Logs/" in result["path"]
         assert "Brain" not in result["path"]
 
+    def test_temporal_folder_matches_frontmatter_timestamp(self, vault, router):
+        """The yyyy-mm folder and the created timestamp must agree."""
+        fixed = datetime(2026, 6, 15, 9, 0, 0, tzinfo=timezone(timedelta(hours=10)))
+        with patch("create.datetime") as mock_dt:
+            mock_dt.now.return_value = fixed
+            result = create.create_artefact(str(vault), router, "log", "June Entry")
+        assert "_Temporal/Logs/2026-06/" in result["path"]
+        content = open(os.path.join(str(vault), result["path"])).read()
+        fields, _ = parse_frontmatter(content)
+        assert fields["created"].startswith("2026-06-15")
+
 
 class TestResolveNamingPattern:
     def test_slug_pattern(self):
@@ -241,6 +252,16 @@ class TestResolveNamingPattern:
     def test_unsafe_chars_stripped(self):
         result = create.resolve_naming_pattern("{Title}.md", "Q3 / Q4 Review")
         assert result == "Q3 Q4 Review.md"
+
+    def test_date_pattern_uses_injected_now(self):
+        fixed = datetime(2026, 1, 15, 0, 0, 0, tzinfo=timezone(timedelta(hours=11)))
+        result = create.resolve_naming_pattern("yyyymmdd-log~{slug}.md", "My Entry", _now=fixed)
+        assert result == "20260115-log~My Entry.md"
+
+    def test_mmdd_pattern_uses_injected_now(self):
+        fixed = datetime(2026, 3, 7, 0, 0, 0, tzinfo=timezone(timedelta(hours=11)))
+        result = create.resolve_naming_pattern("yyyy-mm-dd~{slug}.md", "Entry", _now=fixed)
+        assert result == "2026-03-07~Entry.md"
 
 
 # ---------------------------------------------------------------------------

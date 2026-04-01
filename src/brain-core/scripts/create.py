@@ -35,7 +35,7 @@ from read import read_file_content
 # Naming pattern resolution
 # ---------------------------------------------------------------------------
 
-def resolve_naming_pattern(pattern, title):
+def resolve_naming_pattern(pattern, title, _now=None):
     """Resolve a naming pattern to a filename using the given title and today's date.
 
     Placeholders:
@@ -47,7 +47,7 @@ def resolve_naming_pattern(pattern, title):
       dd              — two-digit day
       ddd             — three-letter weekday (Mon, Tue, ...)
     """
-    now = datetime.now(timezone.utc).astimezone()
+    now = _now if _now is not None else datetime.now(timezone.utc).astimezone()
     safe_title = title_to_filename(title)
 
     # Order matters: longer placeholders first to avoid partial matches
@@ -101,32 +101,35 @@ def create_artefact(vault_root, router, type_key, title, body="", frontmatter_ov
     # 2. Read template (base frontmatter + body)
     template_fields, template_body = _read_template(vault_root, artefact)
 
-    # 3. Generate filename
+    # 3. Capture now once for consistent filename, folder, and timestamps
+    now = datetime.now(timezone.utc).astimezone()
+    now_iso = now.isoformat()
+
+    # 4. Generate filename
     pattern = artefact.get("naming", {}).get("pattern") if artefact.get("naming") else None
     if pattern:
-        filename = resolve_naming_pattern(pattern, title)
+        filename = resolve_naming_pattern(pattern, title, _now=now)
     else:
         filename = title_to_filename(title) + ".md"
 
-    # 4. Resolve folder
-    folder = resolve_folder(artefact, parent=parent)
+    # 5. Resolve folder
+    folder = resolve_folder(artefact, parent=parent, _now=now)
 
-    # 5. Merge frontmatter: template → overrides → force type → timestamps
+    # 6. Merge frontmatter: template → overrides → force type → timestamps
     fields = dict(template_fields)
     if frontmatter_overrides:
         fields.update(frontmatter_overrides)
     if artefact.get("frontmatter") and artefact["frontmatter"].get("type"):
         fields["type"] = artefact["frontmatter"]["type"]
-    now_iso = datetime.now(timezone.utc).astimezone().isoformat()
     if "created" not in fields:
         fields["created"] = now_iso
     if "modified" not in fields:
         fields["modified"] = now_iso
 
-    # 6. Determine body
+    # 7. Determine body
     final_body = body if body else template_body
 
-    # 7. Disambiguate basename collisions
+    # 8. Disambiguate basename collisions
     basename_stem = os.path.splitext(filename)[0]
 
     # Same-folder: append random 3-char suffix to make filename unique
@@ -144,7 +147,7 @@ def create_artefact(vault_root, router, type_key, title, body="", frontmatter_ov
         current_stem = os.path.splitext(filename)[0]
         filename = f"{current_stem} ({artefact['key']}).md"
 
-    # 8. Write
+    # 9. Write
     rel_path = os.path.join(folder, filename)
     abs_path = os.path.join(vault_root, rel_path)
     content = serialize_frontmatter(fields, body=final_body)
@@ -184,7 +187,7 @@ def _read_template(vault_root, artefact):
     return parse_frontmatter(content)
 
 
-def resolve_folder(artefact, parent=None):
+def resolve_folder(artefact, parent=None, _now=None):
     """Resolve the target folder for a new artefact.
 
     Living types: use artefact["path"], optionally with a parent subfolder.
@@ -192,7 +195,7 @@ def resolve_folder(artefact, parent=None):
     """
     base_path = artefact["path"]
     if artefact.get("classification") == "temporal":
-        now = datetime.now(timezone.utc).astimezone()
+        now = _now if _now is not None else datetime.now(timezone.utc).astimezone()
         month_folder = now.strftime("%Y-%m")
         return os.path.join(base_path, month_folder)
     if parent:

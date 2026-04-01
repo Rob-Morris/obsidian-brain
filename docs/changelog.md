@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.18.4 — 2026-04-02
+
+- **Refactor:** `create_artefact()` now captures a single `datetime.now()` and passes it to `resolve_naming_pattern()` and `resolve_folder()`, ensuring filename, folder path, and frontmatter timestamps all reflect the same instant. Both functions gain an optional `_now` parameter for testing.
+
 ## v0.18.3 — 2026-04-02
 
 - **Script-level timestamps:** `create_artefact()` now injects `created` and `modified` ISO 8601 timestamps into frontmatter at write time. Both fields respect `frontmatter_overrides` (existing values are not overwritten). Eliminates the `front-matter-timestamps` Obsidian plugin dependency for artefacts created via script or MCP.
