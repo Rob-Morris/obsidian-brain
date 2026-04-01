@@ -19,3 +19,4 @@ agents.local.md
 
 # MCP config (machine-local server paths)
 .mcp.json
+.worktrees/
