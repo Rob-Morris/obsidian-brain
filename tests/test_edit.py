@@ -1,6 +1,8 @@
 """Tests for edit.py — artefact editing, appending, and conversion."""
 
 import os
+from datetime import datetime, timezone, timedelta
+from unittest.mock import patch
 
 import pytest
 
@@ -683,3 +685,40 @@ class TestEditWithSection:
         assert "Old status content." not in body
         assert "After callout." in body
         assert "> [!note] Implementation status" in body
+
+
+# ---------------------------------------------------------------------------
+# Timestamp tests
+# ---------------------------------------------------------------------------
+
+class TestEditTimestamps:
+    FIXED_DT = datetime(2026, 4, 2, 10, 0, 0, tzinfo=timezone(timedelta(hours=11)))
+    FIXED_ISO = "2026-04-02T10:00:00+11:00"
+
+    def test_edit_updates_modified(self, vault, router):
+        with patch("edit.datetime") as mock_dt:
+            mock_dt.now.return_value = self.FIXED_DT
+            edit.edit_artefact(str(vault), router, "Wiki/test-page.md", "New body\n")
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        fields, _ = parse_frontmatter(content)
+        assert fields["modified"] == self.FIXED_ISO
+
+    def test_edit_does_not_change_created(self, vault, router):
+        original = (vault / "Wiki" / "test-page.md").read_text()
+        original_fields, _ = parse_frontmatter(original)
+        original_created = original_fields.get("created", "__absent__")
+
+        with patch("edit.datetime") as mock_dt:
+            mock_dt.now.return_value = self.FIXED_DT
+            edit.edit_artefact(str(vault), router, "Wiki/test-page.md", "Changed body\n")
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        fields, _ = parse_frontmatter(content)
+        assert fields.get("created", "__absent__") == original_created
+
+    def test_append_updates_modified(self, vault, router):
+        with patch("edit.datetime") as mock_dt:
+            mock_dt.now.return_value = self.FIXED_DT
+            edit.append_to_artefact(str(vault), router, "Wiki/test-page.md", "\nAppended\n")
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        fields, _ = parse_frontmatter(content)
+        assert fields["modified"] == self.FIXED_ISO

@@ -754,7 +754,7 @@ tags:
   - topic-tag
 ```
 
-`created` and `modified` are auto-set to the current ISO 8601 timestamp when an artefact is created via script or MCP. If either field is provided in `frontmatter_overrides`, the provided value is preserved.
+`created` and `modified` are auto-set to the current ISO 8601 timestamp when an artefact is created via script or MCP. If either field is provided in `frontmatter_overrides`, the provided value is preserved. On subsequent edits and appends via script or MCP, `modified` is automatically updated to the current timestamp; `created` is never changed by edit operations.
 
 ### Status
 

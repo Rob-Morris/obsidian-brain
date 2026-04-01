@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.18.5 — 2026-04-02
+
+- **Script-level timestamps (edit):** `edit_artefact()` and `append_to_artefact()` now update the `modified` frontmatter field on every write. The `created` field is never touched by edit operations.
+
 ## v0.18.4 — 2026-04-02
 
 - **Refactor:** `create_artefact()` now captures a single `datetime.now()` and passes it to `resolve_naming_pattern()` and `resolve_folder()`, ensuring filename, folder path, and frontmatter timestamps all reflect the same instant. Both functions gain an optional `_now` parameter for testing.

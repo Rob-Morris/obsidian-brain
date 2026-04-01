@@ -14,6 +14,7 @@ Usage:
 import json
 import os
 import sys
+from datetime import datetime, timezone
 
 from check import (
     naming_pattern_to_regex,
@@ -78,6 +79,9 @@ def edit_artefact(vault_root, router, path, body="", frontmatter_changes=None, t
     if frontmatter_changes:
         fields.update(frontmatter_changes)
 
+    # Update modified timestamp on every write
+    fields["modified"] = datetime.now(timezone.utc).astimezone().isoformat()
+
     if target == ":body":
         # Explicit whole-body replacement (including clearing with body="")
         new_body = body
@@ -127,8 +131,10 @@ def append_to_artefact(vault_root, router, path, content, target=None):
     with open(abs_path, "r", encoding="utf-8") as f:
         existing = f.read()
 
+    fields, body = parse_frontmatter(existing)
+    fields["modified"] = datetime.now(timezone.utc).astimezone().isoformat()
+
     if target:
-        fields, body = parse_frontmatter(existing)
         section_start, section_end = find_section(body, target)
         section_body = body[section_start:section_end].rstrip("\n")
         content_normalized = content if content.endswith("\n") else content + "\n"
@@ -141,7 +147,8 @@ def append_to_artefact(vault_root, router, path, content, target=None):
         new_body = body[:section_start] + rebuilt + body[section_end:]
         new_content = serialize_frontmatter(fields, body=new_body)
     else:
-        new_content = existing + content
+        new_body = body + content
+        new_content = serialize_frontmatter(fields, body=new_body)
 
     with open(abs_path, "w", encoding="utf-8") as f:
         f.write(new_content)
