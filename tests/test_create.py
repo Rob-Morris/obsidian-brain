@@ -3,7 +3,7 @@
 import json
 import os
 from unittest.mock import patch
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 import pytest
 
@@ -265,3 +265,48 @@ class TestBasenameDisambiguation:
         result = create.create_artefact(str(vault), router, "ideas", "Overlap", body="# My Idea\n")
         content = (vault / "Ideas" / "Overlap (ideas).md").read_text()
         assert "# My Idea" in content
+
+
+class TestCreateArtefactTimestamps:
+    FIXED_DT = datetime(2026, 4, 2, 9, 0, 0, tzinfo=timezone(timedelta(hours=11)))
+    FIXED_ISO = "2026-04-02T09:00:00+11:00"
+
+    def test_created_injected(self, vault, router):
+        with patch("create.datetime") as mock_dt:
+            mock_dt.now.return_value = self.FIXED_DT
+            result = create.create_artefact(str(vault), router, "wiki", "TS Test")
+        content = open(os.path.join(str(vault), result["path"])).read()
+        fields, _ = parse_frontmatter(content)
+        assert fields["created"] == self.FIXED_ISO
+
+    def test_modified_injected(self, vault, router):
+        with patch("create.datetime") as mock_dt:
+            mock_dt.now.return_value = self.FIXED_DT
+            result = create.create_artefact(str(vault), router, "wiki", "TS Test 2")
+        content = open(os.path.join(str(vault), result["path"])).read()
+        fields, _ = parse_frontmatter(content)
+        assert fields["modified"] == self.FIXED_ISO
+
+    def test_created_respects_override(self, vault, router):
+        custom = "2025-01-01T00:00:00+00:00"
+        with patch("create.datetime") as mock_dt:
+            mock_dt.now.return_value = self.FIXED_DT
+            result = create.create_artefact(
+                str(vault), router, "wiki", "TS Override",
+                frontmatter_overrides={"created": custom}
+            )
+        content = open(os.path.join(str(vault), result["path"])).read()
+        fields, _ = parse_frontmatter(content)
+        assert fields["created"] == custom
+
+    def test_modified_respects_override(self, vault, router):
+        custom = "2025-06-15T12:00:00+00:00"
+        with patch("create.datetime") as mock_dt:
+            mock_dt.now.return_value = self.FIXED_DT
+            result = create.create_artefact(
+                str(vault), router, "wiki", "TS Mod Override",
+                frontmatter_overrides={"modified": custom}
+            )
+        content = open(os.path.join(str(vault), result["path"])).read()
+        fields, _ = parse_frontmatter(content)
+        assert fields["modified"] == custom

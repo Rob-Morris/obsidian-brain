@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.18.3 — 2026-04-02
+
+- **Script-level timestamps:** `create_artefact()` now injects `created` and `modified` ISO 8601 timestamps into frontmatter at write time. Both fields respect `frontmatter_overrides` (existing values are not overwritten). Eliminates the `front-matter-timestamps` Obsidian plugin dependency for artefacts created via script or MCP.
+
 ## v0.18.2 — 2026-03-31
 
 - **Rename `brain_read` resources for clarity.** `resource="type"` (was `"artefact"`) lists artefact type metadata; `resource="artefact"` (was `"file"`) reads artefact content. Every resource is now named for what it returns.

@@ -111,12 +111,17 @@ def create_artefact(vault_root, router, type_key, title, body="", frontmatter_ov
     # 4. Resolve folder
     folder = resolve_folder(artefact, parent=parent)
 
-    # 5. Merge frontmatter: template → overrides → force type
+    # 5. Merge frontmatter: template → overrides → force type → timestamps
     fields = dict(template_fields)
     if frontmatter_overrides:
         fields.update(frontmatter_overrides)
     if artefact.get("frontmatter") and artefact["frontmatter"].get("type"):
         fields["type"] = artefact["frontmatter"]["type"]
+    now_iso = datetime.now(timezone.utc).astimezone().isoformat()
+    if "created" not in fields:
+        fields["created"] = now_iso
+    if "modified" not in fields:
+        fields["modified"] = now_iso
 
     # 6. Determine body
     final_body = body if body else template_body

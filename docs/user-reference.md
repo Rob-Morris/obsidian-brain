@@ -754,6 +754,8 @@ tags:
   - topic-tag
 ```
 
+`created` and `modified` are auto-set to the current ISO 8601 timestamp when an artefact is created via script or MCP. If either field is provided in `frontmatter_overrides`, the provided value is preserved.
+
 ### Status
 
 Only types with a defined lifecycle have status. Current types with status:
