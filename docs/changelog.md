@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.18.6 — 2026-04-01
+
+- **Refactor:** Extract `now_iso()` utility to `_common.py`; `edit.py` uses it instead of inlining `datetime.now(timezone.utc).astimezone().isoformat()`.
+
 ## v0.18.5 — 2026-04-02
 
 - **Script-level timestamps (edit):** `edit_artefact()` and `append_to_artefact()` now update the `modified` frontmatter field on every write. The `created` field is never touched by edit operations.

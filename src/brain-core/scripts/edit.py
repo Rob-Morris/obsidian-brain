@@ -14,7 +14,6 @@ Usage:
 import json
 import os
 import sys
-from datetime import datetime, timezone
 
 from check import (
     naming_pattern_to_regex,
@@ -29,6 +28,7 @@ from _common import (
     find_section,
     find_vault_root,
     make_wikilink_replacer,
+    now_iso,
     parse_frontmatter,
     replace_wikilinks_in_vault,
     resolve_body_file,
@@ -80,7 +80,7 @@ def edit_artefact(vault_root, router, path, body="", frontmatter_changes=None, t
         fields.update(frontmatter_changes)
 
     # Update modified timestamp on every write
-    fields["modified"] = datetime.now(timezone.utc).astimezone().isoformat()
+    fields["modified"] = now_iso()
 
     if target == ":body":
         # Explicit whole-body replacement (including clearing with body="")
@@ -132,7 +132,7 @@ def append_to_artefact(vault_root, router, path, content, target=None):
         existing = f.read()
 
     fields, body = parse_frontmatter(existing)
-    fields["modified"] = datetime.now(timezone.utc).astimezone().isoformat()
+    fields["modified"] = now_iso()
 
     if target:
         section_start, section_end = find_section(body, target)

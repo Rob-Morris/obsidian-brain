@@ -13,6 +13,7 @@ import re
 import sys
 import unicodedata
 from collections import namedtuple
+from datetime import datetime, timezone
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -69,6 +70,15 @@ def read_version(vault_root):
     version_file = os.path.join(str(vault_root), ".brain-core", "VERSION")
     with open(version_file, "r", encoding="utf-8") as f:
         return f.read().strip()
+
+
+# ---------------------------------------------------------------------------
+# Timestamp utilities
+# ---------------------------------------------------------------------------
+
+def now_iso():
+    """Return the current local datetime as an ISO 8601 string with timezone offset."""
+    return datetime.now(timezone.utc).astimezone().isoformat()
 
 
 # ---------------------------------------------------------------------------
