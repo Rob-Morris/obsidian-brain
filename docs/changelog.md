@@ -2,6 +2,12 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.18.7 — 2026-04-02
+
+- **Fix:** Guard `_check_router`, `_check_index`, and `_load_embeddings` against corrupted JSON cache files (valid JSON that isn't a dict). Previously caused uncaught `AttributeError` propagating through `brain_search`/`brain_read`.
+- **MCP schema:** Add `Literal` type constraints to all enum-like tool parameters (`brain_read.resource`, `brain_edit.operation`, `brain_action.action`, `brain_process.operation`/`mode`). Agents now see `{"enum": [...]}` in the JSON schema instead of bare `string`, reducing misuse from guessed values.
+- Consistent top-level `try/except` across all 7 MCP tools for graceful error handling. Previously only `brain_create`/`brain_edit`/`brain_process` had catch-all guards; now `brain_session`, `brain_read`, `brain_search`, and `brain_action` also catch unexpected exceptions.
+
 ## v0.18.6 — 2026-04-01
 
 - **Refactor:** Extract `now_iso()` utility to `_common.py`; `edit.py` uses it instead of inlining `datetime.now(timezone.utc).astimezone().isoformat()`.
