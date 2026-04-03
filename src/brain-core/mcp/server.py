@@ -380,23 +380,27 @@ def _ensure_index_fresh() -> None:
 
     # Incremental updates for paths queued by brain_create/brain_edit
     if _index_pending and _index is not None:
-        pending = _index_pending[:]
-        _index_pending.clear()
+        with _index_pending_lock:
+            pending = _index_pending[:]
+            _index_pending.clear()
         try:
+            saved_built_at = _index["meta"].get("built_at")
             for rel_path, type_hint in pending:
                 build_index.index_update(_index, _vault_root, rel_path, type_hint=type_hint, recompute=False)
             build_index._recompute_corpus_stats(_index)
+            if saved_built_at:
+                _index["meta"]["built_at"] = saved_built_at  # Don't advance threshold
             _save_json(_index, _vault_root, _index_rel())
             _mark_embeddings_dirty()
             _index_checked_at = time.monotonic()
         except Exception as e:
             print(f"brain-core index incremental update failed: {e}", file=sys.stderr)
             _mark_index_dirty()
-        return
+        # Fall through to TTL-gated staleness check (detects external files)
 
     # Filesystem staleness check for external changes (throttled)
     now = time.monotonic()
-    if now - _index_checked_at < _STALENESS_CHECK_TTL:
+    if now - _index_checked_at < _INDEX_CHECK_TTL:
         return
     _index_checked_at = now
     stale, data = _check_index(_vault_root)

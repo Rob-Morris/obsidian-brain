@@ -289,6 +289,9 @@ def _recompute_corpus_stats(index):
     index["corpus_stats"]["df"] = df
     index["meta"]["document_count"] = total_docs
     index["meta"]["avg_doc_length"] = round(avg_dl, 1)
+    # NOTE: This unconditionally advances built_at to now(). Callers doing
+    # incremental updates should save and restore built_at if they don't want
+    # to move the staleness threshold forward.
     index["meta"]["built_at"] = datetime.now(timezone.utc).astimezone().isoformat()
 
 
