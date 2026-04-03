@@ -2,6 +2,11 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.18.9 — 2026-04-03
+
+- **Fix:** `convert_artefact` now preserves the hub parent subfolder when converting between living types. Converting `Ideas/Brain/foo.md` → designs now produces `Designs/Brain/foo.md` instead of `Designs/foo.md`.
+- **Refactor:** `resolve_and_validate_folder` returns `(path, artefact_dict)` instead of just the path, eliminating a redundant router scan in `convert_artefact`.
+
 ## v0.18.8 — 2026-04-03
 
 - **Fix:** Stop `built_at` advancing on incremental index updates. Previously, every `brain_create`/`brain_edit` moved the staleness threshold forward, making files created outside MCP invisible to the mtime-based staleness check.

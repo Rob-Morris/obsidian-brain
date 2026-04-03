@@ -39,6 +39,10 @@ def vault(tmp_path):
     designs = tmp_path / "Designs"
     designs.mkdir()
 
+    # Living type: Ideas
+    ideas = tmp_path / "Ideas"
+    ideas.mkdir()
+
     # Temporal type: Logs
     temporal = tmp_path / "_Temporal"
     temporal.mkdir()
@@ -60,6 +64,14 @@ def vault(tmp_path):
         "## Naming\n\n`{slug}.md` in `Designs/`.\n\n"
         "## Frontmatter\n\n```yaml\n---\ntype: living/designs\ntags:\n  - design-tag\nstatus: shaping\n---\n```\n\n"
         "## Template\n\n[[_Config/Templates/Living/Designs]]\n"
+    )
+
+    # Taxonomy: Ideas
+    (tax_living / "ideas.md").write_text(
+        "# Ideas\n\n"
+        "## Naming\n\n`{slug}.md` in `Ideas/`.\n\n"
+        "## Frontmatter\n\n```yaml\n---\ntype: living/ideas\ntags: []\n---\n```\n\n"
+        "## Template\n\n[[_Config/Templates/Living/Ideas]]\n"
     )
 
     # Taxonomy: Logs
@@ -334,6 +346,39 @@ class TestConvertArtefact:
     def test_convert_file_not_found(self, vault, router):
         with pytest.raises(FileNotFoundError):
             edit.convert_artefact(str(vault), router, "Wiki/gone.md", "designs")
+
+    def test_convert_preserves_parent_subfolder(self, vault, router):
+        """Source in Ideas/Brain/ should produce Designs/Brain/ after convert."""
+        hub_dir = vault / "Ideas" / "Brain"
+        hub_dir.mkdir(parents=True)
+        (hub_dir / "my-idea.md").write_text(
+            "---\ntype: living/ideas\ntags: []\n---\n\n# My Idea\n\nBody.\n"
+        )
+        result = edit.convert_artefact(str(vault), router, "Ideas/Brain/my-idea.md", "designs")
+        assert result["new_path"].startswith("Designs/Brain/")
+        assert not (hub_dir / "my-idea.md").exists()
+        assert os.path.isfile(os.path.join(str(vault), result["new_path"]))
+
+    def test_convert_flat_source_no_parent(self, vault, router):
+        """Source directly in Ideas/ (no subfolder) should produce Designs/ with no subfolder."""
+        (vault / "Ideas" / "flat-idea.md").write_text(
+            "---\ntype: living/ideas\ntags: []\n---\n\n# Flat Idea\n\nBody.\n"
+        )
+        result = edit.convert_artefact(str(vault), router, "Ideas/flat-idea.md", "designs")
+        assert result["new_path"].startswith("Designs/")
+        assert "/" not in result["new_path"][len("Designs/"):]
+
+    def test_convert_explicit_parent_override(self, vault, router):
+        """Explicit parent kwarg takes precedence over auto-detected subfolder."""
+        hub_dir = vault / "Ideas" / "Brain"
+        hub_dir.mkdir(parents=True)
+        (hub_dir / "overridden.md").write_text(
+            "---\ntype: living/ideas\ntags: []\n---\n\n# Overridden\n\nBody.\n"
+        )
+        result = edit.convert_artefact(
+            str(vault), router, "Ideas/Brain/overridden.md", "designs", parent="Custom"
+        )
+        assert result["new_path"].startswith("Designs/Custom/")
 
 
 # ---------------------------------------------------------------------------

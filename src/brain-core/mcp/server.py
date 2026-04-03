@@ -1075,7 +1075,7 @@ def brain_action(
       build_index          — rebuild the BM25 retrieval index
       rename               — rename/move a file (params: {source, dest} as relative paths)
       delete               — delete a file and clean wikilinks (params: {path})
-      convert              — convert artefact to different type (params: {path, target_type})
+      convert              — convert artefact to different type (params: {path, target_type}, optional: {parent})
       shape-presentation   — create presentation + launch live preview (params: {source, slug})
       upgrade              — upgrade brain-core from source (params: {source}, optional: {dry_run, force})
       migrate_naming       — migrate vault filenames to generous naming conventions (optional: {dry_run})
@@ -1160,7 +1160,8 @@ def brain_action(
                 return _fmt_error("convert requires params: {path, target_type}")
             try:
                 result = edit.convert_artefact(
-                    _vault_root, _router, params["path"], params["target_type"]
+                    _vault_root, _router, params["path"], params["target_type"],
+                    parent=params.get("parent"),
                 )
                 _mark_index_dirty()
                 return json.dumps({

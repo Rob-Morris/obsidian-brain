@@ -172,7 +172,7 @@ def read_artefact(router, vault_root, name=None):
 
     try:
         from check import resolve_and_validate_folder
-        name = resolve_and_validate_folder(vault_root, router, name)
+        name, _ = resolve_and_validate_folder(vault_root, router, name)
     except ValueError as e:
         resource = _resolve_config_resource(vault_root, name)
         if resource:
@@ -223,7 +223,7 @@ def read_file(router, vault_root, name=None):
     # Try artefact folders first
     try:
         from check import resolve_and_validate_folder
-        resolved = resolve_and_validate_folder(vault_root, router, name)
+        resolved, _ = resolve_and_validate_folder(vault_root, router, name)
         return read_file_content(vault_root, resolved)
     except ValueError:
         pass

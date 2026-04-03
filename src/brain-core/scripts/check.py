@@ -95,8 +95,7 @@ def naming_pattern_to_regex(pattern):
     if pattern is None:
         return None
 
-    # Split on known placeholders, escape literals, reassemble
-    # Order matters: longer patterns first to avoid partial matches
+    # Split on known placeholders, escape literals, reassemble as regex.
     # Order matters: longer patterns first to avoid partial matches.
     # yyyymmdd before yyyy/mm/dd; yyyy-mm-dd before yyyy; ddd before dd.
     PLACEHOLDERS = [
@@ -170,20 +169,20 @@ def resolve_and_validate_folder(vault_root, router, path):
     """Validate path belongs to a known artefact folder, falling back to basename resolution.
 
     Tries exact path first. If that fails, resolves by basename (like wikilinks)
-    and re-validates. Returns the (possibly resolved) path.  Artefacts are always
-    ``.md`` files, so a missing extension is normalised automatically.
+    and re-validates. Returns ``(resolved_path, artefact_dict)``.  Artefacts are
+    always ``.md`` files, so a missing extension is normalised automatically.
 
     Raises ValueError if neither the exact path nor basename resolution succeeds.
     """
     if not path.endswith(".md"):
         path += ".md"
     try:
-        validate_artefact_folder(vault_root, router, path)
-        return path
+        art = validate_artefact_folder(vault_root, router, path)
+        return path, art
     except ValueError:
         resolved = resolve_artefact_path(path, vault_root)
-        validate_artefact_folder(vault_root, router, resolved)
-        return resolved
+        art = validate_artefact_folder(vault_root, router, resolved)
+        return resolved, art
 
 
 def validate_artefact_naming(artefact, path):

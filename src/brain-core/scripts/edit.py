@@ -64,7 +64,7 @@ def edit_artefact(vault_root, router, path, body="", frontmatter_changes=None, t
         FileNotFoundError: If the file does not exist.
     """
     vault_root = str(vault_root)
-    path = resolve_and_validate_folder(vault_root, router, path)
+    path, _ = resolve_and_validate_folder(vault_root, router, path)
 
     abs_path = os.path.join(vault_root, path)
     if not os.path.isfile(abs_path):
@@ -122,7 +122,7 @@ def append_to_artefact(vault_root, router, path, content, target=None):
         FileNotFoundError: If the file does not exist.
     """
     vault_root = str(vault_root)
-    path = resolve_and_validate_folder(vault_root, router, path)
+    path, _ = resolve_and_validate_folder(vault_root, router, path)
 
     abs_path = os.path.join(vault_root, path)
     if not os.path.isfile(abs_path):
@@ -160,7 +160,7 @@ def append_to_artefact(vault_root, router, path, content, target=None):
 # Type conversion
 # ---------------------------------------------------------------------------
 
-def convert_artefact(vault_root, router, path, target_type):
+def convert_artefact(vault_root, router, path, target_type, parent=None):
     """Convert artefact to a different type: move to target folder, reconcile FM, update wikilinks.
 
     Args:
@@ -168,6 +168,8 @@ def convert_artefact(vault_root, router, path, target_type):
         router: Compiled router dict.
         path: Relative path from vault root.
         target_type: Target type key or full type (e.g. "design" or "living/design").
+        parent: Optional hub subfolder override (e.g. "Brain"). If omitted, the parent
+                subfolder is auto-detected from the source path for living target types.
 
     Returns:
         Dict with old_path, new_path, type, and links_updated.
@@ -179,7 +181,7 @@ def convert_artefact(vault_root, router, path, target_type):
     vault_root = str(vault_root)
 
     # Resolve path (basename fallback) and validate
-    path = resolve_and_validate_folder(vault_root, router, path)
+    path, source_art = resolve_and_validate_folder(vault_root, router, path)
     target_art = resolve_type(router, target_type)
 
     abs_source = os.path.join(vault_root, path)
@@ -199,8 +201,13 @@ def convert_artefact(vault_root, router, path, target_type):
     else:
         new_filename = title_to_slug(title) + ".md"
 
+    if parent is None and target_art.get("classification") != "temporal":
+        source_dir = os.path.dirname(path)
+        rel = os.path.relpath(source_dir, source_art["path"])
+        parent = rel if rel != "." else None
+
     # Compute new path
-    target_folder = resolve_folder(target_art)
+    target_folder = resolve_folder(target_art, parent=parent)
     new_path = os.path.join(target_folder, new_filename)
 
     # Reconcile frontmatter: set type to target type
