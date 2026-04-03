@@ -1132,12 +1132,8 @@ def brain_action(
             # CLI-first: Obsidian auto-updates wikilinks
             _refresh_cli_available()
             if _cli_available and _vault_name:
-                # Ensure destination directory exists (Obsidian CLI won't create it)
-                abs_dest = os.path.join(_vault_root, dest)
-                os.makedirs(os.path.dirname(abs_dest), exist_ok=True)
-
                 result = obsidian_cli.move(_vault_name, source, dest)
-                if result is True:  # False (CLI error) and None (connection) fall through
+                if result is not None:
                     _mark_index_dirty()
                     return f"**Renamed** (obsidian_cli): {source} → {dest} (wikilinks auto-updated)"
 
