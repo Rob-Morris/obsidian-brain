@@ -649,3 +649,10 @@ class TestResolveArtefactPath:
             "20260329-report~Broken Link Prevention Briefing", vault_with_files
         )
         assert result == "_Temporal/Reports/2026-03/20260329-report~Broken Link Prevention Briefing.md"
+
+    def test_temporal_display_name_resolves(self, vault_with_files):
+        """Looking up by display name (without dated prefix) should find the temporal artefact."""
+        result = common.resolve_artefact_path(
+            "Broken Link Prevention Briefing", vault_with_files
+        )
+        assert result == "_Temporal/Reports/2026-03/20260329-report~Broken Link Prevention Briefing.md"

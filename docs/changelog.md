@@ -2,6 +2,11 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.18.13 — 2026-04-04
+
+- **Fix:** `resolve_artefact_path` now finds temporal artefacts by display name. Previously, looking up "Colour Theory" failed because the file index key includes the full dated prefix (`20260404-research~Colour Theory`). A fallback now strips `YYYYMMDD-type~` prefixes and matches the display-name portion. Applies to `brain_read`, `brain_edit`, and `brain_action`(convert) — all flow through the same resolver.
+- **Refactor:** Extract `_temporal_display_name` and `_lookup_temporal_display_name` helpers, flatten control flow in `resolve_artefact_path`.
+
 ## v0.18.12 — 2026-04-03
 
 - **Feature:** `brain_edit` gains a `prepend` operation — inserts content before a section heading (or at the start of the body). Agents can now place new sections before a target without knowing what precedes it.

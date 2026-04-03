@@ -1007,7 +1007,7 @@ If your vault runs the Brain MCP server (`.brain-core/mcp/server.py`), seven too
 
 **brain_read** (safe, no side effects)
 - Look up artefacts, triggers, styles, templates, skills, plugins, memories, workspaces, environment info, the compiled router, structural compliance results, or read artefact files by path
-- Optional name filter to narrow results (for workspace, resolves a slug; for compliance, filters by severity; for file, a relative path or basename — resolves like wikilinks)
+- Optional name filter to narrow results (for workspace, resolves a slug; for compliance, filters by severity; for file, a relative path or basename — resolves like wikilinks). For temporal artefacts, the display name works without the dated prefix — e.g. "Colour Theory" finds `20260404-research~Colour Theory.md`
 
 **brain_search** (safe, no side effects)
 - Search vault content by query text

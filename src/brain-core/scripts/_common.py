@@ -474,6 +474,12 @@ def _basename_stem(path):
     return os.path.splitext(os.path.basename(path))[0]
 
 
+def _temporal_display_name(stem):
+    """Return the display-name portion after the tilde, or *None* if not temporal."""
+    m = _DATED_PREFIX_RE.match(stem)
+    return stem[m.end():] if m else None
+
+
 def _discover_temporal_prefixes(md_basenames):
     """Scan the file index to discover temporal artefact prefixes dynamically."""
     prefixes = set()
@@ -487,6 +493,21 @@ def _discover_temporal_prefixes(md_basenames):
 def _lookup_basename(candidate_stem, md_basenames):
     """Look up files matching a basename stem (case-insensitive). Returns list of paths."""
     return md_basenames.get(candidate_stem.lower(), [])
+
+
+def _lookup_temporal_display_name(stem, md_basenames):
+    """Match *stem* against the display-name portion of temporal artefact stems.
+
+    Users reference temporal artefacts by display name ("Colour Theory")
+    but the file stem includes a dated prefix ("20260404-research~Colour Theory").
+    """
+    stem_lower = stem.lower()
+    matches = []
+    for indexed_stem, paths in md_basenames.items():
+        display = _temporal_display_name(indexed_stem)
+        if display is not None and display.lower() == stem_lower:
+            matches.extend(paths)
+    return matches
 
 
 def resolve_artefact_path(name, vault_root, file_index=None):
@@ -506,16 +527,21 @@ def resolve_artefact_path(name, vault_root, file_index=None):
     stem = _basename_stem(name)
     if file_index is None:
         file_index = build_vault_file_index(vault_root)
-    matches = _lookup_basename(stem, file_index["md_basenames"])
-    if len(matches) == 1:
-        return matches[0]
+    md_basenames = file_index["md_basenames"]
+
+    matches = _lookup_basename(stem, md_basenames)
+    if not matches:
+        matches = _lookup_temporal_display_name(stem, md_basenames)
+
     if not matches:
         raise ValueError(f"No artefact found matching '{name}'")
-    listing = "\n".join(f"  - {m}" for m in matches)
-    raise ValueError(
-        f"Basename '{stem}' matches multiple files:\n{listing}\n"
-        "Use the full relative path to disambiguate."
-    )
+    if len(matches) != 1:
+        listing = "\n".join(f"  - {m}" for m in matches)
+        raise ValueError(
+            f"Basename '{stem}' matches multiple files:\n{listing}\n"
+            "Use the full relative path to disambiguate."
+        )
+    return matches[0]
 
 
 def _resolved(matches, strategy):
