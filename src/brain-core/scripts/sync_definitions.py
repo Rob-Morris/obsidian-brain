@@ -247,6 +247,22 @@ def _make_tracking_entry(upstream_hash: str, target: str) -> dict:
     return {"source_hash": upstream_hash, "target": target}
 
 
+def _is_type_installed(vault_root: str, type_files_tracking: dict, manifest: dict) -> bool:
+    """Check whether a type is installed (has tracking entries or target files).
+
+    A type is considered installed if either:
+    - It has tracking entries from a prior sync, OR
+    - At least one of its target files already exists in the vault
+      (e.g. manually placed before tracking was introduced).
+    """
+    if type_files_tracking:
+        return True
+    return any(
+        os.path.isfile(os.path.join(vault_root, fi["target"]))
+        for fi in manifest["files"].values()
+    )
+
+
 def sync_definitions(
     vault_root: str,
     *,
@@ -298,14 +314,8 @@ def sync_definitions(
         type_tracking = tracking["installed"].get(type_key, {})
         type_files_tracking = type_tracking.get("files", {})
 
-        # force syncs existing types — it doesn't install new ones.
-        if force and not type_files_tracking:
-            any_target_exists = any(
-                os.path.isfile(os.path.join(vault_root, fi["target"]))
-                for fi in manifest["files"].values()
-            )
-            if not any_target_exists:
-                continue
+        if not _is_type_installed(vault_root, type_files_tracking, manifest):
+            continue
 
         new_type_files = {}
         type_changed = False

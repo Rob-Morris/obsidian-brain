@@ -314,14 +314,13 @@ class TestComputeFileStatus:
 # ---------------------------------------------------------------------------
 
 class TestSyncDefinitions:
-    def test_fresh_install_auto(self, vault):
-        """Empty tracking, targets don't exist → warnings as 'new'."""
+    def test_uninstalled_type_silently_skipped(self, vault):
+        """Empty tracking, targets don't exist → type silently skipped."""
         result = sync.sync_definitions(str(vault))
-        assert result["status"] == "warnings"
-        assert len(result["warnings"]) == 2  # taxonomy + template
-        actions = {w["role"]: w["action"] for w in result["warnings"]}
-        assert actions["taxonomy"] == "new"
-        assert actions["template"] == "new"
+        assert result["status"] == "ok"
+        assert len(result["warnings"]) == 0
+        assert len(result["updated"]) == 0
+        assert len(result["skipped"]) == 0
 
     def test_fresh_install_matching_baseline(self, vault):
         """Targets exist matching upstream → baseline tracking established silently."""
@@ -407,14 +406,23 @@ class TestSyncDefinitions:
         assert excluded["reason"] == "excluded"
 
     def test_exclude_does_not_affect_other_roles(self, vault):
-        """Excluding one role doesn't exclude another."""
+        """Excluding one role doesn't exclude another in an installed type."""
+        _install_type(vault)
+        # Change upstream for both files
+        lib = vault / ".brain-core" / "artefact-library" / "temporal" / "cookies"
+        lib_tax = lib / "taxonomy.md"
+        lib_tmpl = lib / "template.md"
+        lib_tax.write_text("# Changed taxonomy\n")
+        lib_tmpl.write_text("# Changed template\n")
         (vault / ".brain" / "preferences.json").write_text(
             json.dumps({"artefact_sync_exclude": ["temporal/cookies/taxonomy"]})
         )
         result = sync.sync_definitions(str(vault))
-        # template should still appear (as warning for 'new')
-        template_items = [w for w in result["warnings"] if w["role"] == "template"]
-        assert len(template_items) == 1
+        # taxonomy excluded → skipped; template should auto-update
+        taxonomy_skip = next(s for s in result["skipped"] if s["role"] == "taxonomy")
+        assert taxonomy_skip["reason"] == "excluded"
+        template_update = next(u for u in result["updated"] if u["role"] == "template")
+        assert template_update["action"] == "update"
 
     def test_force_overwrites_conflict(self, vault):
         """force=True + conflict → file updated."""
@@ -478,6 +486,12 @@ class TestSyncDefinitions:
 
     def test_type_filter(self, vault_two_types):
         """types= parameter filters to specified types only."""
+        # Install both types first so they're not skipped as uninstalled
+        _install_type(vault_two_types, "temporal/cookies")
+        _install_type(vault_two_types, "living/wiki")
+        # Change upstream for wiki
+        lib = vault_two_types / ".brain-core" / "artefact-library" / "living" / "wiki"
+        (lib / "taxonomy.md").write_text("# Updated wiki taxonomy\n")
         result = sync.sync_definitions(
             str(vault_two_types), types=["living/wiki"]
         )
@@ -486,12 +500,20 @@ class TestSyncDefinitions:
             all_types.add(item["type"])
         assert all_types == {"living/wiki"}
 
-    def test_folders_created(self, vault):
-        """Manifest folders are created even during dry_run=False."""
+    def test_folders_created_for_installed_type(self, vault):
+        """Manifest folders are created for installed types."""
+        _install_type(vault)
         folder = vault / "_Temporal" / "Cookies"
         assert not folder.exists()
         sync.sync_definitions(str(vault))
         assert folder.is_dir()
+
+    def test_folders_not_created_for_uninstalled_type(self, vault):
+        """Manifest folders are NOT created for uninstalled types."""
+        folder = vault / "_Temporal" / "Cookies"
+        assert not folder.exists()
+        sync.sync_definitions(str(vault))
+        assert not folder.exists()
 
     def test_missing_manifest_graceful(self, vault):
         """Type dir without manifest.yaml is silently skipped."""

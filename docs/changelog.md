@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.18.10 — 2026-04-03
+
+- **Fix:** `sync_definitions` no longer proposes installing new artefact types during upgrade. Previously, uninstalled types with no tracking and no target files generated `action: "new"` warnings; the guard that skipped them only applied in `force` mode. Extracted `_is_type_installed()` helper to make the intent explicit and prevent future divergence between force and non-force paths.
+
 ## v0.18.9 — 2026-04-03
 
 - **Fix:** `convert_artefact` now preserves the hub parent subfolder when converting between living types. Converting `Ideas/Brain/foo.md` → designs now produces `Designs/Brain/foo.md` instead of `Designs/foo.md`.
