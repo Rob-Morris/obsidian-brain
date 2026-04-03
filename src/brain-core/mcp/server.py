@@ -42,6 +42,7 @@ import json
 import os
 import sys
 import tempfile
+import threading
 import time
 import traceback
 from datetime import datetime, timezone
@@ -99,7 +100,12 @@ _session_profile: str | None = None
 _router: dict | None = None
 _index: dict | None = None
 _index_dirty: bool = False       # set True for full rebuild (e.g. version drift)
-_index_pending: list[tuple[str, str | None]] = []  # [(rel_path, type_hint), ...] for incremental updates
+# _index_pending queues (rel_path, type_hint) pairs from brain_create/brain_edit
+# for incremental index updates on the next search. _index_pending_lock MUST be
+# held for any read or write — three call sites: _mark_index_pending (append),
+# _ensure_index_fresh (drain), _build_index_and_save (clear on full rebuild).
+_index_pending: list[tuple[str, str | None]] = []
+_index_pending_lock = threading.Lock()
 _cli_available: bool = False
 _cli_probed_at: float = 0.0  # monotonic timestamp of last CLI probe
 _vault_name: str | None = None
@@ -111,8 +117,13 @@ _doc_embeddings = None     # numpy array or None
 _embeddings_dirty: bool = False  # set True when doc embeddings are out of sync with index
 
 
-_CLI_PROBE_TTL = 30      # seconds between CLI availability re-probes
-_STALENESS_CHECK_TTL = 5  # seconds between router/index filesystem staleness checks
+# Staleness-check TTLs — intentionally different because the checks have
+# very different costs. Router: stats a handful of source files (cheap, 5s).
+# Index: walks every .md file in the vault to compare count + mtime (expensive,
+# 30s). Don't unify these without understanding the cost difference.
+_CLI_PROBE_TTL = 30
+_ROUTER_CHECK_TTL = 5
+_INDEX_CHECK_TTL = 30
 _router_checked_at: float = 0.0
 _index_checked_at: float = 0.0
 
@@ -322,7 +333,7 @@ def _ensure_router_fresh() -> None:
     if _vault_root is None or _router is None:
         return
     now = time.monotonic()
-    if now - _router_checked_at < _STALENESS_CHECK_TTL:
+    if now - _router_checked_at < _ROUTER_CHECK_TTL:
         return
     _router_checked_at = now
     stale, data = _check_router(_vault_root)
@@ -365,7 +376,8 @@ def _ensure_embeddings_fresh() -> None:
 
 def _mark_index_pending(rel_path: str, type_hint: str | None = None) -> None:
     """Queue a single file for incremental index update on the next search."""
-    _index_pending.append((rel_path, type_hint))
+    with _index_pending_lock:
+        _index_pending.append((rel_path, type_hint))
 
 
 def _ensure_index_fresh() -> None:
@@ -472,7 +484,8 @@ def _build_index_and_save(vault_root: str) -> dict:
     _save_json(index, vault_root, _index_rel())
     _index_dirty = False
     _embeddings_dirty = False
-    _index_pending.clear()
+    with _index_pending_lock:
+        _index_pending.clear()
     _index_checked_at = time.monotonic()
     # Build embeddings if deps available and router is loaded
     if _router is not None:

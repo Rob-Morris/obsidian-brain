@@ -2,6 +2,15 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.18.8 — 2026-04-03
+
+- **Fix:** Stop `built_at` advancing on incremental index updates. Previously, every `brain_create`/`brain_edit` moved the staleness threshold forward, making files created outside MCP invisible to the mtime-based staleness check.
+- **Fix:** Remove early return from incremental update path so the TTL-gated staleness check can detect external files after incremental updates.
+- **Fix:** Add document count check to index staleness detection. Files added or deleted outside MCP are now caught by count mismatch, not just mtime.
+- **Fix:** Detect index version drift — stale index files from older brain-core versions trigger a full rebuild.
+- **Refactor:** Split `_STALENESS_CHECK_TTL` into `_ROUTER_CHECK_TTL` (5s) and `_INDEX_CHECK_TTL` (30s) to reflect their different costs.
+- **Fix:** Guard `_index_pending` with `threading.Lock` to prevent race conditions under concurrent MCP requests.
+
 ## v0.18.7 — 2026-04-02
 
 - **Fix:** Guard `_check_router`, `_check_index`, and `_load_embeddings` against corrupted JSON cache files (valid JSON that isn't a dict). Previously caused uncaught `AttributeError` propagating through `brain_search`/`brain_read`.

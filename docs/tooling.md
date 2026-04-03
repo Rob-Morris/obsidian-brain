@@ -55,7 +55,7 @@ Scripts in `.brain-core/scripts/` are the **source of truth** for all vault oper
 
 **When adding new operations:** implement the logic as importable functions in a script, add a CLI entry point, then import into `server.py`. Never put operation logic directly in the server.
 
-## Brain MCP Server (DD-010, DD-011, DD-020, DD-021, DD-025)
+## Brain MCP Server (DD-010, DD-011, DD-020, DD-021, DD-025, DD-027)
 
 Long-running MCP server at `.brain-core/mcp/server.py`. Thin wrapper over scripts — exposes 7 MCP tools:
 
@@ -121,6 +121,34 @@ Option 2 is the key lever. Returning `[TextContent(type="text", text=metadata), 
 **What this does NOT do:** It does not change the underlying script functions. Scripts still return dicts/lists. The MCP server layer formats them for readability. This is a presentation concern, not a logic change.
 
 **Migration:** Update `server.py` handler return values + corresponding test assertions. No changes to scripts, CLI, or compiled router.
+
+## MCP Tool Resilience Conventions (DD-027)
+
+The MCP server is a long-running process serving multiple agents across unpredictable vault states. Tools must never crash — a traceback kills the server and orphans the agent session. These conventions exist to keep the server standing when vault data is corrupt, missing, or the wrong shape.
+
+**Three-layer exception strategy:** Every tool handler follows the same structure:
+
+1. **Preventive type guards** — before accessing dict keys, `isinstance()` checks confirm the loaded data is actually a dict (or list, etc.). Corrupted JSON caches can parse as valid JSON but produce the wrong type (e.g. a list instead of a dict). Guards go immediately after `json.load()` or any deserialization.
+2. **Inner domain catches** — `try/except` blocks around specific operations, catching expected failure modes (`ValueError`, `KeyError`, `FileNotFoundError`, etc.) with actionable error messages via `_fmt_error()`.
+3. **Outer catch-all** — every tool's top-level handler has a final `except Exception` that logs the full traceback to stderr and returns a generic `_fmt_error()`. This is the safety net — it should never be the primary error path, but it ensures the server survives unexpected failures.
+
+All three layers are mandatory for every tool. Omitting the outer catch-all is a bug, even if you believe all exceptions are handled by inner catches.
+
+**Literal schemas on enum-like parameters:** Every tool parameter that accepts a fixed set of values must use `Literal["a", "b", "c"]` type annotations, not bare `str`. This produces `{"enum": [...]}` in the JSON schema, so agents see valid values at tool-discovery time instead of guessing. When adding a new enum value, update the `Literal` type — the JSON schema is generated from it automatically.
+
+**Error formatting:** All error returns use `_fmt_error(msg)` which produces `CallToolResult(isError=True)` with `"Error: {message}"` text content. Never raise exceptions as a way to signal errors to the agent — always return a `CallToolResult`. Never return raw dicts with `{"error": ...}` keys.
+
+**Type guards after deserialization:** Any function that calls `json.load()`, `json.loads()`, `yaml.safe_load()`, or reads compiled router/index data must validate the shape before accessing it. The pattern:
+
+```python
+data = json.load(f)
+if not isinstance(data, dict):
+    return _fmt_error("Expected dict, got " + type(data).__name__)
+```
+
+This catches the case where a cache file contains valid JSON of the wrong type (e.g. after a partial write, encoding error, or manual edit). Without the guard, the next `.get()` or `[key]` raises `AttributeError` or `TypeError` — which is confusing to debug and, before DD-027, was not caught by inner domain catches.
+
+**Status:** Codified in v0.18.7. All 7 tools (`brain_session`, `brain_read`, `brain_search`, `brain_create`, `brain_edit`, `brain_action`, `brain_process`) conform.
 
 ## Lean Router Format (DD-012, DD-017)
 
