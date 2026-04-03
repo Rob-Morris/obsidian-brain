@@ -1,7 +1,7 @@
 # Obsidian Brain
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-0.18.10-blue)
+![Version](https://img.shields.io/badge/version-0.18.11-blue)
 ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED)
 ![Python](https://img.shields.io/badge/python-≥3.10-3776AB?logo=python&logoColor=white)
 ![MCP](https://img.shields.io/badge/MCP-server-green?logo=data:image/svg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0id2hpdGUiPjxwYXRoIGQ9Ik0xMiAyQzYuNDggMiAyIDYuNDggMiAxMnM0LjQ4IDEwIDEwIDEwIDEwLTQuNDggMTAtMTBTMTcuNTIgMiAxMiAyem0wIDE4Yy00LjQyIDAtOC0zLjU4LTgtOHMzLjU4LTggOC04IDggMy41OCA4IDgtMy41OCA4LTggOHptLTEtMTNoMnY2aC0yem0wIDhoMnYyaC0yeiIvPjwvc3ZnPg==)

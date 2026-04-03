@@ -2,6 +2,11 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.18.11 — 2026-04-03
+
+- **Fix:** `brain_action("rename")` no longer silently fails on cross-directory moves when Obsidian CLI is available. `obsidian_cli.move()` now detects error responses (returns `False` instead of `True`) and falls back to grep-replace. The server also pre-creates the destination directory before calling the CLI, matching the fallback path's behavior.
+- **Refactor:** Extract `cli_available` pytest fixture for tests that need the Obsidian CLI path enabled, replacing 5 identical try/finally blocks.
+
 ## v0.18.10 — 2026-04-03
 
 - **Fix:** `sync_definitions` no longer proposes installing new artefact types during upgrade. Previously, uninstalled types with no tracking and no target files generated `action: "new"` warnings; the guard that skipped them only applied in `force` mode. Extracted `_is_type_installed()` helper to make the intent explicit and prevent future divergence between force and non-force paths.

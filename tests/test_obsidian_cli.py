@@ -137,6 +137,18 @@ class TestMove:
         with _mock_send("Moved a.md to b.md"):
             assert obsidian_cli.move("vault", "a.md", "b.md") is True
 
+    def test_returns_false_on_error_response(self):
+        with _mock_send("Error: ENOENT: no such file or directory, rename 'a.md' -> 'b.md'"):
+            assert obsidian_cli.move("vault", "a.md", "b.md") is False
+
+    def test_returns_false_on_generic_error(self):
+        with _mock_send("Error: destination already exists"):
+            assert obsidian_cli.move("vault", "a.md", "b.md") is False
+
+    def test_returns_true_on_moved_response(self):
+        with _mock_send("Moved: a.md -> b.md"):
+            assert obsidian_cli.move("vault", "a.md", "b.md") is True
+
     def test_includes_vault_param(self):
         with patch.object(obsidian_cli, "_send", return_value="ok") as mock:
             obsidian_cli.move("Brain", "a.md", "b.md")
