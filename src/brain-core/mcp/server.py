@@ -265,6 +265,9 @@ def _check_index(vault_root: str) -> tuple[bool, dict | None]:
     if not isinstance(data, dict):
         return True, None
 
+    if data.get("meta", {}).get("index_version") != build_index.INDEX_VERSION:
+        return True, None
+
     built_at = data.get("meta", {}).get("built_at")
     if not built_at:
         return True, None
@@ -274,23 +277,28 @@ def _check_index(vault_root: str) -> tuple[bool, dict | None]:
     except (ValueError, TypeError):
         return True, None
 
-    if _has_md_newer_than(vault_root, threshold):
+    expected_count = data.get("meta", {}).get("document_count", 0)
+    if _check_index_files(vault_root, expected_count, threshold):
         return True, None
 
     return False, data
 
 
-def _has_md_newer_than(vault_root: str, threshold: float) -> bool:
-    """Return True as soon as any .md file in type folders is newer than threshold."""
+def _check_index_files(vault_root: str, expected_count: int, threshold: float) -> bool:
+    """Return True if stale: file count differs or any .md is newer than threshold."""
     all_types = compile_router.scan_living_types(vault_root) + compile_router.scan_temporal_types(vault_root)
+    count = 0
     for type_info in all_types:
         for rel_path in build_index.find_md_files(vault_root, type_info):
+            count += 1
+            if count > expected_count:
+                return True  # new files — short-circuit
             try:
                 if os.path.getmtime(os.path.join(vault_root, rel_path)) > threshold:
                     return True
             except OSError:
                 continue
-    return False
+    return count != expected_count  # catches deletions
 
 
 def _check_router_type_count(vault_root: str, router: dict) -> bool:

@@ -11,6 +11,7 @@ import pytest
 from mcp.types import CallToolResult
 
 import server
+import build_index
 import obsidian_cli
 import workspace_registry
 import config as config_mod
@@ -2226,3 +2227,102 @@ class TestOperatorProfiles:
         # Can call brain_session again (e.g., re-auth with different key)
         result = json.loads(server.brain_session())
         assert result["active_profile"] == "operator"
+
+
+# ---------------------------------------------------------------------------
+# Index staleness detection
+# ---------------------------------------------------------------------------
+
+class TestIndexStaleness:
+    """Tests for BM25 index staleness detection fixes."""
+
+    def test_incremental_update_preserves_built_at(self, initialized):
+        """Incremental updates must not advance built_at threshold."""
+        original_built_at = server._index["meta"]["built_at"]
+
+        # Create a new file on disk and queue it for incremental update
+        wiki_dir = initialized / "Wiki"
+        new_file = wiki_dir / "test-preserve-xyz999.md"
+        new_file.write_text(
+            "---\ntype: living/wiki\ntags: [test]\nstatus: draft\n---\n\n"
+            "# Preserve Test\n\nContent for testing built_at preservation.\n"
+        )
+        server._mark_index_pending("Wiki/test-preserve-xyz999.md", "living/wiki")
+
+        # Reset TTL so staleness check can fire
+        server._index_checked_at = 0.0
+        server._ensure_index_fresh()
+
+        # built_at must not have advanced
+        assert server._index["meta"]["built_at"] == original_built_at
+
+    def test_incremental_then_external_file_triggers_rebuild(self, initialized):
+        """After incremental update, external files are detected via count mismatch."""
+        # Queue and process an incremental update
+        wiki_dir = initialized / "Wiki"
+        incr_file = wiki_dir / "test-incr-aaa111.md"
+        incr_file.write_text(
+            "---\ntype: living/wiki\ntags: [test]\nstatus: draft\n---\n\n"
+            "# Incremental\n\nQueued via MCP.\n"
+        )
+        server._mark_index_pending("Wiki/test-incr-aaa111.md", "living/wiki")
+        server._index_checked_at = 0.0
+        server._ensure_index_fresh()
+
+        doc_count_after_incr = server._index["meta"]["document_count"]
+
+        # Now create an external file (not queued via MCP)
+        ext_file = wiki_dir / "test-external-bbb222.md"
+        ext_file.write_text(
+            "---\ntype: living/wiki\ntags: [test]\nstatus: draft\n---\n\n"
+            "# External\n\nCreated outside MCP.\n"
+        )
+
+        # Reset TTL so staleness check fires
+        server._index_checked_at = 0.0
+        server._ensure_index_fresh()
+
+        # Index should have been rebuilt and include the external file
+        assert server._index["meta"]["document_count"] > doc_count_after_incr
+
+    def test_index_version_mismatch_triggers_rebuild(self, initialized):
+        """Index with wrong version is detected as stale."""
+        # With current version, should be fresh
+        stale, _ = server._check_index(str(initialized))
+        assert not stale
+
+        # Patch INDEX_VERSION to simulate drift
+        with patch.object(build_index, "INDEX_VERSION", "99.0.0"):
+            stale, _ = server._check_index(str(initialized))
+            assert stale
+
+    def test_document_count_mismatch_triggers_rebuild(self, initialized):
+        """New file on disk without index entry is detected via count mismatch."""
+        # Get current threshold from built_at
+        built_at = server._index["meta"]["built_at"]
+        threshold = server._index["meta"]["document_count"]
+
+        # Create a file with an OLD mtime (won't trigger mtime check)
+        wiki_dir = initialized / "Wiki"
+        old_file = wiki_dir / "test-count-ccc333.md"
+        old_file.write_text(
+            "---\ntype: living/wiki\ntags: [test]\nstatus: draft\n---\n\n"
+            "# Count Test\n\nContent.\n"
+        )
+        # Set mtime to well before built_at so mtime check alone wouldn't catch it
+        from datetime import datetime as dt
+        built_ts = dt.fromisoformat(built_at).timestamp()
+        old_ts = built_ts - 3600  # 1 hour before built_at
+        os.utime(old_file, (old_ts, old_ts))
+
+        # Count mismatch should detect staleness
+        assert server._check_index_files(
+            str(initialized), threshold, built_ts
+        ) is True
+
+    def test_split_ttl_constants(self):
+        """Router and index TTL constants exist and differ."""
+        assert hasattr(server, "_ROUTER_CHECK_TTL")
+        assert hasattr(server, "_INDEX_CHECK_TTL")
+        assert server._ROUTER_CHECK_TTL != server._INDEX_CHECK_TTL
+        assert server._INDEX_CHECK_TTL > server._ROUTER_CHECK_TTL
