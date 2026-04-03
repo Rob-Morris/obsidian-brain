@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-edit.py — Edit or append to an existing vault artefact.
+edit.py — Edit, append, or prepend to an existing vault artefact.
 
 Validates paths against the compiled router, then modifies file content
 with frontmatter preservation. Also provides artefact type conversion.
@@ -8,6 +8,7 @@ with frontmatter preservation. Also provides artefact type conversion.
 Usage:
     python3 edit.py edit --path "Wiki/my-page.md" --body "New body"
     python3 edit.py append --path "Wiki/my-page.md" --body "Appended text"
+    python3 edit.py prepend --path "Wiki/my-page.md" --body "Before existing"
     python3 edit.py edit --path "Wiki/my-page.md" --body "New body" --vault /path --json
 """
 
@@ -40,6 +41,46 @@ from _common import (
 
 
 # ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
+
+def _open_artefact(vault_root, router, path):
+    """Validate, read, and parse an artefact. Returns (path, abs_path, fields, body)."""
+    vault_root = str(vault_root)
+    path, _ = resolve_and_validate_folder(vault_root, router, path)
+    abs_path = os.path.join(vault_root, path)
+    if not os.path.isfile(abs_path):
+        raise FileNotFoundError(f"File not found: {path}")
+    with open(abs_path, "r", encoding="utf-8") as f:
+        content = f.read()
+    fields, body = parse_frontmatter(content)
+    return path, abs_path, fields, body
+
+
+def _merge_frontmatter(fields, changes, operation):
+    """Merge frontmatter changes using operation-appropriate strategy.
+
+    edit: overwrite all fields (set semantics).
+    append/prepend: extend list fields with dedup, overwrite scalars.
+    """
+    if not changes:
+        return
+    for key, value in changes.items():
+        if operation != "edit" and isinstance(value, list) and isinstance(fields.get(key), list):
+            fields[key].extend(v for v in value if v not in fields[key])
+        else:
+            fields[key] = value
+
+
+def _save_artefact(abs_path, fields, new_body):
+    """Set modified timestamp, serialize, and write."""
+    fields["modified"] = now_iso()
+    new_content = serialize_frontmatter(fields, body=new_body)
+    with open(abs_path, "w", encoding="utf-8") as f:
+        f.write(new_content)
+
+
+# ---------------------------------------------------------------------------
 # Core operations
 # ---------------------------------------------------------------------------
 
@@ -52,7 +93,7 @@ def edit_artefact(vault_root, router, path, body="", frontmatter_changes=None, t
         path: Relative path from vault root.
         body: New body content. Empty string with no target preserves existing body.
               Use target=":body" to explicitly set body content (including clearing it).
-        frontmatter_changes: Optional dict of frontmatter field changes.
+        frontmatter_changes: Optional dict of frontmatter field changes (overwrites fields).
         target: Optional heading, callout title, or ":body" to target the whole document body.
                 When given, replaces that section's content with body parameter.
 
@@ -63,24 +104,8 @@ def edit_artefact(vault_root, router, path, body="", frontmatter_changes=None, t
         ValueError: If path validation fails or target not found.
         FileNotFoundError: If the file does not exist.
     """
-    vault_root = str(vault_root)
-    path, _ = resolve_and_validate_folder(vault_root, router, path)
-
-    abs_path = os.path.join(vault_root, path)
-    if not os.path.isfile(abs_path):
-        raise FileNotFoundError(f"File not found: {path}")
-
-    with open(abs_path, "r", encoding="utf-8") as f:
-        content = f.read()
-
-    fields, existing_body = parse_frontmatter(content)
-
-    # Merge frontmatter changes
-    if frontmatter_changes:
-        fields.update(frontmatter_changes)
-
-    # Update modified timestamp on every write
-    fields["modified"] = now_iso()
+    path, abs_path, fields, existing_body = _open_artefact(vault_root, router, path)
+    _merge_frontmatter(fields, frontmatter_changes, "edit")
 
     if target == ":body":
         # Explicit whole-body replacement (including clearing with body="")
@@ -97,22 +122,22 @@ def edit_artefact(vault_root, router, path, body="", frontmatter_changes=None, t
     else:
         new_body = existing_body
 
-    new_content = serialize_frontmatter(fields, body=new_body)
-    with open(abs_path, "w", encoding="utf-8") as f:
-        f.write(new_content)
-
+    _save_artefact(abs_path, fields, new_body)
     return {"path": path, "operation": "edit"}
 
 
-def append_to_artefact(vault_root, router, path, content, target=None):
+def append_to_artefact(vault_root, router, path, content="", frontmatter_changes=None, target=None):
     """Append content to existing artefact body.
 
     Args:
         vault_root: Absolute path to the vault root.
         router: Compiled router dict.
         path: Relative path from vault root.
-        content: Content to append.
-        target: Optional heading or callout title. When given, appends at the end of that section.
+        content: Content to append. Empty string for frontmatter-only changes.
+        frontmatter_changes: Optional dict of frontmatter field changes
+                             (extends list fields with dedup, overwrites scalars).
+        target: Optional heading or callout title. When given, appends at the end of
+                that section. ":body" is treated as no target (append to whole body).
 
     Returns:
         Dict with path and operation.
@@ -121,20 +146,10 @@ def append_to_artefact(vault_root, router, path, content, target=None):
         ValueError: If path validation fails or target not found.
         FileNotFoundError: If the file does not exist.
     """
-    vault_root = str(vault_root)
-    path, _ = resolve_and_validate_folder(vault_root, router, path)
+    path, abs_path, fields, body = _open_artefact(vault_root, router, path)
+    _merge_frontmatter(fields, frontmatter_changes, "append")
 
-    abs_path = os.path.join(vault_root, path)
-    if not os.path.isfile(abs_path):
-        raise FileNotFoundError(f"File not found: {path}")
-
-    with open(abs_path, "r", encoding="utf-8") as f:
-        existing = f.read()
-
-    fields, body = parse_frontmatter(existing)
-    fields["modified"] = now_iso()
-
-    if target:
+    if target and target != ":body" and content:
         section_start, section_end = find_section(body, target)
         section_body = body[section_start:section_end].rstrip("\n")
         content_normalized = content if content.endswith("\n") else content + "\n"
@@ -145,15 +160,53 @@ def append_to_artefact(vault_root, router, path, content, target=None):
         if section_end < len(body):
             rebuilt += "\n"  # blank line before next heading
         new_body = body[:section_start] + rebuilt + body[section_end:]
-        new_content = serialize_frontmatter(fields, body=new_body)
-    else:
+    elif content:
         new_body = body + content
-        new_content = serialize_frontmatter(fields, body=new_body)
+    else:
+        new_body = body
 
-    with open(abs_path, "w", encoding="utf-8") as f:
-        f.write(new_content)
-
+    _save_artefact(abs_path, fields, new_body)
     return {"path": path, "operation": "append"}
+
+
+def prepend_to_artefact(vault_root, router, path, content="", frontmatter_changes=None, target=None):
+    """Prepend content to existing artefact body.
+
+    Args:
+        vault_root: Absolute path to the vault root.
+        router: Compiled router dict.
+        path: Relative path from vault root.
+        content: Content to prepend. Empty string for frontmatter-only changes.
+        frontmatter_changes: Optional dict of frontmatter field changes
+                             (extends list fields with dedup, overwrites scalars).
+        target: Optional heading or callout title. When given, inserts content before
+                that section's heading line. ":body" is treated as no target
+                (prepend to whole body).
+
+    Returns:
+        Dict with path and operation.
+
+    Raises:
+        ValueError: If path validation fails or target not found.
+        FileNotFoundError: If the file does not exist.
+    """
+    path, abs_path, fields, body = _open_artefact(vault_root, router, path)
+    _merge_frontmatter(fields, frontmatter_changes, "prepend")
+
+    if target and target != ":body" and content:
+        heading_start, _ = find_section(body, target, include_heading=True)
+        content_normalized = content.rstrip("\n") + "\n"
+        if heading_start > 0:
+            content_normalized += "\n"  # blank line between content and heading
+        new_body = body[:heading_start] + content_normalized + body[heading_start:]
+    elif content:
+        content_normalized = content if content.endswith("\n") else content + "\n"
+        new_body = content_normalized + ("\n" if body else "") + body
+    else:
+        new_body = body
+
+    _save_artefact(abs_path, fields, new_body)
+    return {"path": path, "operation": "prepend"}
 
 
 # ---------------------------------------------------------------------------
@@ -282,9 +335,9 @@ def main():
         else:
             i += 1
 
-    if operation not in ("edit", "append") or not path:
+    if operation not in ("edit", "append", "prepend") or not path:
         print(
-            'Usage: edit.py edit|append --path PATH --body BODY [--body-file PATH] [--target HEADING] [--vault PATH] [--json]',
+            'Usage: edit.py edit|append|prepend --path PATH --body BODY [--body-file PATH] [--target HEADING] [--vault PATH] [--json]',
             file=sys.stderr,
         )
         sys.exit(1)
@@ -311,8 +364,10 @@ def main():
     try:
         if operation == "edit":
             result = edit_artefact(vault_root, router, path, body, frontmatter_changes=fm_changes, target=target)
+        elif operation == "append":
+            result = append_to_artefact(vault_root, router, path, body, frontmatter_changes=fm_changes, target=target)
         else:
-            result = append_to_artefact(vault_root, router, path, body, target=target)
+            result = prepend_to_artefact(vault_root, router, path, body, frontmatter_changes=fm_changes, target=target)
     except (ValueError, FileNotFoundError) as e:
         if json_mode:
             print(json.dumps({"error": str(e)}))

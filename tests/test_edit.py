@@ -538,6 +538,60 @@ class TestFindSection:
 
 
 # ---------------------------------------------------------------------------
+# find_section include_heading tests
+# ---------------------------------------------------------------------------
+
+class TestFindSectionIncludeHeading:
+    def test_include_heading_returns_heading_start(self):
+        body = "## Alpha\n\nAlpha content.\n\n## Beta\n\nBeta content.\n"
+        start, end = find_section(body, "Beta", include_heading=True)
+        assert body[start:start + 7] == "## Beta"
+
+    def test_include_heading_first_section(self):
+        body = "## First\n\nContent.\n\n## Second\n\nMore.\n"
+        start, end = find_section(body, "First", include_heading=True)
+        assert start == 0
+        assert body[start:start + 8] == "## First"
+
+    def test_include_heading_callout(self):
+        body = (
+            "## Section\n\n"
+            "> [!note] Status\n"
+            "> Content here.\n"
+            "\n"
+            "After.\n"
+        )
+        start, end = find_section(body, "[!note] Status", include_heading=True)
+        assert body[start] == ">"
+        assert body[start:].startswith("> [!note] Status")
+
+    def test_include_heading_callout_end_includes_continuation(self):
+        """include_heading=True must still include continuation lines in the range."""
+        body = (
+            "> [!note] Status\n"
+            "> Line 2.\n"
+            "> Line 3.\n"
+            "\n"
+            "After.\n"
+        )
+        start, end = find_section(body, "[!note] Status", include_heading=True)
+        section = body[start:end]
+        assert "> [!note] Status" in section
+        assert "> Line 2." in section
+        assert "> Line 3." in section
+        assert "After." not in section
+
+    def test_include_heading_false_unchanged(self):
+        """Default include_heading=False returns same as before."""
+        body = "## Alpha\n\nAlpha content.\n\n## Beta\n\nBeta content.\n"
+        start_default, end_default = find_section(body, "Beta")
+        start_explicit, end_explicit = find_section(body, "Beta", include_heading=False)
+        assert start_default == start_explicit
+        assert end_default == end_explicit
+        assert "Beta content." in body[start_default:end_default]
+
+
+# ---------------------------------------------------------------------------
 # Append with section tests
 # ---------------------------------------------------------------------------
 
@@ -622,6 +676,98 @@ class TestAppendWithSection:
         assert "After callout." in body
         # Appended line should be before "After callout"
         assert body.index("> Appended line.") < body.index("After callout.")
+
+
+# ---------------------------------------------------------------------------
+# Prepend tests
+# ---------------------------------------------------------------------------
+
+class TestPrependToArtefact:
+    def test_prepend_adds_content_before_body(self, vault, router):
+        edit.prepend_to_artefact(
+            str(vault), router, "Wiki/test-page.md", "Prepended text.\n",
+        )
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        _, body = parse_frontmatter(content)
+        assert body.startswith("Prepended text.\n")
+        assert "Original body." in body
+
+    def test_prepend_before_middle_section(self, vault, router):
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "## Alpha\n\nAlpha content.\n\n## Beta\n\nBeta content.\n\n## Gamma\n\nGamma content.\n"
+        )
+        edit.prepend_to_artefact(
+            str(vault), router, "Wiki/test-page.md",
+            "## New Section\n\nInserted.\n", target="Beta",
+        )
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        _, body = parse_frontmatter(content)
+        # New section should appear between Alpha and Beta
+        assert body.index("## New Section") < body.index("## Beta")
+        assert body.index("## Alpha") < body.index("## New Section")
+        # All original content preserved
+        assert "Alpha content." in body
+        assert "Beta content." in body
+        assert "Gamma content." in body
+
+    def test_prepend_before_first_section(self, vault, router):
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "## First\n\nFirst content.\n\n## Second\n\nSecond content.\n"
+        )
+        edit.prepend_to_artefact(
+            str(vault), router, "Wiki/test-page.md",
+            "## Zeroth\n\nBefore everything.\n", target="First",
+        )
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        _, body = parse_frontmatter(content)
+        assert body.index("## Zeroth") < body.index("## First")
+        assert "First content." in body
+
+    def test_prepend_before_last_section(self, vault, router):
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "## Alpha\n\nAlpha content.\n\n## Last\n\nLast content.\n"
+        )
+        edit.prepend_to_artefact(
+            str(vault), router, "Wiki/test-page.md",
+            "## Inserted\n\nBefore last.\n", target="Last",
+        )
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        _, body = parse_frontmatter(content)
+        assert body.index("## Alpha") < body.index("## Inserted") < body.index("## Last")
+        assert "Last content." in body
+
+    def test_prepend_file_not_found(self, vault, router):
+        with pytest.raises(FileNotFoundError):
+            edit.prepend_to_artefact(str(vault), router, "Wiki/nonexistent.md", "text")
+
+    def test_prepend_section_not_found(self, vault, router):
+        with pytest.raises(ValueError, match="not found"):
+            edit.prepend_to_artefact(
+                str(vault), router, "Wiki/test-page.md",
+                "text", target="Nonexistent",
+            )
+
+    def test_prepend_basename_fallback(self, vault, router):
+        edit.prepend_to_artefact(str(vault), router, "test-page", "Prepended.\n")
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        assert "Prepended." in content
+
+    def test_prepend_preserves_surrounding_sections(self, vault, router):
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "## Alpha\n\nAlpha content.\n\n## Beta\n\nBeta content.\n\n## Gamma\n\nGamma content.\n"
+        )
+        edit.prepend_to_artefact(
+            str(vault), router, "Wiki/test-page.md",
+            "## Inserted\n\nNew.\n", target="Beta",
+        )
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        _, body = parse_frontmatter(content)
+        assert "Alpha content." in body
+        assert "Gamma content." in body
 
 
 # ---------------------------------------------------------------------------
@@ -767,3 +913,102 @@ class TestEditTimestamps:
         content = (vault / "Wiki" / "test-page.md").read_text()
         fields, _ = parse_frontmatter(content)
         assert fields["modified"] == self.FIXED_ISO
+
+    def test_prepend_updates_modified(self, vault, router):
+        with patch("_common.datetime") as mock_dt:
+            mock_dt.now.return_value = self.FIXED_DT
+            edit.prepend_to_artefact(str(vault), router, "Wiki/test-page.md", "Prepended\n")
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        fields, _ = parse_frontmatter(content)
+        assert fields["modified"] == self.FIXED_ISO
+
+
+# ---------------------------------------------------------------------------
+# Frontmatter merge tests
+# ---------------------------------------------------------------------------
+
+class TestFrontmatterMerge:
+    def test_edit_overwrites_list_field(self, vault, router):
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags:\n  - existing-1\n  - existing-2\n---\n\nBody.\n"
+        )
+        edit.edit_artefact(
+            str(vault), router, "Wiki/test-page.md", "Body.\n",
+            frontmatter_changes={"tags": ["new"]},
+        )
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        fields, _ = parse_frontmatter(content)
+        assert fields["tags"] == ["new"]
+
+    def test_append_extends_list_field(self, vault, router):
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags:\n  - existing-1\n  - existing-2\n---\n\nBody.\n"
+        )
+        edit.append_to_artefact(
+            str(vault), router, "Wiki/test-page.md",
+            frontmatter_changes={"tags": ["new-tag"]},
+        )
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        fields, _ = parse_frontmatter(content)
+        assert fields["tags"] == ["existing-1", "existing-2", "new-tag"]
+
+    def test_prepend_extends_list_field(self, vault, router):
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags:\n  - existing-1\n  - existing-2\n---\n\nBody.\n"
+        )
+        edit.prepend_to_artefact(
+            str(vault), router, "Wiki/test-page.md",
+            frontmatter_changes={"tags": ["new-tag"]},
+        )
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        fields, _ = parse_frontmatter(content)
+        assert fields["tags"] == ["existing-1", "existing-2", "new-tag"]
+
+    def test_append_deduplicates(self, vault, router):
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags:\n  - existing\n---\n\nBody.\n"
+        )
+        edit.append_to_artefact(
+            str(vault), router, "Wiki/test-page.md",
+            frontmatter_changes={"tags": ["existing", "new"]},
+        )
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        fields, _ = parse_frontmatter(content)
+        assert fields["tags"] == ["existing", "new"]
+
+    def test_append_overwrites_scalar(self, vault, router):
+        edit.append_to_artefact(
+            str(vault), router, "Wiki/test-page.md",
+            frontmatter_changes={"status": "archived"},
+        )
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        fields, _ = parse_frontmatter(content)
+        assert fields["status"] == "archived"
+
+    def test_append_frontmatter_only(self, vault, router):
+        """Empty body + frontmatter changes = frontmatter-only mutation."""
+        original = (vault / "Wiki" / "test-page.md").read_text()
+        _, original_body = parse_frontmatter(original)
+
+        edit.append_to_artefact(
+            str(vault), router, "Wiki/test-page.md",
+            frontmatter_changes={"status": "archived"},
+        )
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        fields, body = parse_frontmatter(content)
+        assert fields["status"] == "archived"
+        assert body == original_body  # body unchanged
+
+    def test_prepend_frontmatter_only(self, vault, router):
+        """Empty body + frontmatter changes = frontmatter-only mutation."""
+        original = (vault / "Wiki" / "test-page.md").read_text()
+        _, original_body = parse_frontmatter(original)
+
+        edit.prepend_to_artefact(
+            str(vault), router, "Wiki/test-page.md",
+            frontmatter_changes={"status": "archived"},
+        )
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        fields, body = parse_frontmatter(content)
+        assert fields["status"] == "archived"
+        assert body == original_body  # body unchanged
