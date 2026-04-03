@@ -89,11 +89,16 @@ def search(vault_name: str, query: str) -> list[str] | None:
 
 
 def move(vault_name: str, source: str, dest: str) -> bool | None:
-    """Move/rename a file via Obsidian CLI (wikilink-safe). Returns True on success, None on failure."""
+    """Move/rename a file via Obsidian CLI (wikilink-safe).
+
+    Returns True on success, None on connection failure, False on CLI error.
+    """
     argv = ["move", f"path={source}", f"to={dest}"]
     if vault_name:
         argv.append(f"vault={vault_name}")
     out = _send(argv)
     if out is None:
         return None
+    if out.startswith("Error:"):
+        return False
     return True
