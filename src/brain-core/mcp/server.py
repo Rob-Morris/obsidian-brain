@@ -67,7 +67,12 @@ import search_index
 import read as read_mod
 import rename
 import create
-from _common import resolve_body_file
+from _common import (
+    collect_headings,
+    find_section,
+    parse_frontmatter,
+    resolve_body_file,
+)
 import edit
 import obsidian_cli
 import session
@@ -605,6 +610,75 @@ def _enforce_profile(tool_name: str) -> CallToolResult | None:
     return None
 
 
+def _surrounding_headings(vault_root, rel_path, target):
+    """Return (prev_heading, next_heading) around a target section.
+
+    Re-reads the file after a write to reflect the final state.
+    Returns heading text (e.g. "## Alpha") or None for start/end of document.
+    Uses collect_headings for a single scan, then locates the target in
+    the heading list to find its neighbors (no second scan via find_section).
+    """
+    try:
+        abs_path = os.path.join(vault_root, rel_path)
+        with open(abs_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        _, body = parse_frontmatter(content)
+
+        # Callout targets don't appear in the heading list — fall back to find_section
+        stripped = target.strip()
+        if stripped.startswith("[!"):
+            headings = collect_headings(body)
+            heading_start, sec_end = find_section(body, target, include_heading=True)
+            prev_heading = None
+            next_heading = None
+            for pos, _level, _text, raw in headings:
+                if pos < heading_start:
+                    prev_heading = raw
+                elif pos >= sec_end:
+                    next_heading = raw
+                    break
+            return prev_heading, next_heading
+
+        # For heading targets: find in collected headings (single scan, no find_section)
+        headings = collect_headings(body)
+
+        # Parse target to match: level-aware if # markers present, else text-only
+        if stripped.startswith("#"):
+            markers = stripped.split()[0]
+            target_level = len(markers)
+            target_text = stripped[len(markers):].strip().lower()
+        else:
+            target_level = None
+            target_text = stripped.lower()
+
+        target_idx = None
+        for idx, (pos, level, text, raw) in enumerate(headings):
+            if text.lower() != target_text:
+                continue
+            if target_level is not None and level != target_level:
+                continue
+            target_idx = idx
+            break
+
+        if target_idx is None:
+            return None, None
+
+        # Find end of section: next heading at same or higher level
+        target_level_actual = headings[target_idx][1]
+        sec_end_idx = None
+        for j in range(target_idx + 1, len(headings)):
+            if headings[j][1] <= target_level_actual:
+                sec_end_idx = j
+                break
+
+        prev_heading = headings[target_idx - 1][3] if target_idx > 0 else None
+        next_heading = headings[sec_end_idx][3] if sec_end_idx is not None else None
+
+        return prev_heading, next_heading
+    except Exception:
+        return None, None
+
+
 def _fmt_error(msg):
     """Format an error as a CallToolResult with isError flag."""
     return CallToolResult(
@@ -980,29 +1054,31 @@ def brain_create(type: str, title: str, body: str = "", body_file: str = "", fro
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def brain_edit(operation: Literal["edit", "append"], path: str, body: str = "", body_file: str = "", frontmatter: dict | None = None, target: str | None = None):
+def brain_edit(operation: Literal["edit", "append", "prepend"], path: str, body: str = "", body_file: str = "", frontmatter: dict | None = None, target: str | None = None):
     """Modify an existing vault artefact. Single-file mutation.
 
     For bodies over ~1 KB, prefer body_file over body to save tokens in the tool call.
 
     Parameters:
-      operation  — "edit" (replace body) or "append" (add to body)
+      operation  — "edit" (replace body/section), "append" (add after), or "prepend" (insert before)
       path       — relative path or basename (resolves like wikilinks; e.g. "Ideas/my-idea.md" or "my-idea")
-      body       — new body content (edit) or content to append (append).
+      body       — new body content (edit), content to append (append), or content to prepend (prepend).
                    Mutually exclusive with body_file.
-                   For edit: omit body to preserve existing content (frontmatter-only edit).
+                   Omit body for frontmatter-only changes.
       body_file  — absolute path to a file containing the body content (optional).
                    The file is read and deleted after successful edit.
                    Use for large content to keep MCP call displays compact.
                    Mutually exclusive with body.
-      frontmatter — optional frontmatter changes (edit only, merged with existing)
-      target     — optional heading, callout title, or "body" for whole-body targeting.
-                   When given, edit replaces only that section's content; append inserts
-                   at the end of that section instead of EOF. Include # markers to
-                   disambiguate duplicate headings (e.g. "### Notes"). For callouts, use
-                   the [!type] prefix (e.g. "[!note] Implementation status").
-                   Use target=":body" to explicitly replace the entire body (even with
-                   empty string to clear it).
+      frontmatter — optional frontmatter changes. Merge strategy depends on operation:
+                   edit overwrites fields; append/prepend extend list fields (with dedup)
+                   and overwrite scalars. All operations can be used for frontmatter-only
+                   changes by omitting body.
+      target     — optional heading, callout title, or ":body" for whole-body targeting.
+                   When given: edit replaces that section's content; append inserts at end
+                   of the section; prepend inserts before the section's heading line.
+                   Include # markers to disambiguate duplicate headings (e.g. "### Notes").
+                   For callouts, use the [!type] prefix (e.g. "[!note] Implementation status").
+                   Use target=":body" to explicitly target the entire body.
 
     Path validated against compiled router — wrong folder or naming rejected with helpful error.
     """
@@ -1019,9 +1095,9 @@ def brain_edit(operation: Literal["edit", "append"], path: str, body: str = "", 
 
         body, cleanup_path = resolve_body_file(body, body_file)
 
-        if operation == "edit" and body == "" and not frontmatter and not target:
-            return _fmt_error("edit with empty body and no frontmatter changes would erase file content. "
-                              "Pass body content, frontmatter changes, or use append instead.")
+        if not body and not frontmatter and not target:
+            return _fmt_error(f"{operation} with no body and no frontmatter changes is a no-op. "
+                              "Pass body content, frontmatter changes, or both.")
 
         if operation == "edit":
             result = edit.edit_artefact(
@@ -1032,20 +1108,32 @@ def brain_edit(operation: Literal["edit", "append"], path: str, body: str = "", 
         elif operation == "append":
             result = edit.append_to_artefact(
                 _vault_root, _router, path, body,
+                frontmatter_changes=frontmatter,
+                target=target,
+            )
+        elif operation == "prepend":
+            result = edit.prepend_to_artefact(
+                _vault_root, _router, path, body,
+                frontmatter_changes=frontmatter,
                 target=target,
             )
         else:
-            return _fmt_error(f"Unknown operation '{operation}'. Valid: edit, append")
+            return _fmt_error(f"Unknown operation '{operation}'. Valid: edit, append, prepend")
         _mark_index_pending(result["path"])
         if cleanup_path:
             try:
                 os.remove(cleanup_path)
             except OSError:
                 pass
-        past = "Edited" if result["operation"] == "edit" else "Appended"
+        past = {"edit": "Edited", "append": "Appended", "prepend": "Prepended"}[result["operation"]]
         msg = f"**{past}:** {result['path']}"
         if target:
             msg += f" (target: {target})"
+            prev_h, next_h = _surrounding_headings(_vault_root, result["path"], target)
+            if prev_h or next_h:
+                prev_label = prev_h or "(start)"
+                next_label = next_h or "(end)"
+                msg += f"\n**Context:** prev={prev_label} | next={next_label}"
         return msg
     except (ValueError, FileNotFoundError) as e:
         return _fmt_error(str(e))

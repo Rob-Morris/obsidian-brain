@@ -1122,6 +1122,95 @@ class TestBrainEdit:
         )
         _assert_error(result)
 
+    def test_prepend_works(self, initialized):
+        result = server.brain_edit(
+            operation="prepend",
+            path="Wiki/brain-overview-abc123.md",
+            body="Prepended text.\n\n"
+        )
+        assert "**Prepended:**" in result
+        content = (initialized / "Wiki" / "brain-overview-abc123.md").read_text()
+        assert "Prepended text." in content
+        assert "Brain Overview" in content  # original preserved
+
+    def test_noop_edit_rejected(self, initialized):
+        result = server.brain_edit(
+            operation="edit",
+            path="Wiki/brain-overview-abc123.md",
+        )
+        _assert_error(result, "no-op")
+
+    def test_noop_append_rejected(self, initialized):
+        result = server.brain_edit(
+            operation="append",
+            path="Wiki/brain-overview-abc123.md",
+        )
+        _assert_error(result, "no-op")
+
+    def test_noop_prepend_rejected(self, initialized):
+        result = server.brain_edit(
+            operation="prepend",
+            path="Wiki/brain-overview-abc123.md",
+        )
+        _assert_error(result, "no-op")
+
+    def test_edit_with_target_and_empty_body_allowed(self, initialized):
+        """edit with target + empty body clears that section — not a no-op."""
+        # Write a file with sections
+        from _common import parse_frontmatter
+        path = initialized / "Wiki" / "brain-overview-abc123.md"
+        path.write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "## Alpha\n\nAlpha content.\n\n## Beta\n\nBeta content.\n"
+        )
+        result = server.brain_edit(
+            operation="edit",
+            path="Wiki/brain-overview-abc123.md",
+            target="Alpha",
+        )
+        assert "**Edited:**" in result
+
+    def test_frontmatter_only_append_allowed(self, initialized):
+        """append with just frontmatter changes is valid, not a no-op."""
+        result = server.brain_edit(
+            operation="append",
+            path="Wiki/brain-overview-abc123.md",
+            frontmatter={"status": "archived"},
+        )
+        assert "**Appended:**" in result
+
+    def test_append_frontmatter_extends_list(self, initialized):
+        """append should extend list fields, not overwrite."""
+        from _common import parse_frontmatter
+        result = server.brain_edit(
+            operation="append",
+            path="Wiki/brain-overview-abc123.md",
+            frontmatter={"tags": ["new-tag"]},
+        )
+        assert "**Appended:**" in result
+        content = (initialized / "Wiki" / "brain-overview-abc123.md").read_text()
+        fields, _ = parse_frontmatter(content)
+        assert "new-tag" in fields["tags"]
+        # Original tags should still be there
+        assert len(fields["tags"]) > 1
+
+    def test_targeted_edit_includes_context(self, initialized):
+        """Targeted operations should include surrounding headings in response."""
+        path = initialized / "Wiki" / "brain-overview-abc123.md"
+        path.write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "## Alpha\n\nAlpha content.\n\n## Beta\n\nBeta content.\n\n## Gamma\n\nGamma content.\n"
+        )
+        result = server.brain_edit(
+            operation="edit",
+            path="Wiki/brain-overview-abc123.md",
+            body="Replaced.\n",
+            target="Beta",
+        )
+        assert "**Context:**" in result
+        assert "Alpha" in result
+        assert "Gamma" in result
+
 
 # ---------------------------------------------------------------------------
 # brain_action delete/convert tests
