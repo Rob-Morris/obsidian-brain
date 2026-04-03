@@ -216,7 +216,7 @@ If your vault has the Brain MCP server running, you get seven tools:
 - **brain_read** — look up artefact types, triggers, styles, templates, workspaces, run structural compliance checks, or read artefact content (by relative path or basename — resolves like wikilinks)
 - **brain_search** — find files by query, type, or tag
 - **brain_create** — create a new artefact (additive, safe to auto-approve)
-- **brain_edit** — edit or append to an existing artefact (by path or basename); optional `target` parameter for section-level operations
+- **brain_edit** — edit, append, or prepend to an existing artefact (by path or basename); optional `target` parameter for section-level operations; frontmatter merge strategy follows the operation verb (edit overwrites, append/prepend extend lists)
 - **brain_action** — compile the router, build the search index, rename, delete, convert files, fix broken links, sync definitions, register/unregister workspaces
 - **brain_process** — classify content against artefact types, resolve duplicates, or run the full ingest pipeline (classify → resolve → create/update)
 

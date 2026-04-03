@@ -2,6 +2,14 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.18.12 — 2026-04-03
+
+- **Feature:** `brain_edit` gains a `prepend` operation — inserts content before a section heading (or at the start of the body). Agents can now place new sections before a target without knowing what precedes it.
+- **Feature:** Operation-driven frontmatter merge — `append`/`prepend` extend list fields with dedup (e.g. adding tags), while `edit` overwrites. All three operations accept `frontmatter` for frontmatter-only mutations.
+- **Feature:** Targeted edit/append/prepend responses now include surrounding heading context (`prev=## Alpha | next=## Gamma`) so agents can verify placement without re-reading the file.
+- **Refactor:** Extract `_open_artefact`, `_merge_frontmatter`, `_save_artefact` shared helpers in `edit.py`, reducing duplication across edit/append/prepend.
+- **Fix:** Unified no-op guard — all operations reject empty calls (no body, no frontmatter, no target) with a helpful error, replacing the edit-only guard.
+
 ## v0.18.11 — 2026-04-03
 
 - **Fix:** `brain_action("rename")` no longer silently fails on cross-directory moves when Obsidian CLI is available. `obsidian_cli.move()` now detects error responses (returns `False` instead of `True`) and falls back to grep-replace. The server also pre-creates the destination directory before calling the CLI, matching the fallback path's behavior.
