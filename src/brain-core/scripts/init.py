@@ -2,10 +2,11 @@
 """
 init.py — Set up Brain MCP server for Claude Code.
 
-Handles three scenarios:
-  1. Local vault setup:  python3 .brain-core/scripts/init.py
-  2. Global default:     python3 .brain-core/scripts/init.py --user
-  3. Project folder:     python3 .brain-core/scripts/init.py --project /path/to/project
+Handles scenarios:
+  1. Current directory:  python3 /vault/.brain-core/scripts/init.py
+  2. Global default:     python3 /vault/.brain-core/scripts/init.py --user
+  3. Specific folder:    python3 /vault/.brain-core/scripts/init.py --project /path/to/project
+  4. Local-only:         python3 /vault/.brain-core/scripts/init.py --local
 
 Can be run from terminal, Claude Code, or Cowork.
 
@@ -33,6 +34,8 @@ from typing import Optional
 BRAIN_SERVER_NAME = "brain"
 MCP_CONFIG_FILE = ".mcp.json"
 CLAUDE_MD_FILE = "CLAUDE.md"
+CLAUDE_LOCAL_MD_FILE = os.path.join(".claude", "CLAUDE.local.md")
+LOCAL_SETTINGS_FILE = os.path.join(".claude", "settings.local.json")
 BRAIN_CORE_MARKER = os.path.join(".brain-core", "VERSION")
 MCP_SERVER_REL = os.path.join(".brain-core", "mcp", "server.py")
 VENV_PYTHON_REL = os.path.join(".venv", "bin", "python")
@@ -184,11 +187,32 @@ def _read_json_safe(path: Path) -> dict:
         return {}
 
 
-def _write_json(data: dict, path: Path) -> None:
-    os.makedirs(path.parent, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
-        f.write("\n")
+# -- Inline safe-write (duplicated from _common.safe_write — init.py is self-contained) --
+
+def _safe_write(path: Path, content: str) -> str:
+    """Atomic file write: tmp → fsync → os.replace.  Returns resolved path."""
+    target = os.path.realpath(str(path))
+    os.makedirs(os.path.dirname(target) or ".", exist_ok=True)
+    tmp_path = f"{target}.{os.getpid()}.tmp"
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            f.write(content)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, target)
+    except BaseException:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+    return target
+
+
+def _safe_write_json(path: Path, data: dict) -> str:
+    """Atomic JSON write."""
+    content = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+    return _safe_write(path, content)
 
 
 def _backup_if_exists(path: Path) -> None:
@@ -201,40 +225,35 @@ def _backup_if_exists(path: Path) -> None:
         pass
 
 
-def write_project_mcp_json(server_config: dict, target_dir: Path) -> None:
-    """Write or merge brain into .mcp.json."""
-    mcp_path = target_dir / MCP_CONFIG_FILE
-    existing = _read_json_safe(mcp_path)
+def _upsert_mcp_server(json_path: Path, server_config: dict) -> None:
+    """Read-merge-write brain server config into a JSON file."""
+    existing = _read_json_safe(json_path)
 
-    if not existing and mcp_path.is_file():
-        _backup_if_exists(mcp_path)
+    if not existing and json_path.is_file():
+        _backup_if_exists(json_path)
         existing = {}
 
     if "mcpServers" not in existing:
         existing["mcpServers"] = {}
 
     existing["mcpServers"][BRAIN_SERVER_NAME] = server_config
-    _write_json(existing, mcp_path)
-    info(f"Wrote {BRAIN_SERVER_NAME} → {mcp_path}")
+    _safe_write_json(json_path, existing)
+    info(f"Wrote {BRAIN_SERVER_NAME} → {json_path}")
+
+
+def write_project_mcp_json(server_config: dict, target_dir: Path) -> None:
+    """Write or merge brain into .mcp.json."""
+    _upsert_mcp_server(target_dir / MCP_CONFIG_FILE, server_config)
+
+
+def write_local_settings_json(server_config: dict, target_dir: Path) -> None:
+    """Write brain into .claude/settings.local.json (local scope)."""
+    _upsert_mcp_server(target_dir / LOCAL_SETTINGS_FILE, server_config)
 
 
 def write_user_claude_json(server_config: dict) -> None:
     """Write brain into ~/.claude.json (user scope)."""
-    claude_json_path = Path.home() / ".claude.json"
-    existing = _read_json_safe(claude_json_path)
-
-    if not existing and claude_json_path.is_file():
-        _backup_if_exists(claude_json_path)
-        existing = {}
-    elif existing:
-        _backup_if_exists(claude_json_path)
-
-    if "mcpServers" not in existing:
-        existing["mcpServers"] = {}
-
-    existing["mcpServers"][BRAIN_SERVER_NAME] = server_config
-    _write_json(existing, claude_json_path)
-    info(f"Wrote {BRAIN_SERVER_NAME} → {claude_json_path}")
+    _upsert_mcp_server(Path.home() / ".claude.json", server_config)
 
 
 # ---------------------------------------------------------------------------
@@ -253,6 +272,10 @@ def register_mcp(
     if scope == "user":
         write_user_claude_json(server_config)
         return "~/.claude.json (direct)"
+    elif scope == "local":
+        write_target = target_dir or Path.cwd()
+        write_local_settings_json(server_config, write_target)
+        return f"{write_target / LOCAL_SETTINGS_FILE} (direct)"
     else:
         write_target = target_dir or Path.cwd()
         write_project_mcp_json(server_config, write_target)
@@ -263,25 +286,25 @@ def register_mcp(
 # CLAUDE.md bootstrap
 # ---------------------------------------------------------------------------
 
-def ensure_claude_md(target_dir: Path) -> None:
-    """Ensure CLAUDE.md has the brain bootstrap line."""
-    claude_md = target_dir / CLAUDE_MD_FILE
+def ensure_claude_md(target_dir: Path, local: bool = False) -> None:
+    """Ensure CLAUDE.md (or .claude/CLAUDE.local.md) has the brain bootstrap line."""
+    rel_path = CLAUDE_LOCAL_MD_FILE if local else CLAUDE_MD_FILE
+    claude_md = target_dir / rel_path
     content = ""
 
     if claude_md.is_file():
         with open(claude_md, "r", encoding="utf-8") as f:
             content = f.read()
         if CLAUDE_MD_BOOTSTRAP in content:
-            info("CLAUDE.md already has bootstrap line")
+            info(f"{rel_path} already has bootstrap line")
             return
         separator = "\n" if content.endswith("\n") else "\n\n"
         with open(claude_md, "a", encoding="utf-8") as f:
             f.write(f"{separator}{CLAUDE_MD_BOOTSTRAP}\n")
-        info("Appended brain bootstrap to CLAUDE.md")
+        info(f"Appended brain bootstrap to {rel_path}")
     else:
-        with open(claude_md, "w", encoding="utf-8") as f:
-            f.write(f"{CLAUDE_MD_BOOTSTRAP}\n")
-        info("Created CLAUDE.md with brain bootstrap")
+        _safe_write(claude_md, f"{CLAUDE_MD_BOOTSTRAP}\n")
+        info(f"Created {rel_path} with brain bootstrap")
 
 
 # ---------------------------------------------------------------------------
@@ -312,14 +335,14 @@ def main() -> None:
         description="Set up Brain MCP server for Claude Code.",
         epilog=(
             "Examples:\n"
-            "  python3 .brain-core/scripts/init.py\n"
-            "      Set up this vault for Claude Code\n\n"
-            "  python3 .brain-core/scripts/init.py --user\n"
+            "  cd /my/project && python3 /vault/.brain-core/scripts/init.py\n"
+            "      Configure current directory to use the brain\n\n"
+            "  python3 /vault/.brain-core/scripts/init.py --local\n"
+            "      Same, but gitignored (uses .claude/settings.local.json)\n\n"
+            "  python3 /vault/.brain-core/scripts/init.py --user\n"
             "      Register as default brain for all projects\n\n"
-            "  python3 .brain-core/scripts/init.py --project .\n"
-            "      Link current folder to this vault\n\n"
             "  python3 /vault/.brain-core/scripts/init.py --project /my/project\n"
-            "      Link a project folder to a specific vault\n"
+            "      Configure a specific folder without cd-ing into it\n"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -332,13 +355,17 @@ def main() -> None:
         help="Register as default brain for all projects (user scope)",
     )
     parser.add_argument(
+        "--local", action="store_true",
+        help="Use local scope (gitignored — .claude/settings.local.json)",
+    )
+    parser.add_argument(
         "--project",
-        help="Project folder to configure (writes .mcp.json + CLAUDE.md)",
+        help="Target folder to configure (default: current directory)",
     )
     args = parser.parse_args()
 
-    if args.user and args.project:
-        fatal("--user and --project are mutually exclusive")
+    if args.user and (args.local or args.project):
+        fatal("--user cannot be combined with --local or --project")
 
     vault_root = find_vault_root(args.vault)
     header(f"Brain vault: {vault_root}")
@@ -347,16 +374,12 @@ def main() -> None:
         target_dir = None
         scope = "user"
         scope_label = "user (all projects)"
-    elif args.project:
-        target_dir = Path(args.project).resolve()
+    else:
+        target_dir = Path(args.project).resolve() if args.project else Path.cwd().resolve()
         if not target_dir.is_dir():
             fatal(f"Not a directory: {target_dir}")
-        scope = "project"
-        scope_label = f"project ({target_dir})"
-    else:
-        target_dir = vault_root
-        scope = "local"
-        scope_label = f"local ({vault_root})"
+        scope = "local" if args.local else "project"
+        scope_label = f"{scope} ({target_dir})"
 
     info(f"Scope: {scope_label}")
 
@@ -365,12 +388,22 @@ def main() -> None:
 
     server_config = build_mcp_config(python_path, vault_root)
 
+    # Warn if brain already exists at user scope (project config takes priority)
+    if scope != "user":
+        data = _read_json_safe(Path.home() / ".claude.json")
+        if BRAIN_SERVER_NAME in data.get("mcpServers", {}):
+            info(
+                f'Note: "{BRAIN_SERVER_NAME}" is already registered globally '
+                f"(~/.claude.json). This project-level install will take "
+                f"priority over the global one."
+            )
+
     header("Registering MCP server")
     method = register_mcp(server_config, scope, target_dir)
 
-    if target_dir and target_dir != vault_root:
+    if target_dir:
         header("CLAUDE.md")
-        ensure_claude_md(target_dir)
+        ensure_claude_md(target_dir, local=args.local)
 
     header("Done")
     info(f"Vault:    {vault_root}")
@@ -380,6 +413,7 @@ def main() -> None:
     print(file=sys.stderr)
     if _has_claude_cli():
         info("Verify:   claude mcp list")
+        info(f"Undo:     claude mcp remove {BRAIN_SERVER_NAME} --scope {scope}")
     else:
         info("Verify:   restart Claude Code and check /mcp")
     print(file=sys.stderr)
