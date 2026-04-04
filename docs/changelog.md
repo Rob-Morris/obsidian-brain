@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.19.1 — 2026-04-04
+
+- **Refactor:** Unified template placeholder substitution — new `substitute_template_vars()` helper in `_common.py` handles `{{date:FORMAT}}` and custom variable replacement. `create_artefact()` gains `template_vars` parameter. `start_shaping.py` and `shape_presentation.py` refactored to use the shared helper.
+
 ## v0.19.0 — 2026-04-03
 
 **Shaping standard** — single source of truth for iterative Q&A refinement of vault artefacts.

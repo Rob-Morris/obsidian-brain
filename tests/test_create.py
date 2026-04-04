@@ -235,6 +235,36 @@ class TestCreateArtefact:
         assert fields["created"].startswith("2026-06-15")
 
 
+    def test_template_vars_substituted_in_body(self, vault, router):
+        """Template vars should be substituted when using the template body."""
+        # The Logs template has no {{date:}} placeholder, so add one for testing
+        tpl = vault / "_Config" / "Templates" / "Temporal" / "Logs.md"
+        tpl.write_text(
+            "---\ntype: temporal/logs\ntags:\n  - session\n---\n\n"
+            "# Log — {{date:YYYY-MM-DD}}\n\nSource: SOURCE_NAME\n"
+        )
+        import compile_router
+        router = compile_router.compile(str(vault))
+        result = create.create_artefact(
+            str(vault), router, "logs", "Var Test",
+            template_vars={"SOURCE_NAME": "My Artefact"},
+        )
+        content = open(os.path.join(str(vault), result["path"])).read()
+        assert "Source: My Artefact" in content
+        # Date placeholder should also be resolved
+        assert "{{date:" not in content
+
+    def test_template_vars_not_applied_when_body_provided(self, vault, router):
+        """When caller provides body, template_vars should not apply."""
+        result = create.create_artefact(
+            str(vault), router, "wiki", "Body Override",
+            body="# Custom\n\nSOURCE_NAME stays.\n",
+            template_vars={"SOURCE_NAME": "replaced"},
+        )
+        content = open(os.path.join(str(vault), result["path"])).read()
+        assert "SOURCE_NAME stays." in content
+
+
 class TestResolveNamingPattern:
     def test_slug_pattern(self):
         assert create.resolve_naming_pattern("{slug}.md", "My Title") == "My Title.md"

@@ -19,7 +19,7 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 
-from _common import find_vault_root, parse_frontmatter, safe_write, serialize_frontmatter, slug_to_title, title_to_filename
+from _common import find_vault_root, safe_write, slug_to_title, substitute_template_vars, title_to_filename
 
 
 # ---------------------------------------------------------------------------
@@ -103,12 +103,12 @@ def shape(vault_root, params):
             return {"error": "Presentation template not found"}
 
         # Fill template placeholders
-        content = template_content.replace("PRESENTATION TITLE", slug_to_title(slug))
-        content = content.replace("{{date:YYYY-MM-DD}}", now.strftime("%Y-%m-%d"))
-        content = content.replace(
-            "[[source-artefact|Source document]]",
-            f"[[{os.path.splitext(source)[0]}|{os.path.basename(source)}]]"
-        )
+        source_stem = os.path.splitext(source)[0]
+        source_display = os.path.basename(source)
+        content = substitute_template_vars(template_content, {
+            "PRESENTATION TITLE": slug_to_title(slug),
+            "[[source-artefact|Source document]]": f"[[{source_stem}|{source_display}]]",
+        }, _now=now)
 
         safe_write(abs_path, content, bounds=str(vault_root))
         created = True

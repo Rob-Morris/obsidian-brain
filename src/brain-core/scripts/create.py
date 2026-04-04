@@ -24,6 +24,7 @@ from _common import (
     resolve_body_file,
     safe_write,
     serialize_frontmatter,
+    substitute_template_vars,
     title_to_filename,
     title_to_slug,
     unique_filename,
@@ -74,7 +75,7 @@ def resolve_naming_pattern(pattern, title, _now=None):
 # Core logic
 # ---------------------------------------------------------------------------
 
-def create_artefact(vault_root, router, type_key, title, body="", frontmatter_overrides=None, parent=None):
+def create_artefact(vault_root, router, type_key, title, body="", frontmatter_overrides=None, parent=None, template_vars=None):
     """Create a new artefact. Returns {"path": relative_path, "type": ..., "title": ...}.
 
     Args:
@@ -86,6 +87,10 @@ def create_artefact(vault_root, router, type_key, title, body="", frontmatter_ov
         frontmatter_overrides: Optional dict of frontmatter field overrides.
         parent: Optional project subfolder name for living types (e.g. "Brain").
                 Places the artefact in {Type}/{parent}/ instead of {Type}/.
+        template_vars: Optional dict of placeholder→value substitutions applied
+                to the template body (e.g. {"SOURCE_TYPE": "designs"}).
+                ``{{date:FORMAT}}`` placeholders are always substituted when the
+                template body is used.
 
     Returns:
         Dict with path, type, and title.
@@ -126,8 +131,10 @@ def create_artefact(vault_root, router, type_key, title, body="", frontmatter_ov
     if "modified" not in fields:
         fields["modified"] = now_iso
 
-    # 7. Determine body
+    # 7. Determine body and substitute template variables
     final_body = body if body else template_body
+    if not body and final_body:
+        final_body = substitute_template_vars(final_body, template_vars, _now=now)
 
     # 8. Disambiguate basename collisions
     basename_stem = os.path.splitext(filename)[0]

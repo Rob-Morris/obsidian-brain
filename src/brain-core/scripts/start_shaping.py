@@ -27,6 +27,7 @@ from _common import (
     resolve_artefact_path,
     safe_write,
     serialize_frontmatter,
+    substitute_template_vars,
     title_to_filename,
     unique_filename,
 )
@@ -112,19 +113,14 @@ def start_shaping(vault_root, router, params):
 
     source_stem = os.path.splitext(rel_path)[0]
     source_display = os.path.splitext(os.path.basename(rel_path))[0]
-
-    transcript_content = template_content
-    transcript_content = transcript_content.replace(
-        "SOURCE_DOC_PATH|SOURCE_DOC_TITLE",
-        f"{source_stem}|{source_display}",
-    )
-    transcript_content = transcript_content.replace("SOURCE_DOC_PATH", source_stem)
-    transcript_content = transcript_content.replace("SOURCE_DOC_TITLE", source_display)
     source_type_tag = matched["key"] if matched else "artefact"
-    transcript_content = transcript_content.replace("SOURCE_TYPE", source_type_tag)
-    transcript_content = transcript_content.replace(
-        "{{date:YYYY-MM-DD}}", now.strftime("%Y-%m-%d")
-    )
+
+    transcript_content = substitute_template_vars(template_content, {
+        "SOURCE_DOC_PATH|SOURCE_DOC_TITLE": f"{source_stem}|{source_display}",
+        "SOURCE_DOC_PATH": source_stem,
+        "SOURCE_DOC_TITLE": source_display,
+        "SOURCE_TYPE": source_type_tag,
+    }, _now=now)
 
     transcript_abs = os.path.join(vault_root, transcript_rel)
     os.makedirs(os.path.dirname(transcript_abs), exist_ok=True)
