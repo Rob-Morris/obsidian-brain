@@ -1416,6 +1416,92 @@ class TestBrainActionShapePresentation:
 
 
 # ---------------------------------------------------------------------------
+# brain_action start-shaping tests
+# ---------------------------------------------------------------------------
+
+class TestBrainActionStartShaping:
+    @pytest.fixture(autouse=True)
+    def setup_shaping_files(self, initialized):
+        """Add shaping transcript template and a design with status."""
+        self.vault = initialized
+        # Designs dir + taxonomy
+        designs_dir = initialized / "Designs"
+        designs_dir.mkdir(exist_ok=True)
+        (designs_dir / "Test Design.md").write_text(
+            "---\ntype: living/designs\ntags:\n  - design\nstatus: new\n"
+            "created: 2026-03-01T10:00:00+00:00\n"
+            "modified: 2026-03-01T10:00:00+00:00\n---\n\n"
+            "# Test Design\n\nA design.\n"
+        )
+        tax_living = initialized / "_Config" / "Taxonomy" / "Living"
+        (tax_living / "designs.md").write_text(
+            "# Designs\n\n"
+            "## Lifecycle\n\n"
+            "| `new` | Newly created |\n"
+            "| `shaping` | Being shaped |\n"
+            "| `ready` | Ready |\n\n"
+            "## Naming\n\n`{Title}.md` in `Designs/`.\n\n"
+            "## Frontmatter\n\n```yaml\n---\ntype: living/designs\ntags:\n  - design\n"
+            "status: new  # new | shaping | ready\n---\n```\n\n"
+            "## Template\n\n[[_Config/Templates/Living/Designs]]\n"
+        )
+        templates_living = initialized / "_Config" / "Templates" / "Living"
+        templates_living.mkdir(parents=True, exist_ok=True)
+        (templates_living / "Designs.md").write_text(
+            "---\ntype: living/designs\ntags: []\nstatus: new\n---\n\n"
+        )
+        # Shaping transcript taxonomy + template
+        tax_temporal = initialized / "_Config" / "Taxonomy" / "Temporal"
+        (tax_temporal / "shaping-transcripts.md").write_text(
+            "# Shaping Transcripts\n\n"
+            "## Naming\n\n`yyyymmdd-shaping-transcript~{Title}.md` in "
+            "`_Temporal/Shaping Transcripts/yyyy-mm/`.\n\n"
+            "## Frontmatter\n\n```yaml\n---\ntype: temporal/shaping-transcript\ntags:\n"
+            "  - transcript\n---\n```\n\n"
+            "## Template\n\n[[_Config/Templates/Temporal/Shaping Transcripts]]\n"
+        )
+        temporal = initialized / "_Temporal"
+        temporal.mkdir(exist_ok=True)
+        (temporal / "Shaping Transcripts").mkdir(exist_ok=True)
+        templates_temporal = initialized / "_Config" / "Templates" / "Temporal"
+        templates_temporal.mkdir(parents=True, exist_ok=True)
+        (templates_temporal / "Shaping Transcripts.md").write_text(
+            "---\ntype: temporal/shaping-transcript\ntags:\n  - transcript\n"
+            "  - SOURCE_TYPE\n---\n"
+            "Shaping transcript for [[SOURCE_DOC_PATH|SOURCE_DOC_TITLE]].\n\n"
+            "## {{date:YYYY-MM-DD}}\n\nQ.\n> A.\n"
+        )
+        # Recompile router to pick up new types
+        server.brain_action("compile")
+
+    def test_missing_params_returns_error(self):
+        result = server.brain_action("start-shaping")
+        _assert_error(result)
+
+    def test_missing_target_returns_error(self):
+        result = server.brain_action("start-shaping", {})
+        _assert_error(result)
+
+    def test_target_not_found_returns_error(self):
+        result = server.brain_action("start-shaping", {
+            "target": "Nonexistent File",
+        })
+        _assert_error(result)
+
+    def test_happy_path_creates_transcript(self):
+        result = json.loads(server.brain_action("start-shaping", {
+            "target": "Designs/Test Design.md",
+        }))
+        assert result["status"] == "ok"
+        assert result["target_path"] == "Designs/Test Design.md"
+        assert "shaping-transcript" in result["transcript_path"]
+        assert result["set_status"] is True
+        # Transcript exists on disk
+        abs_path = os.path.join(str(self.vault), result["transcript_path"])
+        assert os.path.isfile(abs_path)
+
+
+# ---------------------------------------------------------------------------
 # brain_session tests
 # ---------------------------------------------------------------------------
 
