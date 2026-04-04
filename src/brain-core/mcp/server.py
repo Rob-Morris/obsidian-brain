@@ -1320,13 +1320,11 @@ def brain_action(
                 return _fmt_error(str(e))
 
         elif action == "start-shaping":
-            if not params or "target" not in params:
-                return _fmt_error("start-shaping requires params: {target}")
             try:
                 result = start_shaping.start_shaping(_vault_root, _router, params)
                 if isinstance(result, dict) and "error" in result:
                     return _fmt_error(result["error"])
-                _mark_index_pending(result["transcript_path"], type_hint="temporal/shaping-transcripts")
+                _mark_index_pending(result["transcript_path"], type_hint=result.get("type"))
                 return json.dumps(result, indent=2)
             except (ValueError, FileNotFoundError) as e:
                 return _fmt_error(str(e))

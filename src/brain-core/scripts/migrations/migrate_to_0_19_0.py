@@ -92,8 +92,8 @@ def _migrate_transcripts(vault_root, actions):
             m = _TRANSCRIPT_RE.match(fname)
             if not m:
                 continue
-            date_part, _word, title = m.group(1), m.group(2), m.group(3)
-            new_fname = f"{date_part}-shaping-transcript~{title}"
+            date_part, _word, title_and_ext = m.group(1), m.group(2), m.group(3)
+            new_fname = f"{date_part}-shaping-transcript~{title_and_ext}"
             old_rel = os.path.relpath(os.path.join(dirpath, fname), vault_root)
             new_rel = os.path.relpath(os.path.join(dirpath, new_fname), vault_root)
             to_rename.append((old_rel, new_rel))
