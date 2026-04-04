@@ -258,3 +258,19 @@ class TestStartShaping:
         assert "Session Two" in content
         # Only one Transcripts line
         assert content.count("**Transcripts:**") == 1
+
+    def test_same_title_same_day_gets_suffixed(self, vault, router):
+        """Second transcript for same artefact on same day gets a unique suffix."""
+        result1 = start_shaping.start_shaping(
+            str(vault), router, {"target": "Designs/My Design.md"}
+        )
+        assert result1["status"] == "ok"
+        result2 = start_shaping.start_shaping(
+            str(vault), router, {"target": "Designs/My Design.md"}
+        )
+        assert result2["status"] == "ok"
+        # Paths must differ
+        assert result1["transcript_path"] != result2["transcript_path"]
+        # Both files must exist
+        assert os.path.isfile(os.path.join(str(vault), result1["transcript_path"]))
+        assert os.path.isfile(os.path.join(str(vault), result2["transcript_path"]))

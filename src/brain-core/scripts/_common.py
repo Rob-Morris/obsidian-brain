@@ -10,7 +10,9 @@ these functions.
 
 import json
 import os
+import random
 import re
+import string
 import sys
 import unicodedata
 from collections import namedtuple
@@ -80,6 +82,19 @@ def read_version(vault_root):
 def now_iso():
     """Return the current local datetime as an ISO 8601 string with timezone offset."""
     return datetime.now(timezone.utc).astimezone().isoformat()
+
+
+def unique_filename(folder, stem, ext=".md"):
+    """Return a filename in *folder* that doesn't collide with existing files.
+
+    If ``folder/stem.ext`` doesn't exist, returns ``stem.ext``.
+    Otherwise appends a random 3-char suffix: ``stem abc.ext``.
+    """
+    filename = f"{stem}{ext}"
+    while os.path.isfile(os.path.join(folder, filename)):
+        suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=3))
+        filename = f"{stem} {suffix}{ext}"
+    return filename
 
 
 # ---------------------------------------------------------------------------

@@ -17,6 +17,7 @@ Usage (CLI):
 import json
 import os
 import sys
+from datetime import datetime, timezone
 
 from _common import (
     find_vault_root,
@@ -27,6 +28,7 @@ from _common import (
     safe_write,
     serialize_frontmatter,
     title_to_filename,
+    unique_filename,
 )
 from read import read_file_content
 
@@ -92,16 +94,17 @@ def start_shaping(vault_root, router, params):
                 safe_write(abs_path, updated_content, bounds=vault_root)
                 set_status = True
 
-    from datetime import datetime, timezone
     now = datetime.now(timezone.utc).astimezone()
     date_prefix = now.strftime("%Y%m%d")
     month_folder = now.strftime("%Y-%m")
     safe_title = title_to_filename(transcript_title)
-    transcript_filename = f"{date_prefix}-shaping-transcript~{safe_title}.md"
-    transcript_rel = os.path.join(
-        "_Temporal", "Shaping Transcripts", month_folder, transcript_filename
+    stem = f"{date_prefix}-shaping-transcript~{safe_title}"
+    transcript_folder = os.path.join(
+        "_Temporal", "Shaping Transcripts", month_folder
     )
-    transcript_abs = os.path.join(vault_root, transcript_rel)
+    abs_folder = os.path.join(vault_root, transcript_folder)
+    transcript_filename = unique_filename(abs_folder, stem)
+    transcript_rel = os.path.join(transcript_folder, transcript_filename)
 
     template_content = _read_transcript_template(vault_root)
     if template_content is None:
@@ -123,6 +126,7 @@ def start_shaping(vault_root, router, params):
         "{{date:YYYY-MM-DD}}", now.strftime("%Y-%m-%d")
     )
 
+    transcript_abs = os.path.join(vault_root, transcript_rel)
     os.makedirs(os.path.dirname(transcript_abs), exist_ok=True)
     safe_write(transcript_abs, transcript_content, bounds=vault_root)
 

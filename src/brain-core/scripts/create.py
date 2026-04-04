@@ -13,8 +13,6 @@ Usage:
 
 import json
 import os
-import random
-import string
 import sys
 from datetime import datetime, timezone
 
@@ -28,6 +26,7 @@ from _common import (
     serialize_frontmatter,
     title_to_filename,
     title_to_slug,
+    unique_filename,
 )
 from read import read_file_content
 
@@ -134,12 +133,9 @@ def create_artefact(vault_root, router, type_key, title, body="", frontmatter_ov
     basename_stem = os.path.splitext(filename)[0]
 
     # Same-folder: append random 3-char suffix to make filename unique
-    candidate = os.path.join(vault_root, folder, filename)
-    os.makedirs(os.path.dirname(candidate), exist_ok=True)
-    while os.path.isfile(candidate):
-        suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=3))
-        filename = f"{basename_stem} {suffix}.md"
-        candidate = os.path.join(vault_root, folder, filename)
+    abs_folder = os.path.join(vault_root, folder)
+    os.makedirs(abs_folder, exist_ok=True)
+    filename = unique_filename(abs_folder, basename_stem)
 
     # Cross-folder: append type key if original basename exists elsewhere
     duplicates = find_duplicate_basenames(vault_root, basename_stem, limit=1)
