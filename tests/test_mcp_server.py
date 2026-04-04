@@ -2503,4 +2503,111 @@ class TestIndexStaleness:
         assert hasattr(server, "_ROUTER_CHECK_TTL")
         assert hasattr(server, "_INDEX_CHECK_TTL")
         assert server._ROUTER_CHECK_TTL != server._INDEX_CHECK_TTL
+
+
+# ---------------------------------------------------------------------------
+# brain_list tests
+# ---------------------------------------------------------------------------
+
+def _list_text(response):
+    """Join TextContent blocks into single string for list assertions."""
+    if isinstance(response, str):
+        return response
+    return "\n".join(block.text for block in response)
+
+
+def _list_result_lines(response):
+    """Extract individual result lines from a brain_list response (skipping meta)."""
+    if isinstance(response, str):
+        return []
+    if len(response) < 2:
+        return []
+    return response[1].text.strip().split("\n")
+
+
+class TestBrainList:
+    def test_list_all(self, initialized):
+        """No filters returns all indexed documents; meta says 'Listed: N results'."""
+        resp = server.brain_list()
+        text = _list_text(resp)
+        assert "Listed:" in text
+        assert "results" in text
+
+    def test_list_by_type(self, initialized):
+        """Filter by type returns only artefacts of that type."""
+        resp = server.brain_list(type="living/wiki")
+        lines = _list_result_lines(resp)
+        assert len(lines) >= 1
+        for line in lines:
+            assert "living/wiki" in line
+
+    def test_list_by_since(self, initialized):
+        """since filter with a past date returns all documents (all are newer)."""
+        resp_all = server.brain_list()
+        resp_since = server.brain_list(since="2020-01-01")
+        assert _list_text(resp_since).count("\t") >= _list_text(resp_all).count("\t") - 1
+
+        # since far in the future returns nothing
+        resp_future = server.brain_list(since="2099-01-01")
+        text = _list_text(resp_future)
+        assert "0 results" in text
+
+    def test_list_by_until(self, initialized):
+        """until filter with a future date returns all; past date returns nothing."""
+        resp_until = server.brain_list(until="2099-12-31")
+        lines_all = _list_result_lines(server.brain_list())
+        lines_until = _list_result_lines(resp_until)
+        assert len(lines_until) == len(lines_all)
+
+        resp_past = server.brain_list(until="2020-01-01")
+        text = _list_text(resp_past)
+        assert "0 results" in text
+
+    def test_list_by_tag(self, initialized):
+        """Tag filter returns only documents containing that tag."""
+        resp = server.brain_list(tag="brain-core")
+        lines = _list_result_lines(resp)
+        assert len(lines) >= 1
+        # Each result path should correspond to brain-overview (has brain-core tag)
+        for line in lines:
+            assert "brain-overview" in line or "brain-core" in line or "Wiki" in line
+
+    def test_list_sort_date_asc(self, initialized):
+        """date_asc sort returns dates in ascending order."""
+        resp = server.brain_list(sort="date_asc")
+        lines = _list_result_lines(resp)
+        if len(lines) >= 2:
+            dates = [line.split("\t")[0] for line in lines if "\t" in line]
+            assert dates == sorted(dates)
+
+    def test_list_sort_title(self, initialized):
+        """title sort returns results in case-insensitive alphabetical title order."""
+        resp = server.brain_list(type="living/wiki", sort="title")
+        lines = _list_result_lines(resp)
+        if len(lines) >= 2:
+            titles = [line.split("\t")[1] for line in lines if line.count("\t") >= 1]
+            assert titles == sorted(titles, key=str.lower)
+
+    def test_list_top_k(self, initialized):
+        """top_k=1 returns at most 1 result."""
+        resp = server.brain_list(top_k=1)
+        lines = _list_result_lines(resp)
+        assert len(lines) <= 1
+
+    def test_list_unknown_type(self, initialized):
+        """Unknown type returns 0 results without raising an error."""
+        resp = server.brain_list(type="living/nonexistent")
+        text = _list_text(resp)
+        assert "0 results" in text
+
+    def test_list_result_shape(self, initialized):
+        """Each result line is tab-separated: date, title, path, type[, status]."""
+        resp = server.brain_list(type="living/wiki")
+        lines = _list_result_lines(resp)
+        assert len(lines) >= 1
+        for line in lines:
+            parts = line.split("\t")
+            assert len(parts) >= 4
+            # First column is a date string YYYY-MM-DD or empty
+            assert len(parts[0]) == 0 or (len(parts[0]) == 10 and parts[0][4] == "-")
         assert server._INDEX_CHECK_TTL > server._ROUTER_CHECK_TTL

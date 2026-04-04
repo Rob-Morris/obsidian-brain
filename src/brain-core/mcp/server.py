@@ -4,10 +4,11 @@ Brain MCP Server — thin MCP wrapper over brain-core scripts.
 
 All logic lives in `.brain-core/scripts/` as importable functions.
 The server imports them, holds the compiled router and search index in memory,
-and exposes 7 MCP tools:
+and exposes 8 MCP tools:
   brain_session — bootstrap an agent session (compiled payload, one call)
   brain_read    — read compiled router resources (safe, no side effects)
   brain_search  — BM25 keyword search, with optional Obsidian CLI live search
+  brain_list    — exhaustive enumeration by type, date range, or tag (not relevance-ranked)
   brain_create  — create new vault artefacts (additive, safe to auto-approve)
   brain_edit    — modify existing vault artefacts (single-file mutation)
   brain_action  — vault-wide/destructive ops: compile, build_index, rename, delete, convert
@@ -81,6 +82,7 @@ import upgrade
 import migrate_naming
 import workspace_registry
 import process
+import list_artefacts
 import fix_links
 import sync_definitions
 import config as config_mod
@@ -933,6 +935,22 @@ def _fmt_search(source, results):
     ]
 
 
+def _fmt_list(results, type_filter=None):
+    """Format brain_list results as multi-block TextContent."""
+    type_part = f" (type: {type_filter})" if type_filter else ""
+    meta = f"**Listed:** {len(results)} results{type_part}"
+    if not results:
+        return [TextContent(type="text", text=meta)]
+    lines = []
+    for r in results:
+        status_part = f"\t{r['status']}" if r.get("status") else ""
+        lines.append(f"{r['date']}\t{r['title']}\t{r['path']}\t{r['type']}{status_part}")
+    return [
+        TextContent(type="text", text=meta),
+        TextContent(type="text", text="\n".join(lines)),
+    ]
+
+
 @mcp.tool()
 def brain_search(query: str, type: str | None = None, tag: str | None = None,
                  status: str | None = None, top_k: int = 10):
@@ -973,6 +991,43 @@ def brain_search(query: str, type: str | None = None, tag: str | None = None,
         results = search_index.search(_index, query, _vault_root, type_filter=type_filter, tag_filter=tag,
                                       status_filter=status, top_k=top_k)
         return _fmt_search("bm25", results)
+    except Exception as e:
+        print(traceback.format_exc(), file=sys.stderr)
+        return _fmt_error(f"Unexpected error: {e}")
+
+
+# ---------------------------------------------------------------------------
+# brain_list — exhaustive enumeration, not relevance-ranked
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def brain_list(type: str | None = None, since: str | None = None,
+               until: str | None = None, tag: str | None = None,
+               top_k: int = 500,
+               sort: Literal["date_desc", "date_asc", "title"] = "date_desc"):
+    """List vault artefacts by type, date range, or tag. Exhaustive — not relevance-ranked.
+
+    Unlike brain_search, returns all matching artefacts up to top_k (default 500).
+    Optional filters: type (e.g. 'temporal/research'), since/until (ISO dates e.g.
+    '2026-03-20'), tag, top_k, sort ('date_desc', 'date_asc', 'title').
+    """
+    try:
+        _check_and_reload()
+        _ensure_router_fresh()
+        _ensure_index_fresh()
+
+        denied = _enforce_profile("brain_list")
+        if denied:
+            return denied
+
+        if _index is None:
+            return _fmt_error("server not initialized")
+
+        results = list_artefacts.list_artefacts(
+            _index, _router, type_filter=type, since=since, until=until,
+            tag=tag, top_k=top_k, sort=sort,
+        )
+        return _fmt_list(results, type)
     except Exception as e:
         print(traceback.format_exc(), file=sys.stderr)
         return _fmt_error(f"Unexpected error: {e}")
