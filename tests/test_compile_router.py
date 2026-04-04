@@ -828,3 +828,41 @@ class TestSystemRulesFromIndex:
         result = cr.compile(vault)
         # Only router.md rules
         assert len(result["always_rules"]) == 2
+
+
+# ---------------------------------------------------------------------------
+# frontmatter_type field
+# ---------------------------------------------------------------------------
+
+class TestFrontmatterType:
+    def test_configured_artefact_has_frontmatter_type(self, vault):
+        """Configured artefacts get frontmatter_type from taxonomy."""
+        result = cr.compile(vault)
+        wiki = next(a for a in result["artefacts"] if a["folder"] == "Wiki")
+        assert wiki["frontmatter_type"] == "living/wiki"
+
+    def test_configured_temporal_has_frontmatter_type(self, vault):
+        """Configured temporal artefacts get frontmatter_type from taxonomy."""
+        result = cr.compile(vault)
+        logs = next(a for a in result["artefacts"] if a["folder"] == "Logs")
+        assert logs["frontmatter_type"] == "temporal/log"
+
+    def test_unconfigured_artefact_falls_back_to_type(self, vault):
+        """Unconfigured artefacts (no taxonomy) fall back to folder-derived type."""
+        (vault / "Projects").mkdir()
+        result = cr.compile(vault)
+        projects = next(a for a in result["artefacts"] if a["folder"] == "Projects")
+        assert projects["frontmatter_type"] == "living/projects"
+
+    def test_configured_without_type_field_falls_back(self, vault):
+        """Configured artefact whose taxonomy has no type: field falls back."""
+        (vault / "Recipes").mkdir()
+        tax = vault / "_Config" / "Taxonomy" / "Living"
+        (tax / "Recipes.md").write_text(
+            "# Recipes\n\n## Naming\n\n`{title}.md` in `Recipes/`.\n\n"
+            "## Frontmatter\n\n```yaml\n---\ntags:\n  - recipe\n---\n```\n"
+        )
+        result = cr.compile(vault)
+        recipes = next(a for a in result["artefacts"] if a["folder"] == "Recipes")
+        assert recipes["configured"] is True
+        assert recipes["frontmatter_type"] == "living/recipes"
