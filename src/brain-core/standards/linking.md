@@ -25,7 +25,7 @@ Path-qualified links like `[[Wiki/My Page]]` match only if the file sits at that
 
 A collision happens when two files share the same basename (e.g. `Wiki/JWT Refresh.md` and `Ideas/JWT Refresh.md`). Every `[[JWT Refresh]]` link becomes ambiguous — Obsidian picks whichever is "closest", which may not be what the author intended.
 
-**Automatic disambiguation:** `brain_create` handles collisions automatically:
+**Automatic disambiguation:** `brain_create` and `start-shaping` handle collisions automatically:
 
 - **Cross-folder** (same basename in a different type folder): appends the type key — `JWT Refresh (ideas).md`. Links use the full name: `[[JWT Refresh (ideas)]]`.
 - **Same-folder** (duplicate title in the same type): appends a random 3-character suffix — `JWT Refresh k7f.md`.

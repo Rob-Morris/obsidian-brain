@@ -7,7 +7,9 @@ Follows [semver](https://semver.org/). Changes to vault structure (renamed/remov
 **Shaping standard** — single source of truth for iterative Q&A refinement of vault artefacts.
 
 - New standard: `.brain-core/standards/shaping.md` — defines shapeable types, two flavours (convergent/discovery), the mechanical process, and completion criteria.
-- New action: `start-shaping` — bootstraps a shaping session (sets status, creates transcript, links bidirectionally).
+- New action: `start-shaping` — bootstraps a shaping session (sets status, creates transcript, links bidirectionally). Same-day collisions auto-suffixed.
+- New skill: `.brain-core/skills/shaping/` — agent-facing shaping workflow (convergent and discovery flavours, session start, completion review).
+- New helper: `unique_filename()` in `_common.py` — shared filename dedup for `brain_create` and `start-shaping`.
 - Ideas lifecycle: `developing` → `shaping`, `graduated` → `adopted`, `+Graduated/` → `+Adopted/`. Migration automatic.
 - Shaping transcript naming: `{sourcedoctype}-transcript` → `shaping-transcript`. Migration automatic.
 - Multi-source transcript linking — transcripts can reference multiple source artefacts.
