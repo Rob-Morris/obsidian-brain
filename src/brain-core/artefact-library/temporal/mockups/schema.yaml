@@ -4,3 +4,6 @@ required:
   tags:
     type: array
     contains: "mockup"
+optional:
+  status:
+    enum: [shaping, ready]

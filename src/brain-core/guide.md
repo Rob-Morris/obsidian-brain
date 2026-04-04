@@ -120,10 +120,10 @@ Some types have a lifecycle. Status values are defined per type:
 - **Designs:** `proposed` → `shaping` → `ready` → `active` → `implemented` | `parked` | `rejected`
 - **Ideas:** `new` → `shaping` → `ready` → `adopted` | `parked`
 - **Idea Logs:** `open` → `adopted` | `parked`
-- **People:** `active` → `parked`
-- **Tasks:** `open` → `in-progress` → `done` | `blocked`
+- **People:** `active` → `shaping` → `parked`
+- **Tasks:** `open` → `shaping` → `in-progress` → `done` | `blocked`
 - **Writing:** `draft` → `editing` → `review` → `published` | `parked`
-- **Plans:** `draft` → `approved` → `implementing` → `completed`
+- **Plans:** `draft` → `shaping` → `approved` → `implementing` → `completed`
 
 Not every type has status. Wiki, Notes, Documentation, and most temporal types are evergreen.
 

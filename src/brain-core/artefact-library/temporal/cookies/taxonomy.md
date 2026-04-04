@@ -36,6 +36,14 @@ tags:
 ---
 ```
 
+## Shaping
+
+**Flavour:** Discovery
+**Bar:** Clear what was awarded and why.
+**Completion status:** `ready`
+
+See [[.brain-core/standards/shaping]] for the shaping process.
+
 ## Trigger
 
 A cookie requires **explicit user consent** before creation. Either:

@@ -34,6 +34,14 @@ tags:
 ---
 ```
 
+## Shaping
+
+**Flavour:** Convergent
+**Bar:** Investigation is thorough and conclusions clear.
+**Completion status:** `ready`
+
+See [[.brain-core/standards/shaping]] for the shaping process.
+
 ## Trigger
 
 When investigating a subject in depth and/or capturing what was found from investigation — comparing approaches, gathering sources, or synthesising findings.

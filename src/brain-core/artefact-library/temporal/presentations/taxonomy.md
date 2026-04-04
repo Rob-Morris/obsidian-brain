@@ -31,7 +31,15 @@ tags:
 ---
 ```
 
-No status field. Presentations have no lifecycle — they capture a point-in-time deck.
+No lifecycle. Optional `status: shaping` or `status: ready` when shaping is active or complete.
+
+## Shaping
+
+**Flavour:** Convergent
+**Bar:** Content and structure are clear.
+**Completion status:** `ready`
+
+See [[.brain-core/standards/shaping]] for the shaping process.
 
 ## Trigger
 

@@ -4,3 +4,6 @@ required:
   tags:
     type: array
     contains: "thought"
+optional:
+  status:
+    enum: [shaping, ready]

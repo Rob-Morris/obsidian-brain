@@ -259,7 +259,8 @@ status: active
 | Status | Meaning |
 |---|---|
 | `active` | Default. Actively maintained. |
-| `archived` | No longer in regular contact. Preserved for reference. |
+| `shaping` | Being shaped — filling in the picture through discovery. |
+| `parked` | No longer in regular contact. Preserved for reference. |
 
 **Convention:** All related files across the vault use a nested person tag (e.g., `person/alice-smith`) so you can find everything connected to a person.
 
@@ -295,6 +296,7 @@ status: open
 | Status | Meaning |
 |---|---|
 | `open` | Default. Work hasn't started. |
+| `shaping` | Being shaped — clarifying scope and requirements before work begins. |
 | `in-progress` | Actively being worked on. |
 | `done` | Completed. Terminal — archive. |
 | `blocked` | Can't proceed — dependency or external blocker. |
@@ -411,7 +413,7 @@ tags:
 status: draft
 ```
 
-**Lifecycle:** `draft` → `approved` → `implementing` → `completed`
+**Lifecycle:** `draft` → `shaping` → `approved` → `implementing` → `completed`
 
 **Conventions:** Write before starting. Keep concise — align on approach, not full spec. Link to relevant artefacts.
 
@@ -470,6 +472,8 @@ tags:
 
 **Conventions:** One topic per file. Link to the context that prompted the research (project, design, idea). Include sources.
 
+**Shaping:** Supports optional `status: shaping` (in progress) and `status: ready` (complete). Status field is absent on most files — only present when shaping is active or complete.
+
 ### Idea Logs
 
 **Folder:** `_Temporal/Idea Logs/yyyy-mm/` · **Naming:** `yyyymmdd-idea-log~{Title}.md`
@@ -502,6 +506,8 @@ tags:
 
 **Trigger:** When a raw thought surfaces, capture before it slips away.
 
+**Shaping:** Supports optional `status: shaping` (in progress) and `status: ready` (complete). Status field is absent on most files — only present when shaping is active or complete.
+
 ### Journal Entries
 
 **Folder:** `_Temporal/Journal Entries/yyyy-mm/` · **Naming:** `yyyymmdd-journal--{journal-slug}.md` or `yyyymmdd-journal--{journal-slug}--{topic}.md`
@@ -516,6 +522,8 @@ tags:
 ```
 
 **Workflows:** Casual sharing (agent captures user's words from conversation), directed creation (user dictates), shaping/drafting (agent helps draft, user approves), or manual (user writes directly).
+
+**Shaping:** Supports optional `status: shaping` (in progress) and `status: ready` (complete). Status field is absent on most files — only present when shaping is active or complete.
 
 **Voice:** Preserve the user's language and phrasing. Do not paraphrase, summarise, or polish.
 
@@ -597,6 +605,8 @@ tags:
 
 **Trigger:** After completing a detailed process, distil what it meant.
 
+**Shaping:** Supports optional `status: shaping` (in progress) and `status: ready` (complete). Status field is absent on most files — only present when shaping is active or complete.
+
 ### Snippets
 
 **Folder:** `_Temporal/Snippets/yyyy-mm/` · **Naming:** `yyyymmdd-snippet~{Title}.md`
@@ -634,6 +644,8 @@ tags:
 
 **Trigger:** After completing work the user is happy with. Look for signals: explicit praise, "ship it", "that's perfect", or the word "cookie." Agents should ask honestly: "Was that good enough to earn a 🍪? Because you know I'd do aaaanything for a 🍪, so be straight with me."
 
+**Shaping:** Supports optional `status: shaping` (in progress) and `status: ready` (complete). Status field is absent on most files — only present when shaping is active or complete.
+
 ### Mockups
 
 **Folder:** `_Temporal/Mockups/yyyy-mm/` · **Naming:** `yyyymmdd-mockup~{Title}.md`
@@ -649,6 +661,8 @@ tags:
 **Conventions:** Link to the design or project being explored. If AI-generated, include the prompt. Note the verdict — what works, what needs iteration. One direction per file.
 
 **Trigger:** When exploring a visual or interactive design direction — UI layouts, component designs, app shells.
+
+**Shaping:** Supports optional `status: shaping` (in progress) and `status: ready` (complete). Status field is absent on most files — only present when shaping is active or complete.
 
 ### Observations
 
@@ -713,6 +727,8 @@ tags:
 
 **Shaping workflow:** `brain_action("shape-presentation", {source, slug})` creates the artefact and launches a live preview. The agent iterates on slides while the user watches in real time.
 
+**Shaping:** Supports optional `status: shaping` (in progress) and `status: ready` (complete). Status field is absent on most files — only present when shaping is active or complete.
+
 **Trigger:** When creating a slide deck or presentation from vault content.
 
 ---
@@ -768,7 +784,9 @@ Only types with a defined lifecycle have status. Current types with status:
 | Ideas | `new`, `shaping`, `ready`, `adopted`, `parked` |
 | Idea Logs | `open`, `adopted`, `parked` |
 | Journals | `active`, `archived` |
-| Plans | `draft`, `approved`, `implementing`, `completed` |
+| People | `active`, `shaping`, `parked` |
+| Plans | `draft`, `shaping`, `approved`, `implementing`, `completed` |
+| Tasks | `open`, `shaping`, `in-progress`, `done`, `blocked` |
 | Workspaces | `active`, `paused`, `completed`, `archived` |
 | Writing | `draft`, `editing`, `review`, `published`, `parked` |
 

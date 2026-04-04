@@ -4,3 +4,6 @@ required:
   tags:
     type: array
     contains: "cookie"
+optional:
+  status:
+    enum: [shaping, ready]

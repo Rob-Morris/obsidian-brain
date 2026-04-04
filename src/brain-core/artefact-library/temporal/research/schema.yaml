@@ -4,3 +4,6 @@ required:
   tags:
     type: array
     contains: "research"
+optional:
+  status:
+    enum: [shaping, ready]

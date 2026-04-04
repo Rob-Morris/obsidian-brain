@@ -4,3 +4,6 @@ required:
   tags:
     type: array
     contains: "journal-entry"
+optional:
+  status:
+    enum: [shaping, ready]

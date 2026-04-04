@@ -75,7 +75,15 @@ tags:
 ---
 ```
 
-No status field — entries have no lifecycle.
+No lifecycle. Optional `status: shaping` or `status: ready` when shaping is active or complete.
+
+## Shaping
+
+**Flavour:** Discovery
+**Bar:** User has nothing more to add.
+**Completion status:** `ready`
+
+See [[.brain-core/standards/shaping]] for the shaping process.
 
 ## Distillation
 

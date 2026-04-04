@@ -4,3 +4,6 @@ required:
   tags:
     type: array
     contains: "report"
+optional:
+  status:
+    enum: [shaping, ready]

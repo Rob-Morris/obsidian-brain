@@ -6,5 +6,5 @@ required:
     contains: "plan"
 optional:
   status:
-    enum: [draft, approved, implementing, completed]
+    enum: [draft, shaping, approved, implementing, completed]
     default: draft

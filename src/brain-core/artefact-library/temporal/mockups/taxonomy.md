@@ -31,6 +31,14 @@ tags:
 ---
 ```
 
+## Shaping
+
+**Flavour:** Convergent
+**Bar:** Visual intent is clear.
+**Completion status:** `ready`
+
+See [[.brain-core/standards/shaping]] for the shaping process.
+
 ## Trigger
 
 When exploring a visual or interactive design direction — UI layouts, component designs, app shells, data visualisations. Particularly useful when paired with AI code generation tools that can produce working prototypes from a prompt.

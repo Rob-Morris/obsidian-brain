@@ -6,5 +6,5 @@ required:
     contains: "person/{slug}"
 optional:
   status:
-    enum: [active, parked]
+    enum: [active, shaping, parked]
     default: active
