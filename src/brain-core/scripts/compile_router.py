@@ -556,9 +556,7 @@ def compile(vault_root):
                 "configured": True,
                 "naming": parsed["naming"],
                 "frontmatter": parsed["frontmatter"],
-                "frontmatter_type": (parsed["frontmatter"]["type"]
-                                     if parsed.get("frontmatter") and parsed["frontmatter"].get("type")
-                                     else t["type"]),
+                "frontmatter_type": (parsed.get("frontmatter") or {}).get("type") or t["type"],
                 "trigger": parsed["trigger"],
                 "taxonomy_file": tax_rel,
                 "template_file": parsed["template_file"],

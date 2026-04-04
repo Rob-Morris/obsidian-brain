@@ -547,7 +547,7 @@ def check_taxonomy_type_consistency(vault_root, router):
                 "message": (
                     f"frontmatter type '{fm_type}' matches folder-derived type — "
                     f"expected singular form (e.g. "
-                    f"'{folder_type.rsplit('/', 1)[0]}/{art['key'].rstrip('s')}')"
+                    f"'{folder_type.rsplit('/', 1)[0]}/{art['key'][:-1]}')"
                 ),
             })
     return findings

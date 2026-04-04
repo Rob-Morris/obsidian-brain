@@ -264,8 +264,8 @@ def convert_artefact(vault_root, router, path, target_type, parent=None):
     new_path = os.path.join(target_folder, new_filename)
 
     # Reconcile frontmatter: set type to target type
-    if target_art.get("frontmatter") and target_art["frontmatter"].get("type"):
-        fields["type"] = target_art["frontmatter"]["type"]
+    if target_art.get("frontmatter_type"):
+        fields["type"] = target_art["frontmatter_type"]
 
     # Write updated content to new path
     abs_new = os.path.join(vault_root, new_path)

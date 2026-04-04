@@ -988,14 +988,14 @@ def match_artefact(artefacts, type_key):
     Returns the matched artefact dict, or None if no match found.
     """
     for a in artefacts:
-        if type_key in (a["key"], a["type"], a.get("frontmatter_type")):
+        if type_key in (a["key"], a["type"], a["frontmatter_type"]):
             return a
 
     # Bare singular name: "idea" should match frontmatter_type "living/idea".
     # Only try this when the input has no slash (full paths already matched above).
     if "/" not in type_key:
         for a in artefacts:
-            ft = a.get("frontmatter_type", "")
+            ft = a["frontmatter_type"]
             if ft.endswith("/" + type_key):
                 return a
 
