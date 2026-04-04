@@ -234,7 +234,7 @@ def resolve_content(
     except ValueError as e:
         return {"action": "error", "reasoning": str(e)}
 
-    resolved_type = artefact["type"]
+    resolved_type = artefact["frontmatter_type"]
     resolved_key = artefact["key"]
 
     # Step 1: Filename match (generous + legacy slug)

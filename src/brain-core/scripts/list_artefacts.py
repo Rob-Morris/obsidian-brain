@@ -31,7 +31,7 @@ def list_artefacts(index, router, type_filter=None, since=None, until=None,
     if type_filter and router:
         art = _common.match_artefact(router.get("artefacts", []), type_filter)
         if art:
-            resolved_type = art["type"]
+            resolved_type = art["frontmatter_type"]
         else:
             # Unknown type — return empty list (not an error)
             return []

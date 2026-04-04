@@ -977,7 +977,7 @@ def brain_search(query: str, type: str | None = None, tag: str | None = None,
         if type_filter and _router:
             art = _common.match_artefact(_router.get("artefacts", []), type_filter)
             if art:
-                type_filter = art["type"]
+                type_filter = art["frontmatter_type"]
 
         _refresh_cli_available()
 
