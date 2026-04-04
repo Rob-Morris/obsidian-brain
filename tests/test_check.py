@@ -6,6 +6,7 @@ import os
 import pytest
 
 import check
+import compile_router as cr
 
 
 # ---------------------------------------------------------------------------
@@ -895,3 +896,87 @@ class TestCheckBrokenWikilinks:
         ambiguous = [f for f in findings if f["check"] == "ambiguous_wikilinks"
                      and "precise-link.md" in f.get("file", "")]
         assert ambiguous == []
+
+
+# ---------------------------------------------------------------------------
+# TestCheckTaxonomyTypeConsistency
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def vault_cr(tmp_path):
+    """Minimal vault with router.md and taxonomy files for compile_router tests."""
+    # .brain-core/VERSION
+    bc = tmp_path / ".brain-core"
+    bc.mkdir()
+    (bc / "VERSION").write_text("0.19.4\n")
+
+    # _Config/router.md
+    config = tmp_path / "_Config"
+    config.mkdir()
+    (config / "router.md").write_text(
+        "Prefer MCP tools.\n\n"
+        "Always:\n"
+        "- Every artefact belongs in a typed folder.\n\n"
+        "Conditional:\n"
+        "- After meaningful work → [[_Config/Taxonomy/Temporal/logs]]\n"
+    )
+
+    # Living type: Ideas (plural key ending in 's', with singular type defined)
+    (tmp_path / "Ideas").mkdir()
+    tax_living = config / "Taxonomy" / "Living"
+    tax_living.mkdir(parents=True)
+    (tax_living / "ideas.md").write_text(
+        "# Ideas\n\n"
+        "## Naming\n\n"
+        "`{name}.md` in `Ideas/`.\n\n"
+        "## Frontmatter\n\n"
+        "```yaml\n---\ntype: living/idea\ntags:\n  - idea\n---\n```\n\n"
+    )
+
+    # Temporal type: Logs
+    temporal = tmp_path / "_Temporal"
+    temporal.mkdir()
+    (temporal / "Logs").mkdir()
+    tax_temporal = config / "Taxonomy" / "Temporal"
+    tax_temporal.mkdir(parents=True)
+    (tax_temporal / "logs.md").write_text(
+        "# Logs\n\n"
+        "## Naming\n\n"
+        "`yyyymmdd-log.md` in `_Temporal/Logs/yyyy-mm/`.\n\n"
+        "## Frontmatter\n\n"
+        "```yaml\n---\ntype: temporal/log\ntags:\n  - log\n---\n```\n\n"
+    )
+
+    return tmp_path
+
+
+class TestCheckTaxonomyTypeConsistency:
+    def test_no_finding_when_singular_differs(self, vault_cr):
+        """Normal case: frontmatter_type is singular, type is plural — no finding."""
+        router = cr.compile(vault_cr)
+        findings = check.check_taxonomy_type_consistency(str(vault_cr), router)
+        type_consistency = [f for f in findings if f["check"] == "taxonomy_type_consistency"]
+        assert len(type_consistency) == 0
+
+    def test_flags_when_frontmatter_type_equals_folder_type(self, vault_cr):
+        """When taxonomy omits type: field, frontmatter_type falls back to plural — flag it."""
+        (vault_cr / "Notes").mkdir()
+        tax = vault_cr / "_Config" / "Taxonomy" / "Living"
+        (tax / "Notes.md").write_text(
+            "# Notes\n\n## Naming\n\n`{title}.md` in `Notes/`.\n\n"
+            "## Frontmatter\n\n```yaml\n---\ntags:\n  - note\n---\n```\n"
+        )
+        router = cr.compile(vault_cr)
+        findings = check.check_taxonomy_type_consistency(str(vault_cr), router)
+        type_consistency = [f for f in findings if f["check"] == "taxonomy_type_consistency"]
+        assert len(type_consistency) == 1
+        assert "notes" in type_consistency[0]["message"]
+
+    def test_no_finding_for_unconfigured(self, vault_cr):
+        """Unconfigured artefacts (no taxonomy) should not be flagged."""
+        (vault_cr / "Projects").mkdir()
+        router = cr.compile(vault_cr)
+        findings = check.check_taxonomy_type_consistency(str(vault_cr), router)
+        type_consistency = [f for f in findings if f["check"] == "taxonomy_type_consistency"]
+        projects_findings = [f for f in type_consistency if "projects" in f["message"]]
+        assert len(projects_findings) == 0

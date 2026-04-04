@@ -526,6 +526,33 @@ def check_unconfigured_type(vault_root, router):
     return findings
 
 
+def check_taxonomy_type_consistency(vault_root, router):
+    """Flag configured artefacts where frontmatter_type equals the folder-derived type.
+
+    When taxonomy defines a singular type (living/idea vs living/ideas), frontmatter_type
+    will differ from type. If they're identical and the key ends in 's', the taxonomy
+    likely forgot to define a singular type: field — flag it as info.
+    """
+    findings = []
+    for art in router.get("artefacts", []):
+        if not art.get("configured"):
+            continue
+        fm_type = art.get("frontmatter_type")
+        folder_type = art["type"]
+        if fm_type and fm_type == folder_type and art["key"].endswith("s"):
+            findings.append({
+                "check": "taxonomy_type_consistency",
+                "severity": "info",
+                "file": art.get("taxonomy_file", art["key"]),
+                "message": (
+                    f"frontmatter type '{fm_type}' matches folder-derived type — "
+                    f"expected singular form (e.g. "
+                    f"'{folder_type.rsplit('/', 1)[0]}/{art['key'].rstrip('s')}')"
+                ),
+            })
+    return findings
+
+
 # ---------------------------------------------------------------------------
 # Broken and ambiguous wikilinks
 # ---------------------------------------------------------------------------
@@ -646,6 +673,7 @@ ALL_CHECKS = [
     check_status_values,
     check_broken_wikilinks,
     check_unconfigured_type,
+    check_taxonomy_type_consistency,
 ]
 
 
