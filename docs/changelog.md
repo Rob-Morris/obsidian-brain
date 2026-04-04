@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.18.15 — 2026-04-04
+
+- **Fix:** Router staleness detection now covers config resources (skills, plugins, styles, memories), not just artefact types. Previously, adding a new skill directory or memory file to disk while the server was running went undetected until something else triggered a recompile. New `resource_counts()` in `compile_router.py` centralises the discovery-to-router-key mapping; `count_memories()` provides a lightweight listdir-only count (skips trigger parsing).
+
 ## v0.18.14 — 2026-04-04
 
 - **Feature:** `init.py` defaults to current directory (no flags needed) instead of vault root. `--local` flag uses gitignored `.claude/settings.local.json` + `.claude/CLAUDE.local.md`.

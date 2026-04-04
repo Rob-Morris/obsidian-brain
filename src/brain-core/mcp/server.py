@@ -317,14 +317,17 @@ def _check_index_files(vault_root: str, expected_count: int, threshold: float) -
     return count != expected_count  # catches deletions
 
 
-def _check_router_type_count(vault_root: str, router: dict) -> bool:
-    """Return True if the vault has types not in the cached router."""
-    cached_count = len(router.get("artefacts", []))
-    fs_types = (
-        compile_router.scan_living_types(vault_root)
-        + compile_router.scan_temporal_types(vault_root)
-    )
-    return len(fs_types) != cached_count
+def _check_router_resource_counts(vault_root: str, router: dict) -> bool:
+    """Return True if any resource count on disk differs from the cached router.
+
+    Complements ``_check_router`` (mtime-based): mtime checks detect edits to
+    *existing* sources, while count checks detect *new or deleted* resources
+    that were never in the manifest.
+    """
+    for key, fs_count in compile_router.resource_counts(vault_root).items():
+        if fs_count != len(router.get(key, [])):
+            return True
+    return False
 
 
 def _ensure_router_fresh() -> None:
@@ -342,7 +345,7 @@ def _ensure_router_fresh() -> None:
         return
     _router_checked_at = now
     stale, data = _check_router(_vault_root)
-    if not stale and not _check_router_type_count(_vault_root, _router):
+    if not stale and not _check_router_resource_counts(_vault_root, _router):
         return
     try:
         _router = _compile_and_save(_vault_root)

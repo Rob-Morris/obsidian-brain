@@ -439,6 +439,38 @@ def discover_memories(vault_root):
     return memories
 
 
+def count_memories(vault_root):
+    """Count memory files at _Config/Memories/*.md, excluding README.md.
+
+    Lighter than ``discover_memories`` — skips file reads (no trigger parsing).
+    """
+    memories_dir = os.path.join(vault_root, "_Config", "Memories")
+    if not os.path.isdir(memories_dir):
+        return 0
+    return sum(
+        1 for entry in os.listdir(memories_dir)
+        if entry.endswith(".md") and entry.upper() != "README.MD"
+    )
+
+
+def resource_counts(vault_root):
+    """Return ``{router_key: count}`` for all discoverable resource categories.
+
+    Canonical mapping between discovery functions and router keys — used by
+    the server's staleness check to detect new or deleted resources without
+    a full recompile.
+    """
+    return {
+        "artefacts": len(scan_living_types(vault_root))
+                     + len(scan_temporal_types(vault_root)),
+        "skills": len(discover_skills(vault_root))
+                  + len(discover_core_skills(vault_root)),
+        "memories": count_memories(vault_root),
+        "styles": len(discover_styles(vault_root)),
+        "plugins": len(discover_plugins(vault_root)),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Environment detection
 # ---------------------------------------------------------------------------

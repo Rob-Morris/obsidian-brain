@@ -961,6 +961,60 @@ class TestAutoRecompile:
         keys = [a["key"] for a in server._router["artefacts"]]
         assert "glossary" in keys
 
+    def test_new_skill_triggers_recompile(self, initialized):
+        """Adding a new skill directory should trigger recompile."""
+        old_count = len(server._router["skills"])
+        skill_dir = initialized / "_Config" / "Skills" / "new-skill"
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text(
+            "---\nname: new-skill\ndescription: A new skill\n---\n\n# New Skill\n"
+        )
+        server._ensure_router_fresh()
+        assert len(server._router["skills"]) == old_count + 1
+        names = [s["name"] for s in server._router["skills"]]
+        assert "new-skill" in names
+
+    def test_new_memory_triggers_recompile(self, initialized):
+        """Adding a new memory file should trigger recompile."""
+        memories_dir = initialized / "_Config" / "Memories"
+        memories_dir.mkdir(parents=True, exist_ok=True)
+        (memories_dir / "test-memory.md").write_text(
+            "---\ntriggers:\n  - testing\n---\n\n# Test Memory\n"
+        )
+        server._ensure_router_fresh()
+        names = [m["name"] for m in server._router.get("memories", [])]
+        assert "test-memory" in names
+
+    def test_new_style_triggers_recompile(self, initialized):
+        """Adding a new style file should trigger recompile."""
+        old_count = len(server._router["styles"])
+        styles_dir = initialized / "_Config" / "Styles"
+        (styles_dir / "formal.md").write_text("# Formal\n\nWrite formally.\n")
+        server._ensure_router_fresh()
+        assert len(server._router["styles"]) == old_count + 1
+        names = [s["name"] for s in server._router["styles"]]
+        assert "formal" in names
+
+    def test_new_plugin_triggers_recompile(self, initialized):
+        """Adding a new plugin directory should trigger recompile."""
+        old_count = len(server._router.get("plugins", []))
+        plugin_dir = initialized / "_Plugins" / "new-plugin"
+        plugin_dir.mkdir(parents=True)
+        (plugin_dir / "SKILL.md").write_text("# New Plugin\n\nDoes things.\n")
+        server._ensure_router_fresh()
+        assert len(server._router.get("plugins", [])) == old_count + 1
+        names = [p["name"] for p in server._router.get("plugins", [])]
+        assert "new-plugin" in names
+
+    def test_deleted_skill_triggers_recompile(self, initialized):
+        """Removing a skill directory should trigger recompile."""
+        old_count = len(server._router["skills"])
+        skill_dir = initialized / "_Config" / "Skills" / "Vault Maintenance"
+        (skill_dir / "SKILL.md").unlink()
+        skill_dir.rmdir()
+        server._ensure_router_fresh()
+        assert len(server._router["skills"]) == old_count - 1
+
     def test_no_recompile_when_types_unchanged(self, initialized):
         """_ensure_router_fresh should not recompile when nothing changed."""
         compiled_at = server._router["meta"]["compiled_at"]
