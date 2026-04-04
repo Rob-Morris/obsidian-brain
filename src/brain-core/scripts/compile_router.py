@@ -26,6 +26,7 @@ from _common import (
     find_vault_root,
     is_system_dir,
     read_version,
+    safe_write,
     scan_living_types,
     scan_temporal_types,
 )
@@ -605,9 +606,7 @@ def main():
         print(json_output)
     else:
         output_path = os.path.join(str(vault_root), OUTPUT_PATH)
-        os.makedirs(os.path.dirname(output_path), exist_ok=True)
-        with open(output_path, "w", encoding="utf-8") as f:
-            f.write(json_output + "\n")
+        safe_write(output_path, json_output + "\n", bounds=str(vault_root))
 
         art_count = len(compiled["artefacts"])
         configured = sum(1 for a in compiled["artefacts"] if a["configured"])

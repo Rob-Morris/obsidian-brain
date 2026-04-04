@@ -24,7 +24,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from _common import find_vault_root, read_version
+from _common import find_vault_root, read_version, safe_write_json
 from compile_router import hash_file
 
 
@@ -170,10 +170,7 @@ def load_tracking(vault_root: str) -> dict:
 def save_tracking(vault_root: str, tracking: dict) -> None:
     """Write .brain/tracking.json."""
     path = os.path.join(vault_root, TRACKING_PATH)
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(tracking, f, indent=2)
-        f.write("\n")
+    safe_write_json(path, tracking, bounds=vault_root)
 
 
 def load_preferences(vault_root: str) -> dict:

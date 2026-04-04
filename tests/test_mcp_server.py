@@ -759,15 +759,12 @@ class TestAtomicSave:
         assert result == {"new": True}
 
     def test_save_json_atomic_no_corruption_on_error(self, tmp_path):
-        """If json.dump fails mid-write, the original file should be intact."""
+        """If os.replace fails, the original file should be intact."""
         path = tmp_path / "data.json"
         original = {"original": True}
         server._save_json(original, str(tmp_path), "data.json")
 
-        def bad_dump(*args, **kwargs):
-            raise OSError("disk full")
-
-        with patch("server.json.dump", side_effect=bad_dump):
+        with patch("_common.os.replace", side_effect=OSError("disk full")):
             with pytest.raises(OSError, match="disk full"):
                 server._save_json({"corrupt": True}, str(tmp_path), "data.json")
 
@@ -780,7 +777,7 @@ class TestAtomicSave:
         (tmp_path / "sub").mkdir()
         server._save_json({"ok": True}, str(tmp_path), "sub/data.json")
 
-        with patch("server.os.replace", side_effect=OSError("replace failed")):
+        with patch("_common.os.replace", side_effect=OSError("replace failed")):
             with pytest.raises(OSError, match="replace failed"):
                 server._save_json({"bad": True}, str(tmp_path), "sub/data.json")
 

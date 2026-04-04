@@ -21,7 +21,7 @@ import json
 import os
 import sys
 
-from _common import find_vault_root, is_system_dir, parse_frontmatter, slug_to_title
+from _common import find_vault_root, is_system_dir, parse_frontmatter, safe_write_json, slug_to_title
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -73,10 +73,7 @@ def save_registry(vault_root, registry):
         registry: Dict of slug → {"path": absolute_path}.
     """
     path = _registry_path(vault_root)
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump({"workspaces": registry}, f, indent=2, ensure_ascii=False)
-        f.write("\n")
+    safe_write_json(path, {"workspaces": registry}, bounds=str(vault_root))
 
 
 # ---------------------------------------------------------------------------

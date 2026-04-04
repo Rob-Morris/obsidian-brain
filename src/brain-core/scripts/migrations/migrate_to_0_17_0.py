@@ -12,6 +12,25 @@ See migrate_to_0_17_0.md for the canary-format companion.
 import json
 import os
 
+
+def _safe_write(path, content):
+    """Atomic write: tmp → fsync → os.replace."""
+    target = os.path.realpath(path)
+    os.makedirs(os.path.dirname(target) or ".", exist_ok=True)
+    tmp = f"{target}.{os.getpid()}.tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(content)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, target)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
 VERSION = "0.17.0"
 
 PREFERENCES_PATH = os.path.join(".brain", "preferences.json")
@@ -108,9 +127,7 @@ def migrate(vault_root):
 
         # Only write config if there's something to write
         if config_data:
-            os.makedirs(os.path.dirname(config_path), exist_ok=True)
-            with open(config_path, "w", encoding="utf-8") as f:
-                f.write(_serialize_config(config_data))
+            _safe_write(config_path, _serialize_config(config_data))
             actions.append(f"created {CONFIG_PATH} from {PREFERENCES_PATH}")
 
     # Delete old preferences file

@@ -28,7 +28,7 @@ import json
 import os
 import sys
 
-from _common import find_vault_root, match_artefact, resolve_artefact_path
+from _common import find_vault_root, match_artefact, resolve_and_check_bounds, resolve_artefact_path
 
 COMPILED_ROUTER_REL = os.path.join(".brain", "local", "compiled-router.json")
 
@@ -39,8 +39,9 @@ COMPILED_ROUTER_REL = os.path.join(".brain", "local", "compiled-router.json")
 
 def _check_vault_containment(vault_root, rel_path):
     """Return an error dict if rel_path escapes the vault root, else None."""
-    abs_path = os.path.realpath(os.path.join(vault_root, rel_path))
-    if not abs_path.startswith(os.path.realpath(vault_root) + os.sep):
+    try:
+        resolve_and_check_bounds(os.path.join(vault_root, rel_path), vault_root)
+    except ValueError:
         return {"error": "Path escapes vault root"}
     return None
 

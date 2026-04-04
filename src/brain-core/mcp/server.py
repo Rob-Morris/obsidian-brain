@@ -41,7 +41,6 @@ Requires Python >=3.10 and the `mcp` SDK (see requirements.txt).
 import json
 import os
 import sys
-import tempfile
 import threading
 import time
 import traceback
@@ -72,6 +71,7 @@ from _common import (
     find_section,
     parse_frontmatter,
     resolve_body_file,
+    safe_write_json,
 )
 import edit
 import obsidian_cli
@@ -442,27 +442,9 @@ def _ensure_index_fresh() -> None:
 # ---------------------------------------------------------------------------
 
 def _save_json(data: dict, vault_root: str, rel_path: str) -> None:
-    """Write a dict as JSON to vault_root/rel_path (atomic via temp+rename)."""
+    """Write a dict as JSON to vault_root/rel_path (atomic via safe_write_json)."""
     output_path = os.path.join(vault_root, rel_path)
-    parent = os.path.dirname(output_path)
-    os.makedirs(parent, exist_ok=True)
-    fd = tempfile.NamedTemporaryFile(
-        mode="w", encoding="utf-8", suffix=".tmp", dir=parent, delete=False,
-    )
-    try:
-        json.dump(data, fd, indent=2, ensure_ascii=False)
-        fd.write("\n")
-        fd.flush()
-        os.fsync(fd.fileno())
-        fd.close()
-        os.replace(fd.name, output_path)
-    except BaseException:
-        fd.close()
-        try:
-            os.unlink(fd.name)
-        except OSError:
-            pass
-        raise
+    safe_write_json(output_path, data, bounds=vault_root)
 
 
 def _compile_and_save(vault_root: str) -> dict:

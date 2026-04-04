@@ -23,6 +23,8 @@ from _common import (
     is_system_dir,
     parse_frontmatter,
     read_version,
+    safe_write,
+    safe_write_json,
     scan_living_types,
     scan_temporal_types,
     tokenise,
@@ -203,10 +205,7 @@ def build_embeddings(vault_root, router, documents):
         "documents": doc_meta,
     }
     meta_path = os.path.join(vault_str, EMBEDDINGS_META_REL)
-    os.makedirs(os.path.dirname(meta_path), exist_ok=True)
-    with open(meta_path, "w", encoding="utf-8") as f:
-        json.dump(meta, f, indent=2, ensure_ascii=False)
-        f.write("\n")
+    safe_write_json(meta_path, meta, bounds=vault_str)
 
     return meta
 
@@ -390,9 +389,7 @@ def main():
         print(json_output)
     else:
         output_path = os.path.join(str(vault_root), OUTPUT_PATH)
-        os.makedirs(os.path.dirname(output_path), exist_ok=True)
-        with open(output_path, "w", encoding="utf-8") as f:
-            f.write(json_output + "\n")
+        safe_write(output_path, json_output + "\n", bounds=str(vault_root))
 
         doc_count = index["meta"]["document_count"]
         term_count = len(index["corpus_stats"]["df"])

@@ -12,6 +12,24 @@ import json
 import os
 import shutil
 
+def _safe_write(path, content):
+    """Atomic write: tmp → fsync → os.replace."""
+    target = os.path.realpath(path)
+    os.makedirs(os.path.dirname(target) or ".", exist_ok=True)
+    tmp = f"{target}.{os.getpid()}.tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(content)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, target)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
 
 VERSION = "0.16.0"
 
@@ -68,9 +86,7 @@ def migrate(vault_root):
         path = os.path.join(vault_root, *path_parts)
         if os.path.exists(path):
             continue
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(default_content + "\n")
+        _safe_write(path, default_content + "\n")
         actions.append(f"created {os.path.join(*path_parts)}")
 
     if not actions:

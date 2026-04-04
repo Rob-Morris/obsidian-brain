@@ -34,6 +34,7 @@ from _common import (
     replace_wikilinks_in_vault,
     resolve_body_file,
     resolve_wikilink_stems,
+    safe_write,
     serialize_frontmatter,
     strip_md_ext,
     title_to_slug,
@@ -72,12 +73,11 @@ def _merge_frontmatter(fields, changes, operation):
             fields[key] = value
 
 
-def _save_artefact(abs_path, fields, new_body):
+def _save_artefact(abs_path, fields, new_body, vault_root):
     """Set modified timestamp, serialize, and write."""
     fields["modified"] = now_iso()
     new_content = serialize_frontmatter(fields, body=new_body)
-    with open(abs_path, "w", encoding="utf-8") as f:
-        f.write(new_content)
+    safe_write(abs_path, new_content, bounds=vault_root)
 
 
 # ---------------------------------------------------------------------------
@@ -122,7 +122,7 @@ def edit_artefact(vault_root, router, path, body="", frontmatter_changes=None, t
     else:
         new_body = existing_body
 
-    _save_artefact(abs_path, fields, new_body)
+    _save_artefact(abs_path, fields, new_body, vault_root)
     return {"path": path, "operation": "edit"}
 
 
@@ -165,7 +165,7 @@ def append_to_artefact(vault_root, router, path, content="", frontmatter_changes
     else:
         new_body = body
 
-    _save_artefact(abs_path, fields, new_body)
+    _save_artefact(abs_path, fields, new_body, vault_root)
     return {"path": path, "operation": "append"}
 
 
@@ -205,7 +205,7 @@ def prepend_to_artefact(vault_root, router, path, content="", frontmatter_change
     else:
         new_body = body
 
-    _save_artefact(abs_path, fields, new_body)
+    _save_artefact(abs_path, fields, new_body, vault_root)
     return {"path": path, "operation": "prepend"}
 
 
@@ -269,10 +269,8 @@ def convert_artefact(vault_root, router, path, target_type, parent=None):
 
     # Write updated content to new path
     abs_new = os.path.join(vault_root, new_path)
-    os.makedirs(os.path.dirname(abs_new), exist_ok=True)
     new_content = serialize_frontmatter(fields, body=body)
-    with open(abs_new, "w", encoding="utf-8") as f:
-        f.write(new_content)
+    safe_write(abs_new, new_content, bounds=vault_root)
 
     # Update wikilinks vault-wide (old stem → new stem)
     pattern, stem_map = resolve_wikilink_stems(vault_root, path, new_path)

@@ -656,3 +656,178 @@ class TestResolveArtefactPath:
             "Broken Link Prevention Briefing", vault_with_files
         )
         assert result == "_Temporal/Reports/2026-03/20260329-report~Broken Link Prevention Briefing.md"
+
+
+# ---------------------------------------------------------------------------
+# resolve_and_check_bounds
+# ---------------------------------------------------------------------------
+
+class TestResolveAndCheckBounds:
+    def test_path_within_bounds(self, tmp_path):
+        target = tmp_path / "sub" / "file.txt"
+        result = common.resolve_and_check_bounds(target, tmp_path)
+        assert result == str(target)
+
+    def test_path_at_bounds_root(self, tmp_path):
+        target = tmp_path / "file.txt"
+        result = common.resolve_and_check_bounds(target, tmp_path)
+        assert result == str(target)
+
+    def test_path_outside_bounds(self, tmp_path):
+        target = tmp_path / ".." / "escape.txt"
+        with pytest.raises(ValueError, match="outside allowed boundary"):
+            common.resolve_and_check_bounds(target, tmp_path)
+
+    def test_symlink_resolved_within_bounds(self, tmp_path):
+        real = tmp_path / "real.txt"
+        real.write_text("x")
+        link = tmp_path / "link.txt"
+        link.symlink_to(real)
+        result = common.resolve_and_check_bounds(link, tmp_path)
+        assert result == str(real)
+
+    def test_symlink_resolved_outside_bounds(self, tmp_path):
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        real = outside / "real.txt"
+        real.write_text("x")
+        bounded = tmp_path / "bounded"
+        bounded.mkdir()
+        link = bounded / "link.txt"
+        link.symlink_to(real)
+        with pytest.raises(ValueError, match="outside allowed boundary"):
+            common.resolve_and_check_bounds(link, bounded)
+
+    def test_follow_symlinks_false_rejects_symlink(self, tmp_path):
+        real = tmp_path / "real.txt"
+        real.write_text("x")
+        link = tmp_path / "link.txt"
+        link.symlink_to(real)
+        with pytest.raises(ValueError, match="Refusing to follow symlink"):
+            common.resolve_and_check_bounds(link, tmp_path, follow_symlinks=False)
+
+    def test_follow_symlinks_false_allows_regular_file(self, tmp_path):
+        target = tmp_path / "file.txt"
+        result = common.resolve_and_check_bounds(target, tmp_path, follow_symlinks=False)
+        assert result == str(target)
+
+    def test_prefix_collision(self, tmp_path):
+        """'/home/foo' must not match bounds '/home/fo'."""
+        bounds = tmp_path / "fo"
+        bounds.mkdir()
+        target = tmp_path / "foobar" / "file.txt"
+        with pytest.raises(ValueError, match="outside allowed boundary"):
+            common.resolve_and_check_bounds(target, bounds)
+
+
+# ---------------------------------------------------------------------------
+# safe_write
+# ---------------------------------------------------------------------------
+
+class TestSafeWrite:
+    def test_basic_write_new_file(self, tmp_path):
+        target = tmp_path / "out.txt"
+        result = common.safe_write(target, "hello")
+        assert result == str(target)
+        assert target.read_text() == "hello"
+
+    def test_overwrite_existing(self, tmp_path):
+        target = tmp_path / "out.txt"
+        target.write_text("old")
+        common.safe_write(target, "new")
+        assert target.read_text() == "new"
+
+    def test_creates_parent_directories(self, tmp_path):
+        target = tmp_path / "a" / "b" / "c" / "file.txt"
+        common.safe_write(target, "deep")
+        assert target.read_text() == "deep"
+
+    def test_exclusive_fails_if_exists(self, tmp_path):
+        target = tmp_path / "out.txt"
+        target.write_text("existing")
+        with pytest.raises(FileExistsError):
+            common.safe_write(target, "new", exclusive=True)
+        assert target.read_text() == "existing"
+
+    def test_exclusive_succeeds_if_new(self, tmp_path):
+        target = tmp_path / "out.txt"
+        common.safe_write(target, "new", exclusive=True)
+        assert target.read_text() == "new"
+
+    def test_symlink_followed(self, tmp_path):
+        real = tmp_path / "real.txt"
+        real.write_text("old")
+        link = tmp_path / "link.txt"
+        link.symlink_to(real)
+        common.safe_write(link, "updated")
+        assert real.read_text() == "updated"
+
+    def test_symlink_with_bounds_inside(self, tmp_path):
+        real = tmp_path / "real.txt"
+        real.write_text("old")
+        link = tmp_path / "link.txt"
+        link.symlink_to(real)
+        common.safe_write(link, "updated", bounds=tmp_path)
+        assert real.read_text() == "updated"
+
+    def test_symlink_with_bounds_outside(self, tmp_path):
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        real = outside / "real.txt"
+        real.write_text("old")
+        bounded = tmp_path / "bounded"
+        bounded.mkdir()
+        link = bounded / "link.txt"
+        link.symlink_to(real)
+        with pytest.raises(ValueError, match="outside allowed boundary"):
+            common.safe_write(link, "new", bounds=bounded)
+        assert real.read_text() == "old"
+
+    def test_follow_symlinks_false_rejects(self, tmp_path):
+        real = tmp_path / "real.txt"
+        real.write_text("old")
+        link = tmp_path / "link.txt"
+        link.symlink_to(real)
+        with pytest.raises(ValueError, match="Refusing to follow symlink"):
+            common.safe_write(link, "new", follow_symlinks=False)
+
+    def test_no_stale_tmp_on_failure(self, tmp_path, monkeypatch):
+        target = tmp_path / "out.txt"
+
+        def failing_replace(src, dst):
+            raise OSError("simulated failure")
+
+        monkeypatch.setattr("os.replace", failing_replace)
+        with pytest.raises(OSError, match="simulated failure"):
+            common.safe_write(target, "content")
+        remaining = list(tmp_path.iterdir())
+        assert not any(str(f).endswith(".tmp") for f in remaining)
+
+
+# ---------------------------------------------------------------------------
+# safe_write_json
+# ---------------------------------------------------------------------------
+
+class TestSafeWriteJson:
+    def test_writes_valid_json(self, tmp_path):
+        import json
+        target = tmp_path / "data.json"
+        common.safe_write_json(target, {"key": "value"})
+        content = target.read_text()
+        assert content.endswith("\n")
+        assert json.loads(content) == {"key": "value"}
+
+    def test_custom_indent(self, tmp_path):
+        target = tmp_path / "data.json"
+        common.safe_write_json(target, {"a": 1}, indent=4)
+        assert '    "a": 1' in target.read_text()
+
+    def test_with_bounds(self, tmp_path):
+        target = tmp_path / "data.json"
+        common.safe_write_json(target, {"a": 1}, bounds=tmp_path)
+        assert target.exists()
+
+    def test_unicode_preserved(self, tmp_path):
+        target = tmp_path / "data.json"
+        common.safe_write_json(target, {"emoji": "\U0001f600"})
+        assert "\U0001f600" in target.read_text()

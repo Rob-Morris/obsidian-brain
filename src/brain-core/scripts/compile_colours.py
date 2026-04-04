@@ -25,7 +25,7 @@ import os
 import sys
 from datetime import datetime, timezone
 
-from _common import find_vault_root
+from _common import find_vault_root, safe_write, safe_write_json
 
 
 # ---------------------------------------------------------------------------
@@ -711,10 +711,7 @@ def write_graph_json(vault_root, color_groups):
     ]
     existing["colorGroups"] = user_groups + color_groups
 
-    os.makedirs(os.path.dirname(graph_path), exist_ok=True)
-    with open(graph_path, "w", encoding="utf-8") as f:
-        json.dump(existing, f, indent=2, ensure_ascii=False)
-        f.write("\n")
+    safe_write_json(graph_path, existing, bounds=vault_root)
 
     return graph_path
 
@@ -736,9 +733,7 @@ def generate(vault_root, router=None):
     css = render_css(assignments)
 
     css_path = os.path.join(vault_root, OUTPUT_REL)
-    os.makedirs(os.path.dirname(css_path), exist_ok=True)
-    with open(css_path, "w", encoding="utf-8") as f:
-        f.write(css)
+    safe_write(css_path, css, bounds=vault_root)
 
     color_groups = render_graph_color_groups(assignments)
     write_graph_json(vault_root, color_groups)

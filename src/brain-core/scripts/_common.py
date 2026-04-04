@@ -8,6 +8,7 @@ All brain-core scripts import from this module rather than duplicating
 these functions.
 """
 
+import json
 import os
 import re
 import sys
@@ -355,8 +356,7 @@ def replace_wikilinks_in_vault(vault_root, pattern, replacement):
             continue
         new_content, count = pattern.subn(replacement, content)
         if count > 0:
-            with open(fpath, "w", encoding="utf-8") as f:
-                f.write(new_content)
+            safe_write(fpath, new_content, bounds=vault_root)
             total += count
     return total
 
@@ -938,3 +938,77 @@ def match_artefact(artefacts, type_key):
 def tokenise(text):
     """Lowercase, split on non-alphanumeric, strip tokens < 2 chars."""
     return [t for t in _TOKEN_RE.findall(text.lower()) if len(t) >= 2]
+
+
+# ---------------------------------------------------------------------------
+# Safe file writes — atomic, symlink-aware, bounds-checked
+# ---------------------------------------------------------------------------
+
+def resolve_and_check_bounds(path, bounds, *, follow_symlinks=True):
+    """Resolve symlinks and verify the target is within *bounds*.
+
+    Returns the resolved real path as a string.
+    Raises ValueError if the target resolves outside bounds or if
+    *follow_symlinks* is False and the path is a symlink.
+    """
+    target = str(path)
+    if follow_symlinks:
+        target = os.path.realpath(target)
+    elif os.path.islink(target):
+        raise ValueError(f"Refusing to follow symlink: {path}")
+
+    real_bounds = os.path.realpath(str(bounds))
+    # Append os.sep so "/home/foo" doesn't match "/home/foobar"
+    if target != real_bounds and not target.startswith(real_bounds + os.sep):
+        raise ValueError(
+            f"Path {target} resolves outside allowed boundary {real_bounds}"
+        )
+    return target
+
+
+def safe_write(path, content, *, encoding="utf-8", bounds=None,
+               follow_symlinks=True, exclusive=False):
+    """Atomic file write with optional symlink resolution and bounds checking.
+
+    Writes *content* to a temporary file in the same directory, fsyncs, then
+    atomically replaces the target via ``os.replace``.  Returns the resolved
+    path that was actually written to.
+    """
+    if bounds is not None:
+        target = resolve_and_check_bounds(path, bounds,
+                                          follow_symlinks=follow_symlinks)
+    elif follow_symlinks:
+        target = os.path.realpath(str(path))
+    else:
+        target = str(path)
+        if os.path.islink(target):
+            raise ValueError(f"Refusing to follow symlink: {path}")
+
+    if exclusive and os.path.exists(target):
+        raise FileExistsError(f"File already exists: {target}")
+
+    os.makedirs(os.path.dirname(target) or ".", exist_ok=True)
+
+    tmp_path = f"{target}.{os.getpid()}.tmp"
+    try:
+        with open(tmp_path, "w", encoding=encoding) as f:
+            f.write(content)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, target)
+    except BaseException:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+    return target
+
+
+def safe_write_json(path, data, *, indent=2, bounds=None,
+                    follow_symlinks=True):
+    """Atomic JSON write.  Serialises *data* and delegates to ``safe_write``."""
+    content = json.dumps(data, indent=indent, ensure_ascii=False) + "\n"
+    return safe_write(path, content, bounds=bounds,
+                      follow_symlinks=follow_symlinks)

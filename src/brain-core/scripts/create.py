@@ -24,6 +24,7 @@ from _common import (
     match_artefact,
     parse_frontmatter,
     resolve_body_file,
+    safe_write,
     serialize_frontmatter,
     title_to_filename,
     title_to_slug,
@@ -151,8 +152,7 @@ def create_artefact(vault_root, router, type_key, title, body="", frontmatter_ov
     rel_path = os.path.join(folder, filename)
     abs_path = os.path.join(vault_root, rel_path)
     content = serialize_frontmatter(fields, body=final_body)
-    with open(abs_path, "x", encoding="utf-8") as f:
-        f.write(content)
+    safe_write(abs_path, content, bounds=vault_root, exclusive=True)
 
     return {"path": rel_path, "type": artefact["type"], "title": title}
 

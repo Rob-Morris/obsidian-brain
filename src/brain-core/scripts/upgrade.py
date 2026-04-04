@@ -28,6 +28,25 @@ from pathlib import Path
 from typing import Optional
 
 
+def _safe_write(path, content):
+    """Atomic write: tmp → fsync → os.replace."""
+    target = os.path.realpath(str(path))
+    os.makedirs(os.path.dirname(target) or ".", exist_ok=True)
+    tmp = f"{target}.{os.getpid()}.tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(content)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, target)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -241,9 +260,7 @@ def run_pending_migrations(vault_root: str) -> list[dict]:
     results = _run_migrations(vault_root, "0.0.0", current_version)
 
     # Record that all migrations up to current_version have been applied
-    os.makedirs(os.path.dirname(marker), exist_ok=True)
-    with open(marker, "w", encoding="utf-8") as f:
-        f.write(current_version + "\n")
+    _safe_write(marker, current_version + "\n")
 
     return results
 

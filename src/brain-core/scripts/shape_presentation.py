@@ -19,7 +19,7 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 
-from _common import find_vault_root, parse_frontmatter, serialize_frontmatter, slug_to_title, title_to_filename
+from _common import find_vault_root, parse_frontmatter, safe_write, serialize_frontmatter, slug_to_title, title_to_filename
 
 
 # ---------------------------------------------------------------------------
@@ -110,9 +110,7 @@ def shape(vault_root, params):
             f"[[{os.path.splitext(source)[0]}|{os.path.basename(source)}]]"
         )
 
-        os.makedirs(os.path.dirname(abs_path), exist_ok=True)
-        with open(abs_path, "w", encoding="utf-8") as f:
-            f.write(content)
+        safe_write(abs_path, content, bounds=str(vault_root))
         created = True
 
     # Launch live preview
