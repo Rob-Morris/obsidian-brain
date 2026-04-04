@@ -14,7 +14,7 @@ The hook source is tracked at `.githooks/pre-commit`. To activate:
 make hooks      # sets git to use .githooks/ directory
 ```
 
-Adding a new numbered item to the canary file automatically enforces it — no hook changes needed. See [standards/canary.md](standards/canary.md) for how canaries work generally.
+Adding a new numbered item to the canary file automatically enforces it — no hook changes needed. See [canary.md](canary.md) for how canaries work generally.
 
 ## Documentation Layers
 
@@ -29,7 +29,7 @@ Brain has multiple documentation layers, each serving a different audience. Keep
 | `specification.md` | Contributors | Design rationale, architecture, what ships in the vault |
 | `tooling.md` | Contributors | Technical design decisions (DD index) |
 | `changelog.md` | Everyone | Version history |
-| `standards/canary.md` | Contributors | How canaries work |
+| `canary.md` | Contributors | How canaries work |
 
 ### Brain-core docs (in `src/brain-core/`, ship as `.brain-core/` in vaults)
 
@@ -104,10 +104,6 @@ My vault: `/path/to/my/vault/`
 
 After committing brain-core changes in this repo, follow `.canaries/post-core-commit.local.md` to propagate and update vault documentation.
 ```
-
-## Standards vs Docs
-
-`docs/standards/` contains generic, reusable patterns — things that could be adopted by any project without modification. The rest of `docs/` contains brain-specific conventions, guides, and references. When a pattern emerges from brain-specific work but has no inherent dependency on brain, extract the generic version into `docs/standards/` and keep project-specific usage in `docs/`.
 
 ## Repository Structure
 

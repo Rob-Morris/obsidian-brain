@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.19.3 — 2026-04-04
+
+- **Refactor:** Retired `docs/standards/` subfolder — single-file folder wasn't earning its keep. `canary.md` moved up to `docs/canary.md`. References updated in `contributing.md` and `specification.md`.
+
 ## v0.19.2 — 2026-04-04
 
 - **Fix:** Migration scripts failing during MCP upgrade due to stale module cache. `_run_migrations` now reloads `_common` and `rename` before executing migrations, so newly-added imports (e.g. `safe_write`) resolve against the freshly-copied files rather than the pre-upgrade cache.
