@@ -56,6 +56,14 @@ Follow [[.brain-core/standards/provenance]], including transcript linking for Q&
 **Transcripts:** [[transcript-1|Session 1]], [[transcript-2|Session 2]]
 ```
 
+## Shaping
+
+**Flavour:** Convergent
+**Bar:** All design decisions are resolved, trade-offs documented, and the design is specific enough to plan against.
+**Completion status:** `ready`
+
+See [[.brain-core/standards/shaping]] for the shaping process.
+
 ## How to Write Designs
 
 - **Link to source.** Add an **Origin** line linking to the source idea doc.

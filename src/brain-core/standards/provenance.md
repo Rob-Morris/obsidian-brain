@@ -24,7 +24,8 @@ Individual artefact taxonomy files may document specific provenance patterns (e.
 When an artefact is shaped through Q&A (producing a shaping transcript), link bidirectionally:
 
 **On the shaping transcript** (already required by the shaping-transcript taxonomy):
-- First line after frontmatter: `Q&A transcript for [[Source/Path|Source Title]].`
+- First line after frontmatter: `Shaping transcript for [[Source/Path|Source Title]].`
+- Multi-source transcripts list all sources: `Shaping transcript for [[Source1|Title1]], [[Source2|Title2]].`
 
 **On the shaped artefact:**
 - Add a `**Transcripts:**` line in the body listing all shaping sessions:
@@ -33,3 +34,7 @@ When an artefact is shaped through Q&A (producing a shaping transcript), link bi
   ```
 
 This applies to any artefact type that gets shaped — designs, ideas, research, wiki, or anything else. The transcript list grows as new sessions occur.
+
+## Adoption (idea → design)
+
+When an idea is adopted into a downstream artefact (design, project, etc.), this is a provenance event — not a status-driven transition. Record the lineage using the standard spinout pattern above (origin link on the new artefact, callout on the idea). The idea's status changes to `adopted` as a consequence of the provenance event, but provenance may accompany a status change without prescribing it.

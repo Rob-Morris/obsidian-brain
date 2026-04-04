@@ -72,7 +72,7 @@ Pick the artefact type that fits, create the file in the right folder with the r
 | Plan | `_Temporal/Plans/yyyy-mm/` | `yyyymmdd-plan~{Title}.md` |
 | Report | `_Temporal/Reports/yyyy-mm/` | `yyyymmdd-report~{Title}.md` |
 | Research | `_Temporal/Research/yyyy-mm/` | `yyyymmdd-research~{Title}.md` |
-| Shaping transcript | `_Temporal/Shaping Transcripts/yyyy-mm/` | `yyyymmdd-{sourcedoctype}-transcript~{Title}.md` |
+| Shaping transcript | `_Temporal/Shaping Transcripts/yyyy-mm/` | `yyyymmdd-shaping-transcript~{Title}.md` |
 | Snippet | `_Temporal/Snippets/yyyy-mm/` | `yyyymmdd-snippet~{Title}.md` |
 | Thought | `_Temporal/Thoughts/yyyy-mm/` | `yyyymmdd-thought~{Title}.md` |
 | Transcript | `_Temporal/Transcripts/yyyy-mm/` | `yyyymmdd-transcript~{Title}.md` |
@@ -118,12 +118,12 @@ Why the split? Obsidian's backlinks and graph view work from body wikilinks. Sea
 Some types have a lifecycle. Status values are defined per type:
 
 - **Designs:** `proposed` → `shaping` → `ready` → `active` → `implemented` | `parked` | `rejected`
-- **Ideas:** `new` → `developing` → `graduated` | `parked`
-- **Idea Logs:** `open` → `graduated` | `parked`
-- **People:** `active` → `parked`
-- **Tasks:** `open` → `in-progress` → `done` | `blocked`
+- **Ideas:** `new` → `shaping` → `ready` → `adopted` | `parked`
+- **Idea Logs:** `open` → `adopted` | `parked`
+- **People:** `active` → `shaping` → `parked`
+- **Tasks:** `open` → `shaping` → `in-progress` → `done` | `blocked`
 - **Writing:** `draft` → `editing` → `review` → `published` | `parked`
-- **Plans:** `draft` → `approved` → `implementing` → `completed`
+- **Plans:** `draft` → `shaping` → `approved` → `implementing` → `completed`
 
 Not every type has status. Wiki, Notes, Documentation, and most temporal types are evergreen.
 
@@ -158,7 +158,7 @@ Published writing moves to `Writing/+Published/` with date-prefixed filenames. F
 Living artefacts that reach a terminal status move to a `+Status/` folder within their type directory. These files remain searchable and indexed — no rename, no `archiveddate`. Each type defines its own terminal statuses and `+Status` folders:
 
 - **Designs:** `+Implemented/`, `+Rejected/`
-- **Ideas:** `+Graduated/`
+- **Ideas:** `+Adopted/`
 - **Tasks:** `+Done/`
 - **Workspaces:** `+Completed/`
 - **Writing:** `+Published/`
@@ -221,12 +221,12 @@ If your vault has the Brain MCP server running, you get eight tools:
 - **brain_list** — enumerate artefacts exhaustively by type, date range, or tag (not relevance-ranked; use when completeness matters)
 - **brain_create** — create a new artefact (additive, safe to auto-approve)
 - **brain_edit** — edit, append, or prepend to an existing artefact (by path or basename); optional `target` parameter for section-level operations; frontmatter merge strategy follows the operation verb (edit overwrites, append/prepend extend lists)
-- **brain_action** — compile the router, build the search index, rename, delete, convert files, fix broken links, sync definitions, register/unregister workspaces
+- **brain_action** — compile the router, build the search index, rename, delete, convert files, fix broken links, sync definitions, register/unregister workspaces, start shaping sessions
 - **brain_process** — classify content against artefact types, resolve duplicates, or run the full ingest pipeline (classify → resolve → create/update)
 
 For structural compliance (naming, frontmatter, archives), run `python3 .brain-core/scripts/check.py` or use `brain_read(resource="compliance")` via MCP.
 
-Without MCP, use `.brain-core/scripts/` directly (`read.py`, `search_index.py`, `create.py`, `edit.py`, `rename.py`, `compile_router.py`, `check.py`, `fix_links.py`, `sync_definitions.py`, `upgrade.py`, `workspace_registry.py`, `migrate_naming.py`, `process.py`, `session.py`, `build_index.py`, `shape_presentation.py`). Without scripts, fall back to the lean router (`_Config/router.md`), then plain file navigation.
+Without MCP, use `.brain-core/scripts/` directly (`read.py`, `search_index.py`, `create.py`, `edit.py`, `rename.py`, `compile_router.py`, `check.py`, `fix_links.py`, `sync_definitions.py`, `upgrade.py`, `workspace_registry.py`, `migrate_naming.py`, `process.py`, `session.py`, `build_index.py`, `shape_presentation.py`, `start_shaping.py`). Without scripts, fall back to the lean router (`_Config/router.md`), then plain file navigation.
 
 ## Further Reading
 

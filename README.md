@@ -1,7 +1,7 @@
 # Obsidian Brain
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-0.18.16-blue)
+![Version](https://img.shields.io/badge/version-0.19.0-blue)
 ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED)
 ![Python](https://img.shields.io/badge/python-≥3.10-3776AB?logo=python&logoColor=white)
 ![MCP](https://img.shields.io/badge/MCP-server-green?logo=data:image/svg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0id2hpdGUiPjxwYXRoIGQ9Ik0xMiAyQzYuNDggMiAyIDYuNDggMiAxMnM0LjQ4IDEwIDEwIDEwIDEwLTQuNDggMTAtMTBTMTcuNTIgMiAxMiAyem0wIDE4Yy00LjQyIDAtOC0zLjU4LTgtOHMzLjU4LTggOC04IDggMy41OCA4IDgtMy41OCA4LTggOHptLTEtMTNoMnY2aC0yem0wIDhoMnYyaC0yeiIvPjwvc3ZnPg==)
@@ -150,7 +150,7 @@ python3 .brain-core/scripts/init.py --project /path/to/project
 ## Documentation
 
 - [Quick-Start Guide](src/brain-core/guide.md) — day-to-day essentials (ships as `.brain-core/guide.md` in vaults)
-- [User Guide](docs/user-guide.md) — workflows, idea graduation, building knowledge
+- [User Guide](docs/user-guide.md) — workflows, idea adoption, building knowledge
 - [User Reference](docs/user-reference.md) — every artefact type, configuration point, and convention
 - [Tooling](docs/tooling.md) — scripts, MCP server, development setup
 - [Specification](docs/specification.md) — design rationale and structural decisions

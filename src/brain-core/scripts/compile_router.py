@@ -98,8 +98,8 @@ def parse_terminal_statuses(content, status_enum):
 
     Looks for backtick-delimited status values mentioned in terminal status
     or archiving instructions (e.g. "reaches `implemented` status",
-    "status: graduated"). Cross-references against status_enum when the
-    section uses natural language (e.g. "Graduated ideas are archived").
+    "status: adopted"). Cross-references against status_enum when the
+    section uses natural language (e.g. "Adopted ideas remain searchable").
     """
     terminal_match = re.search(
         r"^## (?:Terminal Status|Archiving)\s*\n(.*?)(?=^## |\Z)",

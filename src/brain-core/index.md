@@ -50,7 +50,7 @@ When you notice gaps, ambiguities, or opportunities to learn more, ask. Small, n
 ## Tooling
 
 Prefer MCP tools (`brain_session`, `brain_read`, `brain_search`, `brain_create`, `brain_edit`, `brain_action`, `brain_process`) if available.
-Without MCP: use `.brain-core/scripts/` directly (compile_router, build_index, search_index, read, create, edit, rename, check, process, upgrade, workspace_registry, migrate_naming).
+Without MCP: use `.brain-core/scripts/` directly (compile_router, build_index, search_index, read, create, edit, rename, check, process, upgrade, workspace_registry, migrate_naming, start_shaping).
 Without either: navigate via wikilinks from the router and this document.
 
 ## How It Works
@@ -72,4 +72,5 @@ Each vault has a **router** — a single file an agent reads every session. The 
 - Archiving living artefacts — [[.brain-core/standards/archiving]]
 - Hub pattern for grouping artefacts — [[.brain-core/standards/hub-pattern]]
 - Subfolders within living artefact folders — [[.brain-core/standards/subfolders]]
+- Artefact shaping process — [[.brain-core/standards/shaping]]
 - User preferences — [[.brain-core/standards/user-preferences]]

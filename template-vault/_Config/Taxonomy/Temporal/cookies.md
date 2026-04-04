@@ -36,6 +36,14 @@ tags:
 ---
 ```
 
+## Shaping
+
+**Flavour:** Discovery
+**Bar:** Clear what was awarded and why.
+**Completion status:** `ready`
+
+See [[.brain-core/standards/shaping]] for the shaping process.
+
 ## Trigger
 
 After completing work the user is happy with. Look for signals: explicit praise, "ship it", "that's perfect", or — the gold standard — an actual cookie emoji or the word "cookie."

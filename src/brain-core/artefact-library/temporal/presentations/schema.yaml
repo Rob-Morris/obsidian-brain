@@ -4,3 +4,6 @@ required:
   tags:
     type: array
     contains: "presentation"
+optional:
+  status:
+    enum: [shaping, ready]

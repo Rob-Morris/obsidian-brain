@@ -1,6 +1,6 @@
 # Archiving Living Artefacts
 
-When a living artefact reaches a terminal status (e.g. `implemented` for designs, `graduated` for ideas), it can be moved to `{Type}/_Archive/` to keep the active folder clean. The general pattern:
+When a living artefact reaches a terminal status (e.g. `implemented` for designs, `adopted` for ideas), it can be moved to `{Type}/_Archive/` to keep the active folder clean. The general pattern:
 
 1. Set the terminal status in frontmatter
 2. Add `archiveddate: YYYY-MM-DD` to frontmatter

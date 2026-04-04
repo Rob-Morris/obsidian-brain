@@ -26,6 +26,14 @@ tags:
 ---
 ```
 
+## Shaping
+
+**Flavour:** Discovery
+**Bar:** The thinking has been fully expressed.
+**Completion status:** `ready`
+
+See [[.brain-core/standards/shaping]] for the shaping process.
+
 ## Trigger
 
 When a raw thought surfaces during a session, capture it before it slips away.

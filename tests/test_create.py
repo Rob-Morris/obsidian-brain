@@ -149,13 +149,13 @@ class TestCreateArtefact:
     def test_frontmatter_overrides(self, vault, router):
         result = create.create_artefact(
             str(vault), router, "ideas", "Override Test",
-            frontmatter_overrides={"status": "developing"}
+            frontmatter_overrides={"status": "shaping"}
         )
         abs_path = os.path.join(str(vault), result["path"])
         with open(abs_path) as f:
             content = f.read()
         fields, _ = parse_frontmatter(content)
-        assert fields["status"] == "developing"
+        assert fields["status"] == "shaping"
         # Type should still be forced from artefact definition
         assert fields["type"] == "living/ideas"
 

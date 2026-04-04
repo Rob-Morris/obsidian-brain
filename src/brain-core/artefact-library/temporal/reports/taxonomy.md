@@ -28,6 +28,14 @@ tags:
 ---
 ```
 
+## Shaping
+
+**Flavour:** Convergent
+**Bar:** Findings are complete and coherent.
+**Completion status:** `ready`
+
+See [[.brain-core/standards/shaping]] for the shaping process.
+
 ## Trigger
 
 After completing a detailed process — research, diagnosis, investigation, analysis, migration, audit, or any extended multi-step activity — distil what it meant into a report. The process provides the raw material; the report provides the interpretation.

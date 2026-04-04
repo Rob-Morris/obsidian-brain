@@ -22,6 +22,14 @@ tags:
 ---
 ```
 
+## Shaping
+
+**Flavour:** Convergent
+**Bar:** Findings are complete and coherent.
+**Completion status:** `ready`
+
+See [[.brain-core/standards/shaping]] for the shaping process.
+
 ## Trigger
 
 After completing a detailed process, distil what it meant into a report.

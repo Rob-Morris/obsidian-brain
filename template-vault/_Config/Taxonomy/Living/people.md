@@ -34,7 +34,16 @@ Every file related to a person should use the nested person tag, e.g. `person/al
 | Status | Meaning |
 |---|---|
 | `active` | Default. Actively maintained. |
+| `shaping` | The person card is being shaped — filling in the picture through discovery. |
 | `parked` | No longer in regular contact. Preserved for reference. |
+
+## Shaping
+
+**Flavour:** Discovery
+**Bar:** Nothing more the user wants to record right now.
+**Completion status:** `active`
+
+See [[.brain-core/standards/shaping]] for the shaping process.
 
 ## Discovery
 

@@ -92,12 +92,12 @@ Frontmatter fields should be **queryable metadata** — fields agents and Datavi
 
 Artefact types that have a lifecycle should include a `status` field in frontmatter. Each type defines its own status values. Common patterns:
 
-- **Ideas:** `new` → `developing` → `graduated` → `parked`
+- **Ideas:** `new` → `shaping` → `ready` → `adopted` | `parked`
 - **Designs:** `proposed` → `shaping` → `ready` → `active` → `implemented` | `parked` | `rejected`
-- **Tasks:** `open` → `in-progress` → `done` | `blocked`
+- **Tasks:** `open` → `shaping` → `in-progress` → `done` | `blocked`
 - **Workspaces:** `active` → `parked` → `completed` (terminal → `+Completed/`)
-- **Plans:** `draft` → `approved` → `implementing` → `completed`
-- **Idea Logs:** `open` → `graduated` / `parked`
+- **Plans:** `draft` → `shaping` → `approved` → `implementing` → `completed`
+- **Idea Logs:** `open` → `adopted` / `parked`
 
 ## Installing a type
 

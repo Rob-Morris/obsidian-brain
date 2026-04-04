@@ -327,17 +327,17 @@ class TestParseTerminalStatuses:
         assert result == ["implemented"]
 
     def test_cross_reference_capitalised_enum(self, tmp_path):
-        """Detects 'graduated' from 'Graduated ideas remain searchable'."""
+        """Detects 'adopted' from 'Adopted ideas remain searchable'."""
         f = tmp_path / "tax.md"
         f.write_text(
             "# Ideas\n\n"
             "## Terminal Status\n\n"
-            "Graduated ideas remain searchable in the +Graduated/ folder.\n\n"
+            "Adopted ideas remain searchable in the +Adopted/ folder.\n\n"
             "## Naming\n"
         )
-        enum = ["new", "graduated", "parked"]
+        enum = ["new", "adopted", "parked"]
         result = cr.parse_terminal_statuses(f.read_text(), enum)
-        assert result == ["graduated"]
+        assert result == ["adopted"]
 
     def test_no_false_positive_on_incidental_word(self, tmp_path):
         """Does not match 'active' from 'active folder clean'."""

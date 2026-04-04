@@ -28,6 +28,14 @@ tags:
 ---
 ```
 
+## Shaping
+
+**Flavour:** Convergent
+**Bar:** Investigation is thorough and conclusions clear.
+**Completion status:** `ready`
+
+See [[.brain-core/standards/shaping]] for the shaping process.
+
 ## Template
 
 [[_Config/Templates/Temporal/Research]]

@@ -13,9 +13,18 @@ Brain-native tasks are deliberately minimal. They don't compete with dedicated t
 | Status | Meaning |
 |---|---|
 | `open` | Default. The task exists but work hasn't started. |
+| `shaping` | The task is being shaped — clarifying scope and requirements before work begins. |
 | `in-progress` | Someone (human or agent) is actively working on this. |
 | `done` | Completed. Terminal — archive. |
 | `blocked` | Can't proceed — dependency, question, or external blocker. |
+
+## Shaping
+
+**Flavour:** Convergent
+**Bar:** Clear and ready to be performed.
+**Completion status:** The type's normal working status (e.g. `open`)
+
+See [[.brain-core/standards/shaping]] for the shaping process.
 
 ## Claiming Tasks
 
@@ -95,7 +104,7 @@ Board tasks: `{ParentType}~{Name}.md` (e.g. `Design~Brain Inbox.md`).
 type: living/task
 tags:
   - task
-status: open                 # open | in-progress | done | blocked
+status: open                 # open | shaping | in-progress | done | blocked
 ---
 ```
 

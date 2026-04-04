@@ -78,6 +78,7 @@ import edit
 import obsidian_cli
 import session
 import shape_presentation
+import start_shaping
 import upgrade
 import migrate_naming
 import workspace_registry
@@ -164,7 +165,7 @@ def _read_disk_version(vault_root: str) -> str | None:
 _SCRIPT_MODULES = [
     "_common", "compile_router", "compile_colours", "build_index",
     "search_index", "check", "read", "create", "edit", "rename", "obsidian_cli",
-    "session", "shape_presentation", "upgrade", "migrate_naming",
+    "session", "shape_presentation", "start_shaping", "upgrade", "migrate_naming",
     "workspace_registry", "process", "fix_links", "sync_definitions", "config",
 ]
 
@@ -1052,7 +1053,7 @@ def brain_create(type: str, title: str, body: str = "", body_file: str = "", fro
                    The file is read and deleted after successful creation.
                    Use for large content to keep MCP call displays compact.
                    Mutually exclusive with body.
-      frontmatter — optional frontmatter field overrides (e.g. {"status": "developing"})
+      frontmatter — optional frontmatter field overrides (e.g. {"status": "shaping"})
       parent     — optional project name to group this artefact under (e.g. "Brain").
                    Living types only; ignored for temporal types.
 
@@ -1190,7 +1191,7 @@ def brain_edit(operation: Literal["edit", "append", "prepend"], path: str, body:
 def brain_action(
     action: Literal[
         "compile", "build_index", "rename", "delete", "convert",
-        "shape-presentation", "upgrade", "migrate_naming",
+        "shape-presentation", "start-shaping", "upgrade", "migrate_naming",
         "register_workspace", "unregister_workspace", "fix-links",
         "sync_definitions",
     ],
@@ -1205,6 +1206,7 @@ def brain_action(
       delete               — delete a file and clean wikilinks (params: {path})
       convert              — convert artefact to different type (params: {path, target_type}, optional: {parent})
       shape-presentation   — create presentation + launch live preview (params: {source, slug})
+      start-shaping        — bootstrap shaping session (params: {target}, optional: {title})
       upgrade              — upgrade brain-core from source (params: {source}, optional: {dry_run, force})
       migrate_naming       — migrate vault filenames to generous naming conventions (optional: {dry_run})
       register_workspace   — register a linked workspace (params: {slug, path})
@@ -1317,6 +1319,16 @@ def brain_action(
             except (ValueError, FileNotFoundError) as e:
                 return _fmt_error(str(e))
 
+        elif action == "start-shaping":
+            try:
+                result = start_shaping.start_shaping(_vault_root, _router, params)
+                if isinstance(result, dict) and "error" in result:
+                    return _fmt_error(result["error"])
+                _mark_index_pending(result["transcript_path"], type_hint=result.get("type"))
+                return json.dumps(result, indent=2)
+            except (ValueError, FileNotFoundError) as e:
+                return _fmt_error(str(e))
+
         elif action == "register_workspace":
             if not params or "slug" not in params or "path" not in params:
                 return _fmt_error("register_workspace requires params: {slug, path}")
@@ -1415,9 +1427,9 @@ def brain_action(
 
         else:
             valid = ["compile", "build_index", "rename", "delete", "convert",
-                     "shape-presentation", "upgrade", "migrate_naming",
-                     "register_workspace", "unregister_workspace", "fix-links",
-                     "sync_definitions"]
+                     "shape-presentation", "start-shaping", "upgrade",
+                     "migrate_naming", "register_workspace",
+                     "unregister_workspace", "fix-links", "sync_definitions"]
             return _fmt_error(f"Unknown action '{action}'. Valid: {', '.join(valid)}")
 
     except Exception as e:
