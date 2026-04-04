@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.18.16 — 2026-04-04
+
+- **Feature:** New `brain_list` MCP tool — exhaustive enumeration of vault artefacts by type, date range, or tag. Unlike `brain_search` (BM25, relevance-ranked, capped by `top_k`), `brain_list` filters the in-memory index directly and returns all matching artefacts up to a configurable cap (default 500). Parameters: `type`, `since`/`until` (ISO date strings), `tag`, `top_k`, `sort` (`date_desc`, `date_asc`, `title`). Added to all built-in profiles (`reader`, `contributor`, `operator`).
+
 ## v0.18.15 — 2026-04-04
 
 - **Fix:** Router staleness detection now covers config resources (skills, plugins, styles, memories), not just artefact types. Previously, adding a new skill directory or memory file to disk while the server was running went undetected until something else triggered a recompile. New `resource_counts()` in `compile_router.py` centralises the discovery-to-router-key mapping; `count_memories()` provides a lightweight listdir-only count (skips trigger parsing).

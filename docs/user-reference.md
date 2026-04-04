@@ -1015,6 +1015,12 @@ If your vault runs the Brain MCP server (`.brain-core/mcp/server.py`), seven too
 - Returns ranked results with paths, titles, scores, and text snippets
 - Uses Obsidian CLI when available, falls back to BM25 index
 
+**brain_list** (safe, no side effects)
+- List vault artefacts exhaustively — not relevance-ranked
+- Filter by `type`, `since`/`until` (ISO dates e.g. `"2026-03-20"`), `tag`; cap with `top_k` (default 500)
+- Sort by `"date_desc"` (default), `"date_asc"`, or `"title"`
+- Use instead of `brain_search` when completeness matters (e.g. "all research from the last 2 weeks")
+
 **brain_create** (additive, safe to auto-approve)
 - Create a new vault artefact from type (key, full type, or singular form — e.g. `"ideas"`, `"living/ideas"`, or `"idea"`), title, and optional body/frontmatter overrides. Optional `parent` parameter places living artefacts in a project subfolder (e.g. `parent="Brain"` → `Ideas/Brain/`; ignored for temporal types)
 - Resolves template and naming pattern from the compiled router
