@@ -34,7 +34,7 @@ Most artefacts lean one way, but a session can blend both — a design might sta
 
 Use `brain_action("start_shaping", {target, ...})` to commence shaping. This handles the mechanical setup:
 
-1. **Identifies or creates the artefact** — finds an existing artefact by name/path, or creates a new one in `shaping` status
+1. **Identifies the artefact** — resolves an existing artefact by name or path
 2. **Creates the transcript** — linked to the artefact, with provenance in both directions
 3. **Sets status** — moves the artefact to `shaping` if not already there
 
