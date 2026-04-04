@@ -3,6 +3,7 @@
 import importlib
 import json
 import os
+import sys
 import time
 from unittest.mock import patch
 
@@ -1756,6 +1757,46 @@ class TestBrainActionUpgrade:
         assert server._router is not None
         assert server._index is not None
 
+    def test_migration_with_stale_common_cache(self, initialized, source):
+        """Migration importing from _common must work even if sys.modules has a stale cache."""
+        import types
+
+        # Bump source to trigger a migration
+        (source / "VERSION").write_text("0.9.0\n")
+
+        # Write a migration that imports safe_write from _common
+        migrations_dir = source / "scripts" / "migrations"
+        migrations_dir.mkdir(parents=True, exist_ok=True)
+        (migrations_dir / "migrate_to_0_9_0.py").write_text(
+            "import os, sys\n"
+            "sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))\n"
+            "from _common import safe_write\n"
+            "def migrate(vault_root):\n"
+            "    return {'status': 'ok'}\n"
+        )
+
+        # Inject a stub _common into sys.modules missing safe_write
+        real_common = sys.modules.get("_common")
+        stub = types.ModuleType("_common")
+        stub.__file__ = real_common.__file__ if real_common else ""
+        # Deliberately don't set stub.safe_write
+        sys.modules["_common"] = stub
+
+        try:
+            result = json.loads(server.brain_action("upgrade", {
+                "source": str(source), "force": True,
+            }))
+            assert result["status"] == "ok"
+            migration_results = result.get("migrations", [])
+            m09 = [m for m in migration_results if m.get("version") == "0.9.0"]
+            assert len(m09) == 1
+            assert m09[0]["status"] != "error", f"Migration failed: {m09[0].get('message')}"
+        finally:
+            # Restore real _common
+            if real_common is not None:
+                sys.modules["_common"] = real_common
+            else:
+                sys.modules.pop("_common", None)
 
 
 # ---------------------------------------------------------------------------
