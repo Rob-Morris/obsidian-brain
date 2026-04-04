@@ -2,6 +2,19 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.19.0 — 2026-04-03
+
+**Shaping standard** — single source of truth for iterative Q&A refinement of vault artefacts.
+
+- New standard: `.brain-core/standards/shaping.md` — defines shapeable types, two flavours (convergent/discovery), the mechanical process, and completion criteria.
+- New action: `start-shaping` — bootstraps a shaping session (sets status, creates transcript, links bidirectionally).
+- Ideas lifecycle: `developing` → `shaping`, `graduated` → `adopted`, `+Graduated/` → `+Adopted/`. Migration automatic.
+- Shaping transcript naming: `{sourcedoctype}-transcript` → `shaping-transcript`. Migration automatic.
+- Multi-source transcript linking — transcripts can reference multiple source artefacts.
+- Shaping support for 12 artefact types with defined quality bars and flavours (Designs, Ideas, Tasks, People, Plans, Presentations, Mockups, Cookies, Journal Entries, Reports, Research, Thoughts).
+- Optional `shaping` / `ready` status added to 7 previously stateless types (no default — status only appears during/after shaping).
+- Updated provenance standard: transcript linking for multi-source sessions, adoption documented as provenance pattern.
+
 ## v0.18.16 — 2026-04-04
 
 - **Feature:** New `brain_list` MCP tool — exhaustive enumeration of vault artefacts by type, date range, or tag. Unlike `brain_search` (BM25, relevance-ranked, capped by `top_k`), `brain_list` filters the in-memory index directly and returns all matching artefacts up to a configurable cap (default 500). Parameters: `type`, `since`/`until` (ISO date strings), `tag`, `top_k`, `sort` (`date_desc`, `date_asc`, `title`). Added to all built-in profiles (`reader`, `contributor`, `operator`).
