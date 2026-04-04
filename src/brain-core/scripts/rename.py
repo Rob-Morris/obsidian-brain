@@ -20,6 +20,7 @@ from _common import (
     find_vault_root,
     make_wikilink_replacer,
     replace_wikilinks_in_vault,
+    resolve_and_check_bounds,
     resolve_wikilink_stems,
 )
 
@@ -44,6 +45,8 @@ def rename_and_update_links(vault_root, source, dest):
     """
     abs_source = os.path.join(vault_root, source)
     abs_dest = os.path.join(vault_root, dest)
+    resolve_and_check_bounds(abs_source, vault_root)
+    resolve_and_check_bounds(abs_dest, vault_root)
 
     if not os.path.isfile(abs_source):
         raise FileNotFoundError(f"Source file not found: {source}")
@@ -77,6 +80,7 @@ def delete_and_clean_links(vault_root, path):
         FileNotFoundError: If the file does not exist.
     """
     abs_path = os.path.join(vault_root, path)
+    resolve_and_check_bounds(abs_path, vault_root)
     if not os.path.isfile(abs_path):
         raise FileNotFoundError(f"File not found: {path}")
 

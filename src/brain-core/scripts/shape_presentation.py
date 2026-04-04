@@ -19,7 +19,7 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 
-from _common import find_vault_root, safe_write, slug_to_title, substitute_template_vars, title_to_filename
+from _common import find_vault_root, resolve_and_check_bounds, safe_write, slug_to_title, substitute_template_vars, title_to_filename
 
 
 # ---------------------------------------------------------------------------
@@ -79,8 +79,9 @@ def shape(vault_root, params):
     source = params["source"]
     slug = params["slug"]
 
-    # Validate source exists
+    # Validate source is within vault and exists
     source_abs = os.path.join(vault_root, source)
+    resolve_and_check_bounds(source_abs, vault_root)
     if not os.path.isfile(source_abs):
         return {"error": f"Source file not found: {source}"}
 

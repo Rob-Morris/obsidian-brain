@@ -1052,7 +1052,8 @@ def brain_create(type: str, title: str, body: str = "", body_file: str = "", fro
       body       — markdown body content (optional, template body used if empty).
                    Mutually exclusive with body_file.
       body_file  — absolute path to a file containing the body content (optional).
-                   The file is read and deleted after successful creation.
+                   Must be inside the vault or the system temp directory.
+                   Temp files are deleted after reading; vault files are left in place.
                    Use for large content to keep MCP call displays compact.
                    Mutually exclusive with body.
       frontmatter — optional frontmatter field overrides (e.g. {"status": "shaping"})
@@ -1072,7 +1073,7 @@ def brain_create(type: str, title: str, body: str = "", body_file: str = "", fro
         if _router is None or _vault_root is None:
             return _fmt_error("server not initialized")
 
-        body, cleanup_path = resolve_body_file(body, body_file)
+        body, cleanup_path = resolve_body_file(body, body_file, vault_root=_vault_root)
 
         result = create.create_artefact(
             _vault_root, _router, type, title,
@@ -1109,7 +1110,8 @@ def brain_edit(operation: Literal["edit", "append", "prepend"], path: str, body:
                    Mutually exclusive with body_file.
                    Omit body for frontmatter-only changes.
       body_file  — absolute path to a file containing the body content (optional).
-                   The file is read and deleted after successful edit.
+                   Must be inside the vault or the system temp directory.
+                   Temp files are deleted after reading; vault files are left in place.
                    Use for large content to keep MCP call displays compact.
                    Mutually exclusive with body.
       frontmatter — optional frontmatter changes. Merge strategy depends on operation:
@@ -1136,7 +1138,7 @@ def brain_edit(operation: Literal["edit", "append", "prepend"], path: str, body:
         if _router is None or _vault_root is None:
             return _fmt_error("server not initialized")
 
-        body, cleanup_path = resolve_body_file(body, body_file)
+        body, cleanup_path = resolve_body_file(body, body_file, vault_root=_vault_root)
 
         if not body and not frontmatter and not target:
             return _fmt_error(f"{operation} with no body and no frontmatter changes is a no-op. "
@@ -1359,7 +1361,14 @@ def brain_action(
             if not params or "source" not in params:
                 return _fmt_error("upgrade requires params: {source} (path to source brain-core dir)")
             try:
-                source = params["source"]
+                source = os.path.realpath(params["source"])
+                # Source must be a brain-core directory to prevent arbitrary dir reads.
+                parts = source.split(os.sep)
+                if "brain-core" not in parts and ".brain-core" not in parts:
+                    return _fmt_error(
+                        "upgrade source must be a brain-core directory "
+                        "(path must contain 'brain-core' or '.brain-core')"
+                    )
                 dry_run = params.get("dry_run", False)
                 force = params.get("force", False)
                 result = upgrade.upgrade(_vault_root, source, force=force, dry_run=dry_run)

@@ -14,6 +14,7 @@ import random
 import re
 import string
 import sys
+import tempfile
 import unicodedata
 from collections import namedtuple
 from datetime import datetime, timezone
@@ -149,21 +150,37 @@ def unique_filename(folder, stem, ext=".md"):
 # Body file resolution
 # ---------------------------------------------------------------------------
 
-def resolve_body_file(body, body_file):
+def resolve_body_file(body, body_file, *, vault_root=None):
     """Return body content, reading from body_file if provided.
 
-    Raises ValueError if both are specified or the file cannot be read.
-    Returns (body, cleanup_path) — cleanup_path is the resolved absolute path
-    when body_file was used (caller decides whether to delete), else None.
+    Raises ValueError if both are specified, the file cannot be read,
+    or (when *vault_root* is set) the path resolves outside both the
+    vault and the system temp directory.
+
+    Returns (body, cleanup_path).  *cleanup_path* is set only when the
+    file was read from the system temp directory (caller should delete);
+    it is None for vault files or when body_file was not used.
     """
     if body_file and body:
         raise ValueError("Cannot specify both 'body' and 'body_file'. Use one or the other.")
     if not body_file:
         return body, None
-    abs_path = os.path.abspath(body_file)
+
+    abs_path = os.path.realpath(body_file)
+
+    in_tmp = False
+    if vault_root is not None:
+        tmp_root = os.path.realpath(tempfile.gettempdir())
+        try:
+            resolve_and_check_bounds(abs_path, tmp_root)
+            in_tmp = True
+        except ValueError:
+            # Not in tmp — must be inside vault
+            resolve_and_check_bounds(abs_path, vault_root)
+
     try:
         with open(abs_path, "r", encoding="utf-8") as f:
-            return f.read(), abs_path
+            return f.read(), abs_path if in_tmp else None
     except FileNotFoundError:
         raise ValueError(f"body_file not found: {body_file}")
     except Exception as e:

@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.19.6 — 2026-04-04
+
+- **Fix:** MCP tool handlers (`body_file`, rename, shape-presentation, upgrade) accepted unbounded filesystem paths, allowing reads/writes/deletes outside the vault. `resolve_body_file` now enforces vault-or-tmp boundary; auto-delete only fires for tmp files. Rename and shape-presentation validate paths stay within vault root. Upgrade rejects source directories without a `brain-core` path component.
+
 ## v0.19.5 — 2026-04-04
 
 - **Fix:** MCP server now handles graceful shutdown per the stdio lifecycle spec. Handles SIGTERM/SIGINT with clean exit and logs shutdown reason to stderr, so clients can distinguish a normal shutdown from a crash on reconnect.
