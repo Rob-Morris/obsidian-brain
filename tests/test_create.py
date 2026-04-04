@@ -65,7 +65,7 @@ def vault(tmp_path):
     (tax_temporal / "logs.md").write_text(
         "# Logs\n\n"
         "## Naming\n\n`log~{Title}.md` in `_Temporal/Logs/yyyy-mm/`.\n\n"
-        "## Frontmatter\n\n```yaml\n---\ntype: temporal/logs\ntags:\n  - session\n---\n```\n\n"
+        "## Frontmatter\n\n```yaml\n---\ntype: temporal/log\ntags:\n  - session\n---\n```\n\n"
         "## Template\n\n[[_Config/Templates/Temporal/Logs]]\n"
     )
 

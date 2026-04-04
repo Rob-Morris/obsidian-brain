@@ -831,3 +831,53 @@ class TestSafeWriteJson:
         target = tmp_path / "data.json"
         common.safe_write_json(target, {"emoji": "\U0001f600"})
         assert "\U0001f600" in target.read_text()
+
+
+# ---------------------------------------------------------------------------
+# match_artefact
+# ---------------------------------------------------------------------------
+
+class TestMatchArtefact:
+    """Test match_artefact against all type representations."""
+
+    @pytest.fixture
+    def artefacts(self):
+        return [
+            {"key": "ideas", "type": "living/ideas", "frontmatter_type": "living/idea"},
+            {"key": "journal-entries", "type": "living/journal-entries", "frontmatter_type": "living/journal-entry"},
+            {"key": "wiki", "type": "living/wiki", "frontmatter_type": "living/wiki"},
+            {"key": "research", "type": "temporal/research", "frontmatter_type": "temporal/research"},
+            {"key": "logs", "type": "temporal/logs", "frontmatter_type": "temporal/log"},
+            {"key": "people", "type": "living/people", "frontmatter_type": "living/person"},
+        ]
+
+    def test_match_by_key(self, artefacts):
+        assert common.match_artefact(artefacts, "ideas")["key"] == "ideas"
+
+    def test_match_by_full_type(self, artefacts):
+        assert common.match_artefact(artefacts, "living/ideas")["key"] == "ideas"
+
+    def test_match_by_frontmatter_type(self, artefacts):
+        assert common.match_artefact(artefacts, "living/idea")["key"] == "ideas"
+
+    def test_match_by_bare_singular(self, artefacts):
+        """Bare singular 'idea' matches frontmatter_type 'living/idea'."""
+        assert common.match_artefact(artefacts, "idea")["key"] == "ideas"
+
+    def test_match_journal_entry_singular(self, artefacts):
+        """Hyphenated singular that removesuffix('s') can't handle."""
+        assert common.match_artefact(artefacts, "journal-entry")["key"] == "journal-entries"
+
+    def test_match_person_singular(self, artefacts):
+        """Irregular plural that removesuffix('s') can't handle."""
+        assert common.match_artefact(artefacts, "person")["key"] == "people"
+
+    def test_match_where_singular_equals_plural(self, artefacts):
+        """Types like 'research' where singular == plural."""
+        assert common.match_artefact(artefacts, "research")["key"] == "research"
+
+    def test_no_match_returns_none(self, artefacts):
+        assert common.match_artefact(artefacts, "nonexistent") is None
+
+    def test_no_match_with_slash_returns_none(self, artefacts):
+        assert common.match_artefact(artefacts, "living/nonexistent") is None
