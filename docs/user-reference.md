@@ -212,11 +212,12 @@ status: new
 | Status | Meaning |
 |---|---|
 | `new` | Default. Exists but not developed. |
-| `developing` | Actively being shaped and refined. |
-| `graduated` | Promoted to design doc. Terminal — archive. |
+| `shaping` | Being shaped and refined through Q&A. |
+| `ready` | Fully shaped — clear enough to act on. |
+| `adopted` | Adopted into a downstream artefact (design, project). Terminal — move to `+Adopted/`. |
 | `parked` | Set aside; not abandoned. |
 
-**Graduating to Design:** Follow [[.brain-core/standards/provenance]] for lineage and [[.brain-core/standards/archiving]] for the archive workflow. Set idea `status: graduated`, carry forward open questions as design decisions, carry forward project tag.
+**Adoption:** Follow [[.brain-core/standards/provenance]] for lineage. Set idea `status: adopted`, carry forward open questions, carry forward project tag.
 
 ### Journals
 
@@ -480,10 +481,10 @@ type: temporal/idea-log
 tags:
   - idea
   - topic-tag
-status: open              # open | graduated | parked
+status: open              # open | adopted | parked
 ```
 
-**Graduation path:** Idea log (raw capture) → living Idea (fleshed out) → Design (shaped). When concrete enough to be a specific recommendation but needing a decision first, can become a Design at `proposed` status. At each transition, set `status: graduated` and use provenance links.
+**Adoption path:** Idea log (raw capture) → living Idea (fleshed out) → Design (shaped). When concrete enough to be a specific recommendation but needing a decision first, can become a Design at `proposed` status. At each transition, set `status: adopted` and use provenance links.
 
 **Trigger:** When a new idea strikes, capture before it slips away.
 
@@ -764,8 +765,8 @@ Only types with a defined lifecycle have status. Current types with status:
 |---|---|
 | Bug Logs | `open`, `resolved` |
 | Designs | `proposed`, `shaping`, `ready`, `active`, `implemented`, `parked`, `rejected` |
-| Ideas | `new`, `developing`, `graduated`, `parked` |
-| Idea Logs | `open`, `graduated`, `parked` |
+| Ideas | `new`, `shaping`, `ready`, `adopted`, `parked` |
+| Idea Logs | `open`, `adopted`, `parked` |
 | Journals | `active`, `archived` |
 | Plans | `draft`, `approved`, `implementing`, `completed` |
 | Workspaces | `active`, `paused`, `completed`, `archived` |
@@ -810,7 +811,7 @@ Why? Obsidian's backlinks and graph view resolve body wikilinks. Body text is vi
 
 The log is the raw timeline. The daily note is the digest.
 
-### Idea Graduation
+### Idea Adoption
 
 Ideas progress through increasing levels of structure:
 

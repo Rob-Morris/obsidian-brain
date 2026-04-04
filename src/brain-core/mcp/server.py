@@ -1052,7 +1052,7 @@ def brain_create(type: str, title: str, body: str = "", body_file: str = "", fro
                    The file is read and deleted after successful creation.
                    Use for large content to keep MCP call displays compact.
                    Mutually exclusive with body.
-      frontmatter — optional frontmatter field overrides (e.g. {"status": "developing"})
+      frontmatter — optional frontmatter field overrides (e.g. {"status": "shaping"})
       parent     — optional project name to group this artefact under (e.g. "Brain").
                    Living types only; ignored for temporal types.
 

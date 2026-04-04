@@ -150,7 +150,7 @@ python3 .brain-core/scripts/init.py --project /path/to/project
 ## Documentation
 
 - [Quick-Start Guide](src/brain-core/guide.md) — day-to-day essentials (ships as `.brain-core/guide.md` in vaults)
-- [User Guide](docs/user-guide.md) — workflows, idea graduation, building knowledge
+- [User Guide](docs/user-guide.md) — workflows, idea adoption, building knowledge
 - [User Reference](docs/user-reference.md) — every artefact type, configuration point, and convention
 - [Tooling](docs/tooling.md) — scripts, MCP server, development setup
 - [Specification](docs/specification.md) — design rationale and structural decisions

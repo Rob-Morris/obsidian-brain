@@ -1089,7 +1089,7 @@ class TestBrainCreate:
     def test_create_frontmatter_override(self, initialized):
         result = server.brain_create(
             type="ideas", title="Override Test",
-            frontmatter={"status": "developing"}
+            frontmatter={"status": "shaping"}
         )
         path = _extract_create_path(result)
         abs_path = os.path.join(str(initialized), path)
@@ -1097,7 +1097,7 @@ class TestBrainCreate:
             content = f.read()
         from _common import parse_frontmatter
         fields, _ = parse_frontmatter(content)
-        assert fields["status"] == "developing"
+        assert fields["status"] == "shaping"
 
 
 # ---------------------------------------------------------------------------

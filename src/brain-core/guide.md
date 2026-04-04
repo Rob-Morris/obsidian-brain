@@ -118,8 +118,8 @@ Why the split? Obsidian's backlinks and graph view work from body wikilinks. Sea
 Some types have a lifecycle. Status values are defined per type:
 
 - **Designs:** `proposed` → `shaping` → `ready` → `active` → `implemented` | `parked` | `rejected`
-- **Ideas:** `new` → `developing` → `graduated` | `parked`
-- **Idea Logs:** `open` → `graduated` | `parked`
+- **Ideas:** `new` → `shaping` → `ready` → `adopted` | `parked`
+- **Idea Logs:** `open` → `adopted` | `parked`
 - **People:** `active` → `parked`
 - **Tasks:** `open` → `in-progress` → `done` | `blocked`
 - **Writing:** `draft` → `editing` → `review` → `published` | `parked`
@@ -158,7 +158,7 @@ Published writing moves to `Writing/+Published/` with date-prefixed filenames. F
 Living artefacts that reach a terminal status move to a `+Status/` folder within their type directory. These files remain searchable and indexed — no rename, no `archiveddate`. Each type defines its own terminal statuses and `+Status` folders:
 
 - **Designs:** `+Implemented/`, `+Rejected/`
-- **Ideas:** `+Graduated/`
+- **Ideas:** `+Adopted/`
 - **Tasks:** `+Done/`
 - **Workspaces:** `+Completed/`
 - **Writing:** `+Published/`
