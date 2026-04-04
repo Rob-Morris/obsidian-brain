@@ -347,3 +347,27 @@ class TestAnchorAndEmbedDelete:
         rename.delete_and_clean_links(str(vault), "Wiki/topic-a.md")
         content = (vault / "Wiki" / "topic-b.md").read_text()
         assert "![[Wiki/topic-a]]" not in content
+
+
+# ---------------------------------------------------------------------------
+# Path boundary checks
+# ---------------------------------------------------------------------------
+
+class TestPathBoundary:
+    """Ensure path traversal attacks are rejected."""
+
+    def test_rename_source_traversal(self, vault):
+        with pytest.raises(ValueError, match="outside allowed boundary"):
+            rename.rename_and_update_links(
+                str(vault), "../../etc/passwd", "Wiki/stolen.md",
+            )
+
+    def test_rename_dest_traversal(self, vault):
+        with pytest.raises(ValueError, match="outside allowed boundary"):
+            rename.rename_and_update_links(
+                str(vault), "Wiki/topic-a.md", "../../tmp/exfil.md",
+            )
+
+    def test_delete_traversal(self, vault):
+        with pytest.raises(ValueError, match="outside allowed boundary"):
+            rename.delete_and_clean_links(str(vault), "../../etc/hosts")

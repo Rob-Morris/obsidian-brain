@@ -1664,7 +1664,7 @@ class TestBrainActionUpgrade:
     @pytest.fixture
     def source(self, tmp_path):
         """Create a source brain-core directory for upgrade tests."""
-        src = tmp_path / "src-brain-core"
+        src = tmp_path / "brain-core"
         src.mkdir()
         (src / "VERSION").write_text("0.8.0\n")
         (src / "index.md").write_text("# Brain Core\n\nNew version.\n")
@@ -1739,14 +1739,20 @@ class TestBrainActionUpgrade:
         assert not (initialized / ".brain-core" / "__pycache__").exists()
 
     def test_upgrade_missing_source(self, initialized):
-        result = json.loads(server.brain_action("upgrade", {"source": "/nonexistent/path"}))
+        result = json.loads(server.brain_action("upgrade", {"source": "/nonexistent/brain-core"}))
         assert result["status"] == "error"
 
     def test_upgrade_missing_source_version(self, initialized, tmp_path):
-        empty_src = tmp_path / "empty-src"
+        empty_src = tmp_path / "brain-core"
         empty_src.mkdir()
         result = json.loads(server.brain_action("upgrade", {"source": str(empty_src)}))
         assert result["status"] == "error"
+
+    def test_upgrade_rejects_non_brain_core_path(self, initialized):
+        """Upgrade source must contain 'brain-core' as a path component."""
+        result = server.brain_action("upgrade", {"source": "/some/random/path"})
+        assert result.isError
+        assert "brain-core" in result.content[0].text
 
     def test_upgrade_via_mcp_action(self, initialized, source):
         """End-to-end: upgrade triggers post-upgrade recompile + index rebuild."""

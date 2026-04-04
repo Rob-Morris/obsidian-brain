@@ -1,6 +1,7 @@
 """Tests for _common.py — shared utilities for brain-core scripts."""
 
 import os
+import tempfile
 
 import pytest
 
@@ -930,3 +931,97 @@ class TestListArtefactsTypeFilter:
     def test_no_filter_returns_all(self, index, router):
         results = la.list_artefacts(index, router, type_filter=None)
         assert len(results) == 3
+
+
+# ---------------------------------------------------------------------------
+# resolve_body_file — path boundary checks
+# ---------------------------------------------------------------------------
+
+class TestResolveBodyFile:
+    """Tests for resolve_body_file with vault_root boundary enforcement.
+
+    Note: pytest's tmp_path lives under the system temp directory, so we
+    create a non-tmp vault directory under the *home* dir for tests that
+    need to distinguish vault-reads from tmp-reads.
+    """
+
+    @pytest.fixture
+    def non_tmp_vault(self):
+        """Vault directory outside the system temp dir."""
+        import shutil
+        vault_dir = os.path.join(os.path.expanduser("~"), ".brain-test-vault")
+        os.makedirs(os.path.join(vault_dir, "Wiki"), exist_ok=True)
+        os.makedirs(os.path.join(vault_dir, ".brain-core"), exist_ok=True)
+        with open(os.path.join(vault_dir, ".brain-core", "VERSION"), "w") as f:
+            f.write("1.0.0\n")
+        yield vault_dir
+        shutil.rmtree(vault_dir, ignore_errors=True)
+
+    def test_body_only(self):
+        body, cleanup = common.resolve_body_file("hello", "")
+        assert body == "hello"
+        assert cleanup is None
+
+    def test_both_raises(self, tmp_path):
+        f = tmp_path / "f.txt"
+        f.write_text("x")
+        with pytest.raises(ValueError, match="Cannot specify both"):
+            common.resolve_body_file("body", str(f))
+
+    def test_missing_file_raises(self, tmp_path):
+        with pytest.raises(ValueError, match="not found"):
+            common.resolve_body_file("", str(tmp_path / "nope.txt"), vault_root=str(tmp_path))
+
+    def test_vault_file_ok_no_cleanup(self, non_tmp_vault):
+        f = os.path.join(non_tmp_vault, "Wiki", "source.md")
+        with open(f, "w") as fh:
+            fh.write("vault content")
+        body, cleanup = common.resolve_body_file("", f, vault_root=non_tmp_vault)
+        assert body == "vault content"
+        assert cleanup is None
+        assert os.path.exists(f), "vault file must not be deleted"
+
+    def test_tmp_file_returns_cleanup_path(self, non_tmp_vault):
+        tmp_dir = tempfile.gettempdir()
+        tmp_file = os.path.join(tmp_dir, "brain-test-body.txt")
+        try:
+            with open(tmp_file, "w") as fh:
+                fh.write("tmp content")
+            body, cleanup = common.resolve_body_file("", tmp_file, vault_root=non_tmp_vault)
+            assert body == "tmp content"
+            assert cleanup == os.path.realpath(tmp_file)
+        finally:
+            if os.path.exists(tmp_file):
+                os.remove(tmp_file)
+
+    def test_outside_vault_and_tmp_raises(self, non_tmp_vault):
+        outside = os.path.join(non_tmp_vault, "..", "outside-secret.txt")
+        with open(outside, "w") as fh:
+            fh.write("secret")
+        try:
+            with pytest.raises(ValueError, match="outside allowed boundary"):
+                common.resolve_body_file("", outside, vault_root=non_tmp_vault)
+        finally:
+            os.remove(outside)
+
+    def test_symlink_escape_raises(self, non_tmp_vault):
+        # Create a file outside the vault
+        outside = os.path.join(non_tmp_vault, "..", "symlink-target.txt")
+        with open(outside, "w") as fh:
+            fh.write("secret")
+        link = os.path.join(non_tmp_vault, "Wiki", "escape.md")
+        try:
+            os.symlink(outside, link)
+            with pytest.raises(ValueError, match="outside allowed boundary"):
+                common.resolve_body_file("", link, vault_root=non_tmp_vault)
+        finally:
+            os.unlink(link)
+            os.remove(outside)
+
+    def test_no_vault_root_allows_any_path(self, tmp_path):
+        """Without vault_root (CLI mode), any readable path works."""
+        f = tmp_path / "anywhere.txt"
+        f.write_text("anything")
+        body, cleanup = common.resolve_body_file("", str(f))
+        assert body == "anything"
+        assert cleanup is None
