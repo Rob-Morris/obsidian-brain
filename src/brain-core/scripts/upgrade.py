@@ -206,10 +206,21 @@ def _run_migrations(vault_root: str, old_version: Optional[str], new_version: st
     old_tuple = _parse_version(old_version) if old_version else (0,)
     new_tuple = _parse_version(new_version)
 
+    pending = [
+        (vt, sp) for vt, sp in all_migrations
+        if vt > old_tuple and vt <= new_tuple
+    ]
+    if not pending:
+        return []
+
+    # Reload modules that migration scripts import.  After an upgrade the
+    # new files are on disk but sys.modules still holds the old versions,
+    # so ``from _common import safe_write`` (etc.) would fail or pick up
+    # stale code.  Reload once before the first migration, not per-script.
+    _reload_migration_deps()
+
     results = []
-    for version_tuple, script_path in all_migrations:
-        if version_tuple <= old_tuple or version_tuple > new_tuple:
-            continue
+    for version_tuple, script_path in pending:
         version_str = ".".join(str(p) for p in version_tuple)
         try:
             spec = importlib.util.spec_from_file_location(
@@ -227,6 +238,25 @@ def _run_migrations(vault_root: str, old_version: Optional[str], new_version: st
                 "message": str(e),
             })
     return results
+
+
+# Modules that migration scripts commonly import.  Kept as a small
+# allow-list so we don't reload the entire process.
+_MIGRATION_DEPS = ["_common", "rename"]
+
+
+def _reload_migration_deps():
+    """Reload cached modules that migration scripts depend on.
+
+    Called before executing migrations so that ``from _common import …``
+    picks up the freshly-copied files rather than the stale module cache.
+    Only reloads modules already in sys.modules — if a module hasn't been
+    imported yet the fresh file will be loaded naturally.
+    """
+    for name in _MIGRATION_DEPS:
+        mod = sys.modules.get(name)
+        if mod is not None:
+            importlib.reload(mod)
 
 
 _MIGRATED_VERSION_FILE = os.path.join(".brain", "local", ".migrated-version")

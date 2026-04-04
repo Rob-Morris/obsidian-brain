@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.19.2 — 2026-04-04
+
+- **Fix:** Migration scripts failing during MCP upgrade due to stale module cache. `_run_migrations` now reloads `_common` and `rename` before executing migrations, so newly-added imports (e.g. `safe_write`) resolve against the freshly-copied files rather than the pre-upgrade cache.
+
 ## v0.19.1 — 2026-04-04
 
 - **Refactor:** Unified template placeholder substitution — new `substitute_template_vars()` helper in `_common.py` handles `{{date:FORMAT}}` and custom variable replacement. `create_artefact()` gains `template_vars` parameter. `start_shaping.py` and `shape_presentation.py` refactored to use the shared helper.
