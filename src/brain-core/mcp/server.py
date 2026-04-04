@@ -166,7 +166,8 @@ _SCRIPT_MODULES = [
     "_common", "compile_router", "compile_colours", "build_index",
     "search_index", "check", "read", "create", "edit", "rename", "obsidian_cli",
     "session", "shape_presentation", "start_shaping", "upgrade", "migrate_naming",
-    "workspace_registry", "process", "fix_links", "sync_definitions", "config",
+    "workspace_registry", "process", "list_artefacts", "fix_links", "sync_definitions",
+    "config",
 ]
 
 
