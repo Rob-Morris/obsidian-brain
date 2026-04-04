@@ -2,6 +2,11 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.18.14 — 2026-04-04
+
+- **Feature:** `init.py` defaults to current directory (no flags needed) instead of vault root. `--local` flag uses gitignored `.claude/settings.local.json` + `.claude/CLAUDE.local.md`.
+- **Refactor:** **Atomic safe writes across all scripts.** New `safe_write` / `safe_write_json` / `resolve_and_check_bounds` utilities in `_common.py`. All file writes now use tmp + fsync + `os.replace` for crash safety. Symlinks are resolved with bounds checking to prevent writes outside allowed directories. Self-contained scripts (`init.py`, `upgrade.py`, migrations) carry inline copies. Covers config files, vault content, compiled caches, and generated assets.
+
 ## v0.18.13 — 2026-04-04
 
 - **Fix:** `resolve_artefact_path` now finds temporal artefacts by display name. Previously, looking up "Colour Theory" failed because the file index key includes the full dated prefix (`20260404-research~Colour Theory`). A fallback now strips `YYYYMMDD-type~` prefixes and matches the display-name portion. Applies to `brain_read`, `brain_edit`, and `brain_action`(convert) — all flow through the same resolver.

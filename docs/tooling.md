@@ -43,7 +43,7 @@ Scripts in `.brain-core/scripts/` are the **source of truth** for all vault oper
 | `sync_definitions.py` | Sync artefact library definitions to vault _Config/ | `python3 sync_definitions.py [--vault V] [--dry-run] [--types t1,t2] [--json]` |
 | `config.py` | Vault configuration loader (three-layer merge) | `python3 config.py` |
 | `process.py` | Content classification, duplicate resolution, ingestion | (library module, used by MCP server) |
-| `init.py` | MCP server registration | `python3 init.py [--user] [--project PATH]` |
+| `init.py` | MCP server registration | `python3 init.py [--user] [--local] [--project PATH]` |
 
 **Why scripts hold all logic:** The MCP server is a thin wrapper that imports functions from scripts and holds the compiled router and search index in memory. Scripts are the single implementation — the server adds only MCP transport, in-memory caching, and Obsidian CLI delegation. This means:
 
@@ -286,15 +286,17 @@ After uninstall, the script reminds you to clean up global MCP registration if a
 
 ## init.py (DD-023)
 
-Setup script at `.brain-core/scripts/init.py`. Configures Claude Code to use the brain MCP server. Self-contained (no `_common` imports), idempotent, supports three scopes:
+Setup script at `.brain-core/scripts/init.py`. Configures Claude Code to use the brain MCP server. Self-contained (no `_common` imports), idempotent, supports four scopes:
 
-- **Local** (default): `.mcp.json` in the vault root. For using Claude Code inside the vault.
+- **Project** (default): `.mcp.json` + `CLAUDE.md` bootstrap in the current directory (or `--project <dir>`). For per-project vault binding.
+- **Local** (`--local`): `.claude/settings.local.json` + `.claude/CLAUDE.local.md` in the target directory. Gitignored — for personal use without committing config.
 - **User** (`--user`): `~/.claude.json` top-level `mcpServers`. Default brain for all projects.
-- **Project** (`--project <dir>`): `.mcp.json` in the project folder. Per-project vault override.
+
+When multiple scopes are configured, project takes priority over local, which takes priority over user. The script warns if a global registration already exists when installing at project or local scope.
 
 Optional: `--vault <path>` overrides vault root auto-detection (used by `install.sh` when the script isn't inside the vault).
 
-Registration strategy: `claude mcp add-json` when CLI available, direct JSON file editing otherwise. Both produce equivalent config. Project scope also writes a CLAUDE.md bootstrap line.
+Registration strategy: `claude mcp add-json` when CLI available, direct JSON file editing otherwise. Both produce equivalent config. All writes are atomic (tmp + fsync + rename).
 
 **Dependencies:** Python 3.8+ stdlib only. Detects a Python with `mcp` package for the server config (vault `.venv` → current Python → PATH search).
 

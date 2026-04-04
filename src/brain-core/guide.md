@@ -198,14 +198,17 @@ Full details in the [User Guide — Extending Your Vault](https://github.com/rob
 To configure Claude Code to use this vault's MCP server:
 
 ```bash
-# Set up this vault (run from vault root)
-python3 .brain-core/scripts/init.py
+# Configure current directory to use the brain
+cd /my/project && python3 /path/to/vault/.brain-core/scripts/init.py
+
+# Same, but gitignored (local scope)
+python3 /path/to/vault/.brain-core/scripts/init.py --local
 
 # Register as your default brain for all projects
-python3 .brain-core/scripts/init.py --user
+python3 /path/to/vault/.brain-core/scripts/init.py --user
 
-# Link a project folder to this vault
-python3 .brain-core/scripts/init.py --project /path/to/project
+# Configure a specific folder without cd-ing into it
+python3 /path/to/vault/.brain-core/scripts/init.py --project /path/to/project
 ```
 
 ## Tooling
