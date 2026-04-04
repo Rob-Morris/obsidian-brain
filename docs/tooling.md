@@ -152,6 +152,14 @@ This catches the case where a cache file contains valid JSON of the wrong type (
 
 **Status:** Codified in v0.18.7. All 8 tools (`brain_session`, `brain_read`, `brain_search`, `brain_list`, `brain_create`, `brain_edit`, `brain_action`, `brain_process`) conform.
 
+## MCP Server Shutdown Lifecycle
+
+The MCP server follows the [stdio lifecycle spec](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle). Three shutdown paths, all exit 0 with a descriptive stderr message:
+
+1. **Stdin EOF** — client closes input pipe → `mcp.run()` returns → `brain-core shutdown: stdin closed`
+2. **SIGTERM/SIGINT** — signal handler → `brain-core shutdown: received SIGTERM`
+3. **Unexpected error** — caught, full traceback to stderr → exit 1 (the only path that indicates a real crash)
+
 ## Lean Router Format (DD-012, DD-017)
 
 The router file read by naive agents (no MCP, no compiled router). Format:

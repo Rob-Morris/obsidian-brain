@@ -41,6 +41,7 @@ Requires Python >=3.10 and the `mcp` SDK (see requirements.txt).
 
 import json
 import os
+import signal
 import sys
 import threading
 import time
@@ -1606,13 +1607,36 @@ def brain_process(
 # Entry point
 # ---------------------------------------------------------------------------
 
+def _shutdown(reason: str) -> None:
+    """Log a clean shutdown message to stderr and exit."""
+    print(f"brain-core shutdown: {reason}", file=sys.stderr)
+    sys.exit(0)
+
+
+def _handle_signal(signum: int, _frame) -> None:
+    """Handle SIGTERM/SIGINT per MCP stdio lifecycle spec."""
+    name = signal.Signals(signum).name
+    _shutdown(f"received {name}")
+
+
 def main():
+    signal.signal(signal.SIGTERM, _handle_signal)
+    signal.signal(signal.SIGINT, _handle_signal)
+
     try:
         startup()
     except Exception as e:
         print(f"brain-core fatal startup error: {e}", file=sys.stderr)
         sys.exit(1)
-    mcp.run(transport="stdio")
+
+    try:
+        mcp.run(transport="stdio")
+    except Exception as e:
+        print(f"brain-core unexpected error: {e}", file=sys.stderr)
+        print(traceback.format_exc(), file=sys.stderr)
+        sys.exit(1)
+
+    _shutdown("stdin closed")
 
 
 if __name__ == "__main__":

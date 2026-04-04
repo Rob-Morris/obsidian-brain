@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.19.5 — 2026-04-04
+
+- **Fix:** MCP server now handles graceful shutdown per the stdio lifecycle spec. Handles SIGTERM/SIGINT with clean exit and logs shutdown reason to stderr, so clients can distinguish a normal shutdown from a crash on reconnect.
+
 ## v0.19.4 — 2026-04-04
 
 - **Feat:** `compile_router` now emits `frontmatter_type` on every artefact dict. Configured artefacts use the singular type from their taxonomy frontmatter (`living/wiki`, `temporal/log`); unconfigured artefacts fall back to the folder-derived plural form. Enables downstream consumers to compare against the canonical type without digging into nested frontmatter.
