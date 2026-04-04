@@ -4,21 +4,21 @@ Temporal artefact. Q&A refinement transcripts tied to source artefacts.
 
 ## Purpose
 
-A record of a Q&A session that shapes an artefact — a design, research note, idea, plan, or anything else being refined through back-and-forth. Each transcript is bound to a single source document. The file begins with a wikilink back to its source. Questions are prefixed with `Q.` and answers are blockquotes prefixed with `> A.`.
+A record of a shaping session that refines an artefact — a design, research note, idea, plan, or anything else being refined through back-and-forth. A transcript may serve multiple source artefacts if shaping expands in scope. The file begins with a wikilink back to its source artefacts. Questions are prefixed with `Q.` and answers are blockquotes prefixed with `> A.`.
 
 ## How to Write Shaping Transcripts
 
-- **One transcript per source artefact.** Don't merge separate Q&A sessions into one file.
-- **Topic switch = new transcript.** If the conversation pivots to shaping a different source artefact, save the current transcript and start a new one for the new source. The boundary is the source artefact, not the conversation.
-- **Link to the source.** The first line after frontmatter is a wikilink to the source document.
+- **One transcript per shaping session.** Don't merge separate sessions into one file.
+- **Topic switch = new transcript.** If a new session begins, create a new transcript. The boundary is the session, not the conversation.
+- **Link to the source.** The first line after frontmatter lists wikilinks to all source artefacts.
 - **Preserve the flow.** Record Q&A in order. Don't reorganise or editorialize.
-- **Tag the source type.** Include the source document type (e.g. `design`, `research`) in tags and filename.
+- **Multi-source.** As shaping expands to touch additional artefacts, append them to the source line.
 
 ## Naming
 
-`yyyymmdd-{sourcedoctype}-transcript~{Title}.md` in `_Temporal/Shaping Transcripts/yyyy-mm/`.
+`yyyymmdd-shaping-transcript~{Title}.md` in `_Temporal/Shaping Transcripts/yyyy-mm/`.
 
-Example: `_Temporal/Shaping Transcripts/2026-03/20260307-design-transcript~Pistols at Dawn Discord Bot.md`
+Example: `_Temporal/Shaping Transcripts/2026-03/20260307-shaping-transcript~Pistols at Dawn Discord Bot.md`
 
 ## Frontmatter
 
@@ -27,14 +27,17 @@ Example: `_Temporal/Shaping Transcripts/2026-03/20260307-design-transcript~Pisto
 type: temporal/shaping-transcript
 tags:
   - transcript
-  - source-type
 ---
 ```
 
 ## Trigger
 
-After shaping each artefact through Q&A, capture the raw Q&A as a shaping transcript.
+At the start of shaping, create a shaping transcript linked to the source artefact(s).
 
 ## Template
 
 [[_Config/Templates/Temporal/Shaping Transcripts]]
+
+## See Also
+
+[[.brain-core/standards/shaping]]

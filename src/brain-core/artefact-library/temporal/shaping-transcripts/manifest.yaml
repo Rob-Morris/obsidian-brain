@@ -7,4 +7,4 @@ files:
     target: _Config/Templates/Temporal/Shaping Transcripts.md
 folders:
   - _Temporal/Shaping Transcripts/
-router_trigger: "After Q&A refinement \u2192 [[_Config/Taxonomy/Temporal/shaping-transcripts]]"
+router_trigger: "At the start of shaping \u2192 [[_Config/Taxonomy/Temporal/shaping-transcripts]]"

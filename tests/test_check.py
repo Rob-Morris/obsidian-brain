@@ -151,7 +151,7 @@ def vault(tmp_path):
         "key": "shaping-transcripts",
         "classification": "temporal", "configured": True,
         "path": os.path.join("_Temporal", "Shaping Transcripts"),
-        "naming": {"pattern": "yyyymmdd-{sourcedoctype}-transcript~{Title}.md",
+        "naming": {"pattern": "yyyymmdd-shaping-transcript~{Title}.md",
                     "folder": "_Temporal/Shaping Transcripts/yyyy-mm/"},
         "frontmatter": {
             "type": "temporal/shaping-transcript",
@@ -223,7 +223,7 @@ def vault(tmp_path):
     write_md(tmp_path / "_Temporal" / "Logs" / "2026-03" / "20260315-log.md",
              {"type": "temporal/log", "tags": ["log"]}, "09:00 Started work.")
     write_md(tmp_path / "_Temporal" / "Shaping Transcripts" / "2026-03" /
-             "20260315-design-transcript~Auth.md",
+             "20260315-shaping-transcript~Auth.md",
              {"type": "temporal/shaping-transcript", "tags": ["transcript"]}, "Q. What?")
     write_md(tmp_path / "_Temporal" / "Cookies" / "2026-03" /
              "20260315-cookie~Great Refactor.md",
@@ -272,10 +272,10 @@ class TestNamingPatternToRegex:
         assert not r.match("20260315 Sat.md")
 
     def test_shaping_transcript_pattern(self):
-        r = check.naming_pattern_to_regex("yyyymmdd-{sourcedoctype}-transcript~{Title}.md")
-        assert r.match("20260315-design-transcript~Auth.md")
-        assert r.match("20260315-project-transcript~My Thing.md")
-        assert not r.match("20260315-Design-transcript~Auth.md")
+        r = check.naming_pattern_to_regex("yyyymmdd-shaping-transcript~{Title}.md")
+        assert r.match("20260315-shaping-transcript~Auth.md")
+        assert r.match("20260315-shaping-transcript~My Thing.md")
+        assert not r.match("20260315-design-transcript~Auth.md")
 
     def test_cookie_pattern(self):
         r = check.naming_pattern_to_regex("yyyymmdd-cookie~{Title}.md")
