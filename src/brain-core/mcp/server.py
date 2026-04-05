@@ -59,7 +59,6 @@ from mcp.types import CallToolResult, TextContent
 SCRIPTS_DIR = os.path.join(os.path.dirname(__file__), "..", "scripts")
 sys.path.insert(0, os.path.abspath(SCRIPTS_DIR))
 
-import importlib
 import _common
 import compile_router
 import compile_colours
@@ -80,7 +79,6 @@ import obsidian_cli
 import session
 import shape_presentation
 import start_shaping
-import upgrade
 import migrate_naming
 import workspace_registry
 import process
@@ -89,8 +87,7 @@ import fix_links
 import sync_definitions
 import config as config_mod
 
-# Path constants — read dynamically from script modules so they stay
-# current after _check_and_reload() reloads upgraded modules.
+# Path constants — read from script modules (single source of truth).
 def _router_rel() -> str:
     return compile_router.OUTPUT_PATH
 
@@ -163,74 +160,21 @@ def _read_disk_version(vault_root: str) -> str | None:
         return None
 
 
-_SCRIPT_MODULES = [
-    "_common", "compile_router", "compile_colours", "build_index",
-    "search_index", "check", "read", "create", "edit", "rename", "obsidian_cli",
-    "session", "shape_presentation", "start_shaping", "upgrade", "migrate_naming",
-    "workspace_registry", "process", "list_artefacts", "fix_links", "sync_definitions",
-    "config",
-]
-
-
 def _check_and_reload() -> None:
-    """Reload script modules if brain-core on disk has been upgraded.
+    """Exit if brain-core on disk has been upgraded.
 
-    After reloading, recompile the router (version change implies config
-    changes) and mark the index dirty (new logic may affect indexing).
-
-    On failure at any phase the function logs to stderr and returns without
-    updating _loaded_version, so the next tool call retries the reload.
-    This function never raises — callers can rely on it being safe to call.
+    The MCP client will restart the server, loading the new code.
     """
-    global _loaded_version, _router
     if _vault_root is None or _loaded_version is None:
         return
-
     try:
         disk_version = _read_disk_version(_vault_root)
-    except Exception as e:
-        print(f"brain-core version check failed: {e}", file=sys.stderr)
+    except Exception:
         return
     if disk_version is None or disk_version == _loaded_version:
         return
-
-    old = _loaded_version
-
-    try:
-        # Phase 1: snapshot current modules for rollback
-        snapshots = {}
-        for name in _SCRIPT_MODULES:
-            mod = sys.modules.get(name)
-            if mod is not None:
-                snapshots[name] = mod
-
-        # Phase 2: reload all modules; roll back on any failure
-        try:
-            for name in _SCRIPT_MODULES:
-                mod = sys.modules.get(name)
-                if mod is not None:
-                    importlib.reload(mod)
-        except Exception as e:
-            for name, snapshot in snapshots.items():
-                sys.modules[name] = snapshot
-            print(f"brain-core reload failed ({old} → {disk_version}): {e}; rolled back modules", file=sys.stderr)
-            return
-
-        # Phase 3: post-reload work (migrations, recompile, mark index dirty)
-        try:
-            upgrade.run_pending_migrations(_vault_root)
-            _router = _compile_and_save(_vault_root)
-            _mark_index_dirty()
-        except Exception as e:
-            print(f"brain-core post-reload failed ({old} → {disk_version}): {e}; version not updated", file=sys.stderr)
-            return
-
-        # Phase 4: only update version after everything succeeded
-        _loaded_version = disk_version
-        print(f"brain-core reloaded ({old} → {disk_version}): recompiled router, index marked dirty", file=sys.stderr)
-
-    except Exception as e:
-        print(f"brain-core reload unexpected error: {e}", file=sys.stderr)
+    print(f"brain-core upgraded ({_loaded_version} → {disk_version}), exiting for restart", file=sys.stderr)
+    sys.exit(0)
 
 
 # ---------------------------------------------------------------------------
@@ -531,12 +475,6 @@ def startup(vault_root: str | None = None) -> None:
 
     # Record loaded version for drift detection
     _loaded_version = _read_disk_version(_vault_root)
-
-    # Run any pending migrations (e.g. vaults upgraded via manual file copy)
-    try:
-        upgrade.run_pending_migrations(_vault_root)
-    except Exception as e:
-        print(f"brain-core startup: migrations failed: {e}", file=sys.stderr)
 
     # Load vault config (three-layer merge: template → vault → local)
     try:
@@ -1195,7 +1133,7 @@ def brain_edit(operation: Literal["edit", "append", "prepend"], path: str, body:
 def brain_action(
     action: Literal[
         "compile", "build_index", "rename", "delete", "convert",
-        "shape-presentation", "start-shaping", "upgrade", "migrate_naming",
+        "shape-presentation", "start-shaping", "migrate_naming",
         "register_workspace", "unregister_workspace", "fix-links",
         "sync_definitions",
     ],
@@ -1211,7 +1149,6 @@ def brain_action(
       convert              — convert artefact to different type (params: {path, target_type}, optional: {parent})
       shape-presentation   — create presentation + launch live preview (params: {source, slug})
       start-shaping        — bootstrap shaping session (params: {target}, optional: {title})
-      upgrade              — upgrade brain-core from source (params: {source}, optional: {dry_run, force})
       migrate_naming       — migrate vault filenames to generous naming conventions (optional: {dry_run})
       register_workspace   — register a linked workspace (params: {slug, path})
       unregister_workspace — remove a linked workspace registration (params: {slug})
@@ -1357,37 +1294,6 @@ def brain_action(
             except ValueError as e:
                 return _fmt_error(str(e))
 
-        elif action == "upgrade":
-            if not params or "source" not in params:
-                return _fmt_error("upgrade requires params: {source} (path to source brain-core dir)")
-            try:
-                source = os.path.realpath(params["source"])
-                # Source must be a brain-core directory to prevent arbitrary dir reads.
-                parts = source.split(os.sep)
-                if "brain-core" not in parts and ".brain-core" not in parts:
-                    return _fmt_error(
-                        "upgrade source must be a brain-core directory "
-                        "(path must contain 'brain-core' or '.brain-core')"
-                    )
-                dry_run = params.get("dry_run", False)
-                force = params.get("force", False)
-                result = upgrade.upgrade(_vault_root, source, force=force, dry_run=dry_run)
-                if result["status"] == "ok" and not dry_run:
-                    _check_and_reload()
-                    # Chain definition sync before final compile — sync may
-                    # update config files that affect the compiled router.
-                    sync_result = sync_definitions.sync_definitions(_vault_root)
-                    _router = _compile_and_save(_vault_root)
-                    _index = _build_index_and_save(_vault_root)
-                    result["post_upgrade"] = "Reloaded modules, recompiled router, rebuilt index."
-                    if sync_result.get("updated"):
-                        result["sync_updated"] = sync_result["updated"]
-                    if sync_result.get("warnings"):
-                        result["sync_warnings"] = sync_result["warnings"]
-                return json.dumps(result, indent=2)
-            except (ValueError, OSError) as e:
-                return _fmt_error(str(e))
-
         elif action == "sync_definitions":
             try:
                 p = params or {}
@@ -1438,7 +1344,7 @@ def brain_action(
 
         else:
             valid = ["compile", "build_index", "rename", "delete", "convert",
-                     "shape-presentation", "start-shaping", "upgrade",
+                     "shape-presentation", "start-shaping",
                      "migrate_naming", "register_workspace",
                      "unregister_workspace", "fix-links", "sync_definitions"]
             return _fmt_error(f"Unknown action '{action}'. Valid: {', '.join(valid)}")

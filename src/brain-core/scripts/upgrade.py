@@ -54,7 +54,7 @@ def _safe_write(path, content):
 BRAIN_CORE_MARKER = os.path.join(".brain-core", "VERSION")
 BRAIN_CORE_DIR = ".brain-core"
 IGNORE_DIRS = {"__pycache__"}
-IGNORE_FILES = {".DS_Store"}
+IGNORE_FILES = {".DS_Store", "upgrade.py"}
 
 
 # ---------------------------------------------------------------------------

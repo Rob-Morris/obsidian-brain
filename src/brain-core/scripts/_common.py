@@ -1054,6 +1054,14 @@ def resolve_and_check_bounds(path, bounds, *, follow_symlinks=True):
     return target
 
 
+def check_not_in_brain_core(path, vault_root):
+    """Raise ValueError if path resolves inside .brain-core/."""
+    real = os.path.realpath(os.path.join(vault_root, path) if not os.path.isabs(path) else path)
+    protected = os.path.realpath(os.path.join(vault_root, ".brain-core"))
+    if real == protected or real.startswith(protected + os.sep):
+        raise ValueError(f"Cannot modify files inside .brain-core/: {path}")
+
+
 def safe_write(path, content, *, encoding="utf-8", bounds=None,
                follow_symlinks=True, exclusive=False):
     """Atomic file write with optional symlink resolution and bounds checking.
