@@ -1,6 +1,5 @@
 """Tests for Brain MCP server — unit tests with a minimal vault fixture."""
 
-import importlib
 import json
 import os
 import sys
@@ -679,12 +678,13 @@ class TestVersionCheck:
         server._check_and_reload()
         assert server._loaded_version == old_version
 
-    def test_reloads_when_version_changes(self, initialized):
-        """_check_and_reload should update _loaded_version when on-disk version differs."""
+    def test_exits_when_version_changes(self, initialized):
+        """_check_and_reload should exit when on-disk version differs."""
         version_path = initialized / ".brain-core" / "VERSION"
         version_path.write_text("99.0.0\n")
-        server._check_and_reload()
-        assert server._loaded_version == "99.0.0"
+        with pytest.raises(SystemExit) as exc_info:
+            server._check_and_reload()
+        assert exc_info.value.code == 0
 
     def test_no_reload_when_version_file_missing(self, initialized):
         """_check_and_reload should be a no-op if VERSION file is deleted."""
@@ -693,50 +693,6 @@ class TestVersionCheck:
         old_version = server._loaded_version
         server._check_and_reload()
         assert server._loaded_version == old_version
-
-    def test_brain_read_survives_version_drift(self, initialized):
-        """brain_read should succeed after version drift (reload, not exit)."""
-        version_path = initialized / ".brain-core" / "VERSION"
-        version_path.write_text("99.0.0\n")
-        result = server.brain_read("type")
-        assert "wiki" in result
-        assert server._loaded_version == "99.0.0"
-
-    def test_brain_search_survives_version_drift(self, initialized):
-        """brain_search should succeed after version drift."""
-        version_path = initialized / ".brain-core" / "VERSION"
-        version_path.write_text("99.0.0\n")
-        text = _search_text(server.brain_search("brain"))
-        assert "results" in text
-        assert server._loaded_version == "99.0.0"
-
-    def test_brain_action_survives_version_drift(self, initialized):
-        """brain_action should succeed after version drift."""
-        version_path = initialized / ".brain-core" / "VERSION"
-        version_path.write_text("99.0.0\n")
-        result = server.brain_action("compile")
-        assert result.startswith("**Compiled:**")
-        assert server._loaded_version == "99.0.0"
-
-    def test_brain_create_survives_version_drift(self, initialized):
-        """brain_create should succeed after version drift."""
-        version_path = initialized / ".brain-core" / "VERSION"
-        version_path.write_text("99.0.0\n")
-        result = server.brain_create(type="wiki", title="drift test")
-        assert result.startswith("**Created**")
-        assert server._loaded_version == "99.0.0"
-
-    def test_brain_edit_survives_version_drift(self, initialized):
-        """brain_edit should succeed after version drift."""
-        version_path = initialized / ".brain-core" / "VERSION"
-        version_path.write_text("99.0.0\n")
-        result = server.brain_edit(
-            operation="edit",
-            path="Wiki/brain-overview-abc123.md",
-            body="# Drifted\n"
-        )
-        assert result == "**Edited:** Wiki/brain-overview-abc123.md"
-        assert server._loaded_version == "99.0.0"
 
 
 # ---------------------------------------------------------------------------
@@ -791,74 +747,16 @@ class TestAtomicSave:
 # ---------------------------------------------------------------------------
 
 class TestReloadRobustness:
-    def test_reload_rolls_back_on_module_failure(self, initialized):
-        """If a module fails to reload, all modules should be rolled back."""
+    def test_version_drift_causes_clean_exit(self, initialized):
+        """Version drift should trigger sys.exit(0) for client restart."""
         version_path = initialized / ".brain-core" / "VERSION"
         version_path.write_text("99.0.0\n")
-        old_version = server._loaded_version
-        old_router = server._router
-
-        call_count = 0
-        original_reload = importlib.reload
-
-        def fail_on_third(mod):
-            nonlocal call_count
-            call_count += 1
-            if call_count == 3:
-                raise ImportError("simulated module failure")
-            return original_reload(mod)
-
-        with patch("server.importlib.reload", side_effect=fail_on_third):
+        with pytest.raises(SystemExit) as exc_info:
             server._check_and_reload()
+        assert exc_info.value.code == 0
 
-        assert server._loaded_version == old_version, "Version should not update after failed reload"
-        assert server._router is old_router, "Router should be unchanged after failed reload"
-
-    def test_reload_post_reload_failure_leaves_version_unchanged(self, initialized):
-        """If post-reload work (migration+compile) fails, version should not update."""
-        version_path = initialized / ".brain-core" / "VERSION"
-        version_path.write_text("99.0.0\n")
-        old_version = server._loaded_version
-
-        # _compile_and_save is defined in server.py (not reloaded), so this patch survives reload
-        with patch.object(server, "_compile_and_save", side_effect=OSError("post-reload boom")):
-            server._check_and_reload()
-
-        assert server._loaded_version == old_version, "Version should not update after post-reload failure"
-
-    def test_reload_compile_failure_leaves_version_unchanged(self, initialized):
-        """If router recompile fails after reload, version should not update."""
-        version_path = initialized / ".brain-core" / "VERSION"
-        version_path.write_text("99.0.0\n")
-        old_version = server._loaded_version
-
-        with patch("server._compile_and_save", side_effect=OSError("compile boom")):
-            server._check_and_reload()
-
-        assert server._loaded_version == old_version
-
-    def test_reload_retries_after_failure(self, initialized):
-        """After a failed reload, the next call should retry (version still mismatches)."""
-        version_path = initialized / ".brain-core" / "VERSION"
-        version_path.write_text("99.0.0\n")
-
-        with patch("server._compile_and_save", side_effect=OSError("boom")):
-            server._check_and_reload()
-        assert server._loaded_version != "99.0.0"
-
-        # Second call should retry and succeed (no patch)
-        server._check_and_reload()
-        assert server._loaded_version == "99.0.0"
-
-    def test_reload_success_updates_version_last(self, initialized):
-        """On successful reload, version should be updated to disk version."""
-        version_path = initialized / ".brain-core" / "VERSION"
-        version_path.write_text("99.0.0\n")
-        server._check_and_reload()
-        assert server._loaded_version == "99.0.0"
-
-    def test_check_and_reload_never_raises(self, initialized):
-        """_check_and_reload should never raise, even on unexpected errors."""
+    def test_check_and_reload_survives_read_error(self, initialized):
+        """_check_and_reload should not raise on version read errors."""
         version_path = initialized / ".brain-core" / "VERSION"
         version_path.write_text("99.0.0\n")
 
@@ -903,14 +801,6 @@ class TestEnsureFreshRobustness:
 
 
 class TestStartupRobustness:
-    def test_startup_survives_migration_failure(self, vault):
-        """If migrations fail, startup should still load router and index."""
-        with patch("server.upgrade.run_pending_migrations", side_effect=OSError("boom")):
-            server.startup(vault_root=str(vault))
-
-        assert server._router is not None
-        assert server._index is not None
-
     def test_startup_survives_router_compile_failure(self, vault):
         """If router compile fails, _router is None but index still loads."""
         server._router = None
@@ -1654,155 +1544,6 @@ class TestBrainSession:
         finally:
             server._router = saved_router
             server._vault_root = saved_root
-
-
-# ---------------------------------------------------------------------------
-# brain_action upgrade tests
-# ---------------------------------------------------------------------------
-
-class TestBrainActionUpgrade:
-    @pytest.fixture
-    def source(self, tmp_path):
-        """Create a source brain-core directory for upgrade tests."""
-        src = tmp_path / "brain-core"
-        src.mkdir()
-        (src / "VERSION").write_text("0.8.0\n")
-        (src / "index.md").write_text("# Brain Core\n\nNew version.\n")
-        (src / "guide.md").write_text("# Guide\n\nUpdated guide.\n")
-        scripts = src / "scripts"
-        scripts.mkdir()
-        (scripts / "_common.py").write_text("# common\n")
-        return src
-
-    def test_upgrade_copies_files(self, initialized, source):
-        result = json.loads(server.brain_action("upgrade", {"source": str(source)}))
-        assert result["status"] == "ok"
-        assert (initialized / ".brain-core" / "index.md").read_text() == "# Brain Core\n\nNew version.\n"
-        assert (initialized / ".brain-core" / "guide.md").read_text() == "# Guide\n\nUpdated guide.\n"
-
-    def test_upgrade_reports_diff(self, initialized, source):
-        result = json.loads(server.brain_action("upgrade", {"source": str(source)}))
-        assert result["status"] == "ok"
-        assert isinstance(result["files_added"], list)
-        assert isinstance(result["files_modified"], list)
-        assert isinstance(result["files_removed"], list)
-        assert isinstance(result["files_unchanged"], int)
-
-    def test_upgrade_updates_version(self, initialized, source):
-        result = json.loads(server.brain_action("upgrade", {"source": str(source)}))
-        assert result["old_version"] == "0.7.0"
-        assert result["new_version"] == "0.8.0"
-        assert (initialized / ".brain-core" / "VERSION").read_text().strip() == "0.8.0"
-
-    def test_upgrade_skips_same_version(self, initialized, source):
-        (source / "VERSION").write_text("0.7.0\n")
-        result = json.loads(server.brain_action("upgrade", {"source": str(source)}))
-        assert result["status"] == "skipped"
-
-    def test_upgrade_skips_downgrade(self, initialized, source):
-        (source / "VERSION").write_text("0.6.0\n")
-        result = json.loads(server.brain_action("upgrade", {"source": str(source)}))
-        assert result["status"] == "skipped"
-        assert "Downgrade" in result["message"]
-
-    def test_upgrade_force_downgrade(self, initialized, source):
-        (source / "VERSION").write_text("0.6.0\n")
-        result = json.loads(server.brain_action("upgrade", {
-            "source": str(source), "force": True
-        }))
-        assert result["status"] == "ok"
-        assert result["new_version"] == "0.6.0"
-
-    def test_upgrade_dry_run(self, initialized, source):
-        result = json.loads(server.brain_action("upgrade", {
-            "source": str(source), "dry_run": True
-        }))
-        assert result["status"] == "ok"
-        assert result["dry_run"] is True
-        # Version should NOT have changed on disk
-        assert (initialized / ".brain-core" / "VERSION").read_text().strip() == "0.7.0"
-
-    def test_upgrade_removes_obsolete_files(self, initialized, source):
-        # Add a file only in the vault's .brain-core (not in source)
-        (initialized / ".brain-core" / "obsolete.md").write_text("old\n")
-        result = json.loads(server.brain_action("upgrade", {"source": str(source)}))
-        assert result["status"] == "ok"
-        assert "obsolete.md" in result["files_removed"]
-        assert not (initialized / ".brain-core" / "obsolete.md").exists()
-
-    def test_upgrade_excludes_pycache(self, initialized, source):
-        pycache = source / "__pycache__"
-        pycache.mkdir()
-        (pycache / "module.cpython-312.pyc").write_text("bytecode\n")
-        result = json.loads(server.brain_action("upgrade", {"source": str(source)}))
-        assert result["status"] == "ok"
-        assert not (initialized / ".brain-core" / "__pycache__").exists()
-
-    def test_upgrade_missing_source(self, initialized):
-        result = json.loads(server.brain_action("upgrade", {"source": "/nonexistent/brain-core"}))
-        assert result["status"] == "error"
-
-    def test_upgrade_missing_source_version(self, initialized, tmp_path):
-        empty_src = tmp_path / "brain-core"
-        empty_src.mkdir()
-        result = json.loads(server.brain_action("upgrade", {"source": str(empty_src)}))
-        assert result["status"] == "error"
-
-    def test_upgrade_rejects_non_brain_core_path(self, initialized):
-        """Upgrade source must contain 'brain-core' as a path component."""
-        result = server.brain_action("upgrade", {"source": "/some/random/path"})
-        assert result.isError
-        assert "brain-core" in result.content[0].text
-
-    def test_upgrade_via_mcp_action(self, initialized, source):
-        """End-to-end: upgrade triggers post-upgrade recompile + index rebuild."""
-        result = json.loads(server.brain_action("upgrade", {"source": str(source)}))
-        assert result["status"] == "ok"
-        assert "post_upgrade" in result
-        # Router and index should still be valid after upgrade
-        assert server._router is not None
-        assert server._index is not None
-
-    def test_migration_with_stale_common_cache(self, initialized, source):
-        """Migration importing from _common must work even if sys.modules has a stale cache."""
-        import types
-
-        # Bump source to trigger a migration
-        (source / "VERSION").write_text("0.9.0\n")
-
-        # Write a migration that imports safe_write from _common
-        migrations_dir = source / "scripts" / "migrations"
-        migrations_dir.mkdir(parents=True, exist_ok=True)
-        (migrations_dir / "migrate_to_0_9_0.py").write_text(
-            "import os, sys\n"
-            "sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))\n"
-            "from _common import safe_write\n"
-            "def migrate(vault_root):\n"
-            "    return {'status': 'ok'}\n"
-        )
-
-        # Inject a stub _common into sys.modules missing safe_write
-        real_common = sys.modules.get("_common")
-        stub = types.ModuleType("_common")
-        stub.__file__ = real_common.__file__ if real_common else ""
-        # Deliberately don't set stub.safe_write
-        sys.modules["_common"] = stub
-
-        try:
-            result = json.loads(server.brain_action("upgrade", {
-                "source": str(source), "force": True,
-            }))
-            assert result["status"] == "ok"
-            migration_results = result.get("migrations", [])
-            m09 = [m for m in migration_results if m.get("version") == "0.9.0"]
-            assert len(m09) == 1
-            assert m09[0]["status"] != "error", f"Migration failed: {m09[0].get('message')}"
-        finally:
-            # Restore real _common
-            if real_common is not None:
-                sys.modules["_common"] = real_common
-            else:
-                sys.modules.pop("_common", None)
 
 
 # ---------------------------------------------------------------------------

@@ -371,3 +371,34 @@ class TestPathBoundary:
     def test_delete_traversal(self, vault):
         with pytest.raises(ValueError, match="outside allowed boundary"):
             rename.delete_and_clean_links(str(vault), "../../etc/hosts")
+
+
+class TestBrainCoreProtection:
+    """Ensure .brain-core/ files cannot be modified via rename/delete."""
+
+    def test_rename_dest_into_brain_core(self, vault):
+        with pytest.raises(ValueError, match="Cannot modify files inside .brain-core/"):
+            rename.rename_and_update_links(
+                str(vault), "Wiki/topic-a.md", ".brain-core/hijack.md",
+            )
+
+    def test_rename_source_out_of_brain_core_allowed(self, vault):
+        """Moving a file OUT of .brain-core is allowed (source not checked)."""
+        bc_file = vault / ".brain-core" / "movable.md"
+        bc_file.write_text("---\ntype: living/wiki\n---\n\ntemp\n")
+        # Should not raise — only dest is checked
+        rename.rename_and_update_links(
+            str(vault), ".brain-core/movable.md", "Wiki/rescued.md",
+        )
+        assert (vault / "Wiki" / "rescued.md").exists()
+        assert not bc_file.exists()
+
+    def test_delete_inside_brain_core(self, vault):
+        with pytest.raises(ValueError, match="Cannot modify files inside .brain-core/"):
+            rename.delete_and_clean_links(str(vault), ".brain-core/VERSION")
+
+    def test_rename_dest_into_brain_core_subdir(self, vault):
+        with pytest.raises(ValueError, match="Cannot modify files inside .brain-core/"):
+            rename.rename_and_update_links(
+                str(vault), "Wiki/topic-a.md", ".brain-core/scripts/evil.py",
+            )
