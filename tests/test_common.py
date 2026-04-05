@@ -513,6 +513,22 @@ class TestBuildVaultFileIndex:
         idx = common.build_vault_file_index(str(vault))
         assert len(idx["md_basenames"]["jwt-refresh"]) == 2
 
+    def test_excludes_top_level_archive(self, vault):
+        archive = vault / "_Archive" / "Ideas" / "Brain"
+        archive.mkdir(parents=True)
+        (archive / "20260101-old-idea.md").write_text("# Old\n")
+        idx = common.build_vault_file_index(str(vault))
+        assert "20260101-old-idea" not in idx["md_basenames"]
+        assert "20260101-old-idea.md" not in idx["all_basenames"]
+        assert "_archive/ideas/brain/20260101-old-idea" not in idx["md_relpaths"]
+
+    def test_excludes_per_type_archive(self, vault):
+        archive = vault / "Ideas" / "_Archive"
+        archive.mkdir(parents=True)
+        (archive / "20260101-old-idea.md").write_text("# Old\n")
+        idx = common.build_vault_file_index(str(vault))
+        assert "20260101-old-idea" not in idx["md_basenames"]
+
 
 # ---------------------------------------------------------------------------
 # Broken wikilink resolution
@@ -599,15 +615,6 @@ class TestResolveBrokenLink:
         assert r.status == "unresolvable"
         assert r.resolved_to is None
         assert r.candidates == []
-
-    def test_archive_match(self, vault_with_files):
-        idx = self._index(vault_with_files)
-        r = common.resolve_broken_link("Old Design", idx)
-        # "Old Design" doesn't match directly (it's "20260317-Old Design" in archive)
-        # but archive matching looks for substring containment
-        assert r.status == "resolved"
-        assert "20260317-Old Design" in r.resolved_to
-        assert r.strategy == "archive_match"
 
     def test_path_segment_title_casing(self, vault_with_files):
         idx = self._index(vault_with_files)

@@ -55,9 +55,9 @@ Complete reference for every artefact type, convention, configuration point, and
 
 Folders starting with `_` or `.` are infrastructure — excluded from content indexing and search.
 
-### Archive Subfolders
+### Archive
 
-Living artefact folders can contain an `_Archive/` subfolder for terminal artefacts. Archived files are renamed with a date prefix and styled in slate to signal "inactive."
+Terminal artefacts are archived to a top-level `_Archive/` directory at the vault root, preserving type/project structure inside (e.g. `_Archive/Ideas/Brain/20260101-old-idea.md`). Archived files are excluded from the vault file index, search, and all normal artefact operations. Use `brain_action("archive")` and `brain_action("unarchive")` for archive operations; `brain_read(resource="archive")` to list or read archived files.
 
 ---
 
@@ -192,7 +192,7 @@ status: shaping
 **Transcripts:** [[transcript-1|Session 1]], [[transcript-2|Session 2]]
 ```
 
-**Archiving:** When `implemented` → add `archiveddate` → add supersession callout → rename to `yyyymmdd-{Title}.md` → move to `Designs/_Archive/`.
+**Archiving:** When `implemented` → use `brain_action("archive")` which handles archiveddate, date-prefix rename, supersession, and move to `_Archive/Designs/`.
 
 ### Ideas
 
@@ -355,7 +355,7 @@ status: draft
 | `published` | Released or delivered. Stays as canonical source. |
 | `parked` | Set aside; not being worked on. |
 
-**Publishing:** Setting `status: published` via `brain_edit` auto-moves to `Writing/+Published/`. Add `publisheddate: YYYY-MM-DD` to frontmatter; optionally date-prefix the filename. Superseded published writing archives from `+Published/` to `_Archive/`.
+**Publishing:** Setting `status: published` via `brain_edit` auto-moves to `Writing/+Published/`. Add `publisheddate: YYYY-MM-DD` to frontmatter; optionally date-prefix the filename. Superseded published writing can be archived via `brain_action("archive")`.
 
 Complex writing projects use subfolders: `Writing/my-novel/index.md` with chapter files alongside.
 
@@ -752,10 +752,11 @@ tags:
 
 ### Archives
 
-- `{Type}/_Archive/` for living artefacts that reach terminal status
-- `{Type}/{Project}/_Archive/` for sub-artefacts archived while the project is still active
+- Top-level `_Archive/` at vault root, preserving type/project structure: `_Archive/{Type}/{Project}/`
 - Files renamed to `yyyymmdd-{Title}.md` before moving
-- Styled in slate to signal "inactive infrastructure"
+- Excluded from vault file index, search, and all normal artefact operations
+- Use `brain_action("archive")` / `brain_action("unarchive")` for archive operations
+- Use `brain_read(resource="archive")` to list or read archived files
 
 ---
 
@@ -883,10 +884,7 @@ If the source transfers all authority, set its terminal status and archive it. O
 For living artefacts reaching terminal status:
 
 1. Set the terminal status in frontmatter (e.g., `status: implemented`)
-2. Add `archiveddate: YYYY-MM-DD` to frontmatter
-3. Add a supersession callout at the top of the body linking to the successor
-4. Rename to `yyyymmdd-{Title}.md` (use `brain_action("rename")` for automatic wikilink updates)
-5. Move to `{Type}/_Archive/` (or `{Type}/{Project}/_Archive/` for sub-artefacts in a project subfolder)
+2. Use `brain_action("archive", {path: "..."})` — handles archiveddate, date-prefix rename, and move to `_Archive/{Type}/{Project}/` with vault-wide wikilink updates
 
 **Wikilink hygiene:** The rename disambiguates the archived file from any successor that reuses the original name. Use a path-qualified wikilink in the supersession callout (e.g. `[[Designs/Brain Workspaces]]`) and the renamed identifier in the origin link on the successor (e.g. `[[20260324-Brain Workspaces]]`). See `archiving.md` for details.
 

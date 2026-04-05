@@ -585,6 +585,41 @@ class TestCheckArchiveMetadata:
         assert any("archiveddate" in f["message"] for f in findings)
         assert any("Brain" in f["file"] for f in findings)
 
+    def test_top_level_archive_valid(self, vault):
+        """check_archive_metadata finds files in top-level _Archive/ structure."""
+        tmp_path, router = vault
+        archive = tmp_path / "_Archive" / "Designs"
+        archive.mkdir(parents=True)
+        write_md(archive / "20260101-good.md",
+                 {"type": "living/design", "tags": ["design"],
+                  "status": "implemented", "archiveddate": "2026-01-01"})
+        findings = check.check_archive_metadata(str(tmp_path), router)
+        good_findings = [f for f in findings if "20260101-good" in f.get("file", "")]
+        assert len(good_findings) == 0  # valid, no warnings
+
+    def test_top_level_archive_missing_date(self, vault):
+        """check_archive_metadata flags missing archiveddate in top-level _Archive/."""
+        tmp_path, router = vault
+        archive = tmp_path / "_Archive" / "Designs"
+        archive.mkdir(parents=True)
+        write_md(archive / "20260101-bad.md",
+                 {"type": "living/design", "tags": ["design"],
+                  "status": "implemented"})
+        findings = check.check_archive_metadata(str(tmp_path), router)
+        assert any("archiveddate" in f["message"] for f in findings)
+
+    def test_top_level_archive_project_subfolder(self, vault):
+        """check_archive_metadata scans project subfolders within top-level _Archive/."""
+        tmp_path, router = vault
+        archive = tmp_path / "_Archive" / "Designs" / "Brain"
+        archive.mkdir(parents=True)
+        write_md(archive / "20260101-proj.md",
+                 {"type": "living/design", "tags": ["design"],
+                  "status": "implemented", "archiveddate": "2026-01-01"})
+        findings = check.check_archive_metadata(str(tmp_path), router)
+        proj_findings = [f for f in findings if "20260101-proj" in f.get("file", "")]
+        assert len(proj_findings) == 0  # valid
+
 
 # ---------------------------------------------------------------------------
 # TestCheckStatusValues

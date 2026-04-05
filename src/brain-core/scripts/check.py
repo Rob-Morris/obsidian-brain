@@ -377,21 +377,32 @@ def check_month_folders(vault_root, router):
 def _find_archive_dirs(vault_root, art_path):
     """Find all _Archive/ directories for a living type.
 
-    Returns list of (abs_archive_dir, rel_prefix) tuples. Covers both the
-    type-root archive ({Type}/_Archive/) and project-subfolder archives
-    ({Type}/{Project}/_Archive/).
+    Returns list of (abs_archive_dir, rel_prefix) tuples. Covers:
+    - Top-level archive: _Archive/{art_path}/ and _Archive/{art_path}/{Project}/
+    - Legacy type-root archive: {Type}/_Archive/
+    - Legacy project-subfolder archives: {Type}/{Project}/_Archive/
     """
     dirs = []
+
+    # Top-level _Archive/{art_path}
+    top_archive = os.path.join(vault_root, "_Archive", art_path)
+    if os.path.isdir(top_archive):
+        dirs.append((top_archive, os.path.join("_Archive", art_path)))
+        # Project subfolders within top-level archive
+        for entry in os.listdir(top_archive):
+            sub = os.path.join(top_archive, entry)
+            if os.path.isdir(sub) and not entry.startswith((".", "_")):
+                dirs.append((sub, os.path.join("_Archive", art_path, entry)))
+
+    # Legacy: per-type _Archive/ dirs
     type_dir = os.path.join(vault_root, art_path)
     if not os.path.isdir(type_dir):
         return dirs
 
-    # Type-root archive
     root_archive = os.path.join(type_dir, "_Archive")
     if os.path.isdir(root_archive):
         dirs.append((root_archive, os.path.join(art_path, "_Archive")))
 
-    # Project-subfolder archives
     for entry in os.listdir(type_dir):
         if is_system_dir(entry):
             continue

@@ -366,6 +366,7 @@ def _iter_vault_md_files(vault_root):
         rel_dir = os.path.relpath(dirpath, vault_root)
         if rel_dir != "." and is_system_dir(os.path.basename(dirpath)):
             if not rel_dir.startswith(TEMPORAL_DIR):
+                _dirnames[:] = []
                 continue
         for fname in filenames:
             if fname.endswith(".md"):
@@ -736,24 +737,6 @@ def resolve_broken_link(target, file_index, temporal_prefixes=None):
             return _resolved(matches, "path_segment_title")
         elif len(matches) > 1:
             return Resolution("ambiguous", None, matches, "path_segment_title")
-
-    # Strategy 7: archive matching — check pre-filtered archive files
-    archive_files = file_index.get("_archive_files")
-    if archive_files is None:
-        archive_files = [
-            p for paths in md_basenames.values() for p in paths
-            if is_archived_path(p)
-        ]
-    target_lower = os.path.basename(working).lower()
-    archive_matches = []
-    for p in archive_files:
-        archived = _basename_stem(p).lower()
-        if target_lower in archived or archived.endswith(target_lower):
-            archive_matches.append(p)
-    if len(archive_matches) == 1:
-        return _resolved(archive_matches, "archive_match")
-    elif len(archive_matches) > 1:
-        return Resolution("ambiguous", None, archive_matches, "archive_match")
 
     return Resolution("unresolvable", None, [], "none")
 

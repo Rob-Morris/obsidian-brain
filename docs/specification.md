@@ -97,10 +97,7 @@ Designs/
     Brain Mcp Server.md
 ```
 
-Archiving follows two patterns depending on scope:
-
-- **Sub-artefact reaches terminal status** (project still active): archives to `{Type}/{Project}/_Archive/`, not the type root's `_Archive/`.
-- **Whole project reaches terminal status**: the entire subfolder (master included) moves to `{Type}/_Archive/{Project}/`. The inner `_Archive/` is flattened — all files sit at the same level since everything is terminal.
+Archiving uses `brain_action("archive")` which moves artefacts to a top-level `_Archive/` directory at the vault root, preserving type/project structure inside (e.g. `_Archive/Designs/Brain/20260405-old.md`). Archived files are excluded from the vault file index, search, and all normal operations. Projects archive as-is — no flattening.
 
 ## Documentation
 

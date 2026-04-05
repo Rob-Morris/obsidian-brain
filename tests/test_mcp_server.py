@@ -417,6 +417,78 @@ def _search_result_lines(response):
     return response[1].text.strip().split("\n")
 
 
+class TestBrainReadArchive:
+    """Tests for brain_read(resource='archive')."""
+
+    def _make_archived(self, vault, rel="_Archive/Ideas/20260101-old-idea.md"):
+        p = vault / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(
+            "---\ntype: living/ideas\ntags: []\nstatus: adopted\n"
+            "archiveddate: 2026-01-01\n---\n\nOld idea.\n"
+        )
+        return rel
+
+    def test_list_archives(self, initialized):
+        self._make_archived(initialized)
+        result = server.brain_read("archive")
+        assert "1 archived files" in result
+        assert "_Archive/Ideas/20260101-old-idea.md" in result
+
+    def test_list_empty_archive(self, initialized):
+        result = server.brain_read("archive")
+        assert "No archived files" in result
+
+    def test_read_specific_archive(self, initialized):
+        rel = self._make_archived(initialized)
+        result = server.brain_read("archive", name=rel)
+        assert "Old idea." in result
+
+    def test_read_non_archive_path_rejected(self, initialized):
+        result = server.brain_read("archive", name="Ideas/my-idea.md")
+        _assert_error(result, "not in _Archive")
+
+    def test_list_legacy_per_type_archives(self, initialized):
+        """Per-type _Archive/ dirs are also scanned."""
+        self._make_archived(initialized, "Ideas/_Archive/20260101-legacy.md")
+        result = server.brain_read("archive")
+        assert "1 archived files" in result
+        assert "Ideas/_Archive/20260101-legacy.md" in result
+
+
+class TestArchiveGuardsMcp:
+    """Verify brain_read and brain_edit reject archived paths at the MCP boundary."""
+
+    def _make_archived(self, vault, rel="Ideas/_Archive/20260101-old-idea.md"):
+        p = vault / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(
+            "---\ntype: living/ideas\ntags: []\nstatus: adopted\n"
+            "archiveddate: 2026-01-01\n---\n\nOld idea.\n"
+        )
+        return rel
+
+    def test_read_artefact_rejects_archived_path(self, initialized):
+        rel = self._make_archived(initialized)
+        result = server.brain_read("artefact", name=rel)
+        _assert_error(result, "archived")
+
+    def test_read_file_rejects_archived_path(self, initialized):
+        rel = self._make_archived(initialized)
+        result = server.brain_read("file", name=rel)
+        _assert_error(result, "archived")
+
+    def test_read_artefact_rejects_top_level_archive(self, initialized):
+        rel = self._make_archived(initialized, "_Archive/Ideas/20260101-old-idea.md")
+        result = server.brain_read("artefact", name=rel)
+        _assert_error(result, "archived")
+
+    def test_edit_rejects_archived_path(self, initialized):
+        rel = self._make_archived(initialized)
+        result = server.brain_edit(operation="edit", path=rel, body="new body")
+        _assert_error(result, "archived")
+
+
 class TestBrainSearch:
     def test_search_returns_results(self, initialized):
         resp = server.brain_search("brain knowledge")
@@ -485,6 +557,21 @@ class TestBrainSearch:
             lines = _search_result_lines(resp)
             assert len(lines) >= 1
             assert "Wiki/brain-overview-abc123.md" in lines[0]
+
+    def test_search_cli_excludes_archived_paths(self, initialized, cli_available):
+        """Verify archived paths are stripped from CLI search results."""
+        cli_results = [
+            "Wiki/brain-overview-abc123.md",
+            "_Archive/Ideas/Brain/20260101-old-idea.md",
+            "Ideas/_Archive/20260202-another.md",
+        ]
+        with patch.object(obsidian_cli, "search", return_value=cli_results), \
+             patch.object(obsidian_cli, "check_available", return_value=True):
+            server._cli_probed_at = 0.0
+            resp = server.brain_search("brain")
+            text = _search_text(resp)
+            assert "obsidian_cli" in text
+            assert "_Archive" not in text
 
     def test_search_cli_failure_falls_back_to_bm25(self, initialized, cli_available):
         """Verify fallback to BM25 when CLI search returns None."""

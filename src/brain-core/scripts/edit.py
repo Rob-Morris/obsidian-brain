@@ -14,6 +14,7 @@ Usage:
 
 import json
 import os
+import re
 import sys
 
 from check import (
@@ -349,6 +350,117 @@ def convert_artefact(vault_root, router, path, target_type, parent=None):
         "old_path": path,
         "new_path": new_path,
         "type": target_art["type"],
+        "links_updated": links_updated,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Archiving
+# ---------------------------------------------------------------------------
+
+_DATE_PREFIX_RE = re.compile(r"^\d{8}-")
+
+
+def archive_artefact(vault_root, router, path):
+    """Archive a living artefact to the top-level _Archive/ directory.
+
+    1. Resolve path, read frontmatter, validate type has terminal statuses.
+    2. Validate current status is terminal (caller must set it first).
+    3. Add archiveddate if not present.
+    4. Prepend yyyymmdd- date prefix to filename if not present.
+    5. Move to _Archive/{type_folder}/{project}/.
+
+    Returns dict with old_path, new_path, links_updated.
+    """
+    path, abs_path, fields, body, art = _open_artefact(vault_root, router, path)
+    vault_root = str(vault_root)
+
+    if is_archived_path(path):
+        raise ValueError(f"'{path}' is already archived.")
+
+    terminal = art.get("frontmatter", {}).get("terminal_statuses") or []
+    if not terminal:
+        raise ValueError(
+            f"Type '{art['type']}' has no terminal statuses — cannot archive."
+        )
+
+    status = fields.get("status", "")
+    if status not in terminal:
+        raise ValueError(
+            f"Cannot archive '{path}': status '{status}' is not terminal. "
+            f"Terminal statuses for {art['type']}: {', '.join(terminal)}"
+        )
+
+    today = now_iso()[:10]
+    if "archiveddate" not in fields:
+        fields["archiveddate"] = today
+
+    filename = os.path.basename(path)
+    date_prefix = today.replace("-", "")
+    if not _DATE_PREFIX_RE.match(filename):
+        filename = f"{date_prefix}-{filename}"
+
+    type_folder = art["path"]
+    rel_from_type = os.path.relpath(os.path.dirname(path), type_folder)
+    # Strip +Status/ folders from the path (archived files don't need them)
+    parts = rel_from_type.split(os.sep)
+    parts = [p for p in parts if not p.startswith("+")]
+    rel_from_type = os.path.join(*parts) if parts and parts != ["."] else "."
+
+    if rel_from_type == ".":
+        dest = os.path.join("_Archive", type_folder, filename)
+    else:
+        dest = os.path.join("_Archive", type_folder, rel_from_type, filename)
+
+    _save_artefact(abs_path, fields, body, vault_root)
+    links_updated = rename_and_update_links(vault_root, path, dest)
+
+    return {
+        "old_path": path,
+        "new_path": dest,
+        "links_updated": links_updated,
+    }
+
+
+def unarchive_artefact(vault_root, router, path):
+    """Restore an archived artefact from _Archive/ to its original type folder.
+
+    1. Validate path is in _Archive/.
+    2. Strip yyyymmdd- date prefix from filename.
+    3. Compute original type folder destination.
+    4. Remove archiveddate from frontmatter.
+    5. Move via rename_and_update_links.
+
+    Returns dict with old_path, new_path, links_updated.
+    """
+    vault_root = str(vault_root)
+
+    if not is_archived_path(path):
+        raise ValueError(f"'{path}' is not in _Archive/.")
+
+    abs_path = os.path.join(vault_root, path)
+    if not os.path.isfile(abs_path):
+        raise FileNotFoundError(f"File not found: {path}")
+
+    with open(abs_path, "r", encoding="utf-8") as f:
+        content = f.read()
+    fields, body = parse_frontmatter(content)
+
+    filename = os.path.basename(path)
+    if _DATE_PREFIX_RE.match(filename):
+        filename = _DATE_PREFIX_RE.sub("", filename)
+
+    # _Archive/Ideas/Brain/20260101-old-idea.md → Ideas/Brain/old-idea.md
+    rel_from_archive = os.path.relpath(os.path.dirname(path), "_Archive")
+    dest = os.path.join(rel_from_archive, filename)
+
+    fields.pop("archiveddate", None)
+    _save_artefact(abs_path, fields, body, vault_root)
+    links_updated = rename_and_update_links(vault_root, path, dest)
+
+    return {
+        "old_path": path,
+        "new_path": dest,
         "links_updated": links_updated,
     }
 

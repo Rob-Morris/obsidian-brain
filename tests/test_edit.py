@@ -1223,3 +1223,136 @@ class TestArchiveGuards:
             edit.convert_artefact(
                 str(vault), router, "Ideas/_Archive/20260101-old-idea.md", "designs"
             )
+
+
+class TestArchiveArtefact:
+    """Tests for brain_action('archive') — archive_artefact()."""
+
+    def _make_idea(self, vault, name="my-idea.md", status="adopted", project=None):
+        if project:
+            folder = vault / "Ideas" / project
+        else:
+            folder = vault / "Ideas"
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / name
+        path.write_text(
+            f"---\ntype: living/ideas\ntags: []\nstatus: {status}\n---\n\nIdea body.\n"
+        )
+        if project:
+            return f"Ideas/{project}/{name}"
+        return f"Ideas/{name}"
+
+    def test_archive_moves_to_top_level(self, vault, router):
+        rel = self._make_idea(vault)
+        result = edit.archive_artefact(str(vault), router, rel)
+        assert result["new_path"].startswith("_Archive/Ideas/")
+        assert not (vault / rel).exists()
+        assert (vault / result["new_path"]).exists()
+
+    def test_archive_adds_date_prefix(self, vault, router):
+        rel = self._make_idea(vault)
+        result = edit.archive_artefact(str(vault), router, rel)
+        filename = os.path.basename(result["new_path"])
+        assert filename[8] == "-"  # yyyymmdd-
+        assert filename[9:] == "my-idea.md"
+
+    def test_archive_adds_archiveddate(self, vault, router):
+        rel = self._make_idea(vault)
+        result = edit.archive_artefact(str(vault), router, rel)
+        content = (vault / result["new_path"]).read_text()
+        fields, _ = parse_frontmatter(content)
+        assert "archiveddate" in fields
+
+    def test_archive_preserves_project_structure(self, vault, router):
+        rel = self._make_idea(vault, project="Brain")
+        result = edit.archive_artefact(str(vault), router, rel)
+        assert "_Archive/Ideas/Brain/" in result["new_path"]
+
+    def test_archive_refuses_non_terminal_status(self, vault, router):
+        rel = self._make_idea(vault, status="shaping")
+        with pytest.raises(ValueError, match="not terminal"):
+            edit.archive_artefact(str(vault), router, rel)
+
+    def test_archive_refuses_already_archived(self, vault, router):
+        archive = vault / "Ideas" / "_Archive"
+        archive.mkdir(parents=True)
+        (archive / "20260101-old.md").write_text(
+            "---\ntype: living/ideas\ntags: []\nstatus: adopted\n"
+            "archiveddate: 2026-01-01\n---\n\nOld.\n"
+        )
+        with pytest.raises(ValueError, match="already archived"):
+            edit.archive_artefact(str(vault), router, "Ideas/_Archive/20260101-old.md")
+
+    def test_archive_strips_status_folder(self, vault, router):
+        """Archiving from +Adopted/ should not include +Adopted in archive path."""
+        status_dir = vault / "Ideas" / "+Adopted"
+        status_dir.mkdir(parents=True)
+        (status_dir / "my-idea.md").write_text(
+            "---\ntype: living/ideas\ntags: []\nstatus: adopted\n---\n\nBody.\n"
+        )
+        result = edit.archive_artefact(str(vault), router, "Ideas/+Adopted/my-idea.md")
+        assert "+Adopted" not in result["new_path"]
+        assert result["new_path"].startswith("_Archive/Ideas/")
+
+    def test_archive_updates_wikilinks(self, vault, router):
+        rel = self._make_idea(vault)
+        (vault / "Wiki" / "linker.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\nSee [[my-idea]].\n"
+        )
+        result = edit.archive_artefact(str(vault), router, rel)
+        content = (vault / "Wiki" / "linker.md").read_text()
+        new_stem = os.path.splitext(os.path.basename(result["new_path"]))[0]
+        assert new_stem in content
+
+
+class TestUnarchiveArtefact:
+    """Tests for brain_action('unarchive') — unarchive_artefact()."""
+
+    def _make_archived(self, vault, rel="_Archive/Ideas/20260101-my-idea.md"):
+        p = vault / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(
+            "---\ntype: living/ideas\ntags: []\nstatus: adopted\n"
+            "archiveddate: 2026-01-01\n---\n\nOld idea.\n"
+        )
+        return rel
+
+    def test_unarchive_moves_to_type_folder(self, vault, router):
+        rel = self._make_archived(vault)
+        result = edit.unarchive_artefact(str(vault), router, rel)
+        assert result["new_path"] == "Ideas/my-idea.md"
+        assert not (vault / rel).exists()
+        assert (vault / result["new_path"]).exists()
+
+    def test_unarchive_strips_date_prefix(self, vault, router):
+        rel = self._make_archived(vault)
+        result = edit.unarchive_artefact(str(vault), router, rel)
+        assert "20260101-" not in result["new_path"]
+
+    def test_unarchive_removes_archiveddate(self, vault, router):
+        rel = self._make_archived(vault)
+        result = edit.unarchive_artefact(str(vault), router, rel)
+        content = (vault / result["new_path"]).read_text()
+        fields, _ = parse_frontmatter(content)
+        assert "archiveddate" not in fields
+
+    def test_unarchive_preserves_project_structure(self, vault, router):
+        rel = self._make_archived(vault, "_Archive/Ideas/Brain/20260101-my-idea.md")
+        result = edit.unarchive_artefact(str(vault), router, rel)
+        assert result["new_path"] == "Ideas/Brain/my-idea.md"
+
+    def test_unarchive_refuses_non_archived(self, vault, router):
+        (vault / "Ideas" / "live-idea.md").write_text(
+            "---\ntype: living/ideas\ntags: []\nstatus: shaping\n---\n\nLive.\n"
+        )
+        with pytest.raises(ValueError, match="not in _Archive"):
+            edit.unarchive_artefact(str(vault), router, "Ideas/live-idea.md")
+
+    def test_unarchive_updates_wikilinks(self, vault, router):
+        rel = self._make_archived(vault)
+        (vault / "Wiki" / "linker.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\nSee [[20260101-my-idea]].\n"
+        )
+        result = edit.unarchive_artefact(str(vault), router, rel)
+        content = (vault / "Wiki" / "linker.md").read_text()
+        assert "my-idea" in content

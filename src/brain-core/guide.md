@@ -163,7 +163,7 @@ Living artefacts that reach a terminal status move to a `+Status/` folder within
 - **Workspaces:** `+Completed/`
 - **Writing:** `+Published/`
 
-`_Archive/` is reserved for deliberate removal — a "soft delete" that takes files out of search. The archive workflow (rename, `archiveddate`, supersession callout) applies only to `_Archive/` moves. Full details in [[.brain-core/standards/archiving]].
+`_Archive/` is reserved for deliberate removal — a "soft delete" that takes files completely out of the active vault namespace (index, search, and all normal operations). Use `brain_action("archive")` to archive and `brain_action("unarchive")` to restore. Use `brain_read(resource="archive")` to list or read archived files. Full details in [[.brain-core/standards/archiving]].
 
 ## Extending Your Vault
 

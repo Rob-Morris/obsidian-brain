@@ -28,7 +28,7 @@ import json
 import os
 import sys
 
-from _common import find_vault_root, match_artefact, resolve_and_check_bounds, resolve_artefact_path
+from _common import find_vault_root, is_archived_path, match_artefact, parse_frontmatter, resolve_and_check_bounds, resolve_artefact_path
 
 COMPILED_ROUTER_REL = os.path.join(".brain", "local", "compiled-router.json")
 
@@ -169,6 +169,11 @@ def read_artefact(router, vault_root, name=None):
         return {"error": "artefact resource requires a name parameter (relative path or basename)"}
 
     if "/" in name:
+        if is_archived_path(name):
+            return {
+                "error": f"'{name}' is archived. "
+                "Use brain_read(resource=\"archive\", name=\"...\") to read archived files."
+            }
         return _check_vault_containment(vault_root, name) or read_file_content(vault_root, name)
 
     try:
@@ -219,6 +224,11 @@ def read_file(router, vault_root, name=None):
         return {"error": "file resource requires a name parameter"}
 
     if "/" in name:
+        if is_archived_path(name):
+            return {
+                "error": f"'{name}' is archived. "
+                "Use brain_read(resource=\"archive\", name=\"...\") to read archived files."
+            }
         return _check_vault_containment(vault_root, name) or read_file_content(vault_root, name)
 
     # Try artefact folders first
@@ -254,6 +264,74 @@ def read_compliance(router, vault_root, name=None):
 
 
 # ---------------------------------------------------------------------------
+# Archive resource
+# ---------------------------------------------------------------------------
+
+def read_archive(router, vault_root, name=None):
+    """List or read archived files.
+
+    No name → list all files in _Archive/ with frontmatter metadata.
+    With name → read a specific archived file (must be a path inside _Archive/).
+    """
+    if name:
+        if not is_archived_path(name):
+            return {"error": f"'{name}' is not in _Archive/. "
+                    "Use brain_read(resource=\"artefact\") for active files."}
+        return read_file_content(vault_root, name)
+
+    # List mode: walk _Archive/ and per-type _Archive/ dirs
+    vault_root = str(vault_root)
+    results = []
+    seen = set()
+
+    def _scan_dir(base_dir):
+        if not os.path.isdir(base_dir):
+            return
+        for dirpath, dirnames, filenames in os.walk(base_dir):
+            dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+            for fname in filenames:
+                if not fname.endswith(".md"):
+                    continue
+                abs_path = os.path.join(dirpath, fname)
+                rel_path = os.path.relpath(abs_path, vault_root)
+                if rel_path in seen:
+                    continue
+                seen.add(rel_path)
+                try:
+                    with open(abs_path, "r", encoding="utf-8") as f:
+                        fields, _ = parse_frontmatter(f.read())
+                except Exception:
+                    fields = {}
+                results.append({
+                    "path": rel_path,
+                    "title": os.path.splitext(fname)[0],
+                    "type": fields.get("type", ""),
+                    "status": fields.get("status", ""),
+                    "archiveddate": fields.get("archiveddate", ""),
+                })
+
+    _scan_dir(os.path.join(vault_root, "_Archive"))
+
+    # Per-type _Archive/ dirs (legacy)
+    for art in router.get("artefacts", []):
+        art_dir = os.path.join(vault_root, art["path"])
+        if not os.path.isdir(art_dir):
+            continue
+        for entry in os.listdir(art_dir):
+            if entry == "_Archive":
+                _scan_dir(os.path.join(art_dir, "_Archive"))
+            sub = os.path.join(art_dir, entry)
+            if os.path.isdir(sub) and not entry.startswith((".", "_", "+")):
+                archive_sub = os.path.join(sub, "_Archive")
+                if os.path.isdir(archive_sub):
+                    _scan_dir(archive_sub)
+
+    # Sort by archiveddate descending
+    results.sort(key=lambda r: r.get("archiveddate", ""), reverse=True)
+    return results
+
+
+# ---------------------------------------------------------------------------
 # Dispatch table
 # ---------------------------------------------------------------------------
 
@@ -270,6 +348,7 @@ RESOURCES = {
     "compliance": read_compliance,
     "artefact": read_artefact,
     "file": read_file,
+    "archive": read_archive,
 }
 
 

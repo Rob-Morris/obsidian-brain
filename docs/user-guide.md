@@ -297,7 +297,7 @@ Designs/
     Brain Mcp Server.md
 ```
 
-This works for any living type — designs, ideas, wiki pages. Sub-artefacts inherit the parent type, so no separate taxonomy or CSS is needed. When a sub-artefact reaches a terminal status, it archives to `{Type}/{Project}/_Archive/` — within the subfolder, not the type root. When the whole project reaches terminal status, everything flattens into `{Type}/_Archive/{Project}/`.
+This works for any living type — designs, ideas, wiki pages. Sub-artefacts inherit the parent type, so no separate taxonomy or CSS is needed. When a sub-artefact reaches a terminal status, use `brain_action("archive")` to move it to the top-level `_Archive/` (preserving type/project structure). Projects archive as-is.
 
 ### Giving Agents Context with Memories
 

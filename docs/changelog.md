@@ -2,6 +2,19 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.21.0 — 2026-04-06
+
+- **Feature: Archive visibility.** `_Archive/` is now fully invisible to normal vault operations. Archived files are excluded from the vault file index, `resolve_artefact_path`, Obsidian CLI search results, and `brain_read`/`brain_edit`/`brain_list`. They are only accessible through dedicated archive operations.
+- **Feature:** `brain_action("archive")` — archives a terminal-status artefact to `_Archive/{Type}/{Project}/` with date-prefix rename, archiveddate, and vault-wide wikilink updates.
+- **Feature:** `brain_action("unarchive")` — restores an archived artefact to its original type folder, stripping the date prefix and removing archiveddate.
+- **Feature:** `brain_read(resource="archive")` — list all archived files (no name), or read a specific archived file (with name).
+- **Change:** Removed `resolve_broken_link` strategy 7 (archive_match). Broken links to archived files are now treated the same as links to deleted files.
+- **Change:** `brain_read(resource="artefact")` and `brain_read(resource="file")` reject archive paths with a helpful error directing to `brain_read(resource="archive")`.
+- **Change:** `brain_edit` rejects archive paths with a helpful error directing to `brain_action("unarchive")`.
+- **Change:** Rewrote `standards/archiving.md` for top-level `_Archive/` and dedicated archive actions.
+- **Change:** `check_archive_metadata` now also scans the top-level `_Archive/{Type}/` structure.
+- **Migration:** `migrate_to_0_21_0.py` moves per-type `_Archive/` contents to the top-level `_Archive/`, preserving type/project structure. Idempotent.
+
 ## v0.20.1 — 2026-04-05
 
 - **Fix:** `_Archive/` folders are now immune to auto-move side-effects. Previously, changing the status of an archived artefact could create `+Status/` folders inside `_Archive/`, and `convert_artefact` could silently move archived files to active type folders. Archived files can still be edited (for frontmatter maintenance) but auto-move and conversion are blocked.

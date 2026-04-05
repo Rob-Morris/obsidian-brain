@@ -70,6 +70,7 @@ import create
 from _common import (
     collect_headings,
     find_section,
+    is_archived_path,
     parse_frontmatter,
     resolve_body_file,
     safe_write_json,
@@ -672,6 +673,17 @@ def _fmt_workspace_single(ws):
     return f"{ws['slug']}\t{ws['mode']}\t{ws['path']}"
 
 
+def _fmt_archive_list(archives):
+    """Format archive list as readable plain text."""
+    if not archives:
+        return "No archived files found."
+    lines = []
+    for a in archives:
+        date = a.get("archiveddate", "")
+        lines.append(f"{a['path']}\t{a.get('type', '')}\t{date}")
+    return f"{len(archives)} archived files\n" + "\n".join(lines)
+
+
 # Dispatch table for brain_read list resources
 _READ_FORMATTERS = {
     "type": lambda result, name: (
@@ -688,6 +700,7 @@ _READ_FORMATTERS = {
         else _fmt_memory_list(result)
     ),
     "environment": lambda result, name: _fmt_environment(result),
+    "archive": lambda result, name: _fmt_archive_list(result) if not name else None,
 }
 
 
@@ -754,7 +767,7 @@ def brain_read(
     resource: Literal[
         "type", "trigger", "style", "template", "skill", "plugin",
         "memory", "workspace", "environment", "router", "compliance",
-        "artefact", "file",
+        "artefact", "file", "archive",
     ],
     name: str | None = None,
 ):
@@ -774,6 +787,7 @@ def brain_read(
       compliance  — run structural compliance checks (name = severity filter: error/warning/info)
       artefact    — read an artefact file (name = relative path or basename; resolves like wikilinks)
       file        — read any vault file by name (resolves and delegates to the correct resource handler)
+      archive     — list archived files (no name), or read a specific archived file (name = path inside _Archive/)
     """
     try:
         _check_and_reload()
@@ -839,6 +853,8 @@ def _transform_cli_results(cli_results: list[str], type_filter: str | None,
         index_by_path = {doc["path"]: doc for doc in _index.get("documents", []) if "path" in doc}
     transformed = []
     for path in cli_results:
+        if is_archived_path(path):
+            continue
         doc_meta = index_by_path.get(path, {})
         doc_type = doc_meta.get("type", "")
         doc_tags = doc_meta.get("tags", [])
@@ -1078,6 +1094,12 @@ def brain_edit(operation: Literal["edit", "append", "prepend"], path: str, body:
 
         body, cleanup_path = resolve_body_file(body, body_file, vault_root=_vault_root)
 
+        if is_archived_path(path):
+            return _fmt_error(
+                f"'{path}' is archived. "
+                "Use brain_action('unarchive') to restore it first."
+            )
+
         if not body and not frontmatter and not target:
             return _fmt_error(f"{operation} with no body and no frontmatter changes is a no-op. "
                               "Pass body content, frontmatter changes, or both.")
@@ -1141,7 +1163,7 @@ def brain_action(
         "compile", "build_index", "rename", "delete", "convert",
         "shape-presentation", "start-shaping", "migrate_naming",
         "register_workspace", "unregister_workspace", "fix-links",
-        "sync_definitions",
+        "sync_definitions", "archive", "unarchive",
     ],
     params: dict | None = None,
 ):
@@ -1160,6 +1182,8 @@ def brain_action(
       unregister_workspace — remove a linked workspace registration (params: {slug})
       fix-links            — scan/fix broken wikilinks (optional: {fix} to apply)
       sync_definitions     — sync artefact library definitions to vault (optional: {dry_run, force, types})
+      archive              — archive an artefact to _Archive/ (params: {path}). Must have terminal status.
+      unarchive            — restore an archived artefact to its original type folder (params: {path})
     """
     global _router, _index, _workspace_registry
 
@@ -1348,11 +1372,38 @@ def brain_action(
             except (ValueError, OSError) as e:
                 return _fmt_error(str(e))
 
+        elif action == "archive":
+            if not params or "path" not in params:
+                return _fmt_error("archive requires params: {path}")
+            if _router is None:
+                return _fmt_error("router not initialized")
+            try:
+                result = edit.archive_artefact(_vault_root, _router, params["path"])
+                _mark_index_dirty()
+                return (f"**Archived:** {result['old_path']} → {result['new_path']}"
+                        f" ({result['links_updated']} links updated)")
+            except (ValueError, FileNotFoundError, OSError) as e:
+                return _fmt_error(str(e))
+
+        elif action == "unarchive":
+            if not params or "path" not in params:
+                return _fmt_error("unarchive requires params: {path}")
+            if _router is None:
+                return _fmt_error("router not initialized")
+            try:
+                result = edit.unarchive_artefact(_vault_root, _router, params["path"])
+                _mark_index_dirty()
+                return (f"**Unarchived:** {result['old_path']} → {result['new_path']}"
+                        f" ({result['links_updated']} links updated)")
+            except (ValueError, FileNotFoundError, OSError) as e:
+                return _fmt_error(str(e))
+
         else:
             valid = ["compile", "build_index", "rename", "delete", "convert",
                      "shape-presentation", "start-shaping",
                      "migrate_naming", "register_workspace",
-                     "unregister_workspace", "fix-links", "sync_definitions"]
+                     "unregister_workspace", "fix-links", "sync_definitions",
+                     "archive", "unarchive"]
             return _fmt_error(f"Unknown action '{action}'. Valid: {', '.join(valid)}")
 
     except Exception as e:
