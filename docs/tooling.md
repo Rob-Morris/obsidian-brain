@@ -160,6 +160,8 @@ The MCP server follows the [stdio lifecycle spec](https://modelcontextprotocol.i
 2. **SIGTERM/SIGINT** — signal handler → `brain-core shutdown: received SIGTERM`
 3. **Unexpected error** — caught, full traceback to stderr → exit 1 (the only path that indicates a real crash)
 
+**"1 MCP server failed" in Claude Code** — This message appears in Claude Code during MCP server restarts (e.g. after an upgrade triggers a version-drift exit). It is a known Claude Code display bug: the server exits cleanly (exit 0 + stderr message per spec), but Claude Code surfaces a transient "failed" status before the client reconnects. The brain-core server behaviour is correct. Use `/mcp` to reconnect if auto-reconnect does not trigger.
+
 ## Lean Router Format (DD-012, DD-017)
 
 The router file read by naive agents (no MCP, no compiled router). Format:
