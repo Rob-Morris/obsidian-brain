@@ -2,6 +2,13 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.19.7 — 2026-04-05
+
+- **Security:** Removed `brain_action("upgrade")` from MCP server. Self-upgrading MCP servers are an anti-pattern — a prompt-injected agent could point upgrade at a crafted directory to replace `.brain-core/scripts/`. Upgrade is now CLI-only (`upgrade.py` from the repo, or `install.sh`). The MCP server detects version drift and exits cleanly for client restart.
+- **Security:** `.brain-core/` is now write-protected from MCP rename/delete operations. Attempts to rename into or delete inside `.brain-core/` raise `ValueError`.
+- **Change:** `upgrade.py` is excluded from vault copies (added to `IGNORE_FILES`). Existing copies will be cleaned up as "removed" files on next upgrade.
+- **Change:** Replaced MCP server hot-reload with clean exit on version drift. Instead of reloading Python modules in-place (fragile, state-coupling risk), the server exits and lets the MCP client restart it fresh.
+
 ## v0.19.6 — 2026-04-04
 
 - **Fix:** MCP tool handlers (`body_file`, rename, shape-presentation, upgrade) accepted unbounded filesystem paths, allowing reads/writes/deletes outside the vault. `resolve_body_file` now enforces vault-or-tmp boundary; auto-delete only fires for tmp files. Rename and shape-presentation validate paths stay within vault root. Upgrade rejects source directories without a `brain-core` path component.

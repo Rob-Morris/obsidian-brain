@@ -405,8 +405,7 @@ You won't have all of these on day one. Types get added as you need them. The va
 To upgrade brain-core to a new version:
 
 - **Re-run install.sh**: `bash install.sh ~/brain` — detects the existing install and offers to upgrade
-- **Ask your agent**: `brain_action(action="upgrade", ...)` handles it automatically
-- **CLI**: `python3 .brain-core/scripts/upgrade.py --source /path/to/src/brain-core`
+- **CLI**: `python3 upgrade.py --source /path/to/src/brain-core` (from the repo, not the vault)
 - **Manual**: replace `.brain-core/` with the new version from `src/brain-core/`
 
 ## Going Deeper

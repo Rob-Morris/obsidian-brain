@@ -1061,7 +1061,6 @@ If your vault runs the Brain MCP server (`.brain-core/mcp/server.py`), seven too
 - `delete` — delete a file and replace wikilinks with strikethrough text
 - `convert` — change artefact type, move file, reconcile frontmatter, update wikilinks
 - `shape-presentation` — create a presentation artefact and launch Marp live preview (params: `{source, slug}`)
-- `upgrade` — upgrade brain-core from a source directory; chains definition sync automatically (params: `{source}`, optional `{dry_run, force}`)
 - `migrate_naming` — migrate vault filenames from old aggressive slugs to generous naming conventions (optional `{dry_run}`)
 - `register_workspace` — register a linked workspace (params: `{slug, path}`)
 - `unregister_workspace` — remove a linked workspace registration (params: `{slug}`)
@@ -1086,7 +1085,7 @@ Available in `.brain-core/scripts/`. Scripts are the source of truth for all vau
 | `create.py` | Create a new artefact with template/naming resolution |
 | `edit.py` | Edit, append to, or convert an existing artefact |
 | `rename.py` | Rename a file with automatic wikilink updates |
-| `upgrade.py` | Upgrade brain-core in-place from a source directory |
+| `upgrade.py` | Upgrade brain-core in-place from a source directory (CLI-only, not shipped to vaults) |
 | `workspace_registry.py` | Workspace slug→path resolution and registration |
 | `init.py` | Set up Claude Code to use this vault's MCP server |
 | `check.py` | Structural compliance checker — validates naming, frontmatter, month folders, archives, status values |

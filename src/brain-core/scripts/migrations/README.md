@@ -1,6 +1,6 @@
 # Writing Migrations
 
-Migration scripts run automatically during `brain_action("upgrade")` and on MCP server startup (via `run_pending_migrations`). They handle vault-level data transformations that can't be done by simply copying new files.
+Migration scripts run automatically during CLI upgrade (`upgrade.py` or `install.sh`). They handle vault-level data transformations that can't be done by simply copying new files.
 
 ## File naming
 
@@ -17,7 +17,7 @@ def migrate(vault_root: str) -> dict:
 
 ## Import constraints
 
-Migration scripts run inside the MCP server process. When the upgrade copies new files to disk, **the old module versions may still be cached in `sys.modules`**. The upgrade runner reloads `_common` and `rename` before executing migrations, so imports from those modules are safe.
+Migration scripts run inside the upgrade process. When the upgrade copies new files to disk, **the old module versions may still be cached in `sys.modules`**. The upgrade runner reloads `_common` and `rename` before executing migrations, so imports from those modules are safe.
 
 If your migration imports from a module **not** in the reload list (`_common`, `rename`), add it to `_MIGRATION_DEPS` in `upgrade.py`. Otherwise the import will silently pick up the old cached version, which may be missing new symbols or have stale behaviour.
 
@@ -34,7 +34,7 @@ from create import create_artefact  # not in reload list — will get stale modu
 
 ## Guidelines
 
-- Migrations must be **idempotent** — running twice produces the same result. Vaults may re-run migrations on server restart.
+- Migrations must be **idempotent** — running twice produces the same result.
 - Return `{"status": "skipped"}` with no side effects when there's nothing to do.
 - Use `rename_and_update_links()` when renaming files — it handles vault-wide wikilink updates.
 - Include a companion `.md` file documenting what the migration does, verification checks, and manual steps for agents without MCP tools.
