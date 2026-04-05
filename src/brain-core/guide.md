@@ -220,7 +220,7 @@ If your vault has the Brain MCP server running, you get eight tools:
 - **brain_search** — find files by query, type, or tag (relevance-ranked, BM25)
 - **brain_list** — enumerate artefacts exhaustively by type, date range, or tag (not relevance-ranked; use when completeness matters)
 - **brain_create** — create a new artefact (additive, safe to auto-approve)
-- **brain_edit** — edit, append, or prepend to an existing artefact (by path or basename); optional `target` parameter for section-level operations; frontmatter merge strategy follows the operation verb (edit overwrites, append/prepend extend lists)
+- **brain_edit** — edit, append, or prepend to an existing artefact (by path or basename); optional `target` parameter for section-level operations; frontmatter merge strategy follows the operation verb (edit overwrites, append/prepend extend lists); auto-moves artefacts to `+Status/` folders on terminal status change and back out on revive
 - **brain_action** — compile the router, build the search index, rename, delete, convert files, fix broken links, sync definitions, register/unregister workspaces, start shaping sessions
 - **brain_process** — classify content against artefact types, resolve duplicates, or run the full ingest pipeline (classify → resolve → create/update)
 

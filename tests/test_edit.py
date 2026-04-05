@@ -66,11 +66,13 @@ def vault(tmp_path):
         "## Template\n\n[[_Config/Templates/Living/Designs]]\n"
     )
 
-    # Taxonomy: Ideas
+    # Taxonomy: Ideas (with terminal status)
     (tax_living / "ideas.md").write_text(
         "# Ideas\n\n"
         "## Naming\n\n`{slug}.md` in `Ideas/`.\n\n"
-        "## Frontmatter\n\n```yaml\n---\ntype: living/ideas\ntags: []\n---\n```\n\n"
+        "## Frontmatter\n\n```yaml\n---\ntype: living/ideas\ntags: []\nstatus: seed\n---\n```\n\n"
+        "Status values: `seed`, `shaping`, `adopted`.\n\n"
+        "## Terminal Status\n\nWhen an idea reaches `adopted` status, it moves to `+Adopted/`.\n\n"
         "## Template\n\n[[_Config/Templates/Living/Ideas]]\n"
     )
 
@@ -1012,3 +1014,149 @@ class TestFrontmatterMerge:
         fields, body = parse_frontmatter(content)
         assert fields["status"] == "archived"
         assert body == original_body  # body unchanged
+
+
+# ---------------------------------------------------------------------------
+# Terminal status auto-move tests
+# ---------------------------------------------------------------------------
+
+class TestTerminalStatusMove:
+    """Tests for automatic file movement on terminal status changes."""
+
+    def _make_idea(self, vault, path, status="seed", body="# Idea\n\nBody.\n"):
+        """Helper to create an idea file at the given relative path."""
+        abs_path = vault / path
+        abs_path.parent.mkdir(parents=True, exist_ok=True)
+        abs_path.write_text(
+            f"---\ntype: living/ideas\ntags: []\nstatus: {status}\n---\n\n{body}"
+        )
+
+    def test_edit_terminal_status_moves_to_plus_folder(self, vault, router):
+        self._make_idea(vault, "Ideas/my-idea.md")
+        result = edit.edit_artefact(
+            str(vault), router, "Ideas/my-idea.md", "",
+            frontmatter_changes={"status": "adopted"},
+        )
+        assert result["path"] == "Ideas/+Adopted/my-idea.md"
+        assert (vault / "Ideas" / "+Adopted" / "my-idea.md").is_file()
+        assert not (vault / "Ideas" / "my-idea.md").exists()
+
+    def test_edit_terminal_status_creates_folder(self, vault, router):
+        self._make_idea(vault, "Ideas/new-idea.md")
+        assert not (vault / "Ideas" / "+Adopted").exists()
+        edit.edit_artefact(
+            str(vault), router, "Ideas/new-idea.md", "",
+            frontmatter_changes={"status": "adopted"},
+        )
+        assert (vault / "Ideas" / "+Adopted").is_dir()
+        assert (vault / "Ideas" / "+Adopted" / "new-idea.md").is_file()
+
+    def test_edit_terminal_status_updates_wikilinks(self, vault, router):
+        self._make_idea(vault, "Ideas/linked-idea.md")
+        (vault / "Wiki" / "linker.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\nSee [[Ideas/linked-idea]].\n"
+        )
+        edit.edit_artefact(
+            str(vault), router, "Ideas/linked-idea.md", "",
+            frontmatter_changes={"status": "adopted"},
+        )
+        content = (vault / "Wiki" / "linker.md").read_text()
+        assert "[[Ideas/+Adopted/linked-idea]]" in content
+        assert "[[Ideas/linked-idea]]" not in content
+
+    def test_edit_non_terminal_status_no_move(self, vault, router):
+        self._make_idea(vault, "Ideas/staying.md")
+        result = edit.edit_artefact(
+            str(vault), router, "Ideas/staying.md", "",
+            frontmatter_changes={"status": "shaping"},
+        )
+        assert result["path"] == "Ideas/staying.md"
+        assert (vault / "Ideas" / "staying.md").is_file()
+
+    def test_edit_already_in_plus_folder_no_move(self, vault, router):
+        self._make_idea(vault, "Ideas/+Adopted/already.md", status="adopted")
+        result = edit.edit_artefact(
+            str(vault), router, "Ideas/+Adopted/already.md", "",
+            frontmatter_changes={"status": "adopted"},
+        )
+        assert result["path"] == "Ideas/+Adopted/already.md"
+        assert (vault / "Ideas" / "+Adopted" / "already.md").is_file()
+
+    def test_edit_no_status_change_no_move(self, vault, router):
+        self._make_idea(vault, "Ideas/body-only.md")
+        result = edit.edit_artefact(
+            str(vault), router, "Ideas/body-only.md", "# Updated\n\nNew body.\n",
+        )
+        assert result["path"] == "Ideas/body-only.md"
+        assert (vault / "Ideas" / "body-only.md").is_file()
+
+    def test_append_terminal_status_moves(self, vault, router):
+        self._make_idea(vault, "Ideas/append-idea.md")
+        result = edit.append_to_artefact(
+            str(vault), router, "Ideas/append-idea.md", "\nExtra.\n",
+            frontmatter_changes={"status": "adopted"},
+        )
+        assert result["path"] == "Ideas/+Adopted/append-idea.md"
+        assert (vault / "Ideas" / "+Adopted" / "append-idea.md").is_file()
+
+    def test_edit_terminal_status_with_subfolder(self, vault, router):
+        self._make_idea(vault, "Ideas/Brain/project-idea.md")
+        result = edit.edit_artefact(
+            str(vault), router, "Ideas/Brain/project-idea.md", "",
+            frontmatter_changes={"status": "adopted"},
+        )
+        assert result["path"] == "Ideas/Brain/+Adopted/project-idea.md"
+        assert (vault / "Ideas" / "Brain" / "+Adopted" / "project-idea.md").is_file()
+        assert not (vault / "Ideas" / "Brain" / "project-idea.md").exists()
+
+    def test_edit_no_terminal_defined(self, vault, router):
+        """Type with no terminal_statuses doesn't move on status change."""
+        result = edit.edit_artefact(
+            str(vault), router, "Wiki/test-page.md", "",
+            frontmatter_changes={"status": "archived"},
+        )
+        assert result["path"] == "Wiki/test-page.md"
+        assert (vault / "Wiki" / "test-page.md").is_file()
+
+    def test_edit_revive_from_terminal(self, vault, router):
+        """Non-terminal status on file in +Status/ folder moves it back out."""
+        self._make_idea(vault, "Ideas/+Adopted/revived.md", status="adopted")
+        result = edit.edit_artefact(
+            str(vault), router, "Ideas/+Adopted/revived.md", "",
+            frontmatter_changes={"status": "shaping"},
+        )
+        assert result["path"] == "Ideas/revived.md"
+        assert (vault / "Ideas" / "revived.md").is_file()
+        assert not (vault / "Ideas" / "+Adopted" / "revived.md").exists()
+
+    def test_edit_revive_from_subfolder(self, vault, router):
+        """Revive from project subfolder +Status/ moves up one level."""
+        self._make_idea(vault, "Ideas/Brain/+Adopted/sub-revive.md", status="adopted")
+        result = edit.edit_artefact(
+            str(vault), router, "Ideas/Brain/+Adopted/sub-revive.md", "",
+            frontmatter_changes={"status": "shaping"},
+        )
+        assert result["path"] == "Ideas/Brain/sub-revive.md"
+        assert (vault / "Ideas" / "Brain" / "sub-revive.md").is_file()
+        assert not (vault / "Ideas" / "Brain" / "+Adopted" / "sub-revive.md").exists()
+
+    def test_edit_revive_cleans_empty_folder(self, vault, router):
+        """Reviving last file from +Adopted/ removes the empty folder."""
+        self._make_idea(vault, "Ideas/+Adopted/last-one.md", status="adopted")
+        edit.edit_artefact(
+            str(vault), router, "Ideas/+Adopted/last-one.md", "",
+            frontmatter_changes={"status": "shaping"},
+        )
+        assert not (vault / "Ideas" / "+Adopted").exists()
+
+    def test_edit_revive_keeps_nonempty_folder(self, vault, router):
+        """Reviving one file from +Adopted/ when others remain keeps the folder."""
+        self._make_idea(vault, "Ideas/+Adopted/leaving.md", status="adopted")
+        self._make_idea(vault, "Ideas/+Adopted/staying.md", status="adopted")
+        edit.edit_artefact(
+            str(vault), router, "Ideas/+Adopted/leaving.md", "",
+            frontmatter_changes={"status": "shaping"},
+        )
+        assert (vault / "Ideas" / "+Adopted").is_dir()
+        assert (vault / "Ideas" / "+Adopted" / "staying.md").is_file()
+        assert (vault / "Ideas" / "leaving.md").is_file()

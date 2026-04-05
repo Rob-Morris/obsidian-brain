@@ -1102,7 +1102,11 @@ def brain_edit(operation: Literal["edit", "append", "prepend"], path: str, body:
             )
         else:
             return _fmt_error(f"Unknown operation '{operation}'. Valid: edit, append, prepend")
-        _mark_index_pending(result["path"])
+        moved = result["path"] != result["resolved_path"]
+        if moved:
+            _mark_index_dirty()  # file moved, full rebuild needed
+        else:
+            _mark_index_pending(result["path"])
         if cleanup_path:
             try:
                 os.remove(cleanup_path)
@@ -1110,6 +1114,8 @@ def brain_edit(operation: Literal["edit", "append", "prepend"], path: str, body:
                 pass
         past = {"edit": "Edited", "append": "Appended", "prepend": "Prepended"}[result["operation"]]
         msg = f"**{past}:** {result['path']}"
+        if moved:
+            msg += f"\n**Moved:** {result['resolved_path']} → {result['path']} (terminal status)"
         if target:
             msg += f" (target: {target})"
             prev_h, next_h = _surrounding_headings(_vault_root, result["path"], target)

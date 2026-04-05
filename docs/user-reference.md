@@ -180,9 +180,9 @@ status: shaping
 | `proposed` | Candidate design awaiting a decision on whether to proceed. May still be shaped. |
 | `shaping` | Default. Being explored; decisions open. |
 | `active` | Agreed and being implemented. |
-| `implemented` | Fully built; authority transfers to implementation. Terminal — archive. |
+| `implemented` | Fully built; authority transfers to implementation. Terminal — `brain_edit` auto-moves to `+Implemented/`. |
 | `parked` | Set aside; not abandoned, not being pursued. |
-| `rejected` | Evaluated and declined. Kept as a record. |
+| `rejected` | Evaluated and declined. Kept as a record. Terminal — `brain_edit` auto-moves to `+Rejected/`. |
 
 **Graduating from proposed:** Create a decision log recording the verdict. If accepted, set `shaping`. If rejected, set `rejected`.
 
@@ -214,7 +214,7 @@ status: new
 | `new` | Default. Exists but not developed. |
 | `shaping` | Being shaped and refined through Q&A. |
 | `ready` | Fully shaped — clear enough to act on. |
-| `adopted` | Adopted into a downstream artefact (design, project). Terminal — move to `+Adopted/`. |
+| `adopted` | Adopted into a downstream artefact (design, project). Terminal — `brain_edit` auto-moves to `+Adopted/`. |
 | `parked` | Set aside; not abandoned. |
 
 **Adoption:** Follow [[.brain-core/standards/provenance]] for lineage. Set idea `status: adopted`, carry forward open questions, carry forward project tag.
@@ -298,7 +298,7 @@ status: open
 | `open` | Default. Work hasn't started. |
 | `shaping` | Being shaped — clarifying scope and requirements before work begins. |
 | `in-progress` | Actively being worked on. |
-| `done` | Completed. Terminal — archive. |
+| `done` | Completed. Terminal — `brain_edit` auto-moves to `+Done/`. |
 | `blocked` | Can't proceed — dependency or external blocker. |
 
 **Optional fields:** `kind` (`bug`, `feature`, `chore`, `spike`, `decision`), `priority` (`critical`, `high`, `medium`, `low`), `assigned` (freeform string), `claimed_at` (ISO timestamp, set when claimed).
@@ -325,8 +325,8 @@ workspace_mode: embedded
 |---|---|
 | `active` | Default. Workspace is in use. |
 | `paused` | Set aside temporarily. |
-| `completed` | Work is done. Terminal — archive. |
-| `archived` | Preserved for reference. Terminal — archive. |
+| `completed` | Work is done. Terminal — `brain_edit` auto-moves to `+Completed/`. |
+| `archived` | Preserved for reference. Terminal — `brain_edit` auto-moves to `+Archived/`. |
 
 **Data folder:** `_Workspaces/{slug}/` is a freeform data bucket (embedded mode). Any file type — no frontmatter, naming, or taxonomy rules. Not indexed or compliance-checked. For linked mode (`workspace_mode: linked`), data lives in an external folder connected via `.brain/local/workspaces.json`.
 
@@ -355,7 +355,7 @@ status: draft
 | `published` | Released or delivered. Stays as canonical source. |
 | `parked` | Set aside; not being worked on. |
 
-**Publishing:** When status reaches `published`, date-prefix the filename (`yyyymmdd-{Title}.md`) and move to `Writing/_Published/`. Superseded published writing archives from `_Published/` to `_Archive/`.
+**Publishing:** Setting `status: published` via `brain_edit` auto-moves to `Writing/+Published/`. Add `publisheddate: YYYY-MM-DD` to frontmatter; optionally date-prefix the filename. Superseded published writing archives from `+Published/` to `_Archive/`.
 
 Complex writing projects use subfolders: `Writing/my-novel/index.md` with chapter files alongside.
 

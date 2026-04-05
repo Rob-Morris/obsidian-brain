@@ -2,6 +2,12 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.20.0 — 2026-04-05
+
+- **Feature:** `brain_edit` now automatically moves artefacts to `+Status/` folders when setting a terminal status, and moves them back out when reverting to a non-terminal status. Wikilinks are updated vault-wide. Empty `+Status/` folders are cleaned up after the last file is revived. No separate `brain_action("rename")` call needed.
+- **Change:** Writing taxonomy: replaced `## Publishing` with `## Terminal Status` so `published` is now handled by the auto-move system. The old manual 5-step publishing workflow is replaced by the standard terminal status auto-move, with date-prefixing and `publisheddate` as optional additional steps. `_Published/` convention replaced by `+Published/`.
+- **Migration:** `migrate_to_0_20_0.py` moves existing terminal-status artefacts into their correct `+Status/` folders on upgrade.
+
 ## v0.19.7 — 2026-04-05
 
 - **Security:** Removed `brain_action("upgrade")` from MCP server. Self-upgrading MCP servers are an anti-pattern — a prompt-injected agent could point upgrade at a crafted directory to replace `.brain-core/scripts/`. Upgrade is now CLI-only (`upgrade.py` from the repo, or `install.sh`). The MCP server detects version drift and exits cleanly for client restart.

@@ -25,6 +25,8 @@ from check import (
 )
 from create import resolve_naming_pattern, resolve_type, resolve_folder
 
+from rename import rename_and_update_links
+
 from _common import (
     find_section,
     find_vault_root,
@@ -46,16 +48,16 @@ from _common import (
 # ---------------------------------------------------------------------------
 
 def _open_artefact(vault_root, router, path):
-    """Validate, read, and parse an artefact. Returns (path, abs_path, fields, body)."""
+    """Validate, read, and parse an artefact. Returns (path, abs_path, fields, body, artefact)."""
     vault_root = str(vault_root)
-    path, _ = resolve_and_validate_folder(vault_root, router, path)
+    path, art = resolve_and_validate_folder(vault_root, router, path)
     abs_path = os.path.join(vault_root, path)
     if not os.path.isfile(abs_path):
         raise FileNotFoundError(f"File not found: {path}")
     with open(abs_path, "r", encoding="utf-8") as f:
         content = f.read()
     fields, body = parse_frontmatter(content)
-    return path, abs_path, fields, body
+    return path, abs_path, fields, body, art
 
 
 def _merge_frontmatter(fields, changes, operation):
@@ -78,6 +80,48 @@ def _save_artefact(abs_path, fields, new_body, vault_root):
     fields["modified"] = now_iso()
     new_content = serialize_frontmatter(fields, body=new_body)
     safe_write(abs_path, new_content, bounds=vault_root)
+
+
+def _maybe_status_move(vault_root, path, terminal_statuses, frontmatter_changes):
+    """If frontmatter_changes sets a terminal status, move file to +Status/ folder.
+
+    Returns new path if moved, or original path if not.
+    """
+    if not frontmatter_changes or "status" not in frontmatter_changes:
+        return path
+
+    if not terminal_statuses:
+        return path
+
+    new_status = frontmatter_changes["status"]
+    parent_dir = os.path.dirname(path)
+    filename = os.path.basename(path)
+    parent_name = os.path.basename(parent_dir)
+
+    if new_status in terminal_statuses:
+        # Terminal → move into +Status/ folder
+        status_folder = f"+{new_status.capitalize()}"
+        if parent_name == status_folder:
+            return path  # already in correct folder
+        new_path = os.path.join(parent_dir, status_folder, filename)
+    elif parent_name.startswith("+"):
+        # Non-terminal and currently in a +Status/ folder → move out
+        grandparent = os.path.dirname(parent_dir)
+        new_path = os.path.join(grandparent, filename)
+    else:
+        return path
+
+    rename_and_update_links(vault_root, path, new_path)
+
+    # Clean up empty +Status/ folder after revive
+    if parent_name.startswith("+"):
+        abs_old_dir = os.path.join(vault_root, parent_dir)
+        try:
+            os.rmdir(abs_old_dir)  # only removes if empty
+        except OSError:
+            pass
+
+    return new_path
 
 
 # ---------------------------------------------------------------------------
@@ -104,7 +148,7 @@ def edit_artefact(vault_root, router, path, body="", frontmatter_changes=None, t
         ValueError: If path validation fails or target not found.
         FileNotFoundError: If the file does not exist.
     """
-    path, abs_path, fields, existing_body = _open_artefact(vault_root, router, path)
+    path, abs_path, fields, existing_body, art = _open_artefact(vault_root, router, path)
     _merge_frontmatter(fields, frontmatter_changes, "edit")
 
     if target == ":body":
@@ -123,7 +167,10 @@ def edit_artefact(vault_root, router, path, body="", frontmatter_changes=None, t
         new_body = existing_body
 
     _save_artefact(abs_path, fields, new_body, vault_root)
-    return {"path": path, "operation": "edit"}
+    resolved_path = path
+    terminal = (art.get("frontmatter") or {}).get("terminal_statuses")
+    path = _maybe_status_move(vault_root, path, terminal, frontmatter_changes)
+    return {"path": path, "resolved_path": resolved_path, "operation": "edit"}
 
 
 def append_to_artefact(vault_root, router, path, content="", frontmatter_changes=None, target=None):
@@ -146,7 +193,7 @@ def append_to_artefact(vault_root, router, path, content="", frontmatter_changes
         ValueError: If path validation fails or target not found.
         FileNotFoundError: If the file does not exist.
     """
-    path, abs_path, fields, body = _open_artefact(vault_root, router, path)
+    path, abs_path, fields, body, art = _open_artefact(vault_root, router, path)
     _merge_frontmatter(fields, frontmatter_changes, "append")
 
     if target and target != ":body" and content:
@@ -166,7 +213,10 @@ def append_to_artefact(vault_root, router, path, content="", frontmatter_changes
         new_body = body
 
     _save_artefact(abs_path, fields, new_body, vault_root)
-    return {"path": path, "operation": "append"}
+    resolved_path = path
+    terminal = (art.get("frontmatter") or {}).get("terminal_statuses")
+    path = _maybe_status_move(vault_root, path, terminal, frontmatter_changes)
+    return {"path": path, "resolved_path": resolved_path, "operation": "append"}
 
 
 def prepend_to_artefact(vault_root, router, path, content="", frontmatter_changes=None, target=None):
@@ -190,7 +240,7 @@ def prepend_to_artefact(vault_root, router, path, content="", frontmatter_change
         ValueError: If path validation fails or target not found.
         FileNotFoundError: If the file does not exist.
     """
-    path, abs_path, fields, body = _open_artefact(vault_root, router, path)
+    path, abs_path, fields, body, art = _open_artefact(vault_root, router, path)
     _merge_frontmatter(fields, frontmatter_changes, "prepend")
 
     if target and target != ":body" and content:
@@ -206,7 +256,10 @@ def prepend_to_artefact(vault_root, router, path, content="", frontmatter_change
         new_body = body
 
     _save_artefact(abs_path, fields, new_body, vault_root)
-    return {"path": path, "operation": "prepend"}
+    resolved_path = path
+    terminal = (art.get("frontmatter") or {}).get("terminal_statuses")
+    path = _maybe_status_move(vault_root, path, terminal, frontmatter_changes)
+    return {"path": path, "resolved_path": resolved_path, "operation": "prepend"}
 
 
 # ---------------------------------------------------------------------------

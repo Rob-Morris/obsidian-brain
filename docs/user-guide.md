@@ -219,7 +219,7 @@ status: shaping
 
 The design doc has structure: a core goal, open decisions, transcripts from Q&A sessions that shaped it. It moves through `shaping` → `active` → `implemented`.
 
-The idea's status becomes `adopted`, and it moves to `Ideas/+Adopted/` — its job is done, and the design carries the work forward.
+The idea's status becomes `adopted`, and `brain_edit` automatically moves it to `Ideas/+Adopted/` — its job is done, and the design carries the work forward. Wikilinks update vault-wide. If an idea is later revived (status set back to non-terminal), it moves back out.
 
 ### The Thread is Never Lost
 
