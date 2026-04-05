@@ -54,7 +54,8 @@ def migrate(vault_root):
         if not os.path.isdir(abs_art_dir):
             continue
 
-        for dirpath, _dirnames, filenames in os.walk(abs_art_dir):
+        for dirpath, dirnames, filenames in os.walk(abs_art_dir):
+            dirnames[:] = [d for d in dirnames if d != "_Archive"]
             for fname in filenames:
                 if not fname.endswith(".md"):
                     continue

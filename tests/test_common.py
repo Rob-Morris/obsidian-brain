@@ -107,6 +107,23 @@ class TestIsSystemDir:
         assert common.is_system_dir("Daily Notes") is False
 
 
+class TestIsArchivedPath:
+    def test_type_root_archive(self):
+        assert common.is_archived_path("Ideas/_Archive/20260101-old.md") is True
+
+    def test_project_subfolder_archive(self):
+        assert common.is_archived_path("Ideas/Brain/_Archive/20260101-old.md") is True
+
+    def test_regular_path(self):
+        assert common.is_archived_path("Ideas/my-idea.md") is False
+
+    def test_plus_status_path(self):
+        assert common.is_archived_path("Ideas/+Adopted/my-idea.md") is False
+
+    def test_archive_in_filename_not_matched(self):
+        assert common.is_archived_path("Ideas/_Archive-notes.md") is False
+
+
 # ---------------------------------------------------------------------------
 # scan_living_types
 # ---------------------------------------------------------------------------

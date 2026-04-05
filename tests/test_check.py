@@ -897,6 +897,19 @@ class TestCheckBrokenWikilinks:
                      and "precise-link.md" in f.get("file", "")]
         assert ambiguous == []
 
+    def test_broken_wikilinks_skips_archive(self, vault):
+        """Broken links inside _Archive/ files are not reported."""
+        tmp_path, router = vault
+        archive = tmp_path / "Wiki" / "_Archive"
+        archive.mkdir(parents=True, exist_ok=True)
+        write_md(archive / "20260101-old-page.md",
+                 {"type": "living/wiki", "tags": [], "archiveddate": "2026-01-01"},
+                 "See [[totally-nonexistent-target]] here.")
+        findings = check.check_broken_wikilinks(str(tmp_path), router)
+        broken = [f for f in findings if f["check"] == "broken_wikilinks"
+                  and "totally-nonexistent-target" in f["message"]]
+        assert broken == []
+
 
 # ---------------------------------------------------------------------------
 # TestCheckTaxonomyTypeConsistency

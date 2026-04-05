@@ -30,6 +30,7 @@ from rename import rename_and_update_links
 from _common import (
     find_section,
     find_vault_root,
+    is_archived_path,
     make_wikilink_replacer,
     now_iso,
     parse_frontmatter,
@@ -92,6 +93,9 @@ def _maybe_status_move(vault_root, path, terminal_statuses, frontmatter_changes)
 
     if not terminal_statuses:
         return path
+
+    if is_archived_path(path):
+        return path  # _Archive/ is a manual location; auto-move does not apply
 
     new_status = frontmatter_changes["status"]
     parent_dir = os.path.dirname(path)
@@ -288,6 +292,13 @@ def convert_artefact(vault_root, router, path, target_type, parent=None):
 
     # Resolve path (basename fallback) and validate
     path, source_art = resolve_and_validate_folder(vault_root, router, path)
+
+    if is_archived_path(path):
+        raise ValueError(
+            f"Cannot convert archived file '{path}'. "
+            f"Un-archive it first by moving it out of _Archive/."
+        )
+
     target_art = resolve_type(router, target_type)
 
     abs_source = os.path.join(vault_root, path)

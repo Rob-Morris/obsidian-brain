@@ -581,7 +581,7 @@ def check_broken_wikilinks(vault_root, router, file_index=None):
     md_relpaths = file_index["md_relpaths"]
 
     for dirpath, dirnames, filenames in os.walk(vault_root):
-        dirnames[:] = [d for d in dirnames if d not in _INDEX_SKIP_DIRS]
+        dirnames[:] = [d for d in dirnames if d not in _INDEX_SKIP_DIRS and d != "_Archive"]
         for fname in filenames:
             if not fname.endswith(".md"):
                 continue

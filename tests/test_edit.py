@@ -1160,3 +1160,66 @@ class TestTerminalStatusMove:
         assert (vault / "Ideas" / "+Adopted").is_dir()
         assert (vault / "Ideas" / "+Adopted" / "staying.md").is_file()
         assert (vault / "Ideas" / "leaving.md").is_file()
+
+
+class TestArchiveGuards:
+    """Tests that _Archive/ files are immune to auto-move and convert."""
+
+    def _make_archived_idea(self, vault, path="Ideas/_Archive/20260101-old-idea.md"):
+        abs_path = vault / path
+        abs_path.parent.mkdir(parents=True, exist_ok=True)
+        abs_path.write_text(
+            "---\ntype: living/ideas\ntags: []\nstatus: adopted\n"
+            "archiveddate: 2026-01-01\n---\n\nOld idea.\n"
+        )
+
+    def test_status_move_skipped_for_archived_file(self, vault, router):
+        """Terminal status change on archived file does NOT create +Status/ inside _Archive/."""
+        self._make_archived_idea(vault)
+        result = edit.edit_artefact(
+            str(vault), router, "Ideas/_Archive/20260101-old-idea.md", "",
+            frontmatter_changes={"status": "adopted"},
+        )
+        assert result["path"] == "Ideas/_Archive/20260101-old-idea.md"
+        assert not (vault / "Ideas" / "_Archive" / "+Adopted").exists()
+
+    def test_nonterminal_status_on_archived_stays(self, vault, router):
+        """Non-terminal status on archived file stays in _Archive/, frontmatter updated."""
+        self._make_archived_idea(vault)
+        result = edit.edit_artefact(
+            str(vault), router, "Ideas/_Archive/20260101-old-idea.md", "",
+            frontmatter_changes={"status": "shaping"},
+        )
+        assert result["path"] == "Ideas/_Archive/20260101-old-idea.md"
+        content = (vault / "Ideas" / "_Archive" / "20260101-old-idea.md").read_text()
+        fields, _ = parse_frontmatter(content)
+        assert fields["status"] == "shaping"
+
+    def test_edit_archived_file_body_succeeds(self, vault, router):
+        """Body edits on archived files work normally."""
+        self._make_archived_idea(vault)
+        result = edit.edit_artefact(
+            str(vault), router, "Ideas/_Archive/20260101-old-idea.md",
+            "# Updated\n\nFixed body.\n",
+        )
+        assert result["path"] == "Ideas/_Archive/20260101-old-idea.md"
+        content = (vault / "Ideas" / "_Archive" / "20260101-old-idea.md").read_text()
+        assert "Fixed body." in content
+
+    def test_append_archived_skips_status_move(self, vault, router):
+        """Append with terminal status on archived file doesn't move."""
+        self._make_archived_idea(vault)
+        result = edit.append_to_artefact(
+            str(vault), router, "Ideas/_Archive/20260101-old-idea.md", "\nExtra.\n",
+            frontmatter_changes={"status": "adopted"},
+        )
+        assert result["path"] == "Ideas/_Archive/20260101-old-idea.md"
+        assert not (vault / "Ideas" / "_Archive" / "+Adopted").exists()
+
+    def test_convert_archived_file_raises(self, vault, router):
+        """Converting an archived file raises ValueError."""
+        self._make_archived_idea(vault)
+        with pytest.raises(ValueError, match="Cannot convert archived file"):
+            edit.convert_artefact(
+                str(vault), router, "Ideas/_Archive/20260101-old-idea.md", "designs"
+            )

@@ -31,7 +31,8 @@ def _migrate_ideas_status(vault_root, actions):
         return 0
 
     updated = 0
-    for dirpath, _dirnames, filenames in os.walk(ideas_dir):
+    for dirpath, dirnames, filenames in os.walk(ideas_dir):
+        dirnames[:] = [d for d in dirnames if d != "_Archive"]
         for fname in filenames:
             if not fname.endswith(".md"):
                 continue

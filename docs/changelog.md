@@ -2,6 +2,12 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.20.1 — 2026-04-05
+
+- **Fix:** `_Archive/` folders are now immune to auto-move side-effects. Previously, changing the status of an archived artefact could create `+Status/` folders inside `_Archive/`, and `convert_artefact` could silently move archived files to active type folders. Archived files can still be edited (for frontmatter maintenance) but auto-move and conversion are blocked.
+- **Fix:** Migrations `0.19.0` and `0.20.0` now skip `_Archive/` directories, preventing accidental status rewrites or `+Status/` folder creation inside archives on fresh vault init.
+- **Fix:** `check_broken_wikilinks` now skips `_Archive/` directories. Archived files are frozen snapshots — their internal wikilinks are not updated on rename, so broken-link findings from archives are expected noise, not actionable.
+
 ## v0.20.0 — 2026-04-05
 
 - **Feature:** `brain_edit` now automatically moves artefacts to `+Status/` folders when setting a terminal status, and moves them back out when reverting to a non-terminal status. Wikilinks are updated vault-wide. Empty `+Status/` folders are cleaned up after the last file is revived. No separate `brain_action("rename")` call needed.

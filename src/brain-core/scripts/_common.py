@@ -201,6 +201,11 @@ def is_system_dir(name):
     return name.startswith("_") or name.startswith(".")
 
 
+def is_archived_path(path):
+    """Return True if *path* sits inside an ``_Archive/`` directory."""
+    return "/_Archive/" in path or path.startswith("_Archive/")
+
+
 def scan_living_types(vault_root):
     """Discover living artefact types from root-level non-system directories."""
     types = []
@@ -353,7 +358,9 @@ def _iter_vault_md_files(vault_root):
     """Yield ``(dirpath, filename)`` for every ``.md`` file in user-facing dirs.
 
     Skips system directories (``_Config``, ``.obsidian``, …) except
-    ``_Temporal`` which contains artefacts.
+    ``_Temporal`` which contains artefacts.  ``_Archive/`` directories are
+    intentionally skipped — archived files are frozen snapshots whose
+    internal wikilinks are not updated on rename operations.
     """
     for dirpath, _dirnames, filenames in os.walk(vault_root):
         rel_dir = os.path.relpath(dirpath, vault_root)
@@ -735,7 +742,7 @@ def resolve_broken_link(target, file_index, temporal_prefixes=None):
     if archive_files is None:
         archive_files = [
             p for paths in md_basenames.values() for p in paths
-            if "/_Archive/" in p
+            if is_archived_path(p)
         ]
     target_lower = os.path.basename(working).lower()
     archive_matches = []
