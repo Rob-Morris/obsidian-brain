@@ -455,7 +455,7 @@ def replace_wikilinks_in_vault(vault_root, pattern, replacement):
 _WIKILINK_EXTRACT_RE = re.compile(r"(!?)\[\[([^\]]+)\]\]")
 
 # Directories to skip entirely when building the vault file index
-_INDEX_SKIP_DIRS = {".git", ".obsidian", ".venv", ".brain-core", "__pycache__"}
+_INDEX_SKIP_DIRS = {".git", ".obsidian", ".venv", ".brain-core", "__pycache__", "_Archive"}
 
 
 def extract_wikilinks(text):
