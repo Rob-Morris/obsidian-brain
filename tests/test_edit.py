@@ -859,6 +859,37 @@ class TestEditWithSection:
         assert "Sibling content." in body
         assert "Other." in body
 
+    def test_edit_empty_body_clears_section_content_keeps_heading(self, vault, router):
+        """body="" with a section target clears content but keeps the heading."""
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "## Alpha\n\nAlpha content.\n\n## Beta\n\nBeta content.\n"
+        )
+        edit.edit_artefact(str(vault), router, "Wiki/test-page.md", "", target="Alpha")
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        _, body = parse_frontmatter(content)
+        assert "## Alpha" in body              # heading preserved
+        assert "Alpha content." not in body    # content cleared
+        assert "## Beta" in body               # following section intact
+        # No double-blank before ## Beta
+        assert "\n\n\n" not in body
+        # Exactly one blank line between cleared heading and following section
+        assert "## Alpha\n\n## Beta" in body
+
+    def test_edit_empty_body_clears_last_section_keeps_heading(self, vault, router):
+        """body="" on the last section leaves just the heading with no trailing garbage."""
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "## Alpha\n\nAlpha content.\n\n## Beta\n\nBeta content.\n"
+        )
+        edit.edit_artefact(str(vault), router, "Wiki/test-page.md", "", target="Beta")
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        _, body = parse_frontmatter(content)
+        assert "## Beta" in body
+        assert "Beta content." not in body
+        # No trailing double-newlines after the heading
+        assert body.endswith("## Beta\n")
+
     def test_edit_callout_content(self, vault, router):
         (vault / "Wiki" / "test-page.md").write_text(
             "---\ntype: living/wiki\ntags: []\n---\n\n"
@@ -1356,3 +1387,114 @@ class TestUnarchiveArtefact:
         result = edit.unarchive_artefact(str(vault), router, rel)
         content = (vault / "Wiki" / "linker.md").read_text()
         assert "my-idea" in content
+
+
+class TestDeleteSection:
+    def test_delete_middle_section(self, vault, router):
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "## Alpha\n\nAlpha content.\n\n## Beta\n\nBeta content.\n\n## Gamma\n\nGamma content.\n"
+        )
+        edit.delete_section_artefact(str(vault), router, "Wiki/test-page.md", target="Beta")
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        _, body = parse_frontmatter(content)
+        assert "## Alpha" in body
+        assert "Alpha content." in body
+        assert "## Beta" not in body
+        assert "Beta content." not in body
+        assert "## Gamma" in body
+        assert "Gamma content." in body
+        assert "\n\n\n" not in body  # no double-blank
+
+    def test_delete_first_section(self, vault, router):
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "## Alpha\n\nAlpha content.\n\n## Beta\n\nBeta content.\n"
+        )
+        edit.delete_section_artefact(str(vault), router, "Wiki/test-page.md", target="Alpha")
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        _, body = parse_frontmatter(content)
+        assert "## Alpha" not in body
+        assert "Alpha content." not in body
+        assert "## Beta" in body
+        assert "Beta content." in body
+        # Body must start directly with the remaining heading (no orphaned blank lines above it)
+        assert body.startswith("## Beta\n")
+
+    def test_delete_last_section(self, vault, router):
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "## Alpha\n\nAlpha content.\n\n## Beta\n\nBeta content.\n"
+        )
+        edit.delete_section_artefact(str(vault), router, "Wiki/test-page.md", target="Beta")
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        _, body = parse_frontmatter(content)
+        assert "## Alpha" in body
+        assert "Alpha content." in body
+        assert "## Beta" not in body
+        assert "Beta content." not in body
+
+    def test_delete_only_section(self, vault, router):
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "## Only\n\nOnly content.\n"
+        )
+        edit.delete_section_artefact(str(vault), router, "Wiki/test-page.md", target="Only")
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        _, body = parse_frontmatter(content)
+        assert "## Only" not in body
+        assert "Only content." not in body
+
+    def test_delete_section_not_found(self, vault, router):
+        with pytest.raises(ValueError, match="not found"):
+            edit.delete_section_artefact(
+                str(vault), router, "Wiki/test-page.md", target="Nonexistent"
+            )
+
+    def test_delete_section_with_level_qualifier(self, vault, router):
+        """Level-qualified target (e.g. '## Beta') matches exactly."""
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "## Alpha\n\nAlpha content.\n\n## Beta\n\nBeta content.\n"
+        )
+        edit.delete_section_artefact(str(vault), router, "Wiki/test-page.md", target="## Beta")
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        _, body = parse_frontmatter(content)
+        assert "## Beta" not in body
+        assert "## Alpha" in body
+
+    def test_delete_section_updates_modified(self, vault, router):
+        from datetime import datetime, timezone, timedelta
+        from unittest.mock import patch
+        fixed = datetime(2026, 4, 6, 10, 0, 0, tzinfo=timezone(timedelta(hours=11)))
+        expected_iso = fixed.astimezone().isoformat()
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n## Alpha\n\nContent.\n"
+        )
+        with patch("_common.datetime") as mock_dt:
+            mock_dt.now.return_value = fixed
+            edit.delete_section_artefact(str(vault), router, "Wiki/test-page.md", target="Alpha")
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        fields, _ = parse_frontmatter(content)
+        assert fields["modified"] == expected_iso
+
+    def test_delete_callout_section(self, vault, router):
+        """delete_section works with callout targets."""
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "## Context\n\n"
+            "> [!note] Implementation status\n"
+            "> Old status content.\n"
+            "\n"
+            "After callout.\n"
+        )
+        edit.delete_section_artefact(
+            str(vault), router, "Wiki/test-page.md",
+            target="[!note] Implementation status",
+        )
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        _, body = parse_frontmatter(content)
+        assert "[!note] Implementation status" not in body
+        assert "Old status content." not in body
+        assert "## Context" in body
+        assert "After callout." in body

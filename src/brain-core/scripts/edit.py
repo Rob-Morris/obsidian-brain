@@ -46,6 +46,18 @@ from _common import (
 
 
 # ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+OPERATION_LABELS = {
+    "edit": "Edited",
+    "append": "Appended",
+    "prepend": "Prepended",
+    "delete_section": "Deleted section from",
+}
+
+
+# ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
 
@@ -162,9 +174,12 @@ def edit_artefact(vault_root, router, path, body="", frontmatter_changes=None, t
     elif target:
         start, end = find_section(existing_body, target)
         # Ensure clean join: body ends with newline, blank line before next section
-        normalized = body.rstrip("\n") + "\n"
-        if end < len(existing_body):
-            normalized += "\n"  # blank line before next heading
+        if body:
+            normalized = body.rstrip("\n") + "\n"
+            if end < len(existing_body):
+                normalized += "\n"  # blank line before next heading
+        else:
+            normalized = "" if end == len(existing_body) else "\n"
         new_body = existing_body[:start] + normalized + existing_body[end:]
     elif body:
         new_body = body
@@ -176,6 +191,47 @@ def edit_artefact(vault_root, router, path, body="", frontmatter_changes=None, t
     terminal = (art.get("frontmatter") or {}).get("terminal_statuses")
     path = _maybe_status_move(vault_root, path, terminal, frontmatter_changes)
     return {"path": path, "resolved_path": resolved_path, "operation": "edit"}
+
+
+def delete_section_artefact(vault_root, router, path, target, frontmatter_changes=None):
+    """Delete a section (heading + all its content) from an existing artefact.
+
+    Args:
+        vault_root: Absolute path to the vault root.
+        router: Compiled router dict.
+        path: Relative path from vault root.
+        target: Heading or callout title to delete (required).
+                Include # markers to disambiguate (e.g. "## Notes").
+        frontmatter_changes: Optional dict of frontmatter field changes.
+
+    Returns:
+        Dict with path and operation.
+
+    Raises:
+        ValueError: If path validation fails or target not found.
+        FileNotFoundError: If the file does not exist.
+    """
+    path, abs_path, fields, existing_body, art = _open_artefact(vault_root, router, path)
+    _merge_frontmatter(fields, frontmatter_changes, "edit")
+
+    start, end = find_section(existing_body, target, include_heading=True)
+
+    # Strip trailing blank lines from prefix so deletion doesn't leave double-blanks
+    prefix = existing_body[:start].rstrip("\n")
+    suffix = existing_body[end:]
+
+    if prefix and suffix:
+        new_body = prefix + "\n\n" + suffix
+    elif prefix:
+        new_body = prefix + "\n"
+    else:
+        new_body = suffix
+
+    _save_artefact(abs_path, fields, new_body, vault_root)
+    resolved_path = path
+    terminal = (art.get("frontmatter") or {}).get("terminal_statuses")
+    path = _maybe_status_move(vault_root, path, terminal, frontmatter_changes)
+    return {"path": path, "resolved_path": resolved_path, "operation": "delete_section"}
 
 
 def append_to_artefact(vault_root, router, path, content="", frontmatter_changes=None, target=None):
@@ -509,9 +565,9 @@ def main():
         else:
             i += 1
 
-    if operation not in ("edit", "append", "prepend") or not path:
+    if operation not in ("edit", "append", "prepend", "delete_section") or not path:
         print(
-            'Usage: edit.py edit|append|prepend --path PATH --body BODY [--body-file PATH] [--target HEADING] [--vault PATH] [--json]',
+            'Usage: edit.py edit|append|prepend|delete_section --path PATH --target HEADING [--vault PATH] [--json]',
             file=sys.stderr,
         )
         sys.exit(1)
@@ -540,8 +596,10 @@ def main():
             result = edit_artefact(vault_root, router, path, body, frontmatter_changes=fm_changes, target=target)
         elif operation == "append":
             result = append_to_artefact(vault_root, router, path, body, frontmatter_changes=fm_changes, target=target)
-        else:
+        elif operation == "prepend":
             result = prepend_to_artefact(vault_root, router, path, body, frontmatter_changes=fm_changes, target=target)
+        else:
+            result = delete_section_artefact(vault_root, router, path, target=target, frontmatter_changes=fm_changes)
     except (ValueError, FileNotFoundError) as e:
         if json_mode:
             print(json.dumps({"error": str(e)}))
@@ -552,7 +610,8 @@ def main():
     if json_mode:
         print(json.dumps(result, indent=2))
     else:
-        print(f"{operation.capitalize()}ed {result['path']}", file=sys.stderr)
+        op_label = OPERATION_LABELS[operation]
+        print(f"{op_label} {result['path']}", file=sys.stderr)
 
 
 if __name__ == "__main__":

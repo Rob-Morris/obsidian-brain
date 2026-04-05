@@ -2,6 +2,11 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.21.1 — 2026-04-06
+
+- **Feature:** `brain_edit(operation="delete_section")` — deletes a section including its heading from an artefact. Requires `target` parameter. Uses `find_section(..., include_heading=True)` to splice out the heading and its content with clean blank-line handling.
+- **Fix:** `brain_edit(operation="edit")` with `body=""` and a section `target` now produces a clean empty section (heading preserved, correct spacing) instead of leaving double-blank artifacts.
+
 ## v0.21.0 — 2026-04-06
 
 - **Feature: Archive visibility.** `_Archive/` is now fully invisible to normal vault operations. Archived files are excluded from the vault file index, `resolve_artefact_path`, Obsidian CLI search results, and `brain_read`/`brain_edit`/`brain_list`. They are only accessible through dedicated archive operations.

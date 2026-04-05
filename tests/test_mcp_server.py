@@ -1223,6 +1223,45 @@ class TestBrainEdit:
         # Original tags should still be there
         assert len(fields["tags"]) > 1
 
+    def test_delete_section_removes_heading_and_content(self, initialized):
+        """delete_section removes the target heading and its content."""
+        path = "Wiki/brain-overview-abc123.md"
+        # Set up a file with multiple sections
+        server.brain_edit(
+            operation="edit",
+            path=path,
+            target=":body",
+            body="## Intro\n\nIntro content.\n\n## Notes\n\nNotes content.\n\n## Summary\n\nSummary content.\n"
+        )
+        result = server.brain_edit(
+            operation="delete_section",
+            path=path,
+            target="Notes"
+        )
+        assert "Error" not in str(result)
+        content = (initialized / path).read_text()
+        assert "## Notes" not in content
+        assert "Notes content." not in content
+        assert "## Intro" in content
+        assert "## Summary" in content
+
+    def test_delete_section_requires_target(self, initialized):
+        """delete_section with no target returns an error."""
+        result = server.brain_edit(
+            operation="delete_section",
+            path="Wiki/brain-overview-abc123.md",
+        )
+        _assert_error(result, "target")
+
+    def test_delete_section_missing_heading_returns_error(self, initialized):
+        """delete_section with a non-existent heading returns an error."""
+        result = server.brain_edit(
+            operation="delete_section",
+            path="Wiki/brain-overview-abc123.md",
+            target="Nonexistent Heading"
+        )
+        _assert_error(result, "not found")
+
     def test_targeted_edit_includes_context(self, initialized):
         """Targeted operations should include surrounding headings in response."""
         path = initialized / "Wiki" / "brain-overview-abc123.md"

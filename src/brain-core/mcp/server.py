@@ -1052,13 +1052,14 @@ def brain_create(type: str, title: str, body: str = "", body_file: str = "", fro
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def brain_edit(operation: Literal["edit", "append", "prepend"], path: str, body: str = "", body_file: str = "", frontmatter: dict | None = None, target: str | None = None):
+def brain_edit(operation: Literal["edit", "append", "prepend", "delete_section"], path: str, body: str = "", body_file: str = "", frontmatter: dict | None = None, target: str | None = None):
     """Modify an existing vault artefact. Single-file mutation.
 
     For bodies over ~1 KB, prefer body_file over body to save tokens in the tool call.
 
     Parameters:
-      operation  — "edit" (replace body/section), "append" (add after), or "prepend" (insert before)
+      operation  — "edit" (replace body/section), "append" (add after), "prepend" (insert before),
+                   or "delete_section" (remove a section including its heading; requires target)
       path       — relative path or basename (resolves like wikilinks; e.g. "Ideas/my-idea.md" or "my-idea")
       body       — new body content (edit), content to append (append), or content to prepend (prepend).
                    Mutually exclusive with body_file.
@@ -1100,7 +1101,10 @@ def brain_edit(operation: Literal["edit", "append", "prepend"], path: str, body:
                 "Use brain_action('unarchive') to restore it first."
             )
 
-        if not body and not frontmatter and not target:
+        if operation == "delete_section":
+            if not target:
+                return _fmt_error("delete_section requires a target heading.")
+        elif not body and not frontmatter and not target:
             return _fmt_error(f"{operation} with no body and no frontmatter changes is a no-op. "
                               "Pass body content, frontmatter changes, or both.")
 
@@ -1122,8 +1126,14 @@ def brain_edit(operation: Literal["edit", "append", "prepend"], path: str, body:
                 frontmatter_changes=frontmatter,
                 target=target,
             )
+        elif operation == "delete_section":
+            result = edit.delete_section_artefact(
+                _vault_root, _router, path,
+                target=target,
+                frontmatter_changes=frontmatter,
+            )
         else:
-            return _fmt_error(f"Unknown operation '{operation}'. Valid: edit, append, prepend")
+            return _fmt_error(f"Unknown operation '{operation}'. Valid: edit, append, prepend, delete_section")
         moved = result["path"] != result["resolved_path"]
         if moved:
             _mark_index_dirty()  # file moved, full rebuild needed
@@ -1134,7 +1144,7 @@ def brain_edit(operation: Literal["edit", "append", "prepend"], path: str, body:
                 os.remove(cleanup_path)
             except OSError:
                 pass
-        past = {"edit": "Edited", "append": "Appended", "prepend": "Prepended"}[result["operation"]]
+        past = edit.OPERATION_LABELS[result["operation"]]
         msg = f"**{past}:** {result['path']}"
         if moved:
             msg += f"\n**Moved:** {result['resolved_path']} → {result['path']} (terminal status)"
