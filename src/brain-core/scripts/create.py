@@ -17,6 +17,7 @@ import sys
 from datetime import datetime, timezone
 
 from _common import (
+    check_write_allowed,
     find_duplicate_basenames,
     find_vault_root,
     match_artefact,
@@ -153,6 +154,7 @@ def create_artefact(vault_root, router, type_key, title, body="", frontmatter_ov
 
     # 9. Write
     rel_path = os.path.join(folder, filename)
+    check_write_allowed(rel_path)
     abs_path = os.path.join(vault_root, rel_path)
     content = serialize_frontmatter(fields, body=final_body)
     safe_write(abs_path, content, bounds=vault_root, exclusive=True)

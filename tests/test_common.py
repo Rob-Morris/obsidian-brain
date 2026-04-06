@@ -1049,3 +1049,71 @@ class TestResolveBodyFile:
         body, cleanup = common.resolve_body_file("", str(f))
         assert body == "anything"
         assert cleanup is None
+
+
+# ---------------------------------------------------------------------------
+# check_write_allowed
+# ---------------------------------------------------------------------------
+
+class TestCheckWriteAllowed:
+    """Write guard: block dot-prefixed and protected underscore folders."""
+
+    # -- Dot-prefixed: always blocked --
+
+    def test_dot_brain_blocked(self):
+        with pytest.raises(ValueError, match="dot-prefixed"):
+            common.check_write_allowed(".brain/local/index.json")
+
+    def test_dot_brain_core_blocked(self):
+        with pytest.raises(ValueError, match="dot-prefixed"):
+            common.check_write_allowed(".brain-core/scripts/foo.py")
+
+    def test_dot_obsidian_blocked(self):
+        with pytest.raises(ValueError, match="dot-prefixed"):
+            common.check_write_allowed(".obsidian/config")
+
+    # -- Underscore-prefixed: blocked unless in allowlist --
+
+    def test_plugins_blocked(self):
+        with pytest.raises(ValueError, match="protected folder"):
+            common.check_write_allowed("_Plugins/my-plugin/SKILL.md")
+
+    def test_workspaces_blocked(self):
+        with pytest.raises(ValueError, match="protected folder"):
+            common.check_write_allowed("_Workspaces/ws1/config.md")
+
+    def test_assets_blocked(self):
+        with pytest.raises(ValueError, match="protected folder"):
+            common.check_write_allowed("_Assets/image.png")
+
+    def test_archive_blocked(self):
+        with pytest.raises(ValueError, match="protected folder"):
+            common.check_write_allowed("_Archive/old-doc.md")
+
+    # -- Underscore-prefixed: allowed exceptions --
+
+    def test_temporal_allowed(self):
+        common.check_write_allowed("_Temporal/Research/2026-04/foo.md")
+
+    def test_config_allowed(self):
+        common.check_write_allowed("_Config/Skills/my-skill/SKILL.md")
+
+    # -- Normal folders: allowed --
+
+    def test_ideas_allowed(self):
+        common.check_write_allowed("Ideas/my-idea.md")
+
+    def test_wiki_allowed(self):
+        common.check_write_allowed("Wiki/my-page.md")
+
+    def test_daily_notes_allowed(self):
+        common.check_write_allowed("Daily Notes/2026-04-06 Mon.md")
+
+    # -- Edge cases --
+
+    def test_bare_filename_allowed(self):
+        common.check_write_allowed("README.md")
+
+    def test_empty_path_raises(self):
+        with pytest.raises(ValueError, match="Empty path"):
+            common.check_write_allowed("")

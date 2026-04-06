@@ -1048,6 +1048,31 @@ def resolve_and_check_bounds(path, bounds, *, follow_symlinks=True):
     return target
 
 
+_WRITE_ALLOWED_UNDERSCORE = {"_Temporal", "_Config"}
+
+
+def check_write_allowed(rel_path):
+    """Raise ValueError if rel_path targets a protected folder.
+
+    Rules:
+    - Dot-prefixed top-level folders: always blocked.
+    - Underscore-prefixed top-level folders: blocked unless in allowlist.
+    """
+    parts = Path(rel_path).parts
+    if not parts:
+        raise ValueError("Empty path")
+    top = parts[0]
+    if top.startswith("."):
+        raise ValueError(
+            f"Cannot write to dot-prefixed folder '{top}' — system directory."
+        )
+    if top.startswith("_") and top not in _WRITE_ALLOWED_UNDERSCORE:
+        raise ValueError(
+            f"Cannot write to '{top}' — protected folder. "
+            f"Allowed underscore folders: {sorted(_WRITE_ALLOWED_UNDERSCORE)}"
+        )
+
+
 def check_not_in_brain_core(path, vault_root):
     """Raise ValueError if path resolves inside .brain-core/."""
     real = os.path.realpath(os.path.join(vault_root, path) if not os.path.isabs(path) else path)

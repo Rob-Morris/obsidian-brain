@@ -29,6 +29,7 @@ from create import resolve_naming_pattern, resolve_type, resolve_folder
 from rename import rename_and_update_links
 
 from _common import (
+    check_write_allowed,
     find_section,
     find_vault_root,
     is_archived_path,
@@ -65,6 +66,7 @@ def _open_artefact(vault_root, router, path):
     """Validate, read, and parse an artefact. Returns (path, abs_path, fields, body, artefact)."""
     vault_root = str(vault_root)
     path, art = resolve_and_validate_folder(vault_root, router, path)
+    check_write_allowed(path)
     abs_path = os.path.join(vault_root, path)
     if not os.path.isfile(abs_path):
         raise FileNotFoundError(f"File not found: {path}")
@@ -391,6 +393,7 @@ def convert_artefact(vault_root, router, path, target_type, parent=None):
     # Compute new path
     target_folder = resolve_folder(target_art, parent=parent)
     new_path = os.path.join(target_folder, new_filename)
+    check_write_allowed(new_path)
 
     # Reconcile frontmatter: set type to target type
     if target_art.get("frontmatter_type"):
@@ -517,6 +520,7 @@ def unarchive_artefact(vault_root, router, path):
     # _Archive/Ideas/Brain/20260101-old-idea.md → Ideas/Brain/old-idea.md
     rel_from_archive = os.path.relpath(os.path.dirname(path), "_Archive")
     dest = os.path.join(rel_from_archive, filename)
+    check_write_allowed(dest)
 
     fields.pop("archiveddate", None)
     _save_artefact(abs_path, fields, body, vault_root)

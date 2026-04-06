@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.22.0 — 2026-04-06
+
+**Write guards for brain_create and brain_edit.** New `check_write_allowed()` function in `_common.py` blocks writes to protected folders. Dot-prefixed folders (`.brain/`, `.brain-core/`, `.obsidian/`, etc.) are always blocked. Underscore-prefixed folders are blocked except `_Temporal/` (artefact storage) and `_Config/` (resource-typed operations). Guards are called from `create_artefact()` and `_open_artefact()` in edit.py, covering all edit operations. Defense-in-depth alongside existing vault containment and `.brain-core/` protection. Part of the Unified Resource Interface design (Phase 1).
+
 ## v0.21.9 — 2026-04-06
 
 **MCP server robustness fixes.** `mcp.run()` now catches `BaseException` (not just `Exception`) so clean exits via `SystemExit` always log `shutdown: stdin closed`. Signal handler guards against `ValueError` on unexpected signal numbers. Startup error blocks now include stack traces (`exc_info=True`). Silent swallowing of version-check and `_surrounding_headings` errors replaced with `warning`-level log entries. Removed unused `timezone` import.
