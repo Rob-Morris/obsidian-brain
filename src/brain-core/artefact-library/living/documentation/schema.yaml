@@ -4,3 +4,7 @@ required:
   tags:
     type: array
     contains: "documentation"
+optional:
+  status:
+    enum: [new, shaping, ready, active, deprecated]
+    default: active

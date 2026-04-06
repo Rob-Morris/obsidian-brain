@@ -94,6 +94,7 @@ Artefact types that have a lifecycle should include a `status` field in frontmat
 
 - **Ideas:** `new` → `shaping` → `ready` → `adopted` | `parked`
 - **Designs:** `proposed` → `shaping` → `ready` → `active` → `implemented` | `parked` | `rejected`
+- **Documentation:** `new` → `shaping` → `ready` → `active` → `deprecated`
 - **Tasks:** `open` → `shaping` → `in-progress` → `done` | `blocked`
 - **Workspaces:** `active` → `parked` → `completed` (terminal → `+Completed/`)
 - **Plans:** `draft` → `shaping` → `approved` → `implementing` → `completed`

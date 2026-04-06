@@ -118,6 +118,7 @@ Why the split? Obsidian's backlinks and graph view work from body wikilinks. Sea
 Some types have a lifecycle. Status values are defined per type:
 
 - **Designs:** `proposed` → `shaping` → `ready` → `active` → `implemented` | `parked` | `rejected`
+- **Documentation:** `new` → `shaping` → `ready` → `active` → `deprecated`
 - **Ideas:** `new` → `shaping` → `ready` → `adopted` | `parked`
 - **Idea Logs:** `open` → `adopted` | `parked`
 - **People:** `active` → `shaping` → `parked`
@@ -125,7 +126,7 @@ Some types have a lifecycle. Status values are defined per type:
 - **Writing:** `draft` → `editing` → `review` → `published` | `parked`
 - **Plans:** `draft` → `shaping` → `approved` → `implementing` → `completed`
 
-Not every type has status. Wiki, Notes, Documentation, and most temporal types are evergreen.
+Not every type has status. Wiki, Notes, and most temporal types are evergreen.
 
 ## Linking
 

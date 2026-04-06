@@ -369,9 +369,10 @@ Technical docs, style guides, prescriptive reference that governs how work gets 
 type: living/documentation
 tags:
   - documentation
+status: active              # new | shaping | ready | active | deprecated
 ```
 
-No status field. Evergreen. Evolves over time as understanding deepens.
+**Lifecycle:** `new` → `shaping` → `ready` → `active` → `deprecated`. Default is `active`. Terminal status `deprecated` moves to `Documentation/+Deprecated/`.
 
 ---
 
@@ -782,6 +783,7 @@ Only types with a defined lifecycle have status. Current types with status:
 |---|---|
 | Bug Logs | `open`, `resolved` |
 | Designs | `proposed`, `shaping`, `ready`, `active`, `implemented`, `parked`, `rejected` |
+| Documentation | `new`, `shaping`, `ready`, `active`, `deprecated` |
 | Ideas | `new`, `shaping`, `ready`, `adopted`, `parked` |
 | Idea Logs | `open`, `adopted`, `parked` |
 | Journals | `active`, `archived` |

@@ -1,6 +1,10 @@
 # Changelog
 
-Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
+Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
+
+## v0.21.3 — 2026-04-06
+
+- **Feature:** Documentation lifecycle — documentation artefacts now have status support: `new` → `shaping` → `ready` → `active` → `deprecated`. Default is `active`. Terminal status `deprecated` moves to `Documentation/+Deprecated/`. Migration backfills `status: active` on existing documentation artefacts.
 
 ## v0.21.2 — 2026-04-06
 
