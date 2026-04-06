@@ -1351,6 +1351,47 @@ class TestBrainEdit:
         assert "Alpha" in result
         assert "Gamma" in result
 
+    def test_edit_skill_resource(self, initialized):
+        # Create a skill first
+        skill_dir = initialized / "_Config" / "Skills" / "test-skill"
+        skill_dir.mkdir(parents=True, exist_ok=True)
+        (skill_dir / "SKILL.md").write_text(
+            "---\n---\n\n# Test Skill\n\nOriginal.\n"
+        )
+        result = server.brain_edit(
+            resource="skill", operation="edit", name="test-skill",
+            body="# Updated Skill\n\nNew content.\n",
+        )
+        assert "**Edited:**" in result
+        assert "_Config/Skills/test-skill/SKILL.md" in result
+        content = (skill_dir / "SKILL.md").read_text()
+        assert "New content." in content
+
+    def test_edit_memory_resource(self, initialized):
+        mem_dir = initialized / "_Config" / "Memories"
+        mem_dir.mkdir(parents=True, exist_ok=True)
+        (mem_dir / "test-memory.md").write_text(
+            "---\ntriggers:\n  - kw1\n---\n\nOriginal.\n"
+        )
+        result = server.brain_edit(
+            resource="memory", operation="append", name="test-memory",
+            body="\nAppended.\n",
+        )
+        assert "**Appended:**" in result
+
+    def test_edit_resource_not_editable(self, initialized):
+        result = server.brain_edit(
+            resource="workspace", operation="edit", name="ws",
+            body="content",
+        )
+        _assert_error(result, "not editable")
+
+    def test_edit_artefact_requires_path(self, initialized):
+        result = server.brain_edit(
+            operation="edit", body="content",
+        )
+        _assert_error(result, "path is required")
+
 
 # ---------------------------------------------------------------------------
 # brain_action delete/convert tests

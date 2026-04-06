@@ -1626,3 +1626,187 @@ class TestDeleteSection:
         assert "Old status content." not in body
         assert "## Context" in body
         assert "After callout." in body
+
+
+# ---------------------------------------------------------------------------
+# Resource editing (Phase 5)
+# ---------------------------------------------------------------------------
+
+class TestEditResource:
+    """Tests for edit_resource() — the resource-aware dispatcher."""
+
+    def _create_skill(self, vault):
+        """Helper: create a skill file for editing tests."""
+        skill_dir = vault / "_Config" / "Skills" / "test-skill"
+        skill_dir.mkdir(parents=True, exist_ok=True)
+        path = skill_dir / "SKILL.md"
+        path.write_text(
+            "---\ndescription: A test skill\n---\n\n"
+            "# Test Skill\n\nOriginal skill body.\n"
+        )
+        return "_Config/Skills/test-skill/SKILL.md"
+
+    def _create_memory(self, vault):
+        """Helper: create a memory file for editing tests."""
+        mem_dir = vault / "_Config" / "Memories"
+        mem_dir.mkdir(parents=True, exist_ok=True)
+        path = mem_dir / "test-memory.md"
+        path.write_text(
+            "---\ntriggers:\n  - keyword1\n---\n\n"
+            "# Test Memory\n\nOriginal memory body.\n"
+        )
+        return "_Config/Memories/test-memory.md"
+
+    def _create_style(self, vault):
+        """Helper: create a style file for editing tests."""
+        style_dir = vault / "_Config" / "Styles"
+        style_dir.mkdir(parents=True, exist_ok=True)
+        path = style_dir / "test-style.md"
+        path.write_text(
+            "---\naudience: technical\n---\n\n"
+            "# Test Style\n\nOriginal style body.\n"
+        )
+        return "_Config/Styles/test-style.md"
+
+    def test_artefact_delegates_to_edit_artefact(self, vault, router):
+        result = edit.edit_resource(
+            str(vault), router, resource="artefact",
+            operation="edit", path="Wiki/test-page.md",
+            body="# Replaced\n",
+        )
+        assert result["operation"] == "edit"
+        assert "Wiki/test-page.md" in result["path"]
+
+    def test_edit_skill_body(self, vault, router):
+        self._create_skill(vault)
+        result = edit.edit_resource(
+            str(vault), router, resource="skill",
+            operation="edit", name="test-skill",
+            body="# Updated Skill\n\nNew skill content.\n",
+        )
+        assert result["path"] == "_Config/Skills/test-skill/SKILL.md"
+        assert result["operation"] == "edit"
+        content = (vault / "_Config" / "Skills" / "test-skill" / "SKILL.md").read_text()
+        assert "New skill content." in content
+        assert "Original skill body." not in content
+
+    def test_append_to_memory(self, vault, router):
+        self._create_memory(vault)
+        result = edit.edit_resource(
+            str(vault), router, resource="memory",
+            operation="append", name="test-memory",
+            body="\n## New Section\n\nAppended content.\n",
+        )
+        assert result["path"] == "_Config/Memories/test-memory.md"
+        assert result["operation"] == "append"
+        content = (vault / "_Config" / "Memories" / "test-memory.md").read_text()
+        assert "Original memory body." in content
+        assert "Appended content." in content
+
+    def test_prepend_to_style(self, vault, router):
+        self._create_style(vault)
+        result = edit.edit_resource(
+            str(vault), router, resource="style",
+            operation="prepend", name="test-style",
+            body="> Important note\n\n",
+        )
+        assert result["path"] == "_Config/Styles/test-style.md"
+        assert result["operation"] == "prepend"
+        content = (vault / "_Config" / "Styles" / "test-style.md").read_text()
+        assert content.index("Important note") < content.index("Original style body.")
+
+    def test_edit_skill_frontmatter(self, vault, router):
+        self._create_skill(vault)
+        result = edit.edit_resource(
+            str(vault), router, resource="skill",
+            operation="edit", name="test-skill",
+            frontmatter_changes={"description": "Updated description"},
+        )
+        content = (vault / "_Config" / "Skills" / "test-skill" / "SKILL.md").read_text()
+        fields, body = parse_frontmatter(content)
+        assert fields["description"] == "Updated description"
+        assert "Original skill body." in body
+
+    def test_edit_memory_triggers(self, vault, router):
+        self._create_memory(vault)
+        edit.edit_resource(
+            str(vault), router, resource="memory",
+            operation="append", name="test-memory",
+            frontmatter_changes={"triggers": ["keyword2"]},
+        )
+        content = (vault / "_Config" / "Memories" / "test-memory.md").read_text()
+        fields, _ = parse_frontmatter(content)
+        assert "keyword1" in fields["triggers"]
+        assert "keyword2" in fields["triggers"]
+
+    def test_delete_section_from_skill(self, vault, router):
+        skill_dir = vault / "_Config" / "Skills" / "section-skill"
+        skill_dir.mkdir(parents=True, exist_ok=True)
+        (skill_dir / "SKILL.md").write_text(
+            "---\n---\n\n# Skill\n\nIntro.\n\n## Remove Me\n\nGone.\n\n## Keep\n\nStays.\n"
+        )
+        result = edit.edit_resource(
+            str(vault), router, resource="skill",
+            operation="delete_section", name="section-skill",
+            target="## Remove Me",
+        )
+        assert result["operation"] == "delete_section"
+        content = (skill_dir / "SKILL.md").read_text()
+        assert "Remove Me" not in content
+        assert "Stays." in content
+
+    def test_not_editable_resource(self, vault, router):
+        with pytest.raises(ValueError, match="not editable"):
+            edit.edit_resource(
+                str(vault), router, resource="workspace",
+                operation="edit", name="ws", body="content",
+            )
+
+    def test_name_required_for_non_artefact(self, vault, router):
+        with pytest.raises(ValueError, match="name"):
+            edit.edit_resource(
+                str(vault), router, resource="skill",
+                operation="edit", body="content",
+            )
+
+    def test_resource_not_found(self, vault, router):
+        with pytest.raises(FileNotFoundError, match="not found"):
+            edit.edit_resource(
+                str(vault), router, resource="skill",
+                operation="edit", name="nonexistent",
+                body="content",
+            )
+
+    def test_no_status_move_for_config_resources(self, vault, router):
+        """Config resources should not auto-move on status changes."""
+        self._create_skill(vault)
+        edit.edit_resource(
+            str(vault), router, resource="skill",
+            operation="edit", name="test-skill",
+            frontmatter_changes={"status": "implemented"},
+        )
+        # File should stay in place, not moved to +Implemented/
+        assert (vault / "_Config" / "Skills" / "test-skill" / "SKILL.md").is_file()
+
+    def test_edit_template(self, vault, router):
+        """Templates are editable via artefact type key as name."""
+        result = edit.edit_resource(
+            str(vault), router, resource="template",
+            operation="edit", name="wiki",
+            body="# Updated Template\n\nNew template content.\n",
+        )
+        assert "_Config/Templates/" in result["path"]
+        assert result["operation"] == "edit"
+
+    def test_targeted_edit_on_resource(self, vault, router):
+        """Target parameter works for resource editing too."""
+        self._create_skill(vault)
+        result = edit.edit_resource(
+            str(vault), router, resource="skill",
+            operation="edit", name="test-skill",
+            body="Replaced section content.\n",
+            target="# Test Skill",
+        )
+        content = (vault / "_Config" / "Skills" / "test-skill" / "SKILL.md").read_text()
+        assert "Replaced section content." in content
+        assert "Original skill body." not in content

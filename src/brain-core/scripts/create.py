@@ -231,24 +231,44 @@ def _create_config_resource(vault_root, resource, rel_path, name, body, frontmat
     return {"path": rel_path, "resource": resource, "name": name}
 
 
+def config_resource_rel_path(router, resource, name):
+    """Return the relative path for a _Config/ resource.
+
+    Shared by create and edit to avoid duplicating path conventions.
+    """
+    slug = title_to_slug(name)
+    if resource == "skill":
+        return os.path.join("_Config", "Skills", slug, "SKILL.md")
+    if resource == "memory":
+        return os.path.join("_Config", "Memories", slug + ".md")
+    if resource == "style":
+        return os.path.join("_Config", "Styles", slug + ".md")
+    if resource == "template":
+        artefact = resolve_type(router, name)
+        classification = artefact.get("classification", "living")
+        subdir = "Living" if classification == "living" else "Temporal"
+        return os.path.join("_Config", "Templates", subdir, artefact["folder"] + ".md")
+    raise ValueError(f"Unknown config resource: {resource}")
+
+
 def _create_skill(vault_root, router, name, body, frontmatter):
     """Create a skill at _Config/Skills/{slug}/SKILL.md."""
+    rel_path = config_resource_rel_path(router, "skill", name)
     slug = title_to_slug(name)
-    rel_path = os.path.join("_Config", "Skills", slug, "SKILL.md")
     return _create_config_resource(vault_root, "skill", rel_path, slug, body, frontmatter)
 
 
 def _create_memory(vault_root, router, name, body, frontmatter):
     """Create a memory at _Config/Memories/{slug}.md."""
+    rel_path = config_resource_rel_path(router, "memory", name)
     slug = title_to_slug(name)
-    rel_path = os.path.join("_Config", "Memories", slug + ".md")
     return _create_config_resource(vault_root, "memory", rel_path, slug, body, frontmatter)
 
 
 def _create_style(vault_root, router, name, body, frontmatter):
     """Create a style at _Config/Styles/{slug}.md."""
+    rel_path = config_resource_rel_path(router, "style", name)
     slug = title_to_slug(name)
-    rel_path = os.path.join("_Config", "Styles", slug + ".md")
     return _create_config_resource(vault_root, "style", rel_path, slug, body, frontmatter)
 
 
@@ -258,10 +278,7 @@ def _create_template(vault_root, router, name, body, frontmatter):
     name is the artefact type key (e.g. "wiki"). Resolves the classification
     and folder from the router to place the template at the correct path.
     """
-    artefact = resolve_type(router, name)
-    classification = artefact.get("classification", "living")
-    subdir = "Living" if classification == "living" else "Temporal"
-    rel_path = os.path.join("_Config", "Templates", subdir, artefact["folder"] + ".md")
+    rel_path = config_resource_rel_path(router, "template", name)
     # Templates may be overwritten (updating an existing template)
     return _create_config_resource(
         vault_root, "template", rel_path, name, body, frontmatter, exclusive=False,

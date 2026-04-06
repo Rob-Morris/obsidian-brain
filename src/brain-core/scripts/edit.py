@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-edit.py — Edit, append, or prepend to an existing vault artefact.
+edit.py — Edit, append, or prepend to vault artefacts and _Config/ resources.
 
 Validates paths against the compiled router, then modifies file content
 with frontmatter preservation. Also provides artefact type conversion.
@@ -24,7 +24,7 @@ from check import (
     validate_artefact_naming,
     validate_artefact_path,
 )
-from create import resolve_naming_pattern, resolve_type, resolve_folder
+from create import config_resource_rel_path, resolve_naming_pattern, resolve_type, resolve_folder
 
 from rename import rename_and_update_links
 
@@ -106,6 +106,172 @@ def _save_artefact(abs_path, fields, new_body, vault_root):
     safe_write(abs_path, new_content, bounds=vault_root)
 
 
+# ---------------------------------------------------------------------------
+# Body operation helpers (shared by artefact and resource paths)
+# ---------------------------------------------------------------------------
+
+def _apply_edit(existing_body, body, target):
+    """Apply an edit operation to a body, returning the new body."""
+    if target == ":body":
+        return body
+    if target:
+        start, end = find_section(existing_body, target)
+        if body:
+            normalized = body.rstrip("\n") + "\n"
+            if end < len(existing_body):
+                normalized += "\n"
+        else:
+            normalized = "" if end == len(existing_body) else "\n"
+        return existing_body[:start] + normalized + existing_body[end:]
+    if body:
+        return body
+    return existing_body
+
+
+def _apply_append(existing_body, content, target):
+    """Apply an append operation to a body, returning the new body."""
+    if target and target != ":body" and content:
+        section_start, section_end = find_section(existing_body, target)
+        section_body = existing_body[section_start:section_end].rstrip("\n")
+        content_normalized = content if content.endswith("\n") else content + "\n"
+        if section_body:
+            rebuilt = section_body + "\n" + content_normalized
+        else:
+            rebuilt = "\n" + content_normalized
+        if section_end < len(existing_body):
+            rebuilt += "\n"
+        return existing_body[:section_start] + rebuilt + existing_body[section_end:]
+    if content:
+        return existing_body + content
+    return existing_body
+
+
+def _apply_prepend(existing_body, content, target):
+    """Apply a prepend operation to a body, returning the new body."""
+    if target and target != ":body" and content:
+        heading_start, _ = find_section(existing_body, target, include_heading=True)
+        content_normalized = content.rstrip("\n") + "\n"
+        if heading_start > 0:
+            content_normalized += "\n"
+        return existing_body[:heading_start] + content_normalized + existing_body[heading_start:]
+    if content:
+        content_normalized = content if content.endswith("\n") else content + "\n"
+        return content_normalized + ("\n" if existing_body else "") + existing_body
+    return existing_body
+
+
+def _apply_delete_section(existing_body, target):
+    """Apply a delete_section operation to a body, returning the new body."""
+    start, end = find_section(existing_body, target, include_heading=True)
+    prefix = existing_body[:start].rstrip("\n")
+    suffix = existing_body[end:]
+    if prefix and suffix:
+        return prefix + "\n\n" + suffix
+    if prefix:
+        return prefix + "\n"
+    return suffix
+
+
+# ---------------------------------------------------------------------------
+# Resource-aware editing (Phase 5)
+# ---------------------------------------------------------------------------
+
+_EDITABLE_RESOURCES = {"artefact", "skill", "memory", "style", "template"}
+
+_BODY_OPS = {
+    "edit": _apply_edit,
+    "append": _apply_append,
+    "prepend": _apply_prepend,
+    "delete_section": _apply_delete_section,
+}
+
+
+def edit_resource(vault_root, router, resource="artefact", operation="edit",
+                  path=None, name=None, body="", frontmatter_changes=None,
+                  target=None):
+    """Edit a vault resource. Dispatches to the appropriate handler.
+
+    For artefacts: delegates to existing edit/append/prepend/delete_section functions.
+    For other resources: resolves path via _Config/ conventions, applies the
+    same edit operations without artefact-specific behavior (no terminal status
+    auto-move, no modified timestamp injection).
+
+    Args:
+        vault_root: Absolute path to the vault root.
+        router: Compiled router dict.
+        resource: Resource kind — one of: artefact, skill, memory, style, template.
+        operation: "edit", "append", "prepend", or "delete_section".
+        path: Relative path (artefacts only).
+        name: Resource name (non-artefact resources only).
+        body: Content for the operation.
+        frontmatter_changes: Optional dict of frontmatter field changes.
+        target: Optional heading/callout for targeted operations.
+
+    Returns:
+        Dict with path and operation.
+    """
+    vault_root = str(vault_root)
+
+    if resource == "artefact":
+        if not path:
+            raise ValueError("path is required when resource='artefact'")
+        if operation == "edit":
+            return edit_artefact(vault_root, router, path, body,
+                                frontmatter_changes=frontmatter_changes, target=target)
+        elif operation == "append":
+            return append_to_artefact(vault_root, router, path, body,
+                                     frontmatter_changes=frontmatter_changes, target=target)
+        elif operation == "prepend":
+            return prepend_to_artefact(vault_root, router, path, body,
+                                      frontmatter_changes=frontmatter_changes, target=target)
+        elif operation == "delete_section":
+            return delete_section_artefact(vault_root, router, path,
+                                          target=target, frontmatter_changes=frontmatter_changes)
+        else:
+            raise ValueError(f"Unknown operation '{operation}'")
+
+    if resource not in _EDITABLE_RESOURCES:
+        raise ValueError(
+            f"Resource '{resource}' is not editable via brain_edit. "
+            f"Editable resources: {', '.join(sorted(_EDITABLE_RESOURCES))}"
+        )
+
+    if not name:
+        raise ValueError(f"brain_edit(resource='{resource}') requires name.")
+
+    # Resolve and read config resource
+    rel_path = config_resource_rel_path(router, resource, name)
+    check_write_allowed(rel_path)
+    abs_path = os.path.join(vault_root, rel_path)
+    try:
+        with open(abs_path, "r", encoding="utf-8") as f:
+            content = f.read()
+    except FileNotFoundError:
+        raise FileNotFoundError(
+            f"{resource.capitalize()} '{name}' not found at {rel_path}"
+        ) from None
+    fields, existing_body = parse_frontmatter(content)
+
+    # Apply operation using shared helpers
+    apply_fn = _BODY_OPS.get(operation)
+    if not apply_fn:
+        raise ValueError(f"Unknown operation '{operation}'")
+
+    fm_mode = "edit" if operation in ("edit", "delete_section") else operation
+    _merge_frontmatter(fields, frontmatter_changes, fm_mode)
+
+    if operation == "delete_section":
+        new_body = apply_fn(existing_body, target)
+    else:
+        new_body = apply_fn(existing_body, body, target)
+
+    # Save without artefact-specific behavior (no modified auto-set, no status move)
+    new_content = serialize_frontmatter(fields, body=new_body)
+    safe_write(abs_path, new_content, bounds=vault_root)
+
+    return {"path": rel_path, "resolved_path": rel_path, "operation": operation}
+
+
 def _maybe_status_move(vault_root, path, terminal_statuses, frontmatter_changes):
     """If frontmatter_changes sets a terminal status, move file to +Status/ folder.
 
@@ -154,6 +320,15 @@ def _maybe_status_move(vault_root, path, terminal_statuses, frontmatter_changes)
     return new_path
 
 
+def _finish_artefact(vault_root, abs_path, fields, new_body, path, art, frontmatter_changes, operation):
+    """Save artefact, handle terminal-status auto-move, return result dict."""
+    _save_artefact(abs_path, fields, new_body, vault_root)
+    resolved_path = path
+    terminal = (art.get("frontmatter") or {}).get("terminal_statuses")
+    path = _maybe_status_move(vault_root, path, terminal, frontmatter_changes)
+    return {"path": path, "resolved_path": resolved_path, "operation": operation}
+
+
 # ---------------------------------------------------------------------------
 # Core operations
 # ---------------------------------------------------------------------------
@@ -180,30 +355,8 @@ def edit_artefact(vault_root, router, path, body="", frontmatter_changes=None, t
     """
     path, abs_path, fields, existing_body, art = _open_artefact(vault_root, router, path)
     _merge_frontmatter(fields, frontmatter_changes, "edit")
-
-    if target == ":body":
-        # Explicit whole-body replacement (including clearing with body="")
-        new_body = body
-    elif target:
-        start, end = find_section(existing_body, target)
-        # Ensure clean join: body ends with newline, blank line before next section
-        if body:
-            normalized = body.rstrip("\n") + "\n"
-            if end < len(existing_body):
-                normalized += "\n"  # blank line before next heading
-        else:
-            normalized = "" if end == len(existing_body) else "\n"
-        new_body = existing_body[:start] + normalized + existing_body[end:]
-    elif body:
-        new_body = body
-    else:
-        new_body = existing_body
-
-    _save_artefact(abs_path, fields, new_body, vault_root)
-    resolved_path = path
-    terminal = (art.get("frontmatter") or {}).get("terminal_statuses")
-    path = _maybe_status_move(vault_root, path, terminal, frontmatter_changes)
-    return {"path": path, "resolved_path": resolved_path, "operation": "edit"}
+    new_body = _apply_edit(existing_body, body, target)
+    return _finish_artefact(vault_root, abs_path, fields, new_body, path, art, frontmatter_changes, "edit")
 
 
 def delete_section_artefact(vault_root, router, path, target, frontmatter_changes=None):
@@ -226,25 +379,8 @@ def delete_section_artefact(vault_root, router, path, target, frontmatter_change
     """
     path, abs_path, fields, existing_body, art = _open_artefact(vault_root, router, path)
     _merge_frontmatter(fields, frontmatter_changes, "edit")
-
-    start, end = find_section(existing_body, target, include_heading=True)
-
-    # Strip trailing blank lines from prefix so deletion doesn't leave double-blanks
-    prefix = existing_body[:start].rstrip("\n")
-    suffix = existing_body[end:]
-
-    if prefix and suffix:
-        new_body = prefix + "\n\n" + suffix
-    elif prefix:
-        new_body = prefix + "\n"
-    else:
-        new_body = suffix
-
-    _save_artefact(abs_path, fields, new_body, vault_root)
-    resolved_path = path
-    terminal = (art.get("frontmatter") or {}).get("terminal_statuses")
-    path = _maybe_status_move(vault_root, path, terminal, frontmatter_changes)
-    return {"path": path, "resolved_path": resolved_path, "operation": "delete_section"}
+    new_body = _apply_delete_section(existing_body, target)
+    return _finish_artefact(vault_root, abs_path, fields, new_body, path, art, frontmatter_changes, "delete_section")
 
 
 def append_to_artefact(vault_root, router, path, content="", frontmatter_changes=None, target=None):
@@ -269,28 +405,8 @@ def append_to_artefact(vault_root, router, path, content="", frontmatter_changes
     """
     path, abs_path, fields, body, art = _open_artefact(vault_root, router, path)
     _merge_frontmatter(fields, frontmatter_changes, "append")
-
-    if target and target != ":body" and content:
-        section_start, section_end = find_section(body, target)
-        section_body = body[section_start:section_end].rstrip("\n")
-        content_normalized = content if content.endswith("\n") else content + "\n"
-        if section_body:
-            rebuilt = section_body + "\n" + content_normalized
-        else:
-            rebuilt = "\n" + content_normalized
-        if section_end < len(body):
-            rebuilt += "\n"  # blank line before next heading
-        new_body = body[:section_start] + rebuilt + body[section_end:]
-    elif content:
-        new_body = body + content
-    else:
-        new_body = body
-
-    _save_artefact(abs_path, fields, new_body, vault_root)
-    resolved_path = path
-    terminal = (art.get("frontmatter") or {}).get("terminal_statuses")
-    path = _maybe_status_move(vault_root, path, terminal, frontmatter_changes)
-    return {"path": path, "resolved_path": resolved_path, "operation": "append"}
+    new_body = _apply_append(body, content, target)
+    return _finish_artefact(vault_root, abs_path, fields, new_body, path, art, frontmatter_changes, "append")
 
 
 def prepend_to_artefact(vault_root, router, path, content="", frontmatter_changes=None, target=None):
@@ -316,24 +432,8 @@ def prepend_to_artefact(vault_root, router, path, content="", frontmatter_change
     """
     path, abs_path, fields, body, art = _open_artefact(vault_root, router, path)
     _merge_frontmatter(fields, frontmatter_changes, "prepend")
-
-    if target and target != ":body" and content:
-        heading_start, _ = find_section(body, target, include_heading=True)
-        content_normalized = content.rstrip("\n") + "\n"
-        if heading_start > 0:
-            content_normalized += "\n"  # blank line between content and heading
-        new_body = body[:heading_start] + content_normalized + body[heading_start:]
-    elif content:
-        content_normalized = content if content.endswith("\n") else content + "\n"
-        new_body = content_normalized + ("\n" if body else "") + body
-    else:
-        new_body = body
-
-    _save_artefact(abs_path, fields, new_body, vault_root)
-    resolved_path = path
-    terminal = (art.get("frontmatter") or {}).get("terminal_statuses")
-    path = _maybe_status_move(vault_root, path, terminal, frontmatter_changes)
-    return {"path": path, "resolved_path": resolved_path, "operation": "prepend"}
+    new_body = _apply_prepend(body, content, target)
+    return _finish_artefact(vault_root, abs_path, fields, new_body, path, art, frontmatter_changes, "prepend")
 
 
 # ---------------------------------------------------------------------------

@@ -1228,15 +1228,21 @@ def brain_create(type: str = "", title: str = "", body: str = "", body_file: str
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def brain_edit(operation: Literal["edit", "append", "prepend", "delete_section"], path: str, body: str = "", body_file: str = "", frontmatter: dict | None = None, target: str | None = None):
-    """Modify an existing vault artefact. Single-file mutation.
+def brain_edit(operation: Literal["edit", "append", "prepend", "delete_section"], path: str = "", body: str = "", body_file: str = "", frontmatter: dict | None = None, target: str | None = None, resource: str = "artefact", name: str = ""):
+    """Modify an existing vault resource. Single-file mutation.
 
     For bodies over ~1 KB, prefer body_file over body to save tokens in the tool call.
 
     Parameters:
+      resource   — resource kind (default "artefact"). Editable: artefact, skill,
+                   memory, style, template.
       operation  — "edit" (replace body/section), "append" (add after), "prepend" (insert before),
                    or "delete_section" (remove a section including its heading; requires target)
-      path       — relative path or basename (resolves like wikilinks; e.g. "Ideas/my-idea.md" or "my-idea")
+      path       — relative path or basename for artefacts (resolves like wikilinks).
+                   Required when resource="artefact".
+      name       — resource name for non-artefact resources (e.g. "my-skill").
+                   Required when resource is skill, memory, style, or template.
+                   For templates, name is the artefact type key (e.g. "wiki").
       body       — new body content (edit), content to append (append), or content to prepend (prepend).
                    Mutually exclusive with body_file.
                    Omit body for frontmatter-only changes.
@@ -1256,9 +1262,10 @@ def brain_edit(operation: Literal["edit", "append", "prepend", "delete_section"]
                    For callouts, use the [!type] prefix (e.g. "[!note] Implementation status").
                    Use target=":body" to explicitly target the entire body.
 
-    Path validated against compiled router — wrong folder or naming rejected with helpful error.
+    Artefact paths validated against compiled router — wrong folder or naming rejected with helpful error.
+    Non-artefact resources resolve via _Config/ conventions (no terminal status auto-move).
     """
-    with _trace_tool("brain_edit", operation=operation, path=path, target=target):
+    with _trace_tool("brain_edit", resource=resource, operation=operation, path=path, name=name, target=target):
         try:
             _check_and_reload()
             _ensure_router_fresh()
@@ -1272,11 +1279,12 @@ def brain_edit(operation: Literal["edit", "append", "prepend", "delete_section"]
 
             body, cleanup_path = resolve_body_file(body, body_file, vault_root=_vault_root)
 
-            if is_archived_path(path):
-                return _fmt_error(
-                    f"'{path}' is archived. "
-                    "Use brain_action('unarchive') to restore it first."
-                )
+            if resource == "artefact" and path:
+                if is_archived_path(path):
+                    return _fmt_error(
+                        f"'{path}' is archived. "
+                        "Use brain_action('unarchive') to restore it first."
+                    )
 
             if operation == "delete_section":
                 if not target:
@@ -1285,32 +1293,12 @@ def brain_edit(operation: Literal["edit", "append", "prepend", "delete_section"]
                 return _fmt_error(f"{operation} with no body and no frontmatter changes is a no-op. "
                                   "Pass body content, frontmatter changes, or both.")
 
-            if operation == "edit":
-                result = edit.edit_artefact(
-                    _vault_root, _router, path, body,
-                    frontmatter_changes=frontmatter,
-                    target=target,
-                )
-            elif operation == "append":
-                result = edit.append_to_artefact(
-                    _vault_root, _router, path, body,
-                    frontmatter_changes=frontmatter,
-                    target=target,
-                )
-            elif operation == "prepend":
-                result = edit.prepend_to_artefact(
-                    _vault_root, _router, path, body,
-                    frontmatter_changes=frontmatter,
-                    target=target,
-                )
-            elif operation == "delete_section":
-                result = edit.delete_section_artefact(
-                    _vault_root, _router, path,
-                    target=target,
-                    frontmatter_changes=frontmatter,
-                )
-            else:
-                return _fmt_error(f"Unknown operation '{operation}'. Valid: edit, append, prepend, delete_section")
+            result = edit.edit_resource(
+                _vault_root, _router, resource=resource, operation=operation,
+                path=path, name=name, body=body,
+                frontmatter_changes=frontmatter, target=target,
+            )
+
             moved = result["path"] != result["resolved_path"]
             if moved:
                 _mark_index_dirty()  # file moved, full rebuild needed

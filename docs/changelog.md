@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.22.7 — 2026-04-07
+
+**Resource-scoped editing.** `brain_edit` gains a `resource` parameter (default `"artefact"`) for editing non-artefact resources in `_Config/`. Supports `skill`, `memory`, `style`, and `template` — same operations (edit, append, prepend, delete_section) with targeted section support. New `name` parameter for non-artefact resources; `path` remains required for artefacts only. Config resources skip artefact-specific behavior (no terminal status auto-move, no `modified` timestamp injection). Shared `config_resource_rel_path()` helper in `create.py` deduplicates path conventions between create and edit. Internal: extracted body operation helpers (`_apply_edit`, `_apply_append`, `_apply_prepend`, `_apply_delete_section`) and `_finish_artefact()` to reduce duplication across the four artefact functions. Part of the Unified Resource Interface design (Phase 5).
+
 ## v0.22.6 — 2026-04-07
 
 **Fix auto-move nesting when re-terminating from a +Status/ folder.** `brain_edit` now moves files to the correct sibling `+Status/` folder (e.g. `+Superseded/`) rather than nesting inside the current status folder (e.g. `+Implemented/+Superseded/`) when changing a file's terminal status.
