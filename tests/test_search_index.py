@@ -260,3 +260,167 @@ class TestParseArgs:
         assert s == "done"
         assert k == 3
         assert j is True
+
+
+# ---------------------------------------------------------------------------
+# Resource-scoped search
+# ---------------------------------------------------------------------------
+
+class TestSearchResource:
+    """Tests for search_resource() — text search across non-artefact resources."""
+
+    @pytest.fixture
+    def router_with_resources(self, vault):
+        """Create a vault with skills, memories, triggers, styles, plugins and a router."""
+        config = vault / "_Config"
+        config.mkdir(exist_ok=True)
+
+        # Skills
+        skills = config / "Skills"
+        (skills / "vault-maintenance").mkdir(parents=True)
+        (skills / "vault-maintenance" / "SKILL.md").write_text(
+            "---\nname: vault-maintenance\n---\n\n# Vault Maintenance\n\n"
+            "Keep the vault tidy. Archive completed designs. Fix broken links.\n"
+        )
+        (skills / "brain-remote").mkdir(parents=True)
+        (skills / "brain-remote" / "SKILL.md").write_text(
+            "---\nname: brain-remote\n---\n\n# Brain Remote\n\n"
+            "Use Brain MCP tools from external projects. Remote workflow for agents.\n"
+        )
+
+        # Styles
+        styles = config / "Styles"
+        styles.mkdir(exist_ok=True)
+        (styles / "writing.md").write_text(
+            "---\nname: writing\n---\n\n# Writing Style\n\n"
+            "Be concise. Avoid jargon. Use active voice.\n"
+        )
+
+        # Memories
+        memories = config / "Memories"
+        memories.mkdir(exist_ok=True)
+        (memories / "python-setup.md").write_text(
+            "---\nname: python-setup\ntriggers: [python, setup, environment]\n---\n\n"
+            "# Python Setup\n\nUse Python 3.12 with venv. Install via make install.\n"
+        )
+
+        # Plugins
+        plugins = config / "Plugins"
+        plugins.mkdir(exist_ok=True)
+        (plugins / "Undertask").mkdir()
+        (plugins / "Undertask" / "SKILL.md").write_text(
+            "---\nname: Undertask\n---\n\n# Undertask Plugin\n\n"
+            "Task management integration. Syncs tasks with external tools.\n"
+        )
+
+        router = {
+            "skills": [
+                {"name": "vault-maintenance", "skill_doc": "_Config/Skills/vault-maintenance/SKILL.md"},
+                {"name": "brain-remote", "skill_doc": "_Config/Skills/brain-remote/SKILL.md"},
+            ],
+            "styles": [
+                {"name": "writing", "style_doc": "_Config/Styles/writing.md"},
+            ],
+            "memories": [
+                {"name": "python-setup", "triggers": ["python", "setup", "environment"],
+                 "memory_doc": "_Config/Memories/python-setup.md"},
+            ],
+            "triggers": [
+                {"name": "after-work", "category": "after", "condition": "meaningful work",
+                 "target": "log", "detail": "Append timestamped entry to today's log"},
+                {"name": "session-start", "category": "always", "condition": "session begins",
+                 "target": "router", "detail": "Read the router for always-rules"},
+            ],
+            "plugins": [
+                {"name": "Undertask", "skill_doc": "_Config/Plugins/Undertask/SKILL.md"},
+            ],
+        }
+        return vault, router
+
+    def test_search_skill_by_name(self, router_with_resources):
+        vault, router = router_with_resources
+        results = si.search_resource(router, vault, "skill", "vault")
+        assert len(results) >= 1
+        assert results[0]["title"] == "vault-maintenance"
+
+    def test_search_skill_by_content(self, router_with_resources):
+        vault, router = router_with_resources
+        results = si.search_resource(router, vault, "skill", "archive")
+        assert len(results) >= 1
+        assert results[0]["title"] == "vault-maintenance"
+
+    def test_search_skill_no_match(self, router_with_resources):
+        vault, router = router_with_resources
+        results = si.search_resource(router, vault, "skill", "xyznonexistent")
+        assert results == []
+
+    def test_search_memory_by_trigger(self, router_with_resources):
+        vault, router = router_with_resources
+        results = si.search_resource(router, vault, "memory", "python")
+        assert len(results) >= 1
+        assert results[0]["title"] == "python-setup"
+
+    def test_search_memory_by_content(self, router_with_resources):
+        vault, router = router_with_resources
+        results = si.search_resource(router, vault, "memory", "venv")
+        assert len(results) >= 1
+        assert results[0]["title"] == "python-setup"
+
+    def test_search_style_by_content(self, router_with_resources):
+        vault, router = router_with_resources
+        results = si.search_resource(router, vault, "style", "concise")
+        assert len(results) >= 1
+        assert results[0]["title"] == "writing"
+
+    def test_search_trigger_by_condition(self, router_with_resources):
+        vault, router = router_with_resources
+        results = si.search_resource(router, vault, "trigger", "meaningful")
+        assert len(results) >= 1
+        assert results[0]["title"] == "after-work"
+
+    def test_search_trigger_by_target(self, router_with_resources):
+        vault, router = router_with_resources
+        results = si.search_resource(router, vault, "trigger", "router")
+        assert len(results) >= 1
+        assert results[0]["title"] == "session-start"
+
+    def test_search_plugin_by_content(self, router_with_resources):
+        vault, router = router_with_resources
+        results = si.search_resource(router, vault, "plugin", "task management")
+        assert len(results) >= 1
+        assert results[0]["title"] == "Undertask"
+
+    def test_search_result_fields(self, router_with_resources):
+        vault, router = router_with_resources
+        results = si.search_resource(router, vault, "skill", "vault")
+        assert len(results) > 0
+        r = results[0]
+        assert "path" in r
+        assert "title" in r
+        assert "type" in r
+        assert "score" in r
+        assert "snippet" in r
+        assert r["type"] == "skill"
+        assert r["score"] > 0
+
+    def test_search_top_k(self, router_with_resources):
+        vault, router = router_with_resources
+        results = si.search_resource(router, vault, "skill", "brain", top_k=1)
+        assert len(results) <= 1
+
+    def test_search_artefact_raises(self, router_with_resources):
+        vault, router = router_with_resources
+        with pytest.raises(ValueError, match="Use search"):
+            si.search_resource(router, vault, "artefact", "test")
+
+    def test_search_invalid_resource_raises(self, router_with_resources):
+        vault, router = router_with_resources
+        with pytest.raises(ValueError, match="not searchable"):
+            si.search_resource(router, vault, "workspace", "test")
+
+    def test_search_ranking(self, router_with_resources):
+        """Results should be ranked by score descending."""
+        vault, router = router_with_resources
+        results = si.search_resource(router, vault, "skill", "brain")
+        if len(results) >= 2:
+            assert results[0]["score"] >= results[1]["score"]

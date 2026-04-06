@@ -1030,9 +1030,10 @@ If your vault runs the Brain MCP server (`.brain-core/mcp/server.py`), seven too
 
 **brain_search** (safe, no side effects)
 - Search vault content by query text
-- Filter by `type` (key, full type, or singular form) and/or `tag`
+- Optional `resource` parameter (default `"artefact"`) — also accepts `skill`, `trigger`, `style`, `memory`, `plugin` for searching non-artefact collections via text matching
+- Artefact-specific filters: `type` (key, full type, or singular form), `tag`, `status`
 - Returns ranked results with paths, titles, scores, and text snippets
-- Uses Obsidian CLI when available, falls back to BM25 index
+- Uses Obsidian CLI when available, falls back to BM25 index; non-artefact resources use text matching
 
 **brain_list** (safe, no side effects)
 - List vault artefacts exhaustively — not relevance-ranked

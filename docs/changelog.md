@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.22.2 — 2026-04-06
+
+**Resource-scoped search.** `brain_search` gains a `resource` parameter (default `"artefact"`) for searching non-artefact collections. Supports `skill`, `trigger`, `style`, `memory`, and `plugin` resources via text matching on name + file content. Artefact search unchanged (CLI-first with BM25 fallback). New `search_resource()` function in `search_index.py`. Part of the Unified Resource Interface design (Phase 3).
+
 ## v0.22.1 — 2026-04-06
 
 **Read/list split and resource-scoped listing.** `brain_read` now requires `name` for all collection resources (type, trigger, style, skill, plugin, memory, workspace, archive) — calling without name returns an error directing to `brain_list`. `brain_list` gains a `resource` parameter (default `"artefact"`) for listing non-artefact collections, and an optional `query` parameter for text filtering. New `list_resources()` dispatcher in `list_artefacts.py` handles non-artefact listing from router collections. Archive listing logic extracted from `read.py` into shared `_list_archive()`. Part of the Unified Resource Interface design (Phase 2).

@@ -615,6 +615,27 @@ class TestBrainSearch:
         text = _search_text(server.brain_search("qwertymorphic"))
         assert "1 results" in text
 
+    def test_search_resource_skill(self, initialized):
+        """brain_search(resource='skill') searches skills by text."""
+        resp = server.brain_search("vault", resource="skill")
+        text = _search_text(resp)
+        assert "text" in text  # source should be "text"
+        lines = _search_result_lines(resp)
+        assert len(lines) >= 1
+        assert "Vault Maintenance" in text or "vault-maintenance" in text.lower()
+
+    def test_search_resource_trigger(self, initialized):
+        """brain_search(resource='trigger') searches triggers."""
+        resp = server.brain_search("log", resource="trigger")
+        text = _search_text(resp)
+        assert "text" in text
+
+    def test_search_resource_default_artefact(self, initialized):
+        """Default resource='artefact' uses BM25 as before."""
+        resp = server.brain_search("brain")
+        text = _search_text(resp)
+        assert "bm25" in text
+
 
 # ---------------------------------------------------------------------------
 # brain_action tests

@@ -54,21 +54,24 @@ def load_index(vault_root):
 # Snippet extraction
 # ---------------------------------------------------------------------------
 
-def extract_snippet(vault_root, rel_path, query_tokens, length=SNIPPET_LENGTH):
-    """Extract a ~length char snippet centred on the first query term match."""
-    abs_path = os.path.join(str(vault_root), rel_path)
-    try:
-        with open(abs_path, "r", encoding="utf-8") as f:
-            text = f.read()
-    except (OSError, UnicodeDecodeError):
-        return ""
+def extract_snippet(vault_root, rel_path, query_tokens, length=SNIPPET_LENGTH,
+                    *, body=None):
+    """Extract a ~length char snippet centred on the first query term match.
 
-    # Strip frontmatter
-    fm_match = _FM_RE.match(text)
-    if fm_match:
-        body = text[fm_match.end():]
-    else:
-        body = text
+    If *body* is provided, use it directly (already frontmatter-stripped).
+    Otherwise read and strip the file at *rel_path*.
+    """
+    if body is None:
+        abs_path = os.path.join(str(vault_root), rel_path)
+        try:
+            with open(abs_path, "r", encoding="utf-8") as f:
+                text = f.read()
+        except (OSError, UnicodeDecodeError):
+            return ""
+
+        # Strip frontmatter
+        fm_match = _FM_RE.match(text)
+        body = text[fm_match.end():] if fm_match else text
 
     # Clean up whitespace
     body = re.sub(r"\s+", " ", body).strip()
@@ -179,6 +182,100 @@ def search(index, query, vault_root, type_filter=None, tag_filter=None,
             })
 
     # Sort by score descending
+    results.sort(key=lambda r: r["score"], reverse=True)
+    return results[:top_k]
+
+
+# ---------------------------------------------------------------------------
+# Resource-scoped search (non-artefact)
+# ---------------------------------------------------------------------------
+
+# Map resource → (router_key, doc_field, extra_fields).
+# doc_field is the key to the backing file (None for inline-only resources).
+# extra_fields are additional item keys whose values are included in search text.
+_SEARCH_RESOURCE_MAP = {
+    "skill":   ("skills",   "skill_doc",  ()),
+    "style":   ("styles",   "style_doc",  ()),
+    "memory":  ("memories", "memory_doc", ("triggers",)),
+    "trigger": ("triggers", None,         ("condition", "target", "detail")),
+    "plugin":  ("plugins",  "skill_doc",  ()),
+}
+
+SEARCHABLE_RESOURCES = {"artefact"} | set(_SEARCH_RESOURCE_MAP)
+
+
+def _read_file_body(vault_root, rel_path):
+    """Read a file and return the body (frontmatter stripped)."""
+    abs_path = os.path.join(str(vault_root), rel_path)
+    try:
+        with open(abs_path, "r", encoding="utf-8") as f:
+            text = f.read()
+    except (OSError, UnicodeDecodeError):
+        return ""
+    fm_match = _FM_RE.match(text)
+    return text[fm_match.end():] if fm_match else text
+
+
+def search_resource(router, vault_root, resource, query, top_k=DEFAULT_TOP_K):
+    """Search a non-artefact resource by text matching on name + file content.
+
+    Returns results in the same shape as BM25 search (path, title, type, score,
+    snippet) so the MCP server can format them uniformly.
+
+    Raises ValueError if the resource is not searchable.
+    """
+    if resource == "artefact":
+        raise ValueError("Use search() for artefact search, not search_resource().")
+    if resource not in _SEARCH_RESOURCE_MAP:
+        _searchable = sorted(SEARCHABLE_RESOURCES)
+        raise ValueError(
+            f"Resource '{resource}' is not searchable. "
+            f"Searchable resources: {', '.join(_searchable)}"
+        )
+
+    router_key, doc_field, extra_fields = _SEARCH_RESOURCE_MAP[resource]
+    items = router.get(router_key, [])
+    query_lower = query.lower()
+    query_tokens = tokenise(query)
+
+    results = []
+    for item in items:
+        name = item.get("name", "")
+        # Build searchable text: name + extra inline fields
+        parts = [name]
+        for field in extra_fields:
+            val = item.get(field)
+            if isinstance(val, list):
+                parts.extend(val)
+            elif val:
+                parts.append(val)
+        searchable = " ".join(parts)
+
+        # Load file content if available
+        file_body = ""
+        if doc_field and item.get(doc_field):
+            file_body = _read_file_body(vault_root, item[doc_field])
+            searchable += " " + file_body
+
+        score = searchable.lower().count(query_lower)
+        if score <= 0:
+            continue
+
+        # Single-pass snippet: pass pre-read body to avoid re-reading file
+        snippet = extract_snippet(
+            vault_root, item.get(doc_field) or "", query_tokens,
+            body=file_body or searchable,
+        )
+
+        results.append({
+            "path": item.get(doc_field, "") if doc_field else "",
+            "title": name,
+            "type": resource,
+            "status": None,
+            "score": round(score, 4),
+            "snippet": snippet,
+        })
+
     results.sort(key=lambda r: r["score"], reverse=True)
     return results[:top_k]
 

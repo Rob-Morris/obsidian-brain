@@ -989,22 +989,43 @@ def _fmt_list(results, type_filter=None):
 
 
 @mcp.tool()
-def brain_search(query: str, type: str | None = None, tag: str | None = None,
+def brain_search(query: str,
+                 resource: Literal[
+                     "artefact", "skill", "trigger", "style",
+                     "memory", "plugin",
+                 ] = "artefact",
+                 type: str | None = None, tag: str | None = None,
                  status: str | None = None, top_k: int = 10):
     """Search vault content. Uses Obsidian CLI live index when available, BM25 fallback.
 
     Returns ranked results with path, title, type, status, and source.
     Optional filters: type (e.g. 'living/wiki'), tag, status (e.g. 'shaping'), top_k (default 10).
+
+    Use resource to search non-artefact collections (e.g. resource='skill').
+    Non-artefact search uses text matching on name + file content.
+    Artefact-specific filters (type, tag, status) only apply when resource='artefact'.
     """
-    with _trace_tool("brain_search", query=query, type=type, tag=tag):
+    with _trace_tool("brain_search", query=query, resource=resource, type=type, tag=tag):
         try:
             _check_and_reload()
             _ensure_router_fresh()
-            _ensure_index_fresh()
 
             denied = _enforce_profile("brain_search")
             if denied:
                 return denied
+
+            if _router is None:
+                return _fmt_error("server not initialized")
+
+            # Non-artefact resource search: text matching on router collections
+            if resource != "artefact":
+                results = search_index.search_resource(
+                    _router, _vault_root, resource, query, top_k=top_k,
+                )
+                return _fmt_search("text", results)
+
+            # Artefact search: CLI-first with BM25 fallback
+            _ensure_index_fresh()
 
             if _index is None:
                 return _fmt_error("server not initialized")
@@ -1029,6 +1050,8 @@ def brain_search(query: str, type: str | None = None, tag: str | None = None,
             results = search_index.search(_index, query, _vault_root, type_filter=type_filter, tag_filter=tag,
                                           status_filter=status, top_k=top_k)
             return _fmt_search("bm25", results)
+        except ValueError as e:
+            return _fmt_error(str(e))
         except Exception as e:
             if _logger:
                 _logger.error("brain_search: %s", e, exc_info=True)
