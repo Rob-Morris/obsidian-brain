@@ -42,6 +42,7 @@ Scripts in `.brain-core/scripts/` are the **source of truth** for all vault oper
 | `fix_links.py` | Auto-repair broken wikilinks | `python3 fix_links.py [--fix] [--json] [--vault V]` |
 | `sync_definitions.py` | Sync artefact library definitions to vault _Config/ | `python3 sync_definitions.py [--vault V] [--dry-run] [--types t1,t2] [--json]` |
 | `config.py` | Vault configuration loader (three-layer merge) | `python3 config.py` |
+| `generate_key.py` | Generate operator key + hash for config.yaml | `python3 generate_key.py [--count N]` |
 | `process.py` | Content classification, duplicate resolution, ingestion | (library module, used by MCP server) |
 | `init.py` | MCP server registration | `python3 init.py [--user] [--local] [--project PATH]` |
 

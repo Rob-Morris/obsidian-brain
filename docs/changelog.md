@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.22.8 — 2026-04-07
+
+**Operator key generator.** New `generate_key.py` script wraps `hash_key()` from `config.py` to generate three-word operator keys and their SHA-256 hashes. Give the words to the agent operator; paste the hash into `config.yaml`. Supports `--count N` for generating multiple candidates. Uses `secrets.choice` for cryptographically secure randomness.
+
 ## v0.22.7 — 2026-04-07
 
 **Resource-scoped editing.** `brain_edit` gains a `resource` parameter (default `"artefact"`) for editing non-artefact resources in `_Config/`. Supports `skill`, `memory`, `style`, and `template` — same operations (edit, append, prepend, delete_section) with targeted section support. New `name` parameter for non-artefact resources; `path` remains required for artefacts only. Config resources skip artefact-specific behavior (no terminal status auto-move, no `modified` timestamp injection). Shared `config_resource_rel_path()` helper in `create.py` deduplicates path conventions between create and edit. Internal: extracted body operation helpers (`_apply_edit`, `_apply_append`, `_apply_prepend`, `_apply_delete_section`) and `_finish_artefact()` to reduce duplication across the four artefact functions. Part of the Unified Resource Interface design (Phase 5).
