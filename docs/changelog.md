@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.21.9 — 2026-04-06
+
+**MCP server robustness fixes.** `mcp.run()` now catches `BaseException` (not just `Exception`) so clean exits via `SystemExit` always log `shutdown: stdin closed`. Signal handler guards against `ValueError` on unexpected signal numbers. Startup error blocks now include stack traces (`exc_info=True`). Silent swallowing of version-check and `_surrounding_headings` errors replaced with `warning`-level log entries. Removed unused `timezone` import.
+
 ## v0.21.8 — 2026-04-06
 
 **Null-means-delete for frontmatter fields.** Setting a frontmatter field to `null` in `brain_edit` now removes it from the artefact instead of writing a literal null value. Follows RFC 7396 merge-patch semantics. Works with all operations (`edit`, `append`, `prepend`, `delete_section`). Also fixes a bug where deleting `status` via null would orphan a `statusdate` field.

@@ -49,7 +49,7 @@ import sys
 import threading
 import time
 import traceback
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Literal
 
 from mcp.server.fastmcp import FastMCP
@@ -268,7 +268,9 @@ def _check_and_reload() -> None:
         return
     try:
         disk_version = _read_disk_version(_vault_root)
-    except Exception:
+    except Exception as e:
+        if _logger:
+            _logger.warning("version check failed: %s", e, exc_info=True)
         return
     if disk_version is None or disk_version == _loaded_version:
         return
@@ -402,7 +404,7 @@ def _ensure_router_fresh() -> None:
         _router = _compile_and_save(_vault_root)
     except Exception as e:
         if _logger:
-            _logger.error("router recompile failed: %s", e)
+            _logger.error("router recompile failed: %s", e, exc_info=True)
 
 
 def _mark_index_dirty() -> None:
@@ -590,7 +592,7 @@ def startup(vault_root: str | None = None) -> None:
     try:
         _config = config_mod.load_config(_vault_root)
     except Exception as e:
-        _logger.error("startup: config load failed: %s", e)
+        _logger.error("startup: config load failed: %s", e, exc_info=True)
 
     # Auto-compile router if stale (reuse parsed data when fresh)
     # Timeout guard: compile writes CSS + graph.json to the vault, which can
@@ -606,7 +608,7 @@ def startup(vault_root: str | None = None) -> None:
             _router = data
             _logger.info("router compile (fresh)")
     except Exception as e:
-        _logger.error("startup: router compile failed: %s", e)
+        _logger.error("startup: router compile failed: %s", e, exc_info=True)
 
     # Auto-build index if stale (same iCloud timeout concern)
     try:
@@ -620,19 +622,19 @@ def startup(vault_root: str | None = None) -> None:
             _index = data
             _logger.info("index build (fresh)")
     except Exception as e:
-        _logger.error("startup: index build failed: %s", e)
+        _logger.error("startup: index build failed: %s", e, exc_info=True)
 
     # Load pre-built embeddings if available
     try:
         _load_embeddings(_vault_root)
     except Exception as e:
-        _logger.error("startup: embeddings load failed: %s", e)
+        _logger.error("startup: embeddings load failed: %s", e, exc_info=True)
 
     # Load workspace registry
     try:
         _workspace_registry = workspace_registry.load_registry(_vault_root)
     except Exception as e:
-        _logger.error("startup: workspace registry failed: %s", e)
+        _logger.error("startup: workspace registry failed: %s", e, exc_info=True)
 
     # CLI availability is probed lazily on first tool call via _refresh_cli_available()
     # to avoid blocking startup (the Obsidian IPC socket check is fast but we defer entirely).
@@ -731,7 +733,9 @@ def _surrounding_headings(vault_root, rel_path, target):
         next_heading = headings[sec_end_idx][3] if sec_end_idx is not None else None
 
         return prev_heading, next_heading
-    except Exception:
+    except Exception as e:
+        if _logger:
+            _logger.warning("_surrounding_headings failed: %s", e, exc_info=True)
         return None, None
 
 
@@ -1742,7 +1746,10 @@ def _shutdown(reason: str) -> None:
 
 def _handle_signal(signum: int, _frame) -> None:
     """Handle SIGTERM/SIGINT per MCP stdio lifecycle spec."""
-    name = signal.Signals(signum).name
+    try:
+        name = signal.Signals(signum).name
+    except ValueError:
+        name = f"signal({signum})"
     _shutdown(f"received {name}")
 
 
@@ -1762,14 +1769,15 @@ def main():
 
     try:
         mcp.run(transport="stdio")
-    except Exception as e:
-        if _logger:
-            _logger.error("unexpected error: %s", e, exc_info=True)
-            _flush_log()
-        else:
-            print(f"brain-core unexpected error: {e}", file=sys.stderr)
-            print(traceback.format_exc(), file=sys.stderr)
-        sys.exit(1)
+    except BaseException as e:
+        if not isinstance(e, SystemExit):
+            if _logger:
+                _logger.error("unexpected error: %s", e, exc_info=True)
+                _flush_log()
+            else:
+                print(f"brain-core unexpected error: {e}", file=sys.stderr)
+                print(traceback.format_exc(), file=sys.stderr)
+            sys.exit(1)
 
     _shutdown("stdin closed")
 
