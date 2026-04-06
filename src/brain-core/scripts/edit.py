@@ -79,9 +79,14 @@ def _merge_frontmatter(fields, changes, operation):
 
     edit: overwrite all fields (set semantics).
     append/prepend: extend list fields with dedup, overwrite scalars.
+
+    Side-effect: sets ``statusdate`` to today when *status* actually changes.
     """
     if not changes:
         return
+    # Auto-set statusdate when status actually changes value
+    if "status" in changes and changes["status"] != fields.get("status"):
+        fields["statusdate"] = now_iso()[:10]
     for key, value in changes.items():
         if operation != "edit" and isinstance(value, list) and isinstance(fields.get(key), list):
             fields[key].extend(v for v in value if v not in fields[key])

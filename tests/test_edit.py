@@ -1193,6 +1193,94 @@ class TestTerminalStatusMove:
         assert (vault / "Ideas" / "leaving.md").is_file()
 
 
+# ---------------------------------------------------------------------------
+# Statusdate auto-set tests
+# ---------------------------------------------------------------------------
+
+class TestStatusDate:
+    """Tests that statusdate is auto-set on status transitions."""
+
+    def _make_idea(self, vault, path, status="seed", body="# Idea\n\nBody.\n",
+                   extra_fm=""):
+        """Helper to create an idea file at the given relative path."""
+        abs_path = vault / path
+        abs_path.parent.mkdir(parents=True, exist_ok=True)
+        abs_path.write_text(
+            f"---\ntype: living/ideas\ntags: []\nstatus: {status}\n{extra_fm}---\n\n{body}"
+        )
+
+    def _read_fields(self, vault, path):
+        """Read back frontmatter fields from a file."""
+        content = (vault / path).read_text()
+        fields, _ = parse_frontmatter(content)
+        return fields
+
+    def test_status_change_sets_statusdate(self, vault, router):
+        """Changing status from seed to shaping sets statusdate."""
+        self._make_idea(vault, "Ideas/sd-idea.md", status="seed")
+        edit.edit_artefact(
+            str(vault), router, "Ideas/sd-idea.md", "",
+            frontmatter_changes={"status": "shaping"},
+        )
+        fields = self._read_fields(vault, "Ideas/sd-idea.md")
+        assert "statusdate" in fields
+        assert len(fields["statusdate"]) == 10  # YYYY-MM-DD
+
+    def test_no_status_change_no_statusdate(self, vault, router):
+        """Body-only edit does not add statusdate."""
+        self._make_idea(vault, "Ideas/no-sd.md", status="seed")
+        edit.edit_artefact(
+            str(vault), router, "Ideas/no-sd.md", "Updated body.",
+        )
+        fields = self._read_fields(vault, "Ideas/no-sd.md")
+        assert "statusdate" not in fields
+
+    def test_same_status_no_update(self, vault, router):
+        """Setting status to its current value preserves existing statusdate."""
+        self._make_idea(vault, "Ideas/same-sd.md", status="shaping",
+                        extra_fm="statusdate: '2020-01-01'\n")
+        edit.edit_artefact(
+            str(vault), router, "Ideas/same-sd.md", "",
+            frontmatter_changes={"status": "shaping"},
+        )
+        fields = self._read_fields(vault, "Ideas/same-sd.md")
+        assert fields["statusdate"] == "2020-01-01"
+
+    def test_terminal_status_sets_statusdate(self, vault, router):
+        """Adopting an idea sets statusdate on the moved file."""
+        self._make_idea(vault, "Ideas/term-sd.md", status="seed")
+        edit.edit_artefact(
+            str(vault), router, "Ideas/term-sd.md", "",
+            frontmatter_changes={"status": "adopted"},
+        )
+        fields = self._read_fields(vault, "Ideas/+Adopted/term-sd.md")
+        assert "statusdate" in fields
+        assert len(fields["statusdate"]) == 10
+
+    def test_revive_updates_statusdate(self, vault, router):
+        """Reviving from +Adopted/ updates statusdate."""
+        self._make_idea(vault, "Ideas/+Adopted/revive-sd.md", status="adopted",
+                        extra_fm="statusdate: '2020-01-01'\n")
+        edit.edit_artefact(
+            str(vault), router, "Ideas/+Adopted/revive-sd.md", "",
+            frontmatter_changes={"status": "shaping"},
+        )
+        fields = self._read_fields(vault, "Ideas/revive-sd.md")
+        assert "statusdate" in fields
+        assert fields["statusdate"] != "2020-01-01"
+
+    def test_append_status_change_sets_statusdate(self, vault, router):
+        """Append operation with status change sets statusdate."""
+        self._make_idea(vault, "Ideas/app-sd.md", status="seed")
+        edit.append_to_artefact(
+            str(vault), router, "Ideas/app-sd.md", "Extra content.",
+            frontmatter_changes={"status": "shaping"},
+        )
+        fields = self._read_fields(vault, "Ideas/app-sd.md")
+        assert "statusdate" in fields
+        assert len(fields["statusdate"]) == 10
+
+
 class TestArchiveGuards:
     """Tests that _Archive/ files are immune to auto-move and convert."""
 

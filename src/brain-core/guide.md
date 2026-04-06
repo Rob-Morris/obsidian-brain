@@ -156,7 +156,7 @@ Published writing moves to `Writing/+Published/` with date-prefixed filenames. F
 
 ## Terminal Status and Archiving
 
-Living artefacts that reach a terminal status move to a `+Status/` folder within their type directory. These files remain searchable and indexed — no rename, no `archiveddate`. Each type defines its own terminal statuses and `+Status` folders:
+Living artefacts that reach a terminal status move to a `+Status/` folder within their type directory. These files remain searchable and indexed — no rename, no `archiveddate`. Every status change (terminal or not) auto-sets `statusdate: YYYY-MM-DD` in frontmatter. Each type defines its own terminal statuses and `+Status` folders:
 
 - **Designs:** `+Implemented/`, `+Rejected/`
 - **Ideas:** `+Adopted/`
