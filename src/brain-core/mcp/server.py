@@ -260,9 +260,10 @@ def _read_disk_version(vault_root: str) -> str | None:
 def _check_and_reload() -> None:
     """Exit if brain-core on disk has been upgraded.
 
+    Raises RuntimeError so the current tool call returns a meaningful error
+    to the MCP client, then schedules os._exit() after a short delay to give
+    the framework time to flush the response before the process terminates.
     The MCP client will restart the server, loading the new code.
-    Uses os._exit() because sys.exit() raises SystemExit which gets
-    swallowed by asyncio's task exception handling, hanging the process.
     """
     if _vault_root is None or _loaded_version is None:
         return
@@ -278,7 +279,11 @@ def _check_and_reload() -> None:
         _logger.warning("version drift: %s -> %s, exiting for restart",
                         _loaded_version, disk_version)
     _flush_log()
-    os._exit(0)
+    threading.Timer(0.5, os._exit, args=(0,)).start()
+    raise RuntimeError(
+        f"brain-core upgraded ({_loaded_version} → {disk_version}). "
+        "Server restarting — please retry."
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -791,12 +791,14 @@ class TestVersionCheck:
         assert server._loaded_version == old_version
 
     def test_exits_when_version_changes(self, initialized):
-        """_check_and_reload should exit when on-disk version differs."""
+        """_check_and_reload should raise RuntimeError and schedule exit when version differs."""
         version_path = initialized / ".brain-core" / "VERSION"
         version_path.write_text("99.0.0\n")
-        with patch("os._exit") as mock_exit:
-            server._check_and_reload()
-            mock_exit.assert_called_once_with(0)
+        with patch("os._exit"), patch("threading.Timer") as mock_timer:
+            with pytest.raises(RuntimeError, match="brain-core upgraded"):
+                server._check_and_reload()
+            mock_timer.assert_called_once_with(0.5, os._exit, args=(0,))
+            mock_timer.return_value.start.assert_called_once()
 
     def test_no_reload_when_version_file_missing(self, initialized):
         """_check_and_reload should be a no-op if VERSION file is deleted."""
@@ -860,12 +862,14 @@ class TestAtomicSave:
 
 class TestReloadRobustness:
     def test_version_drift_causes_clean_exit(self, initialized):
-        """Version drift should trigger os._exit(0) for client restart."""
+        """Version drift should raise RuntimeError and schedule os._exit(0) for client restart."""
         version_path = initialized / ".brain-core" / "VERSION"
         version_path.write_text("99.0.0\n")
-        with patch("os._exit") as mock_exit:
-            server._check_and_reload()
-            mock_exit.assert_called_once_with(0)
+        with patch("os._exit"), patch("threading.Timer") as mock_timer:
+            with pytest.raises(RuntimeError, match="brain-core upgraded"):
+                server._check_and_reload()
+            mock_timer.assert_called_once_with(0.5, os._exit, args=(0,))
+            mock_timer.return_value.start.assert_called_once()
 
     def test_check_and_reload_survives_read_error(self, initialized):
         """_check_and_reload should not raise on version read errors."""
