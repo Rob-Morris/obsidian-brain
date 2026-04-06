@@ -42,7 +42,7 @@ Normal tools (`brain_read`, `brain_edit`, `brain_search`, `brain_list`) do not i
 
 | Operation | Tool |
 |-----------|------|
-| **List** | `brain_read(resource="archive")` |
+| **List** | `brain_list(resource="archive")` |
 | **Read** | `brain_read(resource="archive", name="_Archive/...")` |
 | **Restore** | `brain_action("unarchive", {path: "_Archive/..."})` |
 

@@ -747,43 +747,6 @@ def _fmt_error(msg):
     )
 
 
-def _fmt_artefact_list(artefacts):
-    """Format artefact list as readable plain text."""
-    lines = []
-    for a in artefacts:
-        status = "configured" if a["configured"] else "unconfigured"
-        naming = (a.get("naming") or {}).get("pattern", "")
-        lines.append(f"{a['type']}\t{a['key']}\t{a['path']}/\t{naming}\t[{status}]")
-    return "\n".join(lines)
-
-
-def _fmt_trigger_list(triggers):
-    """Format trigger list as readable plain text."""
-    lines = []
-    for t in triggers:
-        detail = f" — {t['detail']}" if t.get("detail") else ""
-        lines.append(f"[{t['category']}] {t['condition']}{detail} → {t['target']}")
-    return "\n".join(lines)
-
-
-def _fmt_named_list(items, doc_key="skill_doc"):
-    """Format a list of {name, doc_path} items as plain text."""
-    lines = []
-    for item in items:
-        doc = item.get(doc_key) or ""
-        lines.append(f"{item['name']}\t{doc}")
-    return "\n".join(lines)
-
-
-def _fmt_memory_list(memories):
-    """Format memory list as readable plain text."""
-    lines = []
-    for m in memories:
-        triggers = ", ".join(m.get("triggers", []))
-        lines.append(f"{m['name']}\t[{triggers}]\t{m['memory_doc']}")
-    return "\n".join(lines)
-
-
 def _fmt_environment(env):
     """Format environment dict as key=value lines."""
     return "\n".join(f"{k}={v}" for k, v in env.items())
@@ -804,34 +767,12 @@ def _fmt_workspace_single(ws):
     return f"{ws['slug']}\t{ws['mode']}\t{ws['path']}"
 
 
-def _fmt_archive_list(archives):
-    """Format archive list as readable plain text."""
-    if not archives:
-        return "No archived files found."
-    lines = []
-    for a in archives:
-        date = a.get("archiveddate", "")
-        lines.append(f"{a['path']}\t{a.get('type', '')}\t{date}")
-    return f"{len(archives)} archived files\n" + "\n".join(lines)
-
-
-# Dispatch table for brain_read list resources
+# Dispatch table for brain_read single-item resources
 _READ_FORMATTERS = {
-    "type": lambda result, name: (
-        json.dumps(result, indent=2, ensure_ascii=False) if name
-        else _fmt_artefact_list(result)
-    ),
-    "trigger": lambda result, name: _fmt_trigger_list(result),
-    "style": lambda result, name: _fmt_named_list(result, "style_doc"),
-    "skill": lambda result, name: _fmt_named_list(result),
-    "plugin": lambda result, name: _fmt_named_list(result),
-    "memory": lambda result, name: (
-        # Multiple matches with name → keep JSON for disambiguation
-        json.dumps(result, indent=2, ensure_ascii=False) if name
-        else _fmt_memory_list(result)
-    ),
+    "type": lambda result, name: json.dumps(result, indent=2, ensure_ascii=False),
+    "trigger": lambda result, name: json.dumps(result, indent=2, ensure_ascii=False),
+    "memory": lambda result, name: json.dumps(result, indent=2, ensure_ascii=False),
     "environment": lambda result, name: _fmt_environment(result),
-    "archive": lambda result, name: _fmt_archive_list(result) if not name else None,
 }
 
 
@@ -907,20 +848,22 @@ def brain_read(
     """Read Brain vault resources. Safe, no side effects.
 
     Resources:
-      type        — list artefact types, or filter by name
-      trigger     — list all triggers
-      style       — list styles, or read a specific style file by name
+      type        — read a specific artefact type definition (name = type key)
+      trigger     — read a specific trigger (name required)
+      style       — read a specific style file (name required)
       template    — read a template file (name = artefact type key)
-      skill       — list skills, or read a specific skill file by name
-      plugin      — list plugins, or read a specific plugin file by name
-      memory      — list memories, or search by trigger/name (case-insensitive substring)
-      workspace   — list workspaces, or resolve a specific workspace by slug (name = slug)
+      skill       — read a specific skill file (name required)
+      plugin      — read a specific plugin file (name required)
+      memory      — read a specific memory by trigger/name (case-insensitive substring)
+      workspace   — resolve a specific workspace by slug (name = slug)
       environment — runtime environment info
       router      — always-rules and metadata
       compliance  — run structural compliance checks (name = severity filter: error/warning/info)
       artefact    — read an artefact file (name = relative path or basename; resolves like wikilinks)
       file        — read any vault file by name (resolves and delegates to the correct resource handler)
-      archive     — list archived files (no name), or read a specific archived file (name = path inside _Archive/)
+      archive     — read a specific archived file (name = path inside _Archive/)
+
+    To list collections (all skills, all types, etc.), use brain_list(resource=...).
     """
     with _trace_tool("brain_read", resource=resource, name=name):
         try:
@@ -936,19 +879,18 @@ def brain_read(
 
             # Workspace resource: handled by server (registry is server state, not router state)
             if resource == "workspace":
-                if name:
-                    try:
-                        result = workspace_registry.resolve_workspace(
-                            _vault_root, name, registry=_workspace_registry,
-                        )
-                        return _fmt_workspace_single(result)
-                    except ValueError as e:
-                        return _fmt_error(str(e))
-                else:
-                    result = workspace_registry.list_workspaces(
-                        _vault_root, registry=_workspace_registry,
+                if not name:
+                    return _fmt_error(
+                        "brain_read(resource='workspace') requires name. "
+                        "To list all workspaces, use brain_list(resource='workspace')."
                     )
-                    return _fmt_workspace_list(result)
+                try:
+                    result = workspace_registry.resolve_workspace(
+                        _vault_root, name, registry=_workspace_registry,
+                    )
+                    return _fmt_workspace_single(result)
+                except ValueError as e:
+                    return _fmt_error(str(e))
 
             result = read_mod.read_resource(_router, _vault_root, resource, name)
 
@@ -969,6 +911,9 @@ def brain_read(
             if formatter:
                 return formatter(result, name)
             return json.dumps(result, indent=2, ensure_ascii=False)
+        except ValueError as e:
+            # Name-required errors from read handlers
+            return _fmt_error(str(e))
         except Exception as e:
             if _logger:
                 _logger.error("brain_read: %s", e, exc_info=True)
@@ -1095,7 +1040,12 @@ def brain_search(query: str, type: str | None = None, tag: str | None = None,
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def brain_list(type: str | None = None, since: str | None = None,
+def brain_list(resource: Literal[
+                   "artefact", "skill", "trigger", "style", "plugin",
+                   "memory", "template", "type", "workspace", "archive",
+               ] = "artefact",
+               query: str | None = None,
+               type: str | None = None, since: str | None = None,
                until: str | None = None, tag: str | None = None,
                top_k: int = 500,
                sort: Literal["date_desc", "date_asc", "title"] = "date_desc"):
@@ -1104,25 +1054,63 @@ def brain_list(type: str | None = None, since: str | None = None,
     Unlike brain_search, returns all matching artefacts up to top_k (default 500).
     Optional filters: type (e.g. 'temporal/research'), since/until (ISO dates e.g.
     '2026-03-20'), tag, top_k, sort ('date_desc', 'date_asc', 'title').
+
+    Use resource to list non-artefact collections (e.g. resource='skill' lists all skills).
+    The query parameter filters non-artefact resources by name substring.
+    Artefact-specific filters (type, since, until, tag, sort) only apply when resource='artefact'.
     """
-    with _trace_tool("brain_list", type=type, since=since, tag=tag):
+    with _trace_tool("brain_list", resource=resource, type=type, since=since, tag=tag):
         try:
             _check_and_reload()
             _ensure_router_fresh()
-            _ensure_index_fresh()
 
             denied = _enforce_profile("brain_list")
             if denied:
                 return denied
 
-            if _index is None:
+            if _router is None:
                 return _fmt_error("server not initialized")
 
-            results = list_artefacts.list_artefacts(
-                _index, _router, type_filter=type, since=since, until=until,
+            # Workspace listing: server state, not router state
+            if resource == "workspace":
+                results = workspace_registry.list_workspaces(
+                    _vault_root, registry=_workspace_registry,
+                )
+                return _fmt_workspace_list(results)
+
+            # Artefact listing requires the index
+            if resource == "artefact":
+                _ensure_index_fresh()
+                if _index is None:
+                    return _fmt_error("server not initialized")
+
+            results = list_artefacts.list_resources(
+                _index, _router, _vault_root, resource=resource, query=query,
+                type_filter=type, since=since, until=until,
                 tag=tag, top_k=top_k, sort=sort,
             )
-            return _fmt_list(results, type)
+
+            if resource == "artefact":
+                return _fmt_list(results, type)
+
+            # Non-artefact resources: simple name list
+            meta = f"**Listed:** {len(results)} {resource}(s)"
+            if query:
+                meta += f" matching '{query}'"
+            if not results:
+                return [TextContent(type="text", text=meta)]
+            lines = []
+            for r in results:
+                if isinstance(r, dict):
+                    lines.append(r.get("name", r.get("path", str(r))))
+                else:
+                    lines.append(str(r))
+            return [
+                TextContent(type="text", text=meta),
+                TextContent(type="text", text="\n".join(lines)),
+            ]
+        except ValueError as e:
+            return _fmt_error(str(e))
         except Exception as e:
             if _logger:
                 _logger.error("brain_list: %s", e, exc_info=True)

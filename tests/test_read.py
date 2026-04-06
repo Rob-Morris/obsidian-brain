@@ -126,12 +126,10 @@ class TestReadResource:
         assert "error" in result
         assert "Unknown resource" in result["error"]
 
-    def test_type_list(self, vault):
+    def test_type_requires_name(self, vault):
         _, router = vault
-        result = read.read_resource(router, "", "type")
-        assert isinstance(result, list)
-        keys = [a["key"] for a in result]
-        assert "wiki" in keys
+        with pytest.raises(ValueError, match="requires name"):
+            read.read_resource(router, "", "type")
 
     def test_type_by_key(self, vault):
         _, router = vault
@@ -149,18 +147,15 @@ class TestReadResource:
         result = read.read_resource(router, "", "type", name="nonexistent")
         assert "error" in result
 
-    def test_trigger_list(self, vault):
+    def test_trigger_requires_name(self, vault):
         _, router = vault
-        result = read.read_resource(router, "", "trigger")
-        assert isinstance(result, list)
-        assert len(result) >= 1
+        with pytest.raises(ValueError, match="requires name"):
+            read.read_resource(router, "", "trigger")
 
-    def test_style_list(self, vault):
+    def test_style_requires_name(self, vault):
         _, router = vault
-        result = read.read_resource(router, "", "style")
-        assert isinstance(result, list)
-        names = [s["name"] for s in result]
-        assert "concise" in names
+        with pytest.raises(ValueError, match="requires name"):
+            read.read_resource(router, "", "style")
 
     def test_style_content(self, vault):
         tmp_path, router = vault
@@ -184,25 +179,20 @@ class TestReadResource:
         assert isinstance(result, str)
         assert "{{title}}" in result
 
-    def test_skill_list(self, vault):
+    def test_skill_requires_name(self, vault):
         _, router = vault
-        result = read.read_resource(router, "", "skill")
-        assert isinstance(result, list)
-        names = [s["name"] for s in result]
-        assert "brain-remote" in names
-        assert "Test Skill" in names
+        with pytest.raises(ValueError, match="requires name"):
+            read.read_resource(router, "", "skill")
 
     def test_skill_content(self, vault):
         tmp_path, router = vault
         result = read.read_resource(router, str(tmp_path), "skill", name="Test Skill")
         assert "Does testing." in result
 
-    def test_plugin_list(self, vault):
+    def test_plugin_requires_name(self, vault):
         _, router = vault
-        result = read.read_resource(router, "", "plugin")
-        assert isinstance(result, list)
-        names = [p["name"] for p in result]
-        assert "TestPlugin" in names
+        with pytest.raises(ValueError, match="requires name"):
+            read.read_resource(router, "", "plugin")
 
     def test_plugin_content(self, vault):
         tmp_path, router = vault
@@ -222,12 +212,10 @@ class TestReadResource:
         assert "always_rules" in result
         assert "meta" in result
 
-    def test_memory_list(self, vault):
+    def test_memory_requires_name(self, vault):
         _, router = vault
-        result = read.read_resource(router, "", "memory")
-        assert isinstance(result, list)
-        assert len(result) == 1
-        assert result[0]["name"] == "test-memory"
+        with pytest.raises(ValueError, match="requires name"):
+            read.read_resource(router, "", "memory")
 
     def test_memory_by_trigger(self, vault):
         tmp_path, router = vault

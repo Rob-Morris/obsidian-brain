@@ -11,7 +11,7 @@ Memories are reference cards that agents load on demand — factual context abou
 ### With MCP
 
 ```
-brain_read(resource="memory")               # list all memories
+brain_list(resource="memory")               # list all memories
 brain_read(resource="memory", name="brain")  # search by trigger
 ```
 

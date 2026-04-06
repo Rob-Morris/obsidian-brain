@@ -164,7 +164,7 @@ Living artefacts that reach a terminal status move to a `+Status/` folder within
 - **Workspaces:** `+Completed/`
 - **Writing:** `+Published/`
 
-`_Archive/` is reserved for deliberate removal — a "soft delete" that takes files completely out of the active vault namespace (index, search, and all normal operations). Use `brain_action("archive")` to archive and `brain_action("unarchive")` to restore. Use `brain_read(resource="archive")` to list or read archived files. Full details in [[.brain-core/standards/archiving]].
+`_Archive/` is reserved for deliberate removal — a "soft delete" that takes files completely out of the active vault namespace (index, search, and all normal operations). Use `brain_action("archive")` to archive and `brain_action("unarchive")` to restore. Use `brain_list(resource="archive")` to list archived files, `brain_read(resource="archive", name="...")` to read a specific one. Full details in [[.brain-core/standards/archiving]].
 
 ## Extending Your Vault
 
@@ -217,9 +217,9 @@ python3 /path/to/vault/.brain-core/scripts/init.py --project /path/to/project
 If your vault has the Brain MCP server running, you get eight tools:
 
 - **brain_session** — bootstrap an agent session in one call (always-rules, preferences, gotchas, triggers, artefact types, environment)
-- **brain_read** — look up artefact types, triggers, styles, templates, workspaces, run structural compliance checks, or read artefact content (by relative path, basename, or display name — resolves like wikilinks; temporal artefacts can be looked up by display name without the dated prefix)
+- **brain_read** — read a specific resource by name: artefact content (by relative path, basename, or display name — resolves like wikilinks), type definitions, triggers, styles, templates, skills, plugins, memories, workspaces, or compliance checks. Name is required for collection resources; use brain_list to enumerate collections.
 - **brain_search** — find files by query, type, or tag (relevance-ranked, BM25)
-- **brain_list** — enumerate artefacts exhaustively by type, date range, or tag (not relevance-ranked; use when completeness matters)
+- **brain_list** — enumerate resources exhaustively. For artefacts: filter by type, date range, or tag (not relevance-ranked; use when completeness matters). Also lists non-artefact collections: skills, triggers, styles, plugins, memories, templates, types, workspaces, archives (use `resource` parameter).
 - **brain_create** — create a new artefact (additive, safe to auto-approve)
 - **brain_edit** — edit, append, prepend, or delete_section on an existing artefact (by path or basename); optional `target` parameter for section-level operations (required for delete_section); frontmatter merge strategy follows the operation verb (edit overwrites, append/prepend extend lists, null deletes field); auto-moves artefacts to `+Status/` folders on terminal status change and back out on revive
 - **brain_action** — compile the router, build the search index, rename, delete, convert files, fix broken links, sync definitions, register/unregister workspaces, start shaping sessions

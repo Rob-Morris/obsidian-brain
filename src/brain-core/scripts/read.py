@@ -70,32 +70,49 @@ def read_file_content(vault_root, rel_path):
 # Resource readers — each takes (router, vault_root, name) and returns a value
 # ---------------------------------------------------------------------------
 
+def _require_name(resource_label, name):
+    """Raise ValueError if name is missing, directing to brain_list."""
+    if not name:
+        raise ValueError(
+            f"brain_read(resource='{resource_label}') requires name. "
+            f"To list all {resource_label}s, use brain_list(resource='{resource_label}')."
+        )
+
+
 def read_named_resource(router, vault_root, resource_label, name, router_key, doc_field):
-    """List items or read a specific item's file content by name."""
+    """Read a specific item's file content by name.
+
+    Requires name. Listing (name=None) is handled by brain_list.
+    """
     items = router[router_key]
-    if name:
-        match = next((i for i in items if i["name"] == name), None)
-        if not match:
-            return {"error": f"No {resource_label} matching '{name}'"}
-        return read_file_content(vault_root, match[doc_field])
-    return items
+    _require_name(resource_label, name)
+    match = next((i for i in items if i["name"] == name), None)
+    if not match:
+        return {"error": f"No {resource_label} matching '{name}'"}
+    return read_file_content(vault_root, match[doc_field])
 
 
 def read_type(router, vault_root, name=None):
-    """List artefact types, or filter by key/type name."""
+    """Read a specific artefact type definition by key/name.
+
+    Listing via brain_list(resource='type').
+    """
     artefacts = router["artefacts"]
-    if name:
-        match = match_artefact(artefacts, name)
-        if not match:
-            return {"error": f"No artefact matching '{name}'"}
-        matches = [match]
-        return matches
-    return artefacts
+    _require_name("type", name)
+    match = match_artefact(artefacts, name)
+    if not match:
+        return {"error": f"No artefact matching '{name}'"}
+    return [match]
 
 
 def read_trigger(router, vault_root, name=None):
-    """List all triggers."""
-    return router["triggers"]
+    """Read a specific trigger by name. Listing via brain_list(resource='trigger')."""
+    triggers = router["triggers"]
+    _require_name("trigger", name)
+    match = next((t for t in triggers if t["name"] == name), None)
+    if not match:
+        return {"error": f"No trigger matching '{name}'"}
+    return match
 
 
 def read_style(router, vault_root, name=None):
@@ -127,22 +144,22 @@ def read_plugin(router, vault_root, name=None):
 
 
 def read_memory(router, vault_root, name=None):
-    """List memories, or search by trigger/name (case-insensitive substring)."""
+    """Read a specific memory by trigger/name (case-insensitive substring).
+
+    Listing via brain_list(resource='memory').
+    """
+    _require_name("memory", name)
     memories = router.get("memories", [])
-    if name:
-        # Case-insensitive substring search across triggers
-        lower_name = name.lower()
-        matches = [m for m in memories
-                   if any(lower_name in t.lower() for t in m.get("triggers", []))]
-        # Fallback to exact name match
-        if not matches:
-            matches = [m for m in memories if m["name"].lower() == lower_name]
-        if not matches:
-            return {"error": f"No memory matching '{name}'"}
-        if len(matches) == 1:
-            return read_file_content(vault_root, matches[0]["memory_doc"])
-        return matches
-    return memories
+    lower_name = name.lower()
+    matches = [m for m in memories
+               if any(lower_name in t.lower() for t in m.get("triggers", []))]
+    if not matches:
+        matches = [m for m in memories if m["name"].lower() == lower_name]
+    if not matches:
+        return {"error": f"No memory matching '{name}'"}
+    if len(matches) == 1:
+        return read_file_content(vault_root, matches[0]["memory_doc"])
+    return matches
 
 
 def read_environment(router, vault_root, name=None):
@@ -268,67 +285,15 @@ def read_compliance(router, vault_root, name=None):
 # ---------------------------------------------------------------------------
 
 def read_archive(router, vault_root, name=None):
-    """List or read archived files.
+    """Read a specific archived file by path inside _Archive/.
 
-    No name → list all files in _Archive/ with frontmatter metadata.
-    With name → read a specific archived file (must be a path inside _Archive/).
+    Listing via brain_list(resource='archive').
     """
-    if name:
-        if not is_archived_path(name):
-            return {"error": f"'{name}' is not in _Archive/. "
-                    "Use brain_read(resource=\"artefact\") for active files."}
-        return read_file_content(vault_root, name)
-
-    # List mode: walk _Archive/ and per-type _Archive/ dirs
-    vault_root = str(vault_root)
-    results = []
-    seen = set()
-
-    def _scan_dir(base_dir):
-        if not os.path.isdir(base_dir):
-            return
-        for dirpath, dirnames, filenames in os.walk(base_dir):
-            dirnames[:] = [d for d in dirnames if not d.startswith(".")]
-            for fname in filenames:
-                if not fname.endswith(".md"):
-                    continue
-                abs_path = os.path.join(dirpath, fname)
-                rel_path = os.path.relpath(abs_path, vault_root)
-                if rel_path in seen:
-                    continue
-                seen.add(rel_path)
-                try:
-                    with open(abs_path, "r", encoding="utf-8") as f:
-                        fields, _ = parse_frontmatter(f.read())
-                except Exception:
-                    fields = {}
-                results.append({
-                    "path": rel_path,
-                    "title": os.path.splitext(fname)[0],
-                    "type": fields.get("type", ""),
-                    "status": fields.get("status", ""),
-                    "archiveddate": fields.get("archiveddate", ""),
-                })
-
-    _scan_dir(os.path.join(vault_root, "_Archive"))
-
-    # Per-type _Archive/ dirs (legacy)
-    for art in router.get("artefacts", []):
-        art_dir = os.path.join(vault_root, art["path"])
-        if not os.path.isdir(art_dir):
-            continue
-        for entry in os.listdir(art_dir):
-            if entry == "_Archive":
-                _scan_dir(os.path.join(art_dir, "_Archive"))
-            sub = os.path.join(art_dir, entry)
-            if os.path.isdir(sub) and not entry.startswith((".", "_", "+")):
-                archive_sub = os.path.join(sub, "_Archive")
-                if os.path.isdir(archive_sub):
-                    _scan_dir(archive_sub)
-
-    # Sort by archiveddate descending
-    results.sort(key=lambda r: r.get("archiveddate", ""), reverse=True)
-    return results
+    _require_name("archive", name)
+    if not is_archived_path(name):
+        return {"error": f"'{name}' is not in _Archive/. "
+                "Use brain_read(resource=\"artefact\") for active files."}
+    return read_file_content(vault_root, name)
 
 
 # ---------------------------------------------------------------------------
@@ -357,6 +322,7 @@ def read_resource(router, vault_root, resource, name=None):
 
     Returns the resource data (dict, list, or string).
     For unknown resources, returns an error dict.
+    Raises ValueError (via handlers) when name is required but missing.
     """
     handler = RESOURCES.get(resource)
     if not handler:

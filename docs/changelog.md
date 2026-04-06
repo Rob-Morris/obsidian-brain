@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.22.1 — 2026-04-06
+
+**Read/list split and resource-scoped listing.** `brain_read` now requires `name` for all collection resources (type, trigger, style, skill, plugin, memory, workspace, archive) — calling without name returns an error directing to `brain_list`. `brain_list` gains a `resource` parameter (default `"artefact"`) for listing non-artefact collections, and an optional `query` parameter for text filtering. New `list_resources()` dispatcher in `list_artefacts.py` handles non-artefact listing from router collections. Archive listing logic extracted from `read.py` into shared `_list_archive()`. Part of the Unified Resource Interface design (Phase 2).
+
 ## v0.22.0 — 2026-04-06
 
 **Write guards for brain_create and brain_edit.** New `check_write_allowed()` function in `_common.py` blocks writes to protected folders. Dot-prefixed folders (`.brain/`, `.brain-core/`, `.obsidian/`, etc.) are always blocked. Underscore-prefixed folders are blocked except `_Temporal/` (artefact storage) and `_Config/` (resource-typed operations). Guards are called from `create_artefact()` and `_open_artefact()` in edit.py, covering all edit operations. Defense-in-depth alongside existing vault containment and `.brain-core/` protection. Part of the Unified Resource Interface design (Phase 1).

@@ -260,10 +260,9 @@ class TestStaleness:
 # ---------------------------------------------------------------------------
 
 class TestBrainRead:
-    def test_read_type_list(self, initialized):
+    def test_read_type_requires_name(self, initialized):
         result = server.brain_read("type")
-        assert "wiki" in result
-        assert "\n" in result  # multi-line
+        _assert_error(result, "requires name")
 
     def test_read_type_by_name(self, initialized):
         result = json.loads(server.brain_read("type", name="wiki"))
@@ -279,13 +278,13 @@ class TestBrainRead:
         result = server.brain_read("type", name="nonexistent")
         _assert_error(result)
 
-    def test_read_trigger(self, initialized):
+    def test_read_trigger_requires_name(self, initialized):
         result = server.brain_read("trigger")
-        assert "[after]" in result
+        _assert_error(result, "requires name")
 
-    def test_read_style_list(self, initialized):
+    def test_read_style_requires_name(self, initialized):
         result = server.brain_read("style")
-        assert "concise" in result
+        _assert_error(result, "requires name")
 
     def test_read_style_content(self, initialized):
         result = server.brain_read("style", name="concise")
@@ -303,10 +302,9 @@ class TestBrainRead:
         result = server.brain_read("template")
         _assert_error(result)
 
-    def test_read_skill_list(self, initialized):
+    def test_read_skill_requires_name(self, initialized):
         result = server.brain_read("skill")
-        assert "brain-remote" in result
-        assert "Vault Maintenance" in result
+        _assert_error(result, "requires name")
 
     def test_read_core_skill_content(self, initialized):
         result = server.brain_read("skill", name="brain-remote")
@@ -316,9 +314,9 @@ class TestBrainRead:
         result = server.brain_read("skill", name="Vault Maintenance")
         assert "Keep the vault tidy." in result
 
-    def test_read_plugin_list(self, initialized):
+    def test_read_plugin_requires_name(self, initialized):
         result = server.brain_read("plugin")
-        assert "Undertask" in result
+        _assert_error(result, "requires name")
 
     def test_read_plugin_content(self, initialized):
         result = server.brain_read("plugin", name="Undertask")
@@ -365,10 +363,9 @@ class TestBrainReadMemory:
         # Recompile to pick up memories
         server.brain_action("compile")
 
-    def test_list_memories(self):
+    def test_read_memory_requires_name(self):
         result = server.brain_read("memory")
-        assert "brain-core-reference" in result
-        assert "python-setup" in result
+        _assert_error(result, "requires name")
 
     def test_read_by_trigger(self):
         result = server.brain_read("memory", name="brain core")
@@ -429,15 +426,21 @@ class TestBrainReadArchive:
         )
         return rel
 
-    def test_list_archives(self, initialized):
+    def test_list_archives_via_brain_list(self, initialized):
         self._make_archived(initialized)
-        result = server.brain_read("archive")
-        assert "1 archived files" in result
-        assert "_Archive/Ideas/20260101-old-idea.md" in result
+        result = server.brain_list(resource="archive")
+        text = _search_text(result)
+        assert "1 archive(s)" in text
+        assert "_Archive/Ideas/20260101-old-idea.md" in text
 
     def test_list_empty_archive(self, initialized):
+        result = server.brain_list(resource="archive")
+        text = _search_text(result)
+        assert "0 archive(s)" in text
+
+    def test_read_archive_requires_name(self, initialized):
         result = server.brain_read("archive")
-        assert "No archived files" in result
+        _assert_error(result, "requires name")
 
     def test_read_specific_archive(self, initialized):
         rel = self._make_archived(initialized)
@@ -451,9 +454,10 @@ class TestBrainReadArchive:
     def test_list_legacy_per_type_archives(self, initialized):
         """Per-type _Archive/ dirs are also scanned."""
         self._make_archived(initialized, "Ideas/_Archive/20260101-legacy.md")
-        result = server.brain_read("archive")
-        assert "1 archived files" in result
-        assert "Ideas/_Archive/20260101-legacy.md" in result
+        result = server.brain_list(resource="archive")
+        text = _search_text(result)
+        assert "1 archive(s)" in text
+        assert "Ideas/_Archive/20260101-legacy.md" in text
 
 
 class TestArchiveGuardsMcp:
@@ -1863,12 +1867,18 @@ class TestWorkspaceRead:
         )
 
     def test_list_workspaces(self):
-        result = server.brain_read("workspace")
-        assert "analysis" in result
+        result = server.brain_list(resource="workspace")
+        text = _search_text(result)
+        assert "analysis" in text
 
     def test_list_workspace_shape(self):
+        result = server.brain_list(resource="workspace")
+        text = _search_text(result)
+        assert "embedded" in text
+
+    def test_read_workspace_requires_name(self):
         result = server.brain_read("workspace")
-        assert "embedded" in result
+        _assert_error(result, "requires name")
 
     def test_resolve_workspace_by_slug(self):
         result = server.brain_read("workspace", name="analysis")
@@ -1918,14 +1928,15 @@ class TestWorkspaceActions:
         result = server.brain_action("unregister_workspace", {"slug": "ghost"})
         _assert_error(result)
 
-    def test_registered_workspace_visible_in_read(self, initialized, tmp_path):
-        """After registering, brain_read workspace should list it."""
+    def test_registered_workspace_visible_in_list(self, initialized, tmp_path):
+        """After registering, brain_list(resource='workspace') should show it."""
         ext_path = str(tmp_path / "visible-proj")
         server.brain_action("register_workspace", {
             "slug": "visible-proj", "path": ext_path,
         })
-        result = server.brain_read("workspace")
-        assert "visible-proj" in result
+        result = server.brain_list(resource="workspace")
+        text = _search_text(result)
+        assert "visible-proj" in text
 
     def test_registered_workspace_resolvable(self, initialized, tmp_path):
         """After registering, brain_read workspace name=slug should resolve."""
@@ -2339,7 +2350,7 @@ class TestOperatorProfiles:
         assert server._session_profile == "reader"
 
         # reader can call brain_read and brain_search
-        result = server.brain_read("type")
+        result = server.brain_read("type", name="wiki")
         assert not isinstance(result, CallToolResult) or not result.isError
 
         # reader cannot call brain_create
@@ -2385,7 +2396,7 @@ class TestOperatorProfiles:
         server._session_profile = None
 
         # Should work without enforcement
-        result = server.brain_read("type")
+        result = server.brain_read("type", name="wiki")
         assert not isinstance(result, CallToolResult) or not result.isError
 
     def test_enforcement_brain_session_always_allowed(self, initialized):
