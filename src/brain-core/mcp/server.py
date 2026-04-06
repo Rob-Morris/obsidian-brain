@@ -1208,8 +1208,8 @@ def brain_edit(operation: Literal["edit", "append", "prepend", "delete_section"]
                    Mutually exclusive with body.
       frontmatter — optional frontmatter changes. Merge strategy depends on operation:
                    edit overwrites fields; append/prepend extend list fields (with dedup)
-                   and overwrite scalars. All operations can be used for frontmatter-only
-                   changes by omitting body.
+                   and overwrite scalars. Set a field to null to delete it.
+                   All operations can be used for frontmatter-only changes by omitting body.
       target     — optional heading, callout title, or ":body" for whole-body targeting.
                    When given: edit replaces that section's content; append inserts at end
                    of the section; prepend inserts before the section's heading line.

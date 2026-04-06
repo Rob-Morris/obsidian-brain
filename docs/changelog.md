@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.21.8 — 2026-04-06
+
+**Null-means-delete for frontmatter fields.** Setting a frontmatter field to `null` in `brain_edit` now removes it from the artefact instead of writing a literal null value. Follows RFC 7396 merge-patch semantics. Works with all operations (`edit`, `append`, `prepend`, `delete_section`). Also fixes a bug where deleting `status` via null would orphan a `statusdate` field.
+
 ## v0.21.7 — 2026-04-06
 
 **MCP server logging.** The server now writes persistent logs to `.brain/local/mcp-server.log` using Python's `RotatingFileHandler` (2 MB max, 1 backup). Startup diagnostics (version, vault path, compile/index timings), tool call tracing (name + duration), and shutdown/crash information are logged at INFO level. Tool call arguments are logged at DEBUG level, opt-in via `BRAIN_LOG_LEVEL=DEBUG`. Replaces all `print()`-to-stderr diagnostics with structured logging. Stderr still receives WARN+ messages for MCP client visibility.

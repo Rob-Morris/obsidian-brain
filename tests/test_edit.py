@@ -219,6 +219,18 @@ class TestEditArtefact:
         assert fields["status"] == "archived"
         assert fields["type"] == "living/wiki"  # preserved
 
+    def test_edit_frontmatter_null_deletes_field(self, vault, router):
+        """Setting a frontmatter field to None removes it."""
+        edit.edit_artefact(
+            str(vault), router, "Wiki/test-page.md", "",
+            frontmatter_changes={"status": None}
+        )
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        fields, _ = parse_frontmatter(content)
+        assert "status" not in fields
+        assert "statusdate" not in fields  # no orphaned statusdate
+        assert fields["type"] == "living/wiki"  # other fields preserved
+
     def test_edit_frontmatter_only_preserves_body(self, vault, router):
         """Editing only frontmatter (no body) must preserve the existing body."""
         original = (vault / "Wiki" / "test-page.md").read_text()
