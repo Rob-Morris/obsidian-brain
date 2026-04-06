@@ -131,8 +131,40 @@ _embeddings_dirty: bool = False  # set True when doc embeddings are out of sync 
 _CLI_PROBE_TTL = 30
 _ROUTER_CHECK_TTL = 5
 _INDEX_CHECK_TTL = 30
+_STARTUP_OP_TIMEOUT = 30   # seconds — guard against iCloud I/O hangs during startup
 _router_checked_at: float = 0.0
 _index_checked_at: float = 0.0
+
+
+def _run_with_timeout(label, fn, timeout=_STARTUP_OP_TIMEOUT):
+    """Run fn() in a daemon thread with a timeout.
+
+    On success returns the result. On timeout raises RuntimeError — a
+    timed-out compile means the server would start with stale definitions
+    that may not match the current scripts, so it's safer to fail loudly
+    than serve silently broken data.
+    """
+    result = None
+    exc_info = None
+
+    def worker():
+        nonlocal result, exc_info
+        try:
+            result = fn()
+        except Exception:
+            exc_info = sys.exc_info()
+
+    t = threading.Thread(target=worker, daemon=True)
+    t.start()
+    t.join(timeout=timeout)
+    if t.is_alive():
+        raise RuntimeError(
+            f"{label} timed out after {timeout}s "
+            f"(iCloud sync contention?)"
+        )
+    if exc_info:
+        raise exc_info[1].with_traceback(exc_info[2])
+    return result
 
 
 def _refresh_cli_available():
@@ -165,6 +197,8 @@ def _check_and_reload() -> None:
     """Exit if brain-core on disk has been upgraded.
 
     The MCP client will restart the server, loading the new code.
+    Uses os._exit() because sys.exit() raises SystemExit which gets
+    swallowed by asyncio's task exception handling, hanging the process.
     """
     if _vault_root is None or _loaded_version is None:
         return
@@ -175,7 +209,8 @@ def _check_and_reload() -> None:
     if disk_version is None or disk_version == _loaded_version:
         return
     print(f"brain-core upgraded ({_loaded_version} → {disk_version}), exiting for restart", file=sys.stderr)
-    sys.exit(0)
+    sys.stderr.flush()
+    os._exit(0)
 
 
 # ---------------------------------------------------------------------------
@@ -484,16 +519,26 @@ def startup(vault_root: str | None = None) -> None:
         print(f"brain-core startup: config load failed: {e}", file=sys.stderr)
 
     # Auto-compile router if stale (reuse parsed data when fresh)
+    # Timeout guard: compile writes CSS + graph.json to the vault, which can
+    # hang indefinitely on iCloud-synced vaults if files are mid-upload.
     try:
         stale, data = _check_router(_vault_root)
-        _router = _compile_and_save(_vault_root) if stale else data
+        if stale:
+            _router = _run_with_timeout("router compile",
+                                        lambda: _compile_and_save(_vault_root))
+        else:
+            _router = data
     except Exception as e:
         print(f"brain-core startup: router compile failed: {e}", file=sys.stderr)
 
-    # Auto-build index if stale
+    # Auto-build index if stale (same iCloud timeout concern)
     try:
         stale, data = _check_index(_vault_root)
-        _index = _build_index_and_save(_vault_root) if stale else data
+        if stale:
+            _index = _run_with_timeout("index build",
+                                       lambda: _build_index_and_save(_vault_root))
+        else:
+            _index = data
     except Exception as e:
         print(f"brain-core startup: index build failed: {e}", file=sys.stderr)
 

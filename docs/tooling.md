@@ -95,7 +95,7 @@ Response format by tool:
 
 **Dependencies:** Python >=3.10, `mcp` SDK, `pyyaml` (config loader). The server imports functions directly from scripts — never calls their `main()` (which may `sys.exit`). Optional: dsebastien/obsidian-cli-rest running on localhost:27124 (overridable via `OBSIDIAN_CLI_URL` env var).
 
-**Version drift:** If `.brain-core/` is upgraded while the server is running (e.g. after a brain-core propagation), the server detects the version change on the next tool call and reloads all script modules in-process via `importlib.reload()`. No MCP client cooperation needed — the server self-heals. Read, search, create, and edit tools also auto-recompile the router when new taxonomy files appear mid-session.
+**Version drift:** If `.brain-core/` is upgraded while the server is running, the server detects the version change on the next tool call and exits via `os._exit(0)`. The MCP client restarts it with the new code. This replaced the previous `importlib.reload()` approach because `sys.exit()` inside an asyncio coroutine hangs the process. Read, search, create, and edit tools also auto-recompile the router when new taxonomy files appear mid-session.
 
 **Status:** Implemented in v0.8.0. Script parity completed in v0.10.3 (read.py, rename.py). Privilege split in v0.11.0 — 5 tools with granular permissions (DD-025). Artefact CRUD now implemented: create, edit/append, delete, convert. File resource added in v0.11.2 (read artefact files by path). Module reload on version drift added in v0.11.8. In-place upgrade action added in v0.12.1 (upgrade.py). Workspace registry added in v0.12.2 (workspace_registry.py). Vault config system and operator profiles added in v0.17.0 (config.py, profile enforcement).
 
@@ -318,9 +318,8 @@ CLI-only upgrade script at `src/brain-core/scripts/upgrade.py` (runs from the re
 
 **Design decisions:**
 - Source path is required (`--source`), not auto-detected — explicit is safer for an operation that overwrites system files
-- Script does copy + diff only; post-upgrade steps (recompile, rebuild index, definition sync, dependency sync) are the caller's responsibility. CLI prints reminders; `install.sh` handles them automatically
+- **Backup + compile validation + rollback** — before modifying anything, `.brain-core/` is backed up to `/tmp/`. After copying files, `compile_router.py` runs as a validation step. If copy or compile fails, the backup is restored and the error is reported. Migrations only run after compile succeeds. Result is logged to `.brain/local/last-upgrade.json` for diagnostics
 - **Dependency management** — MCP server dependencies are declared in `.brain-core/mcp/requirements.txt`. When this file changes during an upgrade, the CLI prints a reminder to run `pip install -r`. `install.sh` handles this automatically for both fresh installs and upgrades. For manual upgrades, re-run: `.venv/bin/pip install -r .brain-core/mcp/requirements.txt`
-- No backup — the vault is a git repo; `git checkout .brain-core/` is the undo mechanism
 - **Not exposed via MCP** — self-upgrading MCP servers are an anti-pattern (a prompt-injected agent could point upgrade at a crafted directory). The MCP server detects version drift and exits cleanly; the client restarts it with the new code
 
 **CLI:**

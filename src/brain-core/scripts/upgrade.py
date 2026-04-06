@@ -23,7 +23,10 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
+import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -260,6 +263,7 @@ def _reload_migration_deps():
 
 
 _MIGRATED_VERSION_FILE = os.path.join(".brain", "local", ".migrated-version")
+_LAST_UPGRADE_FILE = os.path.join(".brain", "local", "last-upgrade.json")
 
 
 def run_pending_migrations(vault_root: str) -> list[dict]:
@@ -296,11 +300,101 @@ def run_pending_migrations(vault_root: str) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# Backup / restore — keeps .brain-core/ recoverable during upgrades
+# ---------------------------------------------------------------------------
+
+_COMPILE_TIMEOUT = 60  # seconds (longer than server's 30s startup timeout
+                       # because upgrade runs interactively and compile is
+                       # the validation gate — worth waiting longer)
+
+
+def _copytree_ignore(_dir, entries):
+    """Ignore filter for shutil.copytree — matches IGNORE_DIRS/IGNORE_FILES."""
+    return [e for e in entries if e in IGNORE_DIRS or e in IGNORE_FILES or e.endswith(".pyc")]
+
+
+def _backup_brain_core(target: str) -> str:
+    """Copy .brain-core/ to a temp directory outside the vault.
+
+    Returns the backup directory path. The caller is responsible for
+    cleanup (success) or restore (failure).
+    """
+    backup_dir = tempfile.mkdtemp(prefix="brain-core-backup-")
+    shutil.copytree(target, os.path.join(backup_dir, BRAIN_CORE_DIR),
+                    ignore=_copytree_ignore)
+    return backup_dir
+
+
+def _restore_brain_core(backup_dir: str, target: str) -> None:
+    """Restore .brain-core/ from a backup, file-by-file to be iCloud-safe."""
+    backup_src = os.path.join(backup_dir, BRAIN_CORE_DIR)
+
+    # Remove files that weren't in the backup (i.e. newly added by upgrade)
+    backup_files = _walk_tree(backup_src)
+    current_files = _walk_tree(target)
+    for rel in current_files - backup_files:
+        abs_path = os.path.join(target, rel)
+        try:
+            os.remove(abs_path)
+        except OSError:
+            pass
+
+    # Restore original files
+    for rel in backup_files:
+        src = os.path.join(backup_src, rel)
+        dst = os.path.join(target, rel)
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        shutil.copy2(src, dst)
+
+
+def _write_upgrade_log(vault_root: str, result: dict) -> None:
+    """Write upgrade result to .brain/local/last-upgrade.json for diagnostics."""
+    log_path = os.path.join(vault_root, _LAST_UPGRADE_FILE)
+    entry = {**result, "timestamp": datetime.now(timezone.utc).isoformat()}
+    try:
+        _safe_write(log_path, json.dumps(entry, indent=2) + "\n")
+    except OSError:
+        pass  # best-effort — don't let log failure mask the real error
+
+
+def _validate_compile(vault_root: str) -> Optional[str]:
+    """Run compile_router.py against the vault as a validation step.
+
+    Returns None on success, or an error message on failure.
+    """
+    script = os.path.join(vault_root, BRAIN_CORE_DIR, "scripts", "compile_router.py")
+    if not os.path.isfile(script):
+        return f"compile_router.py not found at {script}"
+
+    try:
+        proc = subprocess.run(
+            [sys.executable, script],
+            cwd=vault_root,
+            capture_output=True,
+            text=True,
+            timeout=_COMPILE_TIMEOUT,
+        )
+        if proc.returncode != 0:
+            stderr = proc.stderr.strip()
+            return f"compile failed (exit {proc.returncode}): {stderr}"
+    except subprocess.TimeoutExpired:
+        return f"compile timed out after {_COMPILE_TIMEOUT}s"
+    except OSError as e:
+        return f"compile could not run: {e}"
+
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Core upgrade function
 # ---------------------------------------------------------------------------
 
 def upgrade(vault_root: str, source: str, *, force: bool = False, dry_run: bool = False) -> dict:
     """Upgrade .brain-core/ in a vault from a source directory.
+
+    Flow: backup → copy → compile (validate) → migrate.
+    If copy or compile fails, .brain-core/ is restored from the backup.
+    Migrations only run after compile succeeds.
 
     Args:
         vault_root: Path to the vault root.
@@ -357,35 +451,62 @@ def upgrade(vault_root: str, source: str, *, force: bool = False, dry_run: bool 
         result["message"] = f"Dry run: {old_version or '(none)'} → {new_version}"
         return result
 
-    # Copy only added and modified files (avoids touching unchanged files,
-    # which prevents sync-service conflict copies on iCloud/Dropbox/etc.)
-    for rel in diff["files_added"] + diff["files_modified"]:
-        src = os.path.join(source, rel)
-        dst = os.path.join(target, rel)
-        os.makedirs(os.path.dirname(dst), exist_ok=True)
-        shutil.copy2(src, dst)
+    # --- Backup .brain-core/ before modifying anything ---
+    backup_dir = _backup_brain_core(target)
 
-    # Remove obsolete files and clean up empty parent directories
-    for rel in diff["files_removed"]:
-        abs_path = os.path.join(target, rel)
-        try:
-            os.remove(abs_path)
-        except OSError:
-            continue
-        dir_path = os.path.dirname(abs_path)
-        try:
-            while dir_path != target:
-                os.rmdir(dir_path)  # only removes if empty
-                dir_path = os.path.dirname(dir_path)
-        except OSError:
-            pass
+    def _rollback(msg):
+        _restore_brain_core(backup_dir, target)
+        shutil.rmtree(backup_dir, ignore_errors=True)
+        err_result = {
+            "status": "error",
+            "old_version": old_version,
+            "new_version": new_version,
+            "message": f"Upgrade rolled back — {msg}",
+        }
+        _write_upgrade_log(vault_root, err_result)
+        return err_result
 
-    # Run pending migrations
+    try:
+        # Copy only added and modified files (avoids touching unchanged files,
+        # which prevents sync-service conflict copies on iCloud/Dropbox/etc.)
+        for rel in diff["files_added"] + diff["files_modified"]:
+            src = os.path.join(source, rel)
+            dst = os.path.join(target, rel)
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            shutil.copy2(src, dst)
+
+        # Remove obsolete files and clean up empty parent directories
+        for rel in diff["files_removed"]:
+            abs_path = os.path.join(target, rel)
+            try:
+                os.remove(abs_path)
+            except OSError:
+                continue
+            dir_path = os.path.dirname(abs_path)
+            try:
+                while dir_path != target:
+                    os.rmdir(dir_path)  # only removes if empty
+                    dir_path = os.path.dirname(dir_path)
+            except OSError:
+                pass
+
+        # --- Validate: compile must succeed before migrations run ---
+        compile_err = _validate_compile(vault_root)
+        if compile_err:
+            return _rollback(compile_err)
+
+    except Exception as e:
+        return _rollback(f"copy failed: {e}")
+
+    shutil.rmtree(backup_dir, ignore_errors=True)
+
+    # --- Migrations run only after copy + compile succeeded ---
     migrations = _run_migrations(vault_root, old_version, new_version)
     if migrations:
         result["migrations"] = migrations
 
     result["message"] = f"Upgraded {old_version or '(none)'} → {new_version}"
+    _write_upgrade_log(vault_root, result)
     return result
 
 
@@ -485,10 +606,9 @@ def main() -> None:
             info("  .venv/bin/pip install -r .brain-core/mcp/requirements.txt")
             print(file=sys.stderr)
 
-        info("Post-upgrade: recompile the router and rebuild the index.")
-        info("  python3 .brain-core/scripts/compile_router.py")
+        info("Post-upgrade: rebuild the search index.")
         info("  python3 .brain-core/scripts/build_index.py")
-        info("  (or use brain_action('compile') + brain_action('build_index') via MCP)")
+        info("  (or use brain_action('build_index') via MCP)")
 
 
 if __name__ == "__main__":
