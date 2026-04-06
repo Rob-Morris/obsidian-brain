@@ -769,9 +769,9 @@ class TestVersionCheck:
         """_check_and_reload should exit when on-disk version differs."""
         version_path = initialized / ".brain-core" / "VERSION"
         version_path.write_text("99.0.0\n")
-        with pytest.raises(SystemExit) as exc_info:
+        with patch("os._exit") as mock_exit:
             server._check_and_reload()
-        assert exc_info.value.code == 0
+            mock_exit.assert_called_once_with(0)
 
     def test_no_reload_when_version_file_missing(self, initialized):
         """_check_and_reload should be a no-op if VERSION file is deleted."""
@@ -835,12 +835,12 @@ class TestAtomicSave:
 
 class TestReloadRobustness:
     def test_version_drift_causes_clean_exit(self, initialized):
-        """Version drift should trigger sys.exit(0) for client restart."""
+        """Version drift should trigger os._exit(0) for client restart."""
         version_path = initialized / ".brain-core" / "VERSION"
         version_path.write_text("99.0.0\n")
-        with pytest.raises(SystemExit) as exc_info:
+        with patch("os._exit") as mock_exit:
             server._check_and_reload()
-        assert exc_info.value.code == 0
+            mock_exit.assert_called_once_with(0)
 
     def test_check_and_reload_survives_read_error(self, initialized):
         """_check_and_reload should not raise on version read errors."""
