@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.21.7 — 2026-04-06
+
+**MCP server logging.** The server now writes persistent logs to `.brain/local/mcp-server.log` using Python's `RotatingFileHandler` (2 MB max, 1 backup). Startup diagnostics (version, vault path, compile/index timings), tool call tracing (name + duration), and shutdown/crash information are logged at INFO level. Tool call arguments are logged at DEBUG level, opt-in via `BRAIN_LOG_LEVEL=DEBUG`. Replaces all `print()`-to-stderr diagnostics with structured logging. Stderr still receives WARN+ messages for MCP client visibility.
+
 ## v0.21.5 — 2026-04-06
 
 **Post-upgrade definition sync.** `upgrade.py` now runs `sync_definitions` after a successful upgrade. Behaviour follows the `artefact_sync` preference in `.brain/preferences.json`: `auto` applies safe updates, `ask` (new default) includes a preview for the caller to present, `skip` does nothing. CLI flags `--sync` / `--no-sync` override. Customised definitions are reported but never overwritten. Sync failures are captured — they never crash the upgrade.

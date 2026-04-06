@@ -39,7 +39,10 @@ or meaningful agent-efficiency gains. Keep vault logic in scripts/, glue here.
 Requires Python >=3.10 and the `mcp` SDK (see requirements.txt).
 """
 
+import contextlib
 import json
+import logging
+import logging.handlers
 import os
 import signal
 import sys
@@ -135,6 +138,67 @@ _STARTUP_OP_TIMEOUT = 30   # seconds — guard against iCloud I/O hangs during s
 _router_checked_at: float = 0.0
 _index_checked_at: float = 0.0
 
+# Logging
+_LOG_REL = os.path.join(".brain", "local", "mcp-server.log")
+_LOG_MAX_BYTES = 2 * 1024 * 1024   # 2 MB
+_LOG_BACKUP_COUNT = 1
+_logger: logging.Logger | None = None
+
+
+def _flush_log() -> None:
+    """Flush all logger handlers (call before os._exit or sys.exit)."""
+    if _logger:
+        for h in _logger.handlers:
+            h.flush()
+
+
+def _setup_logging(vault_root: str) -> logging.Logger:
+    """Configure file + stderr logging for the MCP server.
+
+    File handler: INFO by default (DEBUG via BRAIN_LOG_LEVEL env var).
+    Stderr handler: WARN+ only (preserves MCP client visibility).
+    """
+    log_path = os.path.join(vault_root, _LOG_REL)
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+
+    logger = logging.getLogger("brain-core")
+    if logger.handlers:
+        return logger  # already configured (e.g. repeated startup() in tests)
+    logger.setLevel(logging.DEBUG)  # logger accepts all; handlers filter
+
+    # File handler — INFO by default, DEBUG if BRAIN_LOG_LEVEL=DEBUG
+    env_level = os.environ.get("BRAIN_LOG_LEVEL", "INFO").upper()
+    file_level = getattr(logging, env_level, logging.INFO)
+    file_handler = logging.handlers.RotatingFileHandler(
+        log_path, maxBytes=_LOG_MAX_BYTES, backupCount=_LOG_BACKUP_COUNT,
+    )
+    file_handler.setLevel(file_level)
+    file_handler.setFormatter(logging.Formatter(
+        "%(asctime)s [%(levelname)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    ))
+    logger.addHandler(file_handler)
+
+    # Stderr handler — WARN and above (replaces old print-to-stderr pattern)
+    stderr_handler = logging.StreamHandler(sys.stderr)
+    stderr_handler.setLevel(logging.WARNING)
+    stderr_handler.setFormatter(logging.Formatter("brain-core: %(message)s"))
+    logger.addHandler(stderr_handler)
+
+    return logger
+
+
+@contextlib.contextmanager
+def _trace_tool(tool_name: str, **kwargs):
+    """Log tool call entry and exit with timing."""
+    if _logger:
+        _logger.info("tool call: %s", tool_name)
+        _logger.debug("tool args: %s %s", tool_name, kwargs)
+    t0 = time.monotonic()
+    yield
+    if _logger:
+        _logger.info("tool done: %s %.3fs", tool_name, time.monotonic() - t0)
+
 
 def _run_with_timeout(label, fn, timeout=_STARTUP_OP_TIMEOUT):
     """Run fn() in a daemon thread with a timeout.
@@ -208,8 +272,10 @@ def _check_and_reload() -> None:
         return
     if disk_version is None or disk_version == _loaded_version:
         return
-    print(f"brain-core upgraded ({_loaded_version} → {disk_version}), exiting for restart", file=sys.stderr)
-    sys.stderr.flush()
+    if _logger:
+        _logger.warning("version drift: %s -> %s, exiting for restart",
+                        _loaded_version, disk_version)
+    _flush_log()
     os._exit(0)
 
 
@@ -335,7 +401,8 @@ def _ensure_router_fresh() -> None:
     try:
         _router = _compile_and_save(_vault_root)
     except Exception as e:
-        print(f"brain-core router recompile failed: {e}", file=sys.stderr)
+        if _logger:
+            _logger.error("router recompile failed: %s", e)
 
 
 def _mark_index_dirty() -> None:
@@ -386,7 +453,8 @@ def _ensure_index_fresh() -> None:
         try:
             _index = _build_index_and_save(_vault_root)
         except Exception as e:
-            print(f"brain-core index full rebuild failed: {e}", file=sys.stderr)
+            if _logger:
+                _logger.error("index full rebuild failed: %s", e)
             _index_dirty = False  # prevent tight retry loop; staleness TTL will re-detect
             _index_checked_at = time.monotonic()
         return
@@ -407,7 +475,8 @@ def _ensure_index_fresh() -> None:
             _mark_embeddings_dirty()
             _index_checked_at = time.monotonic()
         except Exception as e:
-            print(f"brain-core index incremental update failed: {e}", file=sys.stderr)
+            if _logger:
+                _logger.error("index incremental update failed: %s", e)
             _mark_index_dirty()
         # Fall through to TTL-gated staleness check (detects external files)
 
@@ -422,7 +491,8 @@ def _ensure_index_fresh() -> None:
     try:
         _index = _build_index_and_save(_vault_root)
     except Exception as e:
-        print(f"brain-core index staleness rebuild failed: {e}", file=sys.stderr)
+        if _logger:
+            _logger.error("index staleness rebuild failed: %s", e)
 
 
 # ---------------------------------------------------------------------------
@@ -500,7 +570,7 @@ def _load_embeddings(vault_root: str) -> None:
 
 def startup(vault_root: str | None = None) -> None:
     """Initialize server state: find vault, compile/build if stale, load data."""
-    global _vault_root, _config, _router, _index, _vault_name, _loaded_version, _workspace_registry
+    global _vault_root, _config, _router, _index, _vault_name, _loaded_version, _workspace_registry, _logger
 
     if vault_root is None:
         vault_root = os.environ.get("BRAIN_VAULT_ROOT")
@@ -512,11 +582,15 @@ def startup(vault_root: str | None = None) -> None:
     # Record loaded version for drift detection
     _loaded_version = _read_disk_version(_vault_root)
 
+    # Set up logging early so all subsequent startup steps are captured
+    _logger = _setup_logging(_vault_root)
+    _logger.info("startup begin (version %s, vault %s)", _loaded_version, _vault_root)
+
     # Load vault config (three-layer merge: template → vault → local)
     try:
         _config = config_mod.load_config(_vault_root)
     except Exception as e:
-        print(f"brain-core startup: config load failed: {e}", file=sys.stderr)
+        _logger.error("startup: config load failed: %s", e)
 
     # Auto-compile router if stale (reuse parsed data when fresh)
     # Timeout guard: compile writes CSS + graph.json to the vault, which can
@@ -524,41 +598,49 @@ def startup(vault_root: str | None = None) -> None:
     try:
         stale, data = _check_router(_vault_root)
         if stale:
+            t0 = time.monotonic()
             _router = _run_with_timeout("router compile",
                                         lambda: _compile_and_save(_vault_root))
+            _logger.info("router compile (stale) %.1fs", time.monotonic() - t0)
         else:
             _router = data
+            _logger.info("router compile (fresh)")
     except Exception as e:
-        print(f"brain-core startup: router compile failed: {e}", file=sys.stderr)
+        _logger.error("startup: router compile failed: %s", e)
 
     # Auto-build index if stale (same iCloud timeout concern)
     try:
         stale, data = _check_index(_vault_root)
         if stale:
+            t0 = time.monotonic()
             _index = _run_with_timeout("index build",
                                        lambda: _build_index_and_save(_vault_root))
+            _logger.info("index build (stale) %.1fs", time.monotonic() - t0)
         else:
             _index = data
+            _logger.info("index build (fresh)")
     except Exception as e:
-        print(f"brain-core startup: index build failed: {e}", file=sys.stderr)
+        _logger.error("startup: index build failed: %s", e)
 
     # Load pre-built embeddings if available
     try:
         _load_embeddings(_vault_root)
     except Exception as e:
-        print(f"brain-core startup: embeddings load failed: {e}", file=sys.stderr)
+        _logger.error("startup: embeddings load failed: %s", e)
 
     # Load workspace registry
     try:
         _workspace_registry = workspace_registry.load_registry(_vault_root)
     except Exception as e:
-        print(f"brain-core startup: workspace registry failed: {e}", file=sys.stderr)
+        _logger.error("startup: workspace registry failed: %s", e)
 
     # CLI availability is probed lazily on first tool call via _refresh_cli_available()
     # to avoid blocking startup (the Obsidian IPC socket check is fast but we defer entirely).
     # Vault name: config > env var > directory basename
     config_brain_name = (_config or {}).get("vault", {}).get("brain_name", "")
     _vault_name = config_brain_name or os.environ.get("BRAIN_VAULT_NAME") or os.path.basename(_vault_root)
+
+    _logger.info("startup complete")
 
 
 # ---------------------------------------------------------------------------
@@ -770,37 +852,39 @@ def brain_session(context: str | None = None, operator_key: str | None = None):
     """
     global _session_profile
 
-    try:
-        _check_and_reload()
-        _ensure_router_fresh()
-        _refresh_cli_available()
+    with _trace_tool("brain_session", context=context, operator_key=operator_key):
+        try:
+            _check_and_reload()
+            _ensure_router_fresh()
+            _refresh_cli_available()
 
-        if _router is None or _vault_root is None:
-            return _fmt_error("server not initialized")
+            if _router is None or _vault_root is None:
+                return _fmt_error("server not initialized")
 
-        if _config is not None:
-            try:
-                profile, op_id = config_mod.authenticate_operator(operator_key, _config)
-                _session_profile = profile
-            except ValueError as e:
-                return _fmt_error(str(e))
-        else:
-            _session_profile = None
+            if _config is not None:
+                try:
+                    profile, op_id = config_mod.authenticate_operator(operator_key, _config)
+                    _session_profile = profile
+                except ValueError as e:
+                    return _fmt_error(str(e))
+            else:
+                _session_profile = None
 
-        result = session.compile_session(
-            _router, _vault_root,
-            obsidian_cli_available=_cli_available,
-            context=context,
-            config=_config,
-        )
+            result = session.compile_session(
+                _router, _vault_root,
+                obsidian_cli_available=_cli_available,
+                context=context,
+                config=_config,
+            )
 
-        if _session_profile:
-            result["active_profile"] = _session_profile
+            if _session_profile:
+                result["active_profile"] = _session_profile
 
-        return json.dumps(result, ensure_ascii=False)
-    except Exception as e:
-        print(traceback.format_exc(), file=sys.stderr)
-        return _fmt_error(f"Unexpected error: {e}")
+            return json.dumps(result, ensure_ascii=False)
+        except Exception as e:
+            if _logger:
+                _logger.error("brain_session: %s", e, exc_info=True)
+            return _fmt_error(f"Unexpected error: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -834,55 +918,57 @@ def brain_read(
       file        — read any vault file by name (resolves and delegates to the correct resource handler)
       archive     — list archived files (no name), or read a specific archived file (name = path inside _Archive/)
     """
-    try:
-        _check_and_reload()
-        _ensure_router_fresh()
+    with _trace_tool("brain_read", resource=resource, name=name):
+        try:
+            _check_and_reload()
+            _ensure_router_fresh()
 
-        denied = _enforce_profile("brain_read")
-        if denied:
-            return denied
+            denied = _enforce_profile("brain_read")
+            if denied:
+                return denied
 
-        if _router is None:
-            return _fmt_error("server not initialized")
+            if _router is None:
+                return _fmt_error("server not initialized")
 
-        # Workspace resource: handled by server (registry is server state, not router state)
-        if resource == "workspace":
-            if name:
-                try:
-                    result = workspace_registry.resolve_workspace(
-                        _vault_root, name, registry=_workspace_registry,
+            # Workspace resource: handled by server (registry is server state, not router state)
+            if resource == "workspace":
+                if name:
+                    try:
+                        result = workspace_registry.resolve_workspace(
+                            _vault_root, name, registry=_workspace_registry,
+                        )
+                        return _fmt_workspace_single(result)
+                    except ValueError as e:
+                        return _fmt_error(str(e))
+                else:
+                    result = workspace_registry.list_workspaces(
+                        _vault_root, registry=_workspace_registry,
                     )
-                    return _fmt_workspace_single(result)
-                except ValueError as e:
-                    return _fmt_error(str(e))
-            else:
-                result = workspace_registry.list_workspaces(
-                    _vault_root, registry=_workspace_registry,
-                )
-                return _fmt_workspace_list(result)
+                    return _fmt_workspace_list(result)
 
-        result = read_mod.read_resource(_router, _vault_root, resource, name)
+            result = read_mod.read_resource(_router, _vault_root, resource, name)
 
-        # Return strings as-is (file content)
-        if isinstance(result, str):
-            return result
-        # Dict results: check for errors, enrich environment
-        if isinstance(result, dict):
-            if "error" in result:
-                return _fmt_error(result["error"])
-            if resource == "environment":
-                _refresh_cli_available()
-                result["obsidian_cli_available"] = _cli_available
-                result["has_config"] = _config is not None
-                result["active_profile"] = _session_profile
-        # Use formatter if available (DD-026), else fall through to JSON
-        formatter = _READ_FORMATTERS.get(resource)
-        if formatter:
-            return formatter(result, name)
-        return json.dumps(result, indent=2, ensure_ascii=False)
-    except Exception as e:
-        print(traceback.format_exc(), file=sys.stderr)
-        return _fmt_error(f"Unexpected error: {e}")
+            # Return strings as-is (file content)
+            if isinstance(result, str):
+                return result
+            # Dict results: check for errors, enrich environment
+            if isinstance(result, dict):
+                if "error" in result:
+                    return _fmt_error(result["error"])
+                if resource == "environment":
+                    _refresh_cli_available()
+                    result["obsidian_cli_available"] = _cli_available
+                    result["has_config"] = _config is not None
+                    result["active_profile"] = _session_profile
+            # Use formatter if available (DD-026), else fall through to JSON
+            formatter = _READ_FORMATTERS.get(resource)
+            if formatter:
+                return formatter(result, name)
+            return json.dumps(result, indent=2, ensure_ascii=False)
+        except Exception as e:
+            if _logger:
+                _logger.error("brain_read: %s", e, exc_info=True)
+            return _fmt_error(f"Unexpected error: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -961,41 +1047,43 @@ def brain_search(query: str, type: str | None = None, tag: str | None = None,
     Returns ranked results with path, title, type, status, and source.
     Optional filters: type (e.g. 'living/wiki'), tag, status (e.g. 'shaping'), top_k (default 10).
     """
-    try:
-        _check_and_reload()
-        _ensure_router_fresh()
-        _ensure_index_fresh()
+    with _trace_tool("brain_search", query=query, type=type, tag=tag):
+        try:
+            _check_and_reload()
+            _ensure_router_fresh()
+            _ensure_index_fresh()
 
-        denied = _enforce_profile("brain_search")
-        if denied:
-            return denied
+            denied = _enforce_profile("brain_search")
+            if denied:
+                return denied
 
-        if _index is None:
-            return _fmt_error("server not initialized")
+            if _index is None:
+                return _fmt_error("server not initialized")
 
-        # Resolve type filter to full type (e.g. "idea" → "living/ideas")
-        type_filter = type
-        if type_filter and _router:
-            art = _common.match_artefact(_router.get("artefacts", []), type_filter)
-            if art:
-                type_filter = art["frontmatter_type"]
+            # Resolve type filter to full type (e.g. "idea" → "living/ideas")
+            type_filter = type
+            if type_filter and _router:
+                art = _common.match_artefact(_router.get("artefacts", []), type_filter)
+                if art:
+                    type_filter = art["frontmatter_type"]
 
-        _refresh_cli_available()
+            _refresh_cli_available()
 
-        # CLI-first: Obsidian's live index is always current
-        if _cli_available and _vault_name and query:
-            cli_results = obsidian_cli.search(_vault_name, query)
-            if cli_results is not None:
-                results = _transform_cli_results(cli_results, type_filter, tag, status, top_k)
-                return _fmt_search("obsidian_cli", results)
+            # CLI-first: Obsidian's live index is always current
+            if _cli_available and _vault_name and query:
+                cli_results = obsidian_cli.search(_vault_name, query)
+                if cli_results is not None:
+                    results = _transform_cli_results(cli_results, type_filter, tag, status, top_k)
+                    return _fmt_search("obsidian_cli", results)
 
-        # BM25 fallback
-        results = search_index.search(_index, query, _vault_root, type_filter=type_filter, tag_filter=tag,
-                                      status_filter=status, top_k=top_k)
-        return _fmt_search("bm25", results)
-    except Exception as e:
-        print(traceback.format_exc(), file=sys.stderr)
-        return _fmt_error(f"Unexpected error: {e}")
+            # BM25 fallback
+            results = search_index.search(_index, query, _vault_root, type_filter=type_filter, tag_filter=tag,
+                                          status_filter=status, top_k=top_k)
+            return _fmt_search("bm25", results)
+        except Exception as e:
+            if _logger:
+                _logger.error("brain_search: %s", e, exc_info=True)
+            return _fmt_error(f"Unexpected error: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -1013,26 +1101,28 @@ def brain_list(type: str | None = None, since: str | None = None,
     Optional filters: type (e.g. 'temporal/research'), since/until (ISO dates e.g.
     '2026-03-20'), tag, top_k, sort ('date_desc', 'date_asc', 'title').
     """
-    try:
-        _check_and_reload()
-        _ensure_router_fresh()
-        _ensure_index_fresh()
+    with _trace_tool("brain_list", type=type, since=since, tag=tag):
+        try:
+            _check_and_reload()
+            _ensure_router_fresh()
+            _ensure_index_fresh()
 
-        denied = _enforce_profile("brain_list")
-        if denied:
-            return denied
+            denied = _enforce_profile("brain_list")
+            if denied:
+                return denied
 
-        if _index is None:
-            return _fmt_error("server not initialized")
+            if _index is None:
+                return _fmt_error("server not initialized")
 
-        results = list_artefacts.list_artefacts(
-            _index, _router, type_filter=type, since=since, until=until,
-            tag=tag, top_k=top_k, sort=sort,
-        )
-        return _fmt_list(results, type)
-    except Exception as e:
-        print(traceback.format_exc(), file=sys.stderr)
-        return _fmt_error(f"Unexpected error: {e}")
+            results = list_artefacts.list_artefacts(
+                _index, _router, type_filter=type, since=since, until=until,
+                tag=tag, top_k=top_k, sort=sort,
+            )
+            return _fmt_list(results, type)
+        except Exception as e:
+            if _logger:
+                _logger.error("brain_list: %s", e, exc_info=True)
+            return _fmt_error(f"Unexpected error: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -1061,35 +1151,37 @@ def brain_create(type: str, title: str, body: str = "", body_file: str = "", fro
 
     Returns JSON: {path, type, title}
     """
-    try:
-        _check_and_reload()
-        _ensure_router_fresh()
+    with _trace_tool("brain_create", type=type, title=title):
+        try:
+            _check_and_reload()
+            _ensure_router_fresh()
 
-        denied = _enforce_profile("brain_create")
-        if denied:
-            return denied
+            denied = _enforce_profile("brain_create")
+            if denied:
+                return denied
 
-        if _router is None or _vault_root is None:
-            return _fmt_error("server not initialized")
+            if _router is None or _vault_root is None:
+                return _fmt_error("server not initialized")
 
-        body, cleanup_path = resolve_body_file(body, body_file, vault_root=_vault_root)
+            body, cleanup_path = resolve_body_file(body, body_file, vault_root=_vault_root)
 
-        result = create.create_artefact(
-            _vault_root, _router, type, title,
-            body=body, frontmatter_overrides=frontmatter, parent=parent,
-        )
-        _mark_index_pending(result["path"], type_hint=result["type"])
-        if cleanup_path:
-            try:
-                os.remove(cleanup_path)
-            except OSError:
-                pass
-        return f"**Created** {result['type']}: {result['path']}"
-    except (ValueError, FileNotFoundError) as e:
-        return _fmt_error(str(e))
-    except Exception as e:
-        print(traceback.format_exc(), file=sys.stderr)
-        return _fmt_error(f"Unexpected error: {e}")
+            result = create.create_artefact(
+                _vault_root, _router, type, title,
+                body=body, frontmatter_overrides=frontmatter, parent=parent,
+            )
+            _mark_index_pending(result["path"], type_hint=result["type"])
+            if cleanup_path:
+                try:
+                    os.remove(cleanup_path)
+                except OSError:
+                    pass
+            return f"**Created** {result['type']}: {result['path']}"
+        except (ValueError, FileNotFoundError) as e:
+            return _fmt_error(str(e))
+        except Exception as e:
+            if _logger:
+                _logger.error("brain_create: %s", e, exc_info=True)
+            return _fmt_error(f"Unexpected error: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -1127,85 +1219,87 @@ def brain_edit(operation: Literal["edit", "append", "prepend", "delete_section"]
 
     Path validated against compiled router — wrong folder or naming rejected with helpful error.
     """
-    try:
-        _check_and_reload()
-        _ensure_router_fresh()
+    with _trace_tool("brain_edit", operation=operation, path=path, target=target):
+        try:
+            _check_and_reload()
+            _ensure_router_fresh()
 
-        denied = _enforce_profile("brain_edit")
-        if denied:
-            return denied
+            denied = _enforce_profile("brain_edit")
+            if denied:
+                return denied
 
-        if _router is None or _vault_root is None:
-            return _fmt_error("server not initialized")
+            if _router is None or _vault_root is None:
+                return _fmt_error("server not initialized")
 
-        body, cleanup_path = resolve_body_file(body, body_file, vault_root=_vault_root)
+            body, cleanup_path = resolve_body_file(body, body_file, vault_root=_vault_root)
 
-        if is_archived_path(path):
-            return _fmt_error(
-                f"'{path}' is archived. "
-                "Use brain_action('unarchive') to restore it first."
-            )
+            if is_archived_path(path):
+                return _fmt_error(
+                    f"'{path}' is archived. "
+                    "Use brain_action('unarchive') to restore it first."
+                )
 
-        if operation == "delete_section":
-            if not target:
-                return _fmt_error("delete_section requires a target heading.")
-        elif not body and not frontmatter and not target:
-            return _fmt_error(f"{operation} with no body and no frontmatter changes is a no-op. "
-                              "Pass body content, frontmatter changes, or both.")
+            if operation == "delete_section":
+                if not target:
+                    return _fmt_error("delete_section requires a target heading.")
+            elif not body and not frontmatter and not target:
+                return _fmt_error(f"{operation} with no body and no frontmatter changes is a no-op. "
+                                  "Pass body content, frontmatter changes, or both.")
 
-        if operation == "edit":
-            result = edit.edit_artefact(
-                _vault_root, _router, path, body,
-                frontmatter_changes=frontmatter,
-                target=target,
-            )
-        elif operation == "append":
-            result = edit.append_to_artefact(
-                _vault_root, _router, path, body,
-                frontmatter_changes=frontmatter,
-                target=target,
-            )
-        elif operation == "prepend":
-            result = edit.prepend_to_artefact(
-                _vault_root, _router, path, body,
-                frontmatter_changes=frontmatter,
-                target=target,
-            )
-        elif operation == "delete_section":
-            result = edit.delete_section_artefact(
-                _vault_root, _router, path,
-                target=target,
-                frontmatter_changes=frontmatter,
-            )
-        else:
-            return _fmt_error(f"Unknown operation '{operation}'. Valid: edit, append, prepend, delete_section")
-        moved = result["path"] != result["resolved_path"]
-        if moved:
-            _mark_index_dirty()  # file moved, full rebuild needed
-        else:
-            _mark_index_pending(result["path"])
-        if cleanup_path:
-            try:
-                os.remove(cleanup_path)
-            except OSError:
-                pass
-        past = edit.OPERATION_LABELS[result["operation"]]
-        msg = f"**{past}:** {result['path']}"
-        if moved:
-            msg += f"\n**Moved:** {result['resolved_path']} → {result['path']} (terminal status)"
-        if target:
-            msg += f" (target: {target})"
-            prev_h, next_h = _surrounding_headings(_vault_root, result["path"], target)
-            if prev_h or next_h:
-                prev_label = prev_h or "(start)"
-                next_label = next_h or "(end)"
-                msg += f"\n**Context:** prev={prev_label} | next={next_label}"
-        return msg
-    except (ValueError, FileNotFoundError) as e:
-        return _fmt_error(str(e))
-    except Exception as e:
-        print(traceback.format_exc(), file=sys.stderr)
-        return _fmt_error(f"Unexpected error: {e}")
+            if operation == "edit":
+                result = edit.edit_artefact(
+                    _vault_root, _router, path, body,
+                    frontmatter_changes=frontmatter,
+                    target=target,
+                )
+            elif operation == "append":
+                result = edit.append_to_artefact(
+                    _vault_root, _router, path, body,
+                    frontmatter_changes=frontmatter,
+                    target=target,
+                )
+            elif operation == "prepend":
+                result = edit.prepend_to_artefact(
+                    _vault_root, _router, path, body,
+                    frontmatter_changes=frontmatter,
+                    target=target,
+                )
+            elif operation == "delete_section":
+                result = edit.delete_section_artefact(
+                    _vault_root, _router, path,
+                    target=target,
+                    frontmatter_changes=frontmatter,
+                )
+            else:
+                return _fmt_error(f"Unknown operation '{operation}'. Valid: edit, append, prepend, delete_section")
+            moved = result["path"] != result["resolved_path"]
+            if moved:
+                _mark_index_dirty()  # file moved, full rebuild needed
+            else:
+                _mark_index_pending(result["path"])
+            if cleanup_path:
+                try:
+                    os.remove(cleanup_path)
+                except OSError:
+                    pass
+            past = edit.OPERATION_LABELS[result["operation"]]
+            msg = f"**{past}:** {result['path']}"
+            if moved:
+                msg += f"\n**Moved:** {result['resolved_path']} → {result['path']} (terminal status)"
+            if target:
+                msg += f" (target: {target})"
+                prev_h, next_h = _surrounding_headings(_vault_root, result["path"], target)
+                if prev_h or next_h:
+                    prev_label = prev_h or "(start)"
+                    next_label = next_h or "(end)"
+                    msg += f"\n**Context:** prev={prev_label} | next={next_label}"
+            return msg
+        except (ValueError, FileNotFoundError) as e:
+            return _fmt_error(str(e))
+        except Exception as e:
+            if _logger:
+                _logger.error("brain_edit: %s", e, exc_info=True)
+            return _fmt_error(f"Unexpected error: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -1242,228 +1336,230 @@ def brain_action(
     """
     global _router, _index, _workspace_registry
 
-    try:
-        _check_and_reload()
+    with _trace_tool("brain_action", action=action, params=params):
+        try:
+            _check_and_reload()
 
-        denied = _enforce_profile("brain_action")
-        if denied:
-            return denied
+            denied = _enforce_profile("brain_action")
+            if denied:
+                return denied
 
-        if _vault_root is None:
-            return _fmt_error("server not initialized")
+            if _vault_root is None:
+                return _fmt_error("server not initialized")
 
-        if action == "compile":
-            try:
-                _router = _compile_and_save(_vault_root)
-                art_count = len(_router["artefacts"])
-                configured = sum(1 for a in _router["artefacts"] if a["configured"])
-                trigger_count = len(_router["triggers"])
-                skill_count = len(_router["skills"])
-                memory_count = len(_router.get("memories", []))
-                living_count = sum(1 for a in _router["artefacts"] if a["classification"] == "living")
-                temporal_count = sum(1 for a in _router["artefacts"] if a["classification"] == "temporal")
-                return (f"**Compiled:** {art_count} artefacts ({configured} configured), "
-                        f"{trigger_count} triggers, {skill_count} skills, "
-                        f"{memory_count} memories, "
-                        f"{living_count + temporal_count} colours")
-            except (ValueError, OSError) as e:
-                return _fmt_error(str(e))
-
-        elif action == "build_index":
-            try:
-                _index = _build_index_and_save(_vault_root)
-                doc_count = _index["meta"]["document_count"]
-                term_count = len(_index["corpus_stats"]["df"])
-                return f"**Built index:** {doc_count} documents, {term_count} unique terms"
-            except (ValueError, OSError) as e:
-                return _fmt_error(str(e))
-
-        elif action == "rename":
-            if not params or "source" not in params or "dest" not in params:
-                return _fmt_error("rename requires params: {source, dest} (relative paths)")
-
-            source = params["source"]
-            dest = params["dest"]
-
-            # CLI-first: Obsidian auto-updates wikilinks
-            _refresh_cli_available()
-            if _cli_available and _vault_name:
-                # Ensure destination directory exists (Obsidian CLI won't create it)
-                abs_dest = os.path.join(_vault_root, dest)
-                os.makedirs(os.path.dirname(abs_dest), exist_ok=True)
-
-                result = obsidian_cli.move(_vault_name, source, dest)
-                if result is True:  # False (CLI error) and None (connection) fall through
-                    _mark_index_dirty()
-                    return f"**Renamed** (obsidian_cli): {source} → {dest} (wikilinks auto-updated)"
-
-            # Fallback: grep-and-replace wikilinks + os.rename
-            try:
-                links_updated = rename.rename_and_update_links(_vault_root, source, dest)
-                _mark_index_dirty()
-                return f"**Renamed** (grep_replace): {source} → {dest}, {links_updated} links updated"
-            except FileNotFoundError as e:
-                return _fmt_error(str(e))
-
-        elif action == "delete":
-            if not params or "path" not in params:
-                return _fmt_error("delete requires params: {path} (relative path)")
-            try:
-                links_replaced = rename.delete_and_clean_links(_vault_root, params["path"])
-                _mark_index_dirty()
-                return f"**Deleted:** {params['path']}, {links_replaced} links replaced"
-            except FileNotFoundError as e:
-                return _fmt_error(str(e))
-
-        elif action == "convert":
-            if not params or "path" not in params or "target_type" not in params:
-                return _fmt_error("convert requires params: {path, target_type}")
-            try:
-                result = edit.convert_artefact(
-                    _vault_root, _router, params["path"], params["target_type"],
-                    parent=params.get("parent"),
-                )
-                _mark_index_dirty()
-                return json.dumps({
-                    "status": "ok",
-                    "old_path": result["old_path"],
-                    "new_path": result["new_path"],
-                    "type": result["type"],
-                    "links_updated": result["links_updated"],
-                }, indent=2)
-            except (ValueError, FileNotFoundError) as e:
-                return _fmt_error(str(e))
-
-        elif action == "shape-presentation":
-            if not params or "source" not in params or "slug" not in params:
-                return _fmt_error("shape-presentation requires params: {source, slug}")
-            try:
-                result = shape_presentation.shape(_vault_root, params)
-                if isinstance(result, dict) and "error" in result:
-                    return _fmt_error(result["error"])
-                return json.dumps(result, indent=2)
-            except (ValueError, FileNotFoundError) as e:
-                return _fmt_error(str(e))
-
-        elif action == "start-shaping":
-            try:
-                result = start_shaping.start_shaping(_vault_root, _router, params)
-                if isinstance(result, dict) and "error" in result:
-                    return _fmt_error(result["error"])
-                _mark_index_pending(result["transcript_path"], type_hint=result.get("type"))
-                return json.dumps(result, indent=2)
-            except (ValueError, FileNotFoundError) as e:
-                return _fmt_error(str(e))
-
-        elif action == "register_workspace":
-            if not params or "slug" not in params or "path" not in params:
-                return _fmt_error("register_workspace requires params: {slug, path}")
-            try:
-                workspace_registry.register_workspace(
-                    _vault_root, params["slug"], params["path"],
-                )
-                _workspace_registry = workspace_registry.load_registry(_vault_root)
-                return f"**Workspace registered:** {params['slug']} → {params['path']}"
-            except ValueError as e:
-                return _fmt_error(str(e))
-
-        elif action == "unregister_workspace":
-            if not params or "slug" not in params:
-                return _fmt_error("unregister_workspace requires params: {slug}")
-            try:
-                workspace_registry.unregister_workspace(
-                    _vault_root, params["slug"],
-                )
-                _workspace_registry = workspace_registry.load_registry(_vault_root)
-                return f"**Workspace unregistered:** {params['slug']}"
-            except ValueError as e:
-                return _fmt_error(str(e))
-
-        elif action == "sync_definitions":
-            try:
-                p = params or {}
-                result = sync_definitions.sync_definitions(
-                    _vault_root,
-                    dry_run=p.get("dry_run", False),
-                    force=p.get("force", False),
-                    types=p.get("types", None),
-                )
-                if result["status"] == "ok" and not p.get("dry_run") and result["updated"]:
+            if action == "compile":
+                try:
                     _router = _compile_and_save(_vault_root)
-                    result["post_sync"] = "Recompiled router."
-                return json.dumps(result, indent=2)
-            except (OSError, json.JSONDecodeError) as e:
-                return _fmt_error(str(e))
+                    art_count = len(_router["artefacts"])
+                    configured = sum(1 for a in _router["artefacts"] if a["configured"])
+                    trigger_count = len(_router["triggers"])
+                    skill_count = len(_router["skills"])
+                    memory_count = len(_router.get("memories", []))
+                    living_count = sum(1 for a in _router["artefacts"] if a["classification"] == "living")
+                    temporal_count = sum(1 for a in _router["artefacts"] if a["classification"] == "temporal")
+                    return (f"**Compiled:** {art_count} artefacts ({configured} configured), "
+                            f"{trigger_count} triggers, {skill_count} skills, "
+                            f"{memory_count} memories, "
+                            f"{living_count + temporal_count} colours")
+                except (ValueError, OSError) as e:
+                    return _fmt_error(str(e))
 
-        elif action == "migrate_naming":
-            if _router is None:
-                return _fmt_error("router not initialized")
-            try:
-                dry_run = (params or {}).get("dry_run", False)
-                result = migrate_naming.migrate_vault(_vault_root, router=_router, dry_run=dry_run)
-                if isinstance(result, dict) and "error" in result:
-                    return _fmt_error(result["error"])
-                if not dry_run and result.get("renamed", 0) > 0:
-                    new_router = _compile_and_save(_vault_root)
-                    new_index = _build_index_and_save(_vault_root)
-                    _router = new_router
-                    _index = new_index
-                return json.dumps(result, indent=2)
-            except (ValueError, FileNotFoundError, OSError) as e:
-                return _fmt_error(str(e))
+            elif action == "build_index":
+                try:
+                    _index = _build_index_and_save(_vault_root)
+                    doc_count = _index["meta"]["document_count"]
+                    term_count = len(_index["corpus_stats"]["df"])
+                    return f"**Built index:** {doc_count} documents, {term_count} unique terms"
+                except (ValueError, OSError) as e:
+                    return _fmt_error(str(e))
 
-        elif action == "fix-links":
-            if _router is None:
-                return _fmt_error("router not initialized")
-            try:
-                do_fix = (params or {}).get("fix", False)
-                result = fix_links.scan_and_resolve(_vault_root, router=_router)
-                if do_fix and result["fixed"]:
-                    total = fix_links.apply_fixes(_vault_root, result["fixed"])
-                    result["substitutions"] = total
+            elif action == "rename":
+                if not params or "source" not in params or "dest" not in params:
+                    return _fmt_error("rename requires params: {source, dest} (relative paths)")
+
+                source = params["source"]
+                dest = params["dest"]
+
+                # CLI-first: Obsidian auto-updates wikilinks
+                _refresh_cli_available()
+                if _cli_available and _vault_name:
+                    # Ensure destination directory exists (Obsidian CLI won't create it)
+                    abs_dest = os.path.join(_vault_root, dest)
+                    os.makedirs(os.path.dirname(abs_dest), exist_ok=True)
+
+                    result = obsidian_cli.move(_vault_name, source, dest)
+                    if result is True:  # False (CLI error) and None (connection) fall through
+                        _mark_index_dirty()
+                        return f"**Renamed** (obsidian_cli): {source} → {dest} (wikilinks auto-updated)"
+
+                # Fallback: grep-and-replace wikilinks + os.rename
+                try:
+                    links_updated = rename.rename_and_update_links(_vault_root, source, dest)
                     _mark_index_dirty()
-                result["mode"] = "fix" if do_fix else "dry_run"
-                return json.dumps(result, indent=2)
-            except (ValueError, OSError) as e:
-                return _fmt_error(str(e))
+                    return f"**Renamed** (grep_replace): {source} → {dest}, {links_updated} links updated"
+                except FileNotFoundError as e:
+                    return _fmt_error(str(e))
 
-        elif action == "archive":
-            if not params or "path" not in params:
-                return _fmt_error("archive requires params: {path}")
-            if _router is None:
-                return _fmt_error("router not initialized")
-            try:
-                result = edit.archive_artefact(_vault_root, _router, params["path"])
-                _mark_index_dirty()
-                return (f"**Archived:** {result['old_path']} → {result['new_path']}"
-                        f" ({result['links_updated']} links updated)")
-            except (ValueError, FileNotFoundError, OSError) as e:
-                return _fmt_error(str(e))
+            elif action == "delete":
+                if not params or "path" not in params:
+                    return _fmt_error("delete requires params: {path} (relative path)")
+                try:
+                    links_replaced = rename.delete_and_clean_links(_vault_root, params["path"])
+                    _mark_index_dirty()
+                    return f"**Deleted:** {params['path']}, {links_replaced} links replaced"
+                except FileNotFoundError as e:
+                    return _fmt_error(str(e))
 
-        elif action == "unarchive":
-            if not params or "path" not in params:
-                return _fmt_error("unarchive requires params: {path}")
-            if _router is None:
-                return _fmt_error("router not initialized")
-            try:
-                result = edit.unarchive_artefact(_vault_root, _router, params["path"])
-                _mark_index_dirty()
-                return (f"**Unarchived:** {result['old_path']} → {result['new_path']}"
-                        f" ({result['links_updated']} links updated)")
-            except (ValueError, FileNotFoundError, OSError) as e:
-                return _fmt_error(str(e))
+            elif action == "convert":
+                if not params or "path" not in params or "target_type" not in params:
+                    return _fmt_error("convert requires params: {path, target_type}")
+                try:
+                    result = edit.convert_artefact(
+                        _vault_root, _router, params["path"], params["target_type"],
+                        parent=params.get("parent"),
+                    )
+                    _mark_index_dirty()
+                    return json.dumps({
+                        "status": "ok",
+                        "old_path": result["old_path"],
+                        "new_path": result["new_path"],
+                        "type": result["type"],
+                        "links_updated": result["links_updated"],
+                    }, indent=2)
+                except (ValueError, FileNotFoundError) as e:
+                    return _fmt_error(str(e))
 
-        else:
-            valid = ["compile", "build_index", "rename", "delete", "convert",
-                     "shape-presentation", "start-shaping",
-                     "migrate_naming", "register_workspace",
-                     "unregister_workspace", "fix-links", "sync_definitions",
-                     "archive", "unarchive"]
-            return _fmt_error(f"Unknown action '{action}'. Valid: {', '.join(valid)}")
+            elif action == "shape-presentation":
+                if not params or "source" not in params or "slug" not in params:
+                    return _fmt_error("shape-presentation requires params: {source, slug}")
+                try:
+                    result = shape_presentation.shape(_vault_root, params)
+                    if isinstance(result, dict) and "error" in result:
+                        return _fmt_error(result["error"])
+                    return json.dumps(result, indent=2)
+                except (ValueError, FileNotFoundError) as e:
+                    return _fmt_error(str(e))
 
-    except Exception as e:
-        print(traceback.format_exc(), file=sys.stderr)
-        return _fmt_error(f"Unexpected error: {e}")
+            elif action == "start-shaping":
+                try:
+                    result = start_shaping.start_shaping(_vault_root, _router, params)
+                    if isinstance(result, dict) and "error" in result:
+                        return _fmt_error(result["error"])
+                    _mark_index_pending(result["transcript_path"], type_hint=result.get("type"))
+                    return json.dumps(result, indent=2)
+                except (ValueError, FileNotFoundError) as e:
+                    return _fmt_error(str(e))
+
+            elif action == "register_workspace":
+                if not params or "slug" not in params or "path" not in params:
+                    return _fmt_error("register_workspace requires params: {slug, path}")
+                try:
+                    workspace_registry.register_workspace(
+                        _vault_root, params["slug"], params["path"],
+                    )
+                    _workspace_registry = workspace_registry.load_registry(_vault_root)
+                    return f"**Workspace registered:** {params['slug']} → {params['path']}"
+                except ValueError as e:
+                    return _fmt_error(str(e))
+
+            elif action == "unregister_workspace":
+                if not params or "slug" not in params:
+                    return _fmt_error("unregister_workspace requires params: {slug}")
+                try:
+                    workspace_registry.unregister_workspace(
+                        _vault_root, params["slug"],
+                    )
+                    _workspace_registry = workspace_registry.load_registry(_vault_root)
+                    return f"**Workspace unregistered:** {params['slug']}"
+                except ValueError as e:
+                    return _fmt_error(str(e))
+
+            elif action == "sync_definitions":
+                try:
+                    p = params or {}
+                    result = sync_definitions.sync_definitions(
+                        _vault_root,
+                        dry_run=p.get("dry_run", False),
+                        force=p.get("force", False),
+                        types=p.get("types", None),
+                    )
+                    if result["status"] == "ok" and not p.get("dry_run") and result["updated"]:
+                        _router = _compile_and_save(_vault_root)
+                        result["post_sync"] = "Recompiled router."
+                    return json.dumps(result, indent=2)
+                except (OSError, json.JSONDecodeError) as e:
+                    return _fmt_error(str(e))
+
+            elif action == "migrate_naming":
+                if _router is None:
+                    return _fmt_error("router not initialized")
+                try:
+                    dry_run = (params or {}).get("dry_run", False)
+                    result = migrate_naming.migrate_vault(_vault_root, router=_router, dry_run=dry_run)
+                    if isinstance(result, dict) and "error" in result:
+                        return _fmt_error(result["error"])
+                    if not dry_run and result.get("renamed", 0) > 0:
+                        new_router = _compile_and_save(_vault_root)
+                        new_index = _build_index_and_save(_vault_root)
+                        _router = new_router
+                        _index = new_index
+                    return json.dumps(result, indent=2)
+                except (ValueError, FileNotFoundError, OSError) as e:
+                    return _fmt_error(str(e))
+
+            elif action == "fix-links":
+                if _router is None:
+                    return _fmt_error("router not initialized")
+                try:
+                    do_fix = (params or {}).get("fix", False)
+                    result = fix_links.scan_and_resolve(_vault_root, router=_router)
+                    if do_fix and result["fixed"]:
+                        total = fix_links.apply_fixes(_vault_root, result["fixed"])
+                        result["substitutions"] = total
+                        _mark_index_dirty()
+                    result["mode"] = "fix" if do_fix else "dry_run"
+                    return json.dumps(result, indent=2)
+                except (ValueError, OSError) as e:
+                    return _fmt_error(str(e))
+
+            elif action == "archive":
+                if not params or "path" not in params:
+                    return _fmt_error("archive requires params: {path}")
+                if _router is None:
+                    return _fmt_error("router not initialized")
+                try:
+                    result = edit.archive_artefact(_vault_root, _router, params["path"])
+                    _mark_index_dirty()
+                    return (f"**Archived:** {result['old_path']} → {result['new_path']}"
+                            f" ({result['links_updated']} links updated)")
+                except (ValueError, FileNotFoundError, OSError) as e:
+                    return _fmt_error(str(e))
+
+            elif action == "unarchive":
+                if not params or "path" not in params:
+                    return _fmt_error("unarchive requires params: {path}")
+                if _router is None:
+                    return _fmt_error("router not initialized")
+                try:
+                    result = edit.unarchive_artefact(_vault_root, _router, params["path"])
+                    _mark_index_dirty()
+                    return (f"**Unarchived:** {result['old_path']} → {result['new_path']}"
+                            f" ({result['links_updated']} links updated)")
+                except (ValueError, FileNotFoundError, OSError) as e:
+                    return _fmt_error(str(e))
+
+            else:
+                valid = ["compile", "build_index", "rename", "delete", "convert",
+                         "shape-presentation", "start-shaping",
+                         "migrate_naming", "register_workspace",
+                         "unregister_workspace", "fix-links", "sync_definitions",
+                         "archive", "unarchive"]
+                return _fmt_error(f"Unknown action '{action}'. Valid: {', '.join(valid)}")
+
+        except Exception as e:
+            if _logger:
+                _logger.error("brain_action: %s", e, exc_info=True)
+            return _fmt_error(f"Unexpected error: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -1557,77 +1653,79 @@ def brain_process(
     """
     global _index
 
-    try:
-        _check_and_reload()
-        _ensure_router_fresh()
-        _ensure_index_fresh()
-        _ensure_embeddings_fresh()
+    with _trace_tool("brain_process", operation=operation):
+        try:
+            _check_and_reload()
+            _ensure_router_fresh()
+            _ensure_index_fresh()
+            _ensure_embeddings_fresh()
 
-        denied = _enforce_profile("brain_process")
-        if denied:
-            return denied
+            denied = _enforce_profile("brain_process")
+            if denied:
+                return denied
 
-        if _router is None or _vault_root is None:
-            return _fmt_error("server not initialized")
+            if _router is None or _vault_root is None:
+                return _fmt_error("server not initialized")
 
-        if operation == "classify":
-            try:
-                result = process.classify_content(
-                    _router, _vault_root, content,
-                    index=_index,
-                    type_embeddings=_type_embeddings,
-                    type_embeddings_meta=_embeddings_meta,
-                    mode=mode,
+            if operation == "classify":
+                try:
+                    result = process.classify_content(
+                        _router, _vault_root, content,
+                        index=_index,
+                        type_embeddings=_type_embeddings,
+                        type_embeddings_meta=_embeddings_meta,
+                        mode=mode,
+                    )
+                    return _fmt_classify(result)
+                except OSError as e:
+                    return _fmt_error(str(e))
+
+            elif operation == "resolve":
+                if not type or not title:
+                    return _fmt_error("resolve requires type and title parameters")
+                try:
+                    result = process.resolve_content(
+                        _router, _vault_root, type, title, content=content,
+                        index=_index,
+                        doc_embeddings=_doc_embeddings,
+                        doc_embeddings_meta=_embeddings_meta,
+                    )
+                    if result.get("action") == "error":
+                        return _fmt_error(result["reasoning"])
+                    return _fmt_resolve(result)
+                except (ValueError, OSError) as e:
+                    return _fmt_error(str(e))
+
+            elif operation == "ingest":
+                try:
+                    result = process.ingest_content(
+                        _router, _vault_root, content,
+                        title=title, type_hint=type,
+                        index=_index,
+                        type_embeddings=_type_embeddings,
+                        type_embeddings_meta=_embeddings_meta,
+                        doc_embeddings=_doc_embeddings,
+                        doc_embeddings_meta=_embeddings_meta,
+                    )
+                    formatted = _fmt_ingest(result)
+                    if formatted is None:
+                        return _fmt_error(result.get("message", "Unknown error"))
+                    # Queue incremental index update after successful mutation
+                    if result.get("action_taken") in ("created", "updated") and result.get("path"):
+                        _mark_index_pending(result["path"], type_hint=result.get("type"))
+                        _ensure_index_fresh()
+                    return formatted
+                except (ValueError, FileNotFoundError, OSError) as e:
+                    return _fmt_error(str(e))
+
+            else:
+                return _fmt_error(
+                    f"Unknown operation '{operation}'. Valid: classify, resolve, ingest"
                 )
-                return _fmt_classify(result)
-            except OSError as e:
-                return _fmt_error(str(e))
-
-        elif operation == "resolve":
-            if not type or not title:
-                return _fmt_error("resolve requires type and title parameters")
-            try:
-                result = process.resolve_content(
-                    _router, _vault_root, type, title, content=content,
-                    index=_index,
-                    doc_embeddings=_doc_embeddings,
-                    doc_embeddings_meta=_embeddings_meta,
-                )
-                if result.get("action") == "error":
-                    return _fmt_error(result["reasoning"])
-                return _fmt_resolve(result)
-            except (ValueError, OSError) as e:
-                return _fmt_error(str(e))
-
-        elif operation == "ingest":
-            try:
-                result = process.ingest_content(
-                    _router, _vault_root, content,
-                    title=title, type_hint=type,
-                    index=_index,
-                    type_embeddings=_type_embeddings,
-                    type_embeddings_meta=_embeddings_meta,
-                    doc_embeddings=_doc_embeddings,
-                    doc_embeddings_meta=_embeddings_meta,
-                )
-                formatted = _fmt_ingest(result)
-                if formatted is None:
-                    return _fmt_error(result.get("message", "Unknown error"))
-                # Queue incremental index update after successful mutation
-                if result.get("action_taken") in ("created", "updated") and result.get("path"):
-                    _mark_index_pending(result["path"], type_hint=result.get("type"))
-                    _ensure_index_fresh()
-                return formatted
-            except (ValueError, FileNotFoundError, OSError) as e:
-                return _fmt_error(str(e))
-
-        else:
-            return _fmt_error(
-                f"Unknown operation '{operation}'. Valid: classify, resolve, ingest"
-            )
-    except Exception as e:
-        print(traceback.format_exc(), file=sys.stderr)
-        return _fmt_error(f"Unexpected error: {e}")
+        except Exception as e:
+            if _logger:
+                _logger.error("brain_process: %s", e, exc_info=True)
+            return _fmt_error(f"Unexpected error: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -1635,8 +1733,10 @@ def brain_process(
 # ---------------------------------------------------------------------------
 
 def _shutdown(reason: str) -> None:
-    """Log a clean shutdown message to stderr and exit."""
-    print(f"brain-core shutdown: {reason}", file=sys.stderr)
+    """Log a clean shutdown message and exit."""
+    if _logger:
+        _logger.info("shutdown: %s", reason)
+    _flush_log()
     sys.exit(0)
 
 
@@ -1653,14 +1753,22 @@ def main():
     try:
         startup()
     except Exception as e:
-        print(f"brain-core fatal startup error: {e}", file=sys.stderr)
+        if _logger:
+            _logger.error("fatal startup error: %s", e, exc_info=True)
+            _flush_log()
+        else:
+            print(f"brain-core fatal startup error: {e}", file=sys.stderr)
         sys.exit(1)
 
     try:
         mcp.run(transport="stdio")
     except Exception as e:
-        print(f"brain-core unexpected error: {e}", file=sys.stderr)
-        print(traceback.format_exc(), file=sys.stderr)
+        if _logger:
+            _logger.error("unexpected error: %s", e, exc_info=True)
+            _flush_log()
+        else:
+            print(f"brain-core unexpected error: {e}", file=sys.stderr)
+            print(traceback.format_exc(), file=sys.stderr)
         sys.exit(1)
 
     _shutdown("stdin closed")
