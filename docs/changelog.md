@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version.
 
+## v0.21.2 — 2026-04-06
+
+- **Fix:** `resolve_body_file` now accepts `/tmp` as a valid temp root on macOS, where `/tmp` symlinks to `/private/tmp` and differs from Python's `tempfile.gettempdir()` (`/var/folders/.../T`).
+
 ## v0.21.1 — 2026-04-06
 
 - **Feature:** `brain_edit(operation="delete_section")` — deletes a section including its heading from an artefact. Requires `target` parameter. Uses `find_section(..., include_heading=True)` to splice out the heading and its content with clean blank-line handling.

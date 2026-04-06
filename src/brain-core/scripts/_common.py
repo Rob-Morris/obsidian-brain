@@ -170,12 +170,16 @@ def resolve_body_file(body, body_file, *, vault_root=None):
 
     in_tmp = False
     if vault_root is not None:
-        tmp_root = os.path.realpath(tempfile.gettempdir())
-        try:
-            resolve_and_check_bounds(abs_path, tmp_root)
-            in_tmp = True
-        except ValueError:
-            # Not in tmp — must be inside vault
+        tmp_roots = {os.path.realpath(tempfile.gettempdir()),
+                     os.path.realpath("/tmp")}
+        for root in tmp_roots:
+            try:
+                resolve_and_check_bounds(abs_path, root)
+                in_tmp = True
+                break
+            except ValueError:
+                pass
+        if not in_tmp:
             resolve_and_check_bounds(abs_path, vault_root)
 
     try:
