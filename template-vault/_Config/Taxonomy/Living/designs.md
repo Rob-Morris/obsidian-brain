@@ -19,6 +19,7 @@ When working out the concrete shape of something — structure, mechanics, trade
 | `ready` | Design decisions closed — fully shaped and agreed, but implementation not yet started. |
 | `active` | Implementation is in progress. |
 | `implemented` | The design has been fully built. |
+| `superseded` | The design was valid but replaced by a different approach. |
 | `parked` | Set aside — not abandoned, but not being pursued. |
 | `rejected` | Evaluated and declined. Kept as a record. |
 
@@ -32,12 +33,17 @@ When a design at `proposed` status is ready for a decision:
 
 ## Terminal Status
 
-When a design reaches a terminal status (`implemented` or `rejected`), move it to the corresponding `+Status` folder:
+When a design reaches a terminal status (`implemented`, `superseded`, or `rejected`), move it to the corresponding `+Status` folder:
 
 - **Implemented:** set `status: implemented`, add a supersession callout, move to `Designs/+Implemented/`
   ```markdown
   > [!info] Implemented
   > This design has been implemented. See [[link|title]] for the current source of truth.
+  ```
+- **Superseded:** set `status: superseded`, add a supersession callout, move to `Designs/+Superseded/`
+  ```markdown
+  > [!info] Superseded
+  > This design was superseded by [[link|title]]. See that design for the current approach.
   ```
 - **Rejected:** set `status: rejected`, move to `Designs/+Rejected/`
 
@@ -82,7 +88,7 @@ Example: `Designs/pistols-at-dawn-discord-bot.md`
 type: living/design
 tags:
   - design
-status: shaping             # proposed | shaping | ready | active | implemented | parked | rejected
+status: shaping             # proposed | shaping | ready | active | implemented | superseded | parked | rejected
 ---
 ```
 

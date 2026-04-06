@@ -782,7 +782,7 @@ Only types with a defined lifecycle have status. Current types with status:
 | Type | Status values |
 |---|---|
 | Bug Logs | `open`, `resolved` |
-| Designs | `proposed`, `shaping`, `ready`, `active`, `implemented`, `parked`, `rejected` |
+| Designs | `proposed`, `shaping`, `ready`, `active`, `implemented`, `superseded`, `parked`, `rejected` |
 | Documentation | `new`, `shaping`, `ready`, `active`, `deprecated` |
 | Ideas | `new`, `shaping`, `ready`, `adopted`, `parked` |
 | Idea Logs | `open`, `adopted`, `parked` |

@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.22.3 — 2026-04-06
+
+**Superseded design status.** Adds `superseded` as a terminal status for designs that were valid but replaced by a different approach — distinct from `rejected` (declined) and `implemented` (fully built). Includes `+Superseded/` folder convention and callout template.
+
 ## v0.22.2 — 2026-04-06
 
 **Resource-scoped search.** `brain_search` gains a `resource` parameter (default `"artefact"`) for searching non-artefact collections. Supports `skill`, `trigger`, `style`, `memory`, and `plugin` resources via text matching on name + file content. Artefact search unchanged (CLI-first with BM25 fallback). New `search_resource()` function in `search_index.py`. Part of the Unified Resource Interface design (Phase 3).

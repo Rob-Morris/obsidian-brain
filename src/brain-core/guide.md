@@ -117,7 +117,7 @@ Why the split? Obsidian's backlinks and graph view work from body wikilinks. Sea
 
 Some types have a lifecycle. Status values are defined per type:
 
-- **Designs:** `proposed` → `shaping` → `ready` → `active` → `implemented` | `parked` | `rejected`
+- **Designs:** `proposed` → `shaping` → `ready` → `active` → `implemented` | `superseded` | `parked` | `rejected`
 - **Documentation:** `new` → `shaping` → `ready` → `active` → `deprecated`
 - **Ideas:** `new` → `shaping` → `ready` → `adopted` | `parked`
 - **Idea Logs:** `open` → `adopted` | `parked`
