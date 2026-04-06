@@ -2611,3 +2611,204 @@ class TestBrainList:
             # First column is a date string YYYY-MM-DD or empty
             assert len(parts[0]) == 0 or (len(parts[0]) == 10 and parts[0][4] == "-")
         assert server._INDEX_CHECK_TTL > server._ROUTER_CHECK_TTL
+
+
+# ---------------------------------------------------------------------------
+# Logging tests (Step 0)
+# ---------------------------------------------------------------------------
+
+import logging
+from logging.handlers import RotatingFileHandler
+
+
+def _file_handler(logger):
+    """Extract the single RotatingFileHandler from a logger."""
+    return next(h for h in logger.handlers if isinstance(h, RotatingFileHandler))
+
+
+@pytest.fixture(autouse=True)
+def _clean_logger():
+    """Clear handlers from the brain-core logger between tests."""
+    yield
+    logger = logging.getLogger("brain-core")
+    logger.handlers.clear()
+    logger.setLevel(logging.WARNING)  # reset to default
+
+
+class TestSetupLogging:
+    """0a. _setup_logging unit tests."""
+
+    def test_creates_log_directory(self, tmp_path):
+        """Creates .brain/local/ directory if missing."""
+        logger = server._setup_logging(str(tmp_path))
+        log_dir = tmp_path / ".brain" / "local"
+        assert log_dir.is_dir()
+
+    def test_returns_named_logger(self, tmp_path):
+        """Returns a logging.Logger named 'brain-core'."""
+        logger = server._setup_logging(str(tmp_path))
+        assert isinstance(logger, logging.Logger)
+        assert logger.name == "brain-core"
+
+    def test_file_handler_exists(self, tmp_path):
+        """Logger has exactly one RotatingFileHandler at the correct path."""
+        logger = server._setup_logging(str(tmp_path))
+        fh = _file_handler(logger)
+        expected = str(tmp_path / ".brain" / "local" / "mcp-server.log")
+        assert fh.baseFilename == expected
+
+    def test_file_handler_formatter(self, tmp_path):
+        """Handler uses expected format string."""
+        logger = server._setup_logging(str(tmp_path))
+        fh = _file_handler(logger)
+        assert "%(asctime)s" in fh.formatter._fmt
+        assert "[%(levelname)s]" in fh.formatter._fmt
+        assert "%(message)s" in fh.formatter._fmt
+
+    def test_file_handler_rotation(self, tmp_path):
+        """Handler maxBytes is 2MB, backupCount is 1."""
+        logger = server._setup_logging(str(tmp_path))
+        fh = _file_handler(logger)
+        assert fh.maxBytes == 2 * 1024 * 1024
+        assert fh.backupCount == 1
+
+    def test_logger_level_is_debug(self, tmp_path):
+        """Logger level is DEBUG (handlers filter, not logger)."""
+        logger = server._setup_logging(str(tmp_path))
+        assert logger.level == logging.DEBUG
+
+    def test_writes_to_log_file(self, tmp_path):
+        """Writes a test message and confirms it appears in the log file."""
+        logger = server._setup_logging(str(tmp_path))
+        logger.info("test message 12345")
+        # Flush handlers
+        for h in logger.handlers:
+            h.flush()
+        log_path = tmp_path / ".brain" / "local" / "mcp-server.log"
+        content = log_path.read_text()
+        assert "test message 12345" in content
+
+
+class TestLogLevelOverride:
+    """0b. BRAIN_LOG_LEVEL override."""
+
+    def test_default_file_level_is_info(self, tmp_path):
+        """Default file handler level is INFO."""
+        logger = server._setup_logging(str(tmp_path))
+        assert _file_handler(logger).level == logging.INFO
+
+    def test_debug_level_override(self, tmp_path, monkeypatch):
+        """With BRAIN_LOG_LEVEL=DEBUG, file handler level is DEBUG."""
+        monkeypatch.setenv("BRAIN_LOG_LEVEL", "DEBUG")
+        logger = server._setup_logging(str(tmp_path))
+        assert _file_handler(logger).level == logging.DEBUG
+
+    def test_invalid_level_falls_back_to_info(self, tmp_path, monkeypatch):
+        """Invalid BRAIN_LOG_LEVEL value falls back to INFO."""
+        monkeypatch.setenv("BRAIN_LOG_LEVEL", "BOGUS")
+        logger = server._setup_logging(str(tmp_path))
+        assert _file_handler(logger).level == logging.INFO
+
+
+class TestStderrHandler:
+    """0c. Stderr handler."""
+
+    def test_stderr_handler_exists_at_warn(self, tmp_path):
+        """A StreamHandler to stderr exists at WARN level."""
+        logger = server._setup_logging(str(tmp_path))
+        stream_handlers = [h for h in logger.handlers if isinstance(h, logging.StreamHandler)
+                          and not isinstance(h, RotatingFileHandler)]
+        assert len(stream_handlers) == 1
+        assert stream_handlers[0].level == logging.WARNING
+
+    def test_stderr_does_not_get_info(self, tmp_path, capsys):
+        """Stderr handler does NOT write INFO messages."""
+        logger = server._setup_logging(str(tmp_path))
+        logger.info("should not appear on stderr")
+        for h in logger.handlers:
+            h.flush()
+        captured = capsys.readouterr()
+        assert "should not appear on stderr" not in captured.err
+
+
+class TestStartupLogging:
+    """0d. Startup logging (integration with vault fixture)."""
+
+    def test_log_file_exists_after_startup(self, vault):
+        """After startup(), the log file exists."""
+        server.startup(vault_root=str(vault))
+        log_path = vault / ".brain" / "local" / "mcp-server.log"
+        assert log_path.is_file()
+
+    def test_startup_messages_logged(self, vault):
+        """Log file contains startup begin and startup complete."""
+        server.startup(vault_root=str(vault))
+        log_path = vault / ".brain" / "local" / "mcp-server.log"
+        content = log_path.read_text()
+        assert "startup begin" in content
+        assert "startup complete" in content
+
+    def test_router_compile_logged(self, vault):
+        """Stale router compile is logged with timing."""
+        server.startup(vault_root=str(vault))
+        log_path = vault / ".brain" / "local" / "mcp-server.log"
+        content = log_path.read_text()
+        # First startup always compiles (no cached router)
+        assert "router compile" in content
+
+
+class TestToolCallTracing:
+    """0e. Tool call tracing."""
+
+    def test_tool_call_logged(self, initialized):
+        """Call a tool and verify log file contains tool name and duration."""
+        server.brain_read(resource="type")
+        log_path = initialized / ".brain" / "local" / "mcp-server.log"
+        content = log_path.read_text()
+        assert "tool call: brain_read" in content
+        assert "tool done: brain_read" in content
+
+    def test_debug_args_logged(self, vault, monkeypatch):
+        """With BRAIN_LOG_LEVEL=DEBUG, log file also contains tool arguments."""
+        monkeypatch.setenv("BRAIN_LOG_LEVEL", "DEBUG")
+        server.startup(vault_root=str(vault))
+        server.brain_read(resource="type")
+        log_path = vault / ".brain" / "local" / "mcp-server.log"
+        content = log_path.read_text()
+        assert "tool args: brain_read" in content
+
+    def test_debug_args_not_logged_at_info(self, initialized):
+        """At default INFO level, tool arguments are NOT logged."""
+        server.brain_read(resource="type")
+        log_path = initialized / ".brain" / "local" / "mcp-server.log"
+        content = log_path.read_text()
+        assert "tool args:" not in content
+
+
+class TestShutdownLogging:
+    """0f. Shutdown logging."""
+
+    def test_shutdown_logs_message(self, vault):
+        """_shutdown() writes a shutdown message to the log."""
+        server.startup(vault_root=str(vault))
+        with pytest.raises(SystemExit):
+            server._shutdown("test reason")
+        log_path = vault / ".brain" / "local" / "mcp-server.log"
+        content = log_path.read_text()
+        assert "shutdown: test reason" in content
+
+
+class TestNoStdoutContamination:
+    """0g. No stdout contamination."""
+
+    def test_startup_no_stdout(self, vault, capsys):
+        """Capture stdout during startup, assert it is empty."""
+        server.startup(vault_root=str(vault))
+        captured = capsys.readouterr()
+        assert captured.out == ""
+
+    def test_tool_call_no_stdout(self, initialized, capsys):
+        """Capture stdout during a tool call, assert it is empty."""
+        server.brain_read(resource="type")
+        captured = capsys.readouterr()
+        assert captured.out == ""

@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.21.7 — 2026-04-06
+
+**MCP server logging.** The server now writes persistent logs to `.brain/local/mcp-server.log` using Python's `RotatingFileHandler` (2 MB max, 1 backup). Startup diagnostics (version, vault path, compile/index timings), tool call tracing (name + duration), and shutdown/crash information are logged at INFO level. Tool call arguments are logged at DEBUG level, opt-in via `BRAIN_LOG_LEVEL=DEBUG`. Replaces all `print()`-to-stderr diagnostics with structured logging. Stderr still receives WARN+ messages for MCP client visibility.
+
 ## v0.21.6 — 2026-04-06
 
 **Auto-set `statusdate` on status transitions.** `_merge_frontmatter` now sets `statusdate` (YYYY-MM-DD) whenever the `status` field actually changes value. Covers all edit operations. Explicit `statusdate` in `frontmatter_changes` takes precedence over the auto-set value.

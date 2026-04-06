@@ -1072,6 +1072,10 @@ If your vault runs the Brain MCP server (`.brain-core/mcp/server.py`), seven too
 - `resolve` — check if content should create a new artefact or update an existing one (requires `type` and `title`); returns create/update/ambiguous decision with candidate paths
 - `ingest` — full pipeline: classify → infer title → resolve → create/update. Optional `type`/`title` hints skip their respective steps
 
+### Server Logging
+
+The MCP server writes persistent logs to `.brain/local/mcp-server.log` (2 MB max, 1 backup). Startup diagnostics, tool call tracing, and errors are logged at INFO level. To include tool arguments in the log, set the environment variable `BRAIN_LOG_LEVEL=DEBUG`. The log file is local-only (gitignored).
+
 ### Scripts
 
 Available in `.brain-core/scripts/`. Scripts are the source of truth for all vault operations — the MCP server imports from them.

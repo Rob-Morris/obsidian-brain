@@ -1,20 +1,20 @@
-[1] Tests pass: done, exit code 0
-[2] Version bumped: done, 0.21.5 → 0.21.6
-[3] Changelog updated: done
+[1] Tests pass: done, all passed on merged result
+[2] Version bumped: done, 0.21.6 -> 0.21.7
+[3] Changelog updated: done, new entry at top
 [4] Docs updated: done
     [4a] Artefact type: skip, no type changes
     [4b] Template vault defaults: skip, no changes
-    [4c] Status/lifecycle values: skip, statusdate is a new auto-set field not a status value
+    [4c] Status/lifecycle values: skip, no changes
     [4d] Install/extension procedures: skip, no changes
     [4e] Colour system: skip, no changes
     [4f] System design/architecture: skip, no changes
     [4g] Day-to-day workflows: skip, no changes
-    [4h] Tooling: done, updated tooling.md brain_edit entry to mention statusdate
-    [4i] General pattern: skip, no changes to hub/provenance/archiving standards
-    [4j] Template vault: skip, no template structure changes
-    [4k] Artefact library metadata: skip, no taxonomy/template/schema changes
+    [4h] Tooling: done, updated docs/tooling.md, docs/user-reference.md, src/brain-core/guide.md
+    [4i] General pattern: skip, no changes
+    [4j] Template vault: skip, no structure changes
+    [4k] Artefact library metadata: skip, no artefact-library changes
 [5] Shared facts cross-checked: done
-    [5a] Type counts: skip, no type changes
+    [5a] Type counts: skip, no changes
     [5b] Template vault defaults list: skip, no changes
-    [5c] Status values: skip, no status value changes
+    [5c] Status values: skip, no changes
     [5d] Install step counts: skip, no changes
