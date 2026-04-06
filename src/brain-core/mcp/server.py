@@ -1145,28 +1145,34 @@ def brain_list(resource: Literal[
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def brain_create(type: str, title: str, body: str = "", body_file: str = "", frontmatter: dict | None = None, parent: str | None = None):
-    """Create a new vault artefact. Additive — creates a file, cannot destroy existing work.
+def brain_create(type: str = "", title: str = "", body: str = "", body_file: str = "", frontmatter: dict | None = None, parent: str | None = None, resource: str = "artefact", name: str = ""):
+    """Create a new vault resource. Additive — creates a file, cannot destroy existing work.
 
     For bodies over ~1 KB, prefer body_file over body to save tokens in the tool call.
 
     Parameters:
-      type       — artefact type key (e.g. "ideas") or full type (e.g. "living/ideas")
-      title      — human-readable title, used for filename generation
-      body       — markdown body content (optional, template body used if empty).
+      resource   — resource kind (default "artefact"). Creatable: artefact, skill,
+                   memory, style, template.
+      type       — artefact type key (e.g. "ideas"). Required when resource="artefact".
+      title      — human-readable title for artefacts. Required when resource="artefact".
+      name       — resource name for non-artefact resources (e.g. "my-skill").
+                   Required when resource is skill, memory, style, or template.
+                   For templates, name is the artefact type key (e.g. "wiki").
+      body       — markdown body content (optional for artefacts, required for others).
                    Mutually exclusive with body_file.
       body_file  — absolute path to a file containing the body content (optional).
                    Must be inside the vault or the system temp directory.
                    Temp files are deleted after reading; vault files are left in place.
                    Use for large content to keep MCP call displays compact.
                    Mutually exclusive with body.
-      frontmatter — optional frontmatter field overrides (e.g. {"status": "shaping"})
-      parent     — optional project name to group this artefact under (e.g. "Brain").
-                   Living types only; ignored for temporal types.
+      frontmatter — optional frontmatter field overrides (e.g. {"status": "shaping"}).
+                   For memories, use {"triggers": ["keyword1", "keyword2"]}.
+      parent     — optional project name to group artefacts under (e.g. "Brain").
+                   Living types only; ignored for temporal types and non-artefact resources.
 
-    Returns JSON: {path, type, title}
+    Returns: confirmation message with path.
     """
-    with _trace_tool("brain_create", type=type, title=title):
+    with _trace_tool("brain_create", resource=resource, type=type, title=title, name=name):
         try:
             _check_and_reload()
             _ensure_router_fresh()
@@ -1180,17 +1186,30 @@ def brain_create(type: str, title: str, body: str = "", body_file: str = "", fro
 
             body, cleanup_path = resolve_body_file(body, body_file, vault_root=_vault_root)
 
-            result = create.create_artefact(
-                _vault_root, _router, type, title,
-                body=body, frontmatter_overrides=frontmatter, parent=parent,
-            )
-            _mark_index_pending(result["path"], type_hint=result["type"])
+            if resource == "artefact":
+                if not type:
+                    return _fmt_error("type is required when resource='artefact'")
+                if not title:
+                    return _fmt_error("title is required when resource='artefact'")
+                result = create.create_artefact(
+                    _vault_root, _router, type, title,
+                    body=body, frontmatter_overrides=frontmatter, parent=parent,
+                )
+                _mark_index_pending(result["path"], type_hint=result["type"])
+                label = f"**Created** {result['type']}: {result['path']}"
+            else:
+                result = create.create_resource(
+                    _vault_root, _router, resource=resource,
+                    name=name, body=body, frontmatter=frontmatter,
+                )
+                label = f"**Created** {result['resource']}: {result['path']}"
+
             if cleanup_path:
                 try:
                     os.remove(cleanup_path)
                 except OSError:
                     pass
-            return f"**Created** {result['type']}: {result['path']}"
+            return label
         except (ValueError, FileNotFoundError) as e:
             return _fmt_error(str(e))
         except Exception as e:

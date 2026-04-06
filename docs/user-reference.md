@@ -1042,9 +1042,10 @@ If your vault runs the Brain MCP server (`.brain-core/mcp/server.py`), seven too
 - Use instead of `brain_search` when completeness matters (e.g. "all research from the last 2 weeks")
 
 **brain_create** (additive, safe to auto-approve)
-- Create a new vault artefact from type (key, full type, or singular form — e.g. `"ideas"`, `"living/ideas"`, or `"idea"`), title, and optional body/frontmatter overrides. Optional `parent` parameter places living artefacts in a project subfolder (e.g. `parent="Brain"` → `Ideas/Brain/`; ignored for temporal types)
-- Resolves template and naming pattern from the compiled router
-- Returns the created file's path, type, and title
+- Create a new vault resource. Default `resource="artefact"` for artefact creation from type, title, and optional body/frontmatter/parent. Also creates `skill`, `memory`, `style`, and `template` resources in `_Config/` (use `name` instead of `type`/`title`)
+- Artefacts: resolves template and naming pattern from the compiled router
+- Non-artefact resources: `skill` → `_Config/Skills/{name}/SKILL.md`, `memory` → `_Config/Memories/{name}.md`, `style` → `_Config/Styles/{name}.md`, `template` → `_Config/Templates/{classification}/{Type}.md`
+- Returns confirmation message with path
 
 **brain_edit** (single-file mutation)
 - `edit` — replace body content, optionally merge frontmatter changes (overwrites fields)

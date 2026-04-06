@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.22.4 — 2026-04-06
+
+**Resource-scoped creation.** `brain_create` gains a `resource` parameter (default `"artefact"`) for creating non-artefact resources in `_Config/`. Supports `skill` (creates `_Config/Skills/{name}/SKILL.md`), `memory` (creates `_Config/Memories/{name}.md` with optional `triggers` frontmatter), `style` (creates `_Config/Styles/{name}.md`), and `template` (creates `_Config/Templates/{classification}/{Type}.md` — name is the artefact type key). New `name` parameter for non-artefact resources; `type`/`title` remain required for artefacts only. Resource names are slugified for filesystem paths. Duplicate detection via `safe_write(exclusive=True)`. New `create_resource()` dispatcher and shared `_create_config_resource()` helper in `create.py`. Part of the Unified Resource Interface design (Phase 4).
+
 ## v0.22.3 — 2026-04-06
 
 **Superseded design status.** Adds `superseded` as a terminal status for designs that were valid but replaced by a different approach — distinct from `rejected` (declined) and `implemented` (fully built). Includes `+Superseded/` folder convention and callout template.

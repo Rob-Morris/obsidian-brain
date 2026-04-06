@@ -1102,6 +1102,49 @@ class TestBrainCreate:
         fields, _ = parse_frontmatter(content)
         assert fields["status"] == "shaping"
 
+    def test_create_skill_resource(self, initialized):
+        result = server.brain_create(
+            resource="skill", name="test-skill",
+            body="# Test Skill\n\nDo something.\n",
+        )
+        assert "**Created** skill:" in result
+        path = _extract_create_path(result)
+        assert path == "_Config/Skills/test-skill/SKILL.md"
+        assert os.path.isfile(os.path.join(str(initialized), path))
+
+    def test_create_memory_resource(self, initialized):
+        result = server.brain_create(
+            resource="memory", name="test-memory",
+            body="Remember this.\n",
+            frontmatter={"triggers": ["keyword"]},
+        )
+        assert "**Created** memory:" in result
+        path = _extract_create_path(result)
+        assert path == "_Config/Memories/test-memory.md"
+
+    def test_create_style_resource(self, initialized):
+        result = server.brain_create(
+            resource="style", name="test-style",
+            body="# Test Style\n\nWrite this way.\n",
+        )
+        assert "**Created** style:" in result
+        path = _extract_create_path(result)
+        assert path == "_Config/Styles/test-style.md"
+
+    def test_create_resource_not_creatable(self, initialized):
+        result = server.brain_create(
+            resource="workspace", name="ws", body="content",
+        )
+        _assert_error(result, "not creatable")
+
+    def test_create_artefact_requires_type(self, initialized):
+        result = server.brain_create(title="No Type")
+        _assert_error(result, "type is required")
+
+    def test_create_artefact_requires_title(self, initialized):
+        result = server.brain_create(type="wiki")
+        _assert_error(result, "title is required")
+
 
 # ---------------------------------------------------------------------------
 # brain_edit tests

@@ -1,14 +1,19 @@
 #!/usr/bin/env python3
 """
-create.py — Create a new vault artefact.
+create.py — Create vault artefacts and _Config/ resources.
 
-Resolves type from the compiled router, reads the template, generates a
-filename from the naming pattern, and writes the file with frontmatter.
+Artefact creation resolves type from the compiled router, reads the template,
+generates a filename from the naming pattern, and writes the file with
+frontmatter.
+
+Resource creation (skill, memory, style, template) writes to the appropriate
+_Config/ subfolder following each resource kind's conventions.
 
 Usage:
     python3 create.py --type idea --title "My Idea"
     python3 create.py --type idea --title "My Idea" --body "Content here"
     python3 create.py --type idea --title "My Idea" --vault /path/to/vault --json
+    python3 create.py --resource skill --name my-skill --body "Skill content"
 """
 
 import json
@@ -160,6 +165,115 @@ def create_artefact(vault_root, router, type_key, title, body="", frontmatter_ov
     safe_write(abs_path, content, bounds=vault_root, exclusive=True)
 
     return {"path": rel_path, "type": artefact["type"], "title": title}
+
+
+# ---------------------------------------------------------------------------
+# Resource-aware creation (Phase 4)
+# ---------------------------------------------------------------------------
+
+_CREATABLE_RESOURCES = {"artefact", "skill", "memory", "style", "template"}
+
+
+def create_resource(vault_root, router, resource="artefact", **kwargs):
+    """Create a vault resource. Dispatches to resource-specific creators.
+
+    For artefacts: delegates to create_artefact() with type_key, title, body, etc.
+    For other resources: creates in the appropriate _Config/ subfolder.
+
+    Args:
+        vault_root: Absolute path to the vault root.
+        router: Compiled router dict.
+        resource: Resource kind — one of: artefact, skill, memory, style, template.
+        **kwargs: Resource-specific params (see individual creators).
+
+    Returns:
+        Dict with path, resource (or type for artefacts), and name (or title).
+
+    Raises:
+        ValueError: If resource is not creatable or required params are missing.
+    """
+    if resource == "artefact":
+        return create_artefact(vault_root, router, **kwargs)
+
+    if resource not in _CREATABLE_RESOURCES:
+        raise ValueError(
+            f"Resource '{resource}' is not creatable via brain_create. "
+            f"Creatable resources: {', '.join(sorted(_CREATABLE_RESOURCES))}"
+        )
+
+    name = kwargs.get("name")
+    body = kwargs.get("body")
+    frontmatter = kwargs.get("frontmatter")
+
+    if not name:
+        raise ValueError(f"brain_create(resource='{resource}') requires name.")
+    if not body:
+        raise ValueError(f"brain_create(resource='{resource}') requires body.")
+
+    return _RESOURCE_CREATORS[resource](vault_root, router, name, body, frontmatter)
+
+
+def _create_config_resource(vault_root, resource, rel_path, name, body, frontmatter, exclusive=True):
+    """Shared logic for creating a _Config/ resource file.
+
+    Handles write-guard, content serialisation, and safe_write.
+    All _Config/ resources are always serialised with frontmatter.
+    """
+    check_write_allowed(rel_path)
+    abs_path = os.path.join(vault_root, rel_path)
+    content = serialize_frontmatter(dict(frontmatter) if frontmatter else {}, body=body)
+    try:
+        safe_write(abs_path, content, bounds=vault_root, exclusive=exclusive)
+    except FileExistsError:
+        raise ValueError(
+            f"{resource.capitalize()} '{name}' already exists at {rel_path}"
+        )
+    return {"path": rel_path, "resource": resource, "name": name}
+
+
+def _create_skill(vault_root, router, name, body, frontmatter):
+    """Create a skill at _Config/Skills/{slug}/SKILL.md."""
+    slug = title_to_slug(name)
+    rel_path = os.path.join("_Config", "Skills", slug, "SKILL.md")
+    return _create_config_resource(vault_root, "skill", rel_path, slug, body, frontmatter)
+
+
+def _create_memory(vault_root, router, name, body, frontmatter):
+    """Create a memory at _Config/Memories/{slug}.md."""
+    slug = title_to_slug(name)
+    rel_path = os.path.join("_Config", "Memories", slug + ".md")
+    return _create_config_resource(vault_root, "memory", rel_path, slug, body, frontmatter)
+
+
+def _create_style(vault_root, router, name, body, frontmatter):
+    """Create a style at _Config/Styles/{slug}.md."""
+    slug = title_to_slug(name)
+    rel_path = os.path.join("_Config", "Styles", slug + ".md")
+    return _create_config_resource(vault_root, "style", rel_path, slug, body, frontmatter)
+
+
+def _create_template(vault_root, router, name, body, frontmatter):
+    """Create a template for an artefact type.
+
+    name is the artefact type key (e.g. "wiki"). Resolves the classification
+    and folder from the router to place the template at the correct path.
+    """
+    artefact = resolve_type(router, name)
+    classification = artefact.get("classification", "living")
+    subdir = "Living" if classification == "living" else "Temporal"
+    rel_path = os.path.join("_Config", "Templates", subdir, artefact["folder"] + ".md")
+    # Templates may be overwritten (updating an existing template)
+    return _create_config_resource(
+        vault_root, "template", rel_path, name, body, frontmatter, exclusive=False,
+    )
+
+
+_RESOURCE_CREATORS = {
+    "skill": _create_skill,
+    "memory": _create_memory,
+    "style": _create_style,
+    "template": _create_template,
+}
 
 
 def resolve_type(router, type_key):

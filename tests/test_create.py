@@ -1,4 +1,4 @@
-"""Tests for create.py — artefact creation."""
+"""Tests for create.py — artefact and resource creation."""
 
 import json
 import os
@@ -361,3 +361,179 @@ class TestCreateArtefactTimestamps:
         content = open(os.path.join(str(vault), result["path"])).read()
         fields, _ = parse_frontmatter(content)
         assert fields["modified"] == custom
+
+
+# ---------------------------------------------------------------------------
+# Resource creation (Phase 4)
+# ---------------------------------------------------------------------------
+
+class TestCreateResource:
+    """Tests for create_resource() — the resource-aware dispatcher."""
+
+    def test_artefact_delegates_to_create_artefact(self, vault, router):
+        result = create.create_resource(
+            str(vault), router, resource="artefact",
+            type_key="wiki", title="Delegated Page",
+        )
+        assert result["type"] == "living/wiki"
+        assert result["path"] == "Wiki/Delegated Page.md"
+
+    def test_create_skill(self, vault, router):
+        result = create.create_resource(
+            str(vault), router, resource="skill",
+            name="my-skill", body="# My Skill\n\nDo the thing.\n",
+        )
+        assert result["path"] == "_Config/Skills/my-skill/SKILL.md"
+        assert result["resource"] == "skill"
+        assert result["name"] == "my-skill"
+        abs_path = os.path.join(str(vault), result["path"])
+        assert os.path.isfile(abs_path)
+        content = open(abs_path).read()
+        assert "Do the thing." in content
+
+    def test_create_skill_directory_created(self, vault, router):
+        create.create_resource(
+            str(vault), router, resource="skill",
+            name="new-skill", body="content",
+        )
+        assert os.path.isdir(os.path.join(str(vault), "_Config", "Skills", "new-skill"))
+
+    def test_create_skill_already_exists(self, vault, router):
+        create.create_resource(
+            str(vault), router, resource="skill",
+            name="existing", body="first",
+        )
+        with pytest.raises(ValueError, match="already exists"):
+            create.create_resource(
+                str(vault), router, resource="skill",
+                name="existing", body="second",
+            )
+
+    def test_create_memory(self, vault, router):
+        result = create.create_resource(
+            str(vault), router, resource="memory",
+            name="my-memory", body="Remember this.\n",
+        )
+        assert result["path"] == "_Config/Memories/my-memory.md"
+        assert result["resource"] == "memory"
+        abs_path = os.path.join(str(vault), result["path"])
+        content = open(abs_path).read()
+        assert "Remember this." in content
+
+    def test_create_memory_with_triggers(self, vault, router):
+        result = create.create_resource(
+            str(vault), router, resource="memory",
+            name="triggered-mem", body="Triggered content.\n",
+            frontmatter={"triggers": ["keyword1", "keyword2"]},
+        )
+        abs_path = os.path.join(str(vault), result["path"])
+        content = open(abs_path).read()
+        fields, _ = parse_frontmatter(content)
+        assert fields["triggers"] == ["keyword1", "keyword2"]
+
+    def test_create_memory_already_exists(self, vault, router):
+        create.create_resource(
+            str(vault), router, resource="memory",
+            name="dup-mem", body="first",
+        )
+        with pytest.raises(ValueError, match="already exists"):
+            create.create_resource(
+                str(vault), router, resource="memory",
+                name="dup-mem", body="second",
+            )
+
+    def test_create_style(self, vault, router):
+        result = create.create_resource(
+            str(vault), router, resource="style",
+            name="my-style", body="# My Style\n\nWrite like this.\n",
+        )
+        assert result["path"] == "_Config/Styles/my-style.md"
+        assert result["resource"] == "style"
+        abs_path = os.path.join(str(vault), result["path"])
+        content = open(abs_path).read()
+        assert "Write like this." in content
+
+    def test_create_style_already_exists(self, vault, router):
+        # Fixture vault already has styles dir but let's create one
+        create.create_resource(
+            str(vault), router, resource="style",
+            name="dup-style", body="first",
+        )
+        with pytest.raises(ValueError, match="already exists"):
+            create.create_resource(
+                str(vault), router, resource="style",
+                name="dup-style", body="second",
+            )
+
+    def test_create_template(self, vault, router):
+        result = create.create_resource(
+            str(vault), router, resource="template",
+            name="wiki",
+            body="---\ntype: living/wiki\ntags: []\n---\n\n# New Template\n",
+        )
+        # Templates resolve via artefact type — overwrites the existing template
+        assert result["resource"] == "template"
+        assert result["name"] == "wiki"
+        assert "_Config/Templates/" in result["path"]
+
+    def test_create_template_unknown_type(self, vault, router):
+        with pytest.raises(ValueError, match="Unknown artefact type"):
+            create.create_resource(
+                str(vault), router, resource="template",
+                name="nonexistent-type", body="content",
+            )
+
+    def test_not_creatable_resource(self, vault, router):
+        with pytest.raises(ValueError, match="not creatable"):
+            create.create_resource(
+                str(vault), router, resource="workspace",
+                name="ws", body="content",
+            )
+
+    def test_not_creatable_trigger(self, vault, router):
+        with pytest.raises(ValueError, match="not creatable"):
+            create.create_resource(
+                str(vault), router, resource="trigger",
+                name="t", body="content",
+            )
+
+    def test_not_creatable_plugin(self, vault, router):
+        with pytest.raises(ValueError, match="not creatable"):
+            create.create_resource(
+                str(vault), router, resource="plugin",
+                name="p", body="content",
+            )
+
+    def test_name_required_for_non_artefact(self, vault, router):
+        with pytest.raises(ValueError, match="name"):
+            create.create_resource(
+                str(vault), router, resource="skill",
+                body="content",
+            )
+
+    def test_body_required_for_non_artefact(self, vault, router):
+        with pytest.raises(ValueError, match="body"):
+            create.create_resource(
+                str(vault), router, resource="skill",
+                name="no-body",
+            )
+
+    def test_create_resource_with_frontmatter(self, vault, router):
+        """Non-artefact resources support optional frontmatter dict."""
+        result = create.create_resource(
+            str(vault), router, resource="style",
+            name="fm-style", body="Style content.\n",
+            frontmatter={"audience": "technical"},
+        )
+        abs_path = os.path.join(str(vault), result["path"])
+        content = open(abs_path).read()
+        fields, _ = parse_frontmatter(content)
+        assert fields["audience"] == "technical"
+
+    def test_create_skill_name_with_spaces_slugified(self, vault, router):
+        """Skill names should be slugified for directory names."""
+        result = create.create_resource(
+            str(vault), router, resource="skill",
+            name="My Cool Skill", body="content",
+        )
+        assert result["path"] == "_Config/Skills/my-cool-skill/SKILL.md"
