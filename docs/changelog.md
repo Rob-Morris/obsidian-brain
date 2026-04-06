@@ -4,7 +4,7 @@ Follows [semver](https://semver.org/). Changes to vault structure (renamed/remov
 
 ## v0.22.8 — 2026-04-07
 
-**Operator key generator.** New `generate_key.py` script wraps `hash_key()` from `config.py` to generate three-word operator keys and their SHA-256 hashes. Give the words to the agent operator; paste the hash into `config.yaml`. Supports `--count N` for generating multiple candidates. Uses `secrets.choice` for cryptographically secure randomness.
+**Operator key generator.** New `generate_key.py` script wraps `hash_key()` from `config.py` to generate three-word operator keys and their SHA-256 hashes. Give the words to the agent operator; paste the hash into `config.yaml`. Supports `--count N` for generating multiple candidates. Uses `secrets.choice` for cryptographically secure randomness. Added `config.py` and `generate_key.py` to script listings in `user-reference.md` and `guide.md`.
 
 ## v0.22.7 — 2026-04-07
 
