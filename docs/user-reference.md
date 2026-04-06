@@ -1100,6 +1100,8 @@ Available in `.brain-core/scripts/`. Scripts are the source of truth for all vau
 | `migrate_naming.py` | Migrate vault filenames from old aggressive slugs to generous naming conventions |
 | `fix_links.py` | Auto-repair broken wikilinks using naming convention heuristics |
 | `sync_definitions.py` | Sync artefact library definitions to vault `_Config/` using three-way hash comparison |
+| `config.py` | Vault configuration loader (three-layer merge: template → vault → local) |
+| `generate_key.py` | Generate operator key + SHA-256 hash for pasting into `config.yaml` |
 
 ### Compliance Checks
 
