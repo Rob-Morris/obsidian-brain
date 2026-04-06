@@ -130,7 +130,10 @@ def _maybe_status_move(vault_root, path, terminal_statuses, frontmatter_changes)
         status_folder = f"+{new_status.capitalize()}"
         if parent_name == status_folder:
             return path  # already in correct folder
-        new_path = os.path.join(parent_dir, status_folder, filename)
+        # If already inside a +Status/ folder, resolve relative to grandparent
+        # to avoid nesting (e.g. +Implemented/+Superseded/ → +Superseded/)
+        base_dir = os.path.dirname(parent_dir) if parent_name.startswith("+") else parent_dir
+        new_path = os.path.join(base_dir, status_folder, filename)
     elif parent_name.startswith("+"):
         # Non-terminal and currently in a +Status/ folder → move out
         grandparent = os.path.dirname(parent_dir)

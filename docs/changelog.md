@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.22.6 — 2026-04-07
+
+**Fix auto-move nesting when re-terminating from a +Status/ folder.** `brain_edit` now moves files to the correct sibling `+Status/` folder (e.g. `+Superseded/`) rather than nesting inside the current status folder (e.g. `+Implemented/+Superseded/`) when changing a file's terminal status.
+
 ## v0.22.5 — 2026-04-06
 
 **Graceful version drift error.** `_check_and_reload` now raises `RuntimeError` before exiting so the MCP client receives a meaningful "brain-core upgraded, please retry" error instead of a silent `-32000: Connection closed`. The process still exits via `os._exit()` after a 0.5 s delay, giving the framework time to flush the response.

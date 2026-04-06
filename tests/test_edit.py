@@ -58,11 +58,22 @@ def vault(tmp_path):
         "## Template\n\n[[_Config/Templates/Living/Wiki]]\n"
     )
 
-    # Taxonomy: Designs
+    # Taxonomy: Designs (with multiple terminal statuses)
     (tax_living / "designs.md").write_text(
         "# Designs\n\n"
         "## Naming\n\n`{slug}.md` in `Designs/`.\n\n"
-        "## Frontmatter\n\n```yaml\n---\ntype: living/designs\ntags:\n  - design-tag\nstatus: shaping\n---\n```\n\n"
+        "## Lifecycle\n\n"
+        "| Status | Meaning |\n|---|---|\n"
+        "| `shaping` | Being explored. |\n"
+        "| `implemented` | Fully built. |\n"
+        "| `superseded` | Replaced by a different approach. |\n"
+        "| `rejected` | Declined. |\n\n"
+        "## Terminal Status\n\n"
+        "- set `status: implemented`, move to `Designs/+Implemented/`\n"
+        "- set `status: superseded`, move to `Designs/+Superseded/`\n"
+        "- set `status: rejected`, move to `Designs/+Rejected/`\n\n"
+        "## Frontmatter\n\n```yaml\n---\ntype: living/designs\ntags:\n  - design-tag\n"
+        "status: shaping             # shaping | implemented | superseded | rejected\n---\n```\n\n"
         "## Template\n\n[[_Config/Templates/Living/Designs]]\n"
     )
 
@@ -1203,6 +1214,23 @@ class TestTerminalStatusMove:
         assert (vault / "Ideas" / "+Adopted").is_dir()
         assert (vault / "Ideas" / "+Adopted" / "staying.md").is_file()
         assert (vault / "Ideas" / "leaving.md").is_file()
+
+    def test_edit_terminal_to_different_terminal_no_nesting(self, vault, router):
+        """Changing terminal status on a file already in +Status/ moves to sibling folder, not nested."""
+        # Designs have multiple terminal statuses: implemented, superseded, rejected
+        abs_path = vault / "Designs" / "+Implemented" / "my-design.md"
+        abs_path.parent.mkdir(parents=True, exist_ok=True)
+        abs_path.write_text(
+            "---\ntype: living/design\ntags: [design]\nstatus: implemented\n---\n\n# Design\n"
+        )
+        result = edit.edit_artefact(
+            str(vault), router, "Designs/+Implemented/my-design.md", "",
+            frontmatter_changes={"status": "superseded"},
+        )
+        assert result["path"] == "Designs/+Superseded/my-design.md"
+        assert (vault / "Designs" / "+Superseded" / "my-design.md").is_file()
+        assert not (vault / "Designs" / "+Implemented" / "+Superseded" / "my-design.md").exists()
+        assert not (vault / "Designs" / "+Implemented" / "my-design.md").exists()
 
 
 # ---------------------------------------------------------------------------
