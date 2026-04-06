@@ -19,6 +19,7 @@ the MCP server wrapper handles them automatically.
 import argparse
 import filecmp
 import importlib
+import importlib.util
 import json
 import os
 import re
@@ -386,13 +387,71 @@ def _validate_compile(vault_root: str) -> Optional[str]:
 
 
 # ---------------------------------------------------------------------------
+# Post-upgrade definition sync
+# ---------------------------------------------------------------------------
+
+def _post_upgrade_sync(vault_root: str, *, sync: Optional[bool]) -> Optional[dict]:
+    """Run or preview artefact definition sync after upgrade.
+
+    Sync is optional — failures are captured, never raised. The upgrade
+    is the critical operation; sync is a convenience step.
+
+    Returns None if skipped entirely, or a dict with one of:
+      'sync_result'  — sync ran and produced a result
+      'sync_preview' — dry-run preview of what sync would do
+      'sync_error'   — sync was attempted but failed
+    """
+    # Read preference
+    prefs_path = os.path.join(vault_root, ".brain", "preferences.json")
+    try:
+        with open(prefs_path, "r", encoding="utf-8") as f:
+            prefs = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        prefs = {}
+    preference = prefs.get("artefact_sync", "ask")
+
+    # Explicit flag overrides preference
+    if sync is False:
+        return None
+    if preference == "skip" and sync is not True:
+        return None
+
+    try:
+        # Import sync_definitions from the freshly-upgraded scripts
+        scripts_dir = os.path.join(vault_root, ".brain-core", "scripts")
+        spec = importlib.util.spec_from_file_location(
+            "sync_definitions",
+            os.path.join(scripts_dir, "sync_definitions.py"),
+        )
+        sync_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(sync_mod)
+
+        should_apply = sync is True or preference == "auto"
+
+        if should_apply:
+            sync_result = sync_mod.sync_definitions(vault_root, preference="auto")
+            return {"sync_result": sync_result}
+        else:
+            # Preview only — pass preference so sync_definitions
+            # doesn't re-read it from disk
+            sync_preview = sync_mod.sync_definitions(
+                vault_root, dry_run=True, preference=preference,
+            )
+            if sync_preview["updated"] or sync_preview["warnings"]:
+                return {"sync_preview": sync_preview}
+            return None
+    except Exception as e:
+        return {"sync_error": f"Definition sync failed: {e}"}
+
+
+# ---------------------------------------------------------------------------
 # Core upgrade function
 # ---------------------------------------------------------------------------
 
-def upgrade(vault_root: str, source: str, *, force: bool = False, dry_run: bool = False) -> dict:
+def upgrade(vault_root: str, source: str, *, force: bool = False, dry_run: bool = False, sync: Optional[bool] = None) -> dict:
     """Upgrade .brain-core/ in a vault from a source directory.
 
-    Flow: backup → copy → compile (validate) → migrate.
+    Flow: backup → copy → compile (validate) → migrate → sync definitions.
     If copy or compile fails, .brain-core/ is restored from the backup.
     Migrations only run after compile succeeds.
 
@@ -401,6 +460,8 @@ def upgrade(vault_root: str, source: str, *, force: bool = False, dry_run: bool 
         source: Path to the source brain-core directory.
         force: Allow same-version or downgrade upgrades.
         dry_run: Report changes without modifying files.
+        sync: Override artefact_sync preference (True=force, False=skip,
+              None=follow preference).
 
     Returns:
         Dict with status, version info, and file change lists.
@@ -505,6 +566,11 @@ def upgrade(vault_root: str, source: str, *, force: bool = False, dry_run: bool 
     if migrations:
         result["migrations"] = migrations
 
+    # --- Post-upgrade definition sync ---
+    sync_info = _post_upgrade_sync(vault_root, sync=sync)
+    if sync_info is not None:
+        result.update(sync_info)
+
     result["message"] = f"Upgraded {old_version or '(none)'} → {new_version}"
     _write_upgrade_log(vault_root, result)
     return result
@@ -559,6 +625,15 @@ def main() -> None:
         "--json", action="store_true", dest="json_output",
         help="Output JSON instead of human-readable text",
     )
+    sync_group = parser.add_mutually_exclusive_group()
+    sync_group.add_argument(
+        "--sync", action="store_const", const=True, default=None, dest="sync",
+        help="Sync artefact definitions after upgrade (overrides preference)",
+    )
+    sync_group.add_argument(
+        "--no-sync", action="store_const", const=False, dest="sync",
+        help="Skip definition sync after upgrade (overrides preference)",
+    )
     args = parser.parse_args()
 
     try:
@@ -567,7 +642,7 @@ def main() -> None:
         fatal(str(e))
 
     source = str(Path(args.source).resolve())
-    result = upgrade(str(vault_root), source, force=args.force, dry_run=args.dry_run)
+    result = upgrade(str(vault_root), source, force=args.force, dry_run=args.dry_run, sync=args.sync)
 
     if args.json_output:
         print(json.dumps(result, indent=2))
@@ -609,6 +684,32 @@ def main() -> None:
         info("Post-upgrade: rebuild the search index.")
         info("  python3 .brain-core/scripts/build_index.py")
         info("  (or use brain_action('build_index') via MCP)")
+
+        # Sync results
+        if "sync_error" in result:
+            info(f"Definition sync failed: {result['sync_error']}")
+            info("Run sync_definitions.py manually after investigating.")
+        elif "sync_result" in result:
+            sr = result["sync_result"]
+            if sr.get("updated"):
+                info("Definition sync:")
+                for item in sr["updated"]:
+                    info(f"  ~ {item['type']} / {item['role']} → {item['target']}")
+            if sr.get("warnings"):
+                info("Customised definitions (not updated):")
+                for item in sr["warnings"]:
+                    info(f"  ? {item['type']} / {item['role']} → {item['target']}")
+        elif "sync_preview" in result:
+            sp = result["sync_preview"]
+            info("Artefact definitions have updates available:")
+            for item in sp["updated"]:
+                info(f"  ~ {item['type']} / {item['role']} → {item['target']}")
+            if sp.get("warnings"):
+                info("Customised definitions (would need manual review):")
+                for item in sp["warnings"]:
+                    info(f"  ? {item['type']} / {item['role']} → {item['target']}")
+            info("Run: python3 sync_definitions.py --vault <path>")
+            info("  (or use brain_action('sync_definitions') via MCP)")
 
 
 if __name__ == "__main__":

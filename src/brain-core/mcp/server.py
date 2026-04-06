@@ -1236,7 +1236,7 @@ def brain_action(
       register_workspace   — register a linked workspace (params: {slug, path})
       unregister_workspace — remove a linked workspace registration (params: {slug})
       fix-links            — scan/fix broken wikilinks (optional: {fix} to apply)
-      sync_definitions     — sync artefact library definitions to vault (optional: {dry_run, force, types})
+      sync_definitions     — sync artefact library definitions to vault (optional: {dry_run, force, types, preference})
       archive              — archive an artefact to _Archive/ (params: {path}). Must have terminal status.
       unarchive            — restore an archived artefact to its original type folder (params: {path})
     """

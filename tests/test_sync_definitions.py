@@ -365,6 +365,9 @@ class TestSyncDefinitions:
     def test_auto_update(self, vault):
         """Upstream changed, local matches installed → auto-update."""
         _install_type(vault)
+        (vault / ".brain" / "preferences.json").write_text(
+            json.dumps({"artefact_sync": "auto"})
+        )
         # Change upstream
         lib_tax = vault / ".brain-core" / "artefact-library" / "temporal" / "cookies" / "taxonomy.md"
         lib_tax.write_text("# Updated cookies taxonomy\n")
@@ -415,7 +418,7 @@ class TestSyncDefinitions:
         lib_tax.write_text("# Changed taxonomy\n")
         lib_tmpl.write_text("# Changed template\n")
         (vault / ".brain" / "preferences.json").write_text(
-            json.dumps({"artefact_sync_exclude": ["temporal/cookies/taxonomy"]})
+            json.dumps({"artefact_sync": "auto", "artefact_sync_exclude": ["temporal/cookies/taxonomy"]})
         )
         result = sync.sync_definitions(str(vault))
         # taxonomy excluded → skipped; template should auto-update
@@ -453,7 +456,30 @@ class TestSyncDefinitions:
         result = sync.sync_definitions(str(vault))
         assert result["status"] == "skipped"
 
-    def test_preference_manual(self, vault):
+    def test_default_preference_is_ask(self, vault):
+        """Default preference (no artefact_sync set) behaves like ask — updates are warnings."""
+        _install_type(vault)
+        lib_tax = vault / ".brain-core" / "artefact-library" / "temporal" / "cookies" / "taxonomy.md"
+        lib_tax.write_text("# Changed\n")
+        # preferences.json is empty — no artefact_sync key
+        result = sync.sync_definitions(str(vault))
+        # Should warn, not auto-apply
+        assert any(w["role"] == "taxonomy" for w in result["warnings"])
+        assert not any(u["role"] == "taxonomy" for u in result["updated"])
+
+    def test_preference_ask(self, vault):
+        """artefact_sync: ask → changes go to warnings, not auto-applied."""
+        _install_type(vault)
+        lib_tax = vault / ".brain-core" / "artefact-library" / "temporal" / "cookies" / "taxonomy.md"
+        lib_tax.write_text("# Changed\n")
+        (vault / ".brain" / "preferences.json").write_text(
+            json.dumps({"artefact_sync": "ask"})
+        )
+        result = sync.sync_definitions(str(vault))
+        assert any(w["role"] == "taxonomy" for w in result["warnings"])
+        assert not any(u["role"] == "taxonomy" for u in result["updated"])
+
+    def test_preference_non_auto_warns(self, vault):
         """artefact_sync: manual → all changes go to warnings."""
         _install_type(vault)
         lib_tax = vault / ".brain-core" / "artefact-library" / "temporal" / "cookies" / "taxonomy.md"
@@ -514,6 +540,19 @@ class TestSyncDefinitions:
         assert not folder.exists()
         sync.sync_definitions(str(vault))
         assert not folder.exists()
+
+    def test_preference_override(self, vault):
+        """preference parameter overrides file-based preference."""
+        _install_type(vault)
+        lib_tax = vault / ".brain-core" / "artefact-library" / "temporal" / "cookies" / "taxonomy.md"
+        lib_tax.write_text("# Changed\n")
+        # File says "skip" but caller overrides to "auto"
+        (vault / ".brain" / "preferences.json").write_text(
+            json.dumps({"artefact_sync": "skip"})
+        )
+        result = sync.sync_definitions(str(vault), preference="auto")
+        assert result["status"] == "ok"
+        assert any(u["role"] == "taxonomy" for u in result["updated"])
 
     def test_missing_manifest_graceful(self, vault):
         """Type dir without manifest.yaml is silently skipped."""

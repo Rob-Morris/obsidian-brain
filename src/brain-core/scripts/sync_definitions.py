@@ -266,15 +266,19 @@ def sync_definitions(
     dry_run: bool = False,
     force: bool = False,
     types: Optional[list[str]] = None,
+    preference: Optional[str] = None,
 ) -> dict:
     """Sync artefact library definitions to vault _Config/ files.
 
     Returns a structured result with updated, skipped, and warnings lists.
     Warnings indicate conflicts/collisions that need caller attention.
     Use force=True to overwrite despite warnings.
+
+    The optional ``preference`` parameter overrides the file-based
+    artefact_sync preference for this invocation.
     """
     prefs = load_preferences(vault_root)
-    preference = prefs.get("artefact_sync", "auto")
+    preference = preference if preference is not None else prefs.get("artefact_sync", "ask")
     brain_core_version = read_version(vault_root) or "unknown"
 
     if preference == "skip":

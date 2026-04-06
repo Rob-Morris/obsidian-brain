@@ -102,7 +102,7 @@ Artefact types that have a lifecycle should include a `status` field in frontmat
 
 ## Installing a type
 
-**Automated:** `brain_action("sync_definitions")` syncs all library definitions to vault `_Config/` using three-way hash comparison. Chains automatically after CLI upgrade (`install.sh` or `upgrade.py`). Auto-updates unmodified files; preserves user customisations; returns warnings for conflicts. Use `force` to override, or `artefact_sync_exclude` in `.brain/preferences.json` to permanently skip specific files.
+**Automated:** `brain_action("sync_definitions")` syncs all library definitions to vault `_Config/` using three-way hash comparison. After a CLI upgrade (`install.sh` or `upgrade.py`), sync behaviour follows the `artefact_sync` preference in `.brain/preferences.json`: `auto` applies safe updates, `ask` (default) includes a preview for the caller to present, `skip` does nothing. CLI flags `--sync` / `--no-sync` override. Preserves user customisations; returns warnings for conflicts. Use `force` to override, or `artefact_sync_exclude` to permanently skip specific files.
 
 **Manual:**
 

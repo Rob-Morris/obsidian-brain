@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.21.5 — 2026-04-06
+
+**Post-upgrade definition sync.** `upgrade.py` now runs `sync_definitions` after a successful upgrade. Behaviour follows the `artefact_sync` preference in `.brain/preferences.json`: `auto` applies safe updates, `ask` (new default) includes a preview for the caller to present, `skip` does nothing. CLI flags `--sync` / `--no-sync` override. Customised definitions are reported but never overwritten. Sync failures are captured — they never crash the upgrade.
+
 ## v0.21.4 — 2026-04-06
 
 - **Fix:** MCP server version-drift restart — `sys.exit(0)` inside an asyncio coroutine was swallowed by the event loop, hanging the server and all connected clients. Replaced with `os._exit(0)`.
