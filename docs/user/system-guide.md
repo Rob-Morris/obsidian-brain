@@ -77,7 +77,7 @@ Folders starting with `_` or `.` are infrastructure — excluded from content in
 
 ### Archive
 
-Terminal artefacts are archived to a top-level `_Archive/` directory at the vault root, preserving type/project structure inside (e.g. `_Archive/Ideas/Brain/20260101-old-idea.md`). Archived files are excluded from the vault file index, search, and all normal artefact operations. Use `brain_action("archive")` and `brain_action("unarchive")` for archive operations; `brain_list(resource="archive")` to list archived files, `brain_read(resource="archive", name="...")` to read a specific one.
+Artefacts with a terminal status (e.g. `adopted`, `published`, `completed`) are archived to a top-level `_Archive/` directory at the vault root, preserving type/project structure inside (e.g. `_Archive/Ideas/Brain/20260101-old-idea.md`). The archive operation requires the artefact to have reached a terminal status — the set of terminal statuses is defined per type in the taxonomy file. Archived files are excluded from the vault file index, search, and all normal artefact operations. Use `brain_action("archive")` and `brain_action("unarchive")` for archive operations; `brain_list(resource="archive")` to list archived files, `brain_read(resource="archive", name="...")` to read a specific one.
 
 ---
 

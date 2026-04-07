@@ -12,6 +12,26 @@ The vault gets more useful over time, not less. You spend less time organising a
 
 ---
 
+## Installation
+
+The quickest way to create a new Brain vault:
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/robmorris/obsidian-brain/main/install.sh)
+```
+
+Or from a local clone of the repo:
+
+```bash
+bash install.sh ~/brain
+```
+
+The installer creates the vault from the template, copies `.brain-core/` into it, sets up a Python virtual environment, and registers the MCP server for Claude Code. It also handles upgrades (re-run on an existing vault) and installing into an existing Obsidian vault. See [install.sh](../functional/scripts.md#installsh) for full details, modes, and flags.
+
+**Requirements:** git and python3. Python 3.10+ is recommended for MCP server support — without it the vault is still created but agent tools won't be available until you install Python and run `init.py` manually.
+
+---
+
 ## Two Kinds of Things
 
 Everything in the Brain is either **living** or **temporal**. This is the only distinction you need to understand up front.
@@ -98,6 +118,8 @@ A new Brain vault ships with a practical starter set: Daily Notes, Designs, Docu
 
 When you find yourself creating content that doesn't fit anywhere, that's the signal to add a type. The artefact library (`.brain-core/artefact-library/`) has ready-to-install definitions for types like Wiki, Journals, Zettelkasten, and more. Each comes with a taxonomy file and template. Folder colours are auto-generated when you run `brain_action("compile")`.
 
+To install types from the library, use `brain_action("sync_definitions")` (or `python3 sync_definitions.py` from the CLI). You can preview with a dry run, sync specific types, or let it run automatically after upgrades. See [sync_definitions](../functional/scripts.md) and [brain_action](../functional/mcp-tools.md) for full parameters.
+
 The rule of thumb: add a type when you'll create multiple files of that kind and they need different conventions from what you already have. If it's a one-off, a subfolder or tag within an existing type is simpler.
 
 ### Growing Organically
@@ -150,3 +172,5 @@ To upgrade brain-core to a new version:
 - **[System Guide](system-guide.md)** — architecture, conventions, and how the Brain works under the hood
 - **[Template Library Guide](template-library-guide.md)** — the artefact library, installing types, and extending the system
 - **[Workflows](workflows.md)** — day-to-day usage patterns: logging, ideas, knowledge building, working with agents
+- **[Configuration](../functional/config.md)** — operator profiles, privilege levels, and vault configuration
+- **[MCP Tools](../functional/mcp-tools.md)** — the agent tools: search, create, edit, and vault operations

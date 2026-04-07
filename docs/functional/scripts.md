@@ -36,6 +36,50 @@ The MCP server is a thin wrapper that imports functions from scripts and holds t
 - Standalone scripts pay a cold-start cost reading JSON from disk
 - New operations are implemented as scripts first, then exposed via MCP
 
+## compile_router.py
+
+*Implemented in v0.5.0.* Transforms human-readable vault config into `.brain/local/compiled-router.json` — a local, gitignored, hash-invalidated cache that all brain-core tools read at runtime. The compiled router is the single interface between configuration and tooling; no script or MCP tool parses taxonomy markdown directly.
+
+**Source files tracked** (changes to any trigger recompilation):
+
+| Source | Purpose |
+|---|---|
+| `_Config/router.md` | Always-rules and conditional triggers |
+| `.brain-core/index.md` | System-level always-rules (prepended) |
+| `.brain-core/VERSION` | Brain-core version |
+| `_Config/Taxonomy/Living/*.md` | Living artefact type definitions |
+| `_Config/Taxonomy/Temporal/*.md` | Temporal artefact type definitions |
+| `_Config/Skills/*.md` | User-defined skills |
+| `.brain-core/skills/*.md` | Core system skills |
+| `_Config/Styles/*.md` | Style definitions |
+| `_Config/Memories/*.md` | Memory definitions |
+| `_Config/Plugins/*.md` | Plugin definitions |
+
+**Output structure** (`.brain/local/compiled-router.json`):
+
+| Key | Contents |
+|---|---|
+| `meta` | brain-core version, compile timestamp, composite SHA-256 hash of all source files |
+| `environment` | Platform/runtime detection |
+| `always_rules` | Merged rules from index.md (system) + router.md (vault) |
+| `artefacts` | Discovered types with naming patterns, frontmatter requirements, status enums, terminal statuses, triggers, template paths |
+| `triggers` | Merged conditional triggers from router.md and taxonomy files |
+| `skills`, `plugins`, `styles`, `memories` | Discovered enrichment documents |
+
+**Hash invalidation:** The `meta.source_hash` is a composite SHA-256 over all tracked source files. The MCP server compares this hash on startup and at a 5-second TTL to detect stale routers and recompile automatically.
+
+**Colour generation:** `compile_colours.py` runs as a post-step, reading the compiled router to generate `.obsidian/snippets/brain-folder-colours.css` and `.obsidian/graph.json` colour groups. Called automatically — no separate invocation needed.
+
+**Flags:** `--json` (output JSON to stdout instead of writing to file).
+
+**CLI:**
+```bash
+python3 compile_router.py           # write .brain/local/compiled-router.json
+python3 compile_router.py --json    # output JSON to stdout
+```
+
+**Constraints:** Python 3.8+ stdlib only (`_common` imports), self-locating via `find_vault_root()`, deterministic (same inputs → same output, aside from timestamp).
+
 ## check.py
 
 *Implemented in v0.9.11.* Router-driven vault compliance checker. Reads the compiled router, validates vault files against structural rules. check.py never parses taxonomy markdown — all per-type rules (naming patterns, required fields, status enums, terminal statuses) come from the compiled router. This means the compiler is the single point that must track vault evolution; check.py adapts automatically when the router is recompiled.
