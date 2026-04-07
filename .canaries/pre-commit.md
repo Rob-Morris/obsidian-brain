@@ -12,24 +12,25 @@ Follow before every commit.
 
 [4] **Docs updated.** Update every file affected by your change:
 
-    [4a] **Artefact type** — if added/removed/renamed: `src/brain-core/artefact-library/README.md` (type table), `docs/user-reference.md` (type spec), `docs/specification.md` (starter vault list if default), `docs/user-guide.md` (vault overview)
-    [4b] **Template vault defaults** — if added/removed: `docs/user-guide.md` (starter set list), `src/brain-core/guide.md` (type table), `docs/specification.md` (starter vault section)
-    [4c] **Status/lifecycle values** — `docs/user-reference.md` (type spec + status table), `src/brain-core/artefact-library/README.md` (conventions section), `src/brain-core/guide.md` (status section)
-    [4d] **Install/extension procedures** — `docs/user-reference.md` (Extending Your Vault), `src/brain-core/standards/extending/README.md`, `src/brain-core/artefact-library/README.md` (Installing a type)
+    [4a] **Artefact type** — if added/removed/renamed: `src/brain-core/artefact-library/README.md` (source of truth), `docs/user/template-library-guide.md` (if guide needs updating), `docs/specification.md` (starter vault list if default)
+    [4b] **Template vault defaults** — if added/removed: `docs/user/getting-started.md` (What's in the Vault), `src/brain-core/guide.md` (type table), `docs/specification.md` (starter vault section)
+    [4c] **Status/lifecycle values** — `src/brain-core/artefact-library/README.md` (conventions section), `docs/user/system-guide.md` (if system-level lifecycle affected)
+    [4d] **Install/extension procedures** — `docs/user/system-guide.md` (Extension), `src/brain-core/standards/extending/README.md`, `src/brain-core/artefact-library/README.md` (Installing a type)
     [4e] **Colour system** — `src/brain-core/colours.md`, `docs/user-reference.md` (Colour System), `docs/specification.md` (Colour System)
-    [4f] **System design/architecture** — `docs/specification.md`, `src/brain-core/index.md` (if principles change), `src/brain-core/standards/extending/README.md` (if patterns change)
-    [4g] **Day-to-day workflows** — `docs/user-guide.md`, `src/brain-core/guide.md`, `docs/user-reference.md` (Workflows)
-    [4h] **Tooling** — scripts, MCP tools: `docs/tooling.md`, `docs/user-reference.md` (Tooling), `src/brain-core/guide.md` (Tooling)
-    [4i] **General pattern** — hub, provenance, archiving: `src/brain-core/standards/`, `docs/specification.md`, `docs/user-reference.md` (Workflows)
+    [4f] **System design/architecture** — `docs/architecture/overview.md`, `docs/architecture/decisions/` (if new design decision — create the DD file AND add a row to `docs/architecture/decisions/README.md`), `src/brain-core/index.md` (if principles change)
+    [4g] **Day-to-day workflows** — `docs/user/workflows.md`, `src/brain-core/guide.md`
+    [4h] **Tooling** — scripts, MCP tools, config: `docs/functional/scripts.md` (scripts), `docs/functional/mcp-tools.md` (MCP tools), `docs/functional/config.md` (config), `src/brain-core/scripts/README.md` (co-located module map), `docs/user-reference.md` (Tooling summary)
+    [4i] **General pattern** — hub, provenance, archiving: `src/brain-core/standards/`, `docs/specification.md`, `docs/user/system-guide.md`
     [4j] **Template vault** — if artefact types, taxonomy, config, or default structure changed: update `template-vault/` to match
     [4k] **Artefact library metadata** — if taxonomy, README, template, or SKILL changed in `artefact-library/`: update `manifest.yaml` and `schema.yaml` in the same type directory to match
+    [4l] **Security model** — if path boundaries, write guards, privilege model, or safe write pattern changed: `docs/architecture/security.md`
 
-[5] **Shared facts cross-checked.** Grep for the specific values you changed to catch stale references in other files:
+[5] **Shared facts cross-checked.** Grep for the specific values you changed to catch stale references in other files. With the three-layer structure, most facts now live in one place — only check if you changed a shared fact:
 
-    [5a] **Type counts** — count `artefact-library/{living,temporal}/` directories as canonical source, then verify prose counts match in library README, specification, and any other references. Do not trust existing prose numbers — always recount from directories.
-    [5b] **Template vault defaults list** — user-guide, quick-start guide, specification
-    [5c] **Status values** — user-reference, library README, quick-start guide
-    [5d] **Install step counts** — user-reference, library README, standards/extending/
+    [5a] **Type counts** — count `artefact-library/{living,temporal}/` directories as canonical source, then verify prose counts match in `src/brain-core/artefact-library/README.md` and `docs/specification.md`. Do not trust existing prose numbers — always recount from directories.
+    [5b] **Template vault defaults list** — `docs/user/getting-started.md`, `src/brain-core/guide.md`, `docs/specification.md`
+    [5c] **Status values** — `src/brain-core/artefact-library/README.md`, `docs/user/system-guide.md`
+    [5d] **Install step counts** — `docs/user/system-guide.md`, `src/brain-core/artefact-library/README.md`, `src/brain-core/standards/extending/`
 
 ## Log
 
@@ -68,6 +69,7 @@ Note: `skip` uses a comma separator (not colon) to avoid ambiguity with the labe
     [4i] General pattern: skip, no changes
     [4j] Template vault: skip, no structure changes
     [4k] Artefact library metadata: skip, no artefact-library changes
+    [4l] Security model: skip, no security changes
 [5] Shared facts cross-checked: done
     [5a] Type counts: skip, no changes
     [5b] Template vault defaults list: skip, no changes

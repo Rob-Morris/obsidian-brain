@@ -19,3 +19,7 @@ agents.local.md
 
 .worktrees/
 CLAUDE.local.md
+
+# Test/tool artefacts
+.coverage
+.mcp.json

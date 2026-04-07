@@ -1,0 +1,79 @@
+# scripts/
+
+Scripts are the **source of truth** for all vault operations. The MCP server (`server.py`) is a thin wrapper that imports functions from these scripts and holds the compiled router and search index in memory. Scripts are the single implementation — the server adds only MCP transport, in-memory caching, and Obsidian CLI delegation. Agents without MCP use scripts directly and get identical results. New operations are implemented as scripts first, then exposed via MCP.
+
+## Module Table
+
+| Script | Purpose | CLI usage |
+|---|---|---|
+| `_common.py` | Shared utilities: vault discovery, frontmatter parsing, serialisation, BM25 tokenisation | (library only) |
+| `build_index.py` | Build BM25 retrieval index | `python3 build_index.py [--json]` |
+| `check.py` | Router-driven structural compliance checks | `python3 check.py [--json] [--severity S]` |
+| `compile_colours.py` | Generate folder colour CSS | (called by compile_router) |
+| `compile_router.py` | Compile router from source files | `python3 compile_router.py [--json]` |
+| `config.py` | Vault configuration loader (three-layer merge) | `python3 config.py` |
+| `create.py` | Create new artefact or `_Config/` resource | `python3 create.py --type T --title "Title" [--body B] [--json]` |
+| `edit.py` | Edit/append/prepend to artefact or resource | `python3 edit.py edit\|append --path P --body B [--target H] [--json]` |
+| `fix_links.py` | Auto-repair broken wikilinks | `python3 fix_links.py [--fix] [--json] [--vault V]` |
+| `generate_key.py` | Generate operator key + hash for config.yaml | `python3 generate_key.py [--count N]` |
+| `init.py` | MCP server registration | `python3 init.py [--user] [--local] [--project PATH]` |
+| `list_artefacts.py` | Enumerate vault artefacts and resources (unranked, no cap) | (library module, used by MCP server) |
+| `migrate_naming.py` | Migrate filenames to generous naming conventions | `python3 migrate_naming.py [--vault V] [--dry-run] [--json]` |
+| `obsidian_cli.py` | IPC client for native Obsidian CLI | (library module, used by MCP server) |
+| `process.py` | Content classification, duplicate resolution, ingestion | (library module, used by MCP server) |
+| `read.py` | Query compiled router resources | `python3 read.py RESOURCE [--name N]` |
+| `rename.py` | Rename/delete file + update wikilinks | `python3 rename.py "source" "dest" [--json]` |
+| `search_index.py` | BM25 keyword search | `python3 search_index.py "query" [--type T] [--json]` |
+| `session.py` | Compile bootstrap session payload for agents | `python3 session.py` |
+| `shape_presentation.py` | Create presentation + launch Marp preview | (via MCP: `brain_action("shape-presentation", ...)`) |
+| `start_shaping.py` | Bootstrap a shaping session for an existing artefact | (via MCP: `brain_action("start-shaping", ...)`) |
+| `sync_definitions.py` | Sync artefact library definitions to vault `_Config/` | `python3 sync_definitions.py [--vault V] [--dry-run] [--types t1,t2] [--json]` |
+| `upgrade.py` | In-place brain-core upgrade | `python3 upgrade.py --source P [--vault V] [--dry-run] [--force] [--json]` |
+| `workspace_registry.py` | Workspace slug→path resolution | `python3 workspace_registry.py [--register SLUG PATH] [--unregister SLUG] [--resolve SLUG] [--json]` |
+
+## Dependency Graph
+
+### Import `_common`
+
+These scripts import from `_common.py` for vault discovery, frontmatter parsing, and shared utilities:
+
+- `build_index.py`
+- `check.py`
+- `compile_colours.py`
+- `compile_router.py`
+- `config.py`
+- `create.py`
+- `edit.py`
+- `fix_links.py`
+- `init.py`
+- `list_artefacts.py`
+- `migrate_naming.py`
+- `process.py`
+- `read.py`
+- `rename.py`
+- `search_index.py`
+- `session.py`
+- `shape_presentation.py`
+- `start_shaping.py`
+- `sync_definitions.py`
+- `workspace_registry.py`
+
+### Standalone (no `_common` dependency)
+
+- `generate_key.py` — stdlib only
+- `obsidian_cli.py` — stdlib only; IPC socket client
+- `upgrade.py` — deliberately self-contained (it may replace `_common` during execution); duplicates only `find_vault_root()`
+
+## Shared Patterns
+
+**`--json` flag** — All CLI-facing scripts that produce output accept `--json` to emit a machine-readable JSON result instead of human-readable text. Library-only modules do not expose this flag.
+
+**`--vault` and `find_vault_root()`** — Vault location is auto-detected via `_common.find_vault_root()`, which walks up from the current directory looking for `.brain/`. Scripts accept `--vault` to override this. The MCP server passes the vault path explicitly; standalone CLI invocations rely on auto-detection.
+
+**`main()` entry point** — Every CLI script defines a `main()` function and guards invocation with `if __name__ == "__main__": main()`. This makes the operation logic importable without side effects. The MCP server imports the functions directly; `main()` is only for CLI use.
+
+## Adding New Operations
+
+Implement the logic as importable functions in a script, add a `main()` CLI entry point, then import into `server.py`. Never put operation logic directly in the server.
+
+This keeps the CLI and MCP paths identical: agents without MCP call the script directly and get the same result as agents using MCP.

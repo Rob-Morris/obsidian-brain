@@ -28,37 +28,7 @@ System folders (`_Assets/`, `_Config/`, `_Plugins/`, `.obsidian/`) are infrastru
 
 ## Architecture
 
-### Core / Config Split
-
-- **`.brain-core/`** — versioned methodology docs, copied into the vault during setup and upgrades (not symlinked, so vaults are self-contained and portable). `taxonomy/readme.md` is a lean pointer to `_Config/Taxonomy/` — it explains the classification system and key derivation convention, not a full artefact reference. Other core docs cover extensions, triggers, colours, plugins. Read when the agent needs to understand or modify the system.
-- **`.brain-core/skills/`** — core skills. System-provided skill documents that teach agents how to use brain-core tools. Discovered by the compiler, tagged `"source": "core"`. Not user-editable; overwritten on brain-core upgrade.
-- **`_Config/`** — instance configuration. Router, taxonomy, style, colour assignments, templates, user skills, memories, user preferences. Specific to this vault installation.
-- **`_Config/User/`** — vault owner's standing instructions. `preferences-always.md` (workflow preferences, quality standards, agent behaviour rules) and `gotchas.md` (learned lessons from previous sessions). Both read every session when present.
-- **`_Config/router.md`** — the bridge. Lean format: capability detection, always-rules, and conditional trigger gotos pointing to taxonomy/skill files. Read every session (~45 tokens).
-- **`_Config/Taxonomy/`** — one file per artefact type with detailed instructions. Agents read only the types they need.
-
-### Agent Reading Flow
-
-Four-tier boot, each degrading gracefully:
-
-1. **MCP tools** — if `brain_read`/`brain_action`/`brain_search` are available, the agent uses them. Lowest token cost, structured responses, in-memory caching.
-2. **Scripts** — if MCP isn't available, `.brain-core/scripts/` provides full functionality: `read.py` (query compiled router), `search_index.py` (BM25 search), `rename.py` (wikilink-safe rename), `compile_router.py`, `check.py`. Same logic as MCP — the server imports from these scripts.
-3. **Lean router** — if neither MCP nor scripts are available, the agent reads `Agents.md` → `_Config/router.md` (~45 tokens). The router provides conditional trigger pointers and vault-specific rules. Taxonomy files are loaded on demand when a condition matches.
-4. **Naive fallback** — if the agent has no knowledge of the system, it reads `Agents.md` → `router.md` → follows wikilinks. The filesystem itself is discoverable: root-level non-system folders are living types, `_Temporal/` subfolders are temporal types.
-
-All tiers begin by reading `index.md` (via the router's "Always read [[.brain-core/index]]" directive) for system principles, always-rules, and tooling instructions. This ensures MCP-only agents receive the taxonomy-first gate and system constraints.
-
-### Folder Tiers
-
-Four tiers, each with distinct file explorer styling:
-
-| Tier | Prefix | Colour | Purpose |
-|------|--------|--------|---------|
-| Artefact | none | Rose gold bg, unique foreground per folder | Primary content |
-| Temporal | `_Temporal/` | Steel-tinted | Dated working files |
-| Assets | `_Assets/` | Slate | Non-markdown files and generated output |
-| Config | `_Config/` | Purple | System files |
-| Plugin | `_Plugins/` | Orchid | External tool data, skills, and MCP integrations |
+For the system architecture (components, data flow, agent reading flow, folder tiers), see [Architecture Overview](architecture/overview.md).
 
 ## Colour System
 
@@ -102,13 +72,16 @@ Archiving uses `brain_action("archive")` which moves artefacts to a top-level `_
 ## Documentation
 
 - `docs/specification.md` — this file; design rationale and structural decisions
-- `docs/user-guide.md` — example-driven walkthrough for vault users
+- `docs/user/getting-started.md` — installation, first vault, orientation
+- `docs/user/workflows.md` — day-to-day usage patterns and examples
+- `docs/user/system-guide.md` — artefact system mechanics, lifecycle, extension
+- `docs/user/template-library-guide.md` — template library, available types, install procedures
 - `docs/user-reference.md` — full type specs, conventions, config reference
 - `docs/changelog.md` — single-file version history. When it exceeds ~500 lines, consider splitting into per-version files under `docs/changelog/` with the main file as an index
 - `.canaries/pre-commit.md` — pre-commit canary: versioning, changelog, routing table, cross-checks
 - `docs/contributing.md` — contributor guide: doc architecture, drift prevention, testing, pitfalls
 - `docs/canary.md` — canary brief pattern (reusable technique for testing subjective agent work)
-- `docs/tooling.md` — technical design reference with DD index
+- `docs/tooling.md` — redirect to `docs/functional/` and `docs/architecture/decisions/`
 - `docs/plugins.md` — plugin writing and installation guide
 
 ## What Ships in the Starter Vault
