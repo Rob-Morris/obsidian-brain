@@ -33,5 +33,15 @@ Superseded decisions are kept for historical reference and to understand the evo
 | DD-025 | 5 MCP tools: privilege split for granular permissions | Implemented (v0.11.0) | [dd-025-privilege-split.md](dd-025-privilege-split.md) |
 | DD-026 | MCP response readability: plain text over JSON blobs | Implemented (v0.14.4, polished v0.14.5) | [dd-026-response-readability.md](dd-026-response-readability.md) |
 | DD-027 | MCP tool resilience conventions | Accepted | [dd-027-tool-resilience.md](dd-027-tool-resilience.md) |
+| DD-028 | Version drift detection — exit code 10 + proxy restart | Implemented | [dd-028-version-drift-detection.md](dd-028-version-drift-detection.md) |
+| DD-029 | Archive architecture — `_Archive/{Type}/{Project}/` with date prefix | Implemented | [dd-029-archive-architecture.md](dd-029-archive-architecture.md) |
+| DD-030 | Terminal status auto-move to `+Status/` subfolder | Implemented | [dd-030-terminal-status-auto-move.md](dd-030-terminal-status-auto-move.md) |
+| DD-031 | Path security model — bounds, allowlist, brain-core protection | Implemented | [dd-031-path-security-model.md](dd-031-path-security-model.md) |
+| DD-032 | Three-layer config merge — template → vault → local | Implemented | [dd-032-three-layer-config-merge.md](dd-032-three-layer-config-merge.md) |
+| DD-033 | Operator profiles — reader/contributor/operator with SHA-256 keys | Implemented | [dd-033-operator-profiles.md](dd-033-operator-profiles.md) |
+| DD-034 | Wikilink resolution strategy — multi-strategy cascade | Implemented | [dd-034-wikilink-resolution.md](dd-034-wikilink-resolution.md) |
+| DD-035 | Incremental index updates — dirty flag + pending queue + TTL | Implemented | [dd-035-incremental-index-updates.md](dd-035-incremental-index-updates.md) |
+| DD-036 | Safe write pattern — tmp + fsync + rename | Implemented | [dd-036-safe-write-pattern.md](dd-036-safe-write-pattern.md) |
+| DD-037 | Generous filename matching — preserve Unicode, strip only unsafe chars | Implemented | [dd-037-generous-filename-matching.md](dd-037-generous-filename-matching.md) |
 
 **Note:** Individual DD files will be populated in Phase 2. During migration, `docs/tooling.md` remains the authoritative source for DD content.
