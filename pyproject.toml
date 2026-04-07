@@ -21,6 +21,7 @@ fail-under = 60
 verbose = 1
 
 [tool.pytest.ini_options]
+addopts = "--doctest-modules"
 testpaths = ["tests"]
 pythonpath = [
     "src/brain-core/scripts",
