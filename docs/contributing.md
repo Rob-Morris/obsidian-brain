@@ -16,6 +16,14 @@ make hooks      # sets git to use .githooks/ directory
 
 Adding a new numbered item to the canary file automatically enforces it — no hook changes needed. See [canary.md](canary.md) for how canaries work generally.
 
+### When to update a canary
+
+**Add a sub-item** when you introduce a new doc file or cross-cutting concern that needs maintaining. For example, `docs/architecture/security.md` was added as `[4l]` because changes to the security model should be reflected there. If you add a doc that agents need to keep in sync, add it to the relevant `[4x]` item — or create a new one if no existing category fits.
+
+**Update file paths** when you move or rename a doc file. Stale paths in the canary mean agents check the wrong file (or skip the check entirely because the file doesn't exist).
+
+**Create a new canary brief** (in `.canaries/`) when you introduce a workflow with subjective steps that can't be tested deterministically. The pre-commit canary covers commit hygiene; a different workflow (deployment, vault propagation, release) would get its own brief. Each canary is self-contained — the hook tests any brief that follows the format.
+
 ## Documentation Layers
 
 Brain has multiple documentation layers, each serving a different audience. Keeping them in sync is the single biggest maintenance challenge — most documentation bugs come from updating one layer but not others.
