@@ -122,7 +122,7 @@ When you mention a project, tool, or concept and your agent doesn't know what yo
 
 Each memory has triggers (words or phrases you'd naturally use) and a body (what the thing is, where to find it, key facts). When you say "brain core" and the agent lacks context, it finds the memory with that trigger and reads it.
 
-You can create memories for anything agents should know about — your projects, your tools, your codebase conventions. They're simple markdown files with a `triggers` list in frontmatter. Memories are "what is it?" context — if the agent needs "how do I do it?" steps, that's a skill. See the [Reference](user-reference.md) for the full format.
+You can create memories for anything agents should know about — your projects, your tools, your codebase conventions. They're simple markdown files with a `triggers` list in frontmatter. Memories are "what is it?" context — if the agent needs "how do I do it?" steps, that's a skill. See the [Reference](../user-reference.md) for the full format.
 
 ### Telling the Brain About You
 

@@ -1,6 +1,6 @@
 # Brain System Guide
 
-How the artefact system works — lifecycle, frontmatter contracts, vault structure, and extension. For a walkthrough of day-to-day use, see the [User Guide](../user-guide.md). For the full type reference, see the [Reference](../user-reference.md).
+How the artefact system works — lifecycle, frontmatter contracts, vault structure, and extension. For a walkthrough of day-to-day use, see [Workflows](workflows.md). For the full type reference, see the [Reference](../user-reference.md).
 
 ---
 

@@ -1,6 +1,6 @@
 # Contributing to Obsidian Brain
 
-Guide for anyone working on brain-core. For the pre-commit checklist, see [canaries/pre-commit.md](canaries/pre-commit.md).
+Guide for anyone working on brain-core. For the pre-commit checklist, see [pre-commit canary](../.canaries/pre-commit.md).
 
 **Agent contributors:** also read [contributing-agents.md](contributing-agents.md) for agent-specific workflow guidance.
 
@@ -24,10 +24,13 @@ Brain has multiple documentation layers, each serving a different audience. Keep
 
 | File | Audience | Purpose |
 |---|---|---|
-| `user-guide.md` | Vault users | Example-driven walkthrough of day-to-day use |
+| `user/getting-started.md` | Vault users | Installation, first vault, orientation |
+| `user/workflows.md` | Vault users | Day-to-day usage patterns and examples |
+| `user/system-guide.md` | Vault users | Artefact system mechanics, lifecycle, extension |
+| `user/template-library-guide.md` | Vault users | Template library, available types, install procedures |
 | `user-reference.md` | Vault users | Complete reference for every type, convention, config point |
 | `specification.md` | Contributors | Design rationale, architecture, what ships in the vault |
-| `tooling.md` | Contributors | Technical design decisions (DD index) |
+| `tooling.md` | Contributors | Redirect → `functional/` and `architecture/decisions/` |
 | `changelog.md` | Everyone | Version history |
 | `canary.md` | Contributors | How canaries work |
 
@@ -124,9 +127,11 @@ obsidian-brain/
 │       └── mcp/                 # MCP server (brain_read, brain_search, brain_action)
 ├── tests/                       # test suite (make test)
 ├── docs/
-│   ├── user-guide.md            # walkthrough with examples
+│   ├── user/                    # user-facing docs (getting-started, workflows, system-guide, template-library)
+│   ├── functional/              # functional specs (mcp-tools, scripts, config)
+│   ├── architecture/            # architectural docs (overview, decisions/, security)
 │   ├── user-reference.md        # full reference for all types and conventions
-│   ├── tooling.md               # technical design and development setup
+│   ├── tooling.md               # redirect → functional/ and architecture/decisions/
 │   ├── changelog.md             # version history
 │   ├── plugins.md               # how to install and write plugins
 │   └── specification.md         # design rationale and structural decisions

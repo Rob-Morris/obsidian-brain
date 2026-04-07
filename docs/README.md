@@ -29,5 +29,3 @@ Router for brain-core's development documentation.
 - [Plugins](plugins.md) — plugin system
 - [Canary](canary.md) — pre-commit canary documentation
 - [Changelog](changelog.md) — release history
-
-> **Migration note:** This structure is being built incrementally. Some links point to files that don't exist yet — they'll be created as the migration progresses. During migration, the original files (`tooling.md`, `user-reference.md`, `user-guide.md`) remain authoritative until their replacements are complete.

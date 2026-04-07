@@ -72,13 +72,16 @@ Archiving uses `brain_action("archive")` which moves artefacts to a top-level `_
 ## Documentation
 
 - `docs/specification.md` — this file; design rationale and structural decisions
-- `docs/user-guide.md` — example-driven walkthrough for vault users
+- `docs/user/getting-started.md` — installation, first vault, orientation
+- `docs/user/workflows.md` — day-to-day usage patterns and examples
+- `docs/user/system-guide.md` — artefact system mechanics, lifecycle, extension
+- `docs/user/template-library-guide.md` — template library, available types, install procedures
 - `docs/user-reference.md` — full type specs, conventions, config reference
 - `docs/changelog.md` — single-file version history. When it exceeds ~500 lines, consider splitting into per-version files under `docs/changelog/` with the main file as an index
 - `.canaries/pre-commit.md` — pre-commit canary: versioning, changelog, routing table, cross-checks
 - `docs/contributing.md` — contributor guide: doc architecture, drift prevention, testing, pitfalls
 - `docs/canary.md` — canary brief pattern (reusable technique for testing subjective agent work)
-- `docs/tooling.md` — technical design reference with DD index
+- `docs/tooling.md` — redirect to `docs/functional/` and `docs/architecture/decisions/`
 - `docs/plugins.md` — plugin writing and installation guide
 
 ## What Ships in the Starter Vault
