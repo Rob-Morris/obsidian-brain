@@ -4,6 +4,8 @@ Technical design for tooling that operates on Brain vaults.
 
 ## Compiled Router (DD-008, DD-013, DD-014, DD-016)
 
+> **Design decisions:** [DD-008](architecture/decisions/dd-008-compiled-router.md), [DD-013](architecture/decisions/dd-013-compiled-router-required.md), [DD-014](architecture/decisions/dd-014-auto-compile.md), [DD-016](architecture/decisions/dd-016-filesystem-first.md)
+
 The compiled router is the interface contract between human-readable config and all tooling. Source files (`router.md`, taxonomy, skills, styles, VERSION) are the single source of truth. The compiler combines them into `.brain/local/compiled-router.json` — a local, gitignored, hash-invalidated cache.
 
 **Key properties:**
@@ -21,6 +23,8 @@ The compiled router is the interface contract between human-readable config and 
 **CLI:** `python3 compile_router.py --json` outputs to stdout; default mode writes `.brain/local/compiled-router.json` with a summary to stderr. Requires Python 3.8+ (stdlib only). On environments without Python (mobile, restricted shells), agents fall back to the lean router and wikilink traversal — see *Agent Reading Flow* in `specification.md`.
 
 ## Script Architecture (DD-023)
+
+> **Design decisions:** [DD-023](architecture/decisions/dd-023-init-script.md)
 
 Scripts in `.brain-core/scripts/` are the **source of truth** for all vault operations. Each script exposes importable functions and a CLI entry point:
 
@@ -57,6 +61,8 @@ Scripts in `.brain-core/scripts/` are the **source of truth** for all vault oper
 **When adding new operations:** implement the logic as importable functions in a script, add a CLI entry point, then import into `server.py`. Never put operation logic directly in the server.
 
 ## Brain MCP Server (DD-010, DD-011, DD-020, DD-021, DD-025, DD-027)
+
+> **Design decisions:** [DD-010](architecture/decisions/dd-010-mcp-server.md), [DD-011](architecture/decisions/dd-011-two-mcp-tools.md), [DD-020](architecture/decisions/dd-020-three-mcp-tools.md), [DD-021](architecture/decisions/dd-021-obsidian-cli.md), [DD-025](architecture/decisions/dd-025-privilege-split.md), [DD-027](architecture/decisions/dd-027-tool-resilience.md)
 
 Long-running MCP server at `.brain-core/mcp/server.py`. Thin wrapper over scripts — exposes 8 MCP tools:
 
@@ -104,6 +110,8 @@ Response format by tool:
 
 ## MCP Response Readability (DD-026)
 
+> **Design decisions:** [DD-026](architecture/decisions/dd-026-response-readability.md)
+
 MCP tool results are displayed inline in agent UIs (Claude Code, Cursor, etc.). JSON blobs with escaped newlines and nested objects are hard to scan. Plain text renders cleanly.
 
 **Problem:** When tools return `json.dumps({...})`, the MCP SDK wraps the string in a single `TextContent` block. The client renders it as a collapsed JSON blob — functional for the agent but unreadable for the human watching the session.
@@ -128,6 +136,8 @@ Option 2 is the key lever. Returning `[TextContent(type="text", text=metadata), 
 **Migration:** Update `server.py` handler return values + corresponding test assertions. No changes to scripts, CLI, or compiled router.
 
 ## MCP Tool Resilience Conventions (DD-027)
+
+> **Design decisions:** [DD-027](architecture/decisions/dd-027-tool-resilience.md)
 
 The MCP server is a long-running process serving multiple agents across unpredictable vault states. Tools must never crash — a traceback kills the server and orphans the agent session. These conventions exist to keep the server standing when vault data is corrupt, missing, or the wrong shape.
 
@@ -200,6 +210,8 @@ The MCP server follows the [stdio lifecycle spec](https://modelcontextprotocol.i
 
 ## Lean Router Format (DD-012, DD-017)
 
+> **Design decisions:** [DD-012](architecture/decisions/dd-012-lean-router.md), [DD-017](architecture/decisions/dd-017-shorthand-triggers.md)
+
 The router file read by naive agents (no MCP, no compiled router). Format:
 
 ```
@@ -219,6 +231,8 @@ Conditional:
 **User preferences** (ask clarifying questions, show plan, ask before delete) live in `Agents.md`, not the router.
 
 ## check.py (DD-009)
+
+> **Design decisions:** [DD-009](architecture/decisions/dd-009-router-driven-checks.md)
 
 *Implemented in v0.9.11.* Router-driven vault compliance checker. Reads the compiled router, validates vault files against structural rules. check.py never parses taxonomy markdown — all per-type rules (naming patterns, required fields, status enums, terminal statuses) come from the compiled router. This means the compiler is the single point that must track vault evolution; check.py adapts automatically when the router is recompiled.
 
@@ -246,6 +260,8 @@ Conditional:
 **Relationship with `compliance_check.py`:** The vault-maintenance skill ships a separate `compliance_check.py` for **session hygiene** — quick checks like "did you log today? any transcripts? backups fresh?" It runs after each work block as a sanity check. `check.py` (this design) is **structural compliance** — "do all files have correct frontmatter? naming? month folders?" Deep scan, runs on demand or during maintenance. These are complementary tools, not competing ones.
 
 ## Taxonomy Discovery (DD-018, DD-019)
+
+> **Design decisions:** [DD-018](architecture/decisions/dd-018-no-taxonomy-index.md), [DD-019](architecture/decisions/dd-019-succinct-readme.md)
 
 **Succinct readme pattern** (DD-019): `.brain-core/taxonomy/readme.md` is a lean discovery guide (~50 tokens) that explains the classification system and points agents to `_Config/Taxonomy/`. It does not enumerate types — the filesystem is the index.
 
@@ -334,6 +350,8 @@ After uninstall, the script reminds you to clean up global MCP registration if a
 
 ## init.py (DD-023)
 
+> **Design decisions:** [DD-023](architecture/decisions/dd-023-init-script.md)
+
 Setup script at `.brain-core/scripts/init.py`. Configures Claude Code to use the brain MCP server. Self-contained (no `_common` imports), idempotent, supports four scopes:
 
 - **Project** (default): `.mcp.json` + `CLAUDE.md` bootstrap in the current directory (or `--project <dir>`). For per-project vault binding.
@@ -370,6 +388,8 @@ python3 upgrade.py --source src/brain-core --no-sync    # upgrade without sync
 ```
 
 ## Core Skills (DD-024)
+
+> **Design decisions:** [DD-024](architecture/decisions/dd-024-core-skills.md)
 
 Skills in `.brain-core/skills/*/SKILL.md` — system-provided, versioned with brain-core, not user-editable. Discovered by the compiler alongside user skills from `_Config/Skills/`. Tagged `"source": "core"` in the compiled router (user skills tagged `"source": "user"`).
 
@@ -452,31 +472,4 @@ python3.12 -m venv .venv
 
 ## Design Decisions Index
 
-| DD | Summary | Status |
-|---|---|---|
-| DD-001 | Drop version from wikilink paths | Implemented (v0.3.0) |
-| DD-002 | Scripts ship inside `.brain-core/`, not as a plugin | Accepted |
-| DD-003 | CLI delegates to scripts, never contains unique logic | Accepted |
-| DD-004 | Obsidian plugin absorbs frontmatter timestamps | Proposed |
-| DD-005 | Obsidian plugin has its own TypeScript implementation | Accepted |
-| DD-006 | Mobile is first-class | Accepted |
-| DD-007 | Dual implementation with shared test fixtures | Accepted |
-| DD-008 | Compiled router as foundation | Implemented (v0.5.0) |
-| DD-009 | Router-driven checks (no separate check config) | Implemented (v0.9.11) |
-| DD-010 | Brain MCP server in `.brain-core/mcp/` | Implemented (v0.7.0) |
-| DD-011 | MCP server exposes 2 tools with enum parameters | Superseded by DD-025 (v0.11.0) |
-| DD-012 | Lean router — always-rules only, conditional triggers co-located | Accepted |
-| DD-013 | Compiled router required for tools; markdown fallback for agents only | Accepted |
-| DD-014 | MCP server auto-compiles on startup | Implemented (v0.7.0) |
-| DD-015 | Single-line install — never require changes to Agents.md | Implemented (v0.4.0) |
-| DD-016 | Filesystem-first artefact discovery | Implemented (v0.5.0) |
-| DD-017 | Shorthand trigger index with gotos | Implemented (v0.4.0) |
-| DD-018 | Taxonomy index dropped — filesystem is the index | Implemented (v0.4.0) |
-| DD-019 | Succinct readme pattern for lean discovery guides | Implemented (v0.4.0) |
-| DD-020 | 3 MCP tools: brain_read + brain_search + brain_action | Superseded by DD-025 (v0.11.0) |
-| DD-021 | Optional Obsidian CLI integration — CLI-preferred, agent-fallback | Implemented (v0.8.0) |
-| DD-022 | Obsidian CLI is internal to MCP; agents use CLI directly only when MCP unavailable | Accepted |
-| DD-023 | init.py setup script | Implemented (v0.10.0) |
-| DD-024 | Core skills in .brain-core/skills/ | Implemented (v0.10.0) |
-| DD-025 | 5 MCP tools: privilege split for granular permissions | Implemented (v0.11.0) |
-| DD-026 | MCP response readability: plain text over JSON blobs | Implemented (v0.14.4, polished v0.14.5) |
+See [docs/architecture/decisions/](architecture/decisions/) for the full decision index and individual records.
