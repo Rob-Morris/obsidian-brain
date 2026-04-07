@@ -14,7 +14,7 @@ The hook source is tracked at `.githooks/pre-commit`. To activate:
 make hooks      # sets git to use .githooks/ directory
 ```
 
-Adding a new numbered item to the canary file automatically enforces it — no hook changes needed. See [canary.md](canary.md) for how canaries work generally.
+Adding a new numbered item to the canary file automatically enforces it — no hook changes needed. See [canary.md](standards/canary.md) for how canaries work generally.
 
 ### When to update a canary
 
@@ -40,7 +40,7 @@ Brain has multiple documentation layers, each serving a different audience. Keep
 | `specification.md` | Contributors | Design rationale, architecture, what ships in the vault |
 | `tooling.md` | Contributors | Redirect → `functional/` and `architecture/decisions/` |
 | `changelog.md` | Everyone | Version history |
-| `canary.md` | Contributors | How canaries work |
+| `standards/canary.md` | Contributors | How canaries work |
 
 ### Brain-core docs (in `src/brain-core/`, ship as `.brain-core/` in vaults)
 

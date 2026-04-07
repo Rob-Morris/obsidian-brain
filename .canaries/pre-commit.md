@@ -24,6 +24,9 @@ Follow before every commit.
     [4j] **Template vault** — if artefact types, taxonomy, config, or default structure changed: update `template-vault/` to match
     [4k] **Artefact library metadata** — if taxonomy, README, template, or SKILL changed in `artefact-library/`: update `manifest.yaml` and `schema.yaml` in the same type directory to match
     [4l] **Security model** — if path boundaries, write guards, privilege model, or safe write pattern changed: `docs/architecture/security.md`
+    [4m] **Plugin system** — if plugin conventions, install procedures, or plugin API changed: `docs/plugins.md`, `src/brain-core/plugins.md`
+    [4n] **Doc structure** — if doc files added/moved/removed or navigation changed: `docs/README.md` (router), `docs/contributing.md` (Documentation Layers table)
+    [4o] **Contribution process** — if canary items, pre-commit workflow, versioning rules, or testing procedures changed: `docs/contributing.md`, `docs/contributing-agents.md`, `docs/standards/canary.md` (canary system standard)
 
 [5] **Shared facts cross-checked.** Grep for the specific values you changed to catch stale references in other files. With the three-layer structure, most facts now live in one place — only check if you changed a shared fact:
 
@@ -70,6 +73,9 @@ Note: `skip` uses a comma separator (not colon) to avoid ambiguity with the labe
     [4j] Template vault: skip, no structure changes
     [4k] Artefact library metadata: skip, no artefact-library changes
     [4l] Security model: skip, no security changes
+    [4m] Plugin system: skip, no plugin changes
+    [4n] Doc structure: skip, no doc files added/moved/removed
+    [4o] Contribution process: skip, no process changes
 [5] Shared facts cross-checked: done
     [5a] Type counts: skip, no changes
     [5b] Template vault defaults list: skip, no changes

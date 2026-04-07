@@ -80,7 +80,7 @@ Archiving uses `brain_action("archive")` which moves artefacts to a top-level `_
 - `docs/changelog.md` — single-file version history. When it exceeds ~500 lines, consider splitting into per-version files under `docs/changelog/` with the main file as an index
 - `.canaries/pre-commit.md` — pre-commit canary: versioning, changelog, routing table, cross-checks
 - `docs/contributing.md` — contributor guide: doc architecture, drift prevention, testing, pitfalls
-- `docs/canary.md` — canary brief pattern (reusable technique for testing subjective agent work)
+- `docs/standards/canary.md` — canary brief pattern (reusable technique for testing subjective agent work)
 - `docs/tooling.md` — redirect to `docs/functional/` and `docs/architecture/decisions/`
 - `docs/plugins.md` — plugin writing and installation guide
 

@@ -27,5 +27,5 @@ Router for brain-core's development documentation.
 - [Contributing](contributing.md) — how to contribute (humans)
 - [Contributing — Agents](contributing-agents.md) — how to contribute (agents)
 - [Plugins](plugins.md) — plugin system
-- [Canary](canary.md) — pre-commit canary documentation
+- [Canary](standards/canary.md) — canary system standard
 - [Changelog](changelog.md) — release history
