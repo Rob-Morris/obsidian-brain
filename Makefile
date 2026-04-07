@@ -9,7 +9,7 @@ venv:
 	python3.12 -m venv $(VENV)
 
 install: venv
-	$(PIP) install "mcp>=1.0.0" "pytest>=9.0" "interrogate>=1.7"
+	$(PIP) install "mcp>=1.0.0" "pytest>=9.0" "interrogate>=1.7" "pytest-cov>=6.0"
 
 test:
 	$(PYTEST) -q

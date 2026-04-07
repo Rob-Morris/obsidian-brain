@@ -27,3 +27,10 @@ pythonpath = [
     "src/brain-core/scripts",
     "src/brain-core/mcp",
 ]
+
+[tool.coverage.run]
+source = ["src/brain-core/scripts"]
+
+[tool.coverage.report]
+fail_under = 72
+show_missing = true
