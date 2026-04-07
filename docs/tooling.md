@@ -75,7 +75,7 @@ DD-011 established the read/write safety split (2 tools). DD-020 adds `brain_sea
 
 **Obsidian CLI** (DD-022): Internal dependency of the MCP server, not a separate agent-facing tier. The server delegates to the CLI for search and rename when available; agents interact only with MCP tools or scripts. When MCP is unavailable, scripts provide full functionality (read, search, rename, compile, check). The CLI is an optimisation layer, not a requirement.
 
-**Startup:** Loads vault config via three-layer merge (template → `.brain/config.yaml` → `.brain/local/config.yaml`). Auto-compiles router and auto-builds index if stale (compares timestamps against source file mtimes). Both artefacts loaded into memory for the session lifetime. Mid-session, the server detects version drift and auto-reloads modules, recompiles the router, and marks the index for rebuild. Loads workspace registry from `.brain/local/workspaces.json` (empty dict if absent). Probes Obsidian CLI availability and derives vault name from config `brain_name`, then `BRAIN_VAULT_NAME` env var, then directory basename.
+**Startup:** Loads vault config via three-layer merge (template → `.brain/config.yaml` → `.brain/local/config.yaml`). Auto-compiles router and auto-builds index if stale (compares timestamps against source file mtimes). Both artefacts loaded into memory for the session lifetime. Mid-session, the server detects version drift and exits with code 10 — the proxy handles restart (see MCP Proxy below). Loads workspace registry from `.brain/local/workspaces.json` (empty dict if absent). Probes Obsidian CLI availability and derives vault name from config `brain_name`, then `BRAIN_VAULT_NAME` env var, then directory basename.
 
 **Logging (v0.21.7):** The server writes persistent logs to `.brain/local/mcp-server.log` using Python's `RotatingFileHandler` (2 MB max, 1 backup). Log levels: startup diagnostics and tool call tracing at INFO, tool arguments at DEBUG, errors at ERROR, version drift warnings at WARN. Stderr receives WARN+ messages only (for MCP client visibility). The file handler level defaults to INFO; set `BRAIN_LOG_LEVEL=DEBUG` to include tool arguments in the log. The log file is gitignored (inside `.brain/local/`).
 
@@ -155,15 +155,48 @@ This catches the case where a cache file contains valid JSON of the wrong type (
 
 **Status:** Codified in v0.18.7. All 8 tools (`brain_session`, `brain_read`, `brain_search`, `brain_list`, `brain_create`, `brain_edit`, `brain_action`, `brain_process`) conform.
 
+## MCP Proxy (v0.23.0)
+
+The proxy (`proxy.py`) is a thin stdio wrapper between Claude Code and `server.py`. Claude Code launches the proxy; the proxy spawns `server.py` as a restartable child. The proxy owns the stdio channel and never exits on upgrade — only `server.py` restarts.
+
+**Launch config:** `python proxy.py <python_path> <server_script>` with `BRAIN_VAULT_ROOT` env. `init.py` generates the `.mcp.json` entry pointing at `proxy.py`.
+
+**Message forwarding:** Two threads — main thread reads client stdin and forwards to child stdin; reader thread reads child stdout and forwards to client stdout. Messages are newline-delimited JSON (NDJSON). Child stderr is passed through to proxy stderr.
+
+**Initialize capture:** The proxy captures the client's `initialize` request and the child's response. On child restart, replays the stored `initialize` to the new child, discards the response, and sends `notifications/tools/list_changed` so Claude Code refreshes its tool list.
+
+**Exit code protocol:**
+
+| Exit code | Meaning | Proxy behaviour |
+|---|---|---|
+| 10 | Version drift (planned restart) | Immediate restart, no backoff |
+| 0 | Clean shutdown | Proxy exits too |
+| Other | Crash | Exponential backoff |
+
+**Backoff:** Schedule: 0, 4, 8, 16, 32 seconds. Resets after child alive for 60s. Gives up after 5 slots exhausted. After give-up, proxy checks `.brain-core/VERSION` on each incoming tool call — if changed (e.g. an upgrade fixed the bug), resets backoff and retries. Requests while child is dead return a JSON-RPC error immediately (no blocking).
+
+**Child startup timeout:** 60s for the child to respond to `initialize`. If exceeded, child is killed and treated as a crash.
+
+**Proxy drift detection:** `proxy.py` has a `PROXY_VERSION` constant (semver). On each child restart, reads the version from the on-disk `proxy.py` via regex. If different, injects a note into tool responses: "MCP proxy has been upgraded — restart MCP server via /mcp to load new proxy."
+
+**Logging:** Separate log file at `.brain/local/mcp-proxy.log` (RotatingFileHandler, 2 MB, 1 backup). Lifecycle events at INFO. Request/response names and IDs at DEBUG. Stderr handler at WARN+.
+
+**Init scope recording:** `init.py` writes `.brain/local/init-scope.json` recording which scope (project/local/user) and config path were used. For future upgrade automation.
+
+**Migration:** Existing vaults must re-run `init.py` to switch from `server.py` to `proxy.py`, then restart MCP via `/mcp`.
+
+**Environment overrides (testing):**
+- `BRAIN_PROXY_BACKOFF` — comma-separated int seconds (default: `0,4,8,16,32`)
+- `BRAIN_PROXY_INIT_TIMEOUT` — seconds (default: `60`)
+
 ## MCP Server Shutdown Lifecycle
 
-The MCP server follows the [stdio lifecycle spec](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle). Three shutdown paths, all exit 0 with a descriptive stderr message:
+The MCP server follows the [stdio lifecycle spec](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle). Four exit paths:
 
-1. **Stdin EOF** — client closes input pipe → `mcp.run()` returns → `brain-core shutdown: stdin closed`
-2. **SIGTERM/SIGINT** — signal handler → `brain-core shutdown: received SIGTERM`
-3. **Unexpected error** — caught, full traceback to stderr → exit 1 (the only path that indicates a real crash)
-
-**"1 MCP server failed" in Claude Code** — This message appears in Claude Code during MCP server restarts (e.g. after an upgrade triggers a version-drift exit). It is a known Claude Code display bug: the server exits cleanly (exit 0 + stderr message per spec), but Claude Code surfaces a transient "failed" status before the client reconnects. The brain-core server behaviour is correct. Use `/mcp` to reconnect if auto-reconnect does not trigger.
+1. **Stdin EOF** — client closes input pipe → `mcp.run()` returns → `brain-core shutdown: stdin closed` → exit 0
+2. **SIGTERM/SIGINT** — signal handler → `brain-core shutdown: received SIGTERM` → exit 0
+3. **Version drift** — `_check_version_drift()` detects `.brain-core/VERSION` changed on disk → exit 10. The proxy catches this and relaunches the server with new code.
+4. **Unexpected error** — caught, full traceback to stderr → exit 1 (the only path that indicates a real crash)
 
 ## Lean Router Format (DD-012, DD-017)
 

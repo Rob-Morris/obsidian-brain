@@ -2,6 +2,15 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.23.0 — 2026-04-07
+
+**MCP proxy wrapper.** A thin stdio proxy (`proxy.py`) now sits between Claude Code and the brain MCP server. Upgrades no longer kill the MCP connection — the proxy detects the server's version-drift exit, relaunches it with new code, and replays the initialize handshake. Crash recovery with exponential backoff (0, 4, 8, 16, 32s) handles transient failures automatically. Proxy drift detection prompts users to restart via `/mcp` when the proxy itself is upgraded.
+
+- `proxy.py` added to `.brain-core/mcp/` — new MCP entry point
+- `server.py` simplified: `_check_and_reload` replaced with clean `sys.exit(10)` on version drift
+- `init.py` updated: points `.mcp.json` at `proxy.py`, records init scope to `.brain/local/init-scope.json`
+- **Migration:** existing vaults must re-run `init.py` to switch to the proxy launcher, then restart MCP via `/mcp`
+
 ## v0.22.8 — 2026-04-07
 
 **Operator key generator.** New `generate_key.py` script wraps `hash_key()` from `config.py` to generate three-word operator keys and their SHA-256 hashes. Give the words to the agent operator; paste the hash into `config.yaml`. Supports `--count N` for generating multiple candidates. Uses `secrets.choice` for cryptographically secure randomness. Added `config.py` and `generate_key.py` to script listings in `user-reference.md` and `guide.md`.

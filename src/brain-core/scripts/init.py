@@ -38,6 +38,7 @@ CLAUDE_LOCAL_MD_FILE = os.path.join(".claude", "CLAUDE.local.md")
 LOCAL_SETTINGS_FILE = os.path.join(".claude", "settings.local.json")
 BRAIN_CORE_MARKER = os.path.join(".brain-core", "VERSION")
 MCP_SERVER_REL = os.path.join(".brain-core", "mcp", "server.py")
+MCP_PROXY_REL = os.path.join(".brain-core", "mcp", "proxy.py")
 VENV_PYTHON_REL = os.path.join(".venv", "bin", "python")
 
 CLAUDE_MD_BOOTSTRAP = (
@@ -135,10 +136,11 @@ def _python_has_mcp(python_path: str) -> bool:
 
 def build_mcp_config(python_path: str, vault_root: Path) -> dict:
     """Build the MCP server JSON config for brain."""
+    proxy_script = str(vault_root / MCP_PROXY_REL)
     server_script = str(vault_root / MCP_SERVER_REL)
     return {
         "command": python_path,
-        "args": [server_script],
+        "args": [proxy_script, python_path, server_script],
         "env": {"BRAIN_VAULT_ROOT": str(vault_root)},
     }
 
@@ -254,6 +256,19 @@ def write_local_settings_json(server_config: dict, target_dir: Path) -> None:
 def write_user_claude_json(server_config: dict) -> None:
     """Write brain into ~/.claude.json (user scope)."""
     _upsert_mcp_server(Path.home() / ".claude.json", server_config)
+
+
+# ---------------------------------------------------------------------------
+# Scope recording
+# ---------------------------------------------------------------------------
+
+def _record_init_scope(vault_root: Path, scope: str, config_path: str):
+    """Record which scope init used, for future upgrade automation."""
+    local_dir = vault_root / ".brain" / "local"
+    local_dir.mkdir(parents=True, exist_ok=True)
+    scope_file = local_dir / "init-scope.json"
+    data = {"scope": scope, "config_path": config_path}
+    scope_file.write_text(json.dumps(data, indent=2) + "\n")
 
 
 # ---------------------------------------------------------------------------
@@ -400,6 +415,14 @@ def main() -> None:
 
     header("Registering MCP server")
     method = register_mcp(server_config, scope, target_dir)
+
+    if scope == "user":
+        config_path = str(Path.home() / ".claude.json")
+    elif scope == "local":
+        config_path = str((target_dir or Path.cwd()) / LOCAL_SETTINGS_FILE)
+    else:
+        config_path = str((target_dir or Path.cwd()) / MCP_CONFIG_FILE)
+    _record_init_scope(vault_root, scope, config_path)
 
     if target_dir:
         header("CLAUDE.md")

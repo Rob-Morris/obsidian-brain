@@ -784,28 +784,26 @@ class TestVersionCheck:
         server.startup(vault_root=str(vault))
         assert server._loaded_version == "0.7.0"
 
-    def test_no_reload_when_version_matches(self, initialized):
-        """_check_and_reload should be a no-op when version is unchanged."""
+    def test_no_exit_when_version_matches(self, initialized):
+        """_check_version_drift should be a no-op when version is unchanged."""
         old_version = server._loaded_version
-        server._check_and_reload()
+        server._check_version_drift()
         assert server._loaded_version == old_version
 
-    def test_exits_when_version_changes(self, initialized):
-        """_check_and_reload should raise RuntimeError and schedule exit when version differs."""
+    def test_exits_with_code_10_when_version_changes(self, initialized):
+        """_check_version_drift should call sys.exit(10) when version differs."""
         version_path = initialized / ".brain-core" / "VERSION"
         version_path.write_text("99.0.0\n")
-        with patch("os._exit"), patch("threading.Timer") as mock_timer:
-            with pytest.raises(RuntimeError, match="brain-core upgraded"):
-                server._check_and_reload()
-            mock_timer.assert_called_once_with(0.5, os._exit, args=(0,))
-            mock_timer.return_value.start.assert_called_once()
+        with pytest.raises(SystemExit) as exc_info:
+            server._check_version_drift()
+        assert exc_info.value.code == 10
 
-    def test_no_reload_when_version_file_missing(self, initialized):
-        """_check_and_reload should be a no-op if VERSION file is deleted."""
+    def test_no_exit_when_version_file_missing(self, initialized):
+        """_check_version_drift should be a no-op if VERSION file is deleted."""
         version_path = initialized / ".brain-core" / "VERSION"
         version_path.unlink()
         old_version = server._loaded_version
-        server._check_and_reload()
+        server._check_version_drift()
         assert server._loaded_version == old_version
 
 
@@ -862,22 +860,20 @@ class TestAtomicSave:
 
 class TestReloadRobustness:
     def test_version_drift_causes_clean_exit(self, initialized):
-        """Version drift should raise RuntimeError and schedule os._exit(0) for client restart."""
+        """Version drift should call sys.exit(10) for proxy restart."""
         version_path = initialized / ".brain-core" / "VERSION"
         version_path.write_text("99.0.0\n")
-        with patch("os._exit"), patch("threading.Timer") as mock_timer:
-            with pytest.raises(RuntimeError, match="brain-core upgraded"):
-                server._check_and_reload()
-            mock_timer.assert_called_once_with(0.5, os._exit, args=(0,))
-            mock_timer.return_value.start.assert_called_once()
+        with pytest.raises(SystemExit) as exc_info:
+            server._check_version_drift()
+        assert exc_info.value.code == 10
 
-    def test_check_and_reload_survives_read_error(self, initialized):
-        """_check_and_reload should not raise on version read errors."""
+    def test_check_version_drift_survives_read_error(self, initialized):
+        """_check_version_drift should not raise on version read errors."""
         version_path = initialized / ".brain-core" / "VERSION"
         version_path.write_text("99.0.0\n")
 
         with patch("server._read_disk_version", side_effect=Exception("unexpected")):
-            server._check_and_reload()  # should not raise
+            server._check_version_drift()  # should not raise
 
 
 class TestEnsureFreshRobustness:

@@ -241,7 +241,7 @@ def _refresh_cli_available():
 
 
 # ---------------------------------------------------------------------------
-# Version drift — reload script modules if brain-core was upgraded
+# Version drift — exit for proxy restart
 # ---------------------------------------------------------------------------
 
 VERSION_REL = os.path.join(".brain-core", "VERSION")
@@ -257,33 +257,28 @@ def _read_disk_version(vault_root: str) -> str | None:
         return None
 
 
-def _check_and_reload() -> None:
+_EXIT_VERSION_DRIFT = 10  # proxy.py interprets this exit code
+
+
+def _check_version_drift() -> None:
     """Exit if brain-core on disk has been upgraded.
 
-    Raises RuntimeError so the current tool call returns a meaningful error
-    to the MCP client, then schedules os._exit() after a short delay to give
-    the framework time to flush the response before the process terminates.
-    The MCP client will restart the server, loading the new code.
+    The MCP proxy will detect the exit code and relaunch the server
+    with new code. No RuntimeError, no timer race — just a clean exit.
     """
     if _vault_root is None or _loaded_version is None:
         return
     try:
         disk_version = _read_disk_version(_vault_root)
-    except Exception as e:
-        if _logger:
-            _logger.warning("version check failed: %s", e, exc_info=True)
+    except Exception:
         return
     if disk_version is None or disk_version == _loaded_version:
         return
     if _logger:
-        _logger.warning("version drift: %s -> %s, exiting for restart",
+        _logger.warning("version drift: %s -> %s, exiting for proxy restart",
                         _loaded_version, disk_version)
     _flush_log()
-    threading.Timer(0.5, os._exit, args=(0,)).start()
-    raise RuntimeError(
-        f"brain-core upgraded ({_loaded_version} → {disk_version}). "
-        "Server restarting — please retry."
-    )
+    sys.exit(_EXIT_VERSION_DRIFT)
 
 
 # ---------------------------------------------------------------------------
@@ -804,7 +799,7 @@ def brain_session(context: str | None = None, operator_key: str | None = None):
 
     with _trace_tool("brain_session", context=context, operator_key=operator_key):
         try:
-            _check_and_reload()
+            _check_version_drift()
             _ensure_router_fresh()
             _refresh_cli_available()
 
@@ -872,7 +867,7 @@ def brain_read(
     """
     with _trace_tool("brain_read", resource=resource, name=name):
         try:
-            _check_and_reload()
+            _check_version_drift()
             _ensure_router_fresh()
 
             denied = _enforce_profile("brain_read")
@@ -1012,7 +1007,7 @@ def brain_search(query: str,
     """
     with _trace_tool("brain_search", query=query, resource=resource, type=type, tag=tag):
         try:
-            _check_and_reload()
+            _check_version_drift()
             _ensure_router_fresh()
 
             denied = _enforce_profile("brain_search")
@@ -1089,7 +1084,7 @@ def brain_list(resource: Literal[
     """
     with _trace_tool("brain_list", resource=resource, type=type, since=since, tag=tag):
         try:
-            _check_and_reload()
+            _check_version_drift()
             _ensure_router_fresh()
 
             denied = _enforce_profile("brain_list")
@@ -1179,7 +1174,7 @@ def brain_create(type: str = "", title: str = "", body: str = "", body_file: str
     """
     with _trace_tool("brain_create", resource=resource, type=type, title=title, name=name):
         try:
-            _check_and_reload()
+            _check_version_drift()
             _ensure_router_fresh()
 
             denied = _enforce_profile("brain_create")
@@ -1267,7 +1262,7 @@ def brain_edit(operation: Literal["edit", "append", "prepend", "delete_section"]
     """
     with _trace_tool("brain_edit", resource=resource, operation=operation, path=path, name=name, target=target):
         try:
-            _check_and_reload()
+            _check_version_drift()
             _ensure_router_fresh()
 
             denied = _enforce_profile("brain_edit")
@@ -1365,7 +1360,7 @@ def brain_action(
 
     with _trace_tool("brain_action", action=action, params=params):
         try:
-            _check_and_reload()
+            _check_version_drift()
 
             denied = _enforce_profile("brain_action")
             if denied:
@@ -1682,7 +1677,7 @@ def brain_process(
 
     with _trace_tool("brain_process", operation=operation):
         try:
-            _check_and_reload()
+            _check_version_drift()
             _ensure_router_fresh()
             _ensure_index_fresh()
             _ensure_embeddings_fresh()
