@@ -10,6 +10,16 @@ dev = [
     "pytest>=9.0",
 ]
 
+[tool.interrogate]
+paths = ["src/brain-core/scripts"]
+ignore-init-method = true
+ignore-init-module = true
+ignore-magic = true
+ignore-semiprivate = true
+ignore-private = true
+fail-under = 60
+verbose = 1
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = [
