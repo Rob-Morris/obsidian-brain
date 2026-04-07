@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.23.1 — 2026-04-07
+
+**scripts/README.md added.** Co-located functional-layer doc for the scripts directory. Covers the module table (all 24 scripts with purpose and CLI usage), dependency graph (which scripts import `_common`, which are standalone), shared patterns (`--json` flag, `--vault`/`find_vault_root()`, `main()` entry point), and the rule for adding new operations.
+
 ## v0.23.0 — 2026-04-07
 
 **MCP proxy wrapper.** A thin stdio proxy (`proxy.py`) now sits between Claude Code and the brain MCP server. Upgrades no longer kill the MCP connection — the proxy detects the server's version-drift exit, relaunches it with new code, and replays the initialize handshake. Crash recovery with exponential backoff (0, 4, 8, 16, 32s) handles transient failures automatically. Proxy drift detection prompts users to restart via `/mcp` when the proxy itself is upgraded.
