@@ -1,6 +1,6 @@
 # Obsidian Brain
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.23.2-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.10-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.23.3-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.10-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
 
 A self-evolving knowledge base for agents and humans working together on what matters.
 
@@ -88,11 +88,12 @@ Skips all prompts. Useful for scripted or agent-driven installs. On uninstall, `
 If you prefer to do it yourself:
 
 1. Clone this repo: `git clone https://github.com/robmorris/obsidian-brain.git`
-2. Copy `template-vault/` to your preferred location: `cp -RL template-vault ~/brain` (the `-L` flag resolves the `.brain-core` symlink)
-3. Create a venv and install dependencies: `cd ~/brain && python3 -m venv .venv && .venv/bin/pip install "mcp>=1.0.0"`
-4. Register the MCP server: `python3 .brain-core/scripts/init.py` (or `--user` for all projects)
-5. Open the folder as an Obsidian vault
-6. Enable the CSS snippet in **Settings > Appearance > CSS Snippets** (`brain-folder-colours`)
+2. Copy `template-vault/` to your preferred location: `cp -R template-vault ~/brain`
+3. Copy brain-core into the vault: `cp -R src/brain-core ~/brain/.brain-core`
+4. Create a venv and install dependencies: `cd ~/brain && python3 -m venv .venv && .venv/bin/pip install "mcp>=1.0.0"`
+5. Register the MCP server: `python3 .brain-core/scripts/init.py` (or `--user` for all projects)
+6. Open the folder as an Obsidian vault
+7. Enable the CSS snippet in **Settings > Appearance > CSS Snippets** (`brain-folder-colours`)
 
 </details>
 

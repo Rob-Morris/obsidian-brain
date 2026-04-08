@@ -23,3 +23,6 @@ CLAUDE.local.md
 # Test/tool artefacts
 .coverage
 .mcp.json
+
+# Dev-only symlink (created by `make dev-link`)
+template-vault/.brain-core

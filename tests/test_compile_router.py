@@ -114,6 +114,8 @@ def template_vault():
     path = os.path.abspath(TEMPLATE_VAULT)
     if not os.path.isdir(path):
         pytest.skip("template-vault not found")
+    if not os.path.isdir(os.path.join(path, ".brain-core")):
+        pytest.skip(".brain-core not linked — run 'make dev-link'")
     return path
 
 
