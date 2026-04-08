@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.23.3 — 2026-04-08
+
+**Fix version-drift exit code for proxy restart.** `SystemExit(10)` from `_check_version_drift()` was caught by the `except BaseException` handler in `main()`, which fell through to `_shutdown()` — overwriting exit code 10 with 0. The proxy saw a clean exit and shut down instead of restarting. Now `SystemExit` is re-raised before the general handler runs, preserving the exit code for the proxy.
+
 ## v0.23.2 — 2026-04-08
 
 **Wiki topic cluster guidance.** Wiki taxonomy now documents the master/sub-artefact subfolder convention for organising related wiki pages. Adds a Topic Clusters section covering when to split pages, how sub-pages are named (prefixed with parent topic), and the subfolder layout. Naming section updated with sub-page path examples.

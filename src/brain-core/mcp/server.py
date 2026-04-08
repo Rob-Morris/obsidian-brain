@@ -1787,15 +1787,19 @@ def main():
 
     try:
         mcp.run(transport="stdio")
+    except SystemExit:
+        # Preserve exit code (e.g. 10 for version drift) so the proxy
+        # can distinguish planned restarts from crashes.
+        _flush_log()
+        raise
     except BaseException as e:
-        if not isinstance(e, SystemExit):
-            if _logger:
-                _logger.error("unexpected error: %s", e, exc_info=True)
-                _flush_log()
-            else:
-                print(f"brain-core unexpected error: {e}", file=sys.stderr)
-                print(traceback.format_exc(), file=sys.stderr)
-            sys.exit(1)
+        if _logger:
+            _logger.error("unexpected error: %s", e, exc_info=True)
+            _flush_log()
+        else:
+            print(f"brain-core unexpected error: {e}", file=sys.stderr)
+            print(traceback.format_exc(), file=sys.stderr)
+        sys.exit(1)
 
     _shutdown("stdin closed")
 
