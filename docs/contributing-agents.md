@@ -8,7 +8,7 @@ Agent-specific guidance for working on brain-core. Read [contributing.md](contri
 
 - **User layer** (`user/`) — how to use the system: `user/getting-started.md`, `user/system-guide.md`, `user/template-library-guide.md`, `user/workflows.md`
 - **Functional layer** (`functional/`) — what it does: `functional/mcp-tools.md`, `functional/scripts.md`, `functional/config.md`
-- **Architectural layer** (`architecture/`) — how and why it's built this way: `architecture/overview.md`, `architecture/decisions/`
+- **Architectural layer** (`architecture/`) — how and why it's built this way: `architecture/overview.md`, `architecture/documentation-philosophy.md`, `architecture/decisions/`
 
 ## When to Update Which Layer
 

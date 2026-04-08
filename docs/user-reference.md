@@ -1,6 +1,6 @@
 # Brain Reference
 
-Complete reference for every artefact type, convention, configuration point, and system in a Brain vault. For a walkthrough of how to use the Brain day-to-day, see the [User Guide](user-guide.md).
+Complete reference for every artefact type, convention, configuration point, and system in a Brain vault. For a walkthrough of how to use the Brain day-to-day, see [Getting Started](user/getting-started.md) and [Workflows](user/workflows.md).
 
 ---
 
@@ -265,17 +265,3 @@ Configured in `_Config/Styles/writing.md`. Default conventions:
 8. Show, don't tell — concrete detail persuades
 9. Every sentence earns its place; stop when done
 10. Lead each sentence with the important thing; push setup to the end
-
----
-
-## Maintaining This Guide
-
-This guide should be updated when:
-
-- **New artefact types** are added to the template vault defaults or the artefact library
-- **Core conventions change** — naming patterns, frontmatter rules, filing conventions
-- **Workflows are added or modified** — new graduation paths, changed archiving rules
-- **New user-facing tooling** is introduced — new MCP tools, scripts, or skills
-- **Configuration points change** — new config files, changed file locations
-
-The [User Guide](user-guide.md) and [Quick-Start Guide](../src/brain-core/guide.md) (`src/brain-core/guide.md`) should be updated in tandem.

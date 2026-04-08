@@ -26,7 +26,7 @@ Adding a new numbered item to the canary file automatically enforces it — no h
 
 ## Documentation Layers
 
-Brain has multiple documentation layers, each serving a different audience. Keeping them in sync is the single biggest maintenance challenge — most documentation bugs come from updating one layer but not others.
+Brain has multiple documentation layers, each serving a different audience. For the reasoning behind this structure, see [Documentation Philosophy](architecture/documentation-philosophy.md). Keeping them in sync is the single biggest maintenance challenge — most documentation bugs come from updating one layer but not others.
 
 ### User-facing docs (in `docs/`)
 
@@ -137,7 +137,7 @@ obsidian-brain/
 ├── docs/
 │   ├── user/                    # user-facing docs (getting-started, workflows, system-guide, template-library)
 │   ├── functional/              # functional specs (mcp-tools, scripts, config)
-│   ├── architecture/            # architectural docs (overview, decisions/, security)
+│   ├── architecture/            # architectural docs (overview, documentation-philosophy, decisions/, security)
 │   ├── user-reference.md        # full reference for all types and conventions
 │   ├── tooling.md               # redirect → functional/ and architecture/decisions/
 │   ├── changelog.md             # version history

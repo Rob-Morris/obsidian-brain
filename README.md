@@ -1,10 +1,6 @@
 # Obsidian Brain
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-0.23.1-blue)
-![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED)
-![Python](https://img.shields.io/badge/python-≥3.10-3776AB?logo=python&logoColor=white)
-![MCP](https://img.shields.io/badge/MCP-server-green?logo=data:image/svg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0id2hpdGUiPjxwYXRoIGQ9Ik0xMiAyQzYuNDggMiAyIDYuNDggMiAxMnM0LjQ4IDEwIDEwIDEwIDEwLTQuNDggMTAtMTBTMTcuNTIgMiAxMiAyem0wIDE4Yy00LjQyIDAtOC0zLjU4LTgtOHMzLjU4LTggOC04IDggMy41OCA4IDgtMy41OCA4LTggOHptLTEtMTNoMnY2aC0yem0wIDhoMnYyaC0yeiIvPjwvc3ZnPg==)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.23.1-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.10-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
 
 A self-evolving knowledge base for agents and humans working together on what matters.
 
@@ -31,43 +27,23 @@ All vault content is an **artefact**, either **living** (evolves over time; curr
 
 The **router** (`_Config/router.md`) is the single file agents read every session. It lists artefact types, workflow triggers, and links to configuration. **Taxonomy** files (`_Config/Taxonomy/`) describe each type in detail; agents read only the types they need.
 
-The [User Guide](docs/user-guide.md) walks through all of this with examples.
+The [Getting Started guide](docs/user/getting-started.md) walks through all of this with examples.
 
 ## Quick Start
 
-1. **Install [prerequisites](#prerequisites)**
-2. **Create your vault.** Run the [install command](#install) below.
-3. **Open as a vault in Obsidian.** Select the folder you created in step 2, then enable the `brain-folder-colours` CSS snippet in Obsidian's Settings > Appearance > CSS Snippets.
-4. **Connect your agent.** Open your agent in the vault folder, or register the MCP server for other directories (see [Connecting from other projects](#connecting-from-other-projects)).
+**You need:** git, Python 3.10+, and an MCP-capable agent ([Claude Code](https://docs.anthropic.com/en/docs/claude-code), etc.). [Obsidian](https://obsidian.md) is strongly recommended — the brain is designed for it — but you can use any markdown editor or just talk to your agent directly.
 
-That's it. Start talking. The agent reads the vault structure and knows what to do. See [A Day in the Life](docs/user-guide.md#a-day-in-the-life) for what working with the brain looks like in practice.
-
-### Prerequisites
-
-- [Obsidian](https://obsidian.md)
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (or any MCP-capable agent)
-- Python 3.10+ (recommended; the installer works without it but skips MCP server setup)
-- git
-
-### Install
-
-Run this from any terminal. It downloads the repo, creates a vault, installs dependencies, and registers the MCP server:
-
-```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/robmorris/obsidian-brain/main/install.sh)
-```
-
-The script will ask where to create the vault (defaults to the current directory). You can also pass the path directly:
+**Create your vault:**
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/robmorris/obsidian-brain/main/install.sh) ~/brain
 ```
 
-If you've already cloned the repo, run the install script directly. It will use local files instead of downloading:
+This downloads the repo, creates the vault at `~/brain`, installs dependencies, and registers the MCP server. Run without a path to be prompted for a location. From a local clone, use `bash install.sh ~/brain` instead.
 
-```bash
-bash install.sh ~/brain
-```
+**Open in Obsidian (recommended):** Open the vault folder, then enable the `brain-folder-colours` CSS snippet in Settings > Appearance > CSS Snippets.
+
+**Start talking:** Open your agent in the vault folder (e.g. `cd ~/brain && claude` for Claude Code). It reads the vault structure and knows what to do. See [Workflows](docs/user/workflows.md) for what working with the brain looks like in practice.
 
 #### Upgrade
 
@@ -104,7 +80,7 @@ bash install.sh --uninstall --force ~/brain
 
 Skips all prompts. Useful for scripted or agent-driven installs. On uninstall, `--force` only skips the system-files prompt; vault deletion always requires interactive confirmation.
 
-> **Full reference:** [docs/tooling.md — install.sh](docs/tooling.md#installsh) covers all flags, safety guards, and edge-case behaviour.
+> **Full reference:** [Scripts — install.sh](docs/functional/scripts.md#installsh) covers all flags, safety guards, and edge-case behaviour.
 
 <details>
 <summary>Fully manual setup</summary>
@@ -122,15 +98,17 @@ If you prefer to do it yourself:
 
 ### Connecting from Other Projects
 
-The install script registers the MCP server for the vault directory. To connect your agent from other directories:
+The install script registers the MCP server for the vault directory. To use the brain from other directories, run one of these from inside the vault:
 
 ```bash
-# Make the brain available to all projects
+# Make the brain available to all projects (adds to ~/.claude/settings.json)
 python3 .brain-core/scripts/init.py --user
 
-# Or link a specific project
+# Or link a specific project (creates .mcp.json in the target directory)
 python3 .brain-core/scripts/init.py --project /path/to/project
 ```
+
+Use `--user` if you want the brain everywhere. Use `--project` to connect a single project without affecting others.
 
 ### Hello, Is It Me You're Looking For?
 
@@ -149,11 +127,27 @@ python3 .brain-core/scripts/init.py --project /path/to/project
 
 ## Documentation
 
-- [Quick-Start Guide](src/brain-core/guide.md) — day-to-day essentials (ships as `.brain-core/guide.md` in vaults)
-- [User Guide](docs/user-guide.md) — workflows, idea adoption, building knowledge
-- [User Reference](docs/user-reference.md) — every artefact type, configuration point, and convention
-- [Tooling](docs/tooling.md) — scripts, MCP server, development setup
-- [Specification](docs/specification.md) — design rationale and structural decisions
+Docs are organised into three layers so you can find what you need quickly. The **user** layer covers how to use the brain — start here. The **functional** layer is the exact specification of each tool, script, and config option. The **architectural** layer explains why things are built the way they are. Functional docs also live alongside the code in `src/brain-core/`, which ships inside your vault, where agents naturally find and maintain them.
+
+**Using the Brain:**
+
+- [Getting Started](docs/user/getting-started.md) — installation, first vault, orientation
+- [Workflows](docs/user/workflows.md) — day-to-day usage patterns
+- [System Guide](docs/user/system-guide.md) — artefact lifecycle, frontmatter, statuses
+- [Template Library](docs/user/template-library-guide.md) — what ships, what each type is for
+- [Quick-Start Guide](src/brain-core/guide.md) — in-vault cheat sheet (ships as `.brain-core/guide.md`)
+
+**Reference:**
+
+- [MCP Tools](docs/functional/mcp-tools.md) — tool specifications
+- [Scripts](docs/functional/scripts.md) — script reference
+- [Config](docs/functional/config.md) — configuration profiles and environment
+- [User Reference](docs/user-reference.md) — configuration points, colour system, writing style
 - [Plugins](docs/plugins.md) — install and write plugins
+
+**Architecture:**
+
+- [Specification](docs/specification.md) — design rationale and structural decisions
+- [Architecture Overview](docs/architecture/overview.md) — components, data flow, boundaries
 - [Changelog](docs/changelog.md) — version history
 - [Contributing](docs/contributing.md) — contributor guide (general + [agent-specific](docs/contributing-agents.md))

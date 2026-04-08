@@ -18,6 +18,7 @@ Router for brain-core's development documentation.
 ## Architectural Layer — How/Why It's Built This Way
 
 - [Architecture Overview](architecture/overview.md) — system architecture: components, data flow, boundaries
+- [Documentation Philosophy](architecture/documentation-philosophy.md) — why docs are structured in three composable layers
 - [Design Decisions](architecture/decisions/) — decision index + per-decision records
 - [Security](architecture/security.md) — path boundary model, privilege split, write guards
 
