@@ -585,3 +585,74 @@ class TestRegressions:
         result = sync.sync_definitions(str(vault))
         assert "brain_core_version" in result
         assert result["brain_core_version"] == "1.0.0"
+
+
+# ---------------------------------------------------------------------------
+# Template vault integration — catches drift between brain-core and template
+# ---------------------------------------------------------------------------
+
+TEMPLATE_VAULT = os.path.join(
+    os.path.dirname(__file__), "..", "template-vault"
+)
+
+
+class TestTemplateVaultSync:
+    """Verify the template vault's definitions match brain-core.
+
+    If this test fails, run ``make sync-template`` to update the template
+    vault, then commit the result.
+    """
+
+    @pytest.fixture
+    def template_vault(self):
+        path = os.path.abspath(TEMPLATE_VAULT)
+        if not os.path.isdir(path):
+            pytest.skip("template-vault not found")
+        if not os.path.isdir(os.path.join(path, ".brain-core")):
+            pytest.skip(".brain-core not linked — run 'make dev-link'")
+        return path
+
+    def test_no_drift(self, template_vault):
+        """All installed definitions should be in sync with brain-core."""
+        result = sync.sync_definitions(
+            template_vault, dry_run=True, force=True
+        )
+        collisions = [
+            w for w in result.get("warnings", [])
+            if w.get("action") == "collision"
+        ]
+        updates = [
+            u for u in result.get("updated", [])
+            if u.get("action") in ("collision", "update", "new")
+        ]
+        drift = collisions + updates
+        if drift:
+            files = "\n  ".join(
+                d.get("target", d.get("type", "?")) for d in drift
+            )
+            pytest.fail(
+                f"Template vault has {len(drift)} drifted definition(s). "
+                f"Run `make sync-template` to fix:\n  {files}"
+            )
+
+    def test_default_types_installed(self, template_vault):
+        """Every default artefact type should have its files in the vault."""
+        library_types = sync.discover_library_types(template_vault)
+        for t in library_types:
+            manifest = t["manifest"]
+            type_key = t["type_key"]
+            # Check at least one target file exists
+            has_file = any(
+                os.path.isfile(
+                    os.path.join(template_vault, fi["target"])
+                )
+                for fi in manifest["files"].values()
+            )
+            if not has_file:
+                continue  # non-default, not installed — fine
+            # If installed, ALL files must exist
+            for role, fi in manifest["files"].items():
+                target = os.path.join(template_vault, fi["target"])
+                assert os.path.isfile(target), (
+                    f"{type_key}/{role} missing: {fi['target']}"
+                )

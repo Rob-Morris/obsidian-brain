@@ -99,14 +99,17 @@ Archiving uses `brain_action("archive")` which moves artefacts to a top-level `_
 - `Writing/` — long-form written works with lifecycle
 
 **Temporal artefacts:**
+- `_Temporal/Bug Logs/` — point-in-time records of broken behaviour
 - `_Temporal/Captures/` — external material ingested verbatim
 - `_Temporal/Cookies/` — user satisfaction tracking
-- `_Temporal/Ingestions/` — processing records for content decomposition
 - `_Temporal/Decision Logs/` — reasoning behind choices
 - `_Temporal/Friction Logs/` — signal accumulator for friction: missing context, inconsistencies, suboptimal outcomes
+- `_Temporal/Ingestions/` — processing records for content decomposition
 - `_Temporal/Logs/` — daily activity logs
+- `_Temporal/Mockups/` — visual or interactive prototypes
 - `_Temporal/Observations/` — timestamped facts and things noticed
 - `_Temporal/Plans/` — pre-work plans
+- `_Temporal/Presentations/` — slide decks (Marp)
 - `_Temporal/Reports/` — distilled findings from detailed processes
 - `_Temporal/Research/` — investigation notes
 - `_Temporal/Shaping Transcripts/` — Q&A refinement sessions
@@ -120,6 +123,6 @@ Archiving uses `brain_action("archive")` which moves artefacts to a top-level `_
 - `_Plugins/` — empty, ready for plugins
 - `_Workspaces/` — workspace data bucket (infrastructure)
 
-Additional types are available in the artefact library (`.brain-core/artefact-library/`) for install as needed: Wiki, Journals, Zettelkasten (living); Bug Logs, Idea Logs, Journal Entries, Mockups, Presentations (temporal).
+Additional types are available in the artefact library (`.brain-core/artefact-library/`) for install as needed: Wiki, Journals, Zettelkasten (living); Idea Logs, Journal Entries (temporal).
 
-The starter vault ships 24 defaults (10 living + 14 temporal) out of 32 in the library.
+The starter vault ships 27 defaults (10 living + 17 temporal) out of 32 in the library.

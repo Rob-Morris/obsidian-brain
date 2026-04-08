@@ -14,7 +14,7 @@ When connecting vault artefacts to an external bounded container of working file
 
 ## Naming
 
-`{name}.md` in `Workspaces/`.
+`{Title}.md` in `Workspaces/`.
 
 Example: `Workspaces/yearly-taxes-2026.md`
 

@@ -86,6 +86,8 @@ def template_vault():
     path = os.path.abspath(TEMPLATE_VAULT)
     if not os.path.isdir(path):
         pytest.skip("template-vault not found")
+    if not os.path.isdir(os.path.join(path, ".brain-core")):
+        pytest.skip(".brain-core not linked — run 'make dev-link'")
     return path
 
 
@@ -420,9 +422,9 @@ class TestTemplateVault:
         router = _load_router(template_vault)
         assignments = cc.compute_colours(router)
 
-        # Template vault has 9 living + 14 temporal types
-        assert len(assignments["living"]) == 9
-        assert len(assignments["temporal"]) == 14
+        # Template vault has 10 living + 17 temporal types
+        assert len(assignments["living"]) == 10
+        assert len(assignments["temporal"]) == 17
 
         # All should have valid hex colours
         for a in assignments["living"]:

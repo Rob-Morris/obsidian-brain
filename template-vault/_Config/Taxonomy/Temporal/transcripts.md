@@ -4,7 +4,7 @@ Temporal artefact. Conversation transcripts.
 
 ## Purpose
 
-A record of a conversation — with a person, an AI, or during a Q&A refinement session. Captures the exchange as it happened, bound to the moment it occurred.
+A record of a conversation — with a person, an AI, or during a meeting. Captures the exchange as it happened, bound to the moment it occurred. For Q&A sessions that refine a specific artefact, use Shaping Transcripts instead.
 
 ## How to Write Transcripts
 
@@ -31,7 +31,7 @@ tags:
 
 ## Trigger
 
-After a conversation worth preserving, capture it as a transcript.
+After a conversation worth preserving — with a person, an AI, or during a meeting — capture it as a transcript. For Q&A sessions that refine a specific artefact, use Shaping Transcripts instead.
 
 ## Template
 

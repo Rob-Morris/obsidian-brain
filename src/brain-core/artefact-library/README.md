@@ -34,7 +34,7 @@ The template vault ships with a curated set of defaults (marked below). This lib
 | [Decision Logs](temporal/decision-logs/) | `decision-logs` | Point-in-time records of decisions — captures the "why" behind choices. **Template vault default.** |
 | [Shaping Transcripts](temporal/shaping-transcripts/) | `shaping-transcripts` | Q&A refinement transcripts tied to a source artefact. **Template vault default.** |
 | [Friction Logs](temporal/friction-logs/) | `friction-logs` | Signal accumulator — logs friction: missing context, inconsistencies, suboptimal outcomes. **Template vault default.** |
-| [Bug Logs](temporal/bug-logs/) | `bug-logs` | Point-in-time records of broken behaviour — correctness failures that need resolution. |
+| [Bug Logs](temporal/bug-logs/) | `bug-logs` | Point-in-time records of broken behaviour — correctness failures that need resolution. **Template vault default.** |
 | [Idea Logs](temporal/idea-logs/) | `idea-logs` | Quick idea captures in rough form. |
 | [Research](temporal/research/) | `research` | In-depth research notes on specific topics. **Template vault default.** |
 | [Thoughts](temporal/thoughts/) | `thoughts` | Raw, unformed thinking captured in the moment. **Template vault default.** |
@@ -42,11 +42,11 @@ The template vault ships with a curated set of defaults (marked below). This lib
 | [Snippets](temporal/snippets/) | `snippets` | Short, crafted content pieces derived from existing work. **Template vault default.** |
 | [Cookies](temporal/cookies/) | `cookies` | A measure of user satisfaction — awarded when work lands well. **Template vault default.** |
 | [Journal Entries](temporal/journal-entries/) | `journal-entries` | Personal journal entries — reflections, recollections, and life updates. |
-| [Mockups](temporal/mockups/) | `mockups` | Visual or interactive prototypes generated to explore a design direction. |
+| [Mockups](temporal/mockups/) | `mockups` | Visual or interactive prototypes generated to explore a design direction. **Template vault default.** |
 | [Observations](temporal/observations/) | `observations` | Timestamped facts, impressions, and things noticed. Low bar for capture. **Template vault default.** |
 | [Captures](temporal/captures/) | `captures` | External material ingested verbatim — emails, meeting notes, data extracts. Frozen on ingest. **Template vault default.** |
 | [Ingestions](temporal/ingestions/) | `ingestions` | Processing records for content decomposition — links captures to created artefacts. **Template vault default.** |
-| [Presentations](temporal/presentations/) | `presentations` | Slide decks generated from markdown using Marp CLI. Source is markdown; output is PDF. |
+| [Presentations](temporal/presentations/) | `presentations` | Slide decks generated from markdown using Marp CLI. Source is markdown; output is PDF. **Template vault default.** |
 
 ## Choosing a Knowledge Type
 

@@ -1,0 +1,199 @@
+/* @theme brain */
+@import 'default';
+
+/* ---------------------------------------------------------------------------
+   Typography
+   --------------------------------------------------------------------------- */
+
+section {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen,
+    Ubuntu, Cantarell, sans-serif;
+  font-size: 18pt;
+  line-height: 1.5;
+  color: #2d2d2d;
+  background: #ffffff;
+  padding: 40px 60px;
+}
+
+section h1 {
+  font-size: 36pt;
+  font-weight: 700;
+  color: #1a1a2e;
+  margin-bottom: 0.4em;
+}
+
+section h2 {
+  font-size: 28pt;
+  font-weight: 600;
+  color: #1a1a2e;
+  border-bottom: 2px solid #16a085;
+  padding-bottom: 0.2em;
+  margin-bottom: 0.6em;
+}
+
+section h3 {
+  font-size: 22pt;
+  font-weight: 600;
+  color: #333;
+}
+
+section p,
+section li {
+  font-size: 18pt;
+  line-height: 1.6;
+}
+
+section li {
+  margin-bottom: 0.3em;
+}
+
+section code {
+  font-size: 16pt;
+  background: #f4f4f4;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+section pre {
+  font-size: 16pt;
+  background: #f8f8f8;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  padding: 16px;
+}
+
+/* ---------------------------------------------------------------------------
+   Title slide
+   --------------------------------------------------------------------------- */
+
+section.title {
+  background: #1a1a2e;
+  color: #ffffff;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+}
+
+section.title h1 {
+  color: #ffffff;
+  font-size: 42pt;
+  border-bottom: 3px solid #16a085;
+  padding-bottom: 0.3em;
+}
+
+section.title h2 {
+  color: #16a085;
+  font-size: 24pt;
+  border-bottom: none;
+  font-weight: 400;
+}
+
+section.title p,
+section.title strong {
+  color: #cccccc;
+  font-size: 18pt;
+}
+
+/* ---------------------------------------------------------------------------
+   Tables
+   --------------------------------------------------------------------------- */
+
+section table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 16pt;
+  margin: 1em 0;
+}
+
+section table th {
+  background: #1a1a2e;
+  color: #ffffff;
+  padding: 10px 14px;
+  text-align: left;
+  font-weight: 600;
+}
+
+section table td {
+  padding: 8px 14px;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+section table tr:nth-child(even) td {
+  background: #f9f9f9;
+}
+
+/* ---------------------------------------------------------------------------
+   Callout classes
+   --------------------------------------------------------------------------- */
+
+section .warning {
+  border-left: 4px solid #e74c3c;
+  background: #fdf2f2;
+  padding: 12px 16px;
+  border-radius: 4px;
+  margin: 1em 0;
+}
+
+section .info {
+  border-left: 4px solid #3498db;
+  background: #f0f7fd;
+  padding: 12px 16px;
+  border-radius: 4px;
+  margin: 1em 0;
+}
+
+section .caution {
+  border-left: 4px solid #f39c12;
+  background: #fef9f0;
+  padding: 12px 16px;
+  border-radius: 4px;
+  margin: 1em 0;
+}
+
+/* ---------------------------------------------------------------------------
+   Risk colours
+   --------------------------------------------------------------------------- */
+
+section .risk-critical {
+  color: #e74c3c;
+  font-weight: 700;
+}
+
+section .risk-high {
+  color: #e67e22;
+  font-weight: 700;
+}
+
+section .risk-medium {
+  color: #f39c12;
+  font-weight: 600;
+}
+
+/* ---------------------------------------------------------------------------
+   Card layout
+   --------------------------------------------------------------------------- */
+
+section .cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 16px;
+  margin: 1em 0;
+}
+
+section .cards > * {
+  background: #f8f8f8;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+/* ---------------------------------------------------------------------------
+   Footer and page number
+   --------------------------------------------------------------------------- */
+
+section::after {
+  font-size: 12pt;
+  color: #999;
+}

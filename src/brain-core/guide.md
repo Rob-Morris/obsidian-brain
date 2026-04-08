@@ -62,14 +62,17 @@ Pick the artefact type that fits, create the file in the right folder with the r
 | Task | `Tasks/` | `{Title}.md` |
 | Workspace | `Workspaces/` | `{Title}.md` |
 | Writing | `Writing/` | `{Title}.md` |
+| Bug log | `_Temporal/Bug Logs/yyyy-mm/` | `yyyymmdd-bug~{Title}.md` |
 | Capture | `_Temporal/Captures/yyyy-mm/` | `yyyymmdd-capture~{Title}.md` |
 | Cookie | `_Temporal/Cookies/yyyy-mm/` | `yyyymmdd-cookie~{Title}.md` |
 | Ingestion | `_Temporal/Ingestions/yyyy-mm/` | `yyyymmdd-ingestion~{Title}.md` |
 | Decision log | `_Temporal/Decision Logs/yyyy-mm/` | `yyyymmdd-decision~{Title}.md` |
 | Friction log | `_Temporal/Friction Logs/yyyy-mm/` | `yyyymmdd-friction~{Title}.md` |
 | Log entry | `_Temporal/Logs/yyyy-mm/` | `yyyymmdd-log.md` |
+| Mockup | `_Temporal/Mockups/yyyy-mm/` | `yyyymmdd-mockup~{Title}.md` |
 | Observation | `_Temporal/Observations/yyyy-mm/` | `yyyymmdd-observation~{Title}.md` |
 | Plan | `_Temporal/Plans/yyyy-mm/` | `yyyymmdd-plan~{Title}.md` |
+| Presentation | `_Temporal/Presentations/yyyy-mm/` | `yyyymmdd-presentation~{Title}.md` |
 | Report | `_Temporal/Reports/yyyy-mm/` | `yyyymmdd-report~{Title}.md` |
 | Research | `_Temporal/Research/yyyy-mm/` | `yyyymmdd-research~{Title}.md` |
 | Shaping transcript | `_Temporal/Shaping Transcripts/yyyy-mm/` | `yyyymmdd-shaping-transcript~{Title}.md` |
@@ -77,7 +80,7 @@ Pick the artefact type that fits, create the file in the right folder with the r
 | Thought | `_Temporal/Thoughts/yyyy-mm/` | `yyyymmdd-thought~{Title}.md` |
 | Transcript | `_Temporal/Transcripts/yyyy-mm/` | `yyyymmdd-transcript~{Title}.md` |
 
-Additional types available from the artefact library: Wiki, Journals, Zettelkasten (living); Bug Logs, Idea Logs, Journal Entries, Mockups, Presentations (temporal).
+Additional types available from the artefact library: Wiki, Journals, Zettelkasten (living); Idea Logs, Journal Entries (temporal).
 
 Every file needs frontmatter with at least `type` and `tags`:
 

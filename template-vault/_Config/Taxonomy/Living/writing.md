@@ -20,15 +20,14 @@ When crafting a self-contained piece of written work — essay, post, chapter, l
 | `published` | Released or delivered. Stays as canonical source. |
 | `parked` | Set aside — not abandoned, but not being worked on. |
 
-## Publishing
+## Terminal Status
 
-When a piece reaches `published` status:
+When a piece reaches `published` status, `brain_edit` automatically moves it to `Writing/+Published/`. Additional steps before or after the move:
 
-1. Set `status: published` in frontmatter
-2. Add `publisheddate: YYYY-MM-DD` to frontmatter
-3. Rename the file to `yyyymmdd-{slug}.md` using `brain_action("rename")` — this updates all wikilinks vault-wide automatically
-4. Move the file to `Writing/+Published/`
-5. Companion files (HTML pastes, exports) move alongside the main file and keep the same prefix
+1. Add `publisheddate: YYYY-MM-DD` to frontmatter
+2. Optionally date-prefix the filename (`yyyymmdd-{slug}.md`) using `brain_action("rename")`
+
+Published writing remains searchable and indexed in `+Published/`. Companion files (HTML pastes, exports) belong in `Assets/Attachments/` or `Assets/Generated/`, not alongside the writing file.
 
 ## Archiving
 
@@ -38,7 +37,7 @@ Published writing that has been superseded (e.g. a rewrite exists elsewhere):
 2. Add a supersession callout linking to the successor
 3. Move the file from `+Published/` to `_Archive/`
 
-The status stays `published` — archiving is an action, not a status. Published writing that remains canonical stays in `+Published/`.
+The status stays `published` — archiving is an action, not a status.
 
 ## Naming
 

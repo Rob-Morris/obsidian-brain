@@ -11,5 +11,8 @@ Conditional:
 - When ingesting external material → [[_Config/Taxonomy/Temporal/captures]]
 - When ingesting content that warrants decomposition → [[_Config/Taxonomy/Temporal/ingestions]]
 - After completing a detailed process → [[_Config/Taxonomy/Temporal/reports]]
+- When encountering something that is objectively broken or producing wrong output → [[_Config/Taxonomy/Temporal/bug-logs]]
+- When exploring a visual design direction → [[_Config/Taxonomy/Temporal/mockups]]
+- When creating a presentation or slide deck → [[_Config/Taxonomy/Temporal/presentations]]
 - When working via MCP from an external project → [[.brain-core/skills/brain-remote/SKILL]]
 - When the user references a project, tool, or concept and you lack context → [[_Config/Memories/README]]

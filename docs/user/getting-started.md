@@ -112,7 +112,7 @@ You won't have all of these on day one. Types get added as you need them. The va
 
 ### Starting Small
 
-A new Brain vault ships with a practical starter set: Daily Notes, Designs, Documentation, Ideas, Notes, People, Projects, Tasks, Workspaces, Writing (living); Captures, Cookies, Decision Logs, Friction Logs, Logs, Observations, Plans, Reports, Research, Shaping Transcripts, Snippets, Thoughts, Transcripts (temporal). That covers the core workflows — capturing knowledge, designing and documenting, tracking people and projects, managing tasks, managing workspaces, writing, logging activity, recording decisions and observations, ingesting external material, refining artefacts, logging friction, capturing raw thinking, and rewarding good work. You can add more types from the library as you need them.
+A new Brain vault ships with a practical starter set: Daily Notes, Designs, Documentation, Ideas, Notes, People, Projects, Tasks, Workspaces, Writing (living); Bug Logs, Captures, Cookies, Decision Logs, Friction Logs, Ingestions, Logs, Mockups, Observations, Plans, Presentations, Reports, Research, Shaping Transcripts, Snippets, Thoughts, Transcripts (temporal). That covers the core workflows — capturing knowledge, designing and documenting, tracking people and projects, managing tasks, managing workspaces, writing, logging activity, recording decisions and observations, ingesting external material, refining artefacts, logging friction, capturing raw thinking, prototyping designs, presenting work, tracking bugs, and rewarding good work. You can add more types from the library as you need them.
 
 ### Adding Types When You Need Them
 

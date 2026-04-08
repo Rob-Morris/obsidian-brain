@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.23.4 — 2026-04-08
+
+**Promote bug-logs, mockups, presentations to template vault defaults.** Update default type lists and counts across artefact-library README, specification, getting-started guide, and brain-core guide. Starter vault now ships 27 defaults (10 living + 17 temporal) out of 32 in the library.
+
 ## v0.23.3 — 2026-04-08
 
 **Fix version-drift exit code for proxy restart.** `SystemExit(10)` from `_check_version_drift()` was caught by the `except BaseException` handler in `main()`, which fell through to `_shutdown()` — overwriting exit code 10 with 0. The proxy saw a clean exit and shut down instead of restarting. Now `SystemExit` is re-raised before the general handler runs, preserving the exit code for the proxy.

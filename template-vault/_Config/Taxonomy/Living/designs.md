@@ -23,6 +23,8 @@ When working out the concrete shape of something — structure, mechanics, trade
 | `parked` | Set aside — not abandoned, but not being pursued. |
 | `rejected` | Evaluated and declined. Kept as a record. |
 
+When a plan targeting this design reaches `completed`, update the design to reflect the implemented changes. When all planned work is done, transition the design from `active` to `implemented`.
+
 ## Graduating from Proposed
 
 When a design at `proposed` status is ready for a decision:
@@ -53,7 +55,7 @@ Terminal designs remain searchable and indexed in their `+Status` folder. No ren
 
 ## Lineage
 
-Follow [[.brain-core/standards/provenance]]. Designs additionally track transcripts:
+Follow [[.brain-core/standards/provenance]], including transcript linking for Q&A sessions:
 
 ```markdown
 **Origin:** [[idea-slug|Source idea]]
@@ -73,6 +75,7 @@ See [[.brain-core/standards/shaping]] for the shaping process.
 - **Link to source.** Add an **Origin** line linking to the source idea doc.
 - **List transcripts.** Reference Q&A sessions that shaped the design.
 - **Track decisions.** Use a decisions table for open and resolved choices.
+- **Maintain an Open questions section** for unresolved choices. When a question is resolved, move its entry to the decisions table.
 - **Tag the project.** Use a nested project tag (e.g. `project/my-project`).
 
 ## Naming
