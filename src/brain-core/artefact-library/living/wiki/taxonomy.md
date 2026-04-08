@@ -20,6 +20,21 @@ When building reference knowledge about a concept you want to understand, refere
 - **Tags for broad categories, links for specific relationships.** Tags group pages by domain (`programming`, `design`). Links connect pages by meaning.
 - **No prescribed structure.** Pages shape themselves around their subject. A page about a tool looks different from a page about a principle.
 
+## Topic Clusters
+
+Wiki pages are flat by default — one file per concept in `Wiki/`. When a broad topic spawns multiple related pages, use the master/sub-artefact convention (see [[.brain-core/standards/subfolders]]):
+
+- The **master page** stays in `Wiki/` as the entry point (e.g. `Wiki/Claude Code.md`)
+- **Sub-pages** live in `Wiki/{Topic}/` (e.g. `Wiki/Claude Code/Claude Code Tool Search.md`)
+- Sub-pages inherit the wiki type — no separate taxonomy needed
+- Use `brain_create` with the `parent` parameter to place sub-pages directly
+
+The subfolder makes the relationship implicit in the filesystem. You don't need to read the files to understand the hierarchy.
+
+**When to split:** A sub-topic deserves its own page when it is independently referenceable — someone might search for it directly — or substantial enough that embedding it would make the parent unwieldy. If it's only meaningful in the context of the parent, keep it as a section.
+
+**Naming sub-pages:** Prefix with the parent topic so the page is identifiable outside the subfolder context. "Claude Code Tool Search", not just "Tool Search". The prefix disambiguates and makes wikilinks readable elsewhere in the vault.
+
 ## Relationship with Zettelkasten
 
 Wiki and zettelkasten form a two-layer semantic graph: a fine-grained concept mesh (zettelkasten, automatic) and a coarse-grained knowledge base (wiki, deliberate).
@@ -34,7 +49,11 @@ Wiki and zettelkasten form a two-layer semantic graph: a fine-grained concept me
 
 `{Title}.md` in `Wiki/`.
 
-Example: `Wiki/rust-lifetimes.md`
+For sub-pages within a topic cluster: `{Title}.md` in `Wiki/{Parent}/`.
+
+Examples:
+- `Wiki/Rust Lifetimes.md`
+- `Wiki/Claude Code/Claude Code Tool Search.md`
 
 ## Frontmatter
 

@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.23.2 — 2026-04-08
+
+**Wiki topic cluster guidance.** Wiki taxonomy now documents the master/sub-artefact subfolder convention for organising related wiki pages. Adds a Topic Clusters section covering when to split pages, how sub-pages are named (prefixed with parent topic), and the subfolder layout. Naming section updated with sub-page path examples.
+
 ## v0.23.1 — 2026-04-07
 
 **scripts/README.md added.** Co-located functional-layer doc for the scripts directory. Covers the module table (all 24 scripts with purpose and CLI usage), dependency graph (which scripts import `_common`, which are standalone), shared patterns (`--json` flag, `--vault`/`find_vault_root()`, `main()` entry point), and the rule for adding new operations.
