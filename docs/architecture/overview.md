@@ -16,7 +16,8 @@ Copied into the vault during setup and upgrade (not symlinked — vaults are sel
 - `mcp/server.py` — thin MCP wrapper over scripts; holds router and index in memory
 - `skills/` — core skill documents (system-provided, tagged `"source": "core"`, overwritten on upgrade)
 - `index.md` — system principles, always-rules, and tooling instructions; read every session
-- `taxonomy/readme.md` — pointer to `_Config/Taxonomy/`; explains the classification system
+- `session-polyfill.md` — core documentation and standards links (temporary supplement until brain_session delivers natively)
+- `md-bootstrap.md` — fallback bootstrap for environments without MCP tools
 
 ### `.brain/` — vault-local runtime state
 
@@ -115,12 +116,12 @@ Two complementary guards protect the vault from unintended writes:
 
 Agents bootstrap in four tiers, each degrading gracefully when the previous is unavailable:
 
-1. **MCP tools** — `brain_session` returns a compiled bootstrap payload in one call: always-rules, user preferences, gotchas, triggers, condensed artefact types, and environment. Lowest token cost; uses in-memory caching.
+1. **MCP tools** — `brain_session` returns a compiled bootstrap payload in one call: always-rules, user preferences, gotchas, triggers, condensed artefact types, and environment. Lowest token cost; uses in-memory caching. A SessionStart hook calls `session.py` automatically so agents receive session context before their first turn.
 2. **Scripts** — if MCP is unavailable, `.brain-core/scripts/` provides full functionality via CLI: `read.py` queries the compiled router, `search_index.py` runs BM25 search, and so on. Same logic as MCP, disk-based.
 3. **Lean router** — if neither MCP nor scripts are available, the agent reads `Agents.md` then `_Config/router.md` (~45 tokens). The router provides conditional trigger pointers and vault-specific rules. Taxonomy files are loaded on demand when a condition matches.
 4. **Naive fallback** — if the agent has no knowledge of the system, it reads `Agents.md`, follows wikilinks through `router.md`, and discovers the vault structure directly from the filesystem: root-level non-system folders are living types, `_Temporal/` subfolders are temporal types.
 
-All tiers begin by reading `.brain-core/index.md` (via the router's "Always read [[.brain-core/index]]" directive). This ensures every agent receives the taxonomy-first gate and system constraints, regardless of which access tier is available.
+All tiers begin with the `Agents.md` bootstrap directive, which points agents to `brain_session` and `.brain-core/index.md`. This ensures every agent receives the system principles and constraints, regardless of which access tier is available.
 
 ---
 

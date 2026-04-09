@@ -16,3 +16,5 @@ Agents discovering the vault's classification system need an entry point that ex
 - It never becomes stale in the "enumeration" sense — since it doesn't enumerate types, adding a type doesn't require updating it.
 - Agents get enough orientation to navigate the taxonomy without the readme needing to be comprehensive.
 - The same pattern applies to other lean discovery guides in brain-core — they orient, they don't duplicate content that lives elsewhere.
+
+**Note (v0.24.0):** `taxonomy/readme.md` has been retired. Taxonomy discovery is now handled directly via `_Config/Taxonomy/` (DD-018) and the `brain_session` payload. The succinct readme pattern itself remains valid for other discovery guides.

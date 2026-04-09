@@ -126,7 +126,8 @@ obsidian-brain/
 │       ├── index.md             # entry point; links to all core docs
 │       ├── guide.md             # quick-start guide (ships into vaults)
 │       ├── artefact-library/    # ready-to-install type definitions
-│       ├── taxonomy/readme.md   # artefact classification guide
+│       ├── session-polyfill.md  # core doc + standards links (until brain_session delivers natively)
+│       ├── md-bootstrap.md     # fallback bootstrap for non-MCP environments
 │       ├── standards/extending/  # how to add types, colours, triggers
 │       ├── triggers.md          # workflow trigger system
 │       ├── colours.md           # folder colour system design

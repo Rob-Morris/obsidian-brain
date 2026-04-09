@@ -304,5 +304,13 @@ The server imports functions directly from scripts — never calls their `main()
 
 ---
 
+## Bootstrap Strategy
+
+`brain_session` is the primary bootstrap mechanism. Agents call it first to receive the full session payload (always-rules, user preferences, triggers, artefact types, environment). The `init.py` script installs a SessionStart hook that calls `session.py --json` automatically, so agents receive session context before their first turn.
+
+`brain_read(resource="router")` is not a bootstrap tool — it returns raw router state, not a session payload. Its primary use is as a staleness probe: agents or tooling can call it to check whether the router has changed since the last compile.
+
+---
+
 > For design decisions behind the MCP architecture, see [Design Decisions](../architecture/decisions/).
 > For the architecture overview, see [Architecture Overview](../architecture/overview.md).

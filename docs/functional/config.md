@@ -94,7 +94,7 @@ Core skills teach agents how to use brain-core's own tools. They ship in `.brain
 
 ### Current core skills
 
-- **`brain-remote`** — workflow for using brain MCP tools from an external project folder
+No core skills ship as of v0.24.0. The `brain-remote` skill was retired — its workflow is now handled by `brain_session` and the SessionStart hook.
 
 ---
 

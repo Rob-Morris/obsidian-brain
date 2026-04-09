@@ -260,7 +260,7 @@ python3 search_index.py "query" --json  # structured output
 
 ## Taxonomy Discovery
 
-**Succinct readme pattern**: `.brain-core/taxonomy/readme.md` is a lean discovery guide (~50 tokens) that explains the classification system and points agents to `_Config/Taxonomy/`. It does not enumerate types — the filesystem is the index.
+**Taxonomy discovery**: agents discover artefact types via `_Config/Taxonomy/`. The filesystem is the index (DD-018) — no separate readme or enumeration file is needed.
 
 **Key derivation convention**: type key = lowercase folder name, spaces to hyphens. e.g. `Daily Notes` -> `daily-notes` -> `_Config/Taxonomy/{classification}/daily-notes.md`. No manual registry needed. All MCP tools that accept a type parameter tolerate singular forms — `"report"` resolves to `"reports"`, `"idea"` to `"ideas"` — via normalised matching in `_common.match_artefact()`.
 
