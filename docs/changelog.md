@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.24.0 — 2026-04-09
+
+**Bootstrap streamlining.** Agent bootstrap now directs to `brain_session` + `[[.brain-core/index]]` instead of `brain_read(resource="router")`. `Agents.md` (the `CLAUDE.md` symlink target) carries the new directive in both the repo root and template vault. `init.py` gains a SessionStart hook that calls `session.py --json` automatically, and `ensure_claude_md()` now emits vault vs project bootstrap variants. `index.md` rewritten: 8 condensed principles (adds "Separate concerns", rewords "Be curious" → "Actively seek signal"), with links split into `session-polyfill.md` (core docs + standards) and `md-bootstrap.md` (non-MCP fallback). `brain-remote` core skill retired — its workflow is handled by `brain_session`. `taxonomy/readme.md` retired — taxonomy discovery goes directly via `_Config/Taxonomy/` (DD-018). Migration script `migrate_to_0_24_0.py` replaces known old bootstrap variants and removes the stale router directive.
+
 ## v0.23.6 — 2026-04-09
 
 **Safe temp path generation.** New `make_temp_path()` utility in `_common.py` centralises temp file creation via `tempfile.mkstemp()` — cross-platform (Linux, macOS, Windows). `create.py` and `edit.py` gain a `--temp-path [SUFFIX]` flag that prints a safe writable path and exits, for agents calling scripts directly. MCP tool descriptions for `brain_create` and `brain_edit` updated with `mktemp` guidance so agents construct valid temp paths for `body_file`.
