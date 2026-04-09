@@ -681,13 +681,20 @@ class Proxy:
                     if self._child is child:
                         self._child = None
                 if is_request:
-                    try:
-                        _write_line(
-                            sys.stdout.buffer,
-                            self._error_response_for_dead_child(msg_id),
-                        )
-                    except Exception:
-                        pass
+                    # Remove from in-flight tracking before sending error.
+                    # If _drain_inflight() already claimed this ID, skip the
+                    # error to avoid sending a duplicate response to the client.
+                    with self._inflight_lock:
+                        was_tracked = msg_id in self._inflight_ids
+                        self._inflight_ids.discard(msg_id)
+                    if was_tracked:
+                        try:
+                            _write_line(
+                                sys.stdout.buffer,
+                                self._error_response_for_dead_child(msg_id),
+                            )
+                        except Exception:
+                            pass
             except Exception as e:
                 _log().error("error sending to child: %s", e)
 
