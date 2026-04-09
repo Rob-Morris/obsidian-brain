@@ -791,12 +791,12 @@ class TestVersionCheck:
         assert server._loaded_version == old_version
 
     def test_exits_with_code_10_when_version_changes(self, initialized):
-        """_check_version_drift should call sys.exit(10) when version differs."""
+        """_check_version_drift should call os._exit(10) when version differs."""
         version_path = initialized / ".brain-core" / "VERSION"
         version_path.write_text("99.0.0\n")
-        with pytest.raises(SystemExit) as exc_info:
+        with patch("os._exit") as mock_exit:
             server._check_version_drift()
-        assert exc_info.value.code == 10
+            mock_exit.assert_called_once_with(10)
 
     def test_no_exit_when_version_file_missing(self, initialized):
         """_check_version_drift should be a no-op if VERSION file is deleted."""
@@ -860,12 +860,12 @@ class TestAtomicSave:
 
 class TestReloadRobustness:
     def test_version_drift_causes_clean_exit(self, initialized):
-        """Version drift should call sys.exit(10) for proxy restart."""
+        """Version drift should call os._exit(10) for proxy restart."""
         version_path = initialized / ".brain-core" / "VERSION"
         version_path.write_text("99.0.0\n")
-        with pytest.raises(SystemExit) as exc_info:
+        with patch("os._exit") as mock_exit:
             server._check_version_drift()
-        assert exc_info.value.code == 10
+            mock_exit.assert_called_once_with(10)
 
     def test_check_version_drift_survives_read_error(self, initialized):
         """_check_version_drift should not raise on version read errors."""

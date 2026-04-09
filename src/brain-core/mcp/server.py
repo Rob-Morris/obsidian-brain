@@ -264,7 +264,14 @@ def _check_version_drift() -> None:
     """Exit if brain-core on disk has been upgraded.
 
     The MCP proxy will detect the exit code and relaunch the server
-    with new code. No RuntimeError, no timer race — just a clean exit.
+    with new code.
+
+    Uses os._exit() instead of sys.exit() because sys.exit() raises
+    SystemExit which gets wrapped in BaseExceptionGroup by anyio's task
+    groups inside the MCP SDK. The async shutdown path loses the exit
+    code — the server exits via "stdin closed" with code 0 instead of
+    code 10, and the proxy treats it as a clean exit rather than a
+    planned restart.
     """
     if _vault_root is None or _loaded_version is None:
         return
@@ -278,7 +285,7 @@ def _check_version_drift() -> None:
         _logger.warning("version drift: %s -> %s, exiting for proxy restart",
                         _loaded_version, disk_version)
     _flush_log()
-    sys.exit(_EXIT_VERSION_DRIFT)
+    os._exit(_EXIT_VERSION_DRIFT)
 
 
 # ---------------------------------------------------------------------------
