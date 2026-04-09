@@ -293,6 +293,11 @@ class Proxy:
         self._proxy_drift = False
         self._proxy_version_on_disk: str | None = None  # version read from disk
 
+        # In-flight request tracking — IDs of requests forwarded to the child
+        # that haven't been answered yet. Protected by _inflight_lock.
+        self._inflight_ids: set[int | str] = set()
+        self._inflight_lock = threading.Lock()
+
         # Synchronization
         self._child_ready = threading.Event()  # set when child is assigned
         self._last_version_check: float = 0.0  # monotonic timestamp for cooldown
@@ -427,30 +432,37 @@ class Proxy:
 
         if exit_code == _EXIT_CODE_VERSION_DRIFT:
             _log().info("exit code %d: version drift — restarting immediately", exit_code)
-            # Restart immediately (no backoff advance for planned restarts)
+            # Restart immediately (no backoff delay for planned restarts)
             success = self._start_child()
-            if not success:
-                self._advance_backoff()
-        else:
-            # Crash — apply backoff
-            if self._backoff_slot >= len(self._backoff_schedule):
-                _log().error("backoff exhausted after %d attempts — giving up", self._backoff_slot)
-                self._gave_up = True
+            if success:
                 return
+            # First attempt failed — fall through to backoff retry loop so the
+            # proxy keeps trying instead of entering limbo (child=None, not
+            # gave_up, no one retrying). Reset backoff since this is a fresh
+            # failure sequence.
+            _log().warning("version-drift restart failed — falling through to backoff")
+            self._backoff_slot = 0
+            self._gave_up = False
 
-            delay = self._backoff_schedule[self._backoff_slot]
-            _log().warning(
-                "child crashed — backoff slot %d/%d, waiting %ds before restart",
-                self._backoff_slot, len(self._backoff_schedule) - 1, delay,
-            )
-            if delay > 0:
-                time.sleep(delay)
-            self._backoff_slot += 1
-            success = self._start_child()
-            if not success:
-                if self._backoff_slot >= len(self._backoff_schedule):
-                    _log().error("giving up after failed restart")
-                    self._gave_up = True
+        # Crash or failed drift restart — apply backoff
+        if self._backoff_slot >= len(self._backoff_schedule):
+            _log().error("backoff exhausted after %d attempts — giving up", self._backoff_slot)
+            self._gave_up = True
+            return
+
+        delay = self._backoff_schedule[self._backoff_slot]
+        _log().warning(
+            "child restart — backoff slot %d/%d, waiting %ds",
+            self._backoff_slot, len(self._backoff_schedule) - 1, delay,
+        )
+        if delay > 0:
+            time.sleep(delay)
+        self._backoff_slot += 1
+        success = self._start_child()
+        if not success:
+            if self._backoff_slot >= len(self._backoff_schedule):
+                _log().error("giving up after failed restart")
+                self._gave_up = True
 
     def _advance_backoff(self) -> None:
         self._backoff_slot += 1
@@ -487,6 +499,21 @@ class Proxy:
     # Reader thread (child stdout → proxy stdout)
     # ------------------------------------------------------------------
 
+    def _drain_inflight(self) -> None:
+        """Send error responses for all in-flight requests (child died mid-request)."""
+        with self._inflight_lock:
+            orphans = list(self._inflight_ids)
+            self._inflight_ids.clear()
+        for orphan_id in orphans:
+            _log().warning("orphaned in-flight request id=%s — sending error to client", orphan_id)
+            try:
+                _write_line(
+                    sys.stdout.buffer,
+                    _make_error_response(orphan_id, -32603, "server exited mid-request, restarting"),
+                )
+            except Exception as e:
+                _log().error("failed to send orphan error for id=%s: %s", orphan_id, e)
+
     def _reader_thread(self) -> None:
         """
         Continuously reads from child stdout and writes to proxy stdout.
@@ -508,6 +535,9 @@ class Proxy:
                     self._child = None
                 self._child_ready.clear()
 
+                # Send error responses for any requests the child never answered
+                self._drain_inflight()
+
                 if exit_code is None:
                     exit_code = 1  # treat as crash
 
@@ -524,6 +554,11 @@ class Proxy:
             msg_id = obj.get("id")
             method = obj.get("method")
             _log().debug("child→client: id=%s method=%s", msg_id, method)
+
+            # Remove from in-flight tracking (response received)
+            if msg_id is not None:
+                with self._inflight_lock:
+                    self._inflight_ids.discard(msg_id)
 
             # Capture initialize response (first time only)
             if (
@@ -635,6 +670,9 @@ class Proxy:
                     continue
 
             # Forward to child
+            if is_request:
+                with self._inflight_lock:
+                    self._inflight_ids.add(msg_id)
             try:
                 child.send(obj)
             except BrokenPipeError:
