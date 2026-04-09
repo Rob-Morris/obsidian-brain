@@ -276,7 +276,7 @@ The config system defines three built-in profiles (`reader`, `contributor`, `ope
 
 ### Version Drift
 
-If `.brain-core/` is upgraded while the server is running, the server detects the version change on the next tool call and exits via `os._exit(0)` with exit code 10. The proxy catches this exit code and relaunches the server with the new code. This replaced the previous `importlib.reload()` approach because `sys.exit()` inside an asyncio coroutine hangs the process.
+If `.brain-core/` is upgraded while the server is running, the server detects the version change on the next tool call and exits via `os._exit(10)`. The proxy catches this exit code and relaunches the server with the new code. `os._exit()` is used instead of `sys.exit()` because `SystemExit` raised inside an MCP tool handler gets wrapped in `BaseExceptionGroup` by anyio task groups, losing the exit code.
 
 ### Shutdown Lifecycle
 

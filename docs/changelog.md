@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.24.1 — 2026-04-09
+
+**MCP proxy/server reliability fixes.** Version-drift detection now uses `os._exit(10)` instead of `sys.exit(10)` — anyio task groups wrap `SystemExit` in `BaseExceptionGroup`, causing the exit code to be lost and the proxy to shut down instead of restarting. Proxy now tracks in-flight request IDs and sends JSON-RPC error responses when the child server dies mid-request, preventing indefinite client hangs. Version-drift restart failure in the proxy now falls through to the backoff retry loop instead of leaving the proxy in a limbo state with no child and no retry.
+
 ## v0.24.0 — 2026-04-09
 
 **Bootstrap streamlining.** Agent bootstrap now directs to `brain_session` + `[[.brain-core/index]]` instead of `brain_read(resource="router")`. `Agents.md` (the `CLAUDE.md` symlink target) carries the new directive in both the repo root and template vault. `init.py` gains a SessionStart hook that calls `session.py --json` automatically, and `ensure_claude_md()` now emits vault vs project bootstrap variants. `index.md` rewritten: 8 condensed principles (adds "Separate concerns", rewords "Be curious" → "Actively seek signal"), with links split into `session-polyfill.md` (core docs + standards) and `md-bootstrap.md` (non-MCP fallback). `brain-remote` core skill retired — its workflow is handled by `brain_session`. `taxonomy/readme.md` retired — taxonomy discovery goes directly via `_Config/Taxonomy/` (DD-018). Migration script `migrate_to_0_24_0.py` replaces known old bootstrap variants and removes the stale router directive.
