@@ -92,11 +92,11 @@ def vault(tmp_path):
     (plugins / "SKILL.md").write_text("# Example Plugin\n")
 
     # Core skills
-    core_skills_dir = bc / "skills" / "brain-remote"
+    core_skills_dir = bc / "skills" / "test-skill"
     core_skills_dir.mkdir(parents=True)
     (core_skills_dir / "SKILL.md").write_text(
-        "---\nname: brain-remote\n---\n\n"
-        "# Brain Remote\n\nUse brain MCP tools from external projects.\n"
+        "---\nname: test-skill\n---\n\n"
+        "# Test Skill (Core)\n\nA test core skill.\n"
     )
 
     # System dirs that should be excluded from living types
@@ -650,7 +650,7 @@ class TestDiscoverCoreSkills:
     def test_finds_core_skills(self, vault):
         skills = cr.discover_core_skills(str(vault))
         assert len(skills) == 1
-        assert skills[0]["name"] == "brain-remote"
+        assert skills[0]["name"] == "test-skill"
         assert skills[0]["source"] == "core"
         assert "SKILL.md" in skills[0]["skill_doc"]
 

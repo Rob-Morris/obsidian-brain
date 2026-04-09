@@ -16,4 +16,4 @@ Self-extending system for organising Obsidian vaults, for agents and humans work
 
 If `agents.local.md` exists in the repo root, read it for machine-specific configuration.
 
-If brain MCP tools are available, call brain_read(resource="router") at session start.
+ALWAYS DO FIRST: Call brain_session. Read [[.brain-core/index]]

@@ -1,5 +1,3 @@
-Always read [[.brain-core/index]].
-
 Conditional:
 - After meaningful work → [[_Config/Taxonomy/Temporal/logs]]
 - Before complex work → [[_Config/Taxonomy/Temporal/plans]]
@@ -14,5 +12,4 @@ Conditional:
 - When encountering something that is objectively broken or producing wrong output → [[_Config/Taxonomy/Temporal/bug-logs]]
 - When exploring a visual design direction → [[_Config/Taxonomy/Temporal/mockups]]
 - When creating a presentation or slide deck → [[_Config/Taxonomy/Temporal/presentations]]
-- When working via MCP from an external project → [[.brain-core/skills/brain-remote/SKILL]]
 - When the user references a project, tool, or concept and you lack context → [[_Config/Memories/README]]

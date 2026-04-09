@@ -128,11 +128,11 @@ def vault(tmp_path):
     )
 
     # Core skills
-    core_skills_dir = bc / "skills" / "brain-remote"
+    core_skills_dir = bc / "skills" / "test-skill"
     core_skills_dir.mkdir(parents=True)
     (core_skills_dir / "SKILL.md").write_text(
-        "---\nname: brain-remote\n---\n\n"
-        "# Brain Remote\n\nUse brain MCP tools from external projects.\n"
+        "---\nname: test-skill\n---\n\n"
+        "# Test Skill (Core)\n\nA test core skill.\n"
     )
 
     # Plugins
@@ -307,8 +307,8 @@ class TestBrainRead:
         _assert_error(result, "requires name")
 
     def test_read_core_skill_content(self, initialized):
-        result = server.brain_read("skill", name="brain-remote")
-        assert "Brain Remote" in result
+        result = server.brain_read("skill", name="test-skill")
+        assert "Test Skill (Core)" in result
 
     def test_read_skill_content(self, initialized):
         result = server.brain_read("skill", name="Vault Maintenance")

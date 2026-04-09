@@ -71,10 +71,10 @@ def vault(tmp_path):
     (skills_dir / "SKILL.md").write_text("# Test Skill\n\nDoes testing.\n")
 
     # Core skills
-    core_skills = bc / "skills" / "brain-remote"
+    core_skills = bc / "skills" / "test-skill"
     core_skills.mkdir(parents=True)
     (core_skills / "SKILL.md").write_text(
-        "---\nname: brain-remote\n---\n\n# Brain Remote\n\nRemote workflow.\n"
+        "---\nname: test-skill\n---\n\n# Test Skill (Core)\n\nA test core skill.\n"
     )
 
     # Styles

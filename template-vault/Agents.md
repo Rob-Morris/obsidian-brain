@@ -1,1 +1,1 @@
-Always read [[_Config/router]] before working in this vault.
+ALWAYS DO FIRST: Call brain_session. Read [[.brain-core/index]]

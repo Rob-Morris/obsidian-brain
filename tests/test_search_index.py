@@ -282,10 +282,10 @@ class TestSearchResource:
             "---\nname: vault-maintenance\n---\n\n# Vault Maintenance\n\n"
             "Keep the vault tidy. Archive completed designs. Fix broken links.\n"
         )
-        (skills / "brain-remote").mkdir(parents=True)
-        (skills / "brain-remote" / "SKILL.md").write_text(
-            "---\nname: brain-remote\n---\n\n# Brain Remote\n\n"
-            "Use Brain MCP tools from external projects. Remote workflow for agents.\n"
+        (skills / "test-skill").mkdir(parents=True)
+        (skills / "test-skill" / "SKILL.md").write_text(
+            "---\nname: test-skill\n---\n\n# Test Skill\n\n"
+            "A test skill for search index testing.\n"
         )
 
         # Styles
@@ -316,7 +316,7 @@ class TestSearchResource:
         router = {
             "skills": [
                 {"name": "vault-maintenance", "skill_doc": "_Config/Skills/vault-maintenance/SKILL.md"},
-                {"name": "brain-remote", "skill_doc": "_Config/Skills/brain-remote/SKILL.md"},
+                {"name": "test-skill", "skill_doc": "_Config/Skills/test-skill/SKILL.md"},
             ],
             "styles": [
                 {"name": "writing", "style_doc": "_Config/Styles/writing.md"},

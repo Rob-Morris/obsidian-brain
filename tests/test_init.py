@@ -106,20 +106,57 @@ class TestWriteUserClaudeJson:
 
 
 class TestEnsureClaudeMd:
-    def test_creates_new(self, project):
+    def test_creates_new_for_project(self, project):
         init.ensure_claude_md(project)
         content = (project / "CLAUDE.md").read_text()
-        assert init.CLAUDE_MD_BOOTSTRAP in content
+        assert init.CLAUDE_MD_BOOTSTRAP_PROJECT in content
+
+    def test_creates_new_for_vault(self, vault):
+        init.ensure_claude_md(vault)
+        content = (vault / "CLAUDE.md").read_text()
+        assert init.CLAUDE_MD_BOOTSTRAP_VAULT in content
 
     def test_appends_to_existing(self, project):
         (project / "CLAUDE.md").write_text("# My Project\n\nExisting content.\n")
         init.ensure_claude_md(project)
         content = (project / "CLAUDE.md").read_text()
         assert "Existing content." in content
-        assert init.CLAUDE_MD_BOOTSTRAP in content
+        assert init.CLAUDE_MD_BOOTSTRAP_PROJECT in content
 
     def test_idempotent(self, project):
         init.ensure_claude_md(project)
         init.ensure_claude_md(project)
         content = (project / "CLAUDE.md").read_text()
-        assert content.count(init.CLAUDE_MD_BOOTSTRAP) == 1
+        assert content.count(init.CLAUDE_MD_BOOTSTRAP_PROJECT) == 1
+
+
+
+class TestEnsureSessionStartHook:
+    def test_creates_hook(self, project, vault):
+        init.ensure_session_start_hook(project, vault)
+        settings_path = project / ".claude" / "settings.local.json"
+        assert settings_path.is_file()
+        data = json.loads(settings_path.read_text())
+        hooks = data["hooks"]["SessionStart"]
+        assert len(hooks) == 1
+        assert "session.py" in hooks[0]["hooks"][0]["command"]
+        assert str(vault) in hooks[0]["hooks"][0]["command"]
+
+    def test_idempotent(self, project, vault):
+        init.ensure_session_start_hook(project, vault)
+        init.ensure_session_start_hook(project, vault)
+        data = json.loads((project / ".claude" / "settings.local.json").read_text())
+        assert len(data["hooks"]["SessionStart"]) == 1
+
+    def test_preserves_existing_hooks(self, project, vault):
+        settings_dir = project / ".claude"
+        settings_dir.mkdir(parents=True)
+        (settings_dir / "settings.local.json").write_text(json.dumps({
+            "hooks": {
+                "PostToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "echo hi"}]}]
+            }
+        }))
+        init.ensure_session_start_hook(project, vault)
+        data = json.loads((settings_dir / "settings.local.json").read_text())
+        assert "PostToolUse" in data["hooks"]
+        assert "SessionStart" in data["hooks"]

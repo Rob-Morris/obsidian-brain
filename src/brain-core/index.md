@@ -1,76 +1,28 @@
 # Brain Core
 
-Brain is a self-extending system for organising Obsidian vaults, for agents and humans working together.
-
 `.brain-core/` is read-only. Never edit files here directly — changes will be overwritten on version upgrade.
-
-BEFORE modifying the vault always read: [[.brain-core/taxonomy/readme]]
 
 ## Key Idea
 
 All content in the vault is an **artefact**:
-1. **Living** (in vault root) - evolve over time, source of truth
-2. **Temporal** (in _Temporal/) - bound to a moment, historic record
+1. **Living** (in vault root) — evolve over time, source of truth
+2. **Temporal** (in _Temporal/) — bound to a moment, historic record
 
-System folders start with `_` or `.` — these are infrastructure, not artefacts. The top-level `_Archive/` directory holds soft-deleted artefacts, excluded from the vault's active namespace. See [[.brain-core/standards/archiving]] for archiving procedures. This distinction drives folder organisation, naming, and styling.
+System folders start with `_` or `.` — these are infrastructure, not artefacts. The top-level `_Archive/` directory holds soft-deleted artefacts, excluded from the vault's active namespace.
 
 The system is self-extending. When content has no appropriate home, add a new artefact type following documented procedures rather than forcing it into an existing folder.
 
-## User Preferences
-
-If `_Config/User/preferences-always.md` exists, read and follow it every session. It contains the vault owner's standing instructions — workflow preferences, quality standards, and agent behaviour rules.
-
-If `_Config/User/gotchas.md` exists, read it before starting work. It contains learned lessons and known pitfalls from previous sessions.
-
 ## Principles
 
-ALWAYS follow these principles:
+1. **Every file belongs in a folder** — no content files in the vault root
+2. **Self-extending vault** — when content has no home, add a new artefact type before creating the file
+3. **Always link related things** — connect artefacts with wikilinks when they relate by origin, topic, or reference
+4. **Save each step before building on it** — multi-stage work produces an artefact at each stage
+5. **Keep instruction files lean** — routing tables, not encyclopedias; detail lives in core docs
+6. **Start simple, grow organically** — flat files first, add structure when complexity demands it
+7. **Separate concerns** — one topic per artefact; split when a file serves two purposes
+8. **Actively seek signal** — notice gaps, ambiguities, and opportunities; ask small questions at natural moments; capture answers as artefacts
 
-### Every file belongs in a folder
-No content files in the vault root. Every output — human or agent — goes into a folder appropriate for its content type. If no folder fits, extend the vault first.
+Always read [[.brain-core/session-polyfill]].
 
-### Self-extending vault
-When content has no home, add a new artefact type before creating the file.
-
-### Always link related things
-When artefacts relate — by origin, topic, or reference — connect them with wikilinks in the body.
-
-### Save each step before building on it
-Multi-stage work (research → analysis, capture → synthesis) produces an artefact at each stage. Don't skip ahead.
-
-### Keep instruction files lean
-Files read every session (router, index) stay minimal — routing tables, not encyclopedias. Detailed reference lives in the core docs and config files, linked from the router.
-
-### Start simple, grow organically
-Artefacts start as flat files in their type folder. Structure (subfolders, index files, linked compositions) is added as needed when complexity grows, not planned upfront. Lean into organic growth; add structure to deal elegantly with increasing complexity.
-
-### Be curious, then capture
-When you notice gaps, ambiguities, or opportunities to learn more, ask. Small, natural questions at natural moments — not an interrogation. Capture answers as the appropriate artefact (observations, shaping transcripts, idea logs). The vault improves by actively seeking signal, not just passively recording what's offered. Look for natural openings: creating something new, revisiting something sparse, receiving something ambiguous.
-
-## Tooling
-
-Prefer MCP tools (`brain_session`, `brain_read`, `brain_search`, `brain_create`, `brain_edit`, `brain_action`, `brain_process`) if available.
-Without MCP: use `.brain-core/scripts/` directly (compile_router, build_index, search_index, read, create, edit, rename, check, process, upgrade, workspace_registry, migrate_naming, start_shaping).
-Without either: navigate via wikilinks from the router and this document.
-
-## How It Works
-
-Each vault has a **router** — a single file an agent reads every session. The router contains conditional trigger gotos and vault-specific rules, pointing to taxonomy and skill files. Agents read the core docs only when they need to understand or extend the system.
-
-## Core Documentation
-
-- How to add artefact types and extend principles — [[.brain-core/standards/extending/README]]
-- Ready-to-use artefact type definitions — [[.brain-core/artefact-library/README]]
-- How to use workflow trigger system — [[.brain-core/triggers]]
-- How to use folder colour system: design, palette, CSS templates — [[.brain-core/colours]]
-- How to use and extend plugin system for external tools — [[.brain-core/plugins]]
-
-## Standards
-
-- Artefact file naming rules — [[.brain-core/standards/naming-conventions]]
-- Artefact provenance and lineage — [[.brain-core/standards/provenance]]
-- Archiving living artefacts — [[.brain-core/standards/archiving]]
-- Hub pattern for grouping artefacts — [[.brain-core/standards/hub-pattern]]
-- Subfolders within living artefact folders — [[.brain-core/standards/subfolders]]
-- Artefact shaping process — [[.brain-core/standards/shaping]]
-- User preferences — [[.brain-core/standards/user-preferences]]
+Without MCP, also read [[.brain-core/md-bootstrap]].

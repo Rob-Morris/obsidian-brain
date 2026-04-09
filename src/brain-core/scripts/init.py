@@ -41,9 +41,11 @@ MCP_SERVER_REL = os.path.join(".brain-core", "mcp", "server.py")
 MCP_PROXY_REL = os.path.join(".brain-core", "mcp", "proxy.py")
 VENV_PYTHON_REL = os.path.join(".venv", "bin", "python")
 
-CLAUDE_MD_BOOTSTRAP = (
-    'If brain MCP tools are available, call brain_read(resource="router") '
-    "at session start."
+CLAUDE_MD_BOOTSTRAP_VAULT = (
+    "ALWAYS DO FIRST: Call brain_session. Read [[.brain-core/index]]"
+)
+CLAUDE_MD_BOOTSTRAP_PROJECT = (
+    "ALWAYS DO FIRST: Call brain_session"
 )
 
 
@@ -303,6 +305,10 @@ def register_mcp(
 
 def ensure_claude_md(target_dir: Path, local: bool = False) -> None:
     """Ensure CLAUDE.md (or .claude/CLAUDE.local.md) has the brain bootstrap line."""
+    bootstrap = (
+        CLAUDE_MD_BOOTSTRAP_VAULT if _is_vault_root(target_dir)
+        else CLAUDE_MD_BOOTSTRAP_PROJECT
+    )
     rel_path = CLAUDE_LOCAL_MD_FILE if local else CLAUDE_MD_FILE
     claude_md = target_dir / rel_path
     content = ""
@@ -310,16 +316,54 @@ def ensure_claude_md(target_dir: Path, local: bool = False) -> None:
     if claude_md.is_file():
         with open(claude_md, "r", encoding="utf-8") as f:
             content = f.read()
-        if CLAUDE_MD_BOOTSTRAP in content:
+        if bootstrap in content:
             info(f"{rel_path} already has bootstrap line")
             return
         separator = "\n" if content.endswith("\n") else "\n\n"
         with open(claude_md, "a", encoding="utf-8") as f:
-            f.write(f"{separator}{CLAUDE_MD_BOOTSTRAP}\n")
+            f.write(f"{separator}{bootstrap}\n")
         info(f"Appended brain bootstrap to {rel_path}")
     else:
-        _safe_write(claude_md, f"{CLAUDE_MD_BOOTSTRAP}\n")
+        _safe_write(claude_md, f"{bootstrap}\n")
         info(f"Created {rel_path} with brain bootstrap")
+
+
+# ---------------------------------------------------------------------------
+# SessionStart hook
+# ---------------------------------------------------------------------------
+
+def ensure_session_start_hook(target_dir: Path, vault_root: Path) -> None:
+    """Add a SessionStart hook that calls session.py automatically."""
+    settings_path = target_dir / LOCAL_SETTINGS_FILE
+    settings = _read_json_safe(settings_path)
+
+    if "hooks" not in settings:
+        settings["hooks"] = {}
+
+    session_script = str(vault_root / ".brain-core" / "scripts" / "session.py")
+    hook_command = (
+        f"echo 'brain_session called:' "
+        f"&& python3 {session_script} --vault {vault_root} --json"
+    )
+
+    for entry in settings["hooks"].get("SessionStart", []):
+        for h in entry.get("hooks", []):
+            if "session.py" in h.get("command", ""):
+                info("SessionStart hook already configured")
+                return
+
+    new_entry = {
+        "hooks": [
+            {
+                "type": "command",
+                "command": hook_command,
+            }
+        ]
+    }
+
+    settings["hooks"].setdefault("SessionStart", []).append(new_entry)
+    _safe_write_json(settings_path, settings)
+    info("Added SessionStart hook for brain_session")
 
 
 # ---------------------------------------------------------------------------
@@ -427,6 +471,9 @@ def main() -> None:
     if target_dir:
         header("CLAUDE.md")
         ensure_claude_md(target_dir, local=args.local)
+
+        header("SessionStart hook")
+        ensure_session_start_hook(target_dir, vault_root)
 
     header("Done")
     info(f"Vault:    {vault_root}")
