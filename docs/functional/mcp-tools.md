@@ -102,7 +102,7 @@ Additive, safe to auto-approve. Creates a new vault resource. Write-guarded: rej
 - `title` (required for artefacts)
 - `name` (required for non-artefact resources) — slugified for filesystem paths; for templates, name is the artefact type key
 - `body` (optional; required for non-artefact resources)
-- `body_file` (optional) — absolute path to a file containing body content; must be inside the vault or system temp directory; temp files deleted after reading, vault files left in place; mutually exclusive with `body`; use for large content to keep MCP call displays compact
+- `body_file` (optional) — absolute path to a file containing body content; must be inside the vault or system temp directory; temp files deleted after reading, vault files left in place; mutually exclusive with `body`; use for large content to keep MCP call displays compact; to stage content, run `mktemp /tmp/brain-body-XXXXXX` to get a safe temp path, write content there, then pass that path here
 - `frontmatter` (optional overrides) — for memories, use `{"triggers": ["keyword1", "keyword2"]}`
 - `parent` (optional) — project subfolder name for living types (e.g. `"Brain"`); ignored for temporal types and non-artefact resources
 

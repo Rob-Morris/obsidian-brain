@@ -1165,6 +1165,8 @@ def brain_create(type: str = "", title: str = "", body: str = "", body_file: str
                    Temp files are deleted after reading; vault files are left in place.
                    Use for large content to keep MCP call displays compact.
                    Mutually exclusive with body.
+                   To stage content: run mktemp /tmp/brain-body-XXXXXX to get a
+                   safe temp path, write content there, then pass that path here.
       frontmatter — optional frontmatter field overrides (e.g. {"status": "shaping"}).
                    For memories, use {"triggers": ["keyword1", "keyword2"]}.
       parent     — optional project name to group artefacts under (e.g. "Brain").
@@ -1246,6 +1248,8 @@ def brain_edit(operation: Literal["edit", "append", "prepend", "delete_section"]
                    Temp files are deleted after reading; vault files are left in place.
                    Use for large content to keep MCP call displays compact.
                    Mutually exclusive with body.
+                   To stage content: run mktemp /tmp/brain-body-XXXXXX to get a
+                   safe temp path, write content there, then pass that path here.
       frontmatter — optional frontmatter changes. Merge strategy depends on operation:
                    edit overwrites fields; append/prepend extend list fields (with dedup)
                    and overwrite scalars. Set a field to null to delete it.

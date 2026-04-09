@@ -12,8 +12,8 @@ Scripts are the **source of truth** for all vault operations. The MCP server (`s
 | `compile_colours.py` | Generate folder colour CSS | (called by compile_router) |
 | `compile_router.py` | Compile router from source files | `python3 compile_router.py [--json]` |
 | `config.py` | Vault configuration loader (three-layer merge) | `python3 config.py` |
-| `create.py` | Create new artefact or `_Config/` resource | `python3 create.py --type T --title "Title" [--body B] [--json]` |
-| `edit.py` | Edit/append/prepend to artefact or resource | `python3 edit.py edit\|append --path P --body B [--target H] [--json]` |
+| `create.py` | Create new artefact or `_Config/` resource | `python3 create.py --type T --title "Title" [--body B] [--body-file PATH] [--temp-path [SUFFIX]] [--json]` |
+| `edit.py` | Edit/append/prepend to artefact or resource | `python3 edit.py edit\|append --path P --body B [--body-file PATH] [--temp-path [SUFFIX]] [--target H] [--json]` |
 | `fix_links.py` | Auto-repair broken wikilinks | `python3 fix_links.py [--fix] [--json] [--vault V]` |
 | `generate_key.py` | Generate operator key + hash for config.yaml | `python3 generate_key.py [--count N]` |
 | `init.py` | MCP server registration | `python3 init.py [--user] [--local] [--project PATH]` |
