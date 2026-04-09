@@ -150,6 +150,17 @@ def unique_filename(folder, stem, ext=".md"):
 # Body file resolution
 # ---------------------------------------------------------------------------
 
+def make_temp_path(suffix=".md"):
+    """Return a safe, writable temp file path.
+
+    Uses the platform's native temp directory. The returned path is accepted
+    by resolve_body_file and will be cleaned up after use.
+    """
+    fd, path = tempfile.mkstemp(suffix=suffix)
+    os.close(fd)
+    return path
+
+
 def resolve_body_file(body, body_file, *, vault_root=None):
     """Return body content, reading from body_file if provided.
 

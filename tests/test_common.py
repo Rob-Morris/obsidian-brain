@@ -961,6 +961,19 @@ class TestListArtefactsTypeFilter:
 # resolve_body_file — path boundary checks
 # ---------------------------------------------------------------------------
 
+@pytest.fixture
+def non_tmp_vault():
+    """Vault directory outside the system temp dir."""
+    import shutil
+    vault_dir = os.path.join(os.path.expanduser("~"), ".brain-test-vault")
+    os.makedirs(os.path.join(vault_dir, "Wiki"), exist_ok=True)
+    os.makedirs(os.path.join(vault_dir, ".brain-core"), exist_ok=True)
+    with open(os.path.join(vault_dir, ".brain-core", "VERSION"), "w") as f:
+        f.write("1.0.0\n")
+    yield vault_dir
+    shutil.rmtree(vault_dir, ignore_errors=True)
+
+
 class TestResolveBodyFile:
     """Tests for resolve_body_file with vault_root boundary enforcement.
 
@@ -968,18 +981,6 @@ class TestResolveBodyFile:
     create a non-tmp vault directory under the *home* dir for tests that
     need to distinguish vault-reads from tmp-reads.
     """
-
-    @pytest.fixture
-    def non_tmp_vault(self):
-        """Vault directory outside the system temp dir."""
-        import shutil
-        vault_dir = os.path.join(os.path.expanduser("~"), ".brain-test-vault")
-        os.makedirs(os.path.join(vault_dir, "Wiki"), exist_ok=True)
-        os.makedirs(os.path.join(vault_dir, ".brain-core"), exist_ok=True)
-        with open(os.path.join(vault_dir, ".brain-core", "VERSION"), "w") as f:
-            f.write("1.0.0\n")
-        yield vault_dir
-        shutil.rmtree(vault_dir, ignore_errors=True)
 
     def test_body_only(self):
         body, cleanup = common.resolve_body_file("hello", "")
@@ -1049,6 +1050,59 @@ class TestResolveBodyFile:
         body, cleanup = common.resolve_body_file("", str(f))
         assert body == "anything"
         assert cleanup is None
+
+
+# ---------------------------------------------------------------------------
+# make_temp_path
+# ---------------------------------------------------------------------------
+
+class TestMakeTempPath:
+    def test_returns_writable_path(self):
+        path = common.make_temp_path()
+        try:
+            assert os.path.exists(path)
+            with open(path, "w") as f:
+                f.write("test")
+            with open(path) as f:
+                assert f.read() == "test"
+        finally:
+            os.remove(path)
+
+    def test_default_suffix_is_md(self):
+        path = common.make_temp_path()
+        try:
+            assert path.endswith(".md")
+        finally:
+            os.remove(path)
+
+    def test_custom_suffix(self):
+        path = common.make_temp_path(suffix=".txt")
+        try:
+            assert path.endswith(".txt")
+        finally:
+            os.remove(path)
+
+    def test_path_inside_system_temp_dir(self):
+        path = common.make_temp_path()
+        try:
+            real_path = os.path.realpath(path)
+            real_tmp = os.path.realpath(tempfile.gettempdir())
+            assert real_path.startswith(real_tmp)
+        finally:
+            os.remove(path)
+
+    def test_resolve_body_file_accepts_make_temp_path(self, non_tmp_vault):
+        """make_temp_path output is accepted by resolve_body_file."""
+        path = common.make_temp_path()
+        try:
+            with open(path, "w") as f:
+                f.write("staged content")
+            body, cleanup = common.resolve_body_file("", path, vault_root=non_tmp_vault)
+            assert body == "staged content"
+            assert cleanup == os.path.realpath(path)
+        finally:
+            if os.path.exists(path):
+                os.remove(path)
 
 
 # ---------------------------------------------------------------------------

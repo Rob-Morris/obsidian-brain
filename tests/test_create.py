@@ -2,6 +2,7 @@
 
 import json
 import os
+import sys
 from unittest.mock import patch
 from datetime import datetime, timezone, timedelta
 
@@ -537,3 +538,31 @@ class TestCreateResource:
             name="My Cool Skill", body="content",
         )
         assert result["path"] == "_Config/Skills/my-cool-skill/SKILL.md"
+
+
+class TestTempPathFlag:
+    def test_temp_path_prints_path_and_exits(self, capsys):
+        with pytest.raises(SystemExit) as exc_info:
+            sys.argv = ["create.py", "--temp-path"]
+            create.main()
+        assert exc_info.value.code == 0
+        out = capsys.readouterr().out.strip()
+        try:
+            assert out.endswith(".md")
+            assert os.path.exists(out)
+        finally:
+            if os.path.exists(out):
+                os.remove(out)
+
+    def test_temp_path_custom_suffix(self, capsys):
+        with pytest.raises(SystemExit) as exc_info:
+            sys.argv = ["create.py", "--temp-path", ".txt"]
+            create.main()
+        assert exc_info.value.code == 0
+        out = capsys.readouterr().out.strip()
+        try:
+            assert out.endswith(".txt")
+            assert os.path.exists(out)
+        finally:
+            if os.path.exists(out):
+                os.remove(out)

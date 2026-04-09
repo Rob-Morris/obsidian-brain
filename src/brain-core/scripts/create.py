@@ -25,6 +25,7 @@ from _common import (
     check_write_allowed,
     find_duplicate_basenames,
     find_vault_root,
+    make_temp_path,
     match_artefact,
     parse_frontmatter,
     resolve_body_file,
@@ -376,12 +377,18 @@ def main():
         elif arg == "--json":
             json_mode = True
             i += 1
+        elif arg == "--temp-path":
+            suffix = ".md"
+            if i + 1 < len(sys.argv) and not sys.argv[i + 1].startswith("--"):
+                suffix = sys.argv[i + 1]
+            print(make_temp_path(suffix=suffix))
+            sys.exit(0)
         else:
             i += 1
 
     if not type_key or not title:
         print(
-            'Usage: create.py --type TYPE --title TITLE [--body BODY] [--body-file PATH] [--parent NAME] [--vault PATH] [--json]',
+            'Usage: create.py --type TYPE --title TITLE [--body BODY] [--body-file PATH] [--parent NAME] [--vault PATH] [--json] [--temp-path [SUFFIX]]',
             file=sys.stderr,
         )
         sys.exit(1)

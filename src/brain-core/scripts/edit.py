@@ -34,6 +34,7 @@ from _common import (
     find_vault_root,
     is_archived_path,
     make_wikilink_replacer,
+    make_temp_path,
     now_iso,
     parse_frontmatter,
     replace_wikilinks_in_vault,
@@ -674,6 +675,12 @@ def main():
         elif arg == "--json":
             json_mode = True
             i += 1
+        elif arg == "--temp-path":
+            suffix = ".md"
+            if i + 1 < len(sys.argv) and not sys.argv[i + 1].startswith("--"):
+                suffix = sys.argv[i + 1]
+            print(make_temp_path(suffix=suffix))
+            sys.exit(0)
         elif not arg.startswith("--") and operation is None:
             operation = arg
             i += 1
@@ -682,7 +689,7 @@ def main():
 
     if operation not in ("edit", "append", "prepend", "delete_section") or not path:
         print(
-            'Usage: edit.py edit|append|prepend|delete_section --path PATH --target HEADING [--vault PATH] [--json]',
+            'Usage: edit.py edit|append|prepend|delete_section --path PATH --target HEADING [--vault PATH] [--json] [--temp-path [SUFFIX]]',
             file=sys.stderr,
         )
         sys.exit(1)
