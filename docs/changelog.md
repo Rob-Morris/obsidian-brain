@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.24.2 — 2026-04-10
+
+**Definition sync auto-applies safe updates.** `sync_definitions` no longer gates safe updates (upstream changed, no local changes) behind the `artefact_sync` preference — they always apply. Only conflicts (both sides changed) produce warnings. The upgrade output now correctly labels conflicts instead of calling all pending changes "Customised". The `sync_preview` dry-run-as-proxy-for-ask path is removed from `upgrade.py`; `"skip"` preference and `--no-sync` flag still disable sync entirely.
+
 ## v0.24.1 — 2026-04-09
 
 **MCP proxy/server reliability fixes.** Version-drift detection now uses `os._exit(10)` instead of `sys.exit(10)` — anyio task groups wrap `SystemExit` in `BaseExceptionGroup`, causing the exit code to be lost and the proxy to shut down instead of restarting. Proxy now tracks in-flight request IDs and sends JSON-RPC error responses when the child server dies mid-request, preventing indefinite client hangs. Version-drift restart failure in the proxy now falls through to the backoff retry loop instead of leaving the proxy in a limbo state with no child and no retry.
