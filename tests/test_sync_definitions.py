@@ -457,18 +457,18 @@ class TestSyncDefinitions:
         assert result["status"] == "skipped"
 
     def test_default_preference_is_ask(self, vault):
-        """Default preference (no artefact_sync set) behaves like ask — updates are warnings."""
+        """Default preference (no artefact_sync set) auto-applies safe updates."""
         _install_type(vault)
         lib_tax = vault / ".brain-core" / "artefact-library" / "temporal" / "cookies" / "taxonomy.md"
         lib_tax.write_text("# Changed\n")
         # preferences.json is empty — no artefact_sync key
         result = sync.sync_definitions(str(vault))
-        # Should warn, not auto-apply
-        assert any(w["role"] == "taxonomy" for w in result["warnings"])
-        assert not any(u["role"] == "taxonomy" for u in result["updated"])
+        # Safe update (no local changes) should auto-apply
+        assert any(u["role"] == "taxonomy" for u in result["updated"])
+        assert not any(w["role"] == "taxonomy" for w in result["warnings"])
 
     def test_preference_ask(self, vault):
-        """artefact_sync: ask → changes go to warnings, not auto-applied."""
+        """artefact_sync: ask → safe updates auto-apply, conflicts warn."""
         _install_type(vault)
         lib_tax = vault / ".brain-core" / "artefact-library" / "temporal" / "cookies" / "taxonomy.md"
         lib_tax.write_text("# Changed\n")
@@ -476,11 +476,12 @@ class TestSyncDefinitions:
             json.dumps({"artefact_sync": "ask"})
         )
         result = sync.sync_definitions(str(vault))
-        assert any(w["role"] == "taxonomy" for w in result["warnings"])
-        assert not any(u["role"] == "taxonomy" for u in result["updated"])
+        # Safe update (no local changes) should auto-apply
+        assert any(u["role"] == "taxonomy" for u in result["updated"])
+        assert not any(w["role"] == "taxonomy" for w in result["warnings"])
 
-    def test_preference_non_auto_warns(self, vault):
-        """artefact_sync: manual → all changes go to warnings."""
+    def test_preference_non_auto_applies_safe_updates(self, vault):
+        """artefact_sync: any non-skip value → safe updates auto-apply."""
         _install_type(vault)
         lib_tax = vault / ".brain-core" / "artefact-library" / "temporal" / "cookies" / "taxonomy.md"
         lib_tax.write_text("# Changed\n")
@@ -488,9 +489,9 @@ class TestSyncDefinitions:
             json.dumps({"artefact_sync": "manual"})
         )
         result = sync.sync_definitions(str(vault))
-        # The update should be in warnings, not auto-applied
-        assert any(w["role"] == "taxonomy" for w in result["warnings"])
-        assert not any(u["role"] == "taxonomy" for u in result["updated"])
+        # Safe update (no local changes) should auto-apply regardless of preference
+        assert any(u["role"] == "taxonomy" for u in result["updated"])
+        assert not any(w["role"] == "taxonomy" for w in result["warnings"])
 
     def test_dry_run(self, vault):
         """dry_run=True → no files or tracking modified."""

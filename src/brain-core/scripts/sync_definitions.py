@@ -377,9 +377,10 @@ def sync_definitions(
                 })
                 continue
 
-            # Apply update: auto-update safe changes, or force all changes
+            # Apply update: safe updates (no local changes) always apply;
+            # conflicts (both sides changed) require force.
             should_apply = (
-                (status["action"] == "update" and preference == "auto")
+                status["action"] == "update"
                 or force
             )
             if should_apply:

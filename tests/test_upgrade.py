@@ -143,16 +143,16 @@ class TestPostUpgradeSync:
         # Verify file was actually updated
         assert "v2" in _read(str(vault / "_Config" / "Taxonomy" / "Living" / "docs.md"))
 
-    def test_upgrade_with_ask_preference_previews(self, source_and_vault):
-        """artefact_sync: ask (default) → dry-run preview included, files not changed."""
+    def test_upgrade_with_ask_preference_applies_safe_updates(self, source_and_vault):
+        """artefact_sync: ask (default) → safe updates auto-applied."""
         source, vault = source_and_vault
         result = upgrade.upgrade(str(vault), str(source))
         assert result["status"] == "ok"
-        assert "sync_preview" in result
-        # With "ask" preference, pending updates appear as warnings (need approval)
-        assert len(result["sync_preview"]["warnings"]) > 0
-        # File should NOT be updated
-        assert "v1" in _read(str(vault / "_Config" / "Taxonomy" / "Living" / "docs.md"))
+        assert "sync_result" in result
+        # Safe update (no local changes) should be applied
+        assert len(result["sync_result"]["updated"]) > 0
+        # File should be updated
+        assert "v2" in _read(str(vault / "_Config" / "Taxonomy" / "Living" / "docs.md"))
 
     def test_upgrade_with_skip_preference_no_sync(self, source_and_vault):
         """artefact_sync: skip → no sync at all."""

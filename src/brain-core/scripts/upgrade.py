@@ -391,14 +391,16 @@ def _validate_compile(vault_root: str) -> Optional[str]:
 # ---------------------------------------------------------------------------
 
 def _post_upgrade_sync(vault_root: str, *, sync: Optional[bool]) -> Optional[dict]:
-    """Run or preview artefact definition sync after upgrade.
+    """Run artefact definition sync after upgrade.
 
     Sync is optional — failures are captured, never raised. The upgrade
     is the critical operation; sync is a convenience step.
 
+    Safe updates (upstream changed, no local changes) always apply.
+    Conflicts (both sides changed) are returned as warnings.
+
     Returns None if skipped entirely, or a dict with one of:
       'sync_result'  — sync ran and produced a result
-      'sync_preview' — dry-run preview of what sync would do
       'sync_error'   — sync was attempted but failed
     """
     # Read preference
@@ -426,20 +428,18 @@ def _post_upgrade_sync(vault_root: str, *, sync: Optional[bool]) -> Optional[dic
         sync_mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(sync_mod)
 
-        should_apply = sync is True or preference == "auto"
-
-        if should_apply:
-            sync_result = sync_mod.sync_definitions(vault_root, preference="auto")
-            return {"sync_result": sync_result}
-        else:
-            # Preview only — pass preference so sync_definitions
-            # doesn't re-read it from disk
-            sync_preview = sync_mod.sync_definitions(
-                vault_root, dry_run=True, preference=preference,
-            )
-            if sync_preview["updated"] or sync_preview["warnings"]:
-                return {"sync_preview": sync_preview}
+        if sync is False or preference == "skip":
             return None
+
+        # Run sync — safe updates (no local changes) always apply;
+        # conflicts are returned as warnings for the caller to present.
+        # force=True when explicitly requested via --sync flag.
+        sync_result = sync_mod.sync_definitions(
+            vault_root, force=(sync is True),
+        )
+        if sync_result["updated"] or sync_result["warnings"]:
+            return {"sync_result": sync_result}
+        return None
     except Exception as e:
         return {"sync_error": f"Definition sync failed: {e}"}
 
@@ -696,20 +696,9 @@ def main() -> None:
                 for item in sr["updated"]:
                     info(f"  ~ {item['type']} / {item['role']} → {item['target']}")
             if sr.get("warnings"):
-                info("Customised definitions (not updated):")
+                info("Conflicts (local changes differ from upstream — manual review needed):")
                 for item in sr["warnings"]:
                     info(f"  ? {item['type']} / {item['role']} → {item['target']}")
-        elif "sync_preview" in result:
-            sp = result["sync_preview"]
-            info("Artefact definitions have updates available:")
-            for item in sp["updated"]:
-                info(f"  ~ {item['type']} / {item['role']} → {item['target']}")
-            if sp.get("warnings"):
-                info("Customised definitions (would need manual review):")
-                for item in sp["warnings"]:
-                    info(f"  ? {item['type']} / {item['role']} → {item['target']}")
-            info("Run: python3 sync_definitions.py --vault <path>")
-            info("  (or use brain_action('sync_definitions') via MCP)")
 
 
 if __name__ == "__main__":
