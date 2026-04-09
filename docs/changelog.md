@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.23.5 — 2026-04-09
+
+**Shaping skill redesign and swarm-test multi-skill architecture.** The monolithic shaping skill is now five files: a parent router (`shaping`) that delegates to `assess` (shared setup and Q&A rules), `brainstorm` (new/stub artefacts), `refine` (convergent decision-driven shaping), and `discover` (exploration-driven artefacts like People and Ideas). Transcript format changes from `Q. > A.` to heading-based (`## session start`, `### Agent`, `### User`). `start-shaping` now appends to same-day transcripts instead of creating new files, and accepts a `skill_type` parameter for session heading labels. Swarm-test command updated to thin router referencing sub-skill files (`review`, `evaluate`).
+
 ## v0.23.4 — 2026-04-08
 
 **Promote bug-logs, mockups, presentations to template vault defaults.** Update default type lists and counts across artefact-library README, specification, getting-started guide, and brain-core guide. Starter vault now ships 27 defaults (10 living + 17 temporal) out of 32 in the library.

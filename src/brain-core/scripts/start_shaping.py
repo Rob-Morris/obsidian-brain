@@ -29,7 +29,6 @@ from _common import (
     serialize_frontmatter,
     substitute_template_vars,
     title_to_filename,
-    unique_filename,
 )
 from read import read_file_content
 
@@ -45,11 +44,12 @@ def start_shaping(vault_root, router, params):
         vault_root: Absolute path to the vault root.
         router: Compiled router dict.
         params: Dict with keys:
-            target — path or basename of artefact to shape (required)
-            title  — override transcript title (optional; defaults to artefact title)
+            target     — path or basename of artefact to shape (required)
+            title      — override transcript title (optional; defaults to artefact title)
+            skill_type — sub-skill label for session heading (optional; defaults to "Shaping")
 
     Returns:
-        Dict with status, target_path, transcript_path, set_status.
+        Dict with status, target_path, transcript_path, set_status, appended.
     """
     vault_root = str(vault_root)
 
@@ -95,40 +95,52 @@ def start_shaping(vault_root, router, params):
                 safe_write(abs_path, updated_content, bounds=vault_root)
                 set_status = True
 
+    skill_type = params.get("skill_type", "Shaping")
+
     now = datetime.now(timezone.utc).astimezone()
     date_prefix = now.strftime("%Y%m%d")
     month_folder = now.strftime("%Y-%m")
     safe_title = title_to_filename(transcript_title)
-    stem = f"{date_prefix}-shaping-transcript~{safe_title}"
+    transcript_filename = f"{date_prefix}-shaping-transcript~{safe_title}.md"
     transcript_folder = os.path.join(
         "_Temporal", "Shaping Transcripts", month_folder
     )
     abs_folder = os.path.join(vault_root, transcript_folder)
-    transcript_filename = unique_filename(abs_folder, stem)
+    transcript_abs = os.path.join(abs_folder, transcript_filename)
     transcript_rel = os.path.join(transcript_folder, transcript_filename)
 
-    template_content = _read_transcript_template(vault_root)
-    if template_content is None:
-        return {"error": "Shaping transcript template not found"}
+    session_heading = f"\n\n## {skill_type} session start — {now.strftime('%H:%M')}\n"
 
-    source_stem = os.path.splitext(rel_path)[0]
-    source_display = os.path.splitext(os.path.basename(rel_path))[0]
-    source_type_tag = matched["key"] if matched else "artefact"
+    if os.path.isfile(transcript_abs):
+        # Same-day append: add session heading to existing transcript
+        with open(transcript_abs, "r", encoding="utf-8") as f:
+            existing = f.read()
+        safe_write(transcript_abs, existing.rstrip() + session_heading, bounds=vault_root)
+        appended = True
+    else:
+        # New transcript: create from template + session heading
+        template_content = _read_transcript_template(vault_root)
+        if template_content is None:
+            return {"error": "Shaping transcript template not found"}
 
-    transcript_content = substitute_template_vars(template_content, {
-        "SOURCE_DOC_PATH|SOURCE_DOC_TITLE": f"{source_stem}|{source_display}",
-        "SOURCE_DOC_PATH": source_stem,
-        "SOURCE_DOC_TITLE": source_display,
-        "SOURCE_TYPE": source_type_tag,
-    }, _now=now)
+        source_stem = os.path.splitext(rel_path)[0]
+        source_display = os.path.splitext(os.path.basename(rel_path))[0]
+        source_type_tag = matched["key"] if matched else "artefact"
 
-    transcript_abs = os.path.join(vault_root, transcript_rel)
-    os.makedirs(os.path.dirname(transcript_abs), exist_ok=True)
-    safe_write(transcript_abs, transcript_content, bounds=vault_root)
+        transcript_content = substitute_template_vars(template_content, {
+            "SOURCE_DOC_PATH|SOURCE_DOC_TITLE": f"{source_stem}|{source_display}",
+            "SOURCE_DOC_PATH": source_stem,
+            "SOURCE_DOC_TITLE": source_display,
+            "SOURCE_TYPE": source_type_tag,
+        }, _now=now)
 
-    transcript_stem = os.path.splitext(transcript_rel)[0]
-    transcript_display = os.path.splitext(transcript_filename)[0]
-    _add_transcript_link(abs_path, vault_root, fields, body, transcript_stem, transcript_display)
+        os.makedirs(os.path.dirname(transcript_abs), exist_ok=True)
+        safe_write(transcript_abs, transcript_content.rstrip() + session_heading, bounds=vault_root)
+
+        transcript_stem = os.path.splitext(transcript_rel)[0]
+        transcript_display = os.path.splitext(transcript_filename)[0]
+        _add_transcript_link(abs_path, vault_root, fields, body, transcript_stem, transcript_display)
+        appended = False
 
     return {
         "status": "ok",
@@ -136,6 +148,7 @@ def start_shaping(vault_root, router, params):
         "transcript_path": transcript_rel,
         "type": "temporal/shaping-transcript",
         "set_status": set_status,
+        "appended": appended,
     }
 
 

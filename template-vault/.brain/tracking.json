@@ -336,15 +336,15 @@
       }
     },
     "temporal/shaping-transcripts": {
-      "brain_core_version": "0.23.2",
-      "installed_at": "2026-04-08T00:46:45.939286+00:00",
+      "brain_core_version": "0.23.4",
+      "installed_at": "2026-04-09T06:04:29.830754+00:00",
       "files": {
         "taxonomy": {
-          "source_hash": "sha256:a5db2ce32ffa55a695d8d0a83ccbc6744690d42e97719888d8021531d53c50f6",
+          "source_hash": "sha256:ada80a2d2f20d91da6d473a9d4d64339dfd18b45a0d06379c89feaea53353121",
           "target": "_Config/Taxonomy/Temporal/shaping-transcripts.md"
         },
         "template": {
-          "source_hash": "sha256:a2f154a699dc85bf7f660990938526b60aac3175c381391a085420b1d6c70104",
+          "source_hash": "sha256:52dc34b6d67174e0e9e71275e6a787b29772b4c6ed377e110c78f9f08292dc69",
           "target": "_Config/Templates/Temporal/Shaping Transcripts.md"
         }
       }
