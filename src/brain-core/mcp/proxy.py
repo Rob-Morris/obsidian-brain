@@ -421,6 +421,8 @@ class Proxy:
                 return
             except Exception as e:
                 _log().error("error writing to client stdout: %s", e)
+                self._shutdown = True
+                return
 
     def _read_with_timeout(self, child: ChildProcess, timeout: int) -> dict | None:
         """
@@ -724,9 +726,11 @@ class Proxy:
                 if exit_code is None:
                     exit_code = 1  # treat as crash
 
-                # Check proxy drift now, before any responses go out, so the
-                # flag is set when _drain_inflight decorates error responses.
-                self._check_proxy_drift()
+                # Check proxy drift before any responses go out so the flag is
+                # set when _drain_inflight decorates error responses. Skip if
+                # already detected — avoids a redundant disk read + hash.
+                if not self._proxy_drift:
+                    self._check_proxy_drift()
 
                 # Version drift: save requests for replay instead of erroring
                 is_drift = exit_code == _EXIT_CODE_VERSION_DRIFT
@@ -892,7 +896,8 @@ class Proxy:
 
         # Signal writer thread to drain remaining messages and stop
         self._outbound.put(None)
-        writer.join(timeout=5.0)
+        if writer.is_alive():
+            writer.join(timeout=5.0)
 
         _log().info("proxy exited")
 

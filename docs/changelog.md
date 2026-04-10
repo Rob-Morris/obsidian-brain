@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.24.5 — 2026-04-10
+
+**MCP proxy writer thread cleanup.** Skips redundant proxy drift disk read when drift is already flagged. Non-BrokenPipe write errors now also terminate the writer thread (previously continued writing to broken stdout). Shutdown join guarded with `is_alive()` to avoid 5s stall when writer already exited via BrokenPipe.
+
 ## v0.24.4 — 2026-04-10
 
 **MCP proxy: single-writer queue, universal drift decoration, eager drift detection.** All outbound client writes now go through a dedicated writer thread draining a queue — eliminates the latent thread-safety bug where the reader thread and main loop both wrote to `sys.stdout.buffer` without synchronisation. Proxy drift note now decorates error responses as well as success responses (`_decorate_with_drift_note` replaces `_inject_proxy_drift_note`). Drift detection runs eagerly on child exit — before `_drain_inflight` sends error responses — so the note appears on orphaned-request errors in the simultaneous server+proxy drift scenario. Proxy version bumped to 0.3.0.
