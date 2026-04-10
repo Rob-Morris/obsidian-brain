@@ -78,7 +78,7 @@ bash install.sh --force ~/brain
 bash install.sh --uninstall --force ~/brain
 ```
 
-Skips all prompts. Useful for scripted or agent-driven installs. On uninstall, `--force` only skips the system-files prompt; vault deletion always requires interactive confirmation.
+Skips all prompts. Useful for scripted or agent-driven installs. On uninstall, `--force` removes system files without prompting and skips the vault-deletion offer entirely — vault deletion is only available in interactive mode (without `--force`).
 
 > **Full reference:** [Scripts — install.sh](docs/functional/scripts.md#installsh) covers all flags, safety guards, and edge-case behaviour.
 

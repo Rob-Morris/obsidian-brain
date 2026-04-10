@@ -146,7 +146,7 @@ bash install.sh --uninstall --force ~/brain
 
 ### Flags
 
-- `--force` / `-f` — skip all interactive prompts. On install/upgrade: accepts defaults, auto-registers MCP. On uninstall: skips the system-files confirmation only — vault deletion always requires interactive confirmation. Also bypasses the stdin pipe detection error.
+- `--force` / `-f` — skip all interactive prompts. On install/upgrade: accepts defaults, auto-registers MCP. On uninstall: removes system files without prompting and skips the vault-deletion offer entirely — vault deletion is only available in interactive mode (without `--force`). Also bypasses the stdin pipe detection error.
 - `--uninstall` — enter uninstall mode. Must be the first argument.
 - **Path** (positional, optional) — target directory. Defaults to current directory (prompted interactively, or `pwd` with `--force`).
 
@@ -180,11 +180,10 @@ Existing files and directories are never touched. The script detects `.obsidian/
 
 ### Uninstall
 
-Three-stage confirmation protects against accidental data loss:
+Two-stage confirmation protects against accidental data loss (interactive mode only — `--force` skips both stages):
 
-1. **System files** — confirms removal of `.brain-core/`, `.brain/`, `.venv/`, `.mcp.json`, `CLAUDE.md`. Your notes and vault structure are untouched. With `--force`, this stage is skipped (auto-confirmed).
-2. **Full vault deletion** — optionally offers to delete the entire directory. Counts and displays the number of artefacts that would be lost.
-3. **Final confirmation** — requires typing `"farewell, cruel world"` to proceed with full deletion. This stage is always interactive, even with `--force`.
+1. **System files** — confirms removal of `.brain-core/`, `.brain/`, `.venv/`, `.mcp.json`, `CLAUDE.md`. Your notes and vault structure are untouched. With `--force`, this stage is skipped (auto-confirmed) and the script exits after removal.
+2. **Full vault deletion** — optionally offers to delete the entire directory. Counts and displays the number of artefacts that would be lost. Requires typing `"farewell, cruel world"` to confirm. Not available with `--force`.
 
 After uninstall, the script reminds you to clean up global MCP registration if applicable: `claude mcp remove brain --scope user`.
 
