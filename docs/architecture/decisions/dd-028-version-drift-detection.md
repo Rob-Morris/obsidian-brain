@@ -18,11 +18,16 @@ On every MCP tool call, `_check_version_drift()` reads `.brain-core/VERSION` fro
 
 The proxy (`proxy.py`) distinguishes exit code 10 from crashes: it restarts immediately with no backoff, then sends a `notifications/tools/list_changed` notification to the MCP client so the client fetches the fresh tool list. Crashes use exponential backoff (0s, 4s, 8s, 16s, 32s). If the immediate restart fails, the proxy falls through to the backoff retry loop rather than entering a limbo state.
 
-`os._exit()` is used rather than `sys.exit()` because `SystemExit` raised inside an MCP tool handler gets wrapped in `BaseExceptionGroup` by anyio task groups, losing the exit code. The MCP SDK's async shutdown then treats it as a normal exit (code 0), causing the proxy to shut down instead of restarting. `os._exit()` bypasses the async stack entirely, ensuring the exit code reaches the proxy. The proxy also tracks in-flight request IDs and sends JSON-RPC error responses when the child dies mid-request, preventing indefinite client hangs.
+`os._exit()` is used rather than `sys.exit()` because `SystemExit` raised inside an MCP tool handler gets wrapped in `BaseExceptionGroup` by anyio task groups, losing the exit code. The MCP SDK's async shutdown then treats it as a normal exit (code 0), causing the proxy to shut down instead of restarting. `os._exit()` bypasses the async stack entirely, ensuring the exit code reaches the proxy.
+
+The proxy tracks in-flight requests (full request objects, not just IDs) and handles them on child exit: for version drift, saved requests are replayed to the new child so the client gets a success response; for crashes, error responses are sent to the client. Replay is safe because `_check_version_drift()` runs before any side effects. Replay depth is capped at 1 to prevent loops.
+
+The proxy also detects its own code drift via file-hash comparison (SHA-256) after child restarts, and injects upgrade notes into responses when drift is detected. The reader thread uses `select()` with a configurable timeout (default 30s) to detect children that hang without exiting — after 3 consecutive timeouts with in-flight requests, the proxy kills and restarts the child.
 
 ## Consequences
 
-- Brain-core upgrades take effect within one tool call — no manual MCP restart needed.
-- The proxy must remain running across upgrades; it is deliberately kept thin (no business logic) so it rarely needs replacing.
+- Brain-core upgrades take effect within one tool call — no manual MCP restart needed. The triggering request is transparently replayed, so no client retry is required.
+- The proxy must remain running across upgrades; it is deliberately kept thin (no business logic) so it rarely needs replacing. File-hash drift detection alerts if the proxy itself changed on disk.
 - Every tool call pays a cheap disk read for the VERSION file. This is negligible compared to index or vault I/O.
 - Version drift is logged as a warning with old and new version strings for auditability.
+- Hung children are detected and killed rather than causing permanent silent hangs.
