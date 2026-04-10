@@ -725,6 +725,139 @@ class TestProxyDrift:
             proc.wait(timeout=5)
 
 
+class TestVersionDriftReplay:
+    """The request that triggers version drift is transparently replayed to the new child."""
+
+    def test_drift_triggering_request_gets_success(self, tmp_path):
+        """
+        The request that causes exit(10) should be replayed to the restarted child,
+        so the client gets a success response — not an error.
+        """
+        _write_vault(tmp_path)
+        server_script = _drift_then_echo_server_script(tmp_path)
+        proc = _launch_proxy(tmp_path, server_script)
+        try:
+            # Initialize
+            proc.stdin.write(_make_jsonrpc("initialize", id=1,
+                                           params={"protocolVersion": "2024-11-05",
+                                                   "clientInfo": {"name": "test", "version": "0"}}))
+            proc.stdin.flush()
+            init_msgs = _read_responses(proc, timeout=5.0, count=1)
+            assert init_msgs and init_msgs[0].get("id") == 1
+
+            # Send request that will trigger version drift (exit code 10)
+            proc.stdin.write(_make_jsonrpc("tools/call", id=2, params={"name": "anything"}))
+            proc.stdin.flush()
+
+            # Read all messages — should include list_changed + success for id=2
+            all_msgs = _read_all_responses(proc, timeout=10.0, max_count=10)
+
+            # The triggering request (id=2) should get a SUCCESS response via replay
+            resp = _find_by_id(all_msgs, 2)
+            assert resp is not None, (
+                f"No response with id=2 after drift replay. Got: {all_msgs}"
+            )
+            assert "result" in resp, (
+                f"Expected success for replayed request id=2, got error: {resp}"
+            )
+            assert resp["result"]["content"][0]["text"] == "ok after restart"
+
+            # Should also get the list_changed notification
+            notif = _find_notification(all_msgs, "notifications/tools/list_changed")
+            assert notif is not None, (
+                f"Expected notifications/tools/list_changed. Got: {all_msgs}"
+            )
+
+        finally:
+            proc.terminate()
+            proc.wait(timeout=5)
+
+
+def _hang_after_request_server_script(tmp_path) -> str:
+    """
+    Server that responds to initialize normally, then hangs forever (without
+    responding or exiting) when it receives any other request.
+    """
+    path = str(tmp_path / "hang_after_request_server.py")
+    script = textwrap.dedent("""\
+        import sys, json, time
+
+        for raw in sys.stdin:
+            line = raw.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+            except Exception:
+                continue
+            method = obj.get("method", "")
+            msg_id = obj.get("id")
+            if method == "initialize":
+                resp = {"jsonrpc": "2.0", "id": msg_id,
+                        "result": {"protocolVersion": "2024-11-05",
+                                   "capabilities": {},
+                                   "serverInfo": {"name": "hang", "version": "0.0.1"}}}
+                print(json.dumps(resp), flush=True)
+            else:
+                # Hang forever — don't respond, don't exit
+                while True:
+                    time.sleep(3600)
+    """)
+    with open(path, "w") as f:
+        f.write(script)
+    return path
+
+
+class TestHangDetection:
+    """Proxy detects and kills a child that hangs with in-flight requests."""
+
+    def test_hanging_child_killed_after_timeout(self, tmp_path):
+        """
+        Child hangs after receiving a request. Proxy's select timeout fires,
+        detects in-flight requests, and kills the child after consecutive limit.
+        Client gets an error response.
+        """
+        _write_vault(tmp_path)
+        server_script = _hang_after_request_server_script(tmp_path)
+        # Use very short select timeout (1s) and short init timeout to speed up
+        proc = _launch_proxy(tmp_path, server_script,
+                             extra_env={
+                                 "BRAIN_PROXY_READ_TIMEOUT": "1",
+                                 "BRAIN_PROXY_INIT_TIMEOUT": "2",
+                                 "BRAIN_PROXY_BACKOFF": "0,0,0,0,0",
+                             })
+        try:
+            # Initialize
+            proc.stdin.write(_make_jsonrpc("initialize", id=1,
+                                           params={"protocolVersion": "2024-11-05",
+                                                   "clientInfo": {"name": "test", "version": "0"}}))
+            proc.stdin.flush()
+            init_msgs = _read_responses(proc, timeout=5.0, count=1)
+            assert init_msgs and init_msgs[0].get("id") == 1
+
+            # Send request — child will hang
+            proc.stdin.write(_make_jsonrpc("tools/call", id=2, params={"name": "anything"}))
+            proc.stdin.flush()
+
+            # Wait for 3 consecutive timeouts (1s each) + kill + drain + restart attempts.
+            # The drain sends the error for id=2, then _handle_child_exit tries to
+            # restart. Use a generous timeout to account for restart attempts.
+            all_msgs = _read_all_responses(proc, timeout=20.0, max_count=10)
+
+            # Should get an error response for id=2 (orphaned after kill)
+            resp = _find_by_id(all_msgs, 2)
+            assert resp is not None, (
+                f"No response with id=2 after hang detection. Got: {all_msgs}"
+            )
+            assert "error" in resp, (
+                f"Expected error for hung request id=2, got: {resp}"
+            )
+
+        finally:
+            proc.terminate()
+            proc.wait(timeout=5)
+
+
 class TestStartupTimeout:
     """Proxy returns a timeout error when child hangs on initialize during restart."""
 

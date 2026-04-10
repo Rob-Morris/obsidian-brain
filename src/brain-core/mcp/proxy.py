@@ -16,11 +16,13 @@ Env:
     BRAIN_PROXY_INIT_TIMEOUT — seconds to wait for child initialize response (default 60)
 """
 
+import hashlib
 import json
 import logging
 import logging.handlers
 import os
 import re
+import select
 import subprocess
 import sys
 import threading
@@ -30,7 +32,7 @@ import time
 # Constants
 # ---------------------------------------------------------------------------
 
-PROXY_VERSION = "0.1.0"
+PROXY_VERSION = "0.2.0"
 
 _LOG_REL = os.path.join(".brain", "local", "mcp-proxy.log")
 _LOG_MAX_BYTES = 2 * 1024 * 1024  # 2 MB
@@ -40,6 +42,9 @@ _DEFAULT_BACKOFF = [0, 4, 8, 16, 32]
 _CHILD_ALIVE_RESET_SECS = 60  # reset backoff if child lives this long
 _EXIT_CODE_VERSION_DRIFT = 10
 _EXIT_CODE_CLEAN = 0
+_READER_SELECT_TIMEOUT = 30  # seconds; override with BRAIN_PROXY_READ_TIMEOUT
+_HANG_CONSECUTIVE_LIMIT = 3  # kill child after this many timeouts with in-flight requests
+_MAX_REPLAY_DEPTH = 1  # cap replay to prevent infinite drift loops
 
 # ---------------------------------------------------------------------------
 # Logging setup
@@ -180,6 +185,14 @@ def _get_init_timeout() -> int:
         return 60
 
 
+def _get_read_timeout() -> int:
+    """Return reader thread select timeout in seconds."""
+    try:
+        return int(os.environ.get("BRAIN_PROXY_READ_TIMEOUT", str(_READER_SELECT_TIMEOUT)))
+    except ValueError:
+        return _READER_SELECT_TIMEOUT
+
+
 # ---------------------------------------------------------------------------
 # ChildProcess
 # ---------------------------------------------------------------------------
@@ -258,6 +271,13 @@ class ChildProcess:
     def pid(self) -> int | None:
         return self._proc.pid if self._proc else None
 
+    @property
+    def stdout_fd(self) -> int | None:
+        """Return the file descriptor of child stdout, or None."""
+        if self._proc and self._proc.stdout:
+            return self._proc.stdout.fileno()
+        return None
+
 
 # ---------------------------------------------------------------------------
 # Proxy
@@ -292,11 +312,14 @@ class Proxy:
         # Proxy drift detection
         self._proxy_drift = False
         self._proxy_version_on_disk: str | None = None  # version read from disk
+        self._proxy_file_hash = self._compute_proxy_hash()  # hash at startup
 
-        # In-flight request tracking — IDs of requests forwarded to the child
-        # that haven't been answered yet. Protected by _inflight_lock.
-        self._inflight_ids: set[int | str] = set()
+        # In-flight request tracking — maps request ID to full request object
+        # for requests forwarded to the child but not yet answered.
+        # Protected by _inflight_lock.
+        self._inflight_requests: dict[int | str, dict] = {}
         self._inflight_lock = threading.Lock()
+        self._replay_depth = 0  # prevent infinite drift→replay loops
 
         # Synchronization
         self._child_ready = threading.Event()  # set when child is assigned
@@ -359,37 +382,60 @@ class Proxy:
     def _read_with_timeout(self, child: ChildProcess, timeout: int) -> dict | None:
         """
         Read one JSON line from child stdout within timeout seconds.
+        Uses select() instead of a daemon thread to avoid leaked threads.
         Returns parsed dict or None on timeout/error.
         """
-        result: list[dict | None] = [None]
-        error: list[Exception | None] = [None]
-        done = threading.Event()
+        fd = child.stdout_fd
+        if fd is None:
+            return None
 
-        def _read():
+        deadline = time.monotonic() + timeout
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                _log().warning("child initialize timed out after %ds", timeout)
+                return None
+
             try:
-                line = child.readline()
-                if line:
-                    result[0] = json.loads(line.decode("utf-8").strip())
-            except Exception as e:
-                error[0] = e
-            finally:
-                done.set()
+                ready, _, _ = select.select([fd], [], [], remaining)
+            except (ValueError, OSError):
+                return None
 
-        t = threading.Thread(target=_read, daemon=True)
-        t.start()
-        if not done.wait(timeout=timeout):
-            _log().warning("child initialize timed out after %ds", timeout)
+            if ready:
+                try:
+                    line = child.readline()
+                    if line:
+                        return json.loads(line.decode("utf-8").strip())
+                    # EOF — child died
+                    return None
+                except Exception as e:
+                    _log().error("error reading child initialize response: %s", e)
+                    return None
+
+    def _compute_proxy_hash(self, content: bytes | None = None) -> str | None:
+        """Compute SHA-256 hash prefix of proxy.py. Uses provided content or reads from disk."""
+        try:
+            if content is None:
+                with open(self.proxy_script, "rb") as f:
+                    content = f.read()
+            return hashlib.sha256(content).hexdigest()[:12]
+        except OSError:
             return None
-        if error[0]:
-            _log().error("error reading child initialize response: %s", error[0])
-            return None
-        return result[0]
 
     def _check_proxy_drift(self) -> None:
-        """Read proxy version from disk and set _proxy_drift if different."""
-        on_disk = _read_proxy_version_from_disk(self.proxy_script)
-        if on_disk is None:
+        """Read proxy file from disk once, check version string and hash."""
+        try:
+            with open(self.proxy_script, "rb") as f:
+                content = f.read()
+        except OSError:
             return
+        # Extract version string
+        m = re.search(
+            rb'^PROXY_VERSION\s*=\s*["\']([^"\']+)["\']', content, re.MULTILINE,
+        )
+        if not m:
+            return
+        on_disk = m.group(1).decode("utf-8")
         if on_disk != PROXY_VERSION:
             if not self._proxy_drift:
                 _log().warning(
@@ -397,6 +443,21 @@ class Proxy:
                 )
             self._proxy_drift = True
             self._proxy_version_on_disk = on_disk
+            return
+        # Version strings match — fall back to file hash comparison
+        disk_hash = self._compute_proxy_hash(content)
+        if (
+            disk_hash is not None
+            and self._proxy_file_hash is not None
+            and disk_hash != self._proxy_file_hash
+        ):
+            if not self._proxy_drift:
+                _log().warning(
+                    "proxy drift detected via hash: running=%s disk=%s",
+                    self._proxy_file_hash, disk_hash,
+                )
+            self._proxy_drift = True
+            self._proxy_version_on_disk = f"{PROXY_VERSION}+modified"
         else:
             self._proxy_drift = False
             self._proxy_version_on_disk = None
@@ -499,34 +560,121 @@ class Proxy:
     # Reader thread (child stdout → proxy stdout)
     # ------------------------------------------------------------------
 
-    def _drain_inflight(self) -> None:
-        """Send error responses for all in-flight requests (child died mid-request)."""
+    def _drain_inflight(self, *, replay: bool = False) -> list[dict]:
+        """
+        Handle in-flight requests when the child dies.
+
+        replay=False (default): send error responses to client for each orphan.
+        replay=True: return the full request objects for replay to a new child.
+
+        Returns list of request dicts (non-empty only when replay=True).
+        """
         with self._inflight_lock:
-            orphans = list(self._inflight_ids)
-            self._inflight_ids.clear()
-        for orphan_id in orphans:
-            _log().warning("orphaned in-flight request id=%s — sending error to client", orphan_id)
+            orphans = list(self._inflight_requests.values())
+            self._inflight_requests.clear()
+
+        if replay:
+            for req in orphans:
+                _log().info("saving in-flight request id=%s for replay", req.get("id"))
+            return orphans
+
+        self._send_client_errors(orphans, "server exited mid-request, restarting")
+        return []
+
+    def _send_client_errors(self, requests: list[dict], message: str) -> None:
+        """Send JSON-RPC error responses to the client for a list of requests."""
+        for req in requests:
+            req_id = req.get("id")
+            _log().warning("sending error to client for request id=%s: %s", req_id, message)
             try:
                 _write_line(
                     sys.stdout.buffer,
-                    _make_error_response(orphan_id, -32603, "server exited mid-request, restarting"),
+                    _make_error_response(req_id, -32603, message),
                 )
             except Exception as e:
-                _log().error("failed to send orphan error for id=%s: %s", orphan_id, e)
+                _log().error("failed to send error for id=%s: %s", req_id, e)
+
+    def _replay_requests(self, requests: list[dict]) -> None:
+        """
+        Replay saved requests to the current child after a version-drift restart.
+        Called from the reader thread after _handle_child_exit() succeeds.
+        """
+        child = self._get_child()
+        if child is None:
+            self._send_client_errors(requests, "server restart failed")
+            return
+
+        for req in requests:
+            req_id = req.get("id")
+            _log().info("replaying request id=%s to new child", req_id)
+            try:
+                child.send(req)
+                with self._inflight_lock:
+                    self._inflight_requests[req_id] = req
+            except Exception as e:
+                _log().error("replay failed for request id=%s: %s", req_id, e)
+                self._send_client_errors([req], "replay failed after restart")
 
     def _reader_thread(self) -> None:
         """
         Continuously reads from child stdout and writes to proxy stdout.
-        Handles child exit and triggers restart logic.
+        Uses select() with timeout for health checking. Handles child exit,
+        version-drift replay, and restart logic.
         """
+        timeout = _get_read_timeout()
+        hang_counter = 0
+
         while not self._shutdown:
             child = self._get_child()
             if child is None:
                 self._child_ready.wait(timeout=1.0)
                 self._child_ready.clear()
+                hang_counter = 0
                 continue
 
-            line = child.readline()
+            fd = child.stdout_fd
+            if fd is None:
+                line = None
+            else:
+                try:
+                    ready, _, _ = select.select([fd], [], [], timeout)
+                except (ValueError, OSError):
+                    line = None
+                    ready = None
+                if ready is not None:
+                    if ready:
+                        line = child.readline()
+                        hang_counter = 0
+                    else:
+                        # Timeout — check child health
+                        poll = child.poll()
+                        if poll is not None:
+                            # Child already dead — treat as EOF
+                            line = None
+                        else:
+                            # Child alive — check for hang
+                            with self._inflight_lock:
+                                has_inflight = bool(self._inflight_requests)
+                            if has_inflight:
+                                hang_counter += 1
+                                _log().warning(
+                                    "child unresponsive with in-flight requests "
+                                    "(timeout %d/%d)",
+                                    hang_counter, _HANG_CONSECUTIVE_LIMIT,
+                                )
+                                if hang_counter >= _HANG_CONSECUTIVE_LIMIT:
+                                    _log().error(
+                                        "killing hung child after %d consecutive timeouts",
+                                        hang_counter,
+                                    )
+                                    child.kill()
+                                    line = None  # trigger EOF path
+                                else:
+                                    continue
+                            else:
+                                # No in-flight requests — idle is fine
+                                continue
+
             if line is None:
                 # Child stdout closed — wait for exit code
                 exit_code = child.wait()
@@ -534,14 +682,25 @@ class Proxy:
                 with self._child_lock:
                     self._child = None
                 self._child_ready.clear()
-
-                # Send error responses for any requests the child never answered
-                self._drain_inflight()
+                hang_counter = 0
 
                 if exit_code is None:
                     exit_code = 1  # treat as crash
 
+                # Version drift: save requests for replay instead of erroring
+                is_drift = exit_code == _EXIT_CODE_VERSION_DRIFT
+                can_replay = is_drift and self._replay_depth < _MAX_REPLAY_DEPTH
+                saved_requests = self._drain_inflight(replay=can_replay)
+
+                if can_replay:
+                    self._replay_depth += 1
+
                 self._handle_child_exit(exit_code)
+
+                if can_replay and saved_requests and not self._shutdown:
+                    self._replay_requests(saved_requests)
+                elif can_replay and saved_requests:
+                    self._send_client_errors(saved_requests, "server shutting down")
                 continue
 
             # Parse and forward to client
@@ -558,7 +717,8 @@ class Proxy:
             # Remove from in-flight tracking (response received)
             if msg_id is not None:
                 with self._inflight_lock:
-                    self._inflight_ids.discard(msg_id)
+                    self._inflight_requests.pop(msg_id, None)
+                self._replay_depth = 0
 
             # Capture initialize response (first time only)
             if (
@@ -672,7 +832,7 @@ class Proxy:
             # Forward to child
             if is_request:
                 with self._inflight_lock:
-                    self._inflight_ids.add(msg_id)
+                    self._inflight_requests[msg_id] = obj
             try:
                 child.send(obj)
             except BrokenPipeError:
@@ -685,8 +845,8 @@ class Proxy:
                     # If _drain_inflight() already claimed this ID, skip the
                     # error to avoid sending a duplicate response to the client.
                     with self._inflight_lock:
-                        was_tracked = msg_id in self._inflight_ids
-                        self._inflight_ids.discard(msg_id)
+                        was_tracked = msg_id in self._inflight_requests
+                        self._inflight_requests.pop(msg_id, None)
                     if was_tracked:
                         try:
                             _write_line(
