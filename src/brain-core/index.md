@@ -23,6 +23,9 @@ The system is self-extending. When content has no appropriate home, add a new ar
 7. **Separate concerns** — one topic per artefact; split when a file serves two purposes
 8. **Actively seek signal** — notice gaps, ambiguities, and opportunities; ask small questions at natural moments; capture answers as artefacts
 
+Always:
+- Use `brain_list` (`list_artefacts.py`) not `brain_search` (`search_index.py`) when enumerating or filtering artefacts by type, date range, or tag — `brain_list` is exhaustive; `brain_search` is relevance-ranked and suited for content queries only.
+
 Always read [[.brain-core/session-polyfill]].
 
 Without MCP, also read [[.brain-core/md-bootstrap]].

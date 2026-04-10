@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.24.6 — 2026-04-10
+
+**Session always-rule: prefer brain_list over brain_search for enumeration.** Adds an `Always:` rule to `index.md` directing agents to use `brain_list` / `list_artefacts.py` (not `brain_search`) when filtering by type, date range, or tag. Flows into `always_rules` in `brain_session` and is also visible to naive agents reading `index.md` directly.
+
 ## v0.24.5 — 2026-04-10
 
 **MCP proxy writer thread cleanup.** Skips redundant proxy drift disk read when drift is already flagged. Non-BrokenPipe write errors now also terminate the writer thread (previously continued writing to broken stdout). Shutdown join guarded with `is_alive()` to avoid 5s stall when writer already exited via BrokenPipe.
