@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.24.4 — 2026-04-10
+
+**MCP proxy: single-writer queue, universal drift decoration, eager drift detection.** All outbound client writes now go through a dedicated writer thread draining a queue — eliminates the latent thread-safety bug where the reader thread and main loop both wrote to `sys.stdout.buffer` without synchronisation. Proxy drift note now decorates error responses as well as success responses (`_decorate_with_drift_note` replaces `_inject_proxy_drift_note`). Drift detection runs eagerly on child exit — before `_drain_inflight` sends error responses — so the note appears on orphaned-request errors in the simultaneous server+proxy drift scenario. Proxy version bumped to 0.3.0.
+
 ## v0.24.3 — 2026-04-10
 
 **MCP proxy reliability: replay, drift detection, health check.** Requests that trigger version-drift restarts are now transparently replayed to the new child — the client gets a success response instead of an error. Proxy drift detection uses file-hash comparison as fallback when `PROXY_VERSION` strings match, so on-disk proxy changes are detected even without a version bump. Reader thread replaces blocking `readline()` with `select()`-based I/O with configurable timeout (`BRAIN_PROXY_READ_TIMEOUT`, default 30s) — a child that hangs without exiting is killed after 3 consecutive timeouts with in-flight requests. `_read_with_timeout()` also switched from leaked daemon threads to select-based implementation.

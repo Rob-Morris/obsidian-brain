@@ -21,6 +21,7 @@ import json
 import logging
 import logging.handlers
 import os
+import queue
 import re
 import select
 import subprocess
@@ -32,7 +33,7 @@ import time
 # Constants
 # ---------------------------------------------------------------------------
 
-PROXY_VERSION = "0.2.0"
+PROXY_VERSION = "0.3.0"
 
 _LOG_REL = os.path.join(".brain", "local", "mcp-proxy.log")
 _LOG_MAX_BYTES = 2 * 1024 * 1024  # 2 MB
@@ -138,29 +139,42 @@ def _write_line(stream, obj: dict) -> None:
     stream.flush()
 
 
-def _inject_proxy_drift_note(response: dict, old_ver: str, new_ver: str) -> dict:
+def _decorate_with_drift_note(response: dict, old_ver: str, new_ver: str) -> dict:
     """
-    If response has result.content[].type=="text", inject a drift note into
-    the first text content item. Returns a (possibly modified) shallow copy.
+    Inject a proxy drift note into any outbound response — success or error.
+    Notifications (no result/error) are returned unchanged.
+    For success responses: appends to first text content item.
+    For error responses: appends to error.message.
+    Returns a (possibly modified) shallow copy.
     """
+    note = (
+        f"\n\nNote: MCP proxy has been upgraded ({old_ver} → {new_ver}). "
+        "Restart MCP server via /mcp to load new proxy."
+    )
+    # Success response with text content
     try:
         content = response.get("result", {}).get("content", [])
-        if not isinstance(content, list):
-            return response
-        for i, item in enumerate(content):
-            if isinstance(item, dict) and item.get("type") == "text":
-                note = (
-                    f"\n\nNote: MCP proxy has been upgraded ({old_ver} → {new_ver}). "
-                    "Restart MCP server via /mcp to load new proxy."
-                )
-                new_item = dict(item)
-                new_item["text"] = new_item.get("text", "") + note
-                new_content = list(content)
-                new_content[i] = new_item
-                modified = dict(response)
-                modified["result"] = dict(modified["result"])
-                modified["result"]["content"] = new_content
-                return modified
+        if isinstance(content, list):
+            for i, item in enumerate(content):
+                if isinstance(item, dict) and item.get("type") == "text":
+                    new_item = dict(item)
+                    new_item["text"] = new_item.get("text", "") + note
+                    new_content = list(content)
+                    new_content[i] = new_item
+                    modified = dict(response)
+                    modified["result"] = dict(modified["result"])
+                    modified["result"]["content"] = new_content
+                    return modified
+    except Exception:
+        pass
+    # Error response
+    try:
+        err = response.get("error")
+        if isinstance(err, dict) and "message" in err:
+            modified = dict(response)
+            modified["error"] = dict(err)
+            modified["error"]["message"] = err["message"] + note
+            return modified
     except Exception:
         pass
     return response
@@ -325,6 +339,11 @@ class Proxy:
         self._child_ready = threading.Event()  # set when child is assigned
         self._last_version_check: float = 0.0  # monotonic timestamp for cooldown
 
+        # Outbound message queue — all writes to sys.stdout.buffer go through here.
+        # A single writer thread drains this queue, ensuring thread-safe writes
+        # and centralised drift-note decoration. None is the shutdown sentinel.
+        self._outbound: queue.Queue[dict | None] = queue.Queue()
+
         # Shutdown flag
         self._shutdown = False
 
@@ -365,11 +384,10 @@ class Proxy:
 
             # Notify client that tools may have changed
             try:
-                notification = {
+                self._send_to_client({
                     "jsonrpc": "2.0",
                     "method": "notifications/tools/list_changed",
-                }
-                _write_line(sys.stdout.buffer, notification)
+                })
                 _log().info("sent notifications/tools/list_changed to client")
             except Exception as e:
                 _log().error("failed to send list_changed notification: %s", e)
@@ -378,6 +396,31 @@ class Proxy:
             self._child = child
         self._child_ready.set()
         return True
+
+    def _send_to_client(self, obj: dict) -> None:
+        """Enqueue a message for the client. Thread-safe. Never raises."""
+        self._outbound.put(obj)
+
+    def _writer_thread(self) -> None:
+        """
+        Single thread that owns sys.stdout.buffer writes.
+        Drains self._outbound, applies drift decoration, writes to stdout.
+        Stops on None sentinel or BrokenPipeError.
+        """
+        while True:
+            obj = self._outbound.get()
+            if obj is None:
+                break
+            if self._proxy_drift and self._proxy_version_on_disk:
+                obj = _decorate_with_drift_note(obj, PROXY_VERSION, self._proxy_version_on_disk)
+            try:
+                _write_line(sys.stdout.buffer, obj)
+            except BrokenPipeError:
+                _log().warning("client disconnected (broken pipe on stdout)")
+                self._shutdown = True
+                return
+            except Exception as e:
+                _log().error("error writing to client stdout: %s", e)
 
     def _read_with_timeout(self, child: ChildProcess, timeout: int) -> dict | None:
         """
@@ -585,14 +628,8 @@ class Proxy:
         """Send JSON-RPC error responses to the client for a list of requests."""
         for req in requests:
             req_id = req.get("id")
-            _log().warning("sending error to client for request id=%s: %s", req_id, message)
-            try:
-                _write_line(
-                    sys.stdout.buffer,
-                    _make_error_response(req_id, -32603, message),
-                )
-            except Exception as e:
-                _log().error("failed to send error for id=%s: %s", req_id, e)
+            _log().warning("orphaned in-flight request id=%s — sending error to client", req_id)
+            self._send_to_client(_make_error_response(req_id, -32603, message))
 
     def _replay_requests(self, requests: list[dict]) -> None:
         """
@@ -687,6 +724,10 @@ class Proxy:
                 if exit_code is None:
                     exit_code = 1  # treat as crash
 
+                # Check proxy drift now, before any responses go out, so the
+                # flag is set when _drain_inflight decorates error responses.
+                self._check_proxy_drift()
+
                 # Version drift: save requests for replay instead of erroring
                 is_drift = exit_code == _EXIT_CODE_VERSION_DRIFT
                 can_replay = is_drift and self._replay_depth < _MAX_REPLAY_DEPTH
@@ -730,18 +771,7 @@ class Proxy:
                 self._init_response = obj
                 _log().info("captured initialize response from child")
 
-            # Inject proxy drift note if applicable
-            if self._proxy_drift and self._proxy_version_on_disk:
-                obj = _inject_proxy_drift_note(obj, PROXY_VERSION, self._proxy_version_on_disk)
-
-            try:
-                _write_line(sys.stdout.buffer, obj)
-            except BrokenPipeError:
-                _log().warning("client disconnected (broken pipe on stdout)")
-                self._shutdown = True
-                return
-            except Exception as e:
-                _log().error("error writing to client stdout: %s", e)
+            self._send_to_client(obj)
 
     def _get_child(self) -> ChildProcess | None:
         with self._child_lock:
@@ -763,6 +793,12 @@ class Proxy:
 
     def run(self) -> None:
         """Main proxy loop. Reads from stdin, forwards to child."""
+        # Start writer thread — sole owner of sys.stdout.buffer
+        writer = threading.Thread(
+            target=self._writer_thread, daemon=True, name="client-writer"
+        )
+        writer.start()
+
         # Start reader thread
         reader = threading.Thread(
             target=self._reader_thread, daemon=True, name="child-reader"
@@ -820,11 +856,7 @@ class Proxy:
                 if child is None or (child.poll() is not None):
                     # Still dead — return error for requests, drop notifications
                     if is_request:
-                        error_resp = self._error_response_for_dead_child(msg_id)
-                        try:
-                            _write_line(sys.stdout.buffer, error_resp)
-                        except Exception as e:
-                            _log().error("error writing error response: %s", e)
+                        self._send_to_client(self._error_response_for_dead_child(msg_id))
                     elif is_notification:
                         _log().debug("dropping notification (child dead): method=%s", method)
                     continue
@@ -848,13 +880,7 @@ class Proxy:
                         was_tracked = msg_id in self._inflight_requests
                         self._inflight_requests.pop(msg_id, None)
                     if was_tracked:
-                        try:
-                            _write_line(
-                                sys.stdout.buffer,
-                                self._error_response_for_dead_child(msg_id),
-                            )
-                        except Exception:
-                            pass
+                        self._send_to_client(self._error_response_for_dead_child(msg_id))
             except Exception as e:
                 _log().error("error sending to child: %s", e)
 
@@ -863,6 +889,10 @@ class Proxy:
         if child:
             _log().info("proxy shutting down — killing child pid=%s", child.pid)
             child.kill()
+
+        # Signal writer thread to drain remaining messages and stop
+        self._outbound.put(None)
+        writer.join(timeout=5.0)
 
         _log().info("proxy exited")
 
