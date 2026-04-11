@@ -16,4 +16,6 @@ Self-extending system for organising Obsidian vaults, for agents and humans work
 
 If `agents.local.md` exists in the repo root, read it for machine-specific configuration.
 
+Use the tiered workflow in `docs/contributing-agents.md` (`trivial` / `small` / `medium` / `large`). Default to the smallest safe tier and escalate when the blast radius is unclear.
+
 ALWAYS DO FIRST: Call brain_session. Read [[.brain-core/index]]

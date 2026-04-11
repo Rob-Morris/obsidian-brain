@@ -17,5 +17,6 @@ Temporary supplement until `brain_session` delivers this natively. When that hap
 - Archiving living artefacts — [[.brain-core/standards/archiving]]
 - Hub pattern for grouping artefacts — [[.brain-core/standards/hub-pattern]]
 - Subfolders within living artefact folders — [[.brain-core/standards/subfolders]]
+- Task sizing and workflow tiers — [[.brain-core/standards/agent-workflow]]
 - Artefact shaping process — [[.brain-core/standards/shaping]]
 - User preferences — [[.brain-core/standards/user-preferences]]

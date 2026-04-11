@@ -23,6 +23,19 @@ The system is self-extending. When content has no appropriate home, add a new ar
 7. **Separate concerns** — one topic per artefact; split when a file serves two purposes
 8. **Actively seek signal** — notice gaps, ambiguities, and opportunities; ask small questions at natural moments; capture answers as artefacts
 
+## Work Sizing
+
+Use the smallest workflow tier that safely fits the task:
+
+- `trivial` — implement, then verify locally
+- `small` — implement, verify, then review the change
+- `medium` — research and plan first, then implement, verify, and review
+- `large` — design and approval first, then staged implementation, broad verification, and final review
+
+Escalate one tier when the blast radius is unclear, the change crosses boundaries, or it touches bootstrap, migrations, routing, or security-sensitive behaviour.
+
+For the full standard, read [[.brain-core/standards/agent-workflow]].
+
 Always:
 - Use `brain_list` (`list_artefacts.py`) not `brain_search` (`search_index.py`) when enumerating or filtering artefacts by type, date range, or tag — `brain_list` is exhaustive; `brain_search` is relevance-ranked and suited for content queries only.
 
