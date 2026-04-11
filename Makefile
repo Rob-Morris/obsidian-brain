@@ -9,7 +9,7 @@ venv:
 	python3.12 -m venv $(VENV)
 
 install: venv
-	$(PIP) install "mcp>=1.0.0" "pytest>=9.0" "interrogate>=1.7" "pytest-cov>=6.0"
+	$(PIP) install "mcp>=1.0.0" "pytest>=9.0" "pytest-bdd>=8.0" "interrogate>=1.7" "pytest-cov>=6.0"
 
 dev-link:
 	@[ -e template-vault/.brain-core ] || ln -s ../src/brain-core template-vault/.brain-core

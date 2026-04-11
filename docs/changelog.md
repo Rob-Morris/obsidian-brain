@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.24.10 — 2026-04-12
+
+**Add a thin Gherkin layer for core domain behaviours.** Introduces `pytest-bdd` to the dev/test dependency surface and adds feature coverage for three core flows: artefact creation lifecycle, vault compliance checking, and router compilation. The new scenarios stay intentionally thin and exercise existing script APIs rather than duplicating the detailed unit-test suite.
+
 ## v0.24.9 — 2026-04-11
 
 **Promote router and artefact helpers into the `_common` shared kernel.** Extracts compiled-router loading, artefact path validation, artefact naming and folder resolution, config-resource path building, and shared file reads into dedicated `_common` modules (`_router.py`, `_artefacts.py`) re-exported through the facade. This removes remaining helper imports between `create.py`, `read.py`, `start_shaping.py`, and compliance-adjacent callers while preserving public compatibility wrappers where tests depend on them.

@@ -8,6 +8,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=9.0",
+    "pytest-bdd>=8.0",
 ]
 
 [tool.interrogate]
