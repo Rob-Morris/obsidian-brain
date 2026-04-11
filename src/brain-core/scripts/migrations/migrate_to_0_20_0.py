@@ -12,8 +12,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from _common import parse_frontmatter
-from check import load_router
+from _common import load_compiled_router, parse_frontmatter
 from rename import rename_and_update_links
 
 VERSION = "0.20.0"
@@ -26,7 +25,7 @@ def migrate(vault_root):
     """
     vault_root = str(vault_root)
 
-    router = load_router(vault_root)
+    router = load_compiled_router(vault_root)
     if "error" in router:
         return {"status": "skipped", "actions": [router["error"]]}
 

@@ -20,6 +20,24 @@ from ._vault import (
     scan_temporal_types,
 )
 
+from ._router import (
+    COMPILED_ROUTER_REL,
+    load_compiled_router,
+    naming_pattern_to_regex,
+    resolve_and_validate_folder,
+    validate_artefact_folder,
+    validate_artefact_naming,
+    validate_artefact_path,
+)
+
+from ._artefacts import (
+    config_resource_rel_path,
+    read_file_content,
+    resolve_folder,
+    resolve_naming_pattern,
+    resolve_type,
+)
+
 from ._filesystem import (
     check_not_in_brain_core,
     check_write_allowed,

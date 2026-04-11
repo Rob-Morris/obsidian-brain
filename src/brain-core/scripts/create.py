@@ -23,59 +23,23 @@ from datetime import datetime, timezone
 
 from _common import (
     check_write_allowed,
+    config_resource_rel_path,
     find_duplicate_basenames,
     find_vault_root,
+    load_compiled_router,
     make_temp_path,
-    match_artefact,
     parse_frontmatter,
+    read_file_content,
     resolve_body_file,
+    resolve_folder,
+    resolve_naming_pattern,
+    resolve_type,
     safe_write,
     serialize_frontmatter,
     substitute_template_vars,
-    title_to_filename,
     title_to_slug,
     unique_filename,
 )
-from read import read_file_content
-
-
-# ---------------------------------------------------------------------------
-# Naming pattern resolution
-# ---------------------------------------------------------------------------
-
-def resolve_naming_pattern(pattern, title, _now=None):
-    """Resolve a naming pattern to a filename using the given title and today's date.
-
-    Placeholders:
-      {slug}, {name}, {Title}  — title_to_filename(title)
-      yyyymmdd        — today as YYYYMMDD
-      yyyy-mm-dd      — today as YYYY-MM-DD
-      yyyy            — four-digit year
-      mm              — two-digit month
-      dd              — two-digit day
-      ddd             — three-letter weekday (Mon, Tue, ...)
-    """
-    now = _now if _now is not None else datetime.now(timezone.utc).astimezone()
-    safe_title = title_to_filename(title)
-
-    # Order matters: longer placeholders first to avoid partial matches
-    replacements = [
-        ("yyyymmdd", now.strftime("%Y%m%d")),
-        ("yyyy-mm-dd", now.strftime("%Y-%m-%d")),
-        ("yyyy", now.strftime("%Y")),
-        ("ddd", now.strftime("%a")),
-        ("mm", now.strftime("%m")),
-        ("dd", now.strftime("%d")),
-        ("{slug}", safe_title),
-        ("{name}", safe_title),
-        ("{Title}", safe_title),
-    ]
-
-    result = pattern
-    for placeholder, value in replacements:
-        result = result.replace(placeholder, value)
-
-    return result
 
 
 # ---------------------------------------------------------------------------
@@ -231,27 +195,6 @@ def _create_config_resource(vault_root, resource, rel_path, name, body, frontmat
         )
     return {"path": rel_path, "resource": resource, "name": name}
 
-
-def config_resource_rel_path(router, resource, name):
-    """Return the relative path for a _Config/ resource.
-
-    Shared by create and edit to avoid duplicating path conventions.
-    """
-    slug = title_to_slug(name)
-    if resource == "skill":
-        return os.path.join("_Config", "Skills", slug, "SKILL.md")
-    if resource == "memory":
-        return os.path.join("_Config", "Memories", slug + ".md")
-    if resource == "style":
-        return os.path.join("_Config", "Styles", slug + ".md")
-    if resource == "template":
-        artefact = resolve_type(router, name)
-        classification = artefact.get("classification", "living")
-        subdir = "Living" if classification == "living" else "Temporal"
-        return os.path.join("_Config", "Templates", subdir, artefact["folder"] + ".md")
-    raise ValueError(f"Unknown config resource: {resource}")
-
-
 def _create_skill(vault_root, router, name, body, frontmatter):
     """Create a skill at _Config/Skills/{slug}/SKILL.md."""
     rel_path = config_resource_rel_path(router, "skill", name)
@@ -293,24 +236,6 @@ _RESOURCE_CREATORS = {
     "template": _create_template,
 }
 
-
-def resolve_type(router, type_key):
-    """Match type_key against router artefacts by key, full type, or singular form."""
-    artefacts = router.get("artefacts", [])
-    match = match_artefact(artefacts, type_key)
-    if match is None:
-        raise ValueError(
-            f"Unknown artefact type '{type_key}'. "
-            f"Valid types: {', '.join(a['key'] for a in artefacts)}"
-        )
-    if not match.get("configured"):
-        raise ValueError(
-            f"Type '{type_key}' exists but is not configured "
-            f"(no taxonomy file). Create a taxonomy file first."
-        )
-    return match
-
-
 def _read_template(vault_root, artefact):
     """Read and parse the template file for an artefact type."""
     template_ref = artefact.get("template_file")
@@ -322,23 +247,6 @@ def _read_template(vault_root, artefact):
         return {}, ""
 
     return parse_frontmatter(content)
-
-
-def resolve_folder(artefact, parent=None, _now=None):
-    """Resolve the target folder for a new artefact.
-
-    Living types: use artefact["path"], optionally with a parent subfolder.
-    Temporal types: append yyyy-mm/ subfolder (parent ignored).
-    """
-    base_path = artefact["path"]
-    if artefact.get("classification") == "temporal":
-        now = _now if _now is not None else datetime.now(timezone.utc).astimezone()
-        month_folder = now.strftime("%Y-%m")
-        return os.path.join(base_path, month_folder)
-    if parent:
-        return os.path.join(base_path, parent)
-    return base_path
-
 
 # ---------------------------------------------------------------------------
 # CLI
@@ -402,8 +310,7 @@ def main():
     vault_root = str(find_vault_root(vault_arg))
 
     # Load router
-    from check import load_router
-    router = load_router(vault_root)
+    router = load_compiled_router(vault_root)
     if "error" in router:
         if json_mode:
             print(json.dumps(router))

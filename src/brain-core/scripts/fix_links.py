@@ -23,12 +23,13 @@ from _common import (
     build_vault_file_index,
     build_wikilink_pattern,
     discover_temporal_prefixes,
+    load_compiled_router,
     make_wikilink_replacer,
     replace_wikilinks_in_vault,
     resolve_broken_link,
     strip_md_ext,
 )
-from check import check_broken_wikilinks, load_router
+from check import check_broken_wikilinks
 
 
 def scan_and_resolve(vault_root, router=None):
@@ -41,7 +42,7 @@ def scan_and_resolve(vault_root, router=None):
         summary   — {total_broken, fixed, ambiguous, unresolvable}
     """
     if router is None:
-        router = load_router(vault_root)
+        router = load_compiled_router(vault_root)
 
     file_index = build_vault_file_index(vault_root)
     findings = check_broken_wikilinks(vault_root, router, file_index=file_index)

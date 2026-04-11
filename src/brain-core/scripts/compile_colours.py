@@ -25,7 +25,7 @@ import os
 import sys
 from datetime import datetime, timezone
 
-from _common import find_vault_root, safe_write, safe_write_json
+from _common import find_vault_root, load_compiled_router, safe_write, safe_write_json
 
 
 # ---------------------------------------------------------------------------
@@ -57,24 +57,6 @@ ROSE_BLEND_FACTOR = 0.35
 
 OUTPUT_REL = os.path.join(".obsidian", "snippets", "brain-folder-colours.css")
 GRAPH_JSON_REL = os.path.join(".obsidian", "graph.json")
-COMPILED_ROUTER_REL = os.path.join(".brain", "local", "compiled-router.json")
-
-
-# ---------------------------------------------------------------------------
-# Router loading
-# ---------------------------------------------------------------------------
-
-def load_router(vault_root):
-    """Read .brain/local/compiled-router.json and return parsed dict."""
-    router_path = os.path.join(str(vault_root), COMPILED_ROUTER_REL)
-    if not os.path.isfile(router_path):
-        print(f"Error: compiled router not found at {router_path}", file=sys.stderr)
-        print("Run compile_router.py first.", file=sys.stderr)
-        sys.exit(1)
-    with open(router_path, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-
 # ---------------------------------------------------------------------------
 # Hue distribution algorithm
 # ---------------------------------------------------------------------------
@@ -727,7 +709,7 @@ def generate(vault_root, router=None):
     """
     vault_root = str(vault_root)
     if router is None:
-        router = load_router(vault_root)
+        router = _require_compiled_router(vault_root)
 
     assignments = compute_colours(router)
     css = render_css(assignments)
@@ -739,6 +721,11 @@ def generate(vault_root, router=None):
     write_graph_json(vault_root, color_groups)
 
     return assignments, css_path
+
+
+def load_router(vault_root):
+    """Public compatibility wrapper for tests and callers."""
+    return _require_compiled_router(vault_root)
 
 
 # ---------------------------------------------------------------------------
@@ -764,10 +751,19 @@ def parse_args(argv):
 # Entry point
 # ---------------------------------------------------------------------------
 
+def _require_compiled_router(vault_root):
+    """Load the compiled router or exit with a CLI-friendly error."""
+    router = load_compiled_router(vault_root)
+    if "error" in router:
+        print(f"Error: {router['error']}", file=sys.stderr)
+        sys.exit(1)
+    return router
+
+
 def main():
     json_mode, dry_run, vault_path = parse_args(sys.argv)
     vault_root = find_vault_root(vault_path)
-    router = load_router(vault_root)
+    router = _require_compiled_router(vault_root)
     assignments = compute_colours(router)
     color_groups = render_graph_color_groups(assignments)
 

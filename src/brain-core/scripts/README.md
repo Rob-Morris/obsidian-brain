@@ -96,6 +96,8 @@ Boundary rule:
 | Module | Purpose | Functions |
 |--------|---------|-----------|
 | `_vault.py` | Vault root discovery, version, scanning, artefact matching | 8 |
+| `_artefacts.py` | Shared artefact naming, folder resolution, config-resource paths, file reads | 5 |
+| `_router.py` | Compiled router loading, naming-pattern matching, artefact path validation | 6 |
 | `_filesystem.py` | Safe writes, bounds checking, body file resolution | 7 |
 | `_frontmatter.py` | Frontmatter parsing and serialisation | 2 |
 | `_wikilinks.py` | Wikilink extraction, file index, broken link resolution | 17 |
@@ -108,6 +110,8 @@ Internal dependencies flow from leaves to integrators:
 
 ```
 _slugs, _search, _markdown, _frontmatter, _templates, _vault  (standalone)
+_artefacts   → _slugs, _vault
+_router      → _wikilinks
 _filesystem  → _vault
 _wikilinks   → _vault, _filesystem, _slugs
 ```

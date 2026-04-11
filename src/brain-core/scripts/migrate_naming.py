@@ -20,8 +20,8 @@ import os
 import re
 import sys
 
-from _common import find_vault_root, slug_to_title, title_to_filename
-from check import find_type_files, load_router, naming_pattern_to_regex
+from _common import find_vault_root, load_compiled_router, naming_pattern_to_regex, slug_to_title, title_to_filename
+from check import find_type_files
 from rename import rename_and_update_links
 
 
@@ -94,7 +94,7 @@ def migrate_vault(vault_root, router=None, dry_run=False):
     vault_root = str(vault_root)
 
     if router is None:
-        router = load_router(vault_root)
+        router = load_compiled_router(vault_root)
     if "error" in router:
         return {"error": router["error"], "renamed": 0, "skipped": 0, "errors": []}
 

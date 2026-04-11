@@ -22,6 +22,7 @@ import sys
 from datetime import datetime, timezone
 
 from _common import (
+    COMPILED_ROUTER_REL,
     find_vault_root,
     is_system_dir,
     parse_frontmatter,
@@ -32,13 +33,17 @@ from _common import (
     INDEX_SKIP_DIRS,
     strip_md_ext,
     FM_RE,
+    load_compiled_router,
+    naming_pattern_to_regex,
+    validate_artefact_folder,
+    validate_artefact_naming,
+    validate_artefact_path,
+    resolve_and_validate_folder,
 )
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-
-COMPILED_ROUTER_REL = os.path.join(".brain", "local", "compiled-router.json")
 
 ROOT_ALLOW = {
     "Agents.md", "CLAUDE.md", "agents.local.md",
@@ -52,14 +57,7 @@ ROOT_ALLOW = {
 
 def load_router(vault_root):
     """Load compiled router JSON. Returns dict or error dict (never sys.exit)."""
-    router_path = os.path.join(vault_root, COMPILED_ROUTER_REL)
-    if not os.path.isfile(router_path):
-        return {"error": f"Compiled router not found at {COMPILED_ROUTER_REL}. Run compile_router.py first."}
-    try:
-        with open(router_path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (json.JSONDecodeError, OSError) as e:
-        return {"error": f"Failed to read compiled router: {e}"}
+    return load_compiled_router(vault_root)
 
 
 # ---------------------------------------------------------------------------
@@ -84,129 +82,6 @@ def find_type_files(vault_root, artefact_path, skip_archive=True):
                 rel_path = os.path.relpath(abs_path, vault_root)
                 files.append(rel_path)
     return files
-
-
-# ---------------------------------------------------------------------------
-# Naming pattern → regex conversion
-# ---------------------------------------------------------------------------
-
-def naming_pattern_to_regex(pattern):
-    """Convert a naming pattern string to a compiled regex, or None if pattern is None."""
-    if pattern is None:
-        return None
-
-    # Split on known placeholders, escape literals, reassemble as regex.
-    # Order matters: longer patterns first to avoid partial matches.
-    # yyyymmdd before yyyy/mm/dd; yyyy-mm-dd before yyyy; ddd before dd.
-    PLACEHOLDERS = [
-        ("yyyymmdd", r"\d{8}"),
-        ("yyyy-mm-dd", r"\d{4}-\d{2}-\d{2}"),
-        ("yyyy", r"\d{4}"),
-        ("ddd", r"(Mon|Tue|Wed|Thu|Fri|Sat|Sun)"),
-        ("mm", r"\d{2}"),
-        ("dd", r"\d{2}"),
-        ("{sourcedoctype}", r"[a-z]+(?:-[a-z]+)*"),
-        ("{Title}", r".+"),
-        ("{name}", r".+"),
-        ("{slug}", r".+"),
-    ]
-
-    # Tokenise the pattern: split into placeholder tokens and literal tokens
-    # We process left-to-right, greedily matching the longest placeholder at each position
-    result = ""
-    i = 0
-    while i < len(pattern):
-        matched = False
-        for placeholder, regex in PLACEHOLDERS:
-            if pattern[i:i + len(placeholder)] == placeholder:
-                result += regex
-                i += len(placeholder)
-                matched = True
-                break
-        if not matched:
-            # Literal character — escape for regex but preserve `--` as literal
-            result += re.escape(pattern[i])
-            i += 1
-
-    try:
-        return re.compile(r"\A" + result + r"\Z")
-    except re.error:
-        return None
-
-
-# ---------------------------------------------------------------------------
-# Path validation
-# ---------------------------------------------------------------------------
-
-def validate_artefact_folder(vault_root, router, path):
-    """Validate path belongs to a known, configured type folder.
-
-    Returns artefact dict or raises ValueError.  Does **not** check the
-    filename against the type's naming pattern — use this for edit/append/
-    convert where the file already exists and its name may predate the
-    current naming convention.
-    """
-    vault_root = str(vault_root)
-
-    for art in router.get("artefacts", []):
-        art_path = art["path"]
-        if path.startswith(art_path + os.sep) or path.startswith(art_path + "/"):
-            if not art.get("configured"):
-                raise ValueError(
-                    f"Path '{path}' belongs to unconfigured type '{art['key']}'. "
-                    f"Create a taxonomy file first."
-                )
-            return art
-
-    known_paths = [a["path"] for a in router.get("artefacts", [])]
-    raise ValueError(
-        f"Path '{path}' does not belong to any known artefact folder. "
-        f"Known: {', '.join(known_paths)}"
-    )
-
-
-def resolve_and_validate_folder(vault_root, router, path):
-    """Validate path belongs to a known artefact folder, falling back to basename resolution.
-
-    Tries exact path first. If that fails, resolves by basename (like wikilinks)
-    and re-validates. Returns ``(resolved_path, artefact_dict)``.  Artefacts are
-    always ``.md`` files, so a missing extension is normalised automatically.
-
-    Raises ValueError if neither the exact path nor basename resolution succeeds.
-    """
-    if not path.endswith(".md"):
-        path += ".md"
-    try:
-        art = validate_artefact_folder(vault_root, router, path)
-        return path, art
-    except ValueError:
-        resolved = resolve_artefact_path(path, vault_root)
-        art = validate_artefact_folder(vault_root, router, resolved)
-        return resolved, art
-
-
-def validate_artefact_naming(artefact, path):
-    """Validate filename matches the type's naming pattern. Raises ValueError if not."""
-    naming = artefact.get("naming")
-    if naming and naming.get("pattern"):
-        regex = naming_pattern_to_regex(naming["pattern"])
-        if regex:
-            filename = os.path.basename(path)
-            if not regex.match(filename):
-                raise ValueError(
-                    f"Filename '{filename}' does not match expected pattern "
-                    f"'{naming['pattern']}' for type '{artefact['key']}'"
-                )
-
-
-def validate_artefact_path(vault_root, router, path):
-    """Validate folder membership AND naming pattern (strict).
-
-    Used by compliance checks — not by edit/append/convert.
-    """
-    art = validate_artefact_folder(vault_root, router, path)
-    validate_artefact_naming(art, path)
-    return art
 
 
 # ---------------------------------------------------------------------------

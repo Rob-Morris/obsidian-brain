@@ -17,35 +17,35 @@ import os
 import re
 import sys
 
-from check import (
-    naming_pattern_to_regex,
-    resolve_and_validate_folder,
-    validate_artefact_folder,
-    validate_artefact_naming,
-    validate_artefact_path,
-)
-from create import config_resource_rel_path, resolve_naming_pattern, resolve_type, resolve_folder
-
-from rename import rename_and_update_links
-
 from _common import (
     check_write_allowed,
+    config_resource_rel_path,
     find_section,
     find_vault_root,
     is_archived_path,
+    load_compiled_router,
     make_wikilink_replacer,
     make_temp_path,
+    naming_pattern_to_regex,
     now_iso,
     parse_frontmatter,
     replace_wikilinks_in_vault,
+    resolve_folder,
+    resolve_and_validate_folder,
     resolve_body_file,
+    resolve_naming_pattern,
+    resolve_type,
     resolve_wikilink_stems,
     safe_write,
     serialize_frontmatter,
     parse_structural_anchor_line,
     strip_md_ext,
     title_to_slug,
+    validate_artefact_folder,
+    validate_artefact_naming,
+    validate_artefact_path,
 )
+from rename import rename_and_update_links
 
 
 # ---------------------------------------------------------------------------
@@ -789,8 +789,7 @@ def main():
 
     vault_root = str(find_vault_root(vault_arg))
 
-    from check import load_router
-    router = load_router(vault_root)
+    router = load_compiled_router(vault_root)
     if "error" in router:
         if json_mode:
             print(json.dumps(router))

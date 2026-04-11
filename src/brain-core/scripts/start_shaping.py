@@ -24,13 +24,13 @@ from _common import (
     match_artefact,
     now_iso,
     parse_frontmatter,
+    read_file_content,
     resolve_artefact_path,
     safe_write,
     serialize_frontmatter,
     substitute_template_vars,
     title_to_filename,
 )
-from read import read_file_content
 
 
 # ---------------------------------------------------------------------------

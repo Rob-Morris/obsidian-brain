@@ -28,14 +28,18 @@ import json
 import os
 import sys
 
-from _common import find_vault_root, is_archived_path, match_artefact, parse_frontmatter, resolve_and_check_bounds, resolve_artefact_path
+from _common import (
+    COMPILED_ROUTER_REL,
+    find_vault_root,
+    is_archived_path,
+    load_compiled_router as _load_compiled_router,
+    match_artefact,
+    read_file_content,
+    resolve_and_check_bounds,
+    resolve_and_validate_folder,
+    resolve_artefact_path,
+)
 
-COMPILED_ROUTER_REL = os.path.join(".brain", "local", "compiled-router.json")
-
-
-# ---------------------------------------------------------------------------
-# File reading helpers
-# ---------------------------------------------------------------------------
 
 def _check_vault_containment(vault_root, rel_path):
     """Return an error dict if rel_path escapes the vault root, else None."""
@@ -44,28 +48,6 @@ def _check_vault_containment(vault_root, rel_path):
     except ValueError:
         return {"error": "Path escapes vault root"}
     return None
-
-
-def read_file_content(vault_root, rel_path):
-    """Read a vault file's content given a relative path from vault root.
-
-    All vault content files are ``.md``; the extension is normalised if missing.
-    Falls back to the original path if the normalised path doesn't exist.
-    Returns file content as string, or an error message.
-    """
-    original = rel_path
-    if not rel_path.endswith(".md"):
-        rel_path += ".md"
-    abs_path = os.path.join(vault_root, rel_path)
-    if not os.path.isfile(abs_path) and original != rel_path:
-        abs_path = os.path.join(vault_root, original)
-        rel_path = original
-    if not os.path.isfile(abs_path):
-        return f"Error: file not found: {rel_path}"
-    with open(abs_path, "r", encoding="utf-8") as f:
-        return f.read()
-
-
 # ---------------------------------------------------------------------------
 # Resource readers — each takes (router, vault_root, name) and returns a value
 # ---------------------------------------------------------------------------
@@ -194,7 +176,6 @@ def read_artefact(router, vault_root, name=None):
         return _check_vault_containment(vault_root, name) or read_file_content(vault_root, name)
 
     try:
-        from check import resolve_and_validate_folder
         name, _ = resolve_and_validate_folder(vault_root, router, name)
     except ValueError as e:
         resource = _resolve_config_resource(vault_root, name)
@@ -250,7 +231,6 @@ def read_file(router, vault_root, name=None):
 
     # Try artefact folders first
     try:
-        from check import resolve_and_validate_folder
         resolved, _ = resolve_and_validate_folder(vault_root, router, name)
         return read_file_content(vault_root, resolved)
     except ValueError:
@@ -335,17 +315,15 @@ def read_resource(router, vault_root, resource, name=None):
 # ---------------------------------------------------------------------------
 
 def load_compiled_router(vault_root):
-    """Load the compiled router JSON from disk."""
-    router_path = os.path.join(str(vault_root), COMPILED_ROUTER_REL)
-    if not os.path.isfile(router_path):
+    """Load the compiled router JSON from disk or exit with a CLI-friendly error."""
+    router = _load_compiled_router(vault_root)
+    if "error" in router:
         print(
-            f"Error: compiled router not found at {COMPILED_ROUTER_REL}. "
-            f"Run compile_router.py first.",
+            f"Error: {router['error']}",
             file=sys.stderr,
         )
         sys.exit(1)
-    with open(router_path, "r", encoding="utf-8") as f:
-        return json.load(f)
+    return router
 
 
 # ---------------------------------------------------------------------------

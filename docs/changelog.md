@@ -2,6 +2,12 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.24.9 — 2026-04-11
+
+**Promote router and artefact helpers into the `_common` shared kernel.** Extracts compiled-router loading, artefact path validation, artefact naming and folder resolution, config-resource path building, and shared file reads into dedicated `_common` modules (`_router.py`, `_artefacts.py`) re-exported through the facade. This removes remaining helper imports between `create.py`, `read.py`, `start_shaping.py`, and compliance-adjacent callers while preserving public compatibility wrappers where tests depend on them.
+
+**Update the script-layer module map for the new shared seams.** `src/brain-core/scripts/README.md` now documents the added `_router.py` and `_artefacts.py` modules and their place in the `_common/` dependency graph.
+
 ## v0.24.8 — 2026-04-11
 
 **Explicit whole-section replacement mode for `brain_edit`.** Targeted `edit` now accepts `target=":section:..."` to replace a matched section including its heading or callout title line. The replacement body must begin with a heading or callout title line, enabling explicit heading renames and re-nesting without a whole-body edit.
