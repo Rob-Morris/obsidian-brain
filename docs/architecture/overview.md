@@ -13,7 +13,7 @@ brain-core is a self-extending system for organising Obsidian vaults, for agents
 Copied into the vault during setup and upgrade (not symlinked — vaults are self-contained and portable). Contains:
 
 - `scripts/` — all vault operation logic as importable Python modules with CLI entry points
-- `mcp/server.py` — thin MCP wrapper over scripts; holds router and index in memory
+- `mcp/server.py` + `mcp/_server_*.py` — MCP composition root and sibling tool handlers; holds router and index in memory
 - `skills/` — core skill documents (system-provided, tagged `"source": "core"`, overwritten on upgrade)
 - `index.md` — system principles, always-rules, and tooling instructions; read every session
 - `session-polyfill.md` — core documentation and standards links (temporary supplement until brain_session delivers natively)
@@ -65,8 +65,8 @@ A typical MCP tool call follows this path:
 
 ```
 MCP client request
-  → server.py — dispatches to the matching tool handler
-  → imports and calls the relevant script function
+  → server.py — traces, gates, and delegates to the matching MCP handler
+  → sibling MCP handler module — maps the tool to the relevant script call
   → script reads compiled router / retrieval index from in-memory state
   → operates on the vault filesystem (read, write, rename, etc.)
   → returns a structured response to the MCP client
@@ -74,7 +74,7 @@ MCP client request
 
 The server loads the compiled router and retrieval index at startup and holds both in memory for the session lifetime. This means scripts called via MCP pay no disk I/O for router or index reads. Scripts called directly (without MCP) read the same JSON files from disk on each invocation — same logic, higher cold-start cost.
 
-Mid-session, if `.brain-core/` is upgraded the server detects version drift on the next tool call and exits cleanly (code 0). The MCP client restarts it with the new code.
+Mid-session, if `.brain-core/` is upgraded the server detects version drift on the next tool call and exits cleanly with code `10`. The MCP proxy interprets that as a planned restart and relaunches the server with the new code.
 
 ---
 

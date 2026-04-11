@@ -2,6 +2,10 @@
 
 MCP tool specifications for the brain server.
 
+`server.py` remains the MCP composition root and runtime-state owner. Tool
+implementation logic may delegate through sibling `_server_*.py` handler
+modules, but the external tool contracts documented here stay unchanged.
+
 ## Tool Overview
 
 | Tool | Safety Level | Purpose |

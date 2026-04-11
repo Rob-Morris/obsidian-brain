@@ -2,6 +2,12 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.24.12 — 2026-04-12
+
+**Extract MCP tool handlers behind sibling modules.** `mcp/server.py` now stays as the MCP composition root and runtime-state owner while tool implementation logic delegates to sibling modules (`_server_session.py`, `_server_reading.py`, `_server_artefacts.py`, `_server_actions.py`, `_server_content.py`) through a narrow `_server_runtime.py` adapter. This preserves the stable `server` module surface used by tests and the proxy while aligning the MCP layer more closely with the bounded-context map.
+
+**Refresh MCP documentation for the current architecture.** Updates the architecture overview, bounded-context map, MCP ADR, and user reference to reflect the composition-root plus sibling-handler structure, correct the documented version-drift restart code to `10`, and fix the MCP tool count to eight.
+
 ## v0.24.11 — 2026-04-12
 
 **Formalise the tiered workflow in agent instructions.** Adds an explicit `trivial` / `small` / `medium` / `large` execution model to the checked-in agent contract and the shipped `.brain-core` bootstrap. Agents now have a documented default for when to implement directly, when to plan first, and when to escalate to design approval and broader review.

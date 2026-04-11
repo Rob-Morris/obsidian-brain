@@ -8,7 +8,7 @@ Agents using Claude Code or Cursor need a way to interact with the vault without
 
 ## Decision
 
-A long-running MCP server lives at `.brain-core/mcp/server.py`. It is a thin wrapper over the scripts in `.brain-core/scripts/` — it imports functions directly and never duplicates logic. On startup it loads the compiled router and search index into memory, avoiding the cold-start cost that standalone scripts pay on each invocation.
+A long-running MCP server lives at `.brain-core/mcp/server.py`. It is a thin wrapper over the scripts in `.brain-core/scripts/`. The composition root may delegate tool bodies to sibling MCP modules, but vault logic still lives in scripts and is never duplicated in the transport layer. On startup it loads the compiled router and search index into memory, avoiding the cold-start cost that standalone scripts pay on each invocation.
 
 The server is the only component that holds in-memory state (compiled router, search index, Obsidian CLI availability). All vault operations are implemented in scripts; the server adds MCP transport and in-memory caching.
 
