@@ -2,6 +2,14 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.24.8 — 2026-04-11
+
+**Explicit whole-section replacement mode for `brain_edit`.** Targeted `edit` now accepts `target=":section:..."` to replace a matched section including its heading or callout title line. The replacement body must begin with a heading or callout title line, enabling explicit heading renames and re-nesting without a whole-body edit.
+
+**Targeted edit policy: strip copied wrappers, allow nested structure, still block structural replacement mistakes.** Plain targeted `edit` remains content-only. Exact copied outer heading/callout wrappers are stripped once to prevent duplicate headings. Leading callouts and lower-level headings are allowed as valid nested section content. Same-level or higher headings remain rejected and must use `target=":section:..."`.
+
+**Document bounded contexts and import policy.** Adds an explicit architecture context map covering the 8 bounded contexts, their responsibilities, and practical import rules; links it from the architecture overview and mirrors the script-level ownership map in `scripts/README.md`.
+
 ## v0.24.7 — 2026-04-11
 
 **Decompose `_common.py` into `_common/` package.** Splits the 1,140-line shared utilities monolith into 9 focused modules (`_vault`, `_filesystem`, `_frontmatter`, `_wikilinks`, `_markdown`, `_slugs`, `_search`, `_templates`) with `__init__.py` re-exporting all public names — consumers unchanged. Renames 3 private symbols to public (`FM_RE`, `INDEX_SKIP_DIRS`, `fenced_ranges`); updates `check.py` and `search_index.py`. Splits `test_common.py` into 7 module-matching test files with shared `conftest.py`.

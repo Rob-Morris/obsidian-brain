@@ -934,6 +934,135 @@ class TestEditWithSection:
         assert "After callout." in body
         assert "> [!note] Implementation status" in body
 
+    def test_edit_section_strips_exact_heading_wrapper(self, vault, router):
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "## Alpha\n\nAlpha content.\n\n## Beta\n\nBeta content.\n"
+        )
+        edit.edit_artefact(
+            str(vault), router, "Wiki/test-page.md",
+            "## Alpha\n\nUpdated alpha.\n", target="## Alpha",
+        )
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        _, body = parse_frontmatter(content)
+        assert body.count("## Alpha") == 1
+        assert "Updated alpha." in body
+        assert "Alpha content." not in body
+
+    def test_edit_section_rejects_different_heading_wrapper(self, vault, router):
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "## Alpha\n\nAlpha content.\n\n## Beta\n\nBeta content.\n"
+        )
+        with pytest.raises(ValueError, match=":section:## Alpha"):
+            edit.edit_artefact(
+                str(vault), router, "Wiki/test-page.md",
+                "# Alpha\n\nUpdated alpha.\n", target="## Alpha",
+            )
+
+    def test_edit_section_allows_nested_heading_content(self, vault, router):
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "## Alpha\n\nAlpha content.\n\n## Beta\n\nBeta content.\n"
+        )
+        edit.edit_artefact(
+            str(vault), router, "Wiki/test-page.md",
+            "### Overview\n\nUpdated alpha.\n", target="## Alpha",
+        )
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        _, body = parse_frontmatter(content)
+        assert "## Alpha" in body
+        assert "### Overview" in body
+        assert "Updated alpha." in body
+
+    def test_edit_section_rejects_same_or_higher_level_heading_content(self, vault, router):
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "## Alpha\n\nAlpha content.\n\n## Beta\n\nBeta content.\n"
+        )
+        with pytest.raises(ValueError, match=":section:## Alpha"):
+            edit.edit_artefact(
+                str(vault), router, "Wiki/test-page.md",
+                "# Overview\n\nUpdated alpha.\n", target="## Alpha",
+            )
+
+    def test_edit_callout_strips_exact_wrapper(self, vault, router):
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "## Section\n\n"
+            "> [!note] Implementation status\n"
+            "> Old status content.\n"
+            "\n"
+            "After callout.\n"
+        )
+        edit.edit_artefact(
+            str(vault), router, "Wiki/test-page.md",
+            "> [!note] Implementation status\n>\n> Updated status.\n",
+            target="[!note] Implementation status",
+        )
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        _, body = parse_frontmatter(content)
+        assert body.count("[!note] Implementation status") == 1
+        assert "Updated status." in body
+        assert "Old status content." not in body
+
+    def test_edit_section_allows_callout_content(self, vault, router):
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "## Alpha\n\nAlpha content.\n"
+        )
+        edit.edit_artefact(
+            str(vault), router, "Wiki/test-page.md",
+            "> [!note] Fresh note\n> Updated alpha.\n",
+            target="## Alpha",
+        )
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        _, body = parse_frontmatter(content)
+        assert "## Alpha" in body
+        assert "[!note] Fresh note" in body
+        assert "Updated alpha." in body
+
+    def test_edit_section_mode_replaces_heading(self, vault, router):
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "## Alpha\n\nAlpha content.\n\n## Beta\n\nBeta content.\n"
+        )
+        edit.edit_artefact(
+            str(vault), router, "Wiki/test-page.md",
+            "# Renamed Alpha\n\nUpdated alpha.\n", target=":section:## Alpha",
+        )
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        _, body = parse_frontmatter(content)
+        assert "## Alpha" not in body
+        assert "# Renamed Alpha" in body
+        assert "Updated alpha." in body
+        assert "## Beta" in body
+
+    def test_edit_section_mode_requires_structural_anchor(self, vault, router):
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "## Alpha\n\nAlpha content.\n"
+        )
+        with pytest.raises(ValueError, match="must begin with a heading or callout title line"):
+            edit.edit_artefact(
+                str(vault), router, "Wiki/test-page.md",
+                "Updated alpha.\n", target=":section:## Alpha",
+            )
+
+    def test_append_section_prefix_is_redundant_alias(self, vault, router):
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "## Alpha\n\nAlpha content.\n"
+        )
+        edit.append_to_artefact(
+            str(vault), router, "Wiki/test-page.md",
+            "Appended.\n", target=":section:## Alpha",
+        )
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        _, body = parse_frontmatter(content)
+        assert "Alpha content." in body
+        assert "Appended." in body
+
 
 # ---------------------------------------------------------------------------
 # Timestamp tests

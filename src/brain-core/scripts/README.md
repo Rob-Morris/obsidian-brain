@@ -31,6 +31,26 @@ Scripts are the **source of truth** for all vault operations. The MCP server (`s
 | `upgrade.py` | In-place brain-core upgrade | `python3 upgrade.py --source P [--vault V] [--dry-run] [--force] [--json]` |
 | `workspace_registry.py` | Workspace slug→path resolution | `python3 workspace_registry.py [--register SLUG PATH] [--unregister SLUG] [--resolve SLUG] [--json]` |
 
+## Bounded Context Map
+
+The script layer is organised into 8 bounded contexts. This is an architectural ownership map, not a packaging requirement.
+
+| Context | Scripts |
+|---|---|
+| Compilation | `compile_router.py`, `compile_colours.py`, `build_index.py`, `sync_definitions.py` |
+| Artefact Operations | `create.py`, `edit.py`, `read.py`, `rename.py`, `fix_links.py`, `start_shaping.py`, `shape_presentation.py` |
+| Compliance | `check.py` |
+| Content Intelligence | `search_index.py`, `list_artefacts.py`, `process.py` |
+| Session & Configuration | `session.py`, `config.py`, `workspace_registry.py`, `generate_key.py` |
+| Lifecycle Management | `init.py`, `upgrade.py`, `migrate_naming.py`, `migrations/` |
+| MCP Integration | `mcp/server.py`, `mcp/proxy.py` |
+| Platform Integration | `obsidian_cli.py` |
+
+Import policy:
+- Depend on `_common/` public API, not another context's private helpers.
+- Prefer top-level script functions as cross-context seams.
+- Keep MCP concerns in `mcp/`; keep platform adapters as leaves.
+
 ## Dependency Graph
 
 ### Import `_common`

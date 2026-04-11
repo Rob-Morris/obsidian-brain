@@ -127,6 +127,7 @@ All tiers begin with the `Agents.md` bootstrap directive, which points agents to
 
 ## Cross-references
 
+- `bounded-contexts.md` — bounded context map, responsibilities, and import policy
 - `decisions/` — individual design decisions (rationale, trade-offs, status)
 - `security.md` — detailed security model (to be created)
 - `../functional/` — tool and script reference documentation (to be created)

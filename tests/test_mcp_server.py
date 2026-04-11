@@ -1347,6 +1347,89 @@ class TestBrainEdit:
         assert "Alpha" in result
         assert "Gamma" in result
 
+    def test_targeted_edit_strips_redundant_heading_wrapper(self, initialized):
+        path = initialized / "Wiki" / "brain-overview-abc123.md"
+        path.write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "## Alpha\n\nAlpha content.\n\n## Beta\n\nBeta content.\n"
+        )
+        result = server.brain_edit(
+            operation="edit",
+            path="Wiki/brain-overview-abc123.md",
+            target="## Alpha",
+            body="## Alpha\n\nUpdated alpha.\n",
+        )
+        assert "Error" not in str(result)
+        content = path.read_text()
+        assert content.count("## Alpha") == 1
+        assert "Updated alpha." in content
+
+    def test_targeted_edit_rejects_structural_change_without_section_mode(self, initialized):
+        path = initialized / "Wiki" / "brain-overview-abc123.md"
+        path.write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "## Alpha\n\nAlpha content.\n"
+        )
+        result = server.brain_edit(
+            operation="edit",
+            path="Wiki/brain-overview-abc123.md",
+            target="## Alpha",
+            body="# Alpha\n\nPromoted.\n",
+        )
+        _assert_error(result, ":section:## Alpha")
+
+    def test_targeted_edit_allows_nested_heading_content(self, initialized):
+        path = initialized / "Wiki" / "brain-overview-abc123.md"
+        path.write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "## Alpha\n\nAlpha content.\n"
+        )
+        result = server.brain_edit(
+            operation="edit",
+            path="Wiki/brain-overview-abc123.md",
+            target="## Alpha",
+            body="### Overview\n\nPromoted content.\n",
+        )
+        assert "Error" not in str(result)
+        content = path.read_text()
+        assert "## Alpha" in content
+        assert "### Overview" in content
+
+    def test_targeted_edit_allows_callout_content(self, initialized):
+        path = initialized / "Wiki" / "brain-overview-abc123.md"
+        path.write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "## Alpha\n\nAlpha content.\n"
+        )
+        result = server.brain_edit(
+            operation="edit",
+            path="Wiki/brain-overview-abc123.md",
+            target="## Alpha",
+            body="> [!note] Fresh note\n> Promoted content.\n",
+        )
+        assert "Error" not in str(result)
+        content = path.read_text()
+        assert "## Alpha" in content
+        assert "[!note] Fresh note" in content
+
+    def test_targeted_edit_section_mode_replaces_heading(self, initialized):
+        path = initialized / "Wiki" / "brain-overview-abc123.md"
+        path.write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "## Alpha\n\nAlpha content.\n\n## Beta\n\nBeta content.\n"
+        )
+        result = server.brain_edit(
+            operation="edit",
+            path="Wiki/brain-overview-abc123.md",
+            target=":section:## Alpha",
+            body="# Renamed Alpha\n\nUpdated alpha.\n",
+        )
+        assert "Error" not in str(result)
+        content = path.read_text()
+        assert "## Alpha" not in content
+        assert "# Renamed Alpha" in content
+        assert "## Beta" in content
+
     def test_edit_skill_resource(self, initialized):
         # Create a skill first
         skill_dir = initialized / "_Config" / "Skills" / "test-skill"

@@ -42,6 +42,7 @@ from _common import (
     resolve_wikilink_stems,
     safe_write,
     serialize_frontmatter,
+    parse_structural_anchor_line,
     strip_md_ext,
     title_to_slug,
 )
@@ -116,7 +117,16 @@ def _apply_edit(existing_body, body, target):
     if target == ":body":
         return body
     if target:
-        start, end = find_section(existing_body, target)
+        section_mode, resolved_target = _resolve_edit_target(target)
+        start, end = find_section(
+            existing_body,
+            resolved_target,
+            include_heading=section_mode,
+        )
+        if section_mode:
+            _validate_whole_section_replacement(body)
+        else:
+            body = _normalize_targeted_edit_body(existing_body, resolved_target, body)
         if body:
             normalized = body.rstrip("\n") + "\n"
             if end < len(existing_body):
@@ -129,8 +139,83 @@ def _apply_edit(existing_body, body, target):
     return existing_body
 
 
+def _resolve_edit_target(target):
+    """Return (whole_section_mode, resolved_target)."""
+    if target.startswith(":section:"):
+        resolved = target[len(":section:"):].strip()
+        if not resolved:
+            raise ValueError("Section replacement target must include a heading or callout title")
+        return True, resolved
+    return False, target
+
+
+def _validate_whole_section_replacement(body):
+    """Whole-section replacement requires a leading structural anchor."""
+    if not body:
+        raise ValueError("Whole-section replacement body cannot be empty")
+    anchor = parse_structural_anchor_line(body)
+    if anchor is None:
+        raise ValueError(
+            "Whole-section replacement body must begin with a heading or callout title line"
+        )
+
+
+def _normalize_targeted_edit_body(existing_body, target, body):
+    """Normalise or reject structural wrappers for content-only targeted edits."""
+    if not body:
+        return body
+
+    anchor = parse_structural_anchor_line(body)
+    if anchor is None:
+        return body
+
+    heading_start, section_start = find_section(existing_body, target, include_heading=True)
+    expected_anchor = parse_structural_anchor_line(existing_body[heading_start:section_start])
+    if expected_anchor and anchor["raw"] == expected_anchor["raw"]:
+        return _strip_exact_structural_wrapper(body, anchor["kind"])
+
+    if anchor["kind"] == "callout":
+        return body
+
+    if (
+        expected_anchor
+        and expected_anchor["kind"] == "heading"
+        and anchor["kind"] == "heading"
+        and anchor["level"] > expected_anchor["level"]
+    ):
+        return body
+
+    raise ValueError(
+        f"Targeted edit for '{target}' replaces section content only; "
+        f"use target=':section:{target}' to replace the section heading or callout title"
+    )
+
+
+def _strip_exact_structural_wrapper(body, anchor_kind):
+    """Strip one exact leading heading/callout wrapper and following blank lines."""
+    lines = body.splitlines(keepends=True)
+    out = []
+    removed = False
+    for line in lines:
+        if not removed and not line.strip():
+            continue
+        if not removed:
+            anchor = parse_structural_anchor_line(line)
+            if anchor is None or anchor["kind"] != anchor_kind:
+                return body
+            removed = True
+            continue
+        out.append(line)
+
+    while out and not out[0].strip():
+        out.pop(0)
+    return "".join(out)
+
+
 def _apply_append(existing_body, content, target):
     """Apply an append operation to a body, returning the new body."""
+    if target and target.startswith(":section:"):
+        target = target[len(":section:"):].strip()
     if target and target != ":body" and content:
         section_start, section_end = find_section(existing_body, target)
         section_body = existing_body[section_start:section_end].rstrip("\n")
@@ -149,6 +234,8 @@ def _apply_append(existing_body, content, target):
 
 def _apply_prepend(existing_body, content, target):
     """Apply a prepend operation to a body, returning the new body."""
+    if target and target.startswith(":section:"):
+        target = target[len(":section:"):].strip()
     if target and target != ":body" and content:
         heading_start, _ = find_section(existing_body, target, include_heading=True)
         content_normalized = content.rstrip("\n") + "\n"

@@ -12,7 +12,7 @@ Operational reference for scripts in `.brain-core/scripts/`. Each script exposes
 | `search_index.py` | BM25 keyword search | `python3 search_index.py "query" [--type T] [--json]` |
 | `read.py` | Query compiled router resources | `python3 read.py RESOURCE [--name N]` |
 | `create.py` | Create new artefact | `python3 create.py --type T --title "Title" [--body B] [--body-file PATH] [--temp-path [SUFFIX]] [--json]` |
-| `edit.py` | Edit/append to artefact | `python3 edit.py edit\|append --path P --body B [--body-file PATH] [--temp-path [SUFFIX]] [--target H] [--json]` |
+| `edit.py` | Edit artefacts and `_Config/` resources | `python3 edit.py edit\|append\|prepend\|delete_section --path P --body B [--body-file PATH] [--temp-path [SUFFIX]] [--target H] [--json]` |
 | `rename.py` | Rename/delete file + update wikilinks (full-path and filename-only) | `python3 rename.py "source" "dest" [--json]` |
 | `check.py` | Structural compliance checks | `python3 check.py [--json] [--severity S]` |
 | `shape_presentation.py` | Create presentation + launch preview | `python3 shape_presentation.py --source P --slug S` |

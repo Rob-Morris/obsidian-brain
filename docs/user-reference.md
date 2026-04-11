@@ -135,7 +135,9 @@ If your vault runs the Brain MCP server (`.brain-core/mcp/server.py`), seven too
 - `append` — add content to end of existing body
 - `prepend` — insert content before existing body or before a target section's heading
 - Optional `frontmatter` parameter — `edit` overwrites fields; `append`/`prepend` extend list fields (with dedup) and overwrite scalars. Set a field to `null` to delete it. All operations support frontmatter-only mutations (omit body)
-- Optional `target` parameter (heading or callout title) — `edit` replaces only that section; `append` inserts at the end of that section; `prepend` inserts before the section's heading line. Include `#` markers to disambiguate duplicate headings (e.g. `"### Notes"`). For callouts, use the `[!type]` prefix (e.g. `"[!note] Implementation status"`)
+- Optional `target` parameter (heading or callout title) — `edit` replaces only that section; `append` inserts at the end of that section; `prepend` inserts before the section's heading line. Include `#` markers to disambiguate duplicate headings (e.g. `"### Notes"`). For callouts, use the `[!type]` prefix (e.g. `"[!note] Implementation status"`).
+- Use `target=":section:## Heading"` or `target=":section:[!note] Title"` with `edit` to replace the whole matched section including its heading/title line. In this mode the body must begin with a heading or callout title line.
+- Plain targeted `edit` remains content-only. If the body starts with the exact matched heading/callout wrapper, `brain_edit` strips that one redundant wrapper. Leading callouts and lower-level headings are allowed as content. Same-level or higher headings are rejected and should use `:section:...`.
 - Targeted operations include surrounding heading context in the response for placement verification
 - For artefacts: `path` accepts relative path or basename (resolves like wikilinks); validated against compiled router
 - For non-artefact resources: `name` identifies the resource (e.g. `"my-skill"`); for templates, name is the artefact type key (e.g. `"wiki"`). No terminal status auto-move or `modified` injection

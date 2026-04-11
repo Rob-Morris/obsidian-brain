@@ -134,6 +134,8 @@ Single-file mutation. Write-guarded: same folder restrictions as `brain_create`.
   - Include `#` markers to disambiguate duplicate headings
   - Use `[!type]` prefix for callouts, e.g. `"[!note] Status"`
   - Use `target=":body"` to explicitly target the entire body
+  - Use `target=":section:## Heading"` or `target=":section:[!note] Title"` with `edit` to replace the entire matched section including its heading/title line
+  - Plain targeted `edit` remains content-only: one exact copied heading/callout wrapper at the start of `body` is stripped; leading callouts and lower-level headings are allowed as section content; same-level or higher headings are rejected with an error directing the caller to `:section:...`
 
 **Behaviour:**
 - For artefacts: path validated against compiled router — wrong folder or naming rejected with helpful error; auto-updates `modified` frontmatter field on every write; auto-sets `statusdate` (YYYY-MM-DD) whenever `status` actually changes; terminal status auto-moves to `+Status/` subfolder with vault-wide wikilink updates, reverts on non-terminal

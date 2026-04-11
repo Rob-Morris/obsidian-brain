@@ -57,6 +57,7 @@ from ._markdown import (
     collect_headings,
     fenced_ranges,
     find_section,
+    parse_structural_anchor_line,
 )
 
 from ._slugs import (

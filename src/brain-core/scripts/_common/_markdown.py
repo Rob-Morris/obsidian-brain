@@ -4,6 +4,7 @@ import re
 
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.*?)[^\S\n]*$", re.MULTILINE)
 _FENCE_RE = re.compile(r"^(`{3,}|~{3,})", re.MULTILINE)
+_CALLOUT_TITLE_RE = re.compile(r"^\s*>\s*(\[\![^\]]+\][^\n]*)\s*$")
 
 
 def collect_headings(body):
@@ -27,6 +28,36 @@ def collect_headings(body):
             m.group(0).strip(),
         ))
     return headings
+
+
+def parse_structural_anchor_line(text):
+    """Parse a heading or callout-title line from the start of ``text``.
+
+    Returns ``None`` when the first non-empty line is ordinary content.
+    Otherwise returns a dict with:
+    - kind: ``"heading"`` or ``"callout"``
+    - raw: the exact structural line (trimmed)
+    - level: heading level for headings, else ``None``
+    """
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        heading_match = _HEADING_RE.match(line)
+        if heading_match:
+            return {
+                "kind": "heading",
+                "raw": heading_match.group(0).strip(),
+                "level": len(heading_match.group(1)),
+            }
+        callout_match = _CALLOUT_TITLE_RE.match(line)
+        if callout_match:
+            return {
+                "kind": "callout",
+                "raw": callout_match.group(1).strip(),
+                "level": None,
+            }
+        return None
+    return None
 
 
 def fenced_ranges(body):

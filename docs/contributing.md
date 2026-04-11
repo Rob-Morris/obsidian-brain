@@ -138,7 +138,7 @@ obsidian-brain/
 ├── docs/
 │   ├── user/                    # user-facing docs (getting-started, workflows, system-guide, template-library)
 │   ├── functional/              # functional specs (mcp-tools, scripts, config)
-│   ├── architecture/            # architectural docs (overview, documentation-philosophy, decisions/, security)
+│   ├── architecture/            # architectural docs (overview, bounded-contexts, documentation-philosophy, decisions/, security)
 │   ├── user-reference.md        # full reference for all types and conventions
 │   ├── tooling.md               # redirect → functional/ and architecture/decisions/
 │   ├── changelog.md             # version history
