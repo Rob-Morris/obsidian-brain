@@ -11,7 +11,7 @@ the compiled router's small collections with optional text filtering.
 
 import os
 
-import _common
+from _common import match_artefact, parse_frontmatter, temporal_display_name
 
 
 def list_artefacts(index, router, type_filter=None, since=None, until=None,
@@ -34,7 +34,7 @@ def list_artefacts(index, router, type_filter=None, since=None, until=None,
     """
     resolved_type = None
     if type_filter and router:
-        art = _common.match_artefact(router.get("artefacts", []), type_filter)
+        art = match_artefact(router.get("artefacts", []), type_filter)
         if art:
             resolved_type = art["frontmatter_type"]
         else:
@@ -59,7 +59,7 @@ def list_artefacts(index, router, type_filter=None, since=None, until=None,
             continue
 
         stem = doc.get("title", "")
-        display = _common._temporal_display_name(stem)
+        display = temporal_display_name(stem)
         title = display if display is not None else stem
 
         results.append({
@@ -125,8 +125,6 @@ def _list_collection(router, router_key, name_field, query=None):
 
 def _list_archive(router, vault_root):
     """List all archived files. Extracted from read.py for shared use."""
-    parse_frontmatter = _common.parse_frontmatter
-
     vault_root = str(vault_root)
     results = []
     seen = set()

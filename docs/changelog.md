@@ -2,6 +2,12 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.24.7 — 2026-04-11
+
+**Decompose `_common.py` into `_common/` package.** Splits the 1,140-line shared utilities monolith into 9 focused modules (`_vault`, `_filesystem`, `_frontmatter`, `_wikilinks`, `_markdown`, `_slugs`, `_search`, `_templates`) with `__init__.py` re-exporting all public names — consumers unchanged. Renames 3 private symbols to public (`FM_RE`, `INDEX_SKIP_DIRS`, `fenced_ranges`); updates `check.py` and `search_index.py`. Splits `test_common.py` into 7 module-matching test files with shared `conftest.py`.
+
+**Tighten `_common` facade API boundary.** `__init__.py` now re-exports only supported public names. Two wikilink helpers with real cross-module consumers are promoted to public API (`discover_temporal_prefixes()`, `temporal_display_name()`); tests that validate internal helpers import from the owning submodule directly.
+
 ## v0.24.6 — 2026-04-10
 
 **Session always-rule: prefer brain_list over brain_search for enumeration.** Adds an `Always:` rule to `index.md` directing agents to use `brain_list` / `list_artefacts.py` (not `brain_search`) when filtering by type, date range, or tag. Flows into `always_rules` in `brain_session` and is also visible to naive agents reading `index.md` directly.

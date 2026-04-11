@@ -65,7 +65,7 @@ allowlist `{_Temporal, _Config}`:
 | `_Config/` | **allowed** | User-facing configuration artefacts |
 
 The model is additive: any new underscore-prefixed directory is blocked by default and
-must be explicitly added to `_WRITE_ALLOWED_UNDERSCORE` in `_common.py` to become
+must be explicitly added to `_WRITE_ALLOWED_UNDERSCORE` in `_common/_filesystem.py` to become
 writable.
 
 ### Brain-core belt-and-suspenders

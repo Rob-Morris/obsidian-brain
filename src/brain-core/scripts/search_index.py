@@ -19,7 +19,7 @@ import os
 import re
 import sys
 
-from _common import _FM_RE, find_vault_root, tokenise
+from _common import FM_RE, find_vault_root, tokenise
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -70,7 +70,7 @@ def extract_snippet(vault_root, rel_path, query_tokens, length=SNIPPET_LENGTH,
             return ""
 
         # Strip frontmatter
-        fm_match = _FM_RE.match(text)
+        fm_match = FM_RE.match(text)
         body = text[fm_match.end():] if fm_match else text
 
     # Clean up whitespace
@@ -212,7 +212,7 @@ def _read_file_body(vault_root, rel_path):
             text = f.read()
     except (OSError, UnicodeDecodeError):
         return ""
-    fm_match = _FM_RE.match(text)
+    fm_match = FM_RE.match(text)
     return text[fm_match.end():] if fm_match else text
 
 

@@ -6,7 +6,7 @@ Scripts are the **source of truth** for all vault operations. The MCP server (`s
 
 | Script | Purpose | CLI usage |
 |---|---|---|
-| `_common.py` | Shared utilities: vault discovery, frontmatter parsing, serialisation, BM25 tokenisation | (library only) |
+| `_common/` | Shared utilities package: vault discovery, frontmatter parsing, serialisation, BM25 tokenisation | (library only) |
 | `build_index.py` | Build BM25 retrieval index | `python3 build_index.py [--json]` |
 | `check.py` | Router-driven structural compliance checks | `python3 check.py [--json] [--severity S]` |
 | `compile_colours.py` | Generate folder colour CSS | (called by compile_router) |
@@ -35,7 +35,7 @@ Scripts are the **source of truth** for all vault operations. The MCP server (`s
 
 ### Import `_common`
 
-These scripts import from `_common.py` for vault discovery, frontmatter parsing, and shared utilities:
+These scripts import from `_common/` for vault discovery, frontmatter parsing, and shared utilities:
 
 - `build_index.py`
 - `check.py`
@@ -63,6 +63,36 @@ These scripts import from `_common.py` for vault discovery, frontmatter parsing,
 - `generate_key.py` — stdlib only
 - `obsidian_cli.py` — stdlib only; IPC socket client
 - `upgrade.py` — deliberately self-contained (it may replace `_common` during execution); duplicates only `find_vault_root()`
+
+## `_common/` Package Structure
+
+The `_common/` package decomposes shared utilities into focused modules. `__init__.py` re-exports all public names, so consumers continue to `from _common import …` unchanged.
+
+Boundary rule:
+- `__init__.py` exports only supported public API.
+- Underscore-prefixed helpers stay module-internal by default.
+- If another script genuinely needs a helper across module boundaries, promote it to a public name rather than importing a private helper through the facade.
+
+| Module | Purpose | Functions |
+|--------|---------|-----------|
+| `_vault.py` | Vault root discovery, version, scanning, artefact matching | 8 |
+| `_filesystem.py` | Safe writes, bounds checking, body file resolution | 7 |
+| `_frontmatter.py` | Frontmatter parsing and serialisation | 2 |
+| `_wikilinks.py` | Wikilink extraction, file index, broken link resolution | 17 |
+| `_markdown.py` | Heading collection, fenced ranges, section finding | 4 |
+| `_slugs.py` | Slug generation, title-to-filename conversion | 3 |
+| `_search.py` | BM25 tokenisation | 1 |
+| `_templates.py` | Timestamp utilities, template variable substitution | 3 |
+
+Internal dependencies flow from leaves to integrators:
+
+```
+_slugs, _search, _markdown, _frontmatter, _templates, _vault  (standalone)
+_filesystem  → _vault
+_wikilinks   → _vault, _filesystem, _slugs
+```
+
+Tests may import owning submodules directly when validating internal helpers.
 
 ## Shared Patterns
 

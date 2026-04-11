@@ -1,4 +1,4 @@
-"""Tests for substitute_template_vars() in _common.py."""
+"""Tests for substitute_template_vars() in _common._templates."""
 
 from datetime import datetime, timezone, timedelta
 

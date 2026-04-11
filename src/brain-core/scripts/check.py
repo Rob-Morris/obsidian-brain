@@ -28,10 +28,10 @@ from _common import (
     extract_wikilinks,
     build_vault_file_index,
     resolve_artefact_path,
-    _fenced_ranges,
-    _INDEX_SKIP_DIRS,
+    fenced_ranges,
+    INDEX_SKIP_DIRS,
     strip_md_ext,
-    _FM_RE,
+    FM_RE,
 )
 
 # ---------------------------------------------------------------------------
@@ -592,7 +592,7 @@ def check_broken_wikilinks(vault_root, router, file_index=None):
     md_relpaths = file_index["md_relpaths"]
 
     for dirpath, dirnames, filenames in os.walk(vault_root):
-        dirnames[:] = [d for d in dirnames if d not in _INDEX_SKIP_DIRS and d != "_Archive"]
+        dirnames[:] = [d for d in dirnames if d not in INDEX_SKIP_DIRS and d != "_Archive"]
         for fname in filenames:
             if not fname.endswith(".md"):
                 continue
@@ -606,10 +606,10 @@ def check_broken_wikilinks(vault_root, router, file_index=None):
 
             # Compute ranges to skip: frontmatter and fenced code blocks
             skip_ranges = []
-            fm_match = _FM_RE.match(text)
+            fm_match = FM_RE.match(text)
             if fm_match:
                 skip_ranges.append((0, fm_match.end()))
-            skip_ranges.extend(_fenced_ranges(text))
+            skip_ranges.extend(fenced_ranges(text))
 
             links = extract_wikilinks(text)
             for link in links:

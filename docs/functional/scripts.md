@@ -205,7 +205,7 @@ Registration strategy: `claude mcp add-json` when CLI available, direct JSON fil
 
 ## upgrade.py
 
-CLI-only upgrade script at `src/brain-core/scripts/upgrade.py` (runs from the repo, not shipped to vaults). Copies a source brain-core directory into a vault's `.brain-core/`, removing obsolete files, with version awareness. Self-contained (no `_common` imports) because it replaces `_common.py` during execution.
+CLI-only upgrade script at `src/brain-core/scripts/upgrade.py` (runs from the repo, not shipped to vaults). Copies a source brain-core directory into a vault's `.brain-core/`, removing obsolete files, with version awareness. Self-contained (no `_common` imports) because it replaces `_common/` during execution.
 
 **Design decisions:**
 - Source path is required (`--source`), not auto-detected — explicit is safer for an operation that overwrites system files

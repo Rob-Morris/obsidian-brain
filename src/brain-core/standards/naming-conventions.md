@@ -11,7 +11,7 @@ Obsidian displays the filename as the note title everywhere — sidebar, tabs, g
 - Strip only characters unsafe on macOS, Windows, and Linux: `/ \ : * ? " < > |`.
 - Trim whitespace and collapse consecutive spaces.
 
-The `title_to_filename()` function in `_common.py` implements this.
+The `title_to_filename()` function in `_common/_slugs.py` implements this.
 
 **Hub tags** (e.g. `project/{slug}`, `workspace/{slug}`) still use the aggressive lowercase-hyphenated format via `title_to_slug()`. These are machine identifiers, not display names.
 

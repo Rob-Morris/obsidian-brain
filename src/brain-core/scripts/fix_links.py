@@ -22,11 +22,11 @@ from _common import (
     find_vault_root,
     build_vault_file_index,
     build_wikilink_pattern,
+    discover_temporal_prefixes,
     make_wikilink_replacer,
     replace_wikilinks_in_vault,
     resolve_broken_link,
     strip_md_ext,
-    _discover_temporal_prefixes,
 )
 from check import check_broken_wikilinks, load_router
 
@@ -57,7 +57,7 @@ def scan_and_resolve(vault_root, router=None):
     unresolvable = []
 
     # Cache temporal prefixes once for the whole scan
-    temporal_prefixes = _discover_temporal_prefixes(file_index["md_basenames"])
+    temporal_prefixes = discover_temporal_prefixes(file_index["md_basenames"])
 
     for target, source_files in sorted(target_refs.items()):
         resolution = resolve_broken_link(target, file_index, temporal_prefixes)

@@ -944,7 +944,7 @@ class TestEditTimestamps:
     FIXED_ISO = "2026-04-02T10:00:00+11:00"
 
     def test_edit_updates_modified(self, vault, router):
-        with patch("_common.datetime") as mock_dt:
+        with patch("_common._templates.datetime") as mock_dt:
             mock_dt.now.return_value = self.FIXED_DT
             edit.edit_artefact(str(vault), router, "Wiki/test-page.md", "New body\n")
         content = (vault / "Wiki" / "test-page.md").read_text()
@@ -956,7 +956,7 @@ class TestEditTimestamps:
         original_fields, _ = parse_frontmatter(original)
         original_created = original_fields.get("created", "__absent__")
 
-        with patch("_common.datetime") as mock_dt:
+        with patch("_common._templates.datetime") as mock_dt:
             mock_dt.now.return_value = self.FIXED_DT
             edit.edit_artefact(str(vault), router, "Wiki/test-page.md", "Changed body\n")
         content = (vault / "Wiki" / "test-page.md").read_text()
@@ -964,7 +964,7 @@ class TestEditTimestamps:
         assert fields.get("created", "__absent__") == original_created
 
     def test_append_updates_modified(self, vault, router):
-        with patch("_common.datetime") as mock_dt:
+        with patch("_common._templates.datetime") as mock_dt:
             mock_dt.now.return_value = self.FIXED_DT
             edit.append_to_artefact(str(vault), router, "Wiki/test-page.md", "\nAppended\n")
         content = (vault / "Wiki" / "test-page.md").read_text()
@@ -972,7 +972,7 @@ class TestEditTimestamps:
         assert fields["modified"] == self.FIXED_ISO
 
     def test_prepend_updates_modified(self, vault, router):
-        with patch("_common.datetime") as mock_dt:
+        with patch("_common._templates.datetime") as mock_dt:
             mock_dt.now.return_value = self.FIXED_DT
             edit.prepend_to_artefact(str(vault), router, "Wiki/test-page.md", "Prepended\n")
         content = (vault / "Wiki" / "test-page.md").read_text()
@@ -1600,7 +1600,7 @@ class TestDeleteSection:
         (vault / "Wiki" / "test-page.md").write_text(
             "---\ntype: living/wiki\ntags: []\n---\n\n## Alpha\n\nContent.\n"
         )
-        with patch("_common.datetime") as mock_dt:
+        with patch("_common._templates.datetime") as mock_dt:
             mock_dt.now.return_value = fixed
             edit.delete_section_artefact(str(vault), router, "Wiki/test-page.md", target="Alpha")
         content = (vault / "Wiki" / "test-page.md").read_text()

@@ -23,6 +23,7 @@ CLAUDE.local.md
 # Test/tool artefacts
 .coverage
 .mcp.json
+.pytest-vaults/
 
 # Dev-only symlink (created by `make dev-link`)
 template-vault/.brain-core
