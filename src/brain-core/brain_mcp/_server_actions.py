@@ -13,7 +13,7 @@ import start_shaping
 import sync_definitions
 import workspace_registry
 
-from _server_runtime import ServerRuntime
+from ._server_runtime import ServerRuntime
 
 
 def _action_compile(runtime: ServerRuntime, params: dict | None):

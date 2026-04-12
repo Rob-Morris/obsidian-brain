@@ -363,7 +363,7 @@ if [ "$UPGRADE_MODE" = true ]; then
     NEW_VERSION=$(cat "$VAULT_PATH/.brain-core/VERSION" 2>/dev/null || echo "unknown")
     printf '    \033[1mUpgraded to:\033[0m v%s\n' "$NEW_VERSION" >&2
     if [ -f "$VAULT_PATH/.venv/bin/pip" ]; then
-        spin "Syncing Python dependencies" "$VAULT_PATH/.venv/bin/pip" install --quiet -r "$VAULT_PATH/.brain-core/mcp/requirements.txt"
+        spin "Syncing Python dependencies" "$VAULT_PATH/.venv/bin/pip" install --quiet -r "$VAULT_PATH/.brain-core/brain_mcp/requirements.txt"
     fi
 elif [ "$EXISTING_VAULT" = true ]; then
     spin "Installing brain into existing vault" bash -c '
@@ -420,7 +420,7 @@ if [ -n "$PYTHON" ] && { [ -z "${REGISTER_MCP:-}" ] || [ "${REGISTER_MCP:-}" = "
     printf '\n' >&2
     spin "Setting up Python virtual environment" bash -c '
         "$1" -m venv "$2/.venv"
-        "$2/.venv/bin/pip" install --quiet --upgrade pip -r "$2/.brain-core/mcp/requirements.txt"
+        "$2/.venv/bin/pip" install --quiet --upgrade pip -r "$2/.brain-core/brain_mcp/requirements.txt"
     ' _ "$PYTHON" "$VAULT_PATH"
     printf '\n' >&2
     if spin "Registering Brain MCP server" python3 "$VAULT_PATH/.brain-core/scripts/init.py" --vault "$VAULT_PATH"; then

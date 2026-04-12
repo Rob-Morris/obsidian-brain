@@ -38,8 +38,9 @@ CLAUDE_MD_FILE = "CLAUDE.md"
 CLAUDE_LOCAL_MD_FILE = os.path.join(".claude", "CLAUDE.local.md")
 LOCAL_SETTINGS_FILE = os.path.join(".claude", "settings.local.json")
 BRAIN_CORE_MARKER = os.path.join(".brain-core", "VERSION")
-MCP_SERVER_REL = os.path.join(".brain-core", "mcp", "server.py")
-MCP_PROXY_REL = os.path.join(".brain-core", "mcp", "proxy.py")
+MCP_PYTHONPATH_REL = os.path.join(".brain-core")
+MCP_PROXY_MODULE = "brain_mcp.proxy"
+MCP_SERVER_MODULE = "brain_mcp.server"
 VENV_PYTHON_REL = os.path.join(".venv", "bin", "python")
 
 CLAUDE_MD_BOOTSTRAP_VAULT = (
@@ -139,12 +140,14 @@ def _python_has_mcp(python_path: str) -> bool:
 
 def build_mcp_config(python_path: str, vault_root: Path) -> dict:
     """Build the MCP server JSON config for brain."""
-    proxy_script = str(vault_root / MCP_PROXY_REL)
-    server_script = str(vault_root / MCP_SERVER_REL)
+    pythonpath = str(vault_root / MCP_PYTHONPATH_REL)
     return {
         "command": python_path,
-        "args": [proxy_script, python_path, server_script],
-        "env": {"BRAIN_VAULT_ROOT": str(vault_root)},
+        "args": ["-m", MCP_PROXY_MODULE, python_path, MCP_SERVER_MODULE],
+        "env": {
+            "BRAIN_VAULT_ROOT": str(vault_root),
+            "PYTHONPATH": pythonpath,
+        },
     }
 
 

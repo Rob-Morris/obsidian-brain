@@ -5,7 +5,7 @@ from typing import Literal
 
 import process
 
-from _server_runtime import ServerRuntime
+from ._server_runtime import ServerRuntime
 
 
 def _fmt_classify(result):

@@ -12,7 +12,7 @@ brain-core is organised around a small set of bounded contexts. These are docume
 | Content Intelligence | Search, enumerate, classify, resolve, and ingest content | `search_index.py`, `list_artefacts.py`, `process.py` |
 | Session & Configuration | Assemble runtime config, bootstrap sessions, manage operator/auth state, resolve registered workspaces | `session.py`, `config.py`, `workspace_registry.py`, `generate_key.py` |
 | Lifecycle Management | Install, upgrade, and migrate the engine and vault naming conventions over time | `init.py`, `upgrade.py`, `migrate_naming.py`, `migrations/` |
-| MCP Integration | Expose script capabilities over MCP transport, enforce tool-level resilience and profile gates | `mcp/server.py`, `mcp/proxy.py`, `mcp/_server_*.py` |
+| MCP Integration | Expose script capabilities over MCP transport, enforce tool-level resilience and profile gates | `brain_mcp/server.py`, `brain_mcp/proxy.py`, `brain_mcp/_server_*.py` |
 | Platform Integration | Bridge to external platform capabilities that are not part of the core domain model | `obsidian_cli.py` |
 
 ## Import Policy

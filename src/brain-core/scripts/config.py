@@ -13,7 +13,7 @@ Two-zone merge model:
     Booleans: either-true wins
     Lists:    additive (union)
 
-Requires PyYAML (server dependency — see mcp/requirements.txt).
+Requires PyYAML (server dependency — see brain_mcp/requirements.txt).
 
 Usage:
     from config import load_config

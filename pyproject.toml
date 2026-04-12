@@ -25,8 +25,8 @@ verbose = 1
 addopts = "--doctest-modules"
 testpaths = ["tests"]
 pythonpath = [
+    "src/brain-core",
     "src/brain-core/scripts",
-    "src/brain-core/mcp",
 ]
 
 [tool.coverage.run]

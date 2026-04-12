@@ -19,9 +19,10 @@ def vault(tmp_path):
     bc.mkdir()
     (bc / "VERSION").write_text("0.10.0\n")
     (bc / "session-core.md").write_text("# Session Core\n")
-    mcp_dir = bc / "mcp"
-    mcp_dir.mkdir()
-    (mcp_dir / "server.py").write_text("# stub\n")
+    transport_dir = bc / "brain_mcp"
+    transport_dir.mkdir()
+    (transport_dir / "proxy.py").write_text("# stub\n")
+    (transport_dir / "server.py").write_text("# stub\n")
     return tmp_path
 
 
@@ -52,8 +53,9 @@ class TestBuildMcpConfig:
     def test_structure(self, vault):
         config = init.build_mcp_config("/usr/bin/python3", vault)
         assert config["command"] == "/usr/bin/python3"
-        assert str(vault) in config["args"][0]
+        assert config["args"] == ["-m", "brain_mcp.proxy", "/usr/bin/python3", "brain_mcp.server"]
         assert config["env"]["BRAIN_VAULT_ROOT"] == str(vault)
+        assert config["env"]["PYTHONPATH"] == str(vault / ".brain-core")
 
 
 class TestWriteProjectMcpJson:

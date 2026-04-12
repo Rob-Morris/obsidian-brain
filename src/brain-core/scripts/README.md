@@ -1,6 +1,6 @@
 # scripts/
 
-Scripts are the **source of truth** for all vault operations. The MCP server (`server.py`) is a thin wrapper that imports functions from these scripts and holds the compiled router and search index in memory. Scripts are the single implementation — the server adds only MCP transport, in-memory caching, and Obsidian CLI delegation. Agents without MCP use scripts directly and get identical results. New operations are implemented as scripts first, then exposed via MCP.
+Scripts are the **source of truth** for all vault operations. The MCP server (`brain_mcp/server.py`) is a thin wrapper that imports functions from these scripts and holds the compiled router and search index in memory. Scripts are the single implementation — the server adds only MCP transport, in-memory caching, and Obsidian CLI delegation. Agents without MCP use scripts directly and get identical results. New operations are implemented as scripts first, then exposed via MCP.
 
 ## Module Table
 
@@ -43,13 +43,13 @@ The script layer is organised into 8 bounded contexts. This is an architectural 
 | Content Intelligence | `search_index.py`, `list_artefacts.py`, `process.py` |
 | Session & Configuration | `session.py`, `config.py`, `workspace_registry.py`, `generate_key.py` |
 | Lifecycle Management | `init.py`, `upgrade.py`, `migrate_naming.py`, `migrations/` |
-| MCP Integration | `mcp/server.py`, `mcp/proxy.py` |
+| MCP Integration | `brain_mcp/server.py`, `brain_mcp/proxy.py` |
 | Platform Integration | `obsidian_cli.py` |
 
 Import policy:
 - Depend on `_common/` public API, not another context's private helpers.
 - Prefer top-level script functions as cross-context seams.
-- Keep MCP concerns in `mcp/`; keep platform adapters as leaves.
+- Keep MCP concerns in `brain_mcp/`; keep platform adapters as leaves.
 
 ## Dependency Graph
 
@@ -128,6 +128,6 @@ Tests may import owning submodules directly when validating internal helpers.
 
 ## Adding New Operations
 
-Implement the logic as importable functions in a script, add a `main()` CLI entry point, then import into `server.py`. Never put operation logic directly in the server.
+Implement the logic as importable functions in a script, add a `main()` CLI entry point, then import into `brain_mcp/server.py`. Never put operation logic directly in the server.
 
 This keeps the CLI and MCP paths identical: agents without MCP call the script directly and get the same result as agents using MCP.

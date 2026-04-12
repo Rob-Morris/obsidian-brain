@@ -1,7 +1,7 @@
 """
 Tests for Brain MCP Proxy — subprocess-level integration tests.
 
-The proxy is launched as a real process (python proxy.py <python> <server>)
+The proxy is launched as a real process (`python -m brain_mcp.proxy <python> <target>`)
 with mock child servers written as inline Python scripts to tmp_path.
 
 Each test class owns a specific behaviour: forwarding, restart-on-drift,
@@ -22,6 +22,10 @@ import pytest
 # ---------------------------------------------------------------------------
 
 PROXY_SCRIPT = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "src", "brain-core")
+)
+PROXY_MODULE = "brain_mcp.proxy"
+OLD_PROXY_SCRIPT = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "src", "brain-core", "mcp", "proxy.py")
 )
 PYTHON = sys.executable
@@ -64,11 +68,12 @@ def _launch_proxy(
 
     env = os.environ.copy()
     env["BRAIN_VAULT_ROOT"] = str(tmp_path)
+    env["PYTHONPATH"] = PROXY_SCRIPT
     if extra_env:
         env.update(extra_env)
 
     return subprocess.Popen(
-        [PYTHON, PROXY_SCRIPT, PYTHON, server_script],
+        [PYTHON, "-m", PROXY_MODULE, PYTHON, server_script],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -626,14 +631,14 @@ class TestProxyDrift:
         # 3. Overrides proxy_script to point at the on-disk file above
         # 4. Starts the child and runs
         wrapper_path = str(tmp_path / "proxy_wrapper.py")
-        real_proxy_dir = os.path.dirname(PROXY_SCRIPT)
+        real_proxy_root = PROXY_SCRIPT
         wrapper_script = textwrap.dedent(f"""\
             import sys
             import os
 
             # Ensure proxy module is importable
-            sys.path.insert(0, {real_proxy_dir!r})
-            import proxy as proxy_mod
+            sys.path.insert(0, {real_proxy_root!r})
+            from brain_mcp import proxy as proxy_mod
 
             def main():
                 if len(sys.argv) != 3:
@@ -772,6 +777,48 @@ class TestVersionDriftReplay:
         finally:
             proc.terminate()
             proc.wait(timeout=5)
+
+
+class TestDeprecatedProxyShim:
+    """Old proxy entrypoint warns once and delegates to the packaged proxy."""
+
+    def test_old_proxy_warns_once_and_delegates(self, tmp_path):
+        import subprocess
+
+        _write_vault(tmp_path)
+        server_script = _echo_server_script(tmp_path)
+
+        env = os.environ.copy()
+        env["BRAIN_VAULT_ROOT"] = str(tmp_path)
+
+        proc = subprocess.Popen(
+            [PYTHON, OLD_PROXY_SCRIPT, PYTHON, server_script],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=env,
+        )
+
+        try:
+            proc.stdin.write(_make_jsonrpc(
+                "initialize",
+                id=1,
+                params={
+                    "protocolVersion": "2024-11-05",
+                    "clientInfo": {"name": "test", "version": "0"},
+                },
+            ))
+            proc.stdin.flush()
+
+            init_msgs = _read_responses(proc, timeout=5.0, count=1)
+            assert init_msgs and init_msgs[0].get("id") == 1
+        finally:
+            proc.terminate()
+            proc.wait(timeout=5)
+
+        stderr = proc.stderr.read()
+        assert stderr.count("`.brain-core/mcp/proxy.py` is deprecated") == 1
 
 
 def _hang_after_request_server_script(tmp_path) -> str:

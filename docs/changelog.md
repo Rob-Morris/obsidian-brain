@@ -2,6 +2,14 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.26.0 — 2026-04-12
+
+**Package the MCP transport as `brain_mcp/` and leave compatibility shims in `mcp/`.** The live proxy/server runtime and sibling MCP handler modules now live under `.brain-core/brain_mcp/`, while `.brain-core/mcp/proxy.py` and `.brain-core/mcp/server.py` remain as thin deprecated entrypoint shims for older launch configs.
+
+- `init.py` now registers the MCP transport via `python -m brain_mcp.proxy ...` with `PYTHONPATH=.brain-core`, and install/upgrade dependency sync now reads from `.brain-core/brain_mcp/requirements.txt`.
+- The old `mcp/` transport implementation files were removed after being copied into the packaged `brain_mcp/` runtime, and tests/import paths were updated to use `from brain_mcp import server`.
+- Architecture, functional, and user docs now describe `brain_mcp/` as the MCP transport home while preserving the unified session-bootstrap contract introduced in v0.25.0.
+
 ## v0.25.1 — 2026-04-12
 
 **Remove contributor-only workflow tiers from shipped bootstrap.** `session-core.md` no longer includes contributor workflow sizing or links to contributor-only workflow docs. The workflow standard now lives in `docs/standards/agent-workflow.md` alongside `canary.md`.

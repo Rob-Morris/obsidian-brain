@@ -675,10 +675,10 @@ def main() -> None:
         print(file=sys.stderr)
 
         # Check if requirements changed — prompt for dependency sync
-        req_file = "mcp/requirements.txt"
+        req_file = "brain_mcp/requirements.txt"
         if req_file in result.get("files_added", []) + result.get("files_modified", []):
             info("Dependencies changed — sync your vault's Python environment:")
-            info("  .venv/bin/pip install -r .brain-core/mcp/requirements.txt")
+            info("  .venv/bin/pip install -r .brain-core/brain_mcp/requirements.txt")
             print(file=sys.stderr)
 
         info("Post-upgrade: rebuild the search index.")

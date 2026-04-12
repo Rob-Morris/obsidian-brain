@@ -5,7 +5,7 @@ import json
 import config as config_mod
 import session
 
-from _server_runtime import ServerRuntime
+from ._server_runtime import ServerRuntime
 
 
 def handle_brain_session(

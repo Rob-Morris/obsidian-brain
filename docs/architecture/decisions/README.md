@@ -4,6 +4,8 @@ Brain-core is built on a foundation of explicit architectural decisions. Each de
 
 Superseded decisions are kept for historical reference and to understand the evolution of the architecture.
 
+Treat decision files as historical records, similar to the changelog. Update this index for status or routing clarity, but do not rewrite past DD files retrospectively to match the latest architecture. If current behaviour changes, capture it in the living docs or in a new/superseding DD instead.
+
 | DD | Summary | Status | File |
 |---|---|---|---|
 | DD-001 | Drop version from wikilink paths | Implemented (v0.3.0) | [dd-001-drop-version-wikilinks.md](dd-001-drop-version-wikilinks.md) |
@@ -15,7 +17,7 @@ Superseded decisions are kept for historical reference and to understand the evo
 | DD-007 | Dual implementation with shared test fixtures | Accepted | [dd-007-dual-implementation.md](dd-007-dual-implementation.md) |
 | DD-008 | Compiled router as foundation | Implemented (v0.5.0) | [dd-008-compiled-router.md](dd-008-compiled-router.md) |
 | DD-009 | Router-driven checks (no separate check config) | Implemented (v0.9.11) | [dd-009-router-driven-checks.md](dd-009-router-driven-checks.md) |
-| DD-010 | Brain MCP server in `.brain-core/mcp/` | Implemented (v0.7.0) | [dd-010-mcp-server.md](dd-010-mcp-server.md) |
+| DD-010 | Brain MCP server in `.brain-core/brain_mcp/` | Implemented (v0.7.0) | [dd-010-mcp-server.md](dd-010-mcp-server.md) |
 | DD-011 | MCP server exposes 2 tools with enum parameters | Superseded by DD-025 (v0.11.0) | [dd-011-two-mcp-tools.md](dd-011-two-mcp-tools.md) |
 | DD-012 | Lean router — always-rules only, conditional triggers co-located | Accepted | [dd-012-lean-router.md](dd-012-lean-router.md) |
 | DD-013 | Compiled router required for tools; markdown fallback for agents only | Accepted | [dd-013-compiled-router-required.md](dd-013-compiled-router-required.md) |

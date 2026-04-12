@@ -14,7 +14,7 @@ import read as read_mod
 import search_index
 import workspace_registry
 
-from _server_runtime import ServerRuntime
+from ._server_runtime import ServerRuntime
 
 
 def _fmt_environment(env):

@@ -97,7 +97,7 @@ Skill documents for MCP tools, CLI commands, or plugin workflows. One folder per
 
 ### MCP Tools
 
-If your vault runs the Brain MCP server (`.brain-core/mcp/server.py`), eight tools are available:
+If your vault runs the Brain MCP server (`.brain-core/brain_mcp/server.py`), eight tools are available:
 
 **brain_session** (safe, auto-approvable)
 - Bootstrap an agent session in one call — returns the canonical session model as compact JSON
