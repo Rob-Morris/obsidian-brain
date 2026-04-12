@@ -2,6 +2,13 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.26.1 — 2026-04-12
+
+**Harden fresh installs against leaked machine-local template state.** `install.sh` now excludes `.venv`, `.brain/local`, `.mcp.json`, and `.pytest_cache` from template-vault copies and strips them after fallback copies, so dirty local source checkouts cannot seed stale virtualenv entrypoints or generated state into a new vault.
+
+- Fresh installs and upgrade-time dependency sync now run `.venv/bin/python -m pip ...` instead of invoking `pip` wrapper scripts directly, avoiding copied absolute shebangs from the source template venv.
+- Added a regression test that simulates leaked `template-vault/.venv` and stale `.brain/local` artefacts in a local source checkout and verifies the installer finishes with a clean target vault.
+
 ## v0.26.0 — 2026-04-12
 
 **Package the MCP transport as `brain_mcp/` and leave compatibility shims in `mcp/`.** The live proxy/server runtime and sibling MCP handler modules now live under `.brain-core/brain_mcp/`, while `.brain-core/mcp/proxy.py` and `.brain-core/mcp/server.py` remain as thin deprecated entrypoint shims for older launch configs.

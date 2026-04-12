@@ -362,8 +362,8 @@ if [ "$UPGRADE_MODE" = true ]; then
     spin "Upgrading brain-core" python3 "$REPO_DIR/src/brain-core/scripts/upgrade.py" --source "$REPO_DIR/src/brain-core" --vault "$VAULT_PATH"
     NEW_VERSION=$(cat "$VAULT_PATH/.brain-core/VERSION" 2>/dev/null || echo "unknown")
     printf '    \033[1mUpgraded to:\033[0m v%s\n' "$NEW_VERSION" >&2
-    if [ -f "$VAULT_PATH/.venv/bin/pip" ]; then
-        spin "Syncing Python dependencies" "$VAULT_PATH/.venv/bin/pip" install --quiet -r "$VAULT_PATH/.brain-core/brain_mcp/requirements.txt"
+    if [ -f "$VAULT_PATH/.venv/bin/python" ]; then
+        spin "Syncing Python dependencies" "$VAULT_PATH/.venv/bin/python" -m pip install --quiet -r "$VAULT_PATH/.brain-core/brain_mcp/requirements.txt"
     fi
 elif [ "$EXISTING_VAULT" = true ]; then
     spin "Installing brain into existing vault" bash -c '
@@ -390,15 +390,28 @@ elif [ "$EXISTING_VAULT" = true ]; then
     ' _ "$VAULT_PATH" "$REPO_DIR"
 else
     spin "Creating vault at $VAULT_PATH" bash -c '
-        mkdir -p "$1"
+        vault="$1"; repo="$2"; template="$2/template-vault"
+
+        mkdir -p "$vault"
         if command -v rsync >/dev/null 2>&1; then
-            rsync -a --exclude ".pytest_cache" "$2/template-vault/" "$1/"
+            rsync -a \
+                --exclude ".pytest_cache" \
+                --exclude ".venv" \
+                --exclude ".brain/local" \
+                --exclude ".mcp.json" \
+                "$template/" "$vault/"
         else
-            cp -R "$2/template-vault/." "$1/"
-            rm -rf "$1/.pytest_cache"
+            cp -R "$template/." "$vault/"
         fi
-        rm -f "$1/.brain-core"
-        cp -R "$2/src/brain-core/." "$1/.brain-core/"
+
+        # Strip machine-local artefacts from the source checkout.
+        rm -rf "$vault/.pytest_cache" "$vault/.venv" "$vault/.brain/local"
+        rm -f "$vault/.mcp.json"
+        mkdir -p "$vault/.brain/local"
+        : > "$vault/.brain/local/.gitkeep"
+
+        rm -f "$vault/.brain-core"
+        cp -R "$repo/src/brain-core/." "$vault/.brain-core/"
     ' _ "$VAULT_PATH" "$REPO_DIR"
 fi
 
@@ -420,7 +433,7 @@ if [ -n "$PYTHON" ] && { [ -z "${REGISTER_MCP:-}" ] || [ "${REGISTER_MCP:-}" = "
     printf '\n' >&2
     spin "Setting up Python virtual environment" bash -c '
         "$1" -m venv "$2/.venv"
-        "$2/.venv/bin/pip" install --quiet --upgrade pip -r "$2/.brain-core/brain_mcp/requirements.txt"
+        "$2/.venv/bin/python" -m pip install --quiet --upgrade pip -r "$2/.brain-core/brain_mcp/requirements.txt"
     ' _ "$PYTHON" "$VAULT_PATH"
     printf '\n' >&2
     if spin "Registering Brain MCP server" python3 "$VAULT_PATH/.brain-core/scripts/init.py" --vault "$VAULT_PATH"; then
