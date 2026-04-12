@@ -17,6 +17,8 @@ import time
 
 import pytest
 
+pytestmark = pytest.mark.slow
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -115,10 +117,15 @@ def _read_responses(proc, *, timeout: float = 5.0, count: int = 1) -> list[dict]
     return results
 
 
-def _read_all_responses(proc, *, timeout: float = 5.0, max_count: int = 10) -> list[dict]:
+def _read_all_responses(proc, *, timeout: float = 5.0, idle: float = 0.5, max_count: int = 10) -> list[dict]:
     """
     Read as many responses as arrive within timeout, up to max_count.
     Useful when the proxy may send notifications before the real response.
+
+    ``idle`` caps how long each individual select waits — once no data
+    arrives for ``idle`` seconds the function returns, even if the overall
+    ``timeout`` hasn't elapsed.  This prevents tests from blocking for
+    the full timeout when only a few quick messages are expected.
     """
     import select
 
@@ -129,7 +136,8 @@ def _read_all_responses(proc, *, timeout: float = 5.0, max_count: int = 10) -> l
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             break
-        ready, _, _ = select.select([proc.stdout], [], [], remaining)
+        wait = min(idle, remaining)
+        ready, _, _ = select.select([proc.stdout], [], [], wait)
         if not ready:
             break
         chunk = proc.stdout.readline()
@@ -159,6 +167,27 @@ def _find_notification(messages: list[dict], method: str) -> dict | None:
         if m.get("method") == method and m.get("id") is None:
             return m
     return None
+
+
+def _exhaust_backoff(proc, *, crash_count: int = 6, probe_id: int = 99) -> list[dict]:
+    """Send ``crash_count`` requests to exhaust the backoff schedule, then
+    probe once to confirm give-up.  Returns all collected messages.
+
+    Uses idle=1s between reads so each crash-restart-init cycle completes
+    before the next request.
+    """
+    all_msgs: list[dict] = []
+    for req_id in range(2, 2 + crash_count):
+        proc.stdin.write(_make_jsonrpc("tools/call", id=req_id,
+                                       params={"name": "anything"}))
+        proc.stdin.flush()
+        all_msgs.extend(_read_all_responses(proc, timeout=5.0, idle=1.0, max_count=5))
+
+    proc.stdin.write(_make_jsonrpc("tools/call", id=probe_id,
+                                   params={"name": "anything"}))
+    proc.stdin.flush()
+    all_msgs.extend(_read_all_responses(proc, timeout=5.0, max_count=5))
+    return all_msgs
 
 
 # ---------------------------------------------------------------------------
@@ -435,7 +464,8 @@ class TestVersionDriftRestart:
         """Child exits with code 10 on first real request; proxy relaunches and second request succeeds."""
         _write_vault(tmp_path)
         server_script = _drift_then_echo_server_script(tmp_path)
-        proc = _launch_proxy(tmp_path, server_script)
+        proc = _launch_proxy(tmp_path, server_script,
+                             extra_env={"BRAIN_PROXY_BACKOFF": "0,0,0,0,0"})
         try:
             # Initialize
             proc.stdin.write(_make_jsonrpc("initialize", id=1,
@@ -501,27 +531,9 @@ class TestCrashBackoff:
             # - So crashes 1-5 each trigger a restart (slots 0-4 consumed).
             # - Crash 6: slot=5 >= 5 → gave_up=True, no restart.
             # - 7th request: child=None + gave_up → error response.
-            #
-            # Strategy: send 6 requests to trigger 6 crashes (exhausting all 5 backoff
-            # slots and reaching give-up), then send 1 final request to get the error.
-            all_msgs = []
+            all_msgs = _exhaust_backoff(proc)
 
-            # Send 6 requests to exhaust backoff (triggers 6 crashes total)
-            for req_id in range(2, 8):  # ids 2-7
-                proc.stdin.write(_make_jsonrpc("tools/call", id=req_id,
-                                               params={"name": "anything"}))
-                proc.stdin.flush()
-                # Give the crash+restart cycle time to complete
-                batch = _read_all_responses(proc, timeout=5.0, max_count=5)
-                all_msgs.extend(batch)
-
-            # After 6 crashes, proxy has given up. Send the give-up probe request.
-            proc.stdin.write(_make_jsonrpc("tools/call", id=99, params={"name": "anything"}))
-            proc.stdin.flush()
-            batch = _read_all_responses(proc, timeout=5.0, max_count=5)
-            all_msgs.extend(batch)
-
-            # Find the error response for id=99
+            # Find the error response for id=99 (the give-up probe)
             error_resp = _find_by_id(all_msgs, 99)
             assert error_resp is not None, (
                 f"Expected error response with id=99 after backoff exhaustion. Got: {all_msgs}"
@@ -553,7 +565,8 @@ class TestVersionResetAfterGiveUp:
         # Runs 6+ will echo (succeed), which is what we want post-version-reset.
         server_script = _crash_then_echo_server_script(tmp_path, crash_runs=6)
         proc = _launch_proxy(tmp_path, server_script,
-                             extra_env={"BRAIN_PROXY_BACKOFF": "0,0,0,0,0"})
+                             extra_env={"BRAIN_PROXY_BACKOFF": "0,0,0,0,0",
+                                        "BRAIN_PROXY_VERSION_CHECK_INTERVAL": "0"})
         try:
             # Initialize
             proc.stdin.write(_make_jsonrpc("initialize", id=1,
@@ -563,20 +576,7 @@ class TestVersionResetAfterGiveUp:
             init_msgs = _read_responses(proc, timeout=5.0, count=1)
             assert init_msgs and init_msgs[0].get("id") == 1
 
-            # Send 6 requests to trigger 6 crashes (exhausting the backoff schedule)
-            all_msgs = []
-            for req_id in range(2, 8):  # ids 2-7
-                proc.stdin.write(_make_jsonrpc("tools/call", id=req_id,
-                                               params={"name": "anything"}))
-                proc.stdin.flush()
-                batch = _read_all_responses(proc, timeout=5.0, max_count=5)
-                all_msgs.extend(batch)
-
-            # Send a probe to confirm give-up
-            proc.stdin.write(_make_jsonrpc("tools/call", id=50, params={"name": "anything"}))
-            proc.stdin.flush()
-            probe_msgs = _read_all_responses(proc, timeout=5.0, max_count=5)
-            all_msgs.extend(probe_msgs)
+            all_msgs = _exhaust_backoff(proc, probe_id=50)
 
             give_up_resp = _find_by_id(all_msgs, 50)
             assert give_up_resp is not None and "error" in give_up_resp, (
@@ -587,14 +587,15 @@ class TestVersionResetAfterGiveUp:
             version_path = tmp_path / ".brain-core" / "VERSION"
             version_path.write_text("2.0.0")
 
-            # Give proxy a moment, then send a tools/call — this triggers _try_version_reset.
-            # The proxy resets backoff, starts child run_no=6+ (which echoes), sends list_changed,
-            # and then the request is forwarded and answered.
+            # Send a tools/call which triggers _try_version_reset (rate limit
+            # disabled via VERSION_CHECK_INTERVAL=0).  The proxy resets backoff,
+            # starts child run_no=6+ (which echoes), sends list_changed, and then
+            # the request is forwarded and answered.
             time.sleep(0.2)
             proc.stdin.write(_make_jsonrpc("tools/call", id=100, params={"name": "anything"}))
             proc.stdin.flush()
 
-            all_post = _read_all_responses(proc, timeout=15.0, max_count=20)
+            all_post = _read_all_responses(proc, timeout=15.0, idle=5.0, max_count=20)
 
             resp = _find_by_id(all_post, 100)
             assert resp is not None, (
@@ -673,6 +674,7 @@ class TestProxyDrift:
 
         env = os.environ.copy()
         env["BRAIN_VAULT_ROOT"] = str(tmp_path)
+        env["BRAIN_PROXY_BACKOFF"] = "0,0,0,0,0"
 
         import subprocess
         proc = subprocess.Popen(
@@ -741,7 +743,8 @@ class TestVersionDriftReplay:
         """
         _write_vault(tmp_path)
         server_script = _drift_then_echo_server_script(tmp_path)
-        proc = _launch_proxy(tmp_path, server_script)
+        proc = _launch_proxy(tmp_path, server_script,
+                             extra_env={"BRAIN_PROXY_BACKOFF": "0,0,0,0,0"})
         try:
             # Initialize
             proc.stdin.write(_make_jsonrpc("initialize", id=1,
@@ -889,8 +892,9 @@ class TestHangDetection:
 
             # Wait for 3 consecutive timeouts (1s each) + kill + drain + restart attempts.
             # The drain sends the error for id=2, then _handle_child_exit tries to
-            # restart. Use a generous timeout to account for restart attempts.
-            all_msgs = _read_all_responses(proc, timeout=20.0, max_count=10)
+            # restart.  Use idle > READ_TIMEOUT so we don't bail before the proxy
+            # finishes the hang-detection cycle.
+            all_msgs = _read_all_responses(proc, timeout=20.0, idle=10.0, max_count=10)
 
             # Should get an error response for id=2 (orphaned after kill)
             resp = _find_by_id(all_msgs, 2)
@@ -918,9 +922,9 @@ class TestStartupTimeout:
         _write_vault(tmp_path)
         server_script = _hang_on_init_server_script(tmp_path)
 
-        # Use a 2-second init timeout and zero backoff so all retries happen fast.
+        # Use a 1-second init timeout and zero backoff so all retries happen fast.
         proc = _launch_proxy(tmp_path, server_script,
-                             extra_env={"BRAIN_PROXY_INIT_TIMEOUT": "2",
+                             extra_env={"BRAIN_PROXY_INIT_TIMEOUT": "1",
                                         "BRAIN_PROXY_BACKOFF": "0,0,0,0,0"})
         try:
             # 1. Initialize (first child run: responds normally)
@@ -933,16 +937,16 @@ class TestStartupTimeout:
 
             # 2. Send a real request — first child crashes, triggering restart.
             #    On restart the proxy replays init to the new child (which now hangs).
-            #    The init timeout (2s) fires; _start_child returns False.
+            #    The init timeout (1s) fires; _start_child returns False.
             #    The proxy calls _advance_backoff and retries up to 5 times.
-            #    Each retry = 2s timeout → ~10s total for 5 retries.
+            #    Each retry = 1s timeout → ~5s total for 5 retries.
             proc.stdin.write(_make_jsonrpc("tools/call", id=2, params={"name": "ping"}))
             proc.stdin.flush()
 
-            # 3. After the backoff is exhausted (5 × 2s ≈ 10s), send another request
+            # 3. After the backoff is exhausted (5 × 1s ≈ 5s), send another request
             #    to get the give-up error response.
             # Wait a bit past the full backoff cycle before sending the next request.
-            time.sleep(12)
+            time.sleep(7)
             proc.stdin.write(_make_jsonrpc("tools/call", id=3, params={"name": "ping"}))
             proc.stdin.flush()
 

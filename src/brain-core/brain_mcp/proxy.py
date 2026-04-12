@@ -14,6 +14,7 @@ Env:
     BRAIN_LOG_LEVEL         — file handler log level (default INFO)
     BRAIN_PROXY_BACKOFF     — comma-separated int seconds (default: 0,4,8,16,32)
     BRAIN_PROXY_INIT_TIMEOUT — seconds to wait for child initialize response (default 60)
+    BRAIN_PROXY_VERSION_CHECK_INTERVAL — rate-limit for version-reset checks (default 5)
 """
 
 import hashlib
@@ -46,6 +47,7 @@ _EXIT_CODE_CLEAN = 0
 _READER_SELECT_TIMEOUT = 30  # seconds; override with BRAIN_PROXY_READ_TIMEOUT
 _HANG_CONSECUTIVE_LIMIT = 3  # kill child after this many timeouts with in-flight requests
 _MAX_REPLAY_DEPTH = 1  # cap replay to prevent infinite drift loops
+_VERSION_CHECK_INTERVAL = 5  # seconds; override with BRAIN_PROXY_VERSION_CHECK_INTERVAL
 
 # ---------------------------------------------------------------------------
 # Logging setup
@@ -205,6 +207,14 @@ def _get_read_timeout() -> int:
         return int(os.environ.get("BRAIN_PROXY_READ_TIMEOUT", str(_READER_SELECT_TIMEOUT)))
     except ValueError:
         return _READER_SELECT_TIMEOUT
+
+
+def _get_version_check_interval() -> float:
+    """Return version-reset rate-limit interval in seconds."""
+    try:
+        return float(os.environ.get("BRAIN_PROXY_VERSION_CHECK_INTERVAL", str(_VERSION_CHECK_INTERVAL)))
+    except ValueError:
+        return float(_VERSION_CHECK_INTERVAL)
 
 
 # ---------------------------------------------------------------------------
@@ -587,7 +597,7 @@ class Proxy:
         Rate-limited to one disk read per 5 seconds.
         """
         now = time.monotonic()
-        if now - self._last_version_check < 5.0:
+        if now - self._last_version_check < _get_version_check_interval():
             return False
         self._last_version_check = now
 

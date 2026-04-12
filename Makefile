@@ -17,6 +17,9 @@ dev-link:
 test: dev-link
 	$(PYTEST) -q
 
+test-fast: dev-link
+	$(PYTEST) -q -m "not slow"
+
 lint:
 	$(PYTHON) -m interrogate src/brain-core/scripts
 

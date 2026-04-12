@@ -28,6 +28,9 @@ pythonpath = [
     "src/brain-core",
     "src/brain-core/scripts",
 ]
+markers = [
+    "slow: subprocess integration tests (deselect with -m 'not slow')",
+]
 
 [tool.coverage.run]
 source = ["src/brain-core/scripts"]
