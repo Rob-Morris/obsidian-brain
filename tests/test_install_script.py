@@ -212,3 +212,34 @@ def test_install_can_skip_mcp_setup(tmp_path):
     assert not (target / ".venv").exists()
     assert not (target / ".mcp.json").exists()
     assert "MCP server setup skipped (--skip-mcp)." in result.stderr
+
+
+def test_upgrade_force_passes_through_to_upgrade_script(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    _copy_source_checkout(source)
+
+    (source / "src" / "brain-core" / "VERSION").write_text("1.0.0\n")
+    (source / "src" / "brain-core" / "scripts" / "upgrade.py").write_text(
+        "import sys\n"
+        "from pathlib import Path\n"
+        "\n"
+        "args = sys.argv[1:]\n"
+        "vault = Path(args[args.index('--vault') + 1])\n"
+        "(vault / 'upgrade-args.txt').write_text(' '.join(args) + '\\n')\n"
+    )
+
+    target = tmp_path / "vault"
+    (target / ".brain-core").mkdir(parents=True)
+    (target / ".brain-core" / "VERSION").write_text("1.0.0\n")
+
+    result = subprocess.run(
+        ["bash", "install.sh", "--force", "--skip-mcp", str(target)],
+        cwd=source,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "--force" in (target / "upgrade-args.txt").read_text()

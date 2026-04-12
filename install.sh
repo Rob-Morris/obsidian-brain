@@ -375,7 +375,11 @@ fi
 
 printf '\n' >&2
 if [ "$UPGRADE_MODE" = true ]; then
-    spin "Upgrading brain-core" python3 "$REPO_DIR/src/brain-core/scripts/upgrade.py" --source "$REPO_DIR/src/brain-core" --vault "$VAULT_PATH"
+    if [ "$FORCE" = true ]; then
+        spin "Upgrading brain-core" python3 "$REPO_DIR/src/brain-core/scripts/upgrade.py" --source "$REPO_DIR/src/brain-core" --vault "$VAULT_PATH" --force
+    else
+        spin "Upgrading brain-core" python3 "$REPO_DIR/src/brain-core/scripts/upgrade.py" --source "$REPO_DIR/src/brain-core" --vault "$VAULT_PATH"
+    fi
     NEW_VERSION=$(cat "$VAULT_PATH/.brain-core/VERSION" 2>/dev/null || echo "unknown")
     printf '    \033[1mUpgraded to:\033[0m v%s\n' "$NEW_VERSION" >&2
     if [ "$SKIP_MCP" = true ]; then

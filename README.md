@@ -1,6 +1,6 @@
 # Obsidian Brain
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.26.2-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.10-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.26.3-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.10-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
 
 A self-evolving knowledge base for agents and humans working together on what matters.
 
@@ -79,7 +79,7 @@ bash install.sh --force --skip-mcp ~/brain
 bash install.sh --uninstall --force ~/brain
 ```
 
-Skips all prompts. Useful for scripted or agent-driven installs. Add `--skip-mcp` to scaffold the vault without creating `.venv` or registering Claude MCP — useful in network-restricted agent sandboxes. If MCP dependency install or registration fails, the installer now leaves the vault in place and prints manual retry steps instead of aborting the whole install. On uninstall, `--force` removes system files without prompting and skips the vault-deletion offer entirely — vault deletion is only available in interactive mode (without `--force`).
+Skips all prompts. Useful for scripted or agent-driven installs. Add `--skip-mcp` to scaffold the vault without creating `.venv` or registering Claude MCP — useful in network-restricted agent sandboxes. On upgrades, `--force` is also passed through to `upgrade.py`, so same-version re-apply/downgrade flows and explicit migration re-runs are available when needed. If MCP dependency install or registration fails, the installer now leaves the vault in place and prints manual retry steps instead of aborting the whole install. On uninstall, `--force` removes system files without prompting and skips the vault-deletion offer entirely — vault deletion is only available in interactive mode (without `--force`).
 
 > **Full reference:** [Scripts — install.sh](docs/functional/scripts.md#installsh) covers all flags, safety guards, and edge-case behaviour.
 

@@ -178,7 +178,7 @@ Available in `.brain-core/scripts/`. Scripts are the source of truth for all vau
 | `create.py` | Create a new artefact with template/naming resolution |
 | `edit.py` | Edit, append to, or convert an existing artefact |
 | `rename.py` | Rename a file with automatic wikilink updates |
-| `upgrade.py` | Upgrade brain-core in-place from a source directory (CLI-only, not shipped to vaults) |
+| `upgrade.py` | Upgrade brain-core in-place from a source directory, tracking applied migrations in `.brain/local/` (CLI-only, not shipped to vaults) |
 | `workspace_registry.py` | Workspace slug→path resolution and registration |
 | `init.py` | Set up Claude Code to use this vault's MCP server |
 | `check.py` | Structural compliance checker — validates naming, frontmatter, month folders, archives, status values |

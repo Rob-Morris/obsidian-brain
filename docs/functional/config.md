@@ -102,7 +102,6 @@ No core skills ship as of v0.24.0. The `brain-remote` skill was retired — its 
 
 The following items are accepted but not yet fully shaped. Listed here for contributor awareness.
 
-- **upgrade.py migration registry** — structured migration steps for breaking changes (upgrade copy implemented in v0.12.1; per-migration steps deferred until concrete need)
 - **CLI wrapper** — argument parsing, vault discovery, distribution
 - **Plugin registry** — `plugins.json` schema, install flow
 - **Obsidian plugin** — TypeScript implementation, shared test fixtures (DD-005, DD-006, DD-007)

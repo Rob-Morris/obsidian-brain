@@ -28,7 +28,7 @@ Scripts are the **source of truth** for all vault operations. The MCP server (`b
 | `shape_presentation.py` | Create presentation + launch Marp preview | (via MCP: `brain_action("shape-presentation", ...)`) |
 | `start_shaping.py` | Bootstrap a shaping session for an existing artefact | (via MCP: `brain_action("start-shaping", ...)`) |
 | `sync_definitions.py` | Sync artefact library definitions to vault `_Config/` | `python3 sync_definitions.py [--vault V] [--dry-run] [--types t1,t2] [--json]` |
-| `upgrade.py` | In-place brain-core upgrade | `python3 upgrade.py --source P [--vault V] [--dry-run] [--force] [--json]` |
+| `upgrade.py` | In-place brain-core upgrade with local migration ledger | `python3 upgrade.py --source P [--vault V] [--dry-run] [--force] [--json]` |
 | `workspace_registry.py` | Workspace slug→path resolution | `python3 workspace_registry.py [--register SLUG PATH] [--unregister SLUG] [--resolve SLUG] [--json]` |
 
 ## Bounded Context Map
@@ -82,7 +82,7 @@ These scripts import from `_common/` for vault discovery, frontmatter parsing, a
 
 - `generate_key.py` — stdlib only
 - `obsidian_cli.py` — stdlib only; IPC socket client
-- `upgrade.py` — deliberately self-contained (it may replace `_common` during execution); duplicates only `find_vault_root()`
+- `upgrade.py` — deliberately self-contained (it may replace `_common` during execution); duplicates only `find_vault_root()`, and records per-migration history in `.brain/local/` so reinstalls do not replay migrations unless forced
 
 ## `_common/` Package Structure
 

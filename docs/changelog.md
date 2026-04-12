@@ -2,6 +2,14 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.26.3 — 2026-04-13
+
+**Persist migration history in `.brain/local` so reinstalling `.brain-core/` does not replay old migrations.** `upgrade.py` now records successful and skipped migrations in `.brain/local/migrations.json`, refreshes `.brain/local/.migrated-version` once the installed version is fully accounted for, and consults that local ledger before running migrations again.
+
+- `upgrade.py --force` now re-runs migrations up to the target version instead of only bypassing same-version / downgrade guards, and `install.sh --force` now passes that flag through during upgrade mode.
+- Older vaults are backfilled into the new ledger from their installed version marker so adopting the per-migration ledger does not immediately replay historical migrations.
+- Added regression coverage for migration-ledger skip behavior, force reruns, upgrade-time ledger backfill, and installer force pass-through.
+
 ## v0.26.2 — 2026-04-12
 
 **Make installer MCP setup optional and non-fatal for agent-driven installs.** `install.sh` now supports `--skip-mcp` / `--no-mcp`, and fresh installs or upgrades no longer abort after the vault is already created just because `pip install` or MCP registration failed.

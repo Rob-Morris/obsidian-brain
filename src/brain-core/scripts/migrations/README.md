@@ -2,6 +2,8 @@
 
 Migration scripts run automatically during CLI upgrade (`upgrade.py` or `install.sh`). They handle vault-level data transformations that can't be done by simply copying new files.
 
+Each successful or skipped migration is recorded in `.brain/local/migrations.json`. The runner checks that ledger before executing a migration again, so reinstalling `.brain-core/` into the same vault does not replay historical migrations. Passing `--force` to `upgrade.py` (or `install.sh --force` on upgrade) bypasses that ledger and re-runs migrations up to the target version.
+
 ## File naming
 
 `migrate_to_{VERSION}.py` where VERSION uses underscores: `migrate_to_0_19_0.py` for v0.19.0.
