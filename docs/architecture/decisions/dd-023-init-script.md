@@ -20,4 +20,4 @@ Registration uses `claude mcp add-json` when the CLI is available, otherwise edi
 - Users choose the appropriate scope for their workflow; the script handles the implementation details.
 - Idempotency means re-running after an upgrade is safe.
 - The script is stdlib-only (no `_common` imports) because it runs in contexts where `_common` may not yet be available (e.g. during the install process).
-- `install.sh` calls `init.py` automatically; manual installs or scope changes call it directly.
+- `install.sh` calls `init.py` automatically when MCP setup is enabled and dependency installation succeeds; manual installs, retries, or scope changes call it directly.

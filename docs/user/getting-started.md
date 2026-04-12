@@ -26,7 +26,13 @@ Or from a local clone of the repo:
 bash install.sh ~/brain
 ```
 
-The installer creates the vault from the template, copies `.brain-core/` into it, sets up a Python virtual environment, and registers the MCP server for Claude Code. It also handles upgrades (re-run on an existing vault) and installing into an existing Obsidian vault. See [install.sh](../functional/scripts.md#installsh) for full details, modes, and flags.
+For non-interactive agent installs in restricted environments, scaffold the vault without MCP setup:
+
+```bash
+bash install.sh --force --skip-mcp ~/brain
+```
+
+The installer creates the vault from the template, copies `.brain-core/` into it, and then attempts the Python / MCP setup for Claude Code. It also handles upgrades (re-run on an existing vault) and installing into an existing Obsidian vault. In network-restricted environments you can pass `--skip-mcp` to scaffold the vault without the `.venv` / MCP setup, or rerun the printed retry steps later if dependency installation fails. See [install.sh](../functional/scripts.md#installsh) for full details, modes, and flags.
 
 **Requirements:** git and python3. Python 3.10+ is recommended for MCP server support — without it the vault is still created but agent tools won't be available until you install Python and run `init.py` manually.
 

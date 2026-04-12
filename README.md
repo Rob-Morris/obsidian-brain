@@ -1,6 +1,6 @@
 # Obsidian Brain
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.26.1-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.10-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.26.2-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.10-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
 
 A self-evolving knowledge base for agents and humans working together on what matters.
 
@@ -39,7 +39,7 @@ The [Getting Started guide](docs/user/getting-started.md) walks through all of t
 bash <(curl -fsSL https://raw.githubusercontent.com/robmorris/obsidian-brain/main/install.sh) ~/brain
 ```
 
-This downloads the repo, creates the vault at `~/brain`, installs dependencies, and registers the MCP server. Run without a path to be prompted for a location. From a local clone, use `bash install.sh ~/brain` instead.
+This downloads the repo, creates the vault at `~/brain`, and then attempts MCP setup for Claude Code. If you want the vault scaffold without `.venv` / MCP setup, use `bash install.sh --skip-mcp ~/brain` (or add `--force` for non-interactive agent installs). Run without a path to be prompted for a location. From a local clone, use `bash install.sh ~/brain` instead.
 
 **Open in Obsidian (recommended):** Open the vault folder, then enable the `brain-folder-colours` CSS snippet in Settings > Appearance > CSS Snippets.
 
@@ -75,10 +75,11 @@ Removes brain system files (`.brain-core/`, `.brain/`, `.venv/`, `.mcp.json`, `C
 
 ```bash
 bash install.sh --force ~/brain
+bash install.sh --force --skip-mcp ~/brain
 bash install.sh --uninstall --force ~/brain
 ```
 
-Skips all prompts. Useful for scripted or agent-driven installs. On uninstall, `--force` removes system files without prompting and skips the vault-deletion offer entirely — vault deletion is only available in interactive mode (without `--force`).
+Skips all prompts. Useful for scripted or agent-driven installs. Add `--skip-mcp` to scaffold the vault without creating `.venv` or registering Claude MCP — useful in network-restricted agent sandboxes. If MCP dependency install or registration fails, the installer now leaves the vault in place and prints manual retry steps instead of aborting the whole install. On uninstall, `--force` removes system files without prompting and skips the vault-deletion offer entirely — vault deletion is only available in interactive mode (without `--force`).
 
 > **Full reference:** [Scripts — install.sh](docs/functional/scripts.md#installsh) covers all flags, safety guards, and edge-case behaviour.
 
@@ -99,7 +100,7 @@ If you prefer to do it yourself:
 
 ### Connecting from Other Projects
 
-The install script registers the MCP server for the vault directory. To use the brain from other directories, run one of these from inside the vault:
+When MCP setup is enabled, the install script registers the server for the vault directory. To use the brain from other directories, run one of these from inside the vault:
 
 ```bash
 # Make the brain available to all projects (adds to ~/.claude/settings.json)

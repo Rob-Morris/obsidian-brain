@@ -52,6 +52,34 @@ When editing docs that ship in `.brain-core/`:
 
 When in doubt, check `docs/README.md` — if a doc file is listed there, it's a canonical reference that may need updating.
 
+## Installing for Users
+
+When a user asks an agent working in this repo to install a Brain vault on their behalf, separate the job into two outcomes:
+
+1. Vault scaffold created at the requested path
+2. MCP setup completed (`.venv` + dependency install + registration)
+
+Do not treat those as all-or-nothing unless the user explicitly requires MCP to be ready immediately.
+
+Preferred command selection:
+
+- Use `bash install.sh --force --skip-mcp <path>` in restricted, sandboxed, or otherwise uncertain environments.
+- Use `bash install.sh --force <path>` only when package index access is expected to work.
+- If the user explicitly wants a vault only, use `--skip-mcp` even when network access is available.
+
+Reporting expectations:
+
+- State clearly whether the vault scaffold succeeded.
+- State separately whether MCP setup succeeded.
+- If MCP setup fails, do not frame the whole install as failed when the vault is already usable as a markdown vault.
+- Surface the installer's retry commands so the user or a later agent can finish MCP setup without re-scaffolding the vault.
+
+Why this matters:
+
+- `install.sh` can complete the vault scaffold before hitting network-dependent dependency installation.
+- Agent sandboxes commonly block package index access even when local file operations succeed.
+- Repo guidance belongs here and in `AGENTS.md`, not in shipped `.brain-core/` bootstrap files.
+
 ## Why Drift Happens
 
 The same fact often appears in multiple files. For example, "Plans lifecycle is `draft` → `approved` → `implementing` → `completed`" appears in the Plans taxonomy, `docs/user/system-guide.md`, `src/brain-core/guide.md`, and `src/brain-core/artefact-library/README.md`. When a commit updates some but not all, the docs drift.

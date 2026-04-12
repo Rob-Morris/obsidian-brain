@@ -133,6 +133,7 @@ bash install.sh --uninstall ~/brain
 
 # Non-interactive (for scripts/agents)
 bash install.sh --force ~/brain
+bash install.sh --force --skip-mcp ~/brain
 bash install.sh --uninstall --force ~/brain
 ```
 
@@ -140,14 +141,15 @@ bash install.sh --uninstall --force ~/brain
 
 | Mode | Trigger | What happens |
 |---|---|---|
-| **Fresh install** | Target is empty or doesn't exist | Copies template vault + brain-core, creates `.venv`, registers MCP server |
-| **Upgrade** | Target contains `.brain-core/` | Shows installed vs source version, confirms, runs `upgrade.py`, syncs Python dependencies |
+| **Fresh install** | Target is empty or doesn't exist | Copies template vault + brain-core, creates `.venv`, registers MCP server (unless skipped or deferred after a dependency failure) |
+| **Upgrade** | Target contains `.brain-core/` | Shows installed vs source version, confirms, runs `upgrade.py`, syncs Python dependencies when possible |
 | **Existing vault** | Target is non-empty but has no `.brain-core/` | Installs brain-core + config scaffolding only — existing files are never overwritten |
 | **Uninstall** | `--uninstall` flag | Removes brain system files; optionally deletes the entire vault |
 
 ### Flags
 
-- `--force` / `-f` — skip all interactive prompts. On install/upgrade: accepts defaults, auto-registers MCP. On uninstall: removes system files without prompting and skips the vault-deletion offer entirely — vault deletion is only available in interactive mode (without `--force`). Also bypasses the stdin pipe detection error.
+- `--force` / `-f` — skip all interactive prompts. On install/upgrade: accepts defaults and auto-attempts MCP setup unless you also pass `--skip-mcp`. On uninstall: removes system files without prompting and skips the vault-deletion offer entirely — vault deletion is only available in interactive mode (without `--force`). Also bypasses the stdin pipe detection error.
+- `--skip-mcp` / `--no-mcp` — skip `.venv` creation, dependency installation, MCP registration, and upgrade-time dependency sync. Useful for network-restricted or vault-only installs.
 - `--uninstall` — enter uninstall mode. Must be the first argument.
 - **Path** (positional, optional) — target directory. Defaults to current directory (prompted interactively, or `pwd` with `--force`).
 
@@ -156,6 +158,7 @@ bash install.sh --uninstall --force ~/brain
 - **git** — required (for cloning the repo when not running from a local clone)
 - **python3** — required (any version, for basic preflight)
 - **Python 3.10+** — recommended. The script searches for `python3.13` down to `python3.10`, then falls back to `python3`. If no 3.10+ is found, the vault is still created but `.venv` and MCP server setup are skipped. The script prints guidance for installing Python later and running `init.py` manually.
+- **Package index access for MCP setup** — fresh installs and upgrade-time dependency sync install `.brain-core/brain_mcp/requirements.txt` into the vault-local `.venv`. If that step fails, the installer keeps the vault/upgrade intact, skips MCP registration, and prints manual retry commands instead of aborting the whole run.
 
 ### Safety guards
 

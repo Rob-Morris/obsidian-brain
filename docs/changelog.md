@@ -2,6 +2,14 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.26.2 — 2026-04-12
+
+**Make installer MCP setup optional and non-fatal for agent-driven installs.** `install.sh` now supports `--skip-mcp` / `--no-mcp`, and fresh installs or upgrades no longer abort after the vault is already created just because `pip install` or MCP registration failed.
+
+- Fresh installs now keep the scaffolded vault in place when `.venv` dependency installation fails, skip MCP registration for that run, and print exact retry commands for finishing setup later.
+- Upgrade-time dependency sync now behaves the same way: the core upgrade completes, then warns if MCP dependency sync failed instead of aborting the whole upgrade.
+- Added install regression tests for the failing dependency path and the explicit `--skip-mcp` flag, and updated the README plus install docs to document network-restricted agent installs.
+
 ## v0.26.1 — 2026-04-12
 
 **Harden fresh installs against leaked machine-local template state.** `install.sh` now excludes `.venv`, `.brain/local`, `.mcp.json`, and `.pytest_cache` from template-vault copies and strips them after fallback copies, so dirty local source checkouts cannot seed stale virtualenv entrypoints or generated state into a new vault.

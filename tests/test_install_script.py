@@ -105,3 +105,110 @@ def test_install_ignores_machine_local_template_state(tmp_path):
     assert not (target / ".brain" / "local" / "session.md").exists()
     assert not (target / ".brain" / "local" / "compiled-router.json").exists()
     assert (target / ".brain" / "local" / ".gitkeep").is_file()
+
+
+def test_install_continues_when_mcp_dependency_install_fails(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    _copy_source_checkout(source)
+
+    # If registration runs, it leaves a marker. Dependency failure should skip it.
+    (source / "src" / "brain-core" / "scripts" / "init.py").write_text(
+        "import sys\n"
+        "from pathlib import Path\n"
+        "\n"
+        "vault = Path(sys.argv[-1])\n"
+        "(vault / 'init-ran.txt').write_text('called\\n')\n"
+    )
+
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    _write_executable(
+        fake_bin / "python3.12",
+        "#!/bin/sh\n"
+        "if [ \"$1\" = \"-c\" ]; then\n"
+        "  printf '3.12\\n'\n"
+        "  exit 0\n"
+        "fi\n"
+        "if [ \"$1\" = \"-m\" ] && [ \"$2\" = \"venv\" ]; then\n"
+        "  venv_dir=\"$3\"\n"
+        "  mkdir -p \"$venv_dir/bin\"\n"
+        "  cat > \"$venv_dir/bin/python\" <<'EOF'\n"
+        "#!/bin/sh\n"
+        "if [ \"$1\" = \"-m\" ] && [ \"$2\" = \"pip\" ]; then\n"
+        "  shift 2\n"
+        "  venv_dir=$(cd \"$(dirname \"$0\")/..\" && pwd)\n"
+        "  printf '%s\\n' \"$*\" > \"$venv_dir/pip-args.txt\"\n"
+        "  printf 'simulated pip failure\\n' >&2\n"
+        "  exit 1\n"
+        "fi\n"
+        "printf 'unexpected venv python args: %s\\n' \"$*\" >&2\n"
+        "exit 1\n"
+        "EOF\n"
+        "  chmod +x \"$venv_dir/bin/python\"\n"
+        "  exit 0\n"
+        "fi\n"
+        "printf 'unexpected fake python args: %s\\n' \"$*\" >&2\n"
+        "exit 1\n",
+    )
+
+    target = tmp_path / "vault"
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}:{env['PATH']}"
+
+    result = subprocess.run(
+        ["bash", "install.sh", "--force", str(target)],
+        cwd=source,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (target / ".brain-core" / "VERSION").is_file()
+    assert (target / ".venv" / "bin" / "python").is_file()
+    assert (target / ".venv" / "pip-args.txt").read_text().startswith(
+        "install --quiet --upgrade pip -r "
+    )
+    assert not (target / ".mcp.json").exists()
+    assert not (target / "init-ran.txt").exists()
+    assert "Vault created, but MCP dependency installation failed." in result.stderr
+
+
+def test_install_can_skip_mcp_setup(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    _copy_source_checkout(source)
+
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    _write_executable(
+        fake_bin / "python3.12",
+        "#!/bin/sh\n"
+        "if [ \"$1\" = \"-c\" ]; then\n"
+        "  printf '3.12\\n'\n"
+        "  exit 0\n"
+        "fi\n"
+        "printf 'unexpected fake python args: %s\\n' \"$*\" >&2\n"
+        "exit 1\n",
+    )
+
+    target = tmp_path / "vault"
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}:{env['PATH']}"
+
+    result = subprocess.run(
+        ["bash", "install.sh", "--force", "--skip-mcp", str(target)],
+        cwd=source,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (target / ".brain-core" / "VERSION").is_file()
+    assert not (target / ".venv").exists()
+    assert not (target / ".mcp.json").exists()
+    assert "MCP server setup skipped (--skip-mcp)." in result.stderr

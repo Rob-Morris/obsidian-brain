@@ -7,6 +7,7 @@
 #
 # From a clone:
 #   bash install.sh ~/my-brain
+#   bash install.sh --skip-mcp ~/my-brain
 #   bash install.sh              # prompts for path
 #
 # Uninstall:
@@ -16,8 +17,8 @@
 #   1. Clones the repo to a temp directory (or uses existing clone)
 #   2. Copies template-vault to your chosen location
 #   3. Copies brain-core into the vault as .brain-core
-#   4. Installs Python dependencies into a vault-local .venv
-#   5. Registers the Brain MCP server for Claude Code
+#   4. Installs Python dependencies into a vault-local .venv (unless skipped)
+#   5. Registers the Brain MCP server for Claude Code (unless skipped)
 #
 # Requirements: git, python3 (3.10+ for MCP server, 3.9+ otherwise)
 # Safe to re-run with a new path.
@@ -50,17 +51,25 @@ fi
 info()  { printf '  %s\n' "$*" >&2; }
 step()  { printf '\n\033[1m▸ %s\033[0m\n' "$*" >&2; }
 err()   { printf '\033[31mError: %s\033[0m\n' "$*" >&2; exit 1; }
+warn()  { printf '\033[33mWarning: %s\033[0m\n' "$*" >&2; }
 
 # Parse --force/-f flag and positional path from arguments
 parse_flags() {
     FORCE=false
+    SKIP_MCP=false
     VAULT_PATH=""
     for arg in "$@"; do
-        if [ "$arg" = "--force" ] || [ "$arg" = "-f" ]; then
-            FORCE=true
-        else
-            VAULT_PATH="$arg"
-        fi
+        case "$arg" in
+            --force|-f)
+                FORCE=true
+                ;;
+            --skip-mcp|--no-mcp)
+                SKIP_MCP=true
+                ;;
+            *)
+                VAULT_PATH="$arg"
+                ;;
+        esac
     done
 }
 
@@ -71,6 +80,13 @@ resolve_path() {
         p="$(cd "$(dirname "$p")" && pwd)/$(basename "$p")"
     fi
     printf '%s' "$p"
+}
+
+print_mcp_retry_hint() {
+    local vault_path="$1"
+    info "Retry later with network access:"
+    info "  \"$vault_path/.venv/bin/python\" -m pip install -r \"$vault_path/.brain-core/brain_mcp/requirements.txt\""
+    info "  python3 \"$vault_path/.brain-core/scripts/init.py\" --vault \"$vault_path\""
 }
 
 spin() {
@@ -362,8 +378,14 @@ if [ "$UPGRADE_MODE" = true ]; then
     spin "Upgrading brain-core" python3 "$REPO_DIR/src/brain-core/scripts/upgrade.py" --source "$REPO_DIR/src/brain-core" --vault "$VAULT_PATH"
     NEW_VERSION=$(cat "$VAULT_PATH/.brain-core/VERSION" 2>/dev/null || echo "unknown")
     printf '    \033[1mUpgraded to:\033[0m v%s\n' "$NEW_VERSION" >&2
-    if [ -f "$VAULT_PATH/.venv/bin/python" ]; then
-        spin "Syncing Python dependencies" "$VAULT_PATH/.venv/bin/python" -m pip install --quiet -r "$VAULT_PATH/.brain-core/brain_mcp/requirements.txt"
+    if [ "$SKIP_MCP" = true ]; then
+        info "MCP dependency sync skipped (--skip-mcp)."
+    elif [ -f "$VAULT_PATH/.venv/bin/python" ]; then
+        if ! spin "Syncing Python dependencies" "$VAULT_PATH/.venv/bin/python" -m pip install --quiet -r "$VAULT_PATH/.brain-core/brain_mcp/requirements.txt"; then
+            printf '\n' >&2
+            warn "Upgraded brain-core, but MCP dependency sync failed."
+            print_mcp_retry_hint "$VAULT_PATH"
+        fi
     fi
 elif [ "$EXISTING_VAULT" = true ]; then
     spin "Installing brain into existing vault" bash -c '
@@ -420,7 +442,11 @@ fi
 # ---------------------------------------------------------------------------
 
 printf '\n' >&2
-if [ -z "$PYTHON" ]; then
+if [ "$SKIP_MCP" = true ]; then
+    REGISTER_MCP=n
+    info "MCP server setup skipped (--skip-mcp)."
+    info "Register later with: python3 .brain-core/scripts/init.py"
+elif [ -z "$PYTHON" ]; then
     info "MCP server setup skipped (requires Python 3.10+)."
     info "Install Python 3.10+, then run: python3 .brain-core/scripts/init.py"
 elif [ "$FORCE" = true ]; then
@@ -429,20 +455,26 @@ else
     printf '  \033[1mRegister the Brain MCP server? (recommended)\033[0m [Y/n]: ' >&2
     read -r REGISTER_MCP
 fi
-if [ -n "$PYTHON" ] && { [ -z "${REGISTER_MCP:-}" ] || [ "${REGISTER_MCP:-}" = "y" ] || [ "${REGISTER_MCP:-}" = "Y" ]; }; then
+if [ "$SKIP_MCP" = false ] && [ -n "$PYTHON" ] && { [ -z "${REGISTER_MCP:-}" ] || [ "${REGISTER_MCP:-}" = "y" ] || [ "${REGISTER_MCP:-}" = "Y" ]; }; then
     printf '\n' >&2
-    spin "Setting up Python virtual environment" bash -c '
+    if spin "Setting up Python virtual environment" bash -c '
         "$1" -m venv "$2/.venv"
         "$2/.venv/bin/python" -m pip install --quiet --upgrade pip -r "$2/.brain-core/brain_mcp/requirements.txt"
-    ' _ "$PYTHON" "$VAULT_PATH"
-    printf '\n' >&2
-    if spin "Registering Brain MCP server" python3 "$VAULT_PATH/.brain-core/scripts/init.py" --vault "$VAULT_PATH"; then
-        printf '    \033[1mScope:\033[0m local (this vault only)\n' >&2
-        printf '    \033[1mVerify:\033[0m claude mcp list\n' >&2
+    ' _ "$PYTHON" "$VAULT_PATH"; then
+        printf '\n' >&2
+        if spin "Registering Brain MCP server" python3 "$VAULT_PATH/.brain-core/scripts/init.py" --vault "$VAULT_PATH"; then
+            printf '    \033[1mScope:\033[0m local (this vault only)\n' >&2
+            printf '    \033[1mVerify:\033[0m claude mcp list\n' >&2
+        else
+            printf '\n' >&2
+            warn "Vault created, but MCP registration failed."
+            info "Retry later with:"
+            info "  python3 \"$VAULT_PATH/.brain-core/scripts/init.py\" --vault \"$VAULT_PATH\""
+        fi
     else
         printf '\n' >&2
-        info "MCP registration failed. You can retry with:"
-        info "  python3 $VAULT_PATH/.brain-core/scripts/init.py --vault $VAULT_PATH"
+        warn "Vault created, but MCP dependency installation failed."
+        print_mcp_retry_hint "$VAULT_PATH"
     fi
 elif [ -n "$PYTHON" ]; then
     printf '\n' >&2

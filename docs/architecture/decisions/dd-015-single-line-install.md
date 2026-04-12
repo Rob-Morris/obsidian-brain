@@ -8,11 +8,11 @@ Brain-core needs to be installed into a vault, and the MCP server needs to be re
 
 ## Decision
 
-Installation is a single command (`bash <(curl ...)` or `bash install.sh ~/vault`). The install script handles everything: copying brain-core, scaffolding config, registering the MCP server via `init.py`. `Agents.md` is never modified by the install process — it is created fresh from a template if absent, left untouched if present.
+Installation is a single command (`bash <(curl ...)` or `bash install.sh ~/vault`). The install script handles everything needed to scaffold the vault: copying brain-core, scaffolding config, and attempting MCP setup via `init.py` unless the caller explicitly skips it. `Agents.md` is never modified by the install process — it is created fresh from a template if absent, left untouched if present.
 
 ## Consequences
 
-- New users can have a working vault without understanding the internal structure.
+- New users can have a working vault scaffold without understanding the internal structure.
 - `Agents.md` remains user-owned — the system does not overwrite personal agent preferences.
-- The install script must remain self-contained and robust enough to handle existing vaults, upgrades, and uninstalls without manual intervention.
+- The install script must remain self-contained and robust enough to handle existing vaults, upgrades, uninstalls, and partial MCP setup failures without manual intervention.
 - Keeping the install path working is a maintenance obligation — it must be tested on each release.
