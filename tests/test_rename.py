@@ -18,6 +18,7 @@ def vault(tmp_path):
     bc = tmp_path / ".brain-core"
     bc.mkdir()
     (bc / "VERSION").write_text("0.7.0\n")
+    (bc / "session-core.md").write_text("# Session Core\n")
 
     # Living type: Wiki
     wiki = tmp_path / "Wiki"
@@ -157,6 +158,7 @@ def vault_with_filename_links(tmp_path):
     bc = tmp_path / ".brain-core"
     bc.mkdir()
     (bc / "VERSION").write_text("0.7.0\n")
+    (bc / "session-core.md").write_text("# Session Core\n")
 
     wiki = tmp_path / "Wiki"
     wiki.mkdir()
@@ -255,6 +257,7 @@ def vault_with_anchors(tmp_path):
     bc = tmp_path / ".brain-core"
     bc.mkdir()
     (bc / "VERSION").write_text("0.7.0\n")
+    (bc / "session-core.md").write_text("# Session Core\n")
 
     wiki = tmp_path / "Wiki"
     wiki.mkdir()

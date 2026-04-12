@@ -31,15 +31,23 @@ def handle_brain_session(
         runtime.set_session_profile(None)
 
     state = runtime.get_state()
-    result = session.compile_session(
+    result = session.build_session_model(
         state.router,
         state.vault_root,
         obsidian_cli_available=state.cli_available,
         context=context,
         config=state.config,
+        active_profile=state.session_profile,
+        load_config_if_missing=False,
     )
 
-    if state.session_profile:
-        result["active_profile"] = state.session_profile
+    try:
+        session.persist_session_markdown(result, state.vault_root)
+    except Exception:
+        if state.logger:
+            state.logger.error(
+                "brain_session: failed to refresh session mirror",
+                exc_info=True,
+            )
 
     return json.dumps(result, ensure_ascii=False)

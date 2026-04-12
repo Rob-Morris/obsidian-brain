@@ -35,4 +35,4 @@ This is a general convention for any living artefact type — designs, ideas, wi
 - The subfolder name is a short project label (e.g. `Brain`, `Pistols`), not the full master title.
 - `brain_create` accepts an optional `parent` parameter to place new artefacts directly into a project subfolder.
 
-**Archiving sub-artefacts:** See [[.brain-core/standards/archiving]] for how archiving works within project subfolders.
+**Archiving sub-artefacts:** See the [archiving standard](archiving.md) for how archiving works within project subfolders.

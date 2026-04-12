@@ -66,6 +66,27 @@ component, system-level documentation lives at the root. Brain-core applies this
 by co-locating specs that an in-vault agent needs, while keeping a central index
 for contributors working on the repo itself.
 
+### Runtime bootstrap vs contributor docs
+
+Co-location does not mean every document near `src/brain-core/` is fair game for
+repo contributor process guidance.
+
+Anything that ships in `.brain-core/` and participates in agent bootstrap is part
+of the runtime surface for normal Brain agents. That surface must stay focused on
+operating the vault: bootstrap flow, vault conventions, user preferences, and
+core runtime references.
+
+Contributor-only process material belongs in `docs/`, even when it discusses
+brain-core internals. Workflow tiers, canaries, pre-commit process, release
+discipline, and repo change-management rules are contributor standards, not
+runtime bootstrap content.
+
+In short:
+
+- shipped `.brain-core/` bootstrap docs are written for vault agents
+- repo contributor process docs stay under `docs/`
+- if a rule would confuse a normal vault agent, it does not belong in bootstrap
+
 ---
 
 ## Three-Way Verification

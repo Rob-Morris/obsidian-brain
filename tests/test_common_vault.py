@@ -150,6 +150,7 @@ class TestScanTemporalTypes:
         bc = tmp_path / ".brain-core"
         bc.mkdir()
         (bc / "VERSION").write_text("1.0.0\n")
+        (bc / "session-core.md").write_text("# Session Core\n")
         assert common.scan_temporal_types(tmp_path) == []
 
 

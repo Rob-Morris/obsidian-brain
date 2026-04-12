@@ -16,8 +16,8 @@
       }
     },
     "living/designs": {
-      "brain_core_version": "0.23.2",
-      "installed_at": "2026-04-08T00:46:45.939286+00:00",
+      "brain_core_version": "0.25.1",
+      "installed_at": "2026-04-12T11:43:51.537639+00:00",
       "files": {
         "taxonomy": {
           "source_hash": "sha256:7cb75fef498e01488c3e9289313d3dc583648cd5358aafc162183248b2eac0aa",
@@ -30,8 +30,8 @@
       }
     },
     "living/documentation": {
-      "brain_core_version": "0.23.2",
-      "installed_at": "2026-04-08T00:46:45.939286+00:00",
+      "brain_core_version": "0.25.1",
+      "installed_at": "2026-04-12T11:43:51.537639+00:00",
       "files": {
         "taxonomy": {
           "source_hash": "sha256:9c0add5d1568d0c222c868ca71d0e05447e07378e3b61d968b8e44885e3dedd7",
@@ -44,8 +44,8 @@
       }
     },
     "living/ideas": {
-      "brain_core_version": "0.23.2",
-      "installed_at": "2026-04-08T00:46:45.939286+00:00",
+      "brain_core_version": "0.25.1",
+      "installed_at": "2026-04-12T11:43:51.537639+00:00",
       "files": {
         "taxonomy": {
           "source_hash": "sha256:ab02f2df38ada349195bc3d3326bf83e1cf679c6ce5d6c25cfced3addcdc2172",
@@ -72,8 +72,8 @@
       }
     },
     "living/people": {
-      "brain_core_version": "0.23.2",
-      "installed_at": "2026-04-08T00:46:45.939286+00:00",
+      "brain_core_version": "0.25.1",
+      "installed_at": "2026-04-12T11:43:51.537639+00:00",
       "files": {
         "taxonomy": {
           "source_hash": "sha256:d0e1fb913a09c9224196a6ea7ab7569c5c8d504750962b027bc95e1ce6a2b0b6",
@@ -100,8 +100,8 @@
       }
     },
     "living/tasks": {
-      "brain_core_version": "0.23.2",
-      "installed_at": "2026-04-08T00:46:45.939286+00:00",
+      "brain_core_version": "0.25.1",
+      "installed_at": "2026-04-12T11:43:51.537639+00:00",
       "files": {
         "taxonomy": {
           "source_hash": "sha256:93a0062925fdb08546a5962673d7e48809ede4e3393526e9ac39b2499bd0201c",
@@ -156,8 +156,8 @@
       }
     },
     "temporal/captures": {
-      "brain_core_version": "0.23.2",
-      "installed_at": "2026-04-08T00:46:45.939286+00:00",
+      "brain_core_version": "0.25.1",
+      "installed_at": "2026-04-12T11:43:51.537639+00:00",
       "files": {
         "taxonomy": {
           "source_hash": "sha256:00bdd5ed78e3f5bb6973723d3e23ea2b37850e2bd800f542409c2012e191731b",
@@ -170,8 +170,8 @@
       }
     },
     "temporal/cookies": {
-      "brain_core_version": "0.23.2",
-      "installed_at": "2026-04-08T00:46:45.939286+00:00",
+      "brain_core_version": "0.25.1",
+      "installed_at": "2026-04-12T11:43:51.537639+00:00",
       "files": {
         "taxonomy": {
           "source_hash": "sha256:635518267a87d3fe807b0f36e36711b6aaacc54d25f041cc60827326cebb423c",
@@ -244,8 +244,8 @@
       }
     },
     "temporal/mockups": {
-      "brain_core_version": "0.23.2",
-      "installed_at": "2026-04-08T00:46:45.939286+00:00",
+      "brain_core_version": "0.25.1",
+      "installed_at": "2026-04-12T11:43:51.537639+00:00",
       "files": {
         "taxonomy": {
           "source_hash": "sha256:3fb1661e74283f1ab8a8b20e92af6e9da4ccdd8017ed452945dbfd3d22f01bed",
@@ -272,8 +272,8 @@
       }
     },
     "temporal/plans": {
-      "brain_core_version": "0.23.2",
-      "installed_at": "2026-04-08T00:46:45.939286+00:00",
+      "brain_core_version": "0.25.1",
+      "installed_at": "2026-04-12T11:43:51.537639+00:00",
       "files": {
         "taxonomy": {
           "source_hash": "sha256:cd24202896ff55d67e86474fba48bee96936708a13b9c62324d3512a6ff35a77",
@@ -286,8 +286,8 @@
       }
     },
     "temporal/presentations": {
-      "brain_core_version": "0.23.2",
-      "installed_at": "2026-04-08T00:46:45.939286+00:00",
+      "brain_core_version": "0.25.1",
+      "installed_at": "2026-04-12T11:43:51.537639+00:00",
       "files": {
         "taxonomy": {
           "source_hash": "sha256:9d1c63743d67b40df1978d4f9ab7eca42763b9c49d71da7ad0dd1453d6076e5f",
@@ -308,8 +308,8 @@
       }
     },
     "temporal/reports": {
-      "brain_core_version": "0.23.2",
-      "installed_at": "2026-04-08T00:46:45.939286+00:00",
+      "brain_core_version": "0.25.1",
+      "installed_at": "2026-04-12T11:43:51.537639+00:00",
       "files": {
         "taxonomy": {
           "source_hash": "sha256:9f8249950f5fd4c29e4b195cff6a9a9553d13a850a798b42b59854aeca2c7642",
@@ -322,8 +322,8 @@
       }
     },
     "temporal/research": {
-      "brain_core_version": "0.23.2",
-      "installed_at": "2026-04-08T00:46:45.939286+00:00",
+      "brain_core_version": "0.25.1",
+      "installed_at": "2026-04-12T11:43:51.537639+00:00",
       "files": {
         "taxonomy": {
           "source_hash": "sha256:3be1343897bcc85ca4dfd63911ae45ac50b84fe422871d722cd0ec9ade6fc1b6",
@@ -336,8 +336,8 @@
       }
     },
     "temporal/shaping-transcripts": {
-      "brain_core_version": "0.23.4",
-      "installed_at": "2026-04-09T06:04:29.830754+00:00",
+      "brain_core_version": "0.25.2",
+      "installed_at": "2026-04-12T11:44:34.504474+00:00",
       "files": {
         "taxonomy": {
           "source_hash": "sha256:ada80a2d2f20d91da6d473a9d4d64339dfd18b45a0d06379c89feaea53353121",
@@ -350,8 +350,8 @@
       }
     },
     "temporal/snippets": {
-      "brain_core_version": "0.23.2",
-      "installed_at": "2026-04-08T00:46:45.939286+00:00",
+      "brain_core_version": "0.25.1",
+      "installed_at": "2026-04-12T11:43:51.537639+00:00",
       "files": {
         "taxonomy": {
           "source_hash": "sha256:e4dd37a6eee1f43b52ea831135fac1a94203f3d2dc8a90316123c4ebfb22e21c",
@@ -364,8 +364,8 @@
       }
     },
     "temporal/thoughts": {
-      "brain_core_version": "0.23.2",
-      "installed_at": "2026-04-08T00:46:45.939286+00:00",
+      "brain_core_version": "0.25.1",
+      "installed_at": "2026-04-12T11:43:51.537639+00:00",
       "files": {
         "taxonomy": {
           "source_hash": "sha256:0db0a692cbd271ae33e06ec1e25f83a0939a48faeb682ede1eb5dd0051d005ce",

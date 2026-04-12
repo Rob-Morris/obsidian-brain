@@ -2,6 +2,24 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.25.1 — 2026-04-12
+
+**Remove contributor-only workflow tiers from shipped bootstrap.** `session-core.md` no longer includes contributor workflow sizing or links to contributor-only workflow docs. The workflow standard now lives in `docs/standards/agent-workflow.md` alongside `canary.md`.
+
+- `docs/contributing-agents.md` now points at repo-only contributor standards instead of duplicating the full workflow-tier table inline.
+- This corrects the v0.24.11 documentation change, which mistakenly described contributor workflow policy as part of the runtime bootstrap shipped to every Brain agent.
+- The architecture docs and pre-commit canary now also encode the audience boundary explicitly: shipped `.brain-core/` bootstrap docs are for normal vault agents, while repo contributor process belongs under `docs/`.
+
+## v0.25.0 — 2026-04-12
+
+**Unified session bootstrap.** `session.py` now owns one canonical session model rendered as both `brain_session` JSON and the generated markdown mirror at `.brain/local/session.md`. Static core bootstrap content now lives in `session-core.md`, `index.md` is a thin bootloader, and router compiles plus MCP bootstrap refresh the markdown mirror automatically.
+
+- `.brain-core` bootstrap is now treated as atomic and version-bound: `compile_router.py` requires `session-core.md` and treats a missing file as a broken install instead of silently falling back to legacy `.brain-core` files.
+- New migration `migrate_to_0_25_0.py` canonicalises installed bootstrap text to the MCP-first / `index.md` fallback wording and also catches the newer manually introduced variant without terminal punctuation.
+- `brain_session` now exposes session-core references as structured `core_docs` entries with explicit `brain_read(resource="file", ...)` load instructions, while `.brain/local/session.md` renders them as markdown file links for local non-MCP flows.
+- Bootstrap docs, contributor guidance, the quick-start guide, and the user reference were updated to describe the JSON + markdown parity contract and the current three-mode bootstrap ladder.
+- `session-polyfill.md` is no longer part of the shipped runtime surface.
+
 ## v0.24.12 — 2026-04-12
 
 **Extract MCP tool handlers behind sibling modules.** `mcp/server.py` now stays as the MCP composition root and runtime-state owner while tool implementation logic delegates to sibling modules (`_server_session.py`, `_server_reading.py`, `_server_artefacts.py`, `_server_actions.py`, `_server_content.py`) through a narrow `_server_runtime.py` adapter. This preserves the stable `server` module surface used by tests and the proxy while aligning the MCP layer more closely with the bounded-context map.

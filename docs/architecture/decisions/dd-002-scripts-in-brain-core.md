@@ -14,6 +14,7 @@ Scripts ship inside `.brain-core/scripts/`. They are distributed as part of brai
 
 - Scripts are version-locked to the brain-core engine they ship with — no version mismatch between engine and scripts.
 - Upgrading brain-core upgrades the scripts atomically.
+- Partial or mixed-version `.brain-core/` states are not a supported operating mode; if the upgrade is interrupted, the install is considered broken until restored or upgraded cleanly.
 - Agents and MCP tools can always locate scripts at a stable relative path inside the vault.
 - Scripts are overwritten on upgrade; user-customised copies would be lost (the convention is that user logic lives in `_Config/`, not in scripts).
 - No dependency on a system-level install or PATH configuration.

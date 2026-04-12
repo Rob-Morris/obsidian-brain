@@ -27,6 +27,7 @@ Follow before every commit.
     [4m] **Plugin system** — if plugin conventions, install procedures, or plugin API changed: `docs/plugins.md`, `src/brain-core/plugins.md`
     [4n] **Doc structure** — if doc files added/moved/removed or navigation changed: `docs/README.md` (router), `docs/contributing.md` (Documentation Layers table)
     [4o] **Contribution process** — if canary items, pre-commit workflow, versioning rules, or testing procedures changed: `docs/contributing.md`, `docs/contributing-agents.md`, `docs/standards/canary.md` (canary system standard)
+    [4p] **Bootstrap audience boundary** — if bootstrap surfaces or contributor-doc boundaries changed: `docs/architecture/documentation-philosophy.md`, `docs/architecture/decisions/dd-038-unified-session-bootstrap.md`, `docs/contributing.md`; shipped `.brain-core/` bootstrap docs must stay written for normal vault agents, not repo contributors
 
 [5] **Shared facts cross-checked.** Grep for the specific values you changed to catch stale references in other files. With the three-layer structure, most facts now live in one place — only check if you changed a shared fact:
 
@@ -34,6 +35,7 @@ Follow before every commit.
     [5b] **Template vault defaults list** — `docs/user/getting-started.md`, `src/brain-core/guide.md`, `docs/specification.md`
     [5c] **Status values** — `src/brain-core/artefact-library/README.md`, `docs/user/system-guide.md`
     [5d] **Install step counts** — `docs/user/system-guide.md`, `src/brain-core/artefact-library/README.md`, `src/brain-core/standards/extending/`
+    [5e] **Bootstrap audience split** — if changing shipped bootstrap docs or contributor workflow guidance, grep the relevant surfaces and confirm contributor-only process language stays out of `.brain-core/` bootstrap docs
 
 ## Log
 
@@ -76,11 +78,13 @@ Note: `skip` uses a comma separator (not colon) to avoid ambiguity with the labe
     [4m] Plugin system: skip, no plugin changes
     [4n] Doc structure: skip, no doc files added/moved/removed
     [4o] Contribution process: skip, no process changes
+    [4p] Bootstrap audience boundary: skip, bootstrap audience unchanged
 [5] Shared facts cross-checked: done
     [5a] Type counts: skip, no changes
     [5b] Template vault defaults list: skip, no changes
     [5c] Status values: skip, no changes
     [5d] Install step counts: skip, no changes
+    [5e] Bootstrap audience split: skip, no bootstrap or contributor-process changes
 ```
 
 The pre-commit hook checks this file exists and covers all tasks.

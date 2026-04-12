@@ -43,3 +43,4 @@ Superseded decisions are kept for historical reference and to understand the evo
 | DD-035 | Incremental index updates — dirty flag + pending queue + TTL | Implemented | [dd-035-incremental-index-updates.md](dd-035-incremental-index-updates.md) |
 | DD-036 | Safe write pattern — tmp + fsync + rename | Implemented | [dd-036-safe-write-pattern.md](dd-036-safe-write-pattern.md) |
 | DD-037 | Generous filename matching — preserve Unicode, strip only unsafe chars | Implemented | [dd-037-generous-filename-matching.md](dd-037-generous-filename-matching.md) |
+| DD-038 | Unified session bootstrap — one model, JSON + markdown renderers, thin index | Implemented (v0.25.0) | [dd-038-unified-session-bootstrap.md](dd-038-unified-session-bootstrap.md) |

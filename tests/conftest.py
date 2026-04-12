@@ -11,6 +11,7 @@ def vault(tmp_path):
     bc = tmp_path / ".brain-core"
     bc.mkdir()
     (bc / "VERSION").write_text("1.2.3\n")
+    (bc / "session-core.md").write_text("# Session Core\n")
 
     config = tmp_path / "_Config"
     config.mkdir()
@@ -51,5 +52,7 @@ def non_tmp_vault():
     os.makedirs(os.path.join(vault_dir, ".brain-core"), exist_ok=True)
     with open(os.path.join(vault_dir, ".brain-core", "VERSION"), "w") as f:
         f.write("1.0.0\n")
+    with open(os.path.join(vault_dir, ".brain-core", "session-core.md"), "w") as f:
+        f.write("# Session Core\n")
     yield vault_dir
     shutil.rmtree(vault_dir, ignore_errors=True)

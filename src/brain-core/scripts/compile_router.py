@@ -30,6 +30,7 @@ from _common import (
     scan_living_types,
     scan_temporal_types,
 )
+import session
 
 OUTPUT_PATH = os.path.join(".brain", "local", "compiled-router.json")
 
@@ -509,13 +510,17 @@ def compile(vault_root):
         os.path.join(vault_root, router_path)
     )
 
-    # Parse system rules from index (if present)
-    index_path = os.path.join(".brain-core", "index.md")
-    index_abs = os.path.join(vault_root, index_path)
-    system_rules = []
-    if os.path.isfile(index_abs):
-        track(index_path)
-        system_rules, _ = parse_router(index_abs)
+    # Parse system rules from session-core. A valid `.brain-core/` install is
+    # version-bound and atomic; if this file is missing, the install is broken.
+    session_core_path = os.path.join(".brain-core", "session-core.md")
+    session_core_abs = os.path.join(vault_root, session_core_path)
+    if not os.path.isfile(session_core_abs):
+        raise FileNotFoundError(
+            "Missing required .brain-core/session-core.md. "
+            "The .brain-core install is incomplete or broken."
+        )
+    track(session_core_path)
+    system_rules, _ = parse_router(session_core_abs)
 
     # Merge: system rules first, vault-specific additions after
     always_rules = system_rules + always_rules
@@ -647,6 +652,12 @@ def main():
         trigger_count = len(compiled["triggers"])
         skill_count = len(compiled["skills"])
         memory_count = len(compiled["memories"])
+        try:
+            model = session.build_session_model(compiled, str(vault_root))
+            session.persist_session_markdown(model, str(vault_root))
+        except Exception as e:
+            print(f"Warning: failed to refresh {session.SESSION_MARKDOWN_REL}: {e}",
+                  file=sys.stderr)
         print(
             f"Compiled router: {art_count} artefacts ({configured} configured), "
             f"{trigger_count} triggers, {skill_count} skills, "

@@ -1,11 +1,17 @@
 # Obsidian Brain
 
-Self-extending system for organising Obsidian vaults, for agents and humans working together.
+A self-evolving knowledge base, for agents and humans working together on what matters. 
+
+ALWAYS DO FIRST: Call MCP `brain_session`, else read `.brain-core/index.md` if it exists.
 
 ## Git Discipline
 
 - Never edit past changelog entries. Only add new entries at the top.
 - Never force-add gitignored files. They are ignored for a reason.
+
+## Agent Contributors
+
+ALWAYS READ BEFORE contributing: `docs/contributing-agents.md`
 
 ## Before Committing
 
@@ -15,7 +21,3 @@ Self-extending system for organising Obsidian vaults, for agents and humans work
 ## Local Overrides
 
 If `agents.local.md` exists in the repo root, read it for machine-specific configuration.
-
-Use the tiered workflow in `docs/contributing-agents.md` (`trivial` / `small` / `medium` / `large`). Default to the smallest safe tier and escalate when the blast radius is unclear.
-
-ALWAYS DO FIRST: Call brain_session. Read [[.brain-core/index]]

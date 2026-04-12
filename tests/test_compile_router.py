@@ -25,6 +25,7 @@ def vault(tmp_path):
     bc = tmp_path / ".brain-core"
     bc.mkdir()
     (bc / "VERSION").write_text("1.2.3\n")
+    (bc / "session-core.md").write_text("# Session Core\n")
 
     # _Config/router.md
     config = tmp_path / "_Config"
@@ -780,16 +781,15 @@ class TestHashing:
 
 
 # ---------------------------------------------------------------------------
-# System rules from index.md
+# System rules from session-core.md
 # ---------------------------------------------------------------------------
 
-class TestSystemRulesFromIndex:
-    def test_merges_index_and_router_rules(self, vault):
-        """System rules from index.md come first, vault rules from router.md after."""
-        # Create index.md with system always-rules
-        index = vault / ".brain-core" / "index.md"
-        index.write_text(
-            "# Brain Core\n\n"
+class TestSystemRulesFromSessionCore:
+    def test_merges_session_core_and_router_rules(self, vault):
+        """System rules from session-core.md come first, vault rules after."""
+        session_core = vault / ".brain-core" / "session-core.md"
+        session_core.write_text(
+            "# Session Core\n\n"
             "Always:\n"
             "- System rule alpha.\n"
             "- System rule beta.\n"
@@ -803,32 +803,29 @@ class TestSystemRulesFromIndex:
         assert "typed folder" in rules[2].lower()
         assert len(rules) == 4  # 2 system + 2 vault
 
-    def test_no_index_uses_router_only(self, vault):
-        """Without index.md, only router.md rules are used (backward compat)."""
-        # The vault fixture has no index.md by default
-        assert not (vault / ".brain-core" / "index.md").exists()
-        result = cr.compile(vault)
-        assert len(result["always_rules"]) == 2
-        assert "typed folder" in result["always_rules"][0].lower()
+    def test_missing_session_core_is_an_error(self, vault):
+        """Missing session-core.md means the .brain-core install is broken."""
+        (vault / ".brain-core" / "session-core.md").unlink()
+        with pytest.raises(FileNotFoundError, match="session-core.md"):
+            cr.compile(vault)
 
-    def test_index_tracked_as_source(self, vault):
-        """index.md should appear in meta.sources when present."""
-        index = vault / ".brain-core" / "index.md"
-        index.write_text(
-            "# Brain Core\n\n"
+    def test_session_core_tracked_as_source(self, vault):
+        """session-core.md should appear in meta.sources when present."""
+        session_core = vault / ".brain-core" / "session-core.md"
+        session_core.write_text(
+            "# Session Core\n\n"
             "Always:\n"
             "- A system rule.\n"
         )
         result = cr.compile(vault)
-        index_key = os.path.join(".brain-core", "index.md")
-        assert index_key in result["meta"]["sources"]
+        session_core_key = os.path.join(".brain-core", "session-core.md")
+        assert session_core_key in result["meta"]["sources"]
 
-    def test_index_without_always_section(self, vault):
-        """index.md without Always: section contributes no system rules."""
-        index = vault / ".brain-core" / "index.md"
-        index.write_text("# Brain Core\n\nJust some text, no rules.\n")
+    def test_session_core_without_always_section_contributes_no_system_rules(self, vault):
+        """session-core.md without Always: contributes no system rules."""
+        session_core = vault / ".brain-core" / "session-core.md"
+        session_core.write_text("# Session Core\n\nJust some text, no rules.\n")
         result = cr.compile(vault)
-        # Only router.md rules
         assert len(result["always_rules"]) == 2
 
 

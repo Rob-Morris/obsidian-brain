@@ -23,7 +23,7 @@ modules, but the external tool contracts documented here stay unchanged.
 
 ### brain_session
 
-Agent bootstrap tool — safe, auto-approvable. Compiles a token-efficient session payload in one call: always-rules, user preferences, gotchas, triggers, condensed artefact types, environment, memory/skill/plugin/style indexes, config metadata (profiles, brain_name). The server actively compiles this — strips frontmatter from user files, condenses artefact metadata, merges environment state.
+Agent bootstrap tool — safe, auto-approvable. Builds the canonical session model in one call: static core bootstrap content (`core_bootstrap`), structured core-doc references with explicit MCP load instructions (`core_docs`), always-rules, user preferences, gotchas, triggers, condensed artefact types, environment, memory/skill/plugin/style indexes, and config/profile metadata when known. The server actively compiles this — strips frontmatter from user files, condenses artefact metadata, merges runtime environment state, and refreshes the generated markdown mirror at `.brain/local/session.md` from the same model.
 
 **Parameters:**
 - `context` (optional) — scoped session hint (forward-compatible, not yet implemented)
@@ -46,6 +46,7 @@ Safe, no side effects, auto-approvable. Reads a specific resource by name. Deleg
 **Resource behaviours:**
 - **Singletons** (`environment`, `router`, `compliance`) — no `name` required
 - **Aliases** (`template`, `file`) — work as before; `file` is a smart resolver that delegates to the correct handler
+- **`file`** — can also read `.brain-core/` docs by vault-relative path, e.g. `brain_read(resource="file", name=".brain-core/standards/provenance.md")`
 - **`artefact`** — reads by relative path or basename. Full relative paths read directly; bare basenames resolve via wikilink-style lookup (case-insensitive, `.md`-optional) validated against the compiled router. For temporal artefacts, the display name works too — e.g. `name="Colour Theory"` resolves `20260404-research~Colour Theory.md`. Archive paths are rejected with a helpful error.
 - **`compliance`** — runs `check.py` checks; `name` filters by severity (`error`/`warning`/`info`)
 - **`environment`** — enriched server-side with `obsidian_cli_available`
@@ -315,7 +316,7 @@ The server imports functions directly from scripts — never calls their `main()
 
 ## Bootstrap Strategy
 
-`brain_session` is the primary bootstrap mechanism. Agents call it first to receive the full session payload (always-rules, user preferences, triggers, artefact types, environment). The `init.py` script installs a SessionStart hook that calls `session.py --json` automatically, so agents receive session context before their first turn.
+`brain_session` is the primary bootstrap mechanism. Agents call it first to receive the canonical session model as JSON. The `init.py` script installs a SessionStart hook that calls `session.py --json` automatically; the same script also refreshes `.brain/local/session.md`, the markdown mirror used by no-MCP bootstrap flows.
 
 `brain_read(resource="router")` is not a bootstrap tool — it returns raw router state, not a session payload. Its primary use is as a staleness probe: agents or tooling can call it to check whether the router has changed since the last compile.
 

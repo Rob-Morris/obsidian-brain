@@ -69,6 +69,7 @@ def vault(tmp_path):
     bc = tmp_path / ".brain-core"
     bc.mkdir()
     (bc / "VERSION").write_text("1.0.0\n")
+    (bc / "session-core.md").write_text("# Session Core\n")
 
     # Library type: temporal/cookies
     lib = bc / "artefact-library" / "temporal" / "cookies"
@@ -657,3 +658,32 @@ class TestTemplateVaultSync:
                 assert os.path.isfile(target), (
                     f"{type_key}/{role} missing: {fi['target']}"
                 )
+
+    def test_taxonomies_keep_vault_native_wikilinks_for_standards(self, template_vault):
+        """Artefact taxonomies should not switch standards references to relative markdown links."""
+        source_root = os.path.join(
+            os.path.dirname(__file__), "..", "src", "brain-core", "artefact-library"
+        )
+        source_hits = []
+        for dirpath, _dirnames, filenames in os.walk(source_root):
+            for filename in filenames:
+                if filename != "taxonomy.md":
+                    continue
+                path = os.path.join(dirpath, filename)
+                text = _read(path)
+                if "](../../../standards/" in text:
+                    source_hits.append(os.path.relpath(path))
+
+        template_root = os.path.join(template_vault, "_Config", "Taxonomy")
+        template_hits = []
+        for dirpath, _dirnames, filenames in os.walk(template_root):
+            for filename in filenames:
+                if not filename.endswith(".md"):
+                    continue
+                path = os.path.join(dirpath, filename)
+                text = _read(path)
+                if "](../../../standards/" in text:
+                    template_hits.append(os.path.relpath(path, template_vault))
+
+        assert source_hits == []
+        assert template_hits == []

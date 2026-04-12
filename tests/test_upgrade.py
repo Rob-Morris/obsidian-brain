@@ -45,6 +45,9 @@ def source_and_vault(tmp_path):
     source = tmp_path / "source"
     source.mkdir()
     (source / "VERSION").write_text("2.0.0\n")
+    (source / "session-core.md").write_text("# Session Core\n")
+    (source / "index.md").write_text("# Index\n")
+    (source / "md-bootstrap.md").write_text("# Markdown Bootstrap\n")
 
     # Copy the real scripts directory into source so sync_definitions works
     # after upgrade copies source -> vault
@@ -74,6 +77,7 @@ def source_and_vault(tmp_path):
     bc = vault / ".brain-core"
     bc.mkdir()
     (bc / "VERSION").write_text("1.0.0\n")
+    (bc / "session-core.md").write_text("# Session Core\n")
     (bc / "scripts").mkdir()
     (bc / "scripts" / "compile_router.py").write_text(
         "import sys; sys.exit(0)\n"

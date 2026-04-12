@@ -19,7 +19,8 @@ Every file belongs in a typed folder. Types are either **living** (evolve over t
 
 ## Key Docs
 
-- `.brain-core/index.md` — system principles and always-rules
+- `.brain-core/index.md` — bootstrap entry point for MCP, generated markdown, and degraded fallback paths
+- `.brain-core/session-core.md` — static authored source for core bootstrap content
 - `.brain-core/guide.md` — quick-start guide
 - `.brain-core/standards/extending/README.md` — how to add types, memories, and other extensions
 - `_Config/Taxonomy/` — one file per artefact type with full definition

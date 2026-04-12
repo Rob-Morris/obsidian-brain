@@ -135,11 +135,11 @@ Not every type has status. Wiki, Notes, and most temporal types are evergreen.
 
 Use **basename-only** wikilinks: `[[My Page]]`, not `[[Wiki/My Page]]`. Basename links survive folder moves and archiving. Path-qualified links break when files move into subfolders.
 
-`brain_create` auto-disambiguates basename collisions across type folders by appending the type key (e.g. `My Page (idea).md`). Full details in [[.brain-core/standards/linking]].
+`brain_create` auto-disambiguates basename collisions across type folders by appending the type key (e.g. `My Page (idea).md`). Full details are in the [linking standard](standards/linking.md).
 
 ## Provenance
 
-When one artefact spins out of another, link them. Full details in [[.brain-core/standards/provenance]].
+When one artefact spins out of another, link them. Full details are in the [provenance standard](standards/provenance.md).
 
 **On the new artefact:** `**Origin:** [[source-file|description]] (yyyy-mm-dd)`
 
@@ -167,7 +167,7 @@ Living artefacts that reach a terminal status move to a `+Status/` folder within
 - **Workspaces:** `+Completed/`
 - **Writing:** `+Published/`
 
-`_Archive/` is reserved for deliberate removal — a "soft delete" that takes files completely out of the active vault namespace (index, search, and all normal operations). Use `brain_action("archive")` to archive and `brain_action("unarchive")` to restore. Use `brain_list(resource="archive")` to list archived files, `brain_read(resource="archive", name="...")` to read a specific one. Full details in [[.brain-core/standards/archiving]].
+`_Archive/` is reserved for deliberate removal — a "soft delete" that takes files completely out of the active vault namespace (index, search, and all normal operations). Use `brain_action("archive")` to archive and `brain_action("unarchive")` to restore. Use `brain_list(resource="archive")` to list archived files, `brain_read(resource="archive", name="...")` to read a specific one. Full details are in the [archiving standard](standards/archiving.md).
 
 ## Extending Your Vault
 
@@ -219,7 +219,7 @@ python3 /path/to/vault/.brain-core/scripts/init.py --project /path/to/project
 
 If your vault has the Brain MCP server running, you get eight tools:
 
-- **brain_session** — bootstrap an agent session in one call (always-rules, preferences, gotchas, triggers, artefact types, environment)
+- **brain_session** — bootstrap an agent session in one call (static core bootstrap content, structured core-doc references with explicit `brain_read(resource="file", ...)` load instructions, always-rules, preferences, gotchas, triggers, artefact types, environment); also refreshes `.brain/local/session.md`
 - **brain_read** — read a specific resource by name: artefact content (by relative path, basename, or display name — resolves like wikilinks), type definitions, triggers, styles, templates, skills, plugins, memories, workspaces, or compliance checks. Name is required for collection resources; use brain_list to enumerate collections.
 - **brain_search** — find files by query, type, or tag (relevance-ranked, BM25). Also searches non-artefact collections (skills, triggers, styles, memories, plugins) via text matching (use `resource` parameter).
 - **brain_list** — enumerate resources exhaustively. For artefacts: filter by type, date range, or tag (not relevance-ranked; use when completeness matters). Also lists non-artefact collections: skills, triggers, styles, plugins, memories, templates, types, workspaces, archives (use `resource` parameter).
@@ -232,11 +232,11 @@ The MCP server logs to `.brain/local/mcp-server.log` — startup diagnostics, to
 
 For structural compliance (naming, frontmatter, archives), run `python3 .brain-core/scripts/check.py` or use `brain_read(resource="compliance")` via MCP.
 
-Without MCP, use `.brain-core/scripts/` directly (`read.py`, `search_index.py`, `create.py`, `edit.py`, `rename.py`, `compile_router.py`, `check.py`, `fix_links.py`, `sync_definitions.py`, `workspace_registry.py`, `migrate_naming.py`, `process.py`, `session.py`, `build_index.py`, `shape_presentation.py`, `start_shaping.py`, `config.py`, `generate_key.py`). Without scripts, fall back to the lean router (`_Config/router.md`), then plain file navigation.
+Without MCP, read `.brain-core/index.md` first. It routes to the generated markdown session mirror at `.brain/local/session.md` when available, or to `.brain-core/md-bootstrap.md` for the degraded raw-file fallback. The scripts in `.brain-core/scripts/` remain available directly (`read.py`, `search_index.py`, `create.py`, `edit.py`, `rename.py`, `compile_router.py`, `check.py`, `fix_links.py`, `sync_definitions.py`, `workspace_registry.py`, `migrate_naming.py`, `process.py`, `session.py`, `build_index.py`, `shape_presentation.py`, `start_shaping.py`, `config.py`, `generate_key.py`).
 
 ## Further Reading
 
 - [Workflows](https://github.com/robmorris/obsidian-brain/blob/main/docs/user/workflows.md) — day-to-day usage patterns with examples
 - [Reference](https://github.com/robmorris/obsidian-brain/blob/main/docs/user-reference.md) — every artefact type, configuration point, and system in detail
 - `.brain-core/standards/extending/` — extension procedures (developer reference)
-- `.brain-core/index.md` — system principles and always-rules
+- `.brain-core/index.md` — bootstrap entry point for MCP, generated markdown, and degraded fallback paths

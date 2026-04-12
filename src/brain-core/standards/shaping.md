@@ -52,7 +52,7 @@ As shaping expands to touch additional artefacts, append them:
 Shaping transcript for [[Artefact1|Title1]], [[Artefact2|Title2]].
 ```
 
-Each source artefact links back via `**Transcripts:** [[transcript|Session]]` — see [[.brain-core/standards/provenance]].
+Each source artefact links back via `**Transcripts:** [[transcript|Session]]` — see the [provenance standard](provenance.md).
 
 ### Shaping state lives in the artefact
 

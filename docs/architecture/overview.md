@@ -15,9 +15,9 @@ Copied into the vault during setup and upgrade (not symlinked — vaults are sel
 - `scripts/` — all vault operation logic as importable Python modules with CLI entry points
 - `mcp/server.py` + `mcp/_server_*.py` — MCP composition root and sibling tool handlers; holds router and index in memory
 - `skills/` — core skill documents (system-provided, tagged `"source": "core"`, overwritten on upgrade)
-- `index.md` — system principles, always-rules, and tooling instructions; read every session
-- `session-polyfill.md` — core documentation and standards links (temporary supplement until brain_session delivers natively)
-- `md-bootstrap.md` — fallback bootstrap for environments without MCP tools
+- `index.md` — thin bootstrap entry point; routes agents to `brain_session`, `.brain/local/session.md`, or `md-bootstrap.md`
+- `session-core.md` — checked-in authored source for the static core bootstrap content and core-doc references
+- `md-bootstrap.md` — explicit degraded fallback for environments without MCP or a generated session mirror
 
 ### `.brain/` — vault-local runtime state
 
@@ -26,6 +26,7 @@ Generated, gitignored. The compiled outputs that tooling reads at runtime:
 | Path | Contents |
 |---|---|
 | `.brain/local/compiled-router.json` | Compiled router — the interface contract between config and tooling |
+| `.brain/local/session.md` | Generated markdown mirror of the canonical session model |
 | `.brain/local/retrieval-index.json` | BM25 retrieval index for keyword search |
 | `.brain/config.yaml` | Vault-level configuration (layer 2 of 3) |
 | `.brain/local/config.yaml` | Machine-local overrides (layer 3 of 3; gitignored) |
@@ -86,7 +87,7 @@ Artefact types are discovered by scanning vault folders, not by reading a regist
 
 ### Compiled router as contract
 
-The compiled router (`.brain/local/compiled-router.json`) is the interface between human-readable config and all tooling. Source files — `router.md`, taxonomy files, skills, styles, and `VERSION` — are the single source of truth. The compiler combines them into a hash-invalidated cache: SHA-256 of every source file is stored in `meta.sources`, and the cache is considered stale the moment any source changes. The router is environment-specific (includes platform, runtime availability, absolute vault root) and is never committed to version control. The MCP server auto-compiles it at startup and auto-recompiles mid-session when new taxonomy files appear.
+The compiled router (`.brain/local/compiled-router.json`) is the interface between human-readable config and all tooling. Source files — `session-core.md`, `router.md`, taxonomy files, skills, styles, memories, plugins, and `VERSION` — are the single source of truth. The compiler combines them into a hash-invalidated cache: SHA-256 of every source file is stored in `meta.sources`, and the cache is considered stale the moment any source changes. The router is environment-specific (includes platform, runtime availability, absolute vault root) and is never committed to version control. The MCP server auto-compiles it at startup and auto-recompiles mid-session when new taxonomy files appear.
 
 ### Scripts as single source of truth
 
@@ -114,14 +115,13 @@ Two complementary guards protect the vault from unintended writes:
 
 ## Agent Reading Flow
 
-Agents bootstrap in four tiers, each degrading gracefully when the previous is unavailable:
+Agents bootstrap through one canonical session model with three operating modes:
 
-1. **MCP tools** — `brain_session` returns a compiled bootstrap payload in one call: always-rules, user preferences, gotchas, triggers, condensed artefact types, and environment. Lowest token cost; uses in-memory caching. A SessionStart hook calls `session.py` automatically so agents receive session context before their first turn.
-2. **Scripts** — if MCP is unavailable, `.brain-core/scripts/` provides full functionality via CLI: `read.py` queries the compiled router, `search_index.py` runs BM25 search, and so on. Same logic as MCP, disk-based.
-3. **Lean router** — if neither MCP nor scripts are available, the agent reads `Agents.md` then `_Config/router.md` (~45 tokens). The router provides conditional trigger pointers and vault-specific rules. Taxonomy files are loaded on demand when a condition matches.
-4. **Naive fallback** — if the agent has no knowledge of the system, it reads `Agents.md`, follows wikilinks through `router.md`, and discovers the vault structure directly from the filesystem: root-level non-system folders are living types, `_Temporal/` subfolders are temporal types.
+1. **MCP bootstrap** — `brain_session` returns the canonical session model as compact JSON: static core bootstrap content, structured core-doc references with explicit MCP load instructions, always-rules, user preferences, gotchas, triggers, condensed artefact types, environment, and config/profile metadata when known. It also refreshes `.brain/local/session.md` from the same model.
+2. **Generated markdown bootstrap** — if MCP is unavailable, agents read `.brain-core/index.md`, which routes them to `.brain/local/session.md`. That file is regenerated by normal runtime entry points (`brain_session`, `session.py`, router compile/startup paths), so it stays in parity with the JSON model for shared content.
+3. **Degraded raw-file fallback** — if there is no MCP and no generated session mirror, `.brain-core/index.md` routes agents to `.brain-core/md-bootstrap.md`, which points them at `_Config/router.md`, user preferences, gotchas, and raw vault navigation.
 
-All tiers begin with the `Agents.md` bootstrap directive, which points agents to `brain_session` and `.brain-core/index.md`. This ensures every agent receives the system principles and constraints, regardless of which access tier is available.
+All modes begin with the `Agents.md` bootstrap directive, which points agents to `brain_session` first and `.brain-core/index.md` as the stable no-MCP entry point.
 
 ---
 

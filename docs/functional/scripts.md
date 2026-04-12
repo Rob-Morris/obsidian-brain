@@ -6,7 +6,7 @@ Operational reference for scripts in `.brain-core/scripts/`. Each script exposes
 
 | Script | Purpose | CLI usage |
 |---|---|---|
-| `compile_router.py` | Compile router from source files | `python3 compile_router.py [--json]` |
+| `compile_router.py` | Compile router from source files and refresh the session mirror | `python3 compile_router.py [--json]` |
 | `compile_colours.py` | Generate folder colour CSS | (called by compile_router) |
 | `build_index.py` | Build BM25 retrieval index | `python3 build_index.py [--json]` |
 | `search_index.py` | BM25 keyword search | `python3 search_index.py "query" [--type T] [--json]` |
@@ -22,6 +22,7 @@ Operational reference for scripts in `.brain-core/scripts/`. Each script exposes
 | `fix_links.py` | Auto-repair broken wikilinks | `python3 fix_links.py [--fix] [--json] [--vault V]` |
 | `sync_definitions.py` | Sync artefact library definitions to vault _Config/ | `python3 sync_definitions.py [--vault V] [--dry-run] [--types t1,t2] [--json]` |
 | `config.py` | Vault configuration loader (three-layer merge) | `python3 config.py` |
+| `session.py` | Build the canonical session model and refresh `.brain/local/session.md` | `python3 session.py [--json]` |
 | `generate_key.py` | Generate operator key + hash for config.yaml | `python3 generate_key.py [--count N]` |
 | `process.py` | Content classification, duplicate resolution, ingestion | (library module, used by MCP server) |
 | `init.py` | MCP server registration | `python3 init.py [--user] [--local] [--project PATH]` |
@@ -45,7 +46,7 @@ The MCP server is a thin wrapper that imports functions from scripts and holds t
 | Source | Purpose |
 |---|---|
 | `_Config/router.md` | Always-rules and conditional triggers |
-| `.brain-core/index.md` | System-level always-rules (prepended) |
+| `.brain-core/session-core.md` | Static core bootstrap content; `Always:` block supplies system-level always-rules |
 | `.brain-core/VERSION` | Brain-core version |
 | `_Config/Taxonomy/Living/*.md` | Living artefact type definitions |
 | `_Config/Taxonomy/Temporal/*.md` | Temporal artefact type definitions |
@@ -61,14 +62,14 @@ The MCP server is a thin wrapper that imports functions from scripts and holds t
 |---|---|
 | `meta` | brain-core version, compile timestamp, composite SHA-256 hash of all source files |
 | `environment` | Platform/runtime detection |
-| `always_rules` | Merged rules from index.md (system) + router.md (vault) |
+| `always_rules` | Merged rules from session-core.md (system) + router.md (vault) |
 | `artefacts` | Discovered types with naming patterns, frontmatter requirements, status enums, terminal statuses, triggers, template paths |
 | `triggers` | Merged conditional triggers from router.md and taxonomy files |
 | `skills`, `plugins`, `styles`, `memories` | Discovered enrichment documents |
 
 **Hash invalidation:** The `meta.source_hash` is a composite SHA-256 over all tracked source files. The MCP server compares this hash on startup and at a 5-second TTL to detect stale routers and recompile automatically.
 
-**Colour generation:** `compile_colours.py` runs as a post-step, reading the compiled router to generate `.obsidian/snippets/brain-folder-colours.css` and `.obsidian/graph.json` colour groups. Called automatically — no separate invocation needed.
+**Post-step generation:** `compile_colours.py` runs as a post-step, reading the compiled router to generate `.obsidian/snippets/brain-folder-colours.css` and `.obsidian/graph.json` colour groups. After a successful compile, `session.py` also refreshes `.brain/local/session.md` so the markdown bootstrap mirror stays aligned with the current canonical session model. Both are called automatically — no separate invocation needed.
 
 **Flags:** `--json` (output JSON to stdout instead of writing to file).
 
@@ -202,6 +203,28 @@ Optional: `--vault <path>` overrides vault root auto-detection (used by `install
 Registration strategy: `claude mcp add-json` when CLI available, direct JSON file editing otherwise. Both produce equivalent config. All writes are atomic (tmp + fsync + rename).
 
 **Dependencies:** Python 3.8+ stdlib only. Detects a Python with `mcp` package for the server config (vault `.venv` -> current Python -> PATH search).
+
+## session.py
+
+Canonical session bootstrap builder at `.brain-core/scripts/session.py`. Owns one session model with two renderers:
+
+- **JSON** — used by `brain_session`
+- **Markdown** — written to `.brain/local/session.md` for the no-MCP bootstrap path
+
+**Inputs:** `.brain-core/session-core.md`, `.brain/local/compiled-router.json`, `_Config/User/preferences-always.md`, `_Config/User/gotchas.md`, merged config (when available), runtime environment state, and active profile when known.
+
+**Behaviour:**
+- Builds the canonical session model from static core bootstrap content, structured core-doc references, and dynamic vault state
+- Writes `.brain/local/session.md` on direct CLI execution
+- Is also called by the MCP server and router compile path so JSON and markdown stay in parity for shared content
+- Keeps the current `context` parameter as a forward-compatible stub; no context-specific scoping yet
+
+**CLI:**
+```bash
+python3 session.py                # compact JSON to stdout + refresh session mirror
+python3 session.py --json         # pretty JSON to stdout + refresh session mirror
+python3 session.py --context slug # include context stub in the JSON output
+```
 
 ## upgrade.py
 

@@ -23,6 +23,7 @@ def vault(tmp_path):
     bc = tmp_path / ".brain-core"
     bc.mkdir()
     (bc / "VERSION").write_text("0.10.3\n")
+    (bc / "session-core.md").write_text("# Session Core\n")
 
     # _Config
     config = tmp_path / "_Config"

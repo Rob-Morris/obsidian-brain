@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
-session.py — Compile a bootstrap session payload for agent use.
+session.py — Build the canonical bootstrap session model for agents.
 
-Assembles a token-efficient payload from the compiled router plus user
-preference files.  The MCP server calls compile_session() with its
-in-memory router; the standalone CLI reads the router from disk.
+The canonical model combines static brain-core bootstrap content, compiled
+router state, user preference files, config, and runtime environment. The
+MCP server renders it as JSON via `brain_session`; non-MCP flows use the
+generated markdown mirror at `.brain/local/session.md`.
 
 Usage:
     python3 session.py
@@ -14,9 +15,10 @@ Usage:
 
 import json
 import os
+import re
 import sys
 
-from _common import find_vault_root, parse_frontmatter
+from _common import find_section, find_vault_root, parse_frontmatter, safe_write
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -24,6 +26,10 @@ from _common import find_vault_root, parse_frontmatter
 
 PREFERENCES_REL = os.path.join("_Config", "User", "preferences-always.md")
 GOTCHAS_REL = os.path.join("_Config", "User", "gotchas.md")
+SESSION_CORE_REL = os.path.join(".brain-core", "session-core.md")
+SESSION_MARKDOWN_REL = os.path.join(".brain", "local", "session.md")
+COMPILED_ROUTER_REL = os.path.join(".brain", "local", "compiled-router.json")
+CORE_DOC_SECTION_HEADINGS = ("Core Docs", "Standards")
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -45,6 +51,159 @@ def _read_user_body(vault_root, rel_path):
         return ""
     _, body = parse_frontmatter(text)
     return body.strip()
+
+
+def _read_text(vault_root, rel_path):
+    """Read a file relative to vault_root and return stripped text."""
+    abs_path = os.path.join(vault_root, rel_path)
+    try:
+        with open(abs_path, encoding="utf-8") as f:
+            return f.read().strip()
+    except OSError:
+        return ""
+
+
+def _strip_first_heading(text):
+    """Drop a leading H1 so rendered markdown can supply its own title."""
+    return re.sub(r"\A# .+?(?:\n+|$)", "", text, count=1, flags=re.DOTALL).lstrip()
+
+
+def _strip_always_section(text):
+    """Remove a router-style Always: section from authored core bootstrap."""
+    return re.sub(
+        r"\n*Always:\n(?:- .*(?:\n|$))+",
+        "\n",
+        text,
+        count=1,
+        flags=re.MULTILINE,
+    ).strip()
+
+
+def _extract_markdown_section(text, heading):
+    """Return the body of a markdown H2 section, or ``""`` when absent."""
+    try:
+        start, end = find_section(text, f"## {heading}")
+    except ValueError:
+        return ""
+    return text[start:end].strip()
+
+
+def _strip_markdown_section(text, heading):
+    """Remove a markdown H2 section from text."""
+    try:
+        start, end = find_section(text, f"## {heading}", include_heading=True)
+    except ValueError:
+        return text
+    stripped = text[:start] + text[end:]
+    return re.sub(r"\n{3,}", "\n\n", stripped).strip()
+
+
+def _load_session_core_body(vault_root):
+    """Return authored session-core content without the file heading or Always block."""
+    core_text = _read_text(vault_root, SESSION_CORE_REL)
+    if not core_text:
+        return ""
+    return _strip_always_section(_strip_first_heading(core_text))
+
+
+def _load_config_if_available(vault_root):
+    """Load merged config when PyYAML is available; degrade gracefully otherwise."""
+    try:
+        import config as config_mod
+    except ImportError:
+        return None
+    try:
+        return config_mod.load_config(vault_root)
+    except Exception:
+        return None
+
+
+def _load_core_bootstrap(core_body):
+    """Return static, authored bootstrap content with routing-only sections removed."""
+    if not core_body:
+        return ""
+    text = core_body
+    for heading in CORE_DOC_SECTION_HEADINGS:
+        text = _strip_markdown_section(text, heading)
+    return text.strip()
+
+
+def _normalise_doc_path(raw_link):
+    """Normalise a markdown or wikilink doc target to a vault-relative `.md` path."""
+    target = raw_link.strip().strip("`")
+    markdown_link = False
+
+    wikilink_match = re.fullmatch(r"\[\[([^\]|]+)(?:\|[^\]]+)?\]\]", target)
+    if wikilink_match:
+        target = wikilink_match.group(1)
+    else:
+        markdown_match = re.fullmatch(r"\[[^\]]+\]\(([^)]+)\)", target)
+        if markdown_match:
+            markdown_link = True
+            target = markdown_match.group(1).strip()
+
+    target = target.strip("<>").strip()
+    if target.startswith("./"):
+        target = target[2:]
+    if markdown_link and not target.startswith("/"):
+        target = os.path.normpath(os.path.join(os.path.dirname(SESSION_CORE_REL), target))
+    else:
+        target = target.lstrip("/")
+    if not target.endswith(".md"):
+        target += ".md"
+    return target
+
+
+def _load_core_docs(core_body):
+    """Return structured session-core doc references with MCP load instructions."""
+    if not core_body:
+        return []
+
+    sections = []
+    for heading in CORE_DOC_SECTION_HEADINGS:
+        body = _extract_markdown_section(core_body, heading)
+        if not body:
+            continue
+
+        docs = []
+        for line in body.splitlines():
+            stripped = line.strip()
+            if not stripped.startswith("- "):
+                continue
+            item = stripped[2:]
+            title = None
+            raw_link = None
+            if " — " in item:
+                title, raw_link = item.split(" — ", 1)
+            else:
+                markdown_match = re.fullmatch(r"\[([^\]]+)\]\(([^)]+)\)", item)
+                if markdown_match:
+                    title = markdown_match.group(1)
+                    raw_link = item
+                else:
+                    wikilink_match = re.fullmatch(r"\[\[([^\]|]+)(?:\|([^\]]+))?\]\]", item)
+                    if wikilink_match:
+                        raw_link = wikilink_match.group(0)
+                        title = wikilink_match.group(2) or wikilink_match.group(1)
+            if not title or not raw_link:
+                continue
+            path = _normalise_doc_path(raw_link)
+            docs.append(
+                {
+                    "title": title.strip(),
+                    "path": path,
+                    "load_with": {
+                        "tool": "brain_read",
+                        "resource": "file",
+                        "name": path,
+                    },
+                }
+            )
+
+        if docs:
+            sections.append({"section": heading, "docs": docs})
+
+    return sections
 
 
 def _condense_artefacts(artefacts):
@@ -84,13 +243,145 @@ def _extract_style_names(styles):
     return [s["name"] for s in styles]
 
 
+def _summarise_config(config):
+    """Extract config fields relevant to bootstrap."""
+    if not config:
+        return None
+    vault_cfg = config.get("vault", {})
+    defaults_cfg = config.get("defaults", {})
+    profiles = list(vault_cfg.get("profiles", {}).keys())
+    return {
+        "brain_name": vault_cfg.get("brain_name", ""),
+        "default_profile": defaults_cfg.get("default_profile", "operator"),
+        "profiles": profiles,
+    }
+
+
+def _resolve_active_profile(config, active_profile):
+    """Return the active profile when bootstrap can know it."""
+    if active_profile:
+        return active_profile
+    if not config:
+        return None
+    return config.get("defaults", {}).get("default_profile", "operator")
+
+
+def _format_scalar(value):
+    """Render a scalar or simple structure for markdown output."""
+    if value is None:
+        return "-"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, (list, dict)):
+        return json.dumps(value, ensure_ascii=False)
+    return str(value)
+
+
+def _render_bullets(items, formatter=str, empty="_None._"):
+    """Render a bullet list or an empty placeholder."""
+    if not items:
+        return empty
+    return "\n".join(f"- {formatter(item)}" for item in items)
+
+
+def _render_named_list(items, empty="_None._"):
+    """Render name-first list items for skills, memories, and plugins."""
+    if not items:
+        return empty
+    lines = []
+    for item in items:
+        if "triggers" in item:
+            triggers = ", ".join(item.get("triggers", [])) or "-"
+            lines.append(f"- `{item['name']}` — triggers: {triggers}")
+        elif "source" in item:
+            lines.append(f"- `{item['name']}` — source: `{item.get('source', 'user')}`")
+        else:
+            lines.append(f"- `{item['name']}`")
+    return "\n".join(lines)
+
+
+def _escape_table_cell(value):
+    """Escape markdown table cell content."""
+    text = _format_scalar(value)
+    return text.replace("|", r"\|").replace("\n", "<br>")
+
+
+def _render_triggers(triggers):
+    """Render trigger summaries for the markdown mirror."""
+    if not triggers:
+        return "_None._"
+    lines = []
+    for trigger in triggers:
+        category = trigger.get("category", "ongoing")
+        condition = trigger.get("condition", "")
+        target = trigger.get("target")
+        detail = trigger.get("detail")
+        line = f"- `[{category}]` {condition}"
+        if target:
+            line += f" -> `{target}`"
+        lines.append(line)
+        if detail and detail != condition:
+            lines.append(f"  {detail}")
+    return "\n".join(lines)
+
+
+def _doc_link_target(path):
+    """Render a markdown link target from `.brain/local/session.md` to a vault file."""
+    rel = os.path.relpath(path, start=os.path.dirname(SESSION_MARKDOWN_REL))
+    return rel.replace(os.sep, "/")
+
+
+def _render_doc_links(docs):
+    """Render core-doc references as markdown links."""
+    if not docs:
+        return "_None._"
+    return "\n".join(
+        f"- [{doc['title']}]({_doc_link_target(doc['path'])})"
+        for doc in docs
+    )
+
+
+def _render_artefacts_table(artefacts):
+    """Render condensed artefact metadata as a markdown table."""
+    if not artefacts:
+        return "_None._"
+    lines = [
+        "| Key | Type | Path | Naming | Status | Configured |",
+        "|---|---|---|---|---|---|",
+    ]
+    for artefact in artefacts:
+        lines.append(
+            "| "
+            + " | ".join([
+                _escape_table_cell(artefact.get("key")),
+                _escape_table_cell(artefact.get("type")),
+                _escape_table_cell(artefact.get("path")),
+                _escape_table_cell(artefact.get("naming_pattern")),
+                _escape_table_cell(", ".join(artefact.get("status_enum") or [])),
+                _escape_table_cell("yes" if artefact.get("configured") else "no"),
+            ])
+            + " |"
+        )
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------------------
 # Main compilation
 # ---------------------------------------------------------------------------
 
 
-def compile_session(router, vault_root, obsidian_cli_available=False, context=None, config=None):
-    """Compile a bootstrap session payload from router + user files.
+def build_session_model(
+    router,
+    vault_root,
+    obsidian_cli_available=False,
+    context=None,
+    config=None,
+    active_profile=None,
+    load_config_if_missing=True,
+):
+    """Build the canonical session model from router + authored bootstrap sources.
 
     Args:
         router: The compiled router dict (in-memory or loaded from JSON).
@@ -98,18 +389,29 @@ def compile_session(router, vault_root, obsidian_cli_available=False, context=No
         obsidian_cli_available: Whether the Obsidian REST CLI is reachable.
         context: Optional context slug for scoped sessions (not yet implemented).
         config: Optional merged config dict from config.load_config().
+        active_profile: Optional resolved active profile for this bootstrap flow.
+        load_config_if_missing: Whether to lazily load config from disk when the
+            caller did not supply it.
 
     Returns:
-        dict with the compiled session payload.
+        dict with the canonical session model.
     """
+    if config is None and load_config_if_missing:
+        config = _load_config_if_available(vault_root)
+
     meta = router.get("meta", {})
     env = dict(router.get("environment", {}))
     env["obsidian_cli_available"] = obsidian_cli_available
+    config_summary = _summarise_config(config)
+    resolved_profile = _resolve_active_profile(config, active_profile)
+    core_body = _load_session_core_body(vault_root)
 
-    payload = {
+    model = {
         "version": "1",
         "brain_core_version": meta.get("brain_core_version", ""),
         "compiled_at": meta.get("compiled_at", ""),
+        "core_bootstrap": _load_core_bootstrap(core_body),
+        "core_docs": _load_core_docs(core_body),
         "always_rules": router.get("always_rules", []),
         "preferences": _read_user_body(vault_root, PREFERENCES_REL),
         "gotchas": _read_user_body(vault_root, GOTCHAS_REL),
@@ -122,18 +424,13 @@ def compile_session(router, vault_root, obsidian_cli_available=False, context=No
         "styles": _extract_style_names(router.get("styles", [])),
     }
 
-    if config:
-        vault_cfg = config.get("vault", {})
-        defaults_cfg = config.get("defaults", {})
-        profiles = list(vault_cfg.get("profiles", {}).keys())
-        payload["config"] = {
-            "brain_name": vault_cfg.get("brain_name", ""),
-            "default_profile": defaults_cfg.get("default_profile", "operator"),
-            "profiles": profiles,
-        }
+    if config_summary:
+        model["config"] = config_summary
+    if resolved_profile:
+        model["active_profile"] = resolved_profile
 
     if context is not None:
-        payload["context"] = {
+        model["context"] = {
             "slug": context,
             "status": "not_implemented",
             "message": (
@@ -143,7 +440,139 @@ def compile_session(router, vault_root, obsidian_cli_available=False, context=No
             ),
         }
 
-    return payload
+    return model
+
+
+def compile_session(router, vault_root, obsidian_cli_available=False, context=None, config=None):
+    """Backward-compatible wrapper returning the canonical session model."""
+    return build_session_model(
+        router,
+        vault_root,
+        obsidian_cli_available=obsidian_cli_available,
+        context=context,
+        config=config,
+    )
+
+
+def render_session_markdown(model):
+    """Render the canonical session model as markdown."""
+    sections = [
+        "<!-- Generated by .brain-core/scripts/session.py. Do not edit directly. -->",
+        "",
+        "# Brain Session",
+        "",
+        f"**brain-core version:** `{model.get('brain_core_version', '')}`",
+        f"**compiled at:** `{model.get('compiled_at', '')}`",
+    ]
+
+    core_bootstrap = model.get("core_bootstrap", "").strip()
+    if core_bootstrap:
+        sections.extend(["", core_bootstrap])
+
+    for section in model.get("core_docs", []):
+        sections.extend(
+            [
+                "",
+                f"## {section.get('section', 'Core Docs')}",
+                "",
+                _render_doc_links(section.get("docs", [])),
+            ]
+        )
+
+    sections.extend([
+        "",
+        "## Always Rules",
+        "",
+        _render_bullets(model.get("always_rules", [])),
+        "",
+        "## Preferences",
+        "",
+        model.get("preferences", "").strip() or "_None._",
+        "",
+        "## Gotchas",
+        "",
+        model.get("gotchas", "").strip() or "_None._",
+        "",
+        "## Triggers",
+        "",
+        _render_triggers(model.get("triggers", [])),
+        "",
+        "## Artefacts",
+        "",
+        _render_artefacts_table(model.get("artefacts", [])),
+        "",
+        "## Environment",
+        "",
+        _render_bullets(
+            sorted((model.get("environment") or {}).items()),
+            formatter=lambda item: f"`{item[0]}`: `{_format_scalar(item[1])}`",
+        ),
+        "",
+        "## Memories",
+        "",
+        _render_named_list(model.get("memories", [])),
+        "",
+        "## Skills",
+        "",
+        _render_named_list(model.get("skills", [])),
+        "",
+        "## Plugins",
+        "",
+        _render_named_list(model.get("plugins", [])),
+        "",
+        "## Styles",
+        "",
+        _render_bullets(model.get("styles", []), formatter=lambda item: f"`{item}`"),
+    ])
+
+    config = model.get("config")
+    if config:
+        sections.extend([
+            "",
+            "## Config",
+            "",
+            _render_bullets(
+                [
+                    ("brain_name", config.get("brain_name", "")),
+                    ("default_profile", config.get("default_profile", "")),
+                    ("profiles", ", ".join(config.get("profiles", []))),
+                ],
+                formatter=lambda item: f"`{item[0]}`: `{_format_scalar(item[1])}`",
+            ),
+        ])
+
+    active_profile = model.get("active_profile")
+    if active_profile:
+        sections.extend([
+            "",
+            "## Active Profile",
+            "",
+            f"`{active_profile}`",
+        ])
+
+    context = model.get("context")
+    if context:
+        sections.extend([
+            "",
+            "## Context",
+            "",
+            _render_bullets(
+                [
+                    ("slug", context.get("slug", "")),
+                    ("status", context.get("status", "")),
+                    ("message", context.get("message", "")),
+                ],
+                formatter=lambda item: f"`{item[0]}`: `{_format_scalar(item[1])}`",
+            ),
+        ])
+
+    return "\n".join(sections).rstrip() + "\n"
+
+
+def persist_session_markdown(model, vault_root):
+    """Write the markdown session mirror to `.brain/local/session.md`."""
+    output_path = os.path.join(vault_root, SESSION_MARKDOWN_REL)
+    safe_write(output_path, render_session_markdown(model), bounds=vault_root)
 
 
 # ---------------------------------------------------------------------------
@@ -154,7 +583,12 @@ def compile_session(router, vault_root, obsidian_cli_available=False, context=No
 def main():
     import argparse
 
-    parser = argparse.ArgumentParser(description="Compile session bootstrap payload")
+    parser = argparse.ArgumentParser(
+        description=(
+            "Compile the canonical session bootstrap model and refresh "
+            ".brain/local/session.md"
+        )
+    )
     parser.add_argument("--vault", help="Vault root (auto-detected if omitted)")
     parser.add_argument("--context", help="Optional context slug")
     parser.add_argument("--json", action="store_true", help="Pretty-print JSON output")
@@ -165,8 +599,7 @@ def main():
         print("Error: could not find vault root", file=sys.stderr)
         sys.exit(1)
 
-    # Load compiled router from disk
-    router_path = os.path.join(vault_root, ".brain", "local", "compiled-router.json")
+    router_path = os.path.join(vault_root, COMPILED_ROUTER_REL)
     if not os.path.isfile(router_path):
         print("Error: compiled router not found — run compile_router.py first", file=sys.stderr)
         sys.exit(1)
@@ -174,7 +607,8 @@ def main():
     with open(router_path, encoding="utf-8") as f:
         router = json.load(f)
 
-    result = compile_session(router, vault_root, context=args.context)
+    result = build_session_model(router, vault_root, context=args.context)
+    persist_session_markdown(result, vault_root)
 
     indent = 2 if args.json else None
     print(json.dumps(result, indent=indent, ensure_ascii=False))

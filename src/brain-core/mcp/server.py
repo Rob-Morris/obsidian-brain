@@ -522,6 +522,21 @@ def _save_json(data: dict, vault_root: str, rel_path: str) -> None:
     safe_write_json(output_path, data, bounds=vault_root)
 
 
+def _refresh_session_mirror() -> None:
+    """Refresh `.brain/local/session.md` from the current session model."""
+    if _vault_root is None or _router is None:
+        return
+    model = session.build_session_model(
+        _router,
+        _vault_root,
+        obsidian_cli_available=_cli_available,
+        config=_config,
+        active_profile=_session_profile,
+        load_config_if_missing=False,
+    )
+    session.persist_session_markdown(model, _vault_root)
+
+
 def _compile_and_save(vault_root: str) -> dict:
     """Compile router and colours, write to disk, return compiled data.
 
@@ -531,6 +546,12 @@ def _compile_and_save(vault_root: str) -> dict:
     compiled = compile_router.compile(vault_root)
     _save_json(compiled, vault_root, _router_rel())
     compile_colours.generate(vault_root, compiled)
+    _set_router(compiled)
+    try:
+        _refresh_session_mirror()
+    except Exception as e:
+        if _logger:
+            _logger.error("session mirror refresh failed after compile: %s", e, exc_info=True)
     _router_checked_at = time.monotonic()
     return compiled
 
@@ -612,12 +633,14 @@ def startup(vault_root: str | None = None) -> None:
     # Auto-compile router if stale (reuse parsed data when fresh)
     # Timeout guard: compile writes CSS + graph.json to the vault, which can
     # hang indefinitely on iCloud-synced vaults if files are mid-upload.
+    compiled_this_startup = False
     try:
         stale, data = _check_router(_vault_root)
         if stale:
             t0 = time.monotonic()
             _router = _run_with_timeout("router compile",
                                         lambda: _compile_and_save(_vault_root))
+            compiled_this_startup = True
             _logger.info("router compile (stale) %.1fs", time.monotonic() - t0)
         else:
             _router = data
@@ -650,6 +673,14 @@ def startup(vault_root: str | None = None) -> None:
         _workspace_registry = workspace_registry.load_registry(_vault_root)
     except Exception as e:
         _logger.error("startup: workspace registry failed: %s", e, exc_info=True)
+
+    # _compile_and_save already refreshes the session mirror; only refresh
+    # here when the router was fresh and no compile happened.
+    if not compiled_this_startup:
+        try:
+            _refresh_session_mirror()
+        except Exception as e:
+            _logger.error("startup: session mirror refresh failed: %s", e, exc_info=True)
 
     # CLI availability is probed lazily on first tool call via _refresh_cli_available()
     # to avoid blocking startup (the Obsidian IPC socket check is fast but we defer entirely).

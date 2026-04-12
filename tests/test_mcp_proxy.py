@@ -47,6 +47,7 @@ def _write_vault(tmp_path, version: str = "1.0.0") -> None:
     bc = tmp_path / ".brain-core"
     bc.mkdir(exist_ok=True)
     (bc / "VERSION").write_text(version)
+    (bc / "session-core.md").write_text("# Session Core\n")
     # Proxy writes a log file; give it somewhere to put it
     log_dir = tmp_path / ".brain" / "local"
     log_dir.mkdir(parents=True, exist_ok=True)

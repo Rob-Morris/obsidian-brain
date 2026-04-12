@@ -36,6 +36,19 @@ def vault(tmp_path):
     bc = tmp_path / ".brain-core"
     bc.mkdir()
     (bc / "VERSION").write_text("0.7.0\n")
+    (bc / "session-core.md").write_text(
+        "# Session Core\n\n"
+        "## Principles\n\n"
+        "Keep instruction files lean.\n\n"
+        "## Core Docs\n\n"
+        "- [Extend the vault: add artefact types, memories, and principles](standards/extending/README.md)\n"
+        "- [Browse the artefact library: type definitions and install guidance](artefact-library/README.md)\n\n"
+        "## Standards\n\n"
+        "- [Track provenance and lineage between artefacts](standards/provenance.md)\n"
+        "- [Run the artefact shaping process](standards/shaping.md)\n\n"
+        "Always:\n"
+        "- Prefer `brain_list` for exhaustive enumeration.\n"
+    )
 
     # _Config/router.md
     config = tmp_path / "_Config"
@@ -204,6 +217,15 @@ class TestStartup:
         assert server._index is not None
         assert "documents" in server._index
         assert "corpus_stats" in server._index
+
+    def test_startup_writes_session_markdown(self, vault):
+        session_path = vault / ".brain" / "local" / "session.md"
+        assert not session_path.exists()
+        server.startup(vault_root=str(vault))
+        assert session_path.exists()
+        content = session_path.read_text()
+        assert "# Brain Session" in content
+        assert "## Always Rules" in content
 
 
 # ---------------------------------------------------------------------------
@@ -645,6 +667,23 @@ class TestBrainAction:
     def test_action_compile(self, initialized):
         result = server.brain_action("compile")
         assert result.startswith("**Compiled:**")
+
+    def test_action_compile_refreshes_session_markdown(self, initialized):
+        session_path = initialized / ".brain" / "local" / "session.md"
+        original = session_path.read_text()
+
+        user_dir = initialized / "_Config" / "User"
+        user_dir.mkdir(parents=True, exist_ok=True)
+        (user_dir / "preferences-always.md").write_text(
+            "---\ntype: user-preferences\n---\n\nCompile refreshes the session mirror.\n"
+        )
+
+        result = server.brain_action("compile")
+
+        assert result.startswith("**Compiled:**")
+        updated = session_path.read_text()
+        assert "Compile refreshes the session mirror." in updated
+        assert updated != original
 
     def test_action_compile_updates_memory(self, initialized):
         old_compiled_at = server._router["meta"]["compiled_at"]
@@ -1724,12 +1763,35 @@ class TestBrainSession:
         result = json.loads(server.brain_session())
         expected_keys = {
             "version", "brain_core_version", "compiled_at",
-            "always_rules", "preferences", "gotchas",
+            "core_bootstrap", "core_docs", "always_rules", "preferences", "gotchas",
             "triggers", "artefacts", "environment",
             "memories", "skills", "plugins", "styles",
             "config", "active_profile",
         }
         assert set(result.keys()) == expected_keys
+
+    def test_core_bootstrap_present(self, initialized):
+        result = json.loads(server.brain_session())
+        assert "## Principles" in result["core_bootstrap"]
+        assert "## Core Docs" not in result["core_bootstrap"]
+        assert "Prefer `brain_list`" not in result["core_bootstrap"]
+
+    def test_core_docs_are_structured_and_loadable(self, initialized):
+        result = json.loads(server.brain_session())
+        assert isinstance(result["core_docs"], list)
+        assert len(result["core_docs"]) == 2
+
+        section_names = [section["section"] for section in result["core_docs"]]
+        assert section_names == ["Core Docs", "Standards"]
+
+        first_doc = result["core_docs"][0]["docs"][0]
+        assert first_doc["title"] == "Extend the vault: add artefact types, memories, and principles"
+        assert first_doc["path"] == ".brain-core/standards/extending/README.md"
+        assert first_doc["load_with"] == {
+            "tool": "brain_read",
+            "resource": "file",
+            "name": ".brain-core/standards/extending/README.md",
+        }
 
     def test_always_rules(self, initialized):
         result = json.loads(server.brain_session())
@@ -1849,6 +1911,26 @@ class TestBrainSession:
         # General payload should still be present
         assert "always_rules" in result
         assert "artefacts" in result
+
+    def test_markdown_mirror_tracks_brain_session(self, initialized):
+        user_dir = initialized / "_Config" / "User"
+        user_dir.mkdir(parents=True, exist_ok=True)
+        (user_dir / "preferences-always.md").write_text(
+            "---\ntype: user-preferences\n---\n\nPrefer tests before docs.\n"
+        )
+
+        result = json.loads(server.brain_session())
+        session_path = initialized / ".brain" / "local" / "session.md"
+        content = session_path.read_text()
+
+        assert result["core_bootstrap"] in content
+        assert "[Extend the vault: add artefact types, memories, and principles](../../.brain-core/standards/extending/README.md)" in content
+        assert "[Track provenance and lineage between artefacts](../../.brain-core/standards/provenance.md)" in content
+        assert "[[.brain-core/standards/provenance]]" not in content
+        for rule in result["always_rules"]:
+            assert rule in content
+        assert "Prefer tests before docs." in content
+        assert result["active_profile"] in content
 
     def test_not_initialized(self):
         # Save and reset server state

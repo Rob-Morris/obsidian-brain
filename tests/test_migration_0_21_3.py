@@ -21,6 +21,7 @@ def make_vault(tmp_path):
     bc = tmp_path / ".brain-core"
     bc.mkdir()
     (bc / "VERSION").write_text("0.21.2\n")
+    (bc / "session-core.md").write_text("# Session Core\n")
     (tmp_path / "Documentation").mkdir()
     return tmp_path
 
@@ -40,6 +41,7 @@ def test_no_docs_dir_skipped(tmp_path):
     bc = tmp_path / ".brain-core"
     bc.mkdir()
     (bc / "VERSION").write_text("0.21.2\n")
+    (bc / "session-core.md").write_text("# Session Core\n")
 
     result = migrate(str(tmp_path))
     assert result["status"] == "skipped"

@@ -20,6 +20,7 @@ file editing (.mcp.json for project/local, ~/.claude.json for user scope).
 import argparse
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -42,7 +43,7 @@ MCP_PROXY_REL = os.path.join(".brain-core", "mcp", "proxy.py")
 VENV_PYTHON_REL = os.path.join(".venv", "bin", "python")
 
 CLAUDE_MD_BOOTSTRAP_VAULT = (
-    "ALWAYS DO FIRST: Call brain_session. Read [[.brain-core/index]]"
+    "ALWAYS DO FIRST: Call MCP `brain_session`, else read `.brain-core/index.md` if it exists."
 )
 CLAUDE_MD_BOOTSTRAP_PROJECT = (
     "ALWAYS DO FIRST: Call brain_session"
@@ -343,7 +344,8 @@ def ensure_session_start_hook(target_dir: Path, vault_root: Path) -> None:
     session_script = str(vault_root / ".brain-core" / "scripts" / "session.py")
     hook_command = (
         f"echo 'brain_session called:' "
-        f"&& python3 {session_script} --vault {vault_root} --json"
+        f"&& python3 {shlex.quote(session_script)} "
+        f"--vault {shlex.quote(str(vault_root))} --json"
     )
 
     for entry in settings["hooks"].get("SessionStart", []):

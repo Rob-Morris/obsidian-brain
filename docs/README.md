@@ -29,5 +29,6 @@ Router for brain-core's development documentation.
 - [Contributing](contributing.md) — how to contribute (humans)
 - [Contributing — Agents](contributing-agents.md) — how to contribute (agents)
 - [Plugins](plugins.md) — plugin system
+- [Agent Workflow](standards/agent-workflow.md) — contributor workflow tiers
 - [Canary](standards/canary.md) — canary system standard
 - [Changelog](changelog.md) — release history

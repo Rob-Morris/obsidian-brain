@@ -20,6 +20,7 @@ def vault(tmp_path):
     bc = tmp_path / ".brain-core"
     bc.mkdir()
     (bc / "VERSION").write_text("1.0.0\n")
+    (bc / "session-core.md").write_text("# Session Core\n")
 
     # _Config
     (tmp_path / "_Config").mkdir()
@@ -69,6 +70,7 @@ def empty_vault(tmp_path):
     bc = tmp_path / ".brain-core"
     bc.mkdir()
     (bc / "VERSION").write_text("1.0.0\n")
+    (bc / "session-core.md").write_text("# Session Core\n")
     (tmp_path / "_Config").mkdir()
     return tmp_path
 
@@ -322,6 +324,7 @@ class TestExtractTypeDescription:
         bc = tmp_path / ".brain-core"
         bc.mkdir()
         (bc / "VERSION").write_text("1.0.0\n")
+        (bc / "session-core.md").write_text("# Session Core\n")
         cfg = tmp_path / "_Config" / "Taxonomy" / "Living"
         cfg.mkdir(parents=True)
         (cfg / "wiki.md").write_text(
@@ -347,6 +350,7 @@ class TestExtractTypeDescription:
         bc = tmp_path / ".brain-core"
         bc.mkdir()
         (bc / "VERSION").write_text("1.0.0\n")
+        (bc / "session-core.md").write_text("# Session Core\n")
         cfg = tmp_path / "_Config" / "Taxonomy" / "Living"
         cfg.mkdir(parents=True)
         (cfg / "notes.md").write_text(
@@ -374,6 +378,7 @@ class TestExtractTypeDescription:
         bc = tmp_path / ".brain-core"
         bc.mkdir()
         (bc / "VERSION").write_text("1.0.0\n")
+        (bc / "session-core.md").write_text("# Session Core\n")
         cfg = tmp_path / "_Config" / "Taxonomy" / "Temporal"
         cfg.mkdir(parents=True)
         (cfg / "logs.md").write_text(

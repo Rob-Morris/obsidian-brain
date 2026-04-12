@@ -65,7 +65,7 @@ Each hub type's taxonomy specifies its own decomposition rules. The principle is
 
 ## Elicitation
 
-Hubs are natural elicitation points. Creating or updating a hub is a moment to notice what's missing and ask. This follows the core principle ([[.brain-core/index|Be curious, then capture]]):
+Hubs are natural elicitation points. Creating or updating a hub is a moment to notice what's missing and ask. This follows the core principles in [session-core.md](../session-core.md), especially “Actively seek signal”:
 
 - When creating a new hub, ask what the user knows that isn't in the initial input. Small, focused rounds — not an interrogation.
 - When revisiting a sparse hub, notice the gaps and ask naturally.

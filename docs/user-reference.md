@@ -32,8 +32,7 @@ For artefact system mechanics (lifecycle, frontmatter, filing, workflows), see [
 
 ### Router (`_Config/router.md`)
 
-The entry point for agents. Contains:
-- A pointer to `.brain-core/index.md` (read every session)
+Vault-specific routing rules used by the compiled router and degraded bootstrap path. Contains:
 - **Always-rules** — vault-specific constraints that apply every session
 - **Conditional triggers** — "when X happens, follow this link to the taxonomy file"
 
@@ -101,14 +100,16 @@ Skill documents for MCP tools, CLI commands, or plugin workflows. One folder per
 If your vault runs the Brain MCP server (`.brain-core/mcp/server.py`), eight tools are available:
 
 **brain_session** (safe, auto-approvable)
-- Bootstrap an agent session in one call — returns a compiled, token-efficient payload
-- Includes: always-rules, user preferences, gotchas, triggers, condensed artefact types, environment, memory/skill/plugin/style indexes, config metadata
+- Bootstrap an agent session in one call — returns the canonical session model as compact JSON
+- Includes: static core bootstrap content, structured core-doc references with MCP load instructions, always-rules, user preferences, gotchas, triggers, condensed artefact types, environment, memory/skill/plugin/style indexes, config metadata
 - Optional `context` parameter for scoped sessions (not yet implemented)
 - Optional `operator_key` parameter for operator authentication — sets the session profile for per-call tool enforcement
+- Refreshes `.brain/local/session.md`, the generated markdown bootstrap mirror, from the same model
 
 **brain_read** (safe, no side effects)
 - Look up artefacts, triggers, styles, templates, skills, plugins, memories, workspaces, environment info, the compiled router, structural compliance results, or read artefact files by path
 - Optional name filter to narrow results (for workspace, resolves a slug; for compliance, filters by severity; for file, a relative path or basename — resolves like wikilinks). For temporal artefacts, the display name works without the dated prefix — e.g. "Colour Theory" finds `20260404-research~Colour Theory.md`
+- `resource="file"` can also read `.brain-core/` docs by vault-relative path when the agent is operating over MCP, e.g. `brain_read(resource="file", name=".brain-core/standards/provenance.md")`
 
 **brain_search** (safe, no side effects)
 - Search vault content by query text
@@ -205,10 +206,9 @@ python3 .brain-core/scripts/check.py --vault /path/to/vault  # check a specific 
 
 When full tooling isn't available, agents degrade gracefully:
 
-1. **MCP tools** — lowest token cost, structured responses, in-memory caching
-2. **Scripts** — `.brain-core/scripts/` provides full functionality (read, search, create, edit, rename, compile, check)
-3. **Lean router** — `_Config/router.md` (~45 tokens)
-4. **Naive fallback** — read `index.md` → `router.md` → follow wikilinks
+1. **MCP tools** — `brain_session` returns the canonical session model as JSON
+2. **Generated markdown bootstrap** — read `.brain-core/index.md`, then `.brain/local/session.md`
+3. **Degraded fallback** — read `.brain-core/index.md`, then `.brain-core/md-bootstrap.md`, then raw config files as directed
 
 ---
 

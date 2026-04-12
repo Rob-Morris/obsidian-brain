@@ -1,0 +1,142 @@
+"""Tests for session.py — canonical bootstrap model and CLI."""
+
+import json
+import sys
+
+import pytest
+
+import session
+
+
+def _minimal_router(vault_root):
+    return {
+        "meta": {
+            "brain_core_version": "0.25.0",
+            "compiled_at": "2026-04-12T20:00:00+10:00",
+        },
+        "environment": {
+            "vault_root": str(vault_root),
+            "platform": "darwin",
+            "cli_available": False,
+        },
+        "always_rules": ["Keep artefacts in typed folders."],
+        "triggers": [],
+        "artefacts": [],
+        "memories": [],
+        "skills": [],
+        "plugins": [],
+        "styles": [],
+    }
+
+
+class TestBuildSessionModel:
+    def test_extracts_core_docs_and_strips_reference_sections(self, tmp_path):
+        bc = tmp_path / ".brain-core"
+        bc.mkdir()
+        (bc / "session-core.md").write_text(
+            "# Session Core\n\n"
+            "## Principles\n\n"
+            "Keep instruction files lean.\n\n"
+            "## Core Docs\n\n"
+            "- [Extend the vault](standards/extending/README.md)\n"
+            "- malformed bullet without a loadable link\n\n"
+            "## Standards\n\n"
+            "- [[.brain-core/standards/provenance|Track provenance]]\n\n"
+            "Always:\n"
+            "- Prefer `brain_list` for exhaustive enumeration.\n"
+        )
+
+        model = session.build_session_model(
+            _minimal_router(tmp_path),
+            str(tmp_path),
+            load_config_if_missing=False,
+        )
+
+        assert "## Principles" in model["core_bootstrap"]
+        assert "## Core Docs" not in model["core_bootstrap"]
+        assert "## Standards" not in model["core_bootstrap"]
+        assert "Prefer `brain_list`" not in model["core_bootstrap"]
+        assert model["core_docs"] == [
+            {
+                "section": "Core Docs",
+                "docs": [
+                    {
+                        "title": "Extend the vault",
+                        "path": ".brain-core/standards/extending/README.md",
+                        "load_with": {
+                            "tool": "brain_read",
+                            "resource": "file",
+                            "name": ".brain-core/standards/extending/README.md",
+                        },
+                    }
+                ],
+            },
+            {
+                "section": "Standards",
+                "docs": [
+                    {
+                        "title": "Track provenance",
+                        "path": ".brain-core/standards/provenance.md",
+                        "load_with": {
+                            "tool": "brain_read",
+                            "resource": "file",
+                            "name": ".brain-core/standards/provenance.md",
+                        },
+                    }
+                ],
+            },
+        ]
+
+
+class TestSessionCli:
+    def test_main_writes_session_markdown_and_prints_json(self, tmp_path, monkeypatch, capsys):
+        bc = tmp_path / ".brain-core"
+        bc.mkdir()
+        (bc / "session-core.md").write_text(
+            "# Session Core\n\n"
+            "## Principles\n\n"
+            "Keep instruction files lean.\n\n"
+            "## Core Docs\n\n"
+            "- [Extend the vault](standards/extending/README.md)\n"
+        )
+
+        local = tmp_path / ".brain" / "local"
+        local.mkdir(parents=True)
+        (local / "compiled-router.json").write_text(
+            json.dumps(_minimal_router(tmp_path))
+        )
+
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            ["session.py", "--vault", str(tmp_path), "--json"],
+        )
+
+        session.main()
+
+        stdout = capsys.readouterr().out
+        payload = json.loads(stdout)
+        assert payload["core_docs"][0]["docs"][0]["path"] == ".brain-core/standards/extending/README.md"
+
+        session_path = tmp_path / ".brain" / "local" / "session.md"
+        assert session_path.exists()
+        content = session_path.read_text()
+        assert "# Brain Session" in content
+        assert "[Extend the vault](../../.brain-core/standards/extending/README.md)" in content
+
+    def test_main_errors_when_compiled_router_missing(self, tmp_path, monkeypatch, capsys):
+        bc = tmp_path / ".brain-core"
+        bc.mkdir()
+        (bc / "session-core.md").write_text("# Session Core\n")
+
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            ["session.py", "--vault", str(tmp_path)],
+        )
+
+        with pytest.raises(SystemExit) as excinfo:
+            session.main()
+
+        assert excinfo.value.code == 1
+        assert "compiled router not found" in capsys.readouterr().err

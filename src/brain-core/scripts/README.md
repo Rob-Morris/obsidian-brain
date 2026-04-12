@@ -10,7 +10,7 @@ Scripts are the **source of truth** for all vault operations. The MCP server (`s
 | `build_index.py` | Build BM25 retrieval index | `python3 build_index.py [--json]` |
 | `check.py` | Router-driven structural compliance checks | `python3 check.py [--json] [--severity S]` |
 | `compile_colours.py` | Generate folder colour CSS | (called by compile_router) |
-| `compile_router.py` | Compile router from source files | `python3 compile_router.py [--json]` |
+| `compile_router.py` | Compile router from source files and refresh session markdown | `python3 compile_router.py [--json]` |
 | `config.py` | Vault configuration loader (three-layer merge) | `python3 config.py` |
 | `create.py` | Create new artefact or `_Config/` resource | `python3 create.py --type T --title "Title" [--body B] [--body-file PATH] [--temp-path [SUFFIX]] [--json]` |
 | `edit.py` | Edit/append/prepend to artefact or resource | `python3 edit.py edit\|append --path P --body B [--body-file PATH] [--temp-path [SUFFIX]] [--target H] [--json]` |
@@ -24,7 +24,7 @@ Scripts are the **source of truth** for all vault operations. The MCP server (`s
 | `read.py` | Query compiled router resources | `python3 read.py RESOURCE [--name N]` |
 | `rename.py` | Rename/delete file + update wikilinks | `python3 rename.py "source" "dest" [--json]` |
 | `search_index.py` | BM25 keyword search | `python3 search_index.py "query" [--type T] [--json]` |
-| `session.py` | Compile bootstrap session payload for agents | `python3 session.py` |
+| `session.py` | Build the canonical session model and refresh `.brain/local/session.md` | `python3 session.py [--json]` |
 | `shape_presentation.py` | Create presentation + launch Marp preview | (via MCP: `brain_action("shape-presentation", ...)`) |
 | `start_shaping.py` | Bootstrap a shaping session for an existing artefact | (via MCP: `brain_action("start-shaping", ...)`) |
 | `sync_definitions.py` | Sync artefact library definitions to vault `_Config/` | `python3 sync_definitions.py [--vault V] [--dry-run] [--types t1,t2] [--json]` |

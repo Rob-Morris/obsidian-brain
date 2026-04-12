@@ -16,6 +16,8 @@ Three approaches were considered:
 
 On every MCP tool call, `_check_version_drift()` reads `.brain-core/VERSION` from disk and compares it to `_loaded_version` (recorded at startup). If they differ, the server calls `os._exit(_EXIT_VERSION_DRIFT)` (exit code 10) after flushing logs.
 
+This assumes `.brain-core/` is a version-bound unit: upgrades replace the engine as one atomic surface. The system does not attempt to support mixed-version execution where some files come from the old release and others from the new one.
+
 The proxy (`proxy.py`) distinguishes exit code 10 from crashes: it restarts immediately with no backoff, then sends a `notifications/tools/list_changed` notification to the MCP client so the client fetches the fresh tool list. Crashes use exponential backoff (0s, 4s, 8s, 16s, 32s). If the immediate restart fails, the proxy falls through to the backoff retry loop rather than entering a limbo state.
 
 `os._exit()` is used rather than `sys.exit()` because `SystemExit` raised inside an MCP tool handler gets wrapped in `BaseExceptionGroup` by anyio task groups, losing the exit code. The MCP SDK's async shutdown then treats it as a normal exit (code 0), causing the proxy to shut down instead of restarting. `os._exit()` bypasses the async stack entirely, ensuring the exit code reaches the proxy.

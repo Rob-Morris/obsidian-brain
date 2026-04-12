@@ -1,10 +1,11 @@
 # Markdown Bootstrap
 
-Fallback bootstrap for environments without MCP tools.
+Explicit degraded fallback for environments without MCP or a generated
+`.brain/local/session.md` mirror.
 
-1. Read `[[_Config/router]]` for vault configuration and routing rules
-2. Read `[[_Config/User/preferences-always]]` for the vault owner's standing instructions
-3. Read `[[_Config/User/gotchas]]` for learned lessons and known pitfalls
+1. Read `_Config/router.md` for vault configuration and routing rules
+2. Read `_Config/User/preferences-always.md` for the vault owner's standing instructions
+3. Read `_Config/User/gotchas.md` for learned lessons and known pitfalls
 
 ## Tooling
 

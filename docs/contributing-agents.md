@@ -1,24 +1,32 @@
 # Contributing — Agent Instructions
 
-Agent-specific guidance for working on brain-core. Read [contributing.md](contributing.md) first for general rules (versioning, changelog, testing, doc layers).
+Instructions for agents contributing to brain-core. Read [contributing.md](contributing.md) first for general rules (versioning, changelog, testing, doc layers).
 
-## Tiered Workflow
+Contributor standards:
 
-Choose the smallest workflow tier that safely fits the change. Escalate one tier when the blast radius is unclear, the change crosses bounded contexts, or it touches bootstrap, migrations, routing, or security-sensitive behaviour.
+- [Agent Workflow](standards/agent-workflow.md) — contributor workflow tiers and escalation bar
+- [Canary](standards/canary.md) — subjective-work checklists and log enforcement
 
-| Tier | Use when | Required flow | Verification bar |
-|---|---|---|---|
-| `trivial` | Typos, doc clarifications, local config/template tweaks, dead-code removal with no behavioural effect | Implement -> verify | Concrete local proof: the changed text/config renders correctly or the targeted command/output matches the intent |
-| `small` | Single-file or single-context behavioural changes with a clear contract | Implement -> verify -> review | Focused tests or equivalent reproducible check, then self-review the diff for drift |
-| `medium` | Multi-file changes within one or two contexts, or work with meaningful edge-case risk | Research -> plan -> implement -> verify -> review | Explicit execution + verification plan, relevant tests, and a docs/canary sweep before hand-off |
-| `large` | Architectural changes, new context boundaries, migrations, bootstrap/security changes, or staged rollouts | Research -> design -> approval -> plan -> implement -> verify -> multi-review -> final review | Full-suite proof, explicit rollout/rollback thinking, and separate review passes for design and implementation |
+## Bootstrap Contract
 
-## Tier Notes
+Bootstrap changes have an unusually high drift risk because the same user-facing behaviour spans JSON, markdown, install text, and fallback docs.
 
-- `trivial` should stay local. If the change starts affecting behaviour, tests, or multiple files, it is no longer trivial.
-- `small` is the default tier for straightforward brain-core implementation work. If a core domain behaviour changes, update an existing `.feature` file or add one when that contract is not already covered.
-- `medium` requires an explicit plan before editing. Name the bounded contexts touched, the files you expect to change, and how you will verify the result.
-- `large` work should be phased. Do not treat a cross-cutting design change as an auto-implement task; shape it, get approval where required, and then execute in verifiable slices.
+When touching bootstrap:
+
+- Treat `session.py` as the canonical bootstrap owner. Do not add payload content independently to `brain_session`, `index.md`, or fallback docs.
+- Preserve parity between `brain_session` JSON and `.brain/local/session.md` for shared bootstrap content.
+- Keep `index.md` thin. It is a bootloader, not a second payload surface.
+- Treat `md-bootstrap.md` as the degraded fallback only, not as a peer of the canonical session model.
+- Do not put repo contributor workflow policy into shipped bootstrap surfaces. If it ships in `.brain-core/`, write it for normal vault agents, not contributors to `obsidian-brain`.
+
+## Documentation Link Policy
+
+When editing docs that ship in `.brain-core/`:
+
+- Use relative markdown links for doc-to-doc navigation inside brain-core source docs.
+- Use plain code-form file paths for imperative bootstrap instructions like “read this file next”.
+- Keep Obsidian wikilinks only for vault-native syntax examples that agents or users should actually write into artefacts. This includes artefact taxonomies, templates, provenance examples, transcript formats, and literal router/trigger snippets.
+- Do not hardcode `.brain-core/...` in source-doc navigation unless the document is explicitly describing the installed vault layout.
 
 ## Documentation Entry Point
 

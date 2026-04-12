@@ -21,6 +21,17 @@ Path-qualified links like `[[Wiki/My Page]]` match only if the file sits at that
 - **Living artefacts**: basename by default. `brain_create` auto-disambiguates collisions (see below).
 - **Path-qualified links**: avoid. They break when files move into subfolders, get archived, or get reorganised.
 
+## Documentation Link Policy
+
+Core documentation has different link semantics from vault artefacts.
+
+- **Core doc navigation** — use relative markdown links between `.brain-core` source docs. Author docs as source files in the repo, not as installed-vault projections.
+- **Bootstrap instructions** — use plain code-form file paths when the text is instructing an agent to read a file next (for example, ``_Config/router.md`` or ``.brain-core/md-bootstrap.md``).
+- **Vault syntax examples** — keep Obsidian wikilinks when the document is showing the syntax agents or users should actually write into artefacts. This includes examples inside artefact taxonomies, templates, provenance guidance, transcript formats, and router/trigger snippets (for example, `[[My Page]]`, `[[source|description]]`, or transcript lines).
+- **Installed layout references** — mention `.brain-core/` explicitly only when the document is talking about the installed layout itself, not for routine doc-to-doc navigation.
+
+This keeps source docs readable in the repo, keeps bootstrap instructions transport-neutral, and reserves wikilinks for the vault-native language they are meant to illustrate.
+
 ## Namespace Collisions
 
 A collision happens when two files share the same basename (e.g. `Wiki/JWT Refresh.md` and `Ideas/JWT Refresh.md`). Every `[[JWT Refresh]]` link becomes ambiguous — Obsidian picks whichever is "closest", which may not be what the author intended.

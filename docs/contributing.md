@@ -2,7 +2,7 @@
 
 Guide for anyone working on brain-core. For the pre-commit checklist, see [pre-commit canary](../.canaries/pre-commit.md).
 
-**Agent contributors:** also read [contributing-agents.md](contributing-agents.md) for agent-specific workflow guidance.
+**Agent contributors:** also read [contributing-agents.md](contributing-agents.md) and [standards/agent-workflow.md](standards/agent-workflow.md) for contributor-only workflow guidance.
 
 ## Canary Hook
 
@@ -41,17 +41,29 @@ Brain has multiple documentation layers, each serving a different audience. For 
 | `tooling.md` | Contributors | Redirect → `functional/` and `architecture/decisions/` |
 | `changelog.md` | Everyone | Version history |
 | `standards/canary.md` | Contributors | How canaries work |
+| `standards/agent-workflow.md` | Contributors | Workflow tiers for brain-core changes |
 
 ### Brain-core docs (in `src/brain-core/`, ship as `.brain-core/` in vaults)
 
 | File | Audience | Purpose |
 |---|---|---|
 | `guide.md` | Vault users + agents | Quick-start guide, ships in the vault |
-| `index.md` | Agents | System principles and always-rules, read every session |
+| `index.md` | Agents | Thin bootstrap entry point, read every session |
+| `session-core.md` | Agents | Checked-in authored source for static core bootstrap content and core-doc references |
 | `standards/extending/README.md` | Agents + contributors | How to extend the vault (add types, memories, principles) |
 | `standards/` | Agents + contributors | Operational standards — naming, provenance, archiving, hub pattern, subfolders, user preferences |
 | `colours.md` | Contributors | Colour system algorithm, CSS templates |
 | `artefact-library/README.md` | Agents + contributors | Type catalogue, install steps, browsing guide |
+
+Rule: if a document ships in `.brain-core/`, write it for normal vault agents.
+Contributor-only process guidance belongs in `docs/`, even when it explains how
+to change brain-core itself.
+
+Link policy for shipped docs:
+
+- Use relative markdown links for navigation between `.brain-core` source docs.
+- Use plain code-form file paths for bootstrap instructions that tell an agent which file to read next.
+- Keep Obsidian wikilinks only in examples of vault-native syntax that users or agents should actually write into artefacts. This includes artefact taxonomies, templates, provenance examples, transcript formats, and literal router/trigger snippets.
 
 ## Versioning
 
@@ -123,11 +135,11 @@ obsidian-brain/
 ├── src/
 │   └── brain-core/              # core methodology (source of truth)
 │       ├── VERSION              # brain-core version
-│       ├── index.md             # entry point; links to all core docs
+│       ├── index.md             # bootstrap entry point; routes to normal vs degraded paths
+│       ├── session-core.md      # static authored source for canonical bootstrap content
 │       ├── guide.md             # quick-start guide (ships into vaults)
 │       ├── artefact-library/    # ready-to-install type definitions
-│       ├── session-polyfill.md  # core doc + standards links (until brain_session delivers natively)
-│       ├── md-bootstrap.md     # fallback bootstrap for non-MCP environments
+│       ├── md-bootstrap.md      # degraded fallback bootstrap for non-MCP/no-session-mirror environments
 │       ├── standards/extending/  # how to add types, colours, triggers
 │       ├── triggers.md          # workflow trigger system
 │       ├── colours.md           # folder colour system design

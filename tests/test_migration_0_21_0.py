@@ -23,6 +23,7 @@ def make_vault(tmp_path):
     bc = tmp_path / ".brain-core"
     bc.mkdir()
     (bc / "VERSION").write_text("0.20.1\n")
+    (bc / "session-core.md").write_text("# Session Core\n")
     (tmp_path / "Designs").mkdir()
     (tmp_path / "Wiki").mkdir()
     return tmp_path
