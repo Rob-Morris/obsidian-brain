@@ -34,9 +34,7 @@ def _fmt_workspace_single(ws):
     return f"{ws['slug']}\t{ws['mode']}\t{ws['path']}"
 
 
-def _read_formatter(resource: str, result, name: str | None):
-    if resource in {"type", "trigger", "memory"}:
-        return json.dumps(result, indent=2, ensure_ascii=False)
+def _read_formatter(resource: str, result):
     if resource == "environment":
         return _fmt_environment(result)
     return json.dumps(result, indent=2, ensure_ascii=False)
@@ -177,7 +175,7 @@ def handle_brain_read(
             result["has_config"] = state.config is not None
             result["active_profile"] = state.session_profile
 
-    return _read_formatter(resource, result, name)
+    return _read_formatter(resource, result)
 
 
 def handle_brain_search(

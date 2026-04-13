@@ -2134,6 +2134,42 @@ class TestBrainSession:
         assert "always_rules" in result
         assert "artefacts" in result
 
+    def test_workspace_metadata_from_env(self, initialized, monkeypatch):
+        workspace_dir = str(initialized.parent / "demo-workspace")
+        monkeypatch.setenv("BRAIN_WORKSPACE_DIR", workspace_dir)
+
+        result = json.loads(server.brain_session())
+
+        assert result["workspace"] == {
+            "directory": workspace_dir,
+            "name": "demo-workspace",
+            "location": "external",
+        }
+
+    def test_workspace_defaults_from_manifest(self, initialized, monkeypatch):
+        workspace_dir = initialized.parent / "demo-workspace"
+        (workspace_dir / ".brain").mkdir(parents=True)
+        (workspace_dir / ".brain" / "workspace.yaml").write_text(
+            "slug: demo-workspace\n"
+            "links:\n"
+            "  workspace: brain-demo\n"
+            "defaults:\n"
+            "  tags:\n"
+            "    - workspace/brain-demo\n"
+            "    - project/brain\n"
+        )
+        monkeypatch.setenv("BRAIN_WORKSPACE_DIR", str(workspace_dir))
+
+        result = json.loads(server.brain_session())
+
+        assert result["workspace_defaults"] == {
+            "tags": ["workspace/brain-demo", "project/brain"],
+        }
+        assert result["workspace_record"] == {
+            "slug": "brain-demo",
+            "workspace_mode": "linked",
+        }
+
     def test_markdown_mirror_tracks_brain_session(self, initialized):
         user_dir = initialized / "_Config" / "User"
         user_dir.mkdir(parents=True, exist_ok=True)
@@ -2153,6 +2189,36 @@ class TestBrainSession:
             assert rule in content
         assert "Prefer tests before docs." in content
         assert result["active_profile"] in content
+
+    def test_markdown_mirror_includes_workspace_metadata(self, initialized, monkeypatch):
+        workspace_dir = str(initialized.parent / "demo-workspace")
+        monkeypatch.setenv("BRAIN_WORKSPACE_DIR", workspace_dir)
+
+        json.loads(server.brain_session())
+        content = (initialized / ".brain" / "local" / "session.md").read_text()
+
+        assert "## Workspace" in content
+        assert "`name`: `demo-workspace`" in content
+        assert f"`directory`: `{workspace_dir}`" in content
+        assert "`location`: `external`" in content
+
+    def test_markdown_mirror_includes_workspace_defaults(self, initialized, monkeypatch):
+        workspace_dir = initialized.parent / "demo-workspace"
+        (workspace_dir / ".brain").mkdir(parents=True, exist_ok=True)
+        (workspace_dir / ".brain" / "workspace.yaml").write_text(
+            "slug: demo-workspace\n"
+            "defaults:\n"
+            "  tags:\n"
+            "    - workspace/demo-workspace\n"
+            "    - project/brain\n"
+        )
+        monkeypatch.setenv("BRAIN_WORKSPACE_DIR", str(workspace_dir))
+
+        json.loads(server.brain_session())
+        content = (initialized / ".brain" / "local" / "session.md").read_text()
+
+        assert "## Workspace Defaults" in content
+        assert '`tags`: `["workspace/demo-workspace", "project/brain"]`' in content
 
     def test_not_initialized(self):
         # Save and reset server state

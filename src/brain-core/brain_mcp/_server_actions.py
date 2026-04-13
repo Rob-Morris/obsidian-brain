@@ -29,17 +29,10 @@ def _action_compile(runtime: ServerRuntime, params: dict | None):
         trigger_count = len(router["triggers"])
         skill_count = len(router["skills"])
         memory_count = len(router.get("memories", []))
-        living_count = sum(
-            1 for a in router["artefacts"] if a["classification"] == "living"
-        )
-        temporal_count = sum(
-            1 for a in router["artefacts"] if a["classification"] == "temporal"
-        )
         return (
             f"**Compiled:** {art_count} artefacts ({configured} configured), "
             f"{trigger_count} triggers, {skill_count} skills, "
-            f"{memory_count} memories, "
-            f"{living_count + temporal_count} colours"
+            f"{memory_count} memories"
         )
     except (ValueError, OSError) as e:
         return runtime.fmt_error(str(e))

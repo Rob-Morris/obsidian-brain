@@ -91,10 +91,9 @@ def template_vault():
     if not os.path.isdir(os.path.join(path, ".brain-core")):
         pytest.skip(".brain-core not linked — run 'make dev-link'")
     compiled_path = os.path.join(path, ".brain", "local", "compiled-router.json")
-    if not os.path.isfile(compiled_path):
-        os.makedirs(os.path.dirname(compiled_path), exist_ok=True)
-        with open(compiled_path, "w", encoding="utf-8") as handle:
-            json.dump(compile_router.compile(path), handle, indent=2)
+    os.makedirs(os.path.dirname(compiled_path), exist_ok=True)
+    with open(compiled_path, "w", encoding="utf-8") as handle:
+        json.dump(compile_router.compile(path), handle, indent=2)
     return path
 
 

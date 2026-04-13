@@ -19,6 +19,7 @@ Codex uses native project/user config surfaces only.
 import argparse
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -45,6 +46,7 @@ CLAUDE_MD_FILE = "CLAUDE.md"
 CLAUDE_LOCAL_MD_FILE = os.path.join(".claude", "CLAUDE.local.md")
 
 CODEX_CONFIG_REL = os.path.join(".codex", "config.toml")
+WORKSPACE_MANIFEST_FILE = os.path.join(".brain", "workspace.yaml")
 
 INIT_STATE_REL = os.path.join(".brain", "local", "init-state.json")
 INIT_STATE_VERSION = 1
@@ -143,16 +145,23 @@ def _python_has_mcp(python_path: str) -> bool:
 # MCP configuration
 # ---------------------------------------------------------------------------
 
-def build_mcp_config(python_path: str, vault_root: Path) -> Dict[str, Any]:
+def build_mcp_config(
+    python_path: str,
+    vault_root: Path,
+    workspace_dir: Optional[Path] = None,
+) -> Dict[str, Any]:
     """Build the MCP server config shared by Claude and Codex."""
     pythonpath = str(vault_root / MCP_PYTHONPATH_REL)
+    env = {
+        "BRAIN_VAULT_ROOT": str(vault_root),
+        "PYTHONPATH": pythonpath,
+    }
+    if workspace_dir is not None:
+        env["BRAIN_WORKSPACE_DIR"] = str(workspace_dir)
     return {
         "command": python_path,
         "args": ["-m", MCP_PROXY_MODULE, python_path, MCP_SERVER_MODULE],
-        "env": {
-            "BRAIN_VAULT_ROOT": str(vault_root),
-            "PYTHONPATH": pythonpath,
-        },
+        "env": env,
     }
 
 
@@ -214,12 +223,13 @@ def _bootstrap_line_for_target(target_dir: Path) -> str:
     return CLAUDE_MD_BOOTSTRAP_VAULT if _is_vault_root(target_dir) else CLAUDE_MD_BOOTSTRAP_PROJECT
 
 
-def _build_session_hook_command(vault_root: Path) -> str:
+def _build_session_hook_command(vault_root: Path, target_dir: Path) -> str:
     session_script = str(vault_root / ".brain-core" / "scripts" / "session.py")
     return (
         "echo 'brain_session called:' "
         f"&& python3 {shlex.quote(session_script)} "
-        f"--vault {shlex.quote(str(vault_root))} --json"
+        f"--vault {shlex.quote(str(vault_root))} "
+        f"--workspace-dir {shlex.quote(str(target_dir))} --json"
     )
 
 
@@ -666,6 +676,38 @@ def _remove_bootstrap_line(path: Path, bootstrap: str) -> None:
     else:
         _delete_file_if_exists(path)
 
+def _workspace_slug(name: str) -> str:
+    """Return a stable slug for a workspace directory name."""
+    slug = re.sub(r"[^A-Za-z0-9]+", "-", name.strip().lower()).strip("-")
+    return slug or "workspace"
+
+
+def ensure_workspace_manifest(target_dir: Path) -> None:
+    """Scaffold `.brain/workspace.yaml` for a folder-scoped workspace.
+
+    The manifest is workspace-owned after creation, so this function only
+    creates a minimal starting file when absent.
+    """
+    manifest_path = target_dir / WORKSPACE_MANIFEST_FILE
+    if manifest_path.is_file():
+        info(f"{WORKSPACE_MANIFEST_FILE} already exists")
+        return
+
+    slug = _workspace_slug(target_dir.name)
+    content = (
+        "# Workspace-owned Brain metadata. Edit over time as needed.\n"
+        f"slug: {slug}\n"
+        "defaults:\n"
+        "  tags:\n"
+        f"    - workspace/{slug}\n"
+    )
+    _safe_write(manifest_path, content)
+    info(f"Created {WORKSPACE_MANIFEST_FILE}")
+
+
+# ---------------------------------------------------------------------------
+# SessionStart hook
+# ---------------------------------------------------------------------------
 
 def ensure_session_start_hook(target_dir: Path, vault_root: Path) -> Path:
     """Add a SessionStart hook that calls session.py automatically."""
@@ -675,7 +717,7 @@ def ensure_session_start_hook(target_dir: Path, vault_root: Path) -> Path:
     if "hooks" not in settings or not isinstance(settings["hooks"], dict):
         settings["hooks"] = {}
 
-    hook_command = _build_session_hook_command(vault_root)
+    hook_command = _build_session_hook_command(vault_root, target_dir)
     for entry in settings["hooks"].get("SessionStart", []):
         if not isinstance(entry, dict):
             continue
@@ -704,7 +746,7 @@ def _remove_session_start_hook(settings_path: Path, vault_root: Path, target_dir
     if not isinstance(hooks, dict):
         return
 
-    hook_command = _build_session_hook_command(vault_root)
+    hook_command = _build_session_hook_command(vault_root, target_dir)
     changed = False
     session_entries = hooks.get("SessionStart", [])
     kept_entries = []
@@ -899,7 +941,7 @@ def register_claude(
         record["bootstrap_path"] = str(bootstrap_path)
         record["bootstrap_line"] = _bootstrap_line_for_target(target_dir)
         record["hook_path"] = str(hook_path)
-        record["hook_command"] = _build_session_hook_command(vault_root)
+        record["hook_command"] = _build_session_hook_command(vault_root, target_dir)
 
     record["method"] = method
     return record
@@ -1082,7 +1124,7 @@ def main() -> None:
 
     python_path = find_python(vault_root)
     info(f"Python:  {python_path}")
-    server_config = build_mcp_config(python_path, vault_root)
+    server_config = build_mcp_config(python_path, vault_root, workspace_dir=target_dir)
 
     for client in clients:
         _warn_if_user_scope_exists(client, scope, server_config)
@@ -1096,6 +1138,10 @@ def main() -> None:
             record = register_codex(server_config, scope, target_dir)
         _record_init_target(vault_root, record)
         results.append(record)
+
+    if target_dir and not _is_vault_root(target_dir):
+        header("Workspace manifest")
+        ensure_workspace_manifest(target_dir)
 
     header("Done")
     info(f"Vault:    {vault_root}")

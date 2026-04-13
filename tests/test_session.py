@@ -87,6 +87,64 @@ class TestBuildSessionModel:
             },
         ]
 
+    def test_includes_workspace_metadata_when_provided(self, tmp_path):
+        workspace_dir = tmp_path / "demo-workspace"
+        model = session.build_session_model(
+            _minimal_router(tmp_path),
+            str(tmp_path),
+            workspace_dir=str(workspace_dir),
+            load_config_if_missing=False,
+        )
+
+        assert model["workspace"] == {
+            "directory": str(workspace_dir),
+            "name": "demo-workspace",
+            "location": "external",
+        }
+
+    def test_includes_workspace_defaults_and_record_from_manifest(self, tmp_path):
+        workspace_dir = tmp_path / "demo-workspace"
+        (workspace_dir / ".brain").mkdir(parents=True)
+        (workspace_dir / ".brain" / "workspace.yaml").write_text(
+            "slug: demo-workspace\n"
+            "links:\n"
+            "  workspace: brain-demo\n"
+            "defaults:\n"
+            "  tags:\n"
+            "    - workspace/brain-demo\n"
+            "    - project/brain\n"
+        )
+
+        model = session.build_session_model(
+            _minimal_router(tmp_path),
+            str(tmp_path),
+            workspace_dir=str(workspace_dir),
+            load_config_if_missing=False,
+        )
+
+        assert model["workspace_record"] == {
+            "slug": "brain-demo",
+            "workspace_mode": "linked",
+        }
+        assert model["workspace_defaults"] == {
+            "tags": ["workspace/brain-demo", "project/brain"],
+        }
+
+    def test_ignores_invalid_workspace_manifest(self, tmp_path):
+        workspace_dir = tmp_path / "demo-workspace"
+        (workspace_dir / ".brain").mkdir(parents=True)
+        (workspace_dir / ".brain" / "workspace.yaml").write_text("defaults: [broken\n")
+
+        model = session.build_session_model(
+            _minimal_router(tmp_path),
+            str(tmp_path),
+            workspace_dir=str(workspace_dir),
+            load_config_if_missing=False,
+        )
+
+        assert "workspace_defaults" not in model
+        assert "workspace_record" not in model
+
 
 class TestSessionCli:
     def test_main_writes_session_markdown_and_prints_json(self, tmp_path, monkeypatch, capsys):
@@ -123,6 +181,88 @@ class TestSessionCli:
         content = session_path.read_text()
         assert "# Brain Session" in content
         assert "[Extend the vault](../../.brain-core/standards/extending/README.md)" in content
+
+    def test_main_includes_workspace_metadata_when_provided(self, tmp_path, monkeypatch, capsys):
+        bc = tmp_path / ".brain-core"
+        bc.mkdir()
+        (bc / "session-core.md").write_text("# Session Core\n")
+
+        local = tmp_path / ".brain" / "local"
+        local.mkdir(parents=True)
+        (local / "compiled-router.json").write_text(
+            json.dumps(_minimal_router(tmp_path))
+        )
+
+        workspace_dir = tmp_path / "demo-workspace"
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "session.py",
+                "--vault", str(tmp_path),
+                "--workspace-dir", str(workspace_dir),
+                "--json",
+            ],
+        )
+
+        session.main()
+
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["workspace"] == {
+            "directory": str(workspace_dir),
+            "name": "demo-workspace",
+            "location": "external",
+        }
+
+        content = (tmp_path / ".brain" / "local" / "session.md").read_text()
+        assert "## Workspace" in content
+        assert "`name`: `demo-workspace`" in content
+        assert f"`directory`: `{workspace_dir}`" in content
+        assert "`location`: `external`" in content
+
+    def test_main_includes_workspace_defaults_when_manifest_present(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        bc = tmp_path / ".brain-core"
+        bc.mkdir()
+        (bc / "session-core.md").write_text("# Session Core\n")
+
+        local = tmp_path / ".brain" / "local"
+        local.mkdir(parents=True)
+        (local / "compiled-router.json").write_text(
+            json.dumps(_minimal_router(tmp_path))
+        )
+
+        workspace_dir = tmp_path / "demo-workspace"
+        (workspace_dir / ".brain").mkdir(parents=True)
+        (workspace_dir / ".brain" / "workspace.yaml").write_text(
+            "slug: demo-workspace\n"
+            "defaults:\n"
+            "  tags:\n"
+            "    - workspace/demo-workspace\n"
+            "    - project/brain\n"
+        )
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "session.py",
+                "--vault", str(tmp_path),
+                "--workspace-dir", str(workspace_dir),
+                "--json",
+            ],
+        )
+
+        session.main()
+
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["workspace_defaults"] == {
+            "tags": ["workspace/demo-workspace", "project/brain"],
+        }
+
+        content = (tmp_path / ".brain" / "local" / "session.md").read_text()
+        assert "## Workspace Defaults" in content
+        assert '`tags`: `["workspace/demo-workspace", "project/brain"]`' in content
 
     def test_main_errors_when_compiled_router_missing(self, tmp_path, monkeypatch, capsys):
         bc = tmp_path / ".brain-core"

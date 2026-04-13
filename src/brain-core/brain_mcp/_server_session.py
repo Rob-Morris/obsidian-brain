@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 
 import config as config_mod
 import session
@@ -36,6 +37,10 @@ def handle_brain_session(
         state.vault_root,
         obsidian_cli_available=state.cli_available,
         context=context,
+        workspace_dir=(
+            os.environ.get("BRAIN_WORKSPACE_DIR")
+            or os.environ.get("BRAIN_PROJECT_DIR")
+        ),
         config=state.config,
         active_profile=state.session_profile,
         load_config_if_missing=False,

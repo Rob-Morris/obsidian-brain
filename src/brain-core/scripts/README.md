@@ -16,7 +16,7 @@ Scripts are the **source of truth** for all vault operations. The MCP server (`b
 | `edit.py` | Edit/append/prepend to artefact or resource | `python3 edit.py edit\|append --path P --body B [--body-file PATH] [--temp-path [SUFFIX]] [--target H] [--json]` |
 | `fix_links.py` | Auto-repair broken wikilinks | `python3 fix_links.py [--fix] [--json] [--vault V]` |
 | `generate_key.py` | Generate operator key + hash for config.yaml | `python3 generate_key.py [--count N]` |
-| `init.py` | Claude/Codex MCP server registration + recorded removal | `python3 init.py [--client {claude,codex,all}] [--user] [--local] [--project PATH] [--remove] [--force]` |
+| `init.py` | Claude/Codex MCP server registration + recorded removal; scaffolds `.brain/workspace.yaml` for folder-scoped installs | `python3 init.py [--client {claude,codex,all}] [--user] [--local] [--project PATH] [--remove] [--force]` |
 | `list_artefacts.py` | Enumerate vault artefacts and resources (unranked, no cap) | (library module, used by MCP server) |
 | `migrate_naming.py` | Migrate filenames to generous naming conventions | `python3 migrate_naming.py [--vault V] [--dry-run] [--json]` |
 | `obsidian_cli.py` | IPC client for native Obsidian CLI | (library module, used by MCP server) |
@@ -24,7 +24,7 @@ Scripts are the **source of truth** for all vault operations. The MCP server (`b
 | `read.py` | Query compiled router resources | `python3 read.py RESOURCE [--name N]` |
 | `rename.py` | Rename/delete file + update wikilinks | `python3 rename.py "source" "dest" [--json]` |
 | `search_index.py` | BM25 keyword search | `python3 search_index.py "query" [--type T] [--json]` |
-| `session.py` | Build the canonical session model and refresh `.brain/local/session.md` | `python3 session.py [--json]` |
+| `session.py` | Build the canonical session model and refresh `.brain/local/session.md` | `python3 session.py [--json] [--workspace-dir PATH]` |
 | `shape_presentation.py` | Create presentation + launch Marp preview | (via MCP: `brain_action("shape-presentation", ...)`) |
 | `start_shaping.py` | Bootstrap a shaping session for an existing artefact | (via MCP: `brain_action("start-shaping", ...)`) |
 | `sync_definitions.py` | Sync artefact library definitions to vault `_Config/` | `python3 sync_definitions.py [--vault V] [--dry-run] [--types t1,t2] [--json]` |

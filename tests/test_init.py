@@ -57,6 +57,11 @@ class TestBuildMcpConfig:
         assert config["args"] == ["-m", "brain_mcp.proxy", "/usr/bin/python3", "brain_mcp.server"]
         assert config["env"]["BRAIN_VAULT_ROOT"] == str(vault)
         assert config["env"]["PYTHONPATH"] == str(vault / ".brain-core")
+        assert "BRAIN_WORKSPACE_DIR" not in config["env"]
+
+    def test_includes_workspace_dir_when_provided(self, vault, project):
+        config = init.build_mcp_config("/usr/bin/python3", vault, workspace_dir=project)
+        assert config["env"]["BRAIN_WORKSPACE_DIR"] == str(project)
 
 
 class TestClaudeJsonWriters:
@@ -156,6 +161,20 @@ class TestEnsureClaudeMd:
         content = (project / "CLAUDE.md").read_text()
         assert content.count(init.CLAUDE_MD_BOOTSTRAP_PROJECT) == 1
 
+class TestEnsureWorkspaceManifest:
+    def test_creates_new_manifest(self, project):
+        init.ensure_workspace_manifest(project)
+        content = (project / ".brain" / "workspace.yaml").read_text()
+        assert "slug: my-project" in content
+        assert "- workspace/my-project" in content
+
+    def test_preserves_existing_manifest(self, project):
+        manifest = project / ".brain" / "workspace.yaml"
+        manifest.parent.mkdir(parents=True)
+        manifest.write_text("slug: custom\n")
+        init.ensure_workspace_manifest(project)
+        assert manifest.read_text() == "slug: custom\n"
+
 
 class TestEnsureSessionStartHook:
     def test_creates_hook(self, project, vault):
@@ -165,8 +184,11 @@ class TestEnsureSessionStartHook:
         data = json.loads(settings_path.read_text())
         hooks = data["hooks"]["SessionStart"]
         assert len(hooks) == 1
-        assert "session.py" in hooks[0]["hooks"][0]["command"]
-        assert str(vault) in hooks[0]["hooks"][0]["command"]
+        command = hooks[0]["hooks"][0]["command"]
+        assert "session.py" in command
+        assert str(vault) in command
+        assert "--workspace-dir" in command
+        assert str(project) in command
 
     def test_idempotent(self, project, vault):
         init.ensure_session_start_hook(project, vault)

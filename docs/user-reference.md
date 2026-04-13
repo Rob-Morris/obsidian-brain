@@ -101,7 +101,7 @@ If your vault runs the Brain MCP server (`.brain-core/brain_mcp/server.py`), eig
 
 **brain_session** (safe, auto-approvable)
 - Bootstrap an agent session in one call — returns the canonical session model as compact JSON
-- Includes: static core bootstrap content, structured core-doc references with MCP load instructions, always-rules, user preferences, gotchas, triggers, condensed artefact types, environment, memory/skill/plugin/style indexes, config metadata
+- Includes: static core bootstrap content, structured core-doc references with MCP load instructions, always-rules, user preferences, gotchas, triggers, condensed artefact types, environment, memory/skill/plugin/style indexes, config metadata, and when available workspace-aware bootstrap fields (`workspace`, `workspace_record`, `workspace_defaults`)
 - Optional `context` parameter for scoped sessions (not yet implemented)
 - Optional `operator_key` parameter for operator authentication — sets the session profile for per-call tool enforcement
 - Refreshes `.brain/local/session.md`, the generated markdown bootstrap mirror, from the same model
@@ -183,7 +183,7 @@ Available in `.brain-core/scripts/`. Scripts are the source of truth for all vau
 | `rename.py` | Rename a file with automatic wikilink updates |
 | `upgrade.py` | Upgrade brain-core in-place from a source directory, tracking applied migrations in `.brain/local/` (CLI-only, not shipped to vaults) |
 | `workspace_registry.py` | Workspace slug→path resolution and registration |
-| `init.py` | Set up Claude Code and/or Codex to use this vault's MCP server |
+| `init.py` | Set up Claude Code and/or Codex to use this vault's MCP server; folder-scoped installs also scaffold `.brain/workspace.yaml` |
 | `check.py` | Structural compliance checker — validates naming, frontmatter, month folders, archives, status values |
 | `migrate_naming.py` | Migrate vault filenames from old aggressive slugs to generous naming conventions |
 | `fix_links.py` | Auto-repair broken wikilinks using naming convention heuristics |

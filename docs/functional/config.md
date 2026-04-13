@@ -44,6 +44,33 @@ On startup, the MCP server calls `load_config()`, which reads all three layers, 
 
 ---
 
+## Workspace Manifest
+
+Workspace metadata is intentionally separate from the Brain config system.
+
+`.brain/workspace.yaml` is an optional, workspace-owned declaration that lives in a connected workspace folder, not in the Brain vault itself. It is used for workspace identity, links to canonical Brain artefacts, and filing defaults such as auto-tags.
+
+This file does **not** participate in the three-layer config merge above. That merge is reserved for Brain/vault configuration:
+
+1. `defaults/config.yaml`
+2. `.brain/config.yaml`
+3. `.brain/local/config.yaml`
+
+The distinction is intentional:
+
+- `.brain/config.yaml` is Brain-level shared configuration
+- `.brain/workspace.yaml` is workspace-level identity and defaults
+- `.brain/local/workspaces.json` is machine-local binding state for linked workspaces
+
+Format choice follows the same ownership split:
+
+- Human-authored declarative files in `.brain/` use YAML
+- Machine-managed state in `.brain/local/` uses JSON
+
+As a result, tooling such as `init.py` may scaffold `.brain/workspace.yaml`, but the file remains human-editable and is expected to evolve over time.
+
+---
+
 ## Operator Profiles
 
 **Design decisions:** [DD-025](../architecture/decisions/dd-025-privilege-split.md)

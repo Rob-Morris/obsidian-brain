@@ -33,6 +33,7 @@ The canonical session model is assembled from:
 - `_Config/User/gotchas.md`
 - merged config
 - runtime environment state
+- active workspace context when known, including optional workspace-owned defaults from `.brain/workspace.yaml`
 - active profile when known
 
 That model is rendered in two normal bootstrap forms:
@@ -72,6 +73,7 @@ Installed vault bootstrap text is treated as versioned contract text and migrate
 - JSON and markdown bootstrap outputs can be tested for parity because they come from the same model.
 - `index.md` becomes easier to reason about: it routes, rather than duplicating payload content.
 - The intentional raw-file fallback remains supported for naive agents, but it is clearly separated from the normal bootstrap path.
+- Workspace-aware bootstrap stays additive: agents can use canonical workspace context when present, but bootstrap still degrades cleanly to generic vault context when no workspace is known.
 - The audience boundary is explicit: shipped bootstrap surfaces carry vault-operational guidance, while repo contributor workflow stays in contributor docs under `docs/`.
 - The refactor introduces a generated artefact (`.brain/local/session.md`) that must participate in freshness and migration logic.
 - The bootstrap line in installed vaults must be migrated again, including all previously known variants and the newer manually introduced wording.

@@ -11,6 +11,7 @@ Usage:
 
 Env:
     BRAIN_VAULT_ROOT        — vault path (passed through to child)
+    BRAIN_WORKSPACE_DIR     — optional active workspace path (passed through to child)
     BRAIN_LOG_LEVEL         — file handler log level (default INFO)
     BRAIN_PROXY_BACKOFF     — comma-separated int seconds (default: 0,4,8,16,32)
     BRAIN_PROXY_INIT_TIMEOUT — seconds to wait for child initialize response (default 60)

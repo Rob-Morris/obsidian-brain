@@ -29,6 +29,7 @@ GOTCHAS_REL = os.path.join("_Config", "User", "gotchas.md")
 SESSION_CORE_REL = os.path.join(".brain-core", "session-core.md")
 SESSION_MARKDOWN_REL = os.path.join(".brain", "local", "session.md")
 COMPILED_ROUTER_REL = os.path.join(".brain", "local", "compiled-router.json")
+WORKSPACE_MANIFEST_REL = os.path.join(".brain", "workspace.yaml")
 CORE_DOC_SECTION_HEADINGS = ("Core Docs", "Standards")
 
 # ---------------------------------------------------------------------------
@@ -116,6 +117,128 @@ def _load_config_if_available(vault_root):
         return config_mod.load_config(vault_root)
     except Exception:
         return None
+
+
+def _workspace_summary(workspace_dir, vault_root):
+    """Return stable workspace metadata from an optional directory path."""
+    if not workspace_dir:
+        return None
+    directory = os.path.abspath(os.path.expanduser(str(workspace_dir)))
+    if not directory:
+        return None
+    name = os.path.basename(os.path.normpath(directory)) or directory
+    embedded_root = os.path.abspath(os.path.join(str(vault_root), "_Workspaces"))
+    location = "external"
+    if os.path.commonpath([embedded_root, directory]) == embedded_root:
+        location = "embedded"
+    return {
+        "directory": directory,
+        "name": name,
+        "location": location,
+    }
+
+
+def _json_safe(value):
+    """Convert YAML-loaded values into JSON-safe structures."""
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, dict):
+        return {str(key): _json_safe(val) for key, val in value.items()}
+    return str(value)
+
+
+def _load_workspace_manifest(workspace_dir):
+    """Load `.brain/workspace.yaml` from the active workspace when possible."""
+    if not workspace_dir:
+        return None
+    try:
+        import yaml
+    except ImportError:
+        return None
+
+    manifest_path = os.path.join(
+        os.path.abspath(os.path.expanduser(str(workspace_dir))),
+        WORKSPACE_MANIFEST_REL,
+    )
+    if not os.path.isfile(manifest_path):
+        return None
+    try:
+        with open(manifest_path, encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+    except OSError:
+        return None
+    except yaml.YAMLError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _extract_workspace_defaults(manifest):
+    """Return workspace-owned filing defaults from the manifest."""
+    if not isinstance(manifest, dict):
+        return None
+    defaults = manifest.get("defaults")
+    if not isinstance(defaults, dict) or not defaults:
+        return None
+    return _json_safe(defaults)
+
+
+def _workspace_record_from_entry(entry):
+    """Project a workspace list entry into the bootstrap session shape."""
+    record = {
+        "slug": entry.get("slug", ""),
+        "workspace_mode": entry.get("mode", ""),
+    }
+    if entry.get("hub_path"):
+        record["hub_path"] = entry["hub_path"]
+    if entry.get("tags"):
+        record["tags"] = entry["tags"]
+    return record
+
+
+def _resolve_workspace_record(vault_root, workspace, manifest):
+    """Resolve optional canonical workspace metadata when it is safe to do so."""
+    if not workspace:
+        return None
+
+    try:
+        import workspace_registry
+    except ImportError:
+        workspace_registry = None
+
+    entries = []
+    if workspace_registry is not None:
+        try:
+            entries = workspace_registry.list_workspaces(vault_root)
+        except Exception:
+            entries = []
+
+    directory = os.path.abspath(workspace["directory"])
+    for entry in entries:
+        entry_path = entry.get("path")
+        if not entry_path:
+            continue
+        if os.path.abspath(os.path.expanduser(entry_path)) == directory:
+            return _workspace_record_from_entry(entry)
+
+    links = manifest.get("links") if isinstance(manifest, dict) else None
+    linked_slug = links.get("workspace") if isinstance(links, dict) else None
+    if not linked_slug:
+        return None
+
+    for entry in entries:
+        if entry.get("slug") == linked_slug:
+            return _workspace_record_from_entry(entry)
+
+    return {
+        "slug": str(linked_slug),
+        "workspace_mode": (
+            "embedded"
+            if workspace.get("location") == "embedded"
+            else "linked"
+        ),
+    }
 
 
 def _load_core_bootstrap(core_body):
@@ -377,6 +500,7 @@ def build_session_model(
     vault_root,
     obsidian_cli_available=False,
     context=None,
+    workspace_dir=None,
     config=None,
     active_profile=None,
     load_config_if_missing=True,
@@ -388,6 +512,7 @@ def build_session_model(
         vault_root: Absolute path to the vault root.
         obsidian_cli_available: Whether the Obsidian REST CLI is reachable.
         context: Optional context slug for scoped sessions (not yet implemented).
+        workspace_dir: Optional active workspace directory for this session.
         config: Optional merged config dict from config.load_config().
         active_profile: Optional resolved active profile for this bootstrap flow.
         load_config_if_missing: Whether to lazily load config from disk when the
@@ -404,6 +529,14 @@ def build_session_model(
     env["obsidian_cli_available"] = obsidian_cli_available
     config_summary = _summarise_config(config)
     resolved_profile = _resolve_active_profile(config, active_profile)
+    workspace_summary = _workspace_summary(workspace_dir, vault_root)
+    workspace_manifest = _load_workspace_manifest(workspace_dir)
+    workspace_defaults = _extract_workspace_defaults(workspace_manifest)
+    workspace_record = _resolve_workspace_record(
+        vault_root,
+        workspace_summary,
+        workspace_manifest,
+    )
     core_body = _load_session_core_body(vault_root)
 
     model = {
@@ -428,6 +561,12 @@ def build_session_model(
         model["config"] = config_summary
     if resolved_profile:
         model["active_profile"] = resolved_profile
+    if workspace_summary:
+        model["workspace"] = workspace_summary
+    if workspace_record:
+        model["workspace_record"] = workspace_record
+    if workspace_defaults:
+        model["workspace_defaults"] = workspace_defaults
 
     if context is not None:
         model["context"] = {
@@ -441,17 +580,6 @@ def build_session_model(
         }
 
     return model
-
-
-def compile_session(router, vault_root, obsidian_cli_available=False, context=None, config=None):
-    """Backward-compatible wrapper returning the canonical session model."""
-    return build_session_model(
-        router,
-        vault_root,
-        obsidian_cli_available=obsidian_cli_available,
-        context=context,
-        config=config,
-    )
 
 
 def render_session_markdown(model):
@@ -507,6 +635,49 @@ def render_session_markdown(model):
             sorted((model.get("environment") or {}).items()),
             formatter=lambda item: f"`{item[0]}`: `{_format_scalar(item[1])}`",
         ),
+    ])
+
+    workspace = model.get("workspace")
+    if workspace:
+        sections.extend([
+            "",
+            "## Workspace",
+            "",
+            _render_bullets(
+                [
+                    ("name", workspace.get("name", "")),
+                    ("directory", workspace.get("directory", "")),
+                    ("location", workspace.get("location", "")),
+                ],
+                formatter=lambda item: f"`{item[0]}`: `{_format_scalar(item[1])}`",
+            ),
+        ])
+
+    workspace_record = model.get("workspace_record")
+    if workspace_record:
+        sections.extend([
+            "",
+            "## Workspace Record",
+            "",
+            _render_bullets(
+                workspace_record.items(),
+                formatter=lambda item: f"`{item[0]}`: `{_format_scalar(item[1])}`",
+            ),
+        ])
+
+    workspace_defaults = model.get("workspace_defaults")
+    if workspace_defaults:
+        sections.extend([
+            "",
+            "## Workspace Defaults",
+            "",
+            _render_bullets(
+                workspace_defaults.items(),
+                formatter=lambda item: f"`{item[0]}`: `{_format_scalar(item[1])}`",
+            ),
+        ])
+
+    sections.extend([
         "",
         "## Memories",
         "",
@@ -591,6 +762,12 @@ def main():
     )
     parser.add_argument("--vault", help="Vault root (auto-detected if omitted)")
     parser.add_argument("--context", help="Optional context slug")
+    parser.add_argument("--workspace-dir", help="Optional active workspace directory")
+    parser.add_argument(
+        "--project-dir",
+        dest="workspace_dir_deprecated",
+        help="Deprecated alias for --workspace-dir",
+    )
     parser.add_argument("--json", action="store_true", help="Pretty-print JSON output")
     args = parser.parse_args()
 
@@ -607,7 +784,13 @@ def main():
     with open(router_path, encoding="utf-8") as f:
         router = json.load(f)
 
-    result = build_session_model(router, vault_root, context=args.context)
+    workspace_dir = args.workspace_dir or args.workspace_dir_deprecated
+    result = build_session_model(
+        router,
+        vault_root,
+        context=args.context,
+        workspace_dir=workspace_dir,
+    )
     persist_session_markdown(result, vault_root)
 
     indent = 2 if args.json else None

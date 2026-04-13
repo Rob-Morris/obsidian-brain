@@ -22,7 +22,7 @@ Operational reference for scripts in `.brain-core/scripts/`. Each script exposes
 | `fix_links.py` | Auto-repair broken wikilinks | `python3 fix_links.py [--fix] [--json] [--vault V]` |
 | `sync_definitions.py` | Sync artefact library definitions to vault _Config/ | `python3 sync_definitions.py [--vault V] [--dry-run] [--types t1,t2] [--json]` |
 | `config.py` | Vault configuration loader (three-layer merge) | `python3 config.py` |
-| `session.py` | Build the canonical session model and refresh `.brain/local/session.md` | `python3 session.py [--json]` |
+| `session.py` | Build the canonical session model and refresh `.brain/local/session.md` | `python3 session.py [--json] [--workspace-dir PATH]` |
 | `generate_key.py` | Generate operator key + hash for config.yaml | `python3 generate_key.py [--count N]` |
 | `process.py` | Content classification, duplicate resolution, ingestion | (library module, used by MCP server) |
 | `init.py` | Claude/Codex MCP registration + recorded removal | `python3 init.py [--client {claude,codex,all}] [--user] [--local] [--project PATH] [--remove] [--force]` |
@@ -214,6 +214,8 @@ Registration strategy:
 
 All writes are atomic (tmp + fsync + rename). `init.py` records client, scope, config path, target path, and server config in `.brain/local/init-state.json` so later removal can compare the current entry against recorded ownership instead of guessing from file presence.
 
+For folder-scoped installs, `init.py` also scaffolds `.brain/workspace.yaml` when absent (except when targeting the vault root itself). The scaffold is intentionally minimal: it gives the workspace a stable slug and a default `workspace/{slug}` tag, but leaves richer metadata and links for humans or agents to evolve later.
+
 **Dependencies:** Python 3.8+ stdlib only. Detects a Python with `mcp` package for the server config (vault `.venv` -> current Python -> PATH search).
 
 ## session.py
@@ -229,6 +231,7 @@ Canonical session bootstrap builder at `.brain-core/scripts/session.py`. Owns on
 - Builds the canonical session model from static core bootstrap content, structured core-doc references, and dynamic vault state
 - Writes `.brain/local/session.md` on direct CLI execution
 - Is also called by the MCP server and router compile path so JSON and markdown stay in parity for shared content
+- When an active workspace is supplied, reads `.brain/workspace.yaml` from that workspace and exposes raw `workspace` identity plus any resolvable `workspace_record` and `workspace_defaults`
 - Keeps the current `context` parameter as a forward-compatible stub; no context-specific scoping yet
 
 **CLI:**

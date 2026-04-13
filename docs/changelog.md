@@ -2,6 +2,15 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.27.5 — 2026-04-13
+
+**Make bootstrap workspace-aware and scaffold workspace-owned metadata during folder setup.** `brain_session` now carries raw workspace identity plus optional `workspace_record` / `workspace_defaults`, and folder-scoped `init.py` now scaffolds `.brain/workspace.yaml` with a stable slug and default workspace tag when the workspace does not already declare one.
+
+- `init.py` now passes `BRAIN_WORKSPACE_DIR` through both Claude and Codex MCP registrations, and Claude's SessionStart hook now calls `session.py --workspace-dir ...` so bootstrap knows which workspace is calling.
+- `brain_action("compile")` no longer reports a bogus `colours` count, `session.py` no longer carries the unused `compile_session()` wrapper, and `brain_read`'s formatter now special-cases only the `environment` response instead of carrying dead JSON branches.
+- Restored the missing `template-vault/People/` and `template-vault/_Temporal/Observations/` folders so the starter vault, shipped taxonomy/templates, docs, and colour-count tests agree again on the default type set.
+- Updated the functional docs, user reference, and script module map for the workspace manifest contract and added regression coverage across `init.py`, `session.py`, `brain_session`, and `brain_read`.
+
 ## v0.27.4 — 2026-04-13
 
 **Rename the leading body-range target to `:body_preamble` and stop it before the first targetable section.** The earlier `:body_before_first_heading` spelling was too specific to headings and understated that callout sections are targetable too. `brain_edit` now uses `target=":body_preamble"` for the leading body range before the first heading or callout section, and explicitly rejects the old pre-release spelling with guidance to the new target.
