@@ -56,6 +56,23 @@ def _make_vault(tmp_path: Path, version: str) -> Path:
     return vault
 
 
+def _counter_migration(filename: str) -> str:
+    """Return migration source that increments a counter file in .brain/local/."""
+    return (
+        "import os\n"
+        "\n"
+        "def migrate(vault_root):\n"
+        f"    path = os.path.join(vault_root, '.brain', 'local', '{filename}')\n"
+        "    count = 0\n"
+        "    if os.path.exists(path):\n"
+        "        with open(path, 'r', encoding='utf-8') as f:\n"
+        "            count = int(f.read().strip())\n"
+        "    with open(path, 'w', encoding='utf-8') as f:\n"
+        "        f.write(str(count + 1))\n"
+        "    return {'status': 'ok'}\n"
+    )
+
+
 def _ledger(vault: Path) -> dict:
     return json.loads((vault / ".brain" / "local" / "migrations.json").read_text())
 
@@ -68,21 +85,7 @@ def test_run_pending_migrations_records_ledger_and_skips_repeat(tmp_path):
     source = _make_source(
         tmp_path,
         "1.0.0",
-        migrations={
-            "migrate_to_1_0_0.py": (
-                "import os\n"
-                "\n"
-                "def migrate(vault_root):\n"
-                "    path = os.path.join(vault_root, '.brain', 'local', 'count-1.txt')\n"
-                "    count = 0\n"
-                "    if os.path.exists(path):\n"
-                "        with open(path, 'r', encoding='utf-8') as f:\n"
-                "            count = int(f.read().strip())\n"
-                "    with open(path, 'w', encoding='utf-8') as f:\n"
-                "        f.write(str(count + 1))\n"
-                "    return {'status': 'ok', 'actions': ['counted']}\n"
-            ),
-        },
+        migrations={"migrate_to_1_0_0.py": _counter_migration("count-1.txt")},
     )
     vault = _make_vault(tmp_path, "1.0.0")
     shutil.copytree(source / "scripts" / "migrations", vault / ".brain-core" / "scripts" / "migrations")
@@ -101,21 +104,7 @@ def test_run_pending_migrations_force_reruns_recorded_migration(tmp_path):
     source = _make_source(
         tmp_path,
         "1.0.0",
-        migrations={
-            "migrate_to_1_0_0.py": (
-                "import os\n"
-                "\n"
-                "def migrate(vault_root):\n"
-                "    path = os.path.join(vault_root, '.brain', 'local', 'count-force.txt')\n"
-                "    count = 0\n"
-                "    if os.path.exists(path):\n"
-                "        with open(path, 'r', encoding='utf-8') as f:\n"
-                "            count = int(f.read().strip())\n"
-                "    with open(path, 'w', encoding='utf-8') as f:\n"
-                "        f.write(str(count + 1))\n"
-                "    return {'status': 'ok'}\n"
-            ),
-        },
+        migrations={"migrate_to_1_0_0.py": _counter_migration("count-force.txt")},
     )
     vault = _make_vault(tmp_path, "1.0.0")
     shutil.copytree(source / "scripts" / "migrations", vault / ".brain-core" / "scripts" / "migrations")
@@ -133,32 +122,8 @@ def test_upgrade_backfills_old_versions_and_prevents_startup_rerun(tmp_path):
         tmp_path,
         "2.0.0",
         migrations={
-            "migrate_to_1_0_0.py": (
-                "import os\n"
-                "\n"
-                "def migrate(vault_root):\n"
-                "    path = os.path.join(vault_root, '.brain', 'local', 'count-old.txt')\n"
-                "    count = 0\n"
-                "    if os.path.exists(path):\n"
-                "        with open(path, 'r', encoding='utf-8') as f:\n"
-                "            count = int(f.read().strip())\n"
-                "    with open(path, 'w', encoding='utf-8') as f:\n"
-                "        f.write(str(count + 1))\n"
-                "    return {'status': 'ok'}\n"
-            ),
-            "migrate_to_2_0_0.py": (
-                "import os\n"
-                "\n"
-                "def migrate(vault_root):\n"
-                "    path = os.path.join(vault_root, '.brain', 'local', 'count-new.txt')\n"
-                "    count = 0\n"
-                "    if os.path.exists(path):\n"
-                "        with open(path, 'r', encoding='utf-8') as f:\n"
-                "            count = int(f.read().strip())\n"
-                "    with open(path, 'w', encoding='utf-8') as f:\n"
-                "        f.write(str(count + 1))\n"
-                "    return {'status': 'ok'}\n"
-            ),
+            "migrate_to_1_0_0.py": _counter_migration("count-old.txt"),
+            "migrate_to_2_0_0.py": _counter_migration("count-new.txt"),
         },
     )
     vault = _make_vault(tmp_path, "1.0.0")

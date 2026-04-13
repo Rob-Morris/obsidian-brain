@@ -2,6 +2,13 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.26.4 — 2026-04-13
+
+**Tidy the migration-ledger runner without changing its semantics.** `upgrade.py` now passes the in-memory migration ledger through its completeness checks instead of re-reading it from disk, and the migration-ledger regression tests now share a small helper for their generated counter migrations.
+
+- `_run_migrations()` now returns both migration results and the current ledger so callers can reuse that state when deciding whether `.brain/local/.migrated-version` can be refreshed.
+- `run_pending_migrations()` now passes `None` for `old_version` instead of the equivalent `"0.0.0"` sentinel.
+
 ## v0.26.3 — 2026-04-13
 
 **Persist migration history in `.brain/local` so reinstalling `.brain-core/` does not replay old migrations.** `upgrade.py` now records successful and skipped migrations in `.brain/local/migrations.json`, refreshes `.brain/local/.migrated-version` once the installed version is fully accounted for, and consults that local ledger before running migrations again.

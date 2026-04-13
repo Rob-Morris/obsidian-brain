@@ -201,7 +201,7 @@ def _run_migrations(
     new_version: str,
     *,
     force: bool = False,
-) -> list[dict]:
+) -> tuple[list[dict], dict]:
     """Run pending migrations between old_version and new_version.
 
     Discovers migration scripts in .brain-core/scripts/migrations/,
@@ -211,11 +211,14 @@ def _run_migrations(
     Per-migration execution is recorded in `.brain/local/migrations.json`.
     Historical migrations up to old_version are backfilled into that ledger the
     first time a vault with pre-ledger history is upgraded.
+
+    Returns (results, ledger) so callers can check completeness without
+    re-discovering migrations or re-loading the ledger from disk.
     """
     migrations_dir = os.path.join(vault_root, BRAIN_CORE_DIR, "scripts", "migrations")
     all_migrations = _discover_migrations(migrations_dir)
     if not all_migrations:
-        return []
+        return [], _load_migration_ledger(vault_root)
 
     new_tuple = _parse_version(new_version)
     ledger = _seed_migration_ledger(
@@ -239,7 +242,7 @@ def _run_migrations(
                 continue
             pending.append((version_tuple, script_path))
     if not pending:
-        return []
+        return [], ledger
 
     # Reload modules that migration scripts import.  After an upgrade the
     # new files are on disk but sys.modules still holds the old versions,
@@ -268,7 +271,7 @@ def _run_migrations(
                 "status": "error",
                 "message": str(e),
             })
-    return results
+    return results, ledger
 
 
 # Modules that migration scripts commonly import.  Kept as a small
@@ -405,15 +408,20 @@ def _record_migration_result(
     return ledger
 
 
-def _all_migrations_recorded(vault_root: str, target_version: str) -> bool:
-    """Return True when every migration up to target_version is in the ledger."""
+def _all_migrations_recorded(vault_root: str, target_version: str, ledger: Optional[dict] = None) -> bool:
+    """Return True when every migration up to target_version is in the ledger.
+
+    Pass a pre-loaded *ledger* to avoid re-reading the file from disk.
+    """
     migrations_dir = os.path.join(vault_root, BRAIN_CORE_DIR, "scripts", "migrations")
     all_migrations = _discover_migrations(migrations_dir)
     if not all_migrations:
         return True
 
     target_tuple = _parse_version(target_version)
-    recorded = set(_load_migration_ledger(vault_root)["migrations"])
+    if ledger is None:
+        ledger = _load_migration_ledger(vault_root)
+    recorded = set(ledger["migrations"])
     required = {
         _migration_version_str(version_tuple)
         for version_tuple, _ in all_migrations
@@ -445,7 +453,10 @@ def run_pending_migrations(vault_root: str, *, force: bool = False) -> list[dict
     if not current_version:
         return []
 
-    # Fast path: skip if already migrated to this version
+    # Fast path: skip if already migrated to this version.
+    # Still seed the per-migration ledger so pre-ledger vaults get their
+    # history backfilled — without this, reinstalling .brain-core/ after
+    # the marker is gone would replay all historical migrations.
     marker = os.path.join(vault_root, _MIGRATED_VERSION_FILE)
     if not force:
         try:
@@ -460,9 +471,9 @@ def run_pending_migrations(vault_root: str, *, force: bool = False) -> list[dict
         except OSError:
             pass
 
-    results = _run_migrations(vault_root, "0.0.0", current_version, force=force)
+    results, ledger = _run_migrations(vault_root, None, current_version, force=force)
 
-    if _all_migrations_recorded(vault_root, current_version):
+    if _all_migrations_recorded(vault_root, current_version, ledger=ledger):
         _write_migrated_version_marker(vault_root, current_version)
 
     return results
@@ -730,12 +741,12 @@ def upgrade(vault_root: str, source: str, *, force: bool = False, dry_run: bool 
     shutil.rmtree(backup_dir, ignore_errors=True)
 
     # --- Migrations run only after copy + compile succeeded ---
-    migrations = _run_migrations(
+    migrations, ledger = _run_migrations(
         vault_root, old_version, new_version, force=force,
     )
     if migrations:
         result["migrations"] = migrations
-    if _all_migrations_recorded(vault_root, new_version):
+    if _all_migrations_recorded(vault_root, new_version, ledger=ledger):
         _write_migrated_version_marker(vault_root, new_version)
 
     # --- Post-upgrade definition sync ---
