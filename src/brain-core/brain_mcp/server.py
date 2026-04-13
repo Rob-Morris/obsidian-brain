@@ -25,7 +25,7 @@ Optional native Obsidian CLI integration (Obsidian 1.12+ IPC socket):
   - Requires Obsidian to be running with CLI enabled (communicates via ~/.obsidian-cli.sock)
 
 Startup sequence:
-  1. Find vault root (server always runs from vault via .mcp.json)
+  1. Find vault root (server is launched with BRAIN_VAULT_ROOT by init.py-managed client config)
   2. Auto-compile router if stale
   3. Auto-build index if stale
   4. Load both into memory

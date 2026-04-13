@@ -1,6 +1,7 @@
 """Tests for edit.py — artefact editing, appending, and conversion."""
 
 import os
+import re
 import sys
 from datetime import datetime, timezone, timedelta
 from unittest.mock import patch
@@ -49,6 +50,7 @@ def vault(tmp_path):
     temporal = tmp_path / "_Temporal"
     temporal.mkdir()
     (temporal / "Logs").mkdir()
+    (temporal / "Reports").mkdir()
 
     # Taxonomy: Wiki
     tax_living = config / "Taxonomy" / "Living"
@@ -96,6 +98,11 @@ def vault(tmp_path):
         "# Logs\n\n"
         "## Naming\n\n`log-{slug}.md` in `_Temporal/Logs/yyyy-mm/`.\n\n"
         "## Frontmatter\n\n```yaml\n---\ntype: temporal/logs\ntags:\n  - session\n---\n```\n"
+    )
+    (tax_temporal / "reports.md").write_text(
+        "# Reports\n\n"
+        "## Naming\n\n`yyyymmdd-report~{Title}.md` in `_Temporal/Reports/yyyy-mm/`.\n\n"
+        "## Frontmatter\n\n```yaml\n---\ntype: temporal/reports\ntags:\n  - report\n---\n```\n"
     )
 
     # Taxonomy: Research
@@ -451,6 +458,42 @@ class TestConvertArtefact:
         assert re.match(r"^\d{8}-report~Sample Title\.md$", new_basename), (
             f"Unexpected filename shape: {new_basename}"
         )
+
+    def test_convert_collision_uses_standard_suffix_in_target_folder(self, vault, router):
+        first_month = vault / "_Temporal" / "Logs" / "2026-03"
+        second_month = vault / "_Temporal" / "Logs" / "2026-04"
+        first_month.mkdir(parents=True)
+        second_month.mkdir(parents=True)
+        (first_month / "20260301-log-foo.md").write_text(
+            "---\n"
+            "type: temporal/logs\n"
+            "title: Foo\n"
+            "tags:\n"
+            "  - report-source\n"
+            "---\n\n"
+            "First body.\n"
+        )
+        (second_month / "20260410-log-foo.md").write_text(
+            "---\n"
+            "type: temporal/logs\n"
+            "title: Foo\n"
+            "tags:\n"
+            "  - report-source\n"
+            "---\n\n"
+            "Second body.\n"
+        )
+
+        first = edit.convert_artefact(
+            str(vault), router, "_Temporal/Logs/2026-03/20260301-log-foo.md", "reports"
+        )
+        second = edit.convert_artefact(
+            str(vault), router, "_Temporal/Logs/2026-04/20260410-log-foo.md", "reports"
+        )
+
+        assert first["new_path"] != second["new_path"]
+        assert re.search(r" [a-z0-9]{3}\.md$", second["new_path"])
+        assert "First body." in (vault / first["new_path"]).read_text()
+        assert "Second body." in (vault / second["new_path"]).read_text()
 
 
 # ---------------------------------------------------------------------------

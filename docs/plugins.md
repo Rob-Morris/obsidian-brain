@@ -10,7 +10,7 @@ A plugin has up to four pieces:
 |-------|----------|---------|
 | Data folder | `_Plugins/{Name}/` | Files managed by the tool — do not hand-edit |
 | Skill doc | `_Config/Skills/{name}/SKILL.md` | Teaches agents how to use the tool's MCP tools or CLI |
-| MCP config | `.mcp.json` | Starts the tool's MCP server when Claude Code opens the vault |
+| MCP config | Claude: `.mcp.json`; Codex: `.codex/config.toml` | Starts the tool's MCP server in the chosen client |
 | Router entry | `_Config/router.md` | Makes the plugin visible to agents each session |
 
 Only the data folder is strictly required. The other pieces depend on whether the tool has an MCP server, a CLI, or needs agent awareness.
@@ -22,7 +22,7 @@ Each tool provides its own install instructions (typically a README in the tool'
 1. **Install the tool's binary** — build from source or download a release
 2. **Create the data folder**: `mkdir -p _Plugins/{Name}` (in your vault)
 3. **Copy the skill doc** (if provided): copy to `_Config/Skills/{name}/SKILL.md`
-4. **Add MCP config** (if the tool has an MCP server): create or update `.mcp.json`
+4. **Add MCP config** (if the tool has an MCP server): create or update the relevant client config (`.mcp.json` for Claude project scope, `.codex/config.toml` for Codex project scope)
 5. **Update the router**: if the plugin should be visible to agents, add it to `_Config/router.md`
 
 ## Writing a Plugin
@@ -79,7 +79,9 @@ Key fields in the frontmatter:
 
 ### 3. Add MCP server config
 
-If your tool has an MCP server, document the `.mcp.json` entry users need to add:
+If your tool has an MCP server, document the client config entries users need to add.
+
+Claude project scope uses `.mcp.json`:
 
 ```json
 {
@@ -95,7 +97,20 @@ If your tool has an MCP server, document the `.mcp.json` entry users need to add
 }
 ```
 
-The vault's `.mcp.json` is not tracked in the reference repo — each installation creates its own. Multiple plugins can coexist in the same `.mcp.json` by adding entries to `mcpServers`.
+Multiple plugins can coexist in the same Claude `.mcp.json` by adding entries to `mcpServers`.
+
+Codex project scope uses `.codex/config.toml`:
+
+```toml
+[mcp_servers.my-tool]
+command = "my-tool-mcp"
+args = []
+
+[mcp_servers.my-tool.env]
+MY_TOOL_DATA = "/path/to/your-vault/_Plugins/MyTool"
+```
+
+The vault's project MCP config is installation-local. Document both client surfaces when your plugin supports both Claude and Codex.
 
 ### 4. Package the install files
 

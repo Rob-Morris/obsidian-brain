@@ -63,8 +63,8 @@ Do not treat those as all-or-nothing unless the user explicitly requires MCP to 
 
 Preferred command selection:
 
-- Use `bash install.sh --force --skip-mcp <path>` in restricted, sandboxed, or otherwise uncertain environments.
-- Use `bash install.sh --force <path>` only when package index access is expected to work.
+- Use `bash install.sh --non-interactive --skip-mcp <path>` in restricted, sandboxed, or otherwise uncertain environments.
+- Use `bash install.sh --non-interactive <path>` only when package index access is expected to work.
 - If the user explicitly wants a vault only, use `--skip-mcp` even when network access is available.
 
 Reporting expectations:

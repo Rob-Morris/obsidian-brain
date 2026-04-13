@@ -10,7 +10,7 @@ brain-core is a self-extending system for organising Obsidian vaults, for agents
 
 ### `.brain-core/` — the engine
 
-Copied into the vault during setup and upgrade (not symlinked — vaults are self-contained and portable). Contains:
+Copied into the vault during setup and upgrade (not symlinked — vaults are self-contained and portable). `init.py` then binds the vault into native client config surfaces: Claude project/local/user config and Codex project/user config. Contains:
 
 - `scripts/` — all vault operation logic as importable Python modules with CLI entry points
 - `brain_mcp/server.py` + `brain_mcp/_server_*.py` — MCP composition root and sibling tool handlers; holds router and index in memory
@@ -29,6 +29,7 @@ Generated, gitignored. The compiled outputs that tooling reads at runtime:
 | `.brain/local/compiled-router.json` | Compiled router — the interface contract between config and tooling |
 | `.brain/local/session.md` | Generated markdown mirror of the canonical session model |
 | `.brain/local/retrieval-index.json` | BM25 retrieval index for keyword search |
+| `.brain/local/init-state.json` | Recorded MCP registrations owned by this vault for safe scoped removal |
 | `.brain/config.yaml` | Vault-level configuration (layer 2 of 3) |
 | `.brain/local/config.yaml` | Machine-local overrides (layer 3 of 3; gitignored) |
 | `.brain/local/workspaces.json` | Workspace slug-to-path registry |

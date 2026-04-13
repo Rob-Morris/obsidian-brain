@@ -17,8 +17,8 @@ ALWAYS READ BEFORE contributing: `docs/contributing-agents.md`
 
 When installing a vault on behalf of a user:
 
-- Prefer `bash install.sh --force --skip-mcp <path>` in restricted or sandboxed environments.
-- Use plain `--force` only when package index access is expected to work.
+- Prefer `bash install.sh --non-interactive --skip-mcp <path>` in restricted or sandboxed environments.
+- Use plain `--non-interactive` only when package index access is expected to work.
 - Treat vault scaffolding and MCP setup as separate outcomes; report both.
 - If MCP setup fails, keep the scaffolded vault and surface the retry commands printed by the installer.
 

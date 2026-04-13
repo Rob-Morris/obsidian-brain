@@ -1,6 +1,6 @@
 # Obsidian Brain
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.26.5-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.10-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.27.0-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.10-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
 
 A self-evolving knowledge base for agents and humans working together on what matters.
 
@@ -31,7 +31,7 @@ The [Getting Started guide](docs/user/getting-started.md) walks through all of t
 
 ## Quick Start
 
-**You need:** git, Python 3.10+, and an MCP-capable agent ([Claude Code](https://docs.anthropic.com/en/docs/claude-code), etc.). [Obsidian](https://obsidian.md) is strongly recommended — the brain is designed for it — but you can use any markdown editor or just talk to your agent directly.
+**You need:** git, Python 3.10+, and an MCP-capable agent such as [Claude Code](https://docs.anthropic.com/en/docs/claude-code) or Codex. [Obsidian](https://obsidian.md) is strongly recommended — the brain is designed for it — but you can use any markdown editor or just talk to your agent directly.
 
 **Create your vault:**
 
@@ -39,11 +39,11 @@ The [Getting Started guide](docs/user/getting-started.md) walks through all of t
 bash <(curl -fsSL https://raw.githubusercontent.com/robmorris/obsidian-brain/main/install.sh) ~/brain
 ```
 
-This downloads the repo, creates the vault at `~/brain`, and then attempts MCP setup for Claude Code. If you want the vault scaffold without `.venv` / MCP setup, use `bash install.sh --skip-mcp ~/brain` (or add `--force` for non-interactive agent installs). Run without a path to be prompted for a location. From a local clone, use `bash install.sh ~/brain` instead.
+This downloads the repo, creates the vault at `~/brain`, and then attempts project-scope MCP setup for Claude Code and Codex. If you want the vault scaffold without `.venv` / MCP setup, use `bash install.sh --skip-mcp ~/brain` (or add `--non-interactive` for non-interactive agent installs). Run without a path to be prompted for a location. From a local clone, use `bash install.sh ~/brain` instead.
 
 **Open in Obsidian (recommended):** Open the vault folder, then enable the `brain-folder-colours` CSS snippet in Settings > Appearance > CSS Snippets.
 
-**Start talking:** Open your agent in the vault folder (e.g. `cd ~/brain && claude` for Claude Code). It reads the vault structure and knows what to do. See [Workflows](docs/user/workflows.md) for what working with the brain looks like in practice.
+**Start talking:** Open your agent in the vault folder (for example `cd ~/brain && claude` or `cd ~/brain && codex`). It reads the vault structure and knows what to do. See [Workflows](docs/user/workflows.md) for what working with the brain looks like in practice.
 
 #### Upgrade
 
@@ -69,17 +69,17 @@ bash install.sh ~/my-existing-vault
 bash install.sh --uninstall ~/brain
 ```
 
-Removes brain system files (`.brain-core/`, `.brain/`, `.venv/`, `.mcp.json`, `CLAUDE.md`). Your notes are not affected. Optionally offers to delete the entire vault with a multi-stage confirmation.
+Removes brain system files (`.brain-core/`, `.brain/`, `.venv/`, `CLAUDE.md`) and removes only recorded Brain-managed project MCP entries from `.mcp.json` / `.codex/config.toml`. Your notes are not affected. User-scope MCP cleanup stays explicit. Optionally offers to delete the entire vault with a multi-stage confirmation.
 
 #### Non-interactive mode
 
 ```bash
-bash install.sh --force ~/brain
-bash install.sh --force --skip-mcp ~/brain
-bash install.sh --uninstall --force ~/brain
+bash install.sh --non-interactive ~/brain
+bash install.sh --non-interactive --skip-mcp ~/brain
+bash install.sh --uninstall --non-interactive ~/brain
 ```
 
-Skips all prompts. Useful for scripted or agent-driven installs. Add `--skip-mcp` to scaffold the vault without creating `.venv` or registering Claude MCP — useful in network-restricted agent sandboxes. On upgrades, `--force` is also passed through to `upgrade.py`, so same-version re-apply/downgrade flows and explicit migration re-runs are available when needed. If MCP dependency install or registration fails, the installer now leaves the vault in place and prints manual retry steps instead of aborting the whole install. On uninstall, `--force` removes system files without prompting and skips the vault-deletion offer entirely — vault deletion is only available in interactive mode (without `--force`).
+Skips all prompts. Useful for scripted or agent-driven installs. Add `--skip-mcp` to scaffold the vault without creating `.venv` or registering Claude/Codex MCP — useful in network-restricted agent sandboxes. If MCP dependency install or registration fails, the installer now leaves the vault in place and prints manual retry steps instead of aborting the whole install. On uninstall, `--non-interactive` removes system files without prompting and skips the vault-deletion offer entirely. If you need same-version re-apply, downgrade, or migration rerun behaviour, call `upgrade.py --force` directly.
 
 > **Full reference:** [Scripts — install.sh](docs/functional/scripts.md#installsh) covers all flags, safety guards, and edge-case behaviour.
 
@@ -92,7 +92,7 @@ If you prefer to do it yourself:
 2. Copy `template-vault/` to your preferred location: `cp -R template-vault ~/brain`
 3. Copy brain-core into the vault: `cp -R src/brain-core ~/brain/.brain-core`
 4. Create a venv and install dependencies: `cd ~/brain && python3 -m venv .venv && .venv/bin/pip install "mcp>=1.0.0"`
-5. Register the MCP server: `python3 .brain-core/scripts/init.py` (or `--user` for all projects)
+5. Register the MCP server: `python3 .brain-core/scripts/init.py --client all` (or `--user --client all` for all projects)
 6. Open the folder as an Obsidian vault
 7. Enable the CSS snippet in **Settings > Appearance > CSS Snippets** (`brain-folder-colours`)
 
@@ -100,17 +100,20 @@ If you prefer to do it yourself:
 
 ### Connecting from Other Projects
 
-When MCP setup is enabled, the install script registers the server for the vault directory. To use the brain from other directories, run one of these from inside the vault:
+When MCP setup is enabled, the install script registers the server for the vault directory at project scope for Claude Code and Codex. To use the brain from other directories, run one of these from inside the vault:
 
 ```bash
-# Make the brain available to all projects (adds to ~/.claude/settings.json)
-python3 .brain-core/scripts/init.py --user
+# Make the brain available to all projects for both clients
+python3 .brain-core/scripts/init.py --user --client all
 
-# Or link a specific project (creates .mcp.json in the target directory)
-python3 .brain-core/scripts/init.py --project /path/to/project
+# Or link a specific project for both clients
+python3 .brain-core/scripts/init.py --project /path/to/project --client all
+
+# Claude-only local scope (gitignored; Codex has no local scope)
+python3 .brain-core/scripts/init.py --client claude --local
 ```
 
-Use `--user` if you want the brain everywhere. Use `--project` to connect a single project without affecting others.
+Use `--user` if you want the brain everywhere. Use `--project` to connect a single project without affecting others. Use `--client claude --local` when you want Claude-only local config in `.claude/settings.local.json` without committing it.
 
 ### Hello, Is It Me You're Looking For?
 

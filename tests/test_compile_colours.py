@@ -6,6 +6,7 @@ import os
 import pytest
 
 import compile_colours as cc
+import compile_router
 
 
 TEMPLATE_VAULT = os.path.join(
@@ -89,6 +90,11 @@ def template_vault():
         pytest.skip("template-vault not found")
     if not os.path.isdir(os.path.join(path, ".brain-core")):
         pytest.skip(".brain-core not linked — run 'make dev-link'")
+    compiled_path = os.path.join(path, ".brain", "local", "compiled-router.json")
+    if not os.path.isfile(compiled_path):
+        os.makedirs(os.path.dirname(compiled_path), exist_ok=True)
+        with open(compiled_path, "w", encoding="utf-8") as handle:
+            json.dump(compile_router.compile(path), handle, indent=2)
     return path
 
 
@@ -423,7 +429,7 @@ class TestTemplateVault:
         router = _load_router(template_vault)
         assignments = cc.compute_colours(router)
 
-        # Template vault has 10 living + 17 temporal types
+        # Template vault currently has 10 living + 17 temporal types
         assert len(assignments["living"]) == 10
         assert len(assignments["temporal"]) == 17
 

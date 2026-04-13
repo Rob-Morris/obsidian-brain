@@ -8,6 +8,7 @@
 # From a clone:
 #   bash install.sh ~/my-brain
 #   bash install.sh --skip-mcp ~/my-brain
+#   bash install.sh --non-interactive ~/my-brain
 #   bash install.sh              # prompts for path
 #
 # Uninstall:
@@ -18,7 +19,7 @@
 #   2. Copies template-vault to your chosen location
 #   3. Copies brain-core into the vault as .brain-core
 #   4. Installs Python dependencies into a vault-local .venv (unless skipped)
-#   5. Registers the Brain MCP server for Claude Code (unless skipped)
+#   5. Registers the Brain MCP server for Claude Code and Codex (unless skipped)
 #
 # Requirements: git, python3 (3.10+ for MCP server, 3.9+ otherwise)
 # Safe to re-run with a new path.
@@ -29,7 +30,30 @@ set -euo pipefail
 # Stdin check — detect curl | bash (stdin is not a terminal)
 # ---------------------------------------------------------------------------
 
-if [ ! -t 0 ] && [ "${1:-}" != "--force" ] && [ "${1:-}" != "-f" ]; then
+HAS_NON_INTERACTIVE=false
+HAS_LEGACY_FORCE=false
+for arg in "$@"; do
+    case "$arg" in
+        --non-interactive)
+            HAS_NON_INTERACTIVE=true
+            ;;
+        --force|-f)
+            HAS_LEGACY_FORCE=true
+            ;;
+    esac
+done
+
+if [ "$HAS_LEGACY_FORCE" = true ]; then
+    printf '\033[31mError: --force has been renamed to --non-interactive.\033[0m\n' >&2
+    printf '\n' >&2
+    printf '  Use this instead:\n' >&2
+    printf '\n' >&2
+    printf '    bash install.sh --non-interactive ~/brain\n' >&2
+    printf '\n' >&2
+    exit 1
+fi
+
+if [ ! -t 0 ] && [ "$HAS_NON_INTERACTIVE" != true ]; then
     printf '\033[31mError: stdin is not a terminal.\033[0m\n' >&2
     printf '\n' >&2
     printf '  It looks like you piped this script (curl ... | bash).\n' >&2
@@ -37,9 +61,9 @@ if [ ! -t 0 ] && [ "${1:-}" != "--force" ] && [ "${1:-}" != "-f" ]; then
     printf '\n' >&2
     printf '    bash <(curl -fsSL https://raw.githubusercontent.com/robmorris/obsidian-brain/main/install.sh)\n' >&2
     printf '\n' >&2
-    printf '  Or pass --force to skip all prompts:\n' >&2
+    printf '  Or pass --non-interactive to skip all prompts:\n' >&2
     printf '\n' >&2
-    printf '    bash <(curl -fsSL https://raw.githubusercontent.com/robmorris/obsidian-brain/main/install.sh) --force ~/brain\n' >&2
+    printf '    bash <(curl -fsSL https://raw.githubusercontent.com/robmorris/obsidian-brain/main/install.sh) --non-interactive ~/brain\n' >&2
     printf '\n' >&2
     exit 1
 fi
@@ -53,15 +77,18 @@ step()  { printf '\n\033[1m▸ %s\033[0m\n' "$*" >&2; }
 err()   { printf '\033[31mError: %s\033[0m\n' "$*" >&2; exit 1; }
 warn()  { printf '\033[33mWarning: %s\033[0m\n' "$*" >&2; }
 
-# Parse --force/-f flag and positional path from arguments
+# Parse flags and positional path from arguments
 parse_flags() {
-    FORCE=false
+    NON_INTERACTIVE=false
     SKIP_MCP=false
     VAULT_PATH=""
     for arg in "$@"; do
         case "$arg" in
+            --non-interactive)
+                NON_INTERACTIVE=true
+                ;;
             --force|-f)
-                FORCE=true
+                err "--force has been renamed to --non-interactive."
                 ;;
             --skip-mcp|--no-mcp)
                 SKIP_MCP=true
@@ -82,11 +109,44 @@ resolve_path() {
     printf '%s' "$p"
 }
 
+is_semver() {
+    [[ "$1" =~ ^[0-9]+(\.[0-9]+)*$ ]]
+}
+
+compare_versions() {
+    local IFS=.
+    local left=($1)
+    local right=($2)
+    local left_len=${#left[@]}
+    local right_len=${#right[@]}
+    local len=$left_len
+    local i left_part right_part
+
+    if [ "$right_len" -gt "$len" ]; then
+        len=$right_len
+    fi
+
+    for (( i=0; i<len; i++ )); do
+        left_part=${left[i]:-0}
+        right_part=${right[i]:-0}
+        if (( 10#$left_part > 10#$right_part )); then
+            return 1
+        fi
+        if (( 10#$left_part < 10#$right_part )); then
+            return 2
+        fi
+    done
+
+    return 0
+}
+
 print_mcp_retry_hint() {
     local vault_path="$1"
     info "Retry later with network access:"
     info "  \"$vault_path/.venv/bin/python\" -m pip install -r \"$vault_path/.brain-core/brain_mcp/requirements.txt\""
-    info "  python3 \"$vault_path/.brain-core/scripts/init.py\" --vault \"$vault_path\""
+    info "  python3 \"$vault_path/.brain-core/scripts/init.py\" --vault \"$vault_path\" --project \"$vault_path\" --client all"
+    info "  Verify with: claude mcp list"
+    info "  Verify with: codex mcp list"
 }
 
 spin() {
@@ -138,8 +198,8 @@ if [ "${1:-}" = "--uninstall" ]; then
     parse_flags "$@"
 
     if [ -z "$VAULT_PATH" ]; then
-        if [ "$FORCE" = true ]; then
-            err "Path is required with --force. Usage: bash install.sh --uninstall --force /path/to/vault"
+        if [ "$NON_INTERACTIVE" = true ]; then
+            err "Path is required with --non-interactive. Usage: bash install.sh --uninstall --non-interactive /path/to/vault"
         fi
         printf 'Which vault? Path: '
         read -r VAULT_PATH
@@ -161,10 +221,14 @@ if [ "${1:-}" = "--uninstall" ]; then
     info "  - .brain-core/  (brain engine)"
     info "  - .brain/       (compiled data, caches)"
     info "  - .venv/        (Python virtual environment)"
-    info "  - .mcp.json     (MCP server registration)"
     info "  - CLAUDE.md     (agent bootstrap file)"
+    info "  - recorded Brain-managed project MCP entries in .mcp.json / .codex/config.toml"
+    printf '\n'
+    info "User-scope Claude/Codex cleanup is explicit and is not run automatically."
+    info "If this vault owns a user-scope registration, remove it before uninstalling:"
+    info "  python3 \"$VAULT_PATH/.brain-core/scripts/init.py\" --vault \"$VAULT_PATH\" --user --client all --remove"
 
-    if [ "$FORCE" = false ]; then
+    if [ "$NON_INTERACTIVE" = false ]; then
         printf '\n'
         printf '  Remove brain system files from \033[1m%s\033[0m? [Y/n]: ' "$VAULT_PATH"
         read -r confirm
@@ -178,15 +242,25 @@ if [ "${1:-}" = "--uninstall" ]; then
     fi
 
     printf '\n' >&2
+    if command -v python3 >/dev/null 2>&1 && [ -f "$VAULT_PATH/.brain-core/scripts/init.py" ]; then
+        if ! spin "Removing recorded project MCP entries" python3 "$VAULT_PATH/.brain-core/scripts/init.py" --vault "$VAULT_PATH" --project "$VAULT_PATH" --client all --remove --force; then
+            warn "Could not remove recorded project MCP entries automatically."
+            info "Retry later with:"
+            info "  python3 \"$VAULT_PATH/.brain-core/scripts/init.py\" --vault \"$VAULT_PATH\" --project \"$VAULT_PATH\" --client all --remove"
+        fi
+        printf '\n' >&2
+    else
+        warn "Skipping recorded MCP cleanup (python3 or init.py unavailable)."
+    fi
+
     spin "Removing brain system files" bash -c '
         rm -rf "$1/.brain-core"
         rm -rf "$1/.brain"
         rm -rf "$1/.venv"
-        rm -f  "$1/.mcp.json"
         rm -f  "$1/CLAUDE.md"
     ' _ "$VAULT_PATH"
 
-    if [ "$FORCE" = false ]; then
+    if [ "$NON_INTERACTIVE" = false ]; then
         printf '\n'
         printf '  Also delete the Obsidian vault and all data at \033[1m%s\033[0m? [y/N]: ' "$VAULT_PATH"
         read -r delete_all
@@ -223,9 +297,6 @@ if [ "${1:-}" = "--uninstall" ]; then
 
     printf '\n\033[1;32m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m\n\n'
     printf '  \033[1;32m✓ Your brain has been removed. Hopefully just this one.\033[0m\n'
-    printf '\n'
-    info "If you registered the brain globally (--user), also run:"
-    info "  claude mcp remove brain --scope user"
     printf '\n\033[1;32m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m\n\n'
     exit 0
 fi
@@ -269,7 +340,7 @@ fi
 # ---------------------------------------------------------------------------
 
 if [ -z "$VAULT_PATH" ]; then
-    if [ "$FORCE" = true ]; then
+    if [ "$NON_INTERACTIVE" = true ]; then
         VAULT_PATH="$(pwd)"
     else
         DEFAULT_PATH="$(pwd)"
@@ -354,9 +425,30 @@ fi
 # ---------------------------------------------------------------------------
 
 if [ -n "$EXISTING_VERSION" ]; then
-    if [ "$FORCE" = true ]; then
+    if is_semver "$EXISTING_VERSION" && is_semver "$SOURCE_VERSION"; then
+        if compare_versions "$EXISTING_VERSION" "$SOURCE_VERSION"; then
+            version_cmp=0
+        else
+            version_cmp=$?
+        fi
+        if [ "$version_cmp" -eq 0 ]; then
+            printf '\n' >&2
+            info "Brain is already at v$SOURCE_VERSION. No changes made."
+            exit 0
+        fi
+        if [ "$version_cmp" -eq 1 ]; then
+            printf '\n' >&2
+            warn "Installed brain is newer than this source copy (v$EXISTING_VERSION > v$SOURCE_VERSION)."
+            info "install.sh does not perform downgrades."
+            info "If you really want to downgrade or re-apply, run:"
+            info "  python3 \"$REPO_DIR/src/brain-core/scripts/upgrade.py\" --source \"$REPO_DIR/src/brain-core\" --vault \"$VAULT_PATH\" --force"
+            exit 0
+        fi
+    fi
+
+    if [ "$NON_INTERACTIVE" = true ]; then
         UPGRADE_MODE=true
-        printf '\n  Upgrading v%s → v%s (--force)\n' "$EXISTING_VERSION" "$SOURCE_VERSION" >&2
+        printf '\n  Upgrading v%s → v%s (--non-interactive)\n' "$EXISTING_VERSION" "$SOURCE_VERSION" >&2
     else
         printf '\n' >&2
         printf '  \033[1mThe brain is already installed (v%s).\033[0m\n' "$EXISTING_VERSION" >&2
@@ -375,11 +467,7 @@ fi
 
 printf '\n' >&2
 if [ "$UPGRADE_MODE" = true ]; then
-    if [ "$FORCE" = true ]; then
-        spin "Upgrading brain-core" python3 "$REPO_DIR/src/brain-core/scripts/upgrade.py" --source "$REPO_DIR/src/brain-core" --vault "$VAULT_PATH" --force
-    else
-        spin "Upgrading brain-core" python3 "$REPO_DIR/src/brain-core/scripts/upgrade.py" --source "$REPO_DIR/src/brain-core" --vault "$VAULT_PATH"
-    fi
+    spin "Upgrading brain-core" python3 "$REPO_DIR/src/brain-core/scripts/upgrade.py" --source "$REPO_DIR/src/brain-core" --vault "$VAULT_PATH"
     NEW_VERSION=$(cat "$VAULT_PATH/.brain-core/VERSION" 2>/dev/null || echo "unknown")
     printf '    \033[1mUpgraded to:\033[0m v%s\n' "$NEW_VERSION" >&2
     if [ "$SKIP_MCP" = true ]; then
@@ -425,6 +513,7 @@ else
                 --exclude ".venv" \
                 --exclude ".brain/local" \
                 --exclude ".mcp.json" \
+                --exclude ".codex/config.toml" \
                 "$template/" "$vault/"
         else
             cp -R "$template/." "$vault/"
@@ -433,6 +522,8 @@ else
         # Strip machine-local artefacts from the source checkout.
         rm -rf "$vault/.pytest_cache" "$vault/.venv" "$vault/.brain/local"
         rm -f "$vault/.mcp.json"
+        rm -f "$vault/.codex/config.toml"
+        rmdir "$vault/.codex" 2>/dev/null || true
         mkdir -p "$vault/.brain/local"
         : > "$vault/.brain/local/.gitkeep"
 
@@ -449,14 +540,14 @@ printf '\n' >&2
 if [ "$SKIP_MCP" = true ]; then
     REGISTER_MCP=n
     info "MCP server setup skipped (--skip-mcp)."
-    info "Register later with: python3 .brain-core/scripts/init.py"
+    info "Register later with: python3 .brain-core/scripts/init.py --client all"
 elif [ -z "$PYTHON" ]; then
     info "MCP server setup skipped (requires Python 3.10+)."
-    info "Install Python 3.10+, then run: python3 .brain-core/scripts/init.py"
-elif [ "$FORCE" = true ]; then
+    info "Install Python 3.10+, then run: cd \"$VAULT_PATH\" && python3 .brain-core/scripts/init.py --client all"
+elif [ "$NON_INTERACTIVE" = true ]; then
     REGISTER_MCP=y
 else
-    printf '  \033[1mRegister the Brain MCP server? (recommended)\033[0m [Y/n]: ' >&2
+    printf '  \033[1mRegister the Brain MCP server for Claude and Codex? (recommended)\033[0m [Y/n]: ' >&2
     read -r REGISTER_MCP
 fi
 if [ "$SKIP_MCP" = false ] && [ -n "$PYTHON" ] && { [ -z "${REGISTER_MCP:-}" ] || [ "${REGISTER_MCP:-}" = "y" ] || [ "${REGISTER_MCP:-}" = "Y" ]; }; then
@@ -466,14 +557,15 @@ if [ "$SKIP_MCP" = false ] && [ -n "$PYTHON" ] && { [ -z "${REGISTER_MCP:-}" ] |
         "$2/.venv/bin/python" -m pip install --quiet --upgrade pip -r "$2/.brain-core/brain_mcp/requirements.txt"
     ' _ "$PYTHON" "$VAULT_PATH"; then
         printf '\n' >&2
-        if spin "Registering Brain MCP server" python3 "$VAULT_PATH/.brain-core/scripts/init.py" --vault "$VAULT_PATH"; then
-            printf '    \033[1mScope:\033[0m local (this vault only)\n' >&2
+        if spin "Registering Brain MCP server" python3 "$VAULT_PATH/.brain-core/scripts/init.py" --vault "$VAULT_PATH" --project "$VAULT_PATH" --client all; then
+            printf '    \033[1mScope:\033[0m project (this vault only)\n' >&2
             printf '    \033[1mVerify:\033[0m claude mcp list\n' >&2
+            printf '    \033[1mVerify:\033[0m codex mcp list\n' >&2
         else
             printf '\n' >&2
             warn "Vault created, but MCP registration failed."
             info "Retry later with:"
-            info "  python3 \"$VAULT_PATH/.brain-core/scripts/init.py\" --vault \"$VAULT_PATH\""
+            info "  python3 \"$VAULT_PATH/.brain-core/scripts/init.py\" --vault \"$VAULT_PATH\" --project \"$VAULT_PATH\" --client all"
         fi
     else
         printf '\n' >&2
@@ -482,14 +574,14 @@ if [ "$SKIP_MCP" = false ] && [ -n "$PYTHON" ] && { [ -z "${REGISTER_MCP:-}" ] |
     fi
 elif [ -n "$PYTHON" ]; then
     printf '\n' >&2
-    info "MCP skipped. You can register later with: python3 .brain-core/scripts/init.py"
+    info "MCP skipped. You can register later with: python3 .brain-core/scripts/init.py --client all"
 fi
 
 # ---------------------------------------------------------------------------
 # Optional: Obsidian CLI (uncomment when ready)
 # ---------------------------------------------------------------------------
 
-# if [ "$FORCE" = false ]; then
+# if [ "$NON_INTERACTIVE" = false ]; then
 #     printf '\n' >&2
 #     printf '  \033[1mInstall the Obsidian CLI?\033[0m Optional — improves search and rename. [y/N]: ' >&2
 #     read -r INSTALL_CLI

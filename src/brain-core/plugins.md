@@ -8,7 +8,7 @@ A plugin consists of:
 
 - **Data folder** — `_Plugins/{Name}/` stores the plugin's files. The plugin owns this folder and its file format. Do not hand-edit plugin files unless the plugin's documentation says otherwise.
 - **Skill document** — `_Config/Skills/{name}/SKILL.md` teaches agents how to use the plugin's tools. These are user-facing skills that ship with the vault; contributor skills for brain-core development live in the dev repo's `.claude/commands/`. Optional but recommended for any plugin with MCP tools or CLI commands.
-- **MCP configuration** — `.mcp.json` at the vault root registers the plugin's MCP server. Only needed for plugins that expose MCP tools.
+- **MCP configuration** — Claude uses `.mcp.json`; Codex uses `.codex/config.toml`. Only needed for plugins that expose MCP tools.
 
 ## File Conventions
 
@@ -23,7 +23,7 @@ Plugin files follow the plugin's own conventions, not the vault's standard front
 1. Create `_Plugins/{Name}/`.
 2. Add an entry to the router if the plugin should be visible to agents.
 3. Write a skill document at `_Config/Skills/{name}/SKILL.md` describing available tools.
-4. If the plugin has an MCP server, add its configuration to `.mcp.json`.
+4. If the plugin has an MCP server, add its configuration to the relevant client config (`.mcp.json` for Claude project scope, `.codex/config.toml` for Codex project scope).
 
 See the project's `docs/plugins.md` for detailed instructions on writing and packaging plugins.
 

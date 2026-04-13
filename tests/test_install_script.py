@@ -46,9 +46,16 @@ def test_install_ignores_machine_local_template_state(tmp_path):
         "import sys\n"
         "from pathlib import Path\n"
         "\n"
-        "vault = Path(sys.argv[-1])\n"
-        "(vault / '.mcp.json').write_text("
+        "args = sys.argv[1:]\n"
+        "vault = Path(args[args.index('--vault') + 1])\n"
+        "project = Path(args[args.index('--project') + 1])\n"
+        "(vault / 'init-args.txt').write_text(' '.join(args) + '\\n')\n"
+        "(project / '.mcp.json').write_text("
         "json.dumps({'mcpServers': {'brain': {'command': 'python'}}}, indent=2) + '\\n'"
+        ")\n"
+        "(project / '.codex').mkdir(exist_ok=True)\n"
+        "(project / '.codex' / 'config.toml').write_text("
+        "'[mcp_servers.brain]\\ncommand = \"python\"\\n'"
         ")\n"
     )
 
@@ -87,7 +94,7 @@ def test_install_ignores_machine_local_template_state(tmp_path):
     env["PATH"] = f"{fake_bin}:{env['PATH']}"
 
     result = subprocess.run(
-        ["bash", "install.sh", "--force", str(target)],
+        ["bash", "install.sh", "--non-interactive", str(target)],
         cwd=source,
         env=env,
         capture_output=True,
@@ -97,6 +104,9 @@ def test_install_ignores_machine_local_template_state(tmp_path):
 
     assert result.returncode == 0, result.stderr
     assert (target / ".mcp.json").is_file()
+    assert (target / ".codex" / "config.toml").is_file()
+    assert "--project" in (target / "init-args.txt").read_text()
+    assert str(target) in (target / "init-args.txt").read_text()
     assert not (target / ".venv" / "bin" / "pip").exists()
     assert not (target / ".venv" / "source-only-marker").exists()
     assert (target / ".venv" / "pip-args.txt").read_text().startswith(
@@ -157,7 +167,7 @@ def test_install_continues_when_mcp_dependency_install_fails(tmp_path):
     env["PATH"] = f"{fake_bin}:{env['PATH']}"
 
     result = subprocess.run(
-        ["bash", "install.sh", "--force", str(target)],
+        ["bash", "install.sh", "--non-interactive", str(target)],
         cwd=source,
         env=env,
         capture_output=True,
@@ -172,6 +182,7 @@ def test_install_continues_when_mcp_dependency_install_fails(tmp_path):
         "install --quiet --upgrade pip -r "
     )
     assert not (target / ".mcp.json").exists()
+    assert not (target / ".codex" / "config.toml").exists()
     assert not (target / "init-ran.txt").exists()
     assert "Vault created, but MCP dependency installation failed." in result.stderr
 
@@ -199,7 +210,7 @@ def test_install_can_skip_mcp_setup(tmp_path):
     env["PATH"] = f"{fake_bin}:{env['PATH']}"
 
     result = subprocess.run(
-        ["bash", "install.sh", "--force", "--skip-mcp", str(target)],
+        ["bash", "install.sh", "--non-interactive", "--skip-mcp", str(target)],
         cwd=source,
         env=env,
         capture_output=True,
@@ -211,15 +222,33 @@ def test_install_can_skip_mcp_setup(tmp_path):
     assert (target / ".brain-core" / "VERSION").is_file()
     assert not (target / ".venv").exists()
     assert not (target / ".mcp.json").exists()
+    assert not (target / ".codex" / "config.toml").exists()
     assert "MCP server setup skipped (--skip-mcp)." in result.stderr
 
 
-def test_upgrade_force_passes_through_to_upgrade_script(tmp_path):
+def test_install_rejects_legacy_force_flag(tmp_path):
     source = tmp_path / "source"
     source.mkdir()
     _copy_source_checkout(source)
 
-    (source / "src" / "brain-core" / "VERSION").write_text("1.0.0\n")
+    result = subprocess.run(
+        ["bash", "install.sh", "--force", str(tmp_path / "vault")],
+        cwd=source,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+    assert result.returncode == 1
+    assert "--non-interactive" in result.stderr
+
+
+def test_upgrade_non_interactive_does_not_pass_force_to_upgrade_script(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    _copy_source_checkout(source)
+
+    (source / "src" / "brain-core" / "VERSION").write_text("1.0.1\n")
     (source / "src" / "brain-core" / "scripts" / "upgrade.py").write_text(
         "import sys\n"
         "from pathlib import Path\n"
@@ -234,7 +263,7 @@ def test_upgrade_force_passes_through_to_upgrade_script(tmp_path):
     (target / ".brain-core" / "VERSION").write_text("1.0.0\n")
 
     result = subprocess.run(
-        ["bash", "install.sh", "--force", "--skip-mcp", str(target)],
+        ["bash", "install.sh", "--non-interactive", "--skip-mcp", str(target)],
         cwd=source,
         capture_output=True,
         text=True,
@@ -242,4 +271,4 @@ def test_upgrade_force_passes_through_to_upgrade_script(tmp_path):
     )
 
     assert result.returncode == 0, result.stderr
-    assert "--force" in (target / "upgrade-args.txt").read_text()
+    assert "--force" not in (target / "upgrade-args.txt").read_text()

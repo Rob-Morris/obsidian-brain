@@ -29,12 +29,12 @@ bash install.sh ~/brain
 For non-interactive agent installs in restricted environments, scaffold the vault without MCP setup:
 
 ```bash
-bash install.sh --force --skip-mcp ~/brain
+bash install.sh --non-interactive --skip-mcp ~/brain
 ```
 
-The installer creates the vault from the template, copies `.brain-core/` into it, and then attempts the Python / MCP setup for Claude Code. It also handles upgrades (re-run on an existing vault) and installing into an existing Obsidian vault. In network-restricted environments you can pass `--skip-mcp` to scaffold the vault without the `.venv` / MCP setup, or rerun the printed retry steps later if dependency installation fails. On upgrade, `--force` also passes through to `upgrade.py` so explicit same-version re-apply or migration rerun flows are available. See [install.sh](../functional/scripts.md#installsh) for full details, modes, and flags.
+The installer creates the vault from the template, copies `.brain-core/` into it, and then attempts project-scope Python / MCP setup for Claude Code and Codex. It also handles upgrades (re-run on an existing vault) and installing into an existing Obsidian vault. In network-restricted environments you can pass `--skip-mcp` to scaffold the vault without the `.venv` / MCP setup, or rerun the printed retry steps later if dependency installation fails. Use `--non-interactive` when you want installer automation without prompts. Same-version re-apply or downgrade flows remain explicit `upgrade.py --force` operations. See [install.sh](../functional/scripts.md#installsh) for full details, modes, and flags.
 
-**Requirements:** git and python3. Python 3.10+ is recommended for MCP server support — without it the vault is still created but agent tools won't be available until you install Python and run `init.py` manually.
+**Requirements:** git and python3. Python 3.10+ is recommended for MCP server support — without it the vault is still created but agent tools won't be available until you install Python and run `init.py --client all` manually.
 
 ---
 

@@ -46,3 +46,4 @@ Treat decision files as historical records, similar to the changelog. Update thi
 | DD-036 | Safe write pattern — tmp + fsync + rename | Implemented | [dd-036-safe-write-pattern.md](dd-036-safe-write-pattern.md) |
 | DD-037 | Generous filename matching — preserve Unicode, strip only unsafe chars | Implemented | [dd-037-generous-filename-matching.md](dd-037-generous-filename-matching.md) |
 | DD-038 | Unified session bootstrap — one model, JSON + markdown renderers, thin index | Implemented (v0.25.0) | [dd-038-unified-session-bootstrap.md](dd-038-unified-session-bootstrap.md) |
+| DD-039 | Multi-client MCP install keeps native client scopes | Accepted | [dd-039-multi-client-mcp-install-scopes.md](dd-039-multi-client-mcp-install-scopes.md) |

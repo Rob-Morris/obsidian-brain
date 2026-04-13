@@ -199,20 +199,20 @@ Full details in the [Template Library Guide — Extending Your Vault](https://gi
 
 ## Setup
 
-To configure Claude Code to use this vault's MCP server:
+To configure Claude Code and Codex to use this vault's MCP server:
 
 ```bash
-# Configure current directory to use the brain
+# Configure current directory for both clients
 cd /my/project && python3 /path/to/vault/.brain-core/scripts/init.py
 
-# Same, but gitignored (local scope)
-python3 /path/to/vault/.brain-core/scripts/init.py --local
+# Claude-only local scope (gitignored; Codex has no local scope)
+python3 /path/to/vault/.brain-core/scripts/init.py --client claude --local
 
-# Register as your default brain for all projects
-python3 /path/to/vault/.brain-core/scripts/init.py --user
+# Register as your default brain for all projects for both clients
+python3 /path/to/vault/.brain-core/scripts/init.py --user --client all
 
-# Configure a specific folder without cd-ing into it
-python3 /path/to/vault/.brain-core/scripts/init.py --project /path/to/project
+# Configure a specific folder for both clients without cd-ing into it
+python3 /path/to/vault/.brain-core/scripts/init.py --project /path/to/project --client all
 ```
 
 ## Tooling

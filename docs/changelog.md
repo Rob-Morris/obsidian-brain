@@ -2,6 +2,16 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.27.0 — 2026-04-13
+
+**Support native multi-client MCP install for Claude Code and Codex, with a tightened installer contract.** `init.py` now has explicit `--client claude|codex|all` handling, writes each client's native project/user config surface, rejects Codex local scope explicitly, records registrations in `.brain/local/init-state.json`, and removes only recorded Brain-managed entries via `--remove`.
+
+- `install.sh` now passes explicit vault and project paths into `init.py`, registers both clients by default when MCP setup is enabled, updates retry/verify guidance for both `claude mcp list` and `codex mcp list`, and removes recorded project MCP entries during uninstall instead of deleting whole config files.
+- Breaking: installer prompt suppression is now spelled `--non-interactive`, and `install.sh` no longer forwards installer prompt suppression into `upgrade.py --force`. Same-version re-apply, downgrade, and migration rerun behaviour remain explicit `upgrade.py --force` operations.
+- `src/brain-core/scripts/edit.py` now reuses Brain's standard same-folder 3-character suffix convention when a converted target filename would collide, preventing silent overwrites of same-titled temporal artefacts during type conversion.
+- Added regression coverage for Codex TOML merge/remove behaviour, recorded init state, dual-client installer arguments, `--client all --local` partial-success handling, the renamed installer flag, the removal of upgrade-force pass-through, and conversion collisions that previously overwrote same-day temporal targets.
+- Updated README, getting-started, script references, the in-vault guide, plugin docs, contributor guidance, and the architecture overview to describe the current multi-client install contract.
+
 ## v0.26.5 — 2026-04-13
 
 **Fix `brain_action("convert")` producing filenames that nest the source type's naming prefix inside the target pattern.** Converting a temporal artefact like `20260413-research~Foo.md` to `reports` previously produced `20260413-report~20260413-research~Foo.md` when the source had no `title` frontmatter. The raw filename stem was used as the title for the target pattern, duplicating the old prefix. `convert_artefact()` now extracts the clean title from the source filename using the source type's naming pattern before applying the target pattern.

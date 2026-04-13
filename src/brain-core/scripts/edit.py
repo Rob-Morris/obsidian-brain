@@ -42,6 +42,7 @@ from _common import (
     parse_structural_anchor_line,
     strip_md_ext,
     title_to_slug,
+    unique_filename,
     validate_artefact_folder,
     validate_artefact_naming,
     validate_artefact_path,
@@ -587,8 +588,14 @@ def convert_artefact(vault_root, router, path, target_type, parent=None):
         rel = os.path.relpath(source_dir, source_art["path"])
         parent = rel if rel != "." else None
 
-    # Compute new path
+    # Compute new path. Reuse the standard same-folder collision suffix so
+    # converting same-titled artefacts never overwrites an existing target.
     target_folder = resolve_folder(target_art, parent=parent)
+    target_abs_folder = os.path.join(vault_root, target_folder)
+    candidate_new_path = os.path.join(target_folder, new_filename)
+    if candidate_new_path != path:
+        stem, ext = os.path.splitext(new_filename)
+        new_filename = unique_filename(target_abs_folder, stem, ext or ".md")
     new_path = os.path.join(target_folder, new_filename)
     check_write_allowed(new_path)
 

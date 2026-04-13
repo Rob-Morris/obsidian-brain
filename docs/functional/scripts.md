@@ -25,7 +25,7 @@ Operational reference for scripts in `.brain-core/scripts/`. Each script exposes
 | `session.py` | Build the canonical session model and refresh `.brain/local/session.md` | `python3 session.py [--json]` |
 | `generate_key.py` | Generate operator key + hash for config.yaml | `python3 generate_key.py [--count N]` |
 | `process.py` | Content classification, duplicate resolution, ingestion | (library module, used by MCP server) |
-| `init.py` | MCP server registration | `python3 init.py [--user] [--local] [--project PATH]` |
+| `init.py` | Claude/Codex MCP registration + recorded removal | `python3 init.py [--client {claude,codex,all}] [--user] [--local] [--project PATH] [--remove] [--force]` |
 
 ## Architecture
 
@@ -132,26 +132,26 @@ bash install.sh ~/my-vault       # detects non-empty dir, installs brain-core on
 bash install.sh --uninstall ~/brain
 
 # Non-interactive (for scripts/agents)
-bash install.sh --force ~/brain
-bash install.sh --force --skip-mcp ~/brain
-bash install.sh --uninstall --force ~/brain
+bash install.sh --non-interactive ~/brain
+bash install.sh --non-interactive --skip-mcp ~/brain
+bash install.sh --uninstall --non-interactive ~/brain
 ```
 
 ### Modes
 
 | Mode | Trigger | What happens |
 |---|---|---|
-| **Fresh install** | Target is empty or doesn't exist | Copies template vault + brain-core, creates `.venv`, registers MCP server (unless skipped or deferred after a dependency failure) |
+| **Fresh install** | Target is empty or doesn't exist | Copies template vault + brain-core, creates `.venv`, registers project-scope MCP for Claude and Codex (unless skipped or deferred after a dependency failure) |
 | **Upgrade** | Target contains `.brain-core/` | Shows installed vs source version, confirms, runs `upgrade.py`, syncs Python dependencies when possible |
 | **Existing vault** | Target is non-empty but has no `.brain-core/` | Installs brain-core + config scaffolding only — existing files are never overwritten |
 | **Uninstall** | `--uninstall` flag | Removes brain system files; optionally deletes the entire vault |
 
 ### Flags
 
-- `--force` / `-f` — skip all interactive prompts. On install/upgrade: accepts defaults and auto-attempts MCP setup unless you also pass `--skip-mcp`. During upgrades it also passes `--force` through to `upgrade.py`, allowing same-version re-apply/downgrade flows and re-running recorded migrations when explicitly requested. On uninstall: removes system files without prompting and skips the vault-deletion offer entirely — vault deletion is only available in interactive mode (without `--force`). Also bypasses the stdin pipe detection error.
+- `--non-interactive` — skip all interactive prompts. On install/upgrade: accepts defaults and auto-attempts MCP setup unless you also pass `--skip-mcp`. On uninstall: removes system files without prompting and skips the vault-deletion offer entirely. Also bypasses the stdin pipe detection error. `install.sh` does not expose upgrade override semantics; use `upgrade.py --force` directly for same-version re-apply, downgrade, or migration rerun flows.
 - `--skip-mcp` / `--no-mcp` — skip `.venv` creation, dependency installation, MCP registration, and upgrade-time dependency sync. Useful for network-restricted or vault-only installs.
 - `--uninstall` — enter uninstall mode. Must be the first argument.
-- **Path** (positional, optional) — target directory. Defaults to current directory (prompted interactively, or `pwd` with `--force`).
+- **Path** (positional, optional) — target directory. Defaults to current directory (prompted interactively, or `pwd` with `--non-interactive`).
 
 ### Requirements
 
@@ -169,7 +169,7 @@ The script refuses dangerous target paths:
 - The source repo itself (when running from a clone)
 - Any path whose parent directory doesn't exist
 
-**Stdin pipe detection:** running `curl ... | bash` breaks interactive prompts. The script detects this and exits with a message showing the correct `bash <(curl ...)` invocation. Pass `--force` to skip all prompts and bypass the check.
+**Stdin pipe detection:** running `curl ... | bash` breaks interactive prompts. The script detects this and exits with a message showing the correct `bash <(curl ...)` invocation. Pass `--non-interactive` to skip all prompts and bypass the check.
 
 ### Existing vault behaviour
 
@@ -184,26 +184,35 @@ Existing files and directories are never touched. The script detects `.obsidian/
 
 ### Uninstall
 
-Two-stage confirmation protects against accidental data loss (interactive mode only — `--force` skips both stages):
+Two-stage confirmation protects against accidental data loss (interactive mode only — `--non-interactive` skips both stages):
 
-1. **System files** — confirms removal of `.brain-core/`, `.brain/`, `.venv/`, `.mcp.json`, `CLAUDE.md`. Your notes and vault structure are untouched. With `--force`, this stage is skipped (auto-confirmed) and the script exits after removal.
-2. **Full vault deletion** — optionally offers to delete the entire directory. Counts and displays the number of artefacts that would be lost. Requires typing `"farewell, cruel world"` to confirm. Not available with `--force`.
+1. **System files** — confirms removal of `.brain-core/`, `.brain/`, `.venv/`, `CLAUDE.md`, plus recorded Brain-managed project MCP entries from `.mcp.json` / `.codex/config.toml`. Your notes and vault structure are untouched. With `--non-interactive`, this stage is skipped (auto-confirmed) and the script exits after removal.
+2. **Full vault deletion** — optionally offers to delete the entire directory. Counts and displays the number of artefacts that would be lost. Requires typing `"farewell, cruel world"` to confirm. Not available with `--non-interactive`.
 
-After uninstall, the script reminds you to clean up global MCP registration if applicable: `claude mcp remove brain --scope user`.
+User-scope cleanup remains explicit. The uninstall flow reminds you to run `init.py --remove --user` before deleting the vault when that scope is in use.
 
 ## init.py
 
-Setup script at `.brain-core/scripts/init.py`. Configures Claude Code to use the brain MCP server. Self-contained (no `_common` imports), idempotent, supports four scopes:
+Setup script at `.brain-core/scripts/init.py`. Configures Claude Code and Codex to use the brain MCP server. Self-contained (no `_common` imports), idempotent, and explicit about both client and scope:
 
-- **Project** (default): `.mcp.json` + `CLAUDE.md` bootstrap in the current directory (or `--project <dir>`). For per-project vault binding.
-- **Local** (`--local`): `.claude/settings.local.json` + `.claude/CLAUDE.local.md` in the target directory. Gitignored — for personal use without committing config.
-- **User** (`--user`): `~/.claude.json` top-level `mcpServers`. Default brain for all projects.
+- **Client selector** — `--client claude|codex|all` (default: `all`)
+- **Project** (default): Claude writes `.mcp.json`; Codex writes `.codex/config.toml`; Claude also ensures `CLAUDE.md` and a SessionStart hook in `.claude/settings.local.json`
+- **Local** (`--local`): Claude only. Writes `.claude/settings.local.json` + `.claude/CLAUDE.local.md` in the target directory. Gitignored — for personal use without committing config
+- **User** (`--user`): Claude writes `~/.claude.json`; Codex writes `~/.codex/config.toml`
 
-When multiple scopes are configured, project takes priority over local, which takes priority over user. The script warns if a global registration already exists when installing at project or local scope.
+When multiple scopes are configured, project takes priority over local, which takes priority over user. The script warns if a matching user-scope registration already exists when installing at project or local scope.
+
+Codex has no native local scope. `--client codex --local` exits with an error. `--client all --local` applies Claude local setup, skips Codex local setup, prints a warning, and exits success.
 
 Optional: `--vault <path>` overrides vault root auto-detection (used by `install.sh` when the script isn't inside the vault).
 
-Registration strategy: `claude mcp add-json` when CLI available, direct JSON file editing otherwise. Both produce equivalent config. All writes are atomic (tmp + fsync + rename).
+Registration strategy:
+
+- **Claude** — prefers `claude mcp add-json` when CLI available, falls back to direct JSON file editing
+- **Codex** — direct TOML file editing of native Codex config surfaces
+- **Removal** — `--remove` deletes only recorded Brain-managed entries from the requested client/scope; user-scope cleanup is explicit-only; project uninstall uses the same recorded removal path
+
+All writes are atomic (tmp + fsync + rename). `init.py` records client, scope, config path, target path, and server config in `.brain/local/init-state.json` so later removal can compare the current entry against recorded ownership instead of guessing from file presence.
 
 **Dependencies:** Python 3.8+ stdlib only. Detects a Python with `mcp` package for the server config (vault `.venv` -> current Python -> PATH search).
 
