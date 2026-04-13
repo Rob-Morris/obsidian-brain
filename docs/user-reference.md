@@ -183,7 +183,7 @@ Available in `.brain-core/scripts/`. Scripts are the source of truth for all vau
 | `rename.py` | Rename a file with automatic wikilink updates |
 | `upgrade.py` | Upgrade brain-core in-place from a source directory, tracking applied migrations in `.brain/local/` (CLI-only, not shipped to vaults) |
 | `workspace_registry.py` | Workspace slug→path resolution and registration |
-| `init.py` | Set up Claude Code and/or Codex to use this vault's MCP server; folder-scoped installs also scaffold `.brain/workspace.yaml` |
+| `init.py` | Set up Claude Code and/or Codex to use this vault's MCP server; folder-scoped installs also scaffold `.brain/workspace.yaml`. Project scope outranks user scope once the client activates the project entry: approve via `/mcp` in Claude, or trust/enable the project-scoped server in Codex. |
 | `check.py` | Structural compliance checker — validates naming, frontmatter, month folders, archives, status values |
 | `migrate_naming.py` | Migrate vault filenames from old aggressive slugs to generous naming conventions |
 | `fix_links.py` | Auto-repair broken wikilinks using naming convention heuristics |

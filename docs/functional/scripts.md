@@ -200,7 +200,7 @@ Setup script at `.brain-core/scripts/init.py`. Configures Claude Code and Codex 
 - **Local** (`--local`): Claude only. Writes `.claude/settings.local.json` + `.claude/CLAUDE.local.md` in the target directory. Gitignored — for personal use without committing config
 - **User** (`--user`): Claude writes `~/.claude.json`; Codex writes `~/.codex/config.toml`
 
-When multiple scopes are configured, project takes priority over local, which takes priority over user. The script warns if a matching user-scope registration already exists when installing at project or local scope.
+When multiple scopes are configured, project takes priority over local, which takes priority over user once the project-scoped client entry is active. For Claude, that means the project's `.mcp.json` entry has been approved via `/mcp`. For Codex, that means the project is trusted and the project-scoped MCP is enabled. The script warns if a matching user-scope registration already exists when installing at project or local scope.
 
 Codex has no native local scope. `--client codex --local` exits with an error. `--client all --local` applies Claude local setup, skips Codex local setup, prints a warning, and exits success.
 
@@ -211,6 +211,10 @@ Registration strategy:
 - **Claude** — prefers `claude mcp add-json` when CLI available, falls back to direct JSON file editing
 - **Codex** — direct TOML file editing of native Codex config surfaces
 - **Removal** — `--remove` deletes only recorded Brain-managed entries from the requested client/scope; user-scope cleanup is explicit-only; project uninstall uses the same recorded removal path
+
+Claude project-scope installs still require Claude Code's own trust step for `.mcp.json`. `init.py` does not auto-approve that trust boundary. After a project install, open Claude Code in the target directory and run `/mcp` to approve `brain` if prompted. This matters most when `~/.claude.json` already contains a user-scoped `brain`: until the project entry is approved, Claude may route `mcp__brain__*` calls to the user-scoped server instead. `claude mcp list` is only a health check; it does not prove project approval.
+
+Codex project-scope installs have the same activation caveat in different words: the project-scoped `.codex/config.toml` entry outranks the user-scoped one once the project is trusted and `brain` is enabled for that project. Until then, Codex may keep using the user-scoped `brain` from `~/.codex/config.toml`. `codex mcp list` is a health check, not proof that the project-scoped server is the one serving calls; verify by calling `brain_session` and confirming `environment.vault_root`.
 
 All writes are atomic (tmp + fsync + rename). `init.py` records client, scope, config path, target path, and server config in `.brain/local/init-state.json` so later removal can compare the current entry against recorded ownership instead of guessing from file presence.
 

@@ -95,6 +95,13 @@ def vault(tmp_path):
 
 
 @pytest.fixture
+def fake_home(tmp_path, monkeypatch):
+    """Redirect ``Path.home()`` to ``tmp_path`` so tests can write fake user configs."""
+    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+    return tmp_path
+
+
+@pytest.fixture
 def non_tmp_vault():
     """Vault directory outside the system temp dir.
 

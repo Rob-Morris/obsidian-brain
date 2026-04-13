@@ -107,6 +107,8 @@ def test_install_ignores_machine_local_template_state(tmp_path):
     assert (target / ".codex" / "config.toml").is_file()
     assert "--project" in (target / "init-args.txt").read_text()
     assert str(target) in (target / "init-args.txt").read_text()
+    assert "open Claude Code in this directory and use /mcp to approve brain if prompted" in result.stderr
+    assert "trust this project and ensure the project-scoped brain MCP is enabled if prompted" in result.stderr
     assert not (target / ".venv" / "bin" / "pip").exists()
     assert not (target / ".venv" / "source-only-marker").exists()
     assert (target / ".venv" / "pip-args.txt").read_text().startswith(

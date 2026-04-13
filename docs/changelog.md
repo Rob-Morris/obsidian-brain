@@ -2,6 +2,15 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.27.8 — 2026-04-14
+
+**Make project-scope MCP activation explicit instead of pretending registration is sufficient.** `init.py` and the installer now warn that project scope outranks user scope only once the project-scoped MCP is active: Claude still needs a `/mcp` approval step, and Codex still needs the project trusted with the project-scoped `brain` enabled.
+
+- `init.py` now inspects Claude's per-project approval state in `~/.claude.json`, warns when a project-scoped `brain` is unapproved or explicitly disabled, and qualifies both Claude and Codex precedence messaging so project scope wins once the project entry is active rather than merely written.
+- Installer, README, getting-started, functional script docs, and the shipped guide now tell users to activate project-scope `brain` before trusting precedence claims: approve via `/mcp` in Claude, or trust/enable the project-scoped entry in Codex. Both client `mcp list` commands are treated as health checks rather than proof that the project-scoped server is serving calls.
+- Added regression coverage for the new Claude approval warnings and the installer's revised post-install guidance.
+- Note: the originating bug report claimed `init.py` was writing a bogus `enabledMcpjsonServers` key into `.claude/settings.local.json`; review of the code and git history confirmed that key was never written by `init.py`, so no removal was required.
+
 ## v0.27.7 — 2026-04-14
 
 **Drop the last `mcp/` transport shims now that legacy installs are repaired during upgrade.** The temporary `.brain-core/mcp/proxy.py` and `.brain-core/mcp/server.py` bridges have been removed from the shipped engine, so fresh upgrades depend on the packaged `brain_mcp` transport plus the `v0.27.6` repair migration instead of runtime delegation through deprecated entrypoints.

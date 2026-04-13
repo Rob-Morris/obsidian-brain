@@ -215,6 +215,8 @@ python3 /path/to/vault/.brain-core/scripts/init.py --user --client all
 python3 /path/to/vault/.brain-core/scripts/init.py --project /path/to/project --client all
 ```
 
+For project scope, registration is not the whole story. Claude still needs the project's `.mcp.json` entry approved via `/mcp`, and Codex still needs the project trusted with the project-scoped `brain` MCP enabled. Once that project-scoped entry is active, it outranks the user-scoped one. Until then, either client may keep routing `mcp__brain__*` calls to a user-scoped `brain`.
+
 ## Tooling
 
 If your vault has the Brain MCP server running, you get eight tools:

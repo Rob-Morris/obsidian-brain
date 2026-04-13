@@ -145,8 +145,10 @@ print_mcp_retry_hint() {
     info "Retry later with network access:"
     info "  \"$vault_path/.venv/bin/python\" -m pip install -r \"$vault_path/.brain-core/brain_mcp/requirements.txt\""
     info "  python3 \"$vault_path/.brain-core/scripts/init.py\" --vault \"$vault_path\" --project \"$vault_path\" --client all"
-    info "  Verify with: claude mcp list"
-    info "  Verify with: codex mcp list"
+    info "  In Claude Code for that directory: run /mcp and approve brain if prompted"
+    info "  In Codex for that directory: trust the project and ensure the project-scoped brain MCP is enabled"
+    info "  Verify in either client: call brain_session and confirm environment.vault_root"
+    info "  Codex health check: codex mcp list"
 }
 
 spin() {
@@ -559,8 +561,10 @@ if [ "$SKIP_MCP" = false ] && [ -n "$PYTHON" ] && { [ -z "${REGISTER_MCP:-}" ] |
         printf '\n' >&2
         if spin "Registering Brain MCP server" python3 "$VAULT_PATH/.brain-core/scripts/init.py" --vault "$VAULT_PATH" --project "$VAULT_PATH" --client all; then
             printf '    \033[1mScope:\033[0m project (this vault only)\n' >&2
-            printf '    \033[1mVerify:\033[0m claude mcp list\n' >&2
-            printf '    \033[1mVerify:\033[0m codex mcp list\n' >&2
+            printf '    \033[1mClaude:\033[0m open Claude Code in this directory and use /mcp to approve brain if prompted\n' >&2
+            printf '    \033[1mCodex:\033[0m trust this project and ensure the project-scoped brain MCP is enabled if prompted\n' >&2
+            printf '    \033[1mVerify:\033[0m ask either client to call brain_session and confirm environment.vault_root\n' >&2
+            printf '    \033[1mHealth:\033[0m codex mcp list\n' >&2
         else
             printf '\n' >&2
             warn "Vault created, but MCP registration failed."

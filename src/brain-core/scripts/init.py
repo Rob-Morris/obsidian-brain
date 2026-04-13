@@ -396,6 +396,78 @@ def write_user_claude_json(server_config: Dict[str, Any]) -> None:
     _upsert_mcp_server(Path.home() / CLAUDE_USER_CONFIG_FILE, server_config)
 
 
+def _claude_project_approval_state(target_dir: Path) -> Dict[str, Any]:
+    """Read Claude's per-project trust state for `.mcp.json` servers."""
+    data = _read_json_safe(Path.home() / CLAUDE_USER_CONFIG_FILE)
+
+    projects = data.get("projects")
+    project_entry = projects.get(str(target_dir.resolve())) if isinstance(projects, dict) else {}
+    if not isinstance(project_entry, dict):
+        project_entry = {}
+
+    enabled = project_entry.get("enabledMcpjsonServers", [])
+    disabled = project_entry.get("disabledMcpjsonServers", [])
+    enabled = enabled if isinstance(enabled, list) else []
+    disabled = disabled if isinstance(disabled, list) else []
+
+    user_servers = data.get("mcpServers")
+    user_server = user_servers.get(BRAIN_SERVER_NAME) if isinstance(user_servers, dict) else None
+
+    user_scope_vault_root = None
+    if isinstance(user_server, dict):
+        env = user_server.get("env")
+        if isinstance(env, dict):
+            vault_root = env.get("BRAIN_VAULT_ROOT")
+            if isinstance(vault_root, str) and vault_root:
+                user_scope_vault_root = vault_root
+
+    return {
+        "approved": BRAIN_SERVER_NAME in enabled,
+        "disabled": BRAIN_SERVER_NAME in disabled,
+        "has_user_scope_server": isinstance(user_server, dict),
+        "user_scope_vault_root": user_scope_vault_root,
+    }
+
+
+def _claude_project_followup_notes(target_dir: Path) -> List[str]:
+    """Return user-facing follow-up notes for Claude project-scope installs."""
+    state = _claude_project_approval_state(target_dir)
+    if state["approved"]:
+        return []
+
+    notes: List[str] = []
+    if state["disabled"]:
+        notes.append(
+            f'Claude currently has project-scoped ".mcp.json" server "{BRAIN_SERVER_NAME}" '
+            f"disabled for {target_dir}."
+        )
+        notes.append(
+            f'Open Claude Code in {target_dir} and re-enable "{BRAIN_SERVER_NAME}" via /mcp.'
+        )
+    else:
+        notes.append(
+            f'Claude has not approved project-scoped ".mcp.json" server "{BRAIN_SERVER_NAME}" '
+            f"for {target_dir} yet."
+        )
+        notes.append(
+            f'Open Claude Code in {target_dir} and run /mcp to approve "{BRAIN_SERVER_NAME}".'
+        )
+
+    if state["has_user_scope_server"]:
+        source = state["user_scope_vault_root"] or str(Path.home() / CLAUDE_USER_CONFIG_FILE)
+        notes.append(
+            'Until you approve it, Claude may route `mcp__brain__*` calls to the '
+            f'user-scoped "{BRAIN_SERVER_NAME}" from ~/.claude.json ({source}).'
+        )
+
+    notes.append("`claude mcp list` runs health checks, but it does not confirm project approval.")
+    notes.append(
+        f'Advanced: add "{BRAIN_SERVER_NAME}" to projects["{target_dir}"].enabledMcpjsonServers '
+        "in ~/.claude.json by hand if you prefer not to use /mcp."
+    )
+    return notes
+
+
 # ---------------------------------------------------------------------------
 # Minimal TOML editing for Codex config
 # ---------------------------------------------------------------------------
@@ -887,17 +959,25 @@ def _warn_if_user_scope_exists(client: str, scope: str, server_config: Dict[str,
         current = _read_json_safe(Path.home() / CLAUDE_USER_CONFIG_FILE)
         servers = current.get("mcpServers", {})
         if isinstance(servers, dict) and BRAIN_SERVER_NAME in servers:
-            info(
-                f'Note: "{BRAIN_SERVER_NAME}" is already registered globally '
-                f"({Path.home() / CLAUDE_USER_CONFIG_FILE}). Project or local Claude config will take priority."
-            )
+            if scope == "project":
+                info(
+                    f'Note: "{BRAIN_SERVER_NAME}" is already registered globally '
+                    f"({Path.home() / CLAUDE_USER_CONFIG_FILE}). Claude only prefers the "
+                    "project .mcp.json entry after you approve it via /mcp."
+                )
+            else:
+                info(
+                    f'Note: "{BRAIN_SERVER_NAME}" is already registered globally '
+                    f"({Path.home() / CLAUDE_USER_CONFIG_FILE}). Local Claude config will take priority."
+                )
         return
 
     current_codex = read_codex_server_config(Path.home() / CODEX_CONFIG_REL)
     if current_codex:
         info(
             f'Note: "{BRAIN_SERVER_NAME}" is already registered globally '
-            f"({Path.home() / CODEX_CONFIG_REL}). Project Codex config will take priority."
+            f"({Path.home() / CODEX_CONFIG_REL}). Project Codex config will take priority "
+            "once this project is trusted and its project-scoped `brain` MCP is enabled."
         )
 
 
@@ -1152,10 +1232,34 @@ def main() -> None:
             f"{result['client'].title()}: {result['method']}"
         )
     print(file=sys.stderr)
-    if any(result["client"] == "claude" for result in results):
-        info("Verify:   claude mcp list")
-    if any(result["client"] == "codex" for result in results):
-        info("Verify:   codex mcp list")
+    has_claude = any(result["client"] == "claude" for result in results)
+    has_codex = any(result["client"] == "codex" for result in results)
+    project_scope = scope == "project" and target_dir is not None
+
+    if project_scope and has_claude:
+        notes = _claude_project_followup_notes(target_dir)
+        if notes:
+            header("Claude project approval")
+            for note in notes:
+                info(note)
+            print(file=sys.stderr)
+
+    if has_claude:
+        if project_scope:
+            info("Claude:   open Claude Code in this directory and use /mcp to approve `brain` if prompted")
+            info("Verify:   ask Claude to call `brain_session` and confirm `environment.vault_root`")
+        else:
+            info("Verify:   claude mcp list")
+    if has_codex:
+        if project_scope:
+            info(
+                "Codex:    trust this project and ensure the project-scoped `brain` MCP "
+                "is enabled if prompted"
+            )
+            info("Verify:   ask Codex to call `brain_session` and confirm `environment.vault_root`")
+            info("Health:   codex mcp list")
+        else:
+            info("Verify:   codex mcp list")
     info(
         "Remove:   "
         f"python3 {shlex.quote(str(vault_root / '.brain-core' / 'scripts' / 'init.py'))} "

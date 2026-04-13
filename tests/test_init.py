@@ -210,6 +210,74 @@ class TestEnsureSessionStartHook:
         assert "SessionStart" in data["hooks"]
 
 
+class TestClaudeProjectApproval:
+    def test_reports_unapproved_project_with_user_scope_shadow_risk(self, project, fake_home):
+        (fake_home / ".claude.json").write_text(json.dumps({
+            "mcpServers": {
+                "brain": {
+                    "command": "/usr/bin/python3",
+                    "env": {
+                        "BRAIN_VAULT_ROOT": "/tmp/other-vault",
+                    },
+                }
+            },
+            "projects": {
+                str(project): {
+                    "enabledMcpjsonServers": [],
+                    "disabledMcpjsonServers": [],
+                }
+            },
+        }))
+
+        notes = init._claude_project_followup_notes(project)
+
+        assert any("has not approved project-scoped" in note for note in notes)
+        assert any("/mcp" in note for note in notes)
+        assert any("user-scoped" in note for note in notes)
+        assert any("claude mcp list" in note for note in notes)
+        assert any("enabledMcpjsonServers" in note for note in notes)
+
+    def test_reports_disabled_project_server(self, project, fake_home):
+        (fake_home / ".claude.json").write_text(json.dumps({
+            "projects": {
+                str(project): {
+                    "enabledMcpjsonServers": [],
+                    "disabledMcpjsonServers": ["brain"],
+                }
+            }
+        }))
+
+        notes = init._claude_project_followup_notes(project)
+
+        assert any("disabled" in note for note in notes)
+        assert any("re-enable" in note for note in notes)
+
+    def test_returns_no_notes_when_project_scope_is_approved(self, project, fake_home):
+        (fake_home / ".claude.json").write_text(json.dumps({
+            "projects": {
+                str(project): {
+                    "enabledMcpjsonServers": ["brain"],
+                    "disabledMcpjsonServers": [],
+                }
+            }
+        }))
+
+        assert init._claude_project_followup_notes(project) == []
+
+
+class TestClientScopeWarnings:
+    def test_codex_project_warning_qualifies_precedence(self, vault, project, fake_home, capsys):
+        config = init.build_mcp_config("/usr/bin/python3", vault, workspace_dir=project)
+        init.write_codex_config(config, fake_home / ".codex" / "config.toml")
+
+        init._warn_if_user_scope_exists("codex", "project", config)
+        err = capsys.readouterr().err
+
+        assert "already registered globally" in err
+        assert "once this project is trusted" in err
+        assert "enabled" in err
+
+
 class TestStateBookkeeping:
     def test_record_init_target_replaces_same_identity(self, vault, project):
         config_a = init.build_mcp_config("/usr/bin/python3", vault)
