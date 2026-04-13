@@ -131,14 +131,17 @@ Single-file mutation. Write-guarded: same folder restrictions as `brain_create`.
 - `body` — omit for frontmatter-only changes; ignored for `delete_section`
 - `body_file` (optional) — same semantics as `brain_create`'s `body_file`
 - `frontmatter` (optional) — merge strategy depends on operation: edit overwrites fields; append/prepend extend list fields with dedup and overwrite scalars; set a field to `null` to delete it
-- `target` (optional) — heading, callout title, or `:body` for whole-body targeting:
+- `target` (optional) — heading, callout title, `:entire_body`, or `:body_preamble`:
   - `edit` replaces the section's content
-  - `append` inserts at the end of the section
-  - `prepend` inserts before the section's heading line
+  - `append` inserts at the end of the section; `target=":entire_body"` appends to the full body explicitly
+  - `prepend` inserts before the section's heading line; `target=":entire_body"` prepends to the full body explicitly
   - `delete_section` removes the heading and all its content (requires `target`)
   - Include `#` markers to disambiguate duplicate headings
   - Use `[!type]` prefix for callouts, e.g. `"[!note] Status"`
-  - Use `target=":body"` to explicitly target the entire body
+  - Use `target=":entire_body"` to explicitly target the full markdown body after frontmatter
+  - Use `target=":body_preamble"` with `edit` to target the leading body content before the first targetable section (heading or callout)
+  - `target=":body_preamble"` is `edit`-only
+  - `target=":body"` is rejected; use one of the explicit reserved targets instead
   - Use `target=":section:## Heading"` or `target=":section:[!note] Title"` with `edit` to replace the entire matched section including its heading/title line
   - Plain targeted `edit` remains content-only: one exact copied heading/callout wrapper at the start of `body` is stripped; leading callouts and lower-level headings are allowed as section content; same-level or higher headings are rejected with an error directing the caller to `:section:...`
 
@@ -146,7 +149,7 @@ Single-file mutation. Write-guarded: same folder restrictions as `brain_create`.
 - For artefacts: path validated against compiled router — wrong folder or naming rejected with helpful error; auto-updates `modified` frontmatter field on every write; auto-sets `statusdate` (YYYY-MM-DD) whenever `status` actually changes; terminal status auto-moves to `+Status/` subfolder with vault-wide wikilink updates, reverts on non-terminal
 - For non-artefact resources: resolves via `_Config/` conventions; no terminal status auto-move or `modified` injection
 
-**Response format:** Plain text confirmation: `"**Edited:** {path}"`, `"**Appended:** {path}"`, `"**Prepended:** {path}"`, or `"**Deleted section from:** {path}"` (plus target section and surrounding heading context if a target was specified). Returns `{path, resolved_path, operation}`.
+**Response format:** Plain text confirmation: `"**Edited:** {path}"`, `"**Appended:** {path}"`, `"**Prepended:** {path}"`, or `"**Deleted section from:** {path}"`. Heading/callout targets include surrounding heading context for placement verification. Successful `edit` with `target=":entire_body"` stays on one line and includes old/new line counts.
 
 ---
 

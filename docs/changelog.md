@@ -2,6 +2,34 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.27.4 — 2026-04-13
+
+**Rename the leading body-range target to `:body_preamble` and stop it before the first targetable section.** The earlier `:body_before_first_heading` spelling was too specific to headings and understated that callout sections are targetable too. `brain_edit` now uses `target=":body_preamble"` for the leading body range before the first heading or callout section, and explicitly rejects the old pre-release spelling with guidance to the new target.
+
+- Added regression coverage so `:body_preamble` preserves leading callout sections and only replaces the untargetable preamble range.
+
+## v0.27.3 — 2026-04-13
+
+**Tighten follow-up fixes for shutdown logging and legacy `brain_edit` target rejection.** `_flush_log()` now also tolerates closed-stream `ValueError` during stdio teardown, so shutdown no longer logs a false crash when handlers flush after their stream is already closed. Legacy `target=":body"` is now rejected consistently for `delete_section` too, returning explicit guidance instead of falling through to a generic section-not-found error.
+
+- Added regression coverage for closed-stream flush failures and the `delete_section(target=":body")` rejection path on both the script and MCP surfaces.
+
+## v0.27.2 — 2026-04-13
+
+**Tolerate closed stdio pipes during MCP server shutdown.** The server previously treated a clean stdio teardown as an unexpected crash when the client closed stderr before the server flushed its log handlers on `SIGTERM`. `_flush_log()` now ignores `BrokenPipeError`/`EPIPE` so shutdown stays clean in interrupted review and other stdio teardown paths.
+
+- Added regression coverage for the log-flush path so one broken-pipe handler no longer prevents the remaining handlers from flushing.
+
+## v0.27.1 — 2026-04-13
+
+**Make whole-body `brain_edit` targeting explicit and reject legacy `:body`.** `brain_edit` and `edit.py` now use `target=":entire_body"` for explicit whole-body edits, appends, and prepends; add `target=":body_before_first_heading"` for the leading un-headed prose before the first heading during `edit`; and hard-error legacy `target=":body"` because it was too ambiguous and destructive.
+
+- Successful `brain_edit(operation="edit", target=":entire_body")` confirmations now stay on one line and include old/new line counts so callers can verify replacement scope immediately.
+- Reserved non-section targets skip surrounding-heading context output, while normal heading and callout targets keep the existing placement context.
+- `append` and `prepend` with no body and no frontmatter changes are now rejected as no-ops even when a target is supplied.
+- Added regression coverage across script helpers, the MCP surface, and non-artefact resources for the new reserved-target contract.
+- Updated the MCP tool docs, user reference, and in-vault guide to reflect the shipped behaviour.
+
 ## v0.27.0 — 2026-04-13
 
 **Support native multi-client MCP install for Claude Code and Codex, with a tightened installer contract.** `init.py` now has explicit `--client claude|codex|all` handling, writes each client's native project/user config surface, rejects Codex local scope explicitly, records registrations in `.brain/local/init-state.json`, and removes only recorded Brain-managed entries via `--remove`.

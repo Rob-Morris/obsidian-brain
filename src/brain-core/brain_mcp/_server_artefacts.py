@@ -99,15 +99,6 @@ def handle_brain_edit(
             "Use brain_action('unarchive') to restore it first."
         )
 
-    if operation == "delete_section":
-        if not target:
-            return runtime.fmt_error("delete_section requires a target heading.")
-    elif not body and not frontmatter and not target:
-        return runtime.fmt_error(
-            f"{operation} with no body and no frontmatter changes is a no-op. "
-            "Pass body content, frontmatter changes, or both."
-        )
-
     result = edit.edit_resource(
         state.vault_root,
         state.router,
@@ -131,6 +122,18 @@ def handle_brain_edit(
         except OSError:
             pass
     past = edit.OPERATION_LABELS[result["operation"]]
+    if operation == "edit" and target == edit.ENTIRE_BODY_TARGET:
+        parts = []
+        if moved:
+            parts.append(
+                f"moved from {result['resolved_path']} due to terminal status"
+            )
+        parts.append(f"target: {target}")
+        parts.append(
+            f"lines: {result['old_body_line_count']}->{result['new_body_line_count']}"
+        )
+        return f"**{past}:** {result['path']} ({'; '.join(parts)})"
+
     msg = f"**{past}:** {result['path']}"
     if moved:
         msg += (
@@ -139,9 +142,14 @@ def handle_brain_edit(
         )
     if target:
         msg += f" (target: {target})"
-        prev_h, next_h = runtime.surrounding_headings(state.vault_root, result["path"], target)
-        if prev_h or next_h:
-            prev_label = prev_h or "(start)"
-            next_label = next_h or "(end)"
-            msg += f"\n**Context:** prev={prev_label} | next={next_label}"
+        if edit.uses_heading_context(target):
+            prev_h, next_h = runtime.surrounding_headings(
+                state.vault_root,
+                result["path"],
+                target,
+            )
+            if prev_h or next_h:
+                prev_label = prev_h or "(start)"
+                next_label = next_h or "(end)"
+                msg += f"\n**Context:** prev={prev_label} | next={next_label}"
     return msg

@@ -187,3 +187,26 @@ def _find_callout_section(body, target, include_heading=False):
         pos += len(line) + 1
 
     raise ValueError(f"Section '{target}' not found")
+
+
+def find_body_preamble(body):
+    """Return the leading body range before the first targetable section.
+
+    Returns ``(start, end)`` offsets into ``body``. The range is:
+    - the full body when the document has no headings or callout sections
+    - empty when the document starts with a heading or callout section
+    - otherwise everything before the first targetable section outside fenced code blocks
+    """
+    fenced = fenced_ranges(body)
+    lines = body.split("\n")
+    pos = 0
+
+    for line in lines:
+        if any(fs <= pos < fe for fs, fe in fenced):
+            pos += len(line) + 1
+            continue
+        if _HEADING_RE.match(line) or _CALLOUT_TITLE_RE.match(line):
+            return 0, pos
+        pos += len(line) + 1
+
+    return 0, len(body)

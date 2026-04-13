@@ -1320,10 +1320,26 @@ class TestBrainEdit:
         )
         _assert_error(result, "no-op")
 
+    def test_noop_append_with_entire_body_target_rejected(self, initialized):
+        result = server.brain_edit(
+            operation="append",
+            path="Wiki/brain-overview-abc123.md",
+            target=":entire_body",
+        )
+        _assert_error(result, "no-op")
+
     def test_noop_prepend_rejected(self, initialized):
         result = server.brain_edit(
             operation="prepend",
             path="Wiki/brain-overview-abc123.md",
+        )
+        _assert_error(result, "no-op")
+
+    def test_noop_prepend_with_entire_body_target_rejected(self, initialized):
+        result = server.brain_edit(
+            operation="prepend",
+            path="Wiki/brain-overview-abc123.md",
+            target=":entire_body",
         )
         _assert_error(result, "no-op")
 
@@ -1374,7 +1390,7 @@ class TestBrainEdit:
         server.brain_edit(
             operation="edit",
             path=path,
-            target=":body",
+            target=":entire_body",
             body="## Intro\n\nIntro content.\n\n## Notes\n\nNotes content.\n\n## Summary\n\nSummary content.\n"
         )
         result = server.brain_edit(
@@ -1422,6 +1438,175 @@ class TestBrainEdit:
         assert "**Context:**" in result
         assert "Alpha" in result
         assert "Gamma" in result
+
+    def test_entire_body_edit_returns_one_line_summary(self, initialized):
+        path = initialized / "Wiki" / "brain-overview-abc123.md"
+        path.write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "One.\n\nTwo.\n"
+        )
+        result = server.brain_edit(
+            operation="edit",
+            path="Wiki/brain-overview-abc123.md",
+            target=":entire_body",
+            body="Replacement.\n",
+        )
+        assert result == (
+            "**Edited:** Wiki/brain-overview-abc123.md "
+            "(target: :entire_body; lines: 3->1)"
+        )
+
+    def test_entire_body_target_skips_context(self, initialized):
+        path = initialized / "Wiki" / "brain-overview-abc123.md"
+        path.write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "Intro text.\n\n## Alpha\n\nAlpha content.\n"
+        )
+        result = server.brain_edit(
+            operation="edit",
+            path="Wiki/brain-overview-abc123.md",
+            target=":entire_body",
+            body="Replacement.\n",
+        )
+        assert "**Context:**" not in result
+
+    def test_entire_body_append_and_prepend_work_explicitly(self, initialized):
+        path = initialized / "Wiki" / "brain-overview-abc123.md"
+        path.write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\nBody.\n"
+        )
+        prepend_result = server.brain_edit(
+            operation="prepend",
+            path="Wiki/brain-overview-abc123.md",
+            target=":entire_body",
+            body="Before.\n\n",
+        )
+        append_result = server.brain_edit(
+            operation="append",
+            path="Wiki/brain-overview-abc123.md",
+            target=":entire_body",
+            body="\nAfter.\n",
+        )
+        assert "(target: :entire_body)" in prepend_result
+        assert "(target: :entire_body)" in append_result
+        content = path.read_text()
+        assert "Before." in content
+        assert "After." in content
+
+    def test_body_preamble_replaces_only_leading_body(self, initialized):
+        path = initialized / "Wiki" / "brain-overview-abc123.md"
+        path.write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "Intro text.\n\n"
+            "> [!note] Status\n"
+            "> Status content.\n"
+            "\n"
+            "## Alpha\n\nAlpha content.\n"
+        )
+        result = server.brain_edit(
+            operation="edit",
+            path="Wiki/brain-overview-abc123.md",
+            target=":body_preamble",
+            body="Updated intro.\n",
+        )
+        assert "**Context:**" not in result
+        content = path.read_text()
+        assert "Updated intro." in content
+        assert "Intro text." not in content
+        assert "> [!note] Status" in content
+        assert "## Alpha" in content
+        assert "Alpha content." in content
+
+    def test_body_preamble_inserts_before_heading_first_doc(self, initialized):
+        path = initialized / "Wiki" / "brain-overview-abc123.md"
+        path.write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "## Alpha\n\nAlpha content.\n"
+        )
+        result = server.brain_edit(
+            operation="edit",
+            path="Wiki/brain-overview-abc123.md",
+            target=":body_preamble",
+            body="Lead text.\n",
+        )
+        assert "**Context:**" not in result
+        content = path.read_text()
+        assert "Lead text.\n\n## Alpha" in content
+
+    def test_body_preamble_inserts_before_callout_first_doc(self, initialized):
+        path = initialized / "Wiki" / "brain-overview-abc123.md"
+        path.write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "> [!note] Status\n"
+            "> Status content.\n"
+        )
+        result = server.brain_edit(
+            operation="edit",
+            path="Wiki/brain-overview-abc123.md",
+            target=":body_preamble",
+            body="Lead text.\n",
+        )
+        assert "**Context:**" not in result
+        content = path.read_text()
+        assert "Lead text.\n\n> [!note] Status" in content
+
+    def test_legacy_body_target_rejected(self, initialized):
+        edit_result = server.brain_edit(
+            operation="edit",
+            path="Wiki/brain-overview-abc123.md",
+            target=":body",
+            body="Replacement.\n",
+        )
+        _assert_error(edit_result, "target=':body' is no longer valid")
+
+        append_result = server.brain_edit(
+            operation="append",
+            path="Wiki/brain-overview-abc123.md",
+            target=":body",
+            body="Extra.\n",
+        )
+        _assert_error(append_result, "target=':body' is no longer valid")
+
+        prepend_result = server.brain_edit(
+            operation="prepend",
+            path="Wiki/brain-overview-abc123.md",
+            target=":body",
+            body="Extra.\n",
+        )
+        _assert_error(prepend_result, "target=':body' is no longer valid")
+
+        delete_result = server.brain_edit(
+            operation="delete_section",
+            path="Wiki/brain-overview-abc123.md",
+            target=":body",
+        )
+        _assert_error(delete_result, "target=':body' is no longer valid")
+
+    def test_legacy_body_before_first_heading_target_rejected(self, initialized):
+        result = server.brain_edit(
+            operation="edit",
+            path="Wiki/brain-overview-abc123.md",
+            target=":body_before_first_heading",
+            body="Replacement.\n",
+        )
+        _assert_error(result, "target=':body_before_first_heading' is no longer valid")
+
+    def test_body_preamble_rejected_for_append_and_prepend(self, initialized):
+        append_result = server.brain_edit(
+            operation="append",
+            path="Wiki/brain-overview-abc123.md",
+            target=":body_preamble",
+            body="Extra.\n",
+        )
+        _assert_error(append_result, "only supported for operation='edit'")
+
+        prepend_result = server.brain_edit(
+            operation="prepend",
+            path="Wiki/brain-overview-abc123.md",
+            target=":body_preamble",
+            body="Extra.\n",
+        )
+        _assert_error(prepend_result, "only supported for operation='edit'")
 
     def test_targeted_edit_strips_redundant_heading_wrapper(self, initialized):
         path = initialized / "Wiki" / "brain-overview-abc123.md"
@@ -3114,6 +3299,64 @@ class TestShutdownLogging:
         log_path = vault / ".brain" / "local" / "mcp-server.log"
         content = log_path.read_text()
         assert "shutdown: test reason" in content
+
+    def test_flush_log_ignores_broken_pipe(self):
+        """_flush_log() tolerates closed stderr/stdout pipes during shutdown."""
+
+        class _BrokenPipeHandler(logging.Handler):
+            def flush(self):
+                raise BrokenPipeError()
+
+        class _CountingHandler(logging.Handler):
+            def __init__(self):
+                super().__init__()
+                self.flushed = 0
+
+            def flush(self):
+                self.flushed += 1
+
+        counting = _CountingHandler()
+        logger = logging.Logger("flush-test")
+        logger.addHandler(_BrokenPipeHandler())
+        logger.addHandler(counting)
+
+        old_logger = server._logger
+        server._logger = logger
+        try:
+            server._flush_log()
+        finally:
+            server._logger = old_logger
+
+        assert counting.flushed == 1
+
+    def test_flush_log_ignores_closed_stream_value_error(self):
+        """_flush_log() tolerates closed stream handlers during shutdown."""
+
+        class _CountingHandler(logging.Handler):
+            def __init__(self):
+                super().__init__()
+                self.flushed = 0
+
+            def flush(self):
+                self.flushed += 1
+
+        stream = open(os.devnull, "w", encoding="utf-8")
+        closed_stream_handler = logging.StreamHandler(stream)
+        stream.close()
+
+        counting = _CountingHandler()
+        logger = logging.Logger("flush-test-closed-stream")
+        logger.addHandler(closed_stream_handler)
+        logger.addHandler(counting)
+
+        old_logger = server._logger
+        server._logger = logger
+        try:
+            server._flush_log()
+        finally:
+            server._logger = old_logger
+
+        assert counting.flushed == 1
 
 
 class TestNoStdoutContamination:

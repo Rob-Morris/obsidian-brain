@@ -41,6 +41,7 @@ Requires Python >=3.10 and the `mcp` SDK (see requirements.txt).
 """
 
 import contextlib
+import errno
 import json
 import logging
 import logging.handlers
@@ -153,10 +154,30 @@ _logger: logging.Logger | None = None
 
 
 def _flush_log() -> None:
-    """Flush all logger handlers (call before os._exit or sys.exit)."""
+    """Flush all logger handlers (call before os._exit or sys.exit).
+
+    In stdio MCP mode the client/proxy may close stderr before the server
+    receives SIGTERM. Flushing the stderr stream in that state can raise
+    BrokenPipeError, EPIPE, or ValueError for a closed stream, none of which
+    should turn an otherwise clean shutdown into a noisy false crash.
+    """
     if _logger:
         for h in _logger.handlers:
-            h.flush()
+            try:
+                h.flush()
+            except BrokenPipeError:
+                continue
+            except OSError as e:
+                if e.errno == errno.EPIPE:
+                    continue
+                raise
+            except ValueError as e:
+                stream = getattr(h, "stream", None)
+                if getattr(stream, "closed", False):
+                    continue
+                if "closed file" in str(e).lower():
+                    continue
+                raise
 
 
 def _setup_logging(vault_root: str) -> logging.Logger:
@@ -1200,12 +1221,18 @@ def brain_edit(operation: Literal["edit", "append", "prepend", "delete_section"]
                    edit overwrites fields; append/prepend extend list fields (with dedup)
                    and overwrite scalars. Set a field to null to delete it.
                    All operations can be used for frontmatter-only changes by omitting body.
-      target     — optional heading, callout title, or ":body" for whole-body targeting.
+      target     — optional heading, callout title, ":entire_body", or
+                   ":body_preamble".
                    When given: edit replaces that section's content; append inserts at end
                    of the section; prepend inserts before the section's heading line.
                    Include # markers to disambiguate duplicate headings (e.g. "### Notes").
                    For callouts, use the [!type] prefix (e.g. "[!note] Implementation status").
-                   Use target=":body" to explicitly target the entire body.
+                   Use target=":entire_body" to explicitly target the full markdown body
+                   after frontmatter. This spelling is also valid for append/prepend.
+                   Use target=":body_preamble" with edit to target the leading
+                   body content before the first targetable section (heading or
+                   callout).
+                   target=":body" is rejected; use one of the explicit reserved targets.
 
     Artefact paths validated against compiled router — wrong folder or naming rejected with helpful error.
     Non-artefact resources resolve via _Config/ conventions (no terminal status auto-move).

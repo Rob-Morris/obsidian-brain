@@ -21,6 +21,7 @@ from _common import (
     check_write_allowed,
     config_resource_rel_path,
     extract_title_from_naming_pattern,
+    find_body_preamble,
     find_section,
     find_vault_root,
     is_archived_path,
@@ -61,6 +62,15 @@ OPERATION_LABELS = {
     "delete_section": "Deleted section from",
 }
 
+LEGACY_BODY_TARGET = ":body"
+ENTIRE_BODY_TARGET = ":entire_body"
+BODY_PREAMBLE_TARGET = ":body_preamble"
+
+_RESERVED_NON_SECTION_TARGETS = {
+    ENTIRE_BODY_TARGET,
+    BODY_PREAMBLE_TARGET,
+}
+
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -78,6 +88,82 @@ def _open_artefact(vault_root, router, path):
         content = f.read()
     fields, body = parse_frontmatter(content)
     return path, abs_path, fields, body, art
+
+
+def _line_count(text):
+    """Count body lines for response summaries."""
+    return len(text.splitlines()) if text else 0
+
+
+def _result_payload(path, resolved_path, operation, old_body, new_body):
+    """Build the standard result payload for body mutations."""
+    return {
+        "path": path,
+        "resolved_path": resolved_path,
+        "operation": operation,
+        "old_body_line_count": _line_count(old_body),
+        "new_body_line_count": _line_count(new_body),
+    }
+
+
+def uses_heading_context(target):
+    """Return whether a target should show surrounding heading context."""
+    return bool(target) and target not in _RESERVED_NON_SECTION_TARGETS
+
+
+def _validate_target_contract(operation, target):
+    """Validate reserved-target semantics for body operations."""
+    if not target:
+        return
+
+    if target == LEGACY_BODY_TARGET:
+        if operation == "delete_section":
+            raise ValueError(
+                "target=':body' is no longer valid because it was ambiguous and destructive. "
+                "delete_section requires a real heading or callout target."
+            )
+        raise ValueError(
+            "target=':body' is no longer valid because it was ambiguous and destructive. "
+            "Use target=':entire_body' for the full markdown body after frontmatter "
+            "or target=':body_preamble' for the leading body content before the first "
+            "targetable section."
+        )
+
+    if target == ":body_before_first_heading":
+        raise ValueError(
+            "target=':body_before_first_heading' is no longer valid. "
+            "Use target=':body_preamble' for the leading body content before the first "
+            "targetable section."
+        )
+
+    if target == BODY_PREAMBLE_TARGET and operation != "edit":
+        raise ValueError(
+            "target=':body_preamble' is only supported for operation='edit'"
+        )
+
+
+def _validate_edit_request(operation, body, frontmatter_changes=None, target=None):
+    """Validate a public edit request before mutating content."""
+    _validate_target_contract(operation, target)
+
+    if operation == "delete_section":
+        if not target:
+            raise ValueError("delete_section requires a target heading.")
+        return
+
+    if operation == "edit":
+        if not body and not frontmatter_changes and not target:
+            raise ValueError(
+                "edit with no body and no frontmatter changes is a no-op. "
+                "Pass body content, frontmatter changes, or both."
+            )
+        return
+
+    if operation in {"append", "prepend"} and not body and not frontmatter_changes:
+        raise ValueError(
+            f"{operation} with no body and no frontmatter changes is a no-op. "
+            "Pass body content, frontmatter changes, or both."
+        )
 
 
 def _merge_frontmatter(fields, changes, operation):
@@ -114,10 +200,29 @@ def _save_artefact(abs_path, fields, new_body, vault_root):
 # Body operation helpers (shared by artefact and resource paths)
 # ---------------------------------------------------------------------------
 
+def _normalize_range_replacement(body, end, existing_body, empty_noop=False):
+    """Normalize a replacement body for an in-place range splice.
+
+    Ensures a trailing newline, plus a blank-line separator when the range is
+    not at EOF. When ``empty_noop`` is True, an empty body produces an empty
+    string (the caller's surrounding content provides any needed separator).
+    """
+    if body:
+        normalized = body.rstrip("\n") + "\n"
+        if end < len(existing_body):
+            normalized += "\n"
+        return normalized
+    if empty_noop:
+        return ""
+    return "" if end == len(existing_body) else "\n"
+
+
 def _apply_edit(existing_body, body, target):
     """Apply an edit operation to a body, returning the new body."""
-    if target == ":body":
+    if target == ENTIRE_BODY_TARGET:
         return body
+    if target == BODY_PREAMBLE_TARGET:
+        return _apply_body_preamble_edit(existing_body, body)
     if target:
         section_mode, resolved_target = _resolve_edit_target(target)
         start, end = find_section(
@@ -129,16 +234,18 @@ def _apply_edit(existing_body, body, target):
             _validate_whole_section_replacement(body)
         else:
             body = _normalize_targeted_edit_body(existing_body, resolved_target, body)
-        if body:
-            normalized = body.rstrip("\n") + "\n"
-            if end < len(existing_body):
-                normalized += "\n"
-        else:
-            normalized = "" if end == len(existing_body) else "\n"
+        normalized = _normalize_range_replacement(body, end, existing_body)
         return existing_body[:start] + normalized + existing_body[end:]
     if body:
         return body
     return existing_body
+
+
+def _apply_body_preamble_edit(existing_body, body):
+    """Replace the leading body range before the first targetable section."""
+    start, end = find_body_preamble(existing_body)
+    normalized = _normalize_range_replacement(body, end, existing_body, empty_noop=True)
+    return existing_body[:start] + normalized + existing_body[end:]
 
 
 def _resolve_edit_target(target):
@@ -214,11 +321,19 @@ def _strip_exact_structural_wrapper(body, anchor_kind):
     return "".join(out)
 
 
-def _apply_append(existing_body, content, target):
-    """Apply an append operation to a body, returning the new body."""
+def _resolve_positional_target(target):
+    """Normalize target for append/prepend: strip :section: prefix, drop entire-body sentinel."""
     if target and target.startswith(":section:"):
         target = target[len(":section:"):].strip()
-    if target and target != ":body" and content:
+    if target == ENTIRE_BODY_TARGET:
+        return None
+    return target
+
+
+def _apply_append(existing_body, content, target):
+    """Apply an append operation to a body, returning the new body."""
+    target = _resolve_positional_target(target)
+    if target and content:
         section_start, section_end = find_section(existing_body, target)
         section_body = existing_body[section_start:section_end].rstrip("\n")
         content_normalized = content if content.endswith("\n") else content + "\n"
@@ -236,9 +351,8 @@ def _apply_append(existing_body, content, target):
 
 def _apply_prepend(existing_body, content, target):
     """Apply a prepend operation to a body, returning the new body."""
-    if target and target.startswith(":section:"):
-        target = target[len(":section:"):].strip()
-    if target and target != ":body" and content:
+    target = _resolve_positional_target(target)
+    if target and content:
         heading_start, _ = find_section(existing_body, target, include_heading=True)
         content_normalized = content.rstrip("\n") + "\n"
         if heading_start > 0:
@@ -295,7 +409,8 @@ def edit_resource(vault_root, router, resource="artefact", operation="edit",
         name: Resource name (non-artefact resources only).
         body: Content for the operation.
         frontmatter_changes: Optional dict of frontmatter field changes.
-        target: Optional heading/callout for targeted operations.
+        target: Optional heading/callout for targeted operations, or reserved
+                body targets such as ":entire_body" and ":body_preamble".
 
     Returns:
         Dict with path and operation.
@@ -347,6 +462,7 @@ def edit_resource(vault_root, router, resource="artefact", operation="edit",
     if not apply_fn:
         raise ValueError(f"Unknown operation '{operation}'")
 
+    _validate_edit_request(operation, body, frontmatter_changes, target)
     fm_mode = "edit" if operation in ("edit", "delete_section") else operation
     _merge_frontmatter(fields, frontmatter_changes, fm_mode)
 
@@ -359,7 +475,7 @@ def edit_resource(vault_root, router, resource="artefact", operation="edit",
     new_content = serialize_frontmatter(fields, body=new_body)
     safe_write(abs_path, new_content, bounds=vault_root)
 
-    return {"path": rel_path, "resolved_path": rel_path, "operation": operation}
+    return _result_payload(rel_path, rel_path, operation, existing_body, new_body)
 
 
 def _maybe_status_move(vault_root, path, terminal_statuses, frontmatter_changes):
@@ -410,13 +526,13 @@ def _maybe_status_move(vault_root, path, terminal_statuses, frontmatter_changes)
     return new_path
 
 
-def _finish_artefact(vault_root, abs_path, fields, new_body, path, art, frontmatter_changes, operation):
+def _finish_artefact(vault_root, abs_path, fields, old_body, new_body, path, art, frontmatter_changes, operation):
     """Save artefact, handle terminal-status auto-move, return result dict."""
     _save_artefact(abs_path, fields, new_body, vault_root)
     resolved_path = path
     terminal = (art.get("frontmatter") or {}).get("terminal_statuses")
     path = _maybe_status_move(vault_root, path, terminal, frontmatter_changes)
-    return {"path": path, "resolved_path": resolved_path, "operation": operation}
+    return _result_payload(path, resolved_path, operation, old_body, new_body)
 
 
 # ---------------------------------------------------------------------------
@@ -430,11 +546,13 @@ def edit_artefact(vault_root, router, path, body="", frontmatter_changes=None, t
         vault_root: Absolute path to the vault root.
         router: Compiled router dict.
         path: Relative path from vault root.
-        body: New body content. Empty string with no target preserves existing body.
-              Use target=":body" to explicitly set body content (including clearing it).
+        body: New body content. Empty string with no frontmatter changes and no
+              target is a no-op error. With frontmatter-only changes, the
+              existing body is preserved. Use target=":entire_body" to explicitly
+              replace the full body (including clearing it).
         frontmatter_changes: Optional dict of frontmatter field changes (overwrites fields).
-        target: Optional heading, callout title, or ":body" to target the whole document body.
-                When given, replaces that section's content with body parameter.
+        target: Optional heading, callout title, ":entire_body", or ":body_preamble".
+                When given, replaces that section or reserved body range with body.
 
     Returns:
         Dict with path and operation.
@@ -443,10 +561,21 @@ def edit_artefact(vault_root, router, path, body="", frontmatter_changes=None, t
         ValueError: If path validation fails or target not found.
         FileNotFoundError: If the file does not exist.
     """
+    _validate_edit_request("edit", body, frontmatter_changes, target)
     path, abs_path, fields, existing_body, art = _open_artefact(vault_root, router, path)
     _merge_frontmatter(fields, frontmatter_changes, "edit")
     new_body = _apply_edit(existing_body, body, target)
-    return _finish_artefact(vault_root, abs_path, fields, new_body, path, art, frontmatter_changes, "edit")
+    return _finish_artefact(
+        vault_root,
+        abs_path,
+        fields,
+        existing_body,
+        new_body,
+        path,
+        art,
+        frontmatter_changes,
+        "edit",
+    )
 
 
 def delete_section_artefact(vault_root, router, path, target, frontmatter_changes=None):
@@ -467,10 +596,21 @@ def delete_section_artefact(vault_root, router, path, target, frontmatter_change
         ValueError: If path validation fails or target not found.
         FileNotFoundError: If the file does not exist.
     """
+    _validate_edit_request("delete_section", "", frontmatter_changes, target)
     path, abs_path, fields, existing_body, art = _open_artefact(vault_root, router, path)
     _merge_frontmatter(fields, frontmatter_changes, "edit")
     new_body = _apply_delete_section(existing_body, target)
-    return _finish_artefact(vault_root, abs_path, fields, new_body, path, art, frontmatter_changes, "delete_section")
+    return _finish_artefact(
+        vault_root,
+        abs_path,
+        fields,
+        existing_body,
+        new_body,
+        path,
+        art,
+        frontmatter_changes,
+        "delete_section",
+    )
 
 
 def append_to_artefact(vault_root, router, path, content="", frontmatter_changes=None, target=None):
@@ -484,7 +624,7 @@ def append_to_artefact(vault_root, router, path, content="", frontmatter_changes
         frontmatter_changes: Optional dict of frontmatter field changes
                              (extends list fields with dedup, overwrites scalars).
         target: Optional heading or callout title. When given, appends at the end of
-                that section. ":body" is treated as no target (append to whole body).
+                that section. Use ":entire_body" to append to the whole body explicitly.
 
     Returns:
         Dict with path and operation.
@@ -493,10 +633,21 @@ def append_to_artefact(vault_root, router, path, content="", frontmatter_changes
         ValueError: If path validation fails or target not found.
         FileNotFoundError: If the file does not exist.
     """
+    _validate_edit_request("append", content, frontmatter_changes, target)
     path, abs_path, fields, body, art = _open_artefact(vault_root, router, path)
     _merge_frontmatter(fields, frontmatter_changes, "append")
     new_body = _apply_append(body, content, target)
-    return _finish_artefact(vault_root, abs_path, fields, new_body, path, art, frontmatter_changes, "append")
+    return _finish_artefact(
+        vault_root,
+        abs_path,
+        fields,
+        body,
+        new_body,
+        path,
+        art,
+        frontmatter_changes,
+        "append",
+    )
 
 
 def prepend_to_artefact(vault_root, router, path, content="", frontmatter_changes=None, target=None):
@@ -510,8 +661,8 @@ def prepend_to_artefact(vault_root, router, path, content="", frontmatter_change
         frontmatter_changes: Optional dict of frontmatter field changes
                              (extends list fields with dedup, overwrites scalars).
         target: Optional heading or callout title. When given, inserts content before
-                that section's heading line. ":body" is treated as no target
-                (prepend to whole body).
+                that section's heading line. Use ":entire_body" to prepend to the
+                whole body explicitly.
 
     Returns:
         Dict with path and operation.
@@ -520,10 +671,21 @@ def prepend_to_artefact(vault_root, router, path, content="", frontmatter_change
         ValueError: If path validation fails or target not found.
         FileNotFoundError: If the file does not exist.
     """
+    _validate_edit_request("prepend", content, frontmatter_changes, target)
     path, abs_path, fields, body, art = _open_artefact(vault_root, router, path)
     _merge_frontmatter(fields, frontmatter_changes, "prepend")
     new_body = _apply_prepend(body, content, target)
-    return _finish_artefact(vault_root, abs_path, fields, new_body, path, art, frontmatter_changes, "prepend")
+    return _finish_artefact(
+        vault_root,
+        abs_path,
+        fields,
+        body,
+        new_body,
+        path,
+        art,
+        frontmatter_changes,
+        "prepend",
+    )
 
 
 # ---------------------------------------------------------------------------

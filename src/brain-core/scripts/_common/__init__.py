@@ -75,6 +75,7 @@ from ._wikilinks import (
 from ._markdown import (
     collect_headings,
     fenced_ranges,
+    find_body_preamble,
     find_section,
     parse_structural_anchor_line,
 )

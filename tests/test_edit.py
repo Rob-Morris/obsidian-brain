@@ -281,28 +281,103 @@ class TestEditArtefact:
         assert fields["status"] == "archived"
         assert body == original_body  # body preserved, not wiped
 
-    def test_edit_target_body_clears_content(self, vault, router):
-        """target=':body' with empty string should clear the body."""
+    def test_edit_target_entire_body_clears_content(self, vault, router):
+        """target=':entire_body' with empty string should clear the body."""
         edit.edit_artefact(
             str(vault), router, "Wiki/test-page.md", "",
             frontmatter_changes={"status": "archived"},
-            target=":body",
+            target=":entire_body",
         )
         content = (vault / "Wiki" / "test-page.md").read_text()
         fields, body = parse_frontmatter(content)
         assert fields["status"] == "archived"
         assert body.strip() == ""  # body intentionally cleared
 
-    def test_edit_target_body_replaces_content(self, vault, router):
-        """target=':body' with content should replace the entire body."""
+    def test_edit_target_entire_body_replaces_content(self, vault, router):
+        """target=':entire_body' with content should replace the entire body."""
         edit.edit_artefact(
             str(vault), router, "Wiki/test-page.md", "# New Content\n\nReplaced.",
-            target=":body",
+            target=":entire_body",
         )
         content = (vault / "Wiki" / "test-page.md").read_text()
         _, body = parse_frontmatter(content)
         assert "New Content" in body
         assert "Original body." not in body
+
+    def test_edit_target_body_preamble_replaces_only_leading_body(self, vault, router):
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "Intro text.\n\n"
+            "> [!note] Status\n"
+            "> Status content.\n"
+            "\n"
+            "## Notes\n\nNotes content.\n"
+        )
+        edit.edit_artefact(
+            str(vault), router, "Wiki/test-page.md", "Updated intro.\n",
+            target=":body_preamble",
+        )
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        _, body = parse_frontmatter(content)
+        assert body.startswith("Updated intro.\n\n> [!note] Status")
+        assert "Intro text." not in body
+        assert "Status content." in body
+        assert "Notes content." in body
+
+    def test_edit_target_body_preamble_inserts_before_heading_first_doc(self, vault, router):
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "## Notes\n\nNotes content.\n"
+        )
+        edit.edit_artefact(
+            str(vault), router, "Wiki/test-page.md", "Lead text.\n",
+            target=":body_preamble",
+        )
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        _, body = parse_frontmatter(content)
+        assert body.startswith("Lead text.\n\n## Notes")
+        assert body.count("## Notes") == 1
+
+    def test_edit_target_body_preamble_inserts_before_callout_first_doc(self, vault, router):
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "> [!note] Status\n"
+            "> Status content.\n"
+        )
+        edit.edit_artefact(
+            str(vault), router, "Wiki/test-page.md", "Lead text.\n",
+            target=":body_preamble",
+        )
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        _, body = parse_frontmatter(content)
+        assert body.startswith("Lead text.\n\n> [!note] Status")
+        assert "Status content." in body
+
+    def test_edit_target_body_preamble_replaces_whole_body_without_targetable_sections(self, vault, router):
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\nOnly body.\n"
+        )
+        edit.edit_artefact(
+            str(vault), router, "Wiki/test-page.md", "Replacement body.\n",
+            target=":body_preamble",
+        )
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        _, body = parse_frontmatter(content)
+        assert body == "Replacement body.\n"
+
+    def test_edit_target_body_before_first_heading_rejected(self, vault, router):
+        with pytest.raises(ValueError, match="target=':body_before_first_heading' is no longer valid"):
+            edit.edit_artefact(
+                str(vault), router, "Wiki/test-page.md", "Replacement.\n",
+                target=":body_before_first_heading",
+            )
+
+    def test_edit_target_body_rejected(self, vault, router):
+        with pytest.raises(ValueError, match="target=':body' is no longer valid"):
+            edit.edit_artefact(
+                str(vault), router, "Wiki/test-page.md", "Replacement.\n",
+                target=":body",
+            )
 
     def test_edit_file_not_found(self, vault, router):
         with pytest.raises(FileNotFoundError):
@@ -332,9 +407,32 @@ class TestAppendToArtefact:
         assert "Original body." in content
         assert "Appended text." in content
 
+    def test_append_target_entire_body_appends_to_whole_body(self, vault, router):
+        edit.append_to_artefact(
+            str(vault), router, "Wiki/test-page.md", "\n\nAppended text.\n",
+            target=":entire_body",
+        )
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        assert "Original body." in content
+        assert "Appended text." in content
+
     def test_append_file_not_found(self, vault, router):
         with pytest.raises(FileNotFoundError):
             edit.append_to_artefact(str(vault), router, "Wiki/nonexistent.md", "text")
+
+    def test_append_target_body_rejected(self, vault, router):
+        with pytest.raises(ValueError, match="target=':body' is no longer valid"):
+            edit.append_to_artefact(
+                str(vault), router, "Wiki/test-page.md", "Extra.\n",
+                target=":body",
+            )
+
+    def test_append_body_preamble_rejected(self, vault, router):
+        with pytest.raises(ValueError, match="only supported for operation='edit'"):
+            edit.append_to_artefact(
+                str(vault), router, "Wiki/test-page.md", "Extra.\n",
+                target=":body_preamble",
+            )
 
     def test_append_basename_fallback(self, vault, router):
         edit.append_to_artefact(str(vault), router, "test-page", "\n\nAppended via basename.\n")
@@ -807,6 +905,16 @@ class TestPrependToArtefact:
         assert body.startswith("Prepended text.\n")
         assert "Original body." in body
 
+    def test_prepend_target_entire_body_prepends_to_whole_body(self, vault, router):
+        edit.prepend_to_artefact(
+            str(vault), router, "Wiki/test-page.md", "Prepended text.\n",
+            target=":entire_body",
+        )
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        _, body = parse_frontmatter(content)
+        assert body.startswith("Prepended text.\n")
+        assert "Original body." in body
+
     def test_prepend_before_middle_section(self, vault, router):
         (vault / "Wiki" / "test-page.md").write_text(
             "---\ntype: living/wiki\ntags: []\n---\n\n"
@@ -857,6 +965,20 @@ class TestPrependToArtefact:
     def test_prepend_file_not_found(self, vault, router):
         with pytest.raises(FileNotFoundError):
             edit.prepend_to_artefact(str(vault), router, "Wiki/nonexistent.md", "text")
+
+    def test_prepend_target_body_rejected(self, vault, router):
+        with pytest.raises(ValueError, match="target=':body' is no longer valid"):
+            edit.prepend_to_artefact(
+                str(vault), router, "Wiki/test-page.md", "Extra.\n",
+                target=":body",
+            )
+
+    def test_prepend_body_preamble_rejected(self, vault, router):
+        with pytest.raises(ValueError, match="only supported for operation='edit'"):
+            edit.prepend_to_artefact(
+                str(vault), router, "Wiki/test-page.md", "Extra.\n",
+                target=":body_preamble",
+            )
 
     def test_prepend_section_not_found(self, vault, router):
         with pytest.raises(ValueError, match="not found"):
@@ -1798,6 +1920,12 @@ class TestDeleteSection:
                 str(vault), router, "Wiki/test-page.md", target="Nonexistent"
             )
 
+    def test_delete_section_target_body_rejected(self, vault, router):
+        with pytest.raises(ValueError, match="target=':body' is no longer valid"):
+            edit.delete_section_artefact(
+                str(vault), router, "Wiki/test-page.md", target=":body"
+            )
+
     def test_delete_section_with_level_qualifier(self, vault, router):
         """Level-qualified target (e.g. '## Beta') matches exactly."""
         (vault / "Wiki" / "test-page.md").write_text(
@@ -1909,6 +2037,19 @@ class TestEditResource:
         assert "New skill content." in content
         assert "Original skill body." not in content
 
+    def test_edit_memory_target_entire_body(self, vault, router):
+        self._create_memory(vault)
+        result = edit.edit_resource(
+            str(vault), router, resource="memory",
+            operation="edit", name="test-memory",
+            body="Replacement memory body.\n",
+            target=":entire_body",
+        )
+        assert result["path"] == "_Config/Memories/test-memory.md"
+        content = (vault / "_Config" / "Memories" / "test-memory.md").read_text()
+        assert "Replacement memory body." in content
+        assert "Original memory body." not in content
+
     def test_append_to_memory(self, vault, router):
         self._create_memory(vault)
         result = edit.edit_resource(
@@ -1921,6 +2062,16 @@ class TestEditResource:
         content = (vault / "_Config" / "Memories" / "test-memory.md").read_text()
         assert "Original memory body." in content
         assert "Appended content." in content
+
+    def test_memory_target_body_rejected(self, vault, router):
+        self._create_memory(vault)
+        with pytest.raises(ValueError, match="target=':body' is no longer valid"):
+            edit.edit_resource(
+                str(vault), router, resource="memory",
+                operation="append", name="test-memory",
+                body="Extra.\n",
+                target=":body",
+            )
 
     def test_prepend_to_style(self, vault, router):
         self._create_style(vault)
