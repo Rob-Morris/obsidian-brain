@@ -35,6 +35,7 @@ class ServerRuntime:
     ensure_embeddings_fresh: Callable[[], None]
     check_version_drift: Callable[[], None]
     mark_index_dirty: Callable[[], None]
+    mark_embeddings_dirty: Callable[[], None]
     mark_index_pending: Callable[[str, str | None], None]
     compile_and_save: Callable[[str], dict]
     build_index_and_save: Callable[[str], dict]

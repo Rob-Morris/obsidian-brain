@@ -768,6 +768,7 @@ def _runtime() -> ServerRuntime:
         ensure_embeddings_fresh=_ensure_embeddings_fresh,
         check_version_drift=_check_version_drift,
         mark_index_dirty=_mark_index_dirty,
+        mark_embeddings_dirty=_mark_embeddings_dirty,
         mark_index_pending=_mark_index_pending,
         compile_and_save=_compile_and_save,
         build_index_and_save=_build_index_and_save,

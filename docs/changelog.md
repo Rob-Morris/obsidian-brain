@@ -2,6 +2,22 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.27.7 — 2026-04-14
+
+**Drop the last `mcp/` transport shims now that legacy installs are repaired during upgrade.** The temporary `.brain-core/mcp/proxy.py` and `.brain-core/mcp/server.py` bridges have been removed from the shipped engine, so fresh upgrades depend on the packaged `brain_mcp` transport plus the `v0.27.6` repair migration instead of runtime delegation through deprecated entrypoints.
+
+- Removed the deprecated `.brain-core/mcp/proxy.py` and `.brain-core/mcp/server.py` compatibility shims and their dedicated regression tests.
+- Exposed `mark_embeddings_dirty` on `ServerRuntime` so sibling MCP handlers can invalidate doc embeddings through the runtime adapter instead of reaching into `server.py` internals.
+- Bumped `brain_mcp.proxy` from `0.3.0` to `0.3.1` so proxy drift messages report a concrete version transition instead of the hash-only `0.3.0+modified` suffix when the packaged proxy changes.
+
+## v0.27.6 — 2026-04-14
+
+**Repair legacy MCP registrations that still launch the pre-`brain_mcp` transport paths.** Upgrades from older installs could keep working only because `.brain-core/mcp/` shims were still present. A new migration now rewrites stale Brain MCP launch entries to `python -m brain_mcp.proxy`, updates the recorded `init-state` config alongside the live client config, and preserves unrelated MCP entries in the same files.
+
+- Added `migrate_to_0_27_6.py` to scan known Brain-managed Claude/Codex config surfaces for legacy `.brain-core/mcp/proxy.py` / `.brain-core/mcp/server.py` launch shapes that still point at the current vault, then rewrite only the Brain entry to the packaged transport with the required `PYTHONPATH`.
+- Project and local registrations repaired by the migration now also regain `BRAIN_WORKSPACE_DIR` when the workspace path is known from the recorded init state, so post-upgrade bootstrap stays aligned with the current workspace-aware session contract.
+- Added regression coverage for direct migration repair of project and user-scope config plus an upgrade-path test proving the repair runs as part of a normal upgrade from `0.27.5`.
+
 ## v0.27.5 — 2026-04-13
 
 **Make bootstrap workspace-aware and scaffold workspace-owned metadata during folder setup.** `brain_session` now carries raw workspace identity plus optional `workspace_record` / `workspace_defaults`, and folder-scoped `init.py` now scaffolds `.brain/workspace.yaml` with a stable slug and default workspace tag when the workspace does not already declare one.

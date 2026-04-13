@@ -35,7 +35,7 @@ import time
 # Constants
 # ---------------------------------------------------------------------------
 
-PROXY_VERSION = "0.3.0"
+PROXY_VERSION = "0.3.1"
 
 _LOG_REL = os.path.join(".brain", "local", "mcp-proxy.log")
 _LOG_MAX_BYTES = 2 * 1024 * 1024  # 2 MB

@@ -14,7 +14,6 @@ Copied into the vault during setup and upgrade (not symlinked — vaults are sel
 
 - `scripts/` — all vault operation logic as importable Python modules with CLI entry points
 - `brain_mcp/server.py` + `brain_mcp/_server_*.py` — MCP composition root and sibling tool handlers; holds router and index in memory
-- `mcp/` — deprecated compatibility shims for older launch configs; warns and delegates to `brain_mcp/`
 - `skills/` — core skill documents (system-provided, tagged `"source": "core"`, overwritten on upgrade)
 - `index.md` — thin bootstrap entry point; routes agents to `brain_session`, `.brain/local/session.md`, or `md-bootstrap.md`
 - `session-core.md` — checked-in authored source for the static core bootstrap content and core-doc references

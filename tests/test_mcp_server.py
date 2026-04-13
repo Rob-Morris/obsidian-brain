@@ -1,11 +1,8 @@
 """Tests for Brain MCP server — unit tests with a minimal vault fixture."""
 
-import importlib.util
 import json
 import os
-import sys
 import time
-import types
 from unittest.mock import patch
 
 import pytest
@@ -18,10 +15,6 @@ import obsidian_cli
 import workspace_registry
 import config as config_mod
 
-SERVER_SHIM = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..", "src", "brain-core", "mcp", "server.py")
-)
-
 
 def _assert_error(result, substring=None):
     """Assert result is a CallToolResult with isError flag."""
@@ -29,37 +22,6 @@ def _assert_error(result, substring=None):
     assert result.isError is True
     if substring:
         assert substring in result.content[0].text
-
-
-class TestDeprecatedServerShim:
-    """Old server entrypoint warns once and delegates to the packaged server."""
-
-    def test_old_server_warns_once_and_delegates(self, capsys, monkeypatch):
-        calls: list[str] = []
-
-        fake_pkg = types.ModuleType("brain_mcp")
-        fake_server = types.ModuleType("brain_mcp.server")
-
-        def _fake_main():
-            calls.append("called")
-
-        fake_server.main = _fake_main
-        fake_pkg.server = fake_server
-
-        monkeypatch.setitem(sys.modules, "brain_mcp", fake_pkg)
-        monkeypatch.setitem(sys.modules, "brain_mcp.server", fake_server)
-
-        spec = importlib.util.spec_from_file_location("deprecated_mcp_server_shim", SERVER_SHIM)
-        assert spec is not None and spec.loader is not None
-        shim = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(shim)
-
-        shim.main()
-        shim.main()
-
-        captured = capsys.readouterr()
-        assert captured.err.count("`.brain-core/mcp/server.py` is deprecated") == 1
-        assert calls == ["called", "called"]
 
 
 # ---------------------------------------------------------------------------
@@ -3002,6 +2964,14 @@ class TestIndexStaleness:
 
         # built_at must not have advanced
         assert server._index["meta"]["built_at"] == original_built_at
+
+    def test_runtime_can_mark_embeddings_dirty(self, initialized):
+        """ServerRuntime should expose the embeddings-dirty flag helper."""
+        server._embeddings_dirty = False
+
+        server._runtime().mark_embeddings_dirty()
+
+        assert server._embeddings_dirty is True
 
     def test_incremental_then_external_file_triggers_rebuild(self, initialized):
         """After incremental update, external files are detected via count mismatch."""

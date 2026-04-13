@@ -12,7 +12,12 @@ import upgrade
 _REAL_SCRIPTS = Path(__file__).resolve().parents[1] / "src" / "brain-core" / "scripts"
 
 
-def _make_source(tmp_path: Path, version: str, *, migrations: dict[str, str]) -> Path:
+def _make_source(
+    tmp_path: Path,
+    version: str,
+    *,
+    migrations: dict[str, str] | None,
+) -> Path:
     source = tmp_path / f"source-{version.replace('.', '-')}"
     source.mkdir()
     (source / "VERSION").write_text(version + "\n")
@@ -27,10 +32,11 @@ def _make_source(tmp_path: Path, version: str, *, migrations: dict[str, str]) ->
     (source / "scripts" / "compile_router.py").write_text("import sys; sys.exit(0)\n")
 
     migrations_dir = source / "scripts" / "migrations"
-    for name in list(migrations_dir.glob("migrate_to_*.py")):
-        name.unlink()
-    for name, body in migrations.items():
-        (migrations_dir / name).write_text(body)
+    if migrations is not None:
+        for name in list(migrations_dir.glob("migrate_to_*.py")):
+            name.unlink()
+        for name, body in migrations.items():
+            (migrations_dir / name).write_text(body)
 
     return source
 
@@ -140,3 +146,54 @@ def test_upgrade_backfills_old_versions_and_prevents_startup_rerun(tmp_path):
     assert _counter(vault, "count-new.txt") == 1
     assert not (vault / ".brain" / "local" / "count-old.txt").exists()
     assert (vault / ".brain" / "local" / ".migrated-version").read_text().strip() == "2.0.0"
+
+
+def test_upgrade_runs_real_mcp_transport_repair_migration(tmp_path):
+    source = _make_source(tmp_path, "0.27.6", migrations=None)
+    vault = _make_vault(tmp_path, "0.27.5")
+    project_config = vault / ".mcp.json"
+    legacy = {
+        "command": "/usr/bin/python3",
+        "args": [
+            str(vault / ".brain-core" / "mcp" / "proxy.py"),
+            "/usr/bin/python3",
+            str(vault / ".brain-core" / "mcp" / "server.py"),
+        ],
+        "env": {"BRAIN_VAULT_ROOT": str(vault)},
+    }
+    project_config.write_text(json.dumps({"mcpServers": {"brain": legacy}}, indent=2) + "\n")
+    (vault / ".brain" / "local" / "init-state.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "records": [
+                    {
+                        "client": "claude",
+                        "scope": "project",
+                        "target_path": str(vault),
+                        "config_path": str(project_config),
+                        "server_name": "brain",
+                        "server_config": legacy,
+                    }
+                ],
+            },
+            indent=2,
+        )
+        + "\n"
+    )
+
+    result = upgrade.upgrade(str(vault), str(source), sync=False)
+    repaired = json.loads(project_config.read_text())["mcpServers"]["brain"]
+    ledger = _ledger(vault)
+
+    assert result["status"] == "ok"
+    assert [item["version"] for item in result["migrations"]] == ["0.27.6"]
+    assert repaired["args"] == [
+        "-m",
+        "brain_mcp.proxy",
+        "/usr/bin/python3",
+        "brain_mcp.server",
+    ]
+    assert repaired["env"]["PYTHONPATH"] == str(vault / ".brain-core")
+    assert repaired["env"]["BRAIN_WORKSPACE_DIR"] == str(vault)
+    assert ledger["migrations"]["0.27.6"]["status"] == "ok"
