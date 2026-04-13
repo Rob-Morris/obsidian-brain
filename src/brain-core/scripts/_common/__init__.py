@@ -22,6 +22,7 @@ from ._vault import (
 
 from ._router import (
     COMPILED_ROUTER_REL,
+    extract_title_from_naming_pattern,
     load_compiled_router,
     naming_pattern_to_regex,
     resolve_and_validate_folder,

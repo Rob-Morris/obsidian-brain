@@ -2,6 +2,13 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.26.5 — 2026-04-13
+
+**Fix `brain_action("convert")` producing filenames that nest the source type's naming prefix inside the target pattern.** Converting a temporal artefact like `20260413-research~Foo.md` to `reports` previously produced `20260413-report~20260413-research~Foo.md` when the source had no `title` frontmatter. The raw filename stem was used as the title for the target pattern, duplicating the old prefix. `convert_artefact()` now extracts the clean title from the source filename using the source type's naming pattern before applying the target pattern.
+
+- New helper `extract_title_from_naming_pattern(pattern, filename)` in `_common/_router.py` reverses a naming pattern to recover the `{Title}`/`{name}`/`{slug}` portion; returns `None` if the pattern is `None` or the filename does not match.
+- Refactored `naming_pattern_to_regex()` and the new helper to share a single private `_build_pattern_regex()` builder and module-level placeholder tables, so new placeholder tokens now need one update rather than two.
+
 ## v0.26.4 — 2026-04-13
 
 **Tidy the migration-ledger runner without changing its semantics.** `upgrade.py` now passes the in-memory migration ledger through its completeness checks instead of re-reading it from disk, and the migration-ledger regression tests now share a small helper for their generated counter migrations.

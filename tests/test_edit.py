@@ -98,6 +98,22 @@ def vault(tmp_path):
         "## Frontmatter\n\n```yaml\n---\ntype: temporal/logs\ntags:\n  - session\n---\n```\n"
     )
 
+    # Taxonomy: Research
+    (temporal / "Research").mkdir(exist_ok=True)
+    (tax_temporal / "research.md").write_text(
+        "# Research\n\n"
+        "## Naming\n\n`yyyymmdd-research~{Title}.md` in `_Temporal/Research/yyyy-mm/`.\n\n"
+        "## Frontmatter\n\n```yaml\n---\ntype: temporal/research\ntags:\n  - research\n---\n```\n"
+    )
+
+    # Taxonomy: Reports
+    (temporal / "Reports").mkdir(exist_ok=True)
+    (tax_temporal / "reports.md").write_text(
+        "# Reports\n\n"
+        "## Naming\n\n`yyyymmdd-report~{Title}.md` in `_Temporal/Reports/yyyy-mm/`.\n\n"
+        "## Frontmatter\n\n```yaml\n---\ntype: temporal/reports\ntags:\n  - report\n---\n```\n"
+    )
+
     # Templates
     templates_living = config / "Templates" / "Living"
     templates_living.mkdir(parents=True)
@@ -406,6 +422,35 @@ class TestConvertArtefact:
             str(vault), router, "Ideas/Brain/overridden.md", "designs", parent="Custom"
         )
         assert result["new_path"].startswith("Designs/Custom/")
+
+    def test_convert_temporal_to_temporal_strips_old_prefix(self, vault, router):
+        """Converting research → reports must not nest the old prefix in the new filename.
+
+        Regression test for the bug where the filename stem (including the old
+        type's naming prefix) was used as the title when no title frontmatter was
+        present, producing '20260413-report~20260413-research~Foo.md'.
+        """
+        import re
+        research_dir = vault / "_Temporal" / "Research" / "2026-04"
+        research_dir.mkdir(parents=True, exist_ok=True)
+        src_name = "20260413-research~Sample Title.md"
+        (research_dir / src_name).write_text(
+            "---\ntype: temporal/research\ntags:\n  - research\n---\n\nBody.\n"
+        )
+
+        result = edit.convert_artefact(
+            str(vault), router,
+            f"_Temporal/Research/2026-04/{src_name}",
+            "reports",
+        )
+
+        new_basename = os.path.basename(result["new_path"])
+        assert "research~" not in new_basename, (
+            f"Old prefix leaked into new filename: {new_basename}"
+        )
+        assert re.match(r"^\d{8}-report~Sample Title\.md$", new_basename), (
+            f"Unexpected filename shape: {new_basename}"
+        )
 
 
 # ---------------------------------------------------------------------------

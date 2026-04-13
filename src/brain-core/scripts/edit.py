@@ -20,6 +20,7 @@ import sys
 from _common import (
     check_write_allowed,
     config_resource_rel_path,
+    extract_title_from_naming_pattern,
     find_section,
     find_vault_root,
     is_archived_path,
@@ -568,8 +569,13 @@ def convert_artefact(vault_root, router, path, target_type, parent=None):
         content = f.read()
     fields, body = parse_frontmatter(content)
 
-    # Compute new filename from target naming pattern
-    title = fields.get("title") or os.path.splitext(os.path.basename(path))[0]
+    # When frontmatter has no `title`, strip the source type's naming prefix
+    # from the filename stem so the target pattern isn't applied on top of it.
+    title = fields.get("title")
+    if not title:
+        stem = os.path.splitext(os.path.basename(path))[0]
+        source_pattern = (source_art.get("naming") or {}).get("pattern")
+        title = extract_title_from_naming_pattern(source_pattern, stem) or stem
     target_naming = target_art.get("naming")
     if target_naming and target_naming.get("pattern"):
         new_filename = resolve_naming_pattern(target_naming["pattern"], title)
