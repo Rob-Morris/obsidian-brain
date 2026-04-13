@@ -1,15 +1,6 @@
 """Tests for migrations/migrate_to_0_19_0.py — Ideas status and transcript naming."""
 
-import os
-import sys
-
 import pytest
-
-# Add scripts and migrations dirs to path
-SCRIPTS_DIR = os.path.join(os.path.dirname(__file__), "..", "src", "brain-core", "scripts")
-MIGRATIONS_DIR = os.path.join(SCRIPTS_DIR, "migrations")
-sys.path.insert(0, os.path.abspath(SCRIPTS_DIR))
-sys.path.insert(0, os.path.abspath(MIGRATIONS_DIR))
 
 from migrate_to_0_19_0 import migrate
 

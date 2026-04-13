@@ -2,15 +2,10 @@
 
 import json
 import os
-import sys
 import warnings
 
 import pytest
 import yaml
-
-# Add scripts dir to path
-SCRIPTS_DIR = os.path.join(os.path.dirname(__file__), "..", "src", "brain-core", "scripts")
-sys.path.insert(0, os.path.abspath(SCRIPTS_DIR))
 
 import config as config_mod
 

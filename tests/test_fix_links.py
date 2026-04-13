@@ -7,35 +7,7 @@ import pytest
 
 import fix_links
 from _common import build_vault_file_index
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def write_md(path, frontmatter_fields=None, body=""):
-    """Write a markdown file with optional frontmatter."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    lines = []
-    if frontmatter_fields:
-        lines.append("---")
-        for k, v in frontmatter_fields.items():
-            if isinstance(v, list):
-                lines.append(f"{k}:")
-                for item in v:
-                    lines.append(f"  - {item}")
-            else:
-                lines.append(f"{k}: {v}")
-        lines.append("---")
-    lines.append(body)
-    path.write_text("\n".join(lines) + "\n")
-
-
-def make_router(artefacts, meta=None):
-    """Build a minimal compiled router dict."""
-    if meta is None:
-        meta = {"brain_core_version": "0.9.11"}
-    return {"meta": meta, "artefacts": artefacts}
+from conftest import make_router, write_md
 
 
 # ---------------------------------------------------------------------------

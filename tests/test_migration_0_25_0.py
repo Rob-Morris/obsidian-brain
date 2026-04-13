@@ -1,13 +1,5 @@
 """Tests for migrations/migrate_to_0_25_0.py — canonical bootstrap text."""
 
-import os
-import sys
-
-SCRIPTS_DIR = os.path.join(os.path.dirname(__file__), "..", "src", "brain-core", "scripts")
-MIGRATIONS_DIR = os.path.join(SCRIPTS_DIR, "migrations")
-sys.path.insert(0, os.path.abspath(SCRIPTS_DIR))
-sys.path.insert(0, os.path.abspath(MIGRATIONS_DIR))
-
 from migrate_to_0_25_0 import NEW_BOOTSTRAP, migrate
 
 

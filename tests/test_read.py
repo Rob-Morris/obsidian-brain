@@ -1,14 +1,8 @@
 """Tests for read.py — compiled router resource queries."""
 
 import json
-import os
-import sys
 
 import pytest
-
-# Add scripts dir to path for imports
-SCRIPTS_DIR = os.path.join(os.path.dirname(__file__), "..", "src", "brain-core", "scripts")
-sys.path.insert(0, os.path.abspath(SCRIPTS_DIR))
 
 import read
 

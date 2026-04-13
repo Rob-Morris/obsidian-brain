@@ -1,9 +1,67 @@
-"""Shared test fixtures for brain-core tests."""
+"""Shared test fixtures and helpers for brain-core tests."""
 
 import os
+import sys
 
 import pytest
 
+
+# ---------------------------------------------------------------------------
+# Import path setup
+#
+# Tests import brain-core scripts by bare module name (e.g. `import check`,
+# `import edit`, `import config`). pytest loads conftest.py before collecting
+# tests, so adding the scripts dirs to sys.path here lets individual test
+# files skip their own boilerplate sys.path manipulation.
+# ---------------------------------------------------------------------------
+
+SCRIPTS_DIR = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "src", "brain-core", "scripts")
+)
+MIGRATIONS_DIR = os.path.join(SCRIPTS_DIR, "migrations")
+
+for _path in (SCRIPTS_DIR, MIGRATIONS_DIR):
+    if _path not in sys.path:
+        sys.path.insert(0, _path)
+
+
+# ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
+
+def write_md(path, frontmatter_fields=None, body=""):
+    """Write a markdown file with optional frontmatter.
+
+    Used by tests that build ad-hoc vaults and need a small, readable way to
+    drop a markdown file with YAML frontmatter. Kept here so individual test
+    files don't need to duplicate the helper.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = []
+    if frontmatter_fields:
+        lines.append("---")
+        for k, v in frontmatter_fields.items():
+            if isinstance(v, list):
+                lines.append(f"{k}:")
+                for item in v:
+                    lines.append(f"  - {item}")
+            else:
+                lines.append(f"{k}: {v}")
+        lines.append("---")
+    lines.append(body)
+    path.write_text("\n".join(lines) + "\n")
+
+
+def make_router(artefacts, meta=None):
+    """Build a minimal compiled router dict for tests that pre-seed one."""
+    if meta is None:
+        meta = {"brain_core_version": "0.9.11"}
+    return {"meta": meta, "artefacts": artefacts}
+
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
 
 @pytest.fixture
 def vault(tmp_path):

@@ -1,13 +1,8 @@
 """Tests for list_resources — non-artefact resource listing."""
 
 import json
-import os
-import sys
 
 import pytest
-
-SCRIPTS_DIR = os.path.join(os.path.dirname(__file__), "..", "src", "brain-core", "scripts")
-sys.path.insert(0, os.path.abspath(SCRIPTS_DIR))
 
 import list_artefacts as la
 

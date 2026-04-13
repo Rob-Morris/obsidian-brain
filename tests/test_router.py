@@ -1,11 +1,5 @@
 """Unit tests for _common._router helpers."""
 
-import os
-import sys
-
-SCRIPTS_DIR = os.path.join(os.path.dirname(__file__), "..", "src", "brain-core", "scripts")
-sys.path.insert(0, os.path.abspath(SCRIPTS_DIR))
-
 from _common._router import extract_title_from_naming_pattern
 
 
