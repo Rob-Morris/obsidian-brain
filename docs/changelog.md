@@ -2,6 +2,15 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.27.9 — 2026-04-14
+
+**Move workspace manifest to `.brain/local/workspace.yaml` — all fields are install-specific.** Every field in the manifest (slug, brain identity, artefact links, auto-tags) describes the relationship between a specific clone and a specific vault, so the file belongs alongside other machine-local state rather than at the `.brain/` root where it could be mistakenly committed.
+
+- `session.py` now reads from `.brain/local/workspace.yaml` with a logged fallback to the legacy `.brain/workspace.yaml` location.
+- `init.py` scaffolds the manifest at the new location and auto-migrates legacy manifests on next run.
+- Updated DD-040, functional docs, user reference, and script module map for the new path.
+- Added regression coverage for the legacy fallback (session) and automatic migration (init).
+
 ## v0.27.8 — 2026-04-14
 
 **Make project-scope MCP activation explicit instead of pretending registration is sufficient.** `init.py` and the installer now warn that project scope outranks user scope only once the project-scoped MCP is active: Claude still needs a `/mcp` approval step, and Codex still needs the project trusted with the project-scoped `brain` enabled.

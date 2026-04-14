@@ -29,11 +29,11 @@ For workspaces whose data lives inside the vault, `_Workspaces/{slug}/` is a fre
 
 Linked workspaces (data outside the vault) register their slug-to-path mapping in `.brain/local/workspaces.json`. This file is machine-local and gitignored — the vault remains portable. Resolution order: embedded first (`_Workspaces/{slug}/` exists), then linked (registry lookup).
 
-### 4. Manifest — `.brain/workspace.yaml` (workspace-owned)
+### 4. Manifest — `.brain/local/workspace.yaml` (workspace-owned, machine-local)
 
-A workspace may declare its own identity via `.brain/workspace.yaml` in the workspace folder. This file carries the workspace slug, filing defaults (auto-tags), and optional links back to the vault hub. It is workspace-owned: `init.py` scaffolds a minimal version on setup, but the file is human-editable and expected to evolve.
+A workspace may declare its own identity via `.brain/local/workspace.yaml` in the workspace folder. This file carries the workspace slug, filing defaults (auto-tags), and optional links back to the vault hub. It is workspace-owned: `init.py` scaffolds a minimal version on setup, but the file is human-editable and expected to evolve.
 
-Whether this file is committed to the workspace's version control is the workspace's choice. A shared project may commit it for consistent defaults across collaborators. A personal scratch workspace may gitignore it. Brain does not mandate.
+The manifest lives in `.brain/local/` because every field describes the relationship between a specific clone and a specific vault — slug, brain identity, artefact links, and auto-tags are all install-specific. A different developer connecting to a different brain would have different values. The file uses YAML (not JSON) because it is human-authored and declarative; the `.brain/local/` location follows from its content being machine-local, not from its authorship model.
 
 ### 5. Session wiring — `BRAIN_WORKSPACE_DIR` is always local-install scope
 
@@ -74,6 +74,6 @@ When `BRAIN_WORKSPACE_DIR` is set, `brain_session` resolves it to a workspace re
 
 - `workspace_registry.py` — slug resolution, embedded scanning, linked registration, CLI.
 - `session.py:_workspace_summary()`, `_resolve_workspace_record()`, `_load_workspace_manifest()`, `_extract_workspace_defaults()` — session model assembly.
-- `init.py:ensure_workspace_manifest()` — scaffolds `.brain/workspace.yaml` for folder-scoped setups.
+- `init.py:ensure_workspace_manifest()` — scaffolds `.brain/local/workspace.yaml` for folder-scoped setups.
 - `init.py:build_mcp_config()` — writes `BRAIN_WORKSPACE_DIR` into `.mcp.json` env when `workspace_dir` is supplied.
 - `_Config/Taxonomy/Living/workspaces.md` — artefact type definition for workspace hubs.

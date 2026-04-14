@@ -46,7 +46,8 @@ CLAUDE_MD_FILE = "CLAUDE.md"
 CLAUDE_LOCAL_MD_FILE = os.path.join(".claude", "CLAUDE.local.md")
 
 CODEX_CONFIG_REL = os.path.join(".codex", "config.toml")
-WORKSPACE_MANIFEST_FILE = os.path.join(".brain", "workspace.yaml")
+WORKSPACE_MANIFEST_FILE = os.path.join(".brain", "local", "workspace.yaml")
+WORKSPACE_MANIFEST_LEGACY_FILE = os.path.join(".brain", "workspace.yaml")
 
 INIT_STATE_REL = os.path.join(".brain", "local", "init-state.json")
 INIT_STATE_VERSION = 1
@@ -755,12 +756,21 @@ def _workspace_slug(name: str) -> str:
 
 
 def ensure_workspace_manifest(target_dir: Path) -> None:
-    """Scaffold `.brain/workspace.yaml` for a folder-scoped workspace.
+    """Scaffold `.brain/local/workspace.yaml` for a folder-scoped workspace.
 
     The manifest is workspace-owned after creation, so this function only
-    creates a minimal starting file when absent.
+    creates a minimal starting file when absent.  If a legacy manifest exists
+    at `.brain/workspace.yaml`, it is moved to the new location automatically.
     """
     manifest_path = target_dir / WORKSPACE_MANIFEST_FILE
+    legacy_path = target_dir / WORKSPACE_MANIFEST_LEGACY_FILE
+
+    if not manifest_path.is_file() and legacy_path.is_file():
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        legacy_path.rename(manifest_path)
+        info(f"Migrated {WORKSPACE_MANIFEST_LEGACY_FILE} → {WORKSPACE_MANIFEST_FILE}")
+        return
+
     if manifest_path.is_file():
         info(f"{WORKSPACE_MANIFEST_FILE} already exists")
         return

@@ -29,7 +29,8 @@ GOTCHAS_REL = os.path.join("_Config", "User", "gotchas.md")
 SESSION_CORE_REL = os.path.join(".brain-core", "session-core.md")
 SESSION_MARKDOWN_REL = os.path.join(".brain", "local", "session.md")
 COMPILED_ROUTER_REL = os.path.join(".brain", "local", "compiled-router.json")
-WORKSPACE_MANIFEST_REL = os.path.join(".brain", "workspace.yaml")
+WORKSPACE_MANIFEST_REL = os.path.join(".brain", "local", "workspace.yaml")
+WORKSPACE_MANIFEST_LEGACY_REL = os.path.join(".brain", "workspace.yaml")
 CORE_DOC_SECTION_HEADINGS = ("Core Docs", "Standards")
 
 # ---------------------------------------------------------------------------
@@ -150,7 +151,11 @@ def _json_safe(value):
 
 
 def _load_workspace_manifest(workspace_dir):
-    """Load `.brain/workspace.yaml` from the active workspace when possible."""
+    """Load `.brain/local/workspace.yaml` from the active workspace.
+
+    Falls back to the legacy `.brain/workspace.yaml` location with a warning
+    so existing installs continue to work until migrated.
+    """
     if not workspace_dir:
         return None
     try:
@@ -158,12 +163,22 @@ def _load_workspace_manifest(workspace_dir):
     except ImportError:
         return None
 
-    manifest_path = os.path.join(
-        os.path.abspath(os.path.expanduser(str(workspace_dir))),
-        WORKSPACE_MANIFEST_REL,
-    )
+    ws_abs = os.path.abspath(os.path.expanduser(str(workspace_dir)))
+    manifest_path = os.path.join(ws_abs, WORKSPACE_MANIFEST_REL)
+
     if not os.path.isfile(manifest_path):
-        return None
+        legacy_path = os.path.join(ws_abs, WORKSPACE_MANIFEST_LEGACY_REL)
+        if os.path.isfile(legacy_path):
+            print(
+                f"Warning: workspace manifest found at legacy location "
+                f"{WORKSPACE_MANIFEST_LEGACY_REL} — move it to "
+                f"{WORKSPACE_MANIFEST_REL}",
+                file=sys.stderr,
+            )
+            manifest_path = legacy_path
+        else:
+            return None
+
     try:
         with open(manifest_path, encoding="utf-8") as f:
             data = yaml.safe_load(f)

@@ -2110,8 +2110,8 @@ class TestBrainSession:
 
     def test_workspace_defaults_from_manifest(self, initialized, monkeypatch):
         workspace_dir = initialized.parent / "demo-workspace"
-        (workspace_dir / ".brain").mkdir(parents=True)
-        (workspace_dir / ".brain" / "workspace.yaml").write_text(
+        (workspace_dir / ".brain" / "local").mkdir(parents=True)
+        (workspace_dir / ".brain" / "local" / "workspace.yaml").write_text(
             "slug: demo-workspace\n"
             "links:\n"
             "  workspace: brain-demo\n"
@@ -2166,8 +2166,8 @@ class TestBrainSession:
 
     def test_markdown_mirror_includes_workspace_defaults(self, initialized, monkeypatch):
         workspace_dir = initialized.parent / "demo-workspace"
-        (workspace_dir / ".brain").mkdir(parents=True, exist_ok=True)
-        (workspace_dir / ".brain" / "workspace.yaml").write_text(
+        (workspace_dir / ".brain" / "local").mkdir(parents=True, exist_ok=True)
+        (workspace_dir / ".brain" / "local" / "workspace.yaml").write_text(
             "slug: demo-workspace\n"
             "defaults:\n"
             "  tags:\n"

@@ -104,8 +104,8 @@ class TestBuildSessionModel:
 
     def test_includes_workspace_defaults_and_record_from_manifest(self, tmp_path):
         workspace_dir = tmp_path / "demo-workspace"
-        (workspace_dir / ".brain").mkdir(parents=True)
-        (workspace_dir / ".brain" / "workspace.yaml").write_text(
+        (workspace_dir / ".brain" / "local").mkdir(parents=True)
+        (workspace_dir / ".brain" / "local" / "workspace.yaml").write_text(
             "slug: demo-workspace\n"
             "links:\n"
             "  workspace: brain-demo\n"
@@ -130,10 +130,31 @@ class TestBuildSessionModel:
             "tags": ["workspace/brain-demo", "project/brain"],
         }
 
-    def test_ignores_invalid_workspace_manifest(self, tmp_path):
+    def test_falls_back_to_legacy_workspace_manifest(self, tmp_path):
         workspace_dir = tmp_path / "demo-workspace"
         (workspace_dir / ".brain").mkdir(parents=True)
-        (workspace_dir / ".brain" / "workspace.yaml").write_text("defaults: [broken\n")
+        (workspace_dir / ".brain" / "workspace.yaml").write_text(
+            "slug: demo-workspace\n"
+            "defaults:\n"
+            "  tags:\n"
+            "    - workspace/legacy\n"
+        )
+
+        model = session.build_session_model(
+            _minimal_router(tmp_path),
+            str(tmp_path),
+            workspace_dir=str(workspace_dir),
+            load_config_if_missing=False,
+        )
+
+        assert model["workspace_defaults"] == {
+            "tags": ["workspace/legacy"],
+        }
+
+    def test_ignores_invalid_workspace_manifest(self, tmp_path):
+        workspace_dir = tmp_path / "demo-workspace"
+        (workspace_dir / ".brain" / "local").mkdir(parents=True)
+        (workspace_dir / ".brain" / "local" / "workspace.yaml").write_text("defaults: [broken\n")
 
         model = session.build_session_model(
             _minimal_router(tmp_path),
@@ -234,8 +255,8 @@ class TestSessionCli:
         )
 
         workspace_dir = tmp_path / "demo-workspace"
-        (workspace_dir / ".brain").mkdir(parents=True)
-        (workspace_dir / ".brain" / "workspace.yaml").write_text(
+        (workspace_dir / ".brain" / "local").mkdir(parents=True)
+        (workspace_dir / ".brain" / "local" / "workspace.yaml").write_text(
             "slug: demo-workspace\n"
             "defaults:\n"
             "  tags:\n"

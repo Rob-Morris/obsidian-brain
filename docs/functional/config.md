@@ -48,7 +48,7 @@ On startup, the MCP server calls `load_config()`, which reads all three layers, 
 
 Workspace metadata is intentionally separate from the Brain config system.
 
-`.brain/workspace.yaml` is an optional, workspace-owned declaration that lives in a connected workspace folder, not in the Brain vault itself. It is used for workspace identity, links to canonical Brain artefacts, and filing defaults such as auto-tags.
+`.brain/local/workspace.yaml` is an optional, workspace-owned declaration that lives in a connected workspace folder, not in the Brain vault itself. It is used for workspace identity, links to canonical Brain artefacts, and filing defaults such as auto-tags.
 
 This file does **not** participate in the three-layer config merge above. That merge is reserved for Brain/vault configuration:
 
@@ -56,18 +56,15 @@ This file does **not** participate in the three-layer config merge above. That m
 2. `.brain/config.yaml`
 3. `.brain/local/config.yaml`
 
-The distinction is intentional:
+The manifest lives in `.brain/local/` because every field describes the relationship between a specific clone and a specific vault — slug, brain identity, artefact links, and auto-tags are all install-specific. It uses YAML (not JSON) because it is human-authored and declarative; the location follows from its content being machine-local, not from its authorship model.
+
+The distinction from Brain config:
 
 - `.brain/config.yaml` is Brain-level shared configuration
-- `.brain/workspace.yaml` is workspace-level identity and defaults
+- `.brain/local/workspace.yaml` is workspace-level identity and defaults (machine-local)
 - `.brain/local/workspaces.json` is machine-local binding state for linked workspaces
 
-Format choice follows the same ownership split:
-
-- Human-authored declarative files in `.brain/` use YAML
-- Machine-managed state in `.brain/local/` uses JSON
-
-As a result, tooling such as `init.py` may scaffold `.brain/workspace.yaml`, but the file remains human-editable and is expected to evolve over time.
+Tooling such as `init.py` may scaffold `.brain/local/workspace.yaml`, but the file remains human-editable and is expected to evolve over time.
 
 ---
 

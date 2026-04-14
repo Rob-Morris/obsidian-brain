@@ -220,7 +220,7 @@ Codex project-scope installs have the same activation caveat in different words:
 
 All writes are atomic (tmp + fsync + rename). `init.py` records client, scope, config path, target path, and server config in `.brain/local/init-state.json` so later removal can compare the current entry against recorded ownership instead of guessing from file presence.
 
-For folder-scoped installs, `init.py` also scaffolds `.brain/workspace.yaml` when absent (except when targeting the vault root itself). The scaffold is intentionally minimal: it gives the workspace a stable slug and a default `workspace/{slug}` tag, but leaves richer metadata and links for humans or agents to evolve later.
+For folder-scoped installs, `init.py` also scaffolds `.brain/local/workspace.yaml` when absent (except when targeting the vault root itself). If a legacy manifest exists at `.brain/workspace.yaml`, it is migrated to the new location automatically. The scaffold is intentionally minimal: it gives the workspace a stable slug and a default `workspace/{slug}` tag, but leaves richer metadata and links for humans or agents to evolve later.
 
 **Dependencies:** Python 3.8+ stdlib only. Detects a Python with `mcp` package for the server config (vault `.venv` -> current Python -> PATH search).
 
@@ -237,7 +237,7 @@ Canonical session bootstrap builder at `.brain-core/scripts/session.py`. Owns on
 - Builds the canonical session model from static core bootstrap content, structured core-doc references, and dynamic vault state
 - Writes `.brain/local/session.md` on direct CLI execution
 - Is also called by the MCP server and router compile path so JSON and markdown stay in parity for shared content
-- When an active workspace is supplied, reads `.brain/workspace.yaml` from that workspace and exposes raw `workspace` identity plus any resolvable `workspace_record` and `workspace_defaults`
+- When an active workspace is supplied, reads `.brain/local/workspace.yaml` from that workspace (falling back to the legacy `.brain/workspace.yaml` with a warning) and exposes raw `workspace` identity plus any resolvable `workspace_record` and `workspace_defaults`
 - Keeps the current `context` parameter as a forward-compatible stub; no context-specific scoping yet
 
 **CLI:**

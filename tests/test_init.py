@@ -164,16 +164,26 @@ class TestEnsureClaudeMd:
 class TestEnsureWorkspaceManifest:
     def test_creates_new_manifest(self, project):
         init.ensure_workspace_manifest(project)
-        content = (project / ".brain" / "workspace.yaml").read_text()
+        content = (project / ".brain" / "local" / "workspace.yaml").read_text()
         assert "slug: my-project" in content
         assert "- workspace/my-project" in content
 
     def test_preserves_existing_manifest(self, project):
-        manifest = project / ".brain" / "workspace.yaml"
-        manifest.parent.mkdir(parents=True)
+        manifest = project / ".brain" / "local" / "workspace.yaml"
+        manifest.parent.mkdir(parents=True, exist_ok=True)
         manifest.write_text("slug: custom\n")
         init.ensure_workspace_manifest(project)
         assert manifest.read_text() == "slug: custom\n"
+
+    def test_migrates_legacy_manifest(self, project):
+        legacy = project / ".brain" / "workspace.yaml"
+        legacy.parent.mkdir(parents=True, exist_ok=True)
+        legacy.write_text("slug: legacy\n")
+        init.ensure_workspace_manifest(project)
+        new_path = project / ".brain" / "local" / "workspace.yaml"
+        assert new_path.is_file()
+        assert new_path.read_text() == "slug: legacy\n"
+        assert not legacy.is_file()
 
 
 class TestEnsureSessionStartHook:
