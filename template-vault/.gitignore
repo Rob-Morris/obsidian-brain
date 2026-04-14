@@ -22,5 +22,8 @@ _Config/Skills/*-workspace/
 # Machine-local generated caches (compiled router, retrieval index, embeddings)
 .brain/local/
 
+# MCP config (machine-local absolute paths)
+.mcp.json
+
 # Canary log files (consumed by hooks, not vault content)
 .canary--*

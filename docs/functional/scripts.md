@@ -197,8 +197,10 @@ Setup script at `.brain-core/scripts/init.py`. Configures Claude Code and Codex 
 
 - **Client selector** — `--client claude|codex|all` (default: `all`)
 - **Project** (default): Claude writes `.mcp.json`; Codex writes `.codex/config.toml`; Claude also ensures `CLAUDE.md` and a SessionStart hook in `.claude/settings.local.json`
-- **Local** (`--local`): Claude only. Writes `.claude/settings.local.json` + `.claude/CLAUDE.local.md` in the target directory. Gitignored — for personal use without committing config
+- **Local** (`--local`): Claude only. Writes `.claude/settings.local.json` + `.claude/CLAUDE.local.md` in the target directory
 - **User** (`--user`): Claude writes `~/.claude.json`; Codex writes `~/.codex/config.toml`
+
+`.mcp.json` and `.codex/config.toml` contain machine-local absolute paths (`command`, `BRAIN_VAULT_ROOT`, `PYTHONPATH`, `BRAIN_WORKSPACE_DIR`). Whether to commit these files is the vault or workspace's choice — Brain does not mandate. See [DD-040](../architecture/decisions/dd-040-workspace-architecture.md) for the scoping contract.
 
 When multiple scopes are configured, project takes priority over local, which takes priority over user once the project-scoped client entry is active. For Claude, that means the project's `.mcp.json` entry has been approved via `/mcp`. For Codex, that means the project is trusted and the project-scoped MCP is enabled. The script warns if a matching user-scope registration already exists when installing at project or local scope.
 
