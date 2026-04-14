@@ -1,6 +1,7 @@
 # DD-038: Unified session bootstrap
 
 **Status:** Implemented (v0.25.0)
+**Extended by:** DD-040
 
 ## Context
 

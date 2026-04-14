@@ -1,6 +1,7 @@
 # DD-025: 5 MCP Tools — Privilege Split for Granular Permissions
 
 **Status:** Implemented (v0.11.0)
+**Supersedes:** DD-011, DD-020
 
 ## Context
 
