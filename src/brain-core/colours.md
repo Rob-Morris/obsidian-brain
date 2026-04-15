@@ -69,9 +69,14 @@ python3 compile_colours.py --vault /path/to/vault
 
 The generated CSS uses `data-path` attribute selectors on `.nav-folder-title` and `.nav-file-title` elements. Each folder gets colour, background, and border rules. Use `--dry-run` to inspect the full output.
 
-## Archive Subfolder Styling
+## Archive Styling
 
-`_Archive/` subfolders within artefact folders use slate styling — visually signalling "infrastructure, not active content". The archive block uses wildcard selectors so it works for any artefact type's `_Archive/` subfolder without per-folder CSS.
+Archive content uses slate styling — visually signalling "infrastructure, not active content". Two cases:
+
+- **Root `_Archive/`** — full slate treatment (slate fg + slate 12% bg + 4px double slate border) plus the `⧈` badge from `_css_system_folder_icons`, matching the `_Assets` look. Applies to the folder itself and everything nested under it.
+- **Artefact `_Archive/` subfolders** (e.g. `Designs/_Archive/`) — slate fg, but background and border colour inherited from the parent artefact folder, so the archive reads as a muted variant of its parent.
+
+Both share a single block using wildcard selectors, so it works for any artefact type's `_Archive/` subfolder without per-folder CSS.
 
 **Ordering:** The `_Archive` block must come AFTER the Artefact Folders section in the CSS file. Same specificity, last rule wins.
 

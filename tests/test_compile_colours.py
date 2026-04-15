@@ -325,7 +325,7 @@ class TestRenderCss:
         temporal_pos = css.index("Temporal Folders")
         plugins_pos = css.index("Plugin Folders")
         artefact_pos = css.index("Artefact Folders")
-        archive_pos = css.index("_Archive Subfolders")
+        archive_pos = css.index("_Archive (root + subfolders)")
 
         assert palette_pos < themes_pos < icons_pos
         assert icons_pos < attachments_pos < config_pos
@@ -336,10 +336,10 @@ class TestRenderCss:
         router = _load_router(vault)
         assignments = cc.compute_colours(router)
         css = cc.render_css(assignments)
-        archive_pos = css.index("_Archive Subfolders")
+        archive_pos = css.index("_Archive (root + subfolders)")
         # No other section header after archive
         remaining = css[archive_pos:]
-        assert "/* ─── " not in remaining.split("_Archive Subfolders", 1)[1]
+        assert "/* ─── " not in remaining.split("_Archive (root + subfolders)", 1)[1]
 
     def test_system_sections_unchanged_regardless_of_type_count(self, vault):
         """System folder CSS is the same whether vault has 1 type or 20."""

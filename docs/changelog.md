@@ -2,6 +2,14 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.27.10 — 2026-04-15
+
+**Style the root `_Archive/` folder.** Previously only `/_Archive` *subfolders* within artefact folders received slate styling — the top-level `_Archive/` fell through to the default look despite being a first-class vault concept. `_css_archive_section` now emits full slate treatment (fg + 12% bg + 4px double border) for root `_Archive/`, matching the `_Assets/` style. The `⧈` archive icon badge (specified in the Status Folders design but never wired up) is also now emitted by `_css_system_folder_icons`. Artefact subfolder archive behaviour is unchanged.
+
+- Updated `colours.md` and template-vault style doc to describe both archive cases (root + subfolder) explicitly.
+- Regenerated `template-vault/.obsidian/snippets/brain-folder-colours.css`; the diff also reflects accumulated drift from newly-registered artefact types since the last compile.
+- Adjusted `test_compile_colours.py` for the renamed section header (`_Archive Subfolders` → `_Archive (root + subfolders)`).
+
 ## v0.27.9 — 2026-04-14
 
 **Move workspace manifest to `.brain/local/workspace.yaml` — all fields are install-specific.** Every field in the manifest (slug, brain identity, artefact links, auto-tags) describes the relationship between a specific clone and a specific vault, so the file belongs alongside other machine-local state rather than at the `.brain/` root where it could be mistakenly committed.

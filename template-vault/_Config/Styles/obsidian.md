@@ -16,13 +16,19 @@ System folders (`_` prefixed) have fixed colours. These are reserved — never a
 | `_Plugins/` | Orchid | `--theme-plugins-fg` / `--theme-plugins-bg` |
 | `_Workspaces/` | Teal | `--theme-workspaces-fg` / `--theme-workspaces-bg` |
 
-## _Archive Subfolders
+## _Archive (root + subfolders)
 
-`_Archive/` subfolders within artefact folders use the same slate styling as `_Assets/`. This visually signals "infrastructure, not active content". Wildcard CSS selectors apply to any artefact type's `_Archive/` subfolder automatically — no per-folder CSS needed.
+Archive content uses slate styling — visually signalling "infrastructure, not active content". Two cases:
+
+- **Root `_Archive/`** gets the full slate treatment (slate fg + slate 12% bg + double slate border) plus the `⧈` icon badge, matching `_Assets/`.
+- **Artefact `_Archive/` subfolders** (e.g. `Designs/_Archive/`) use slate fg on the parent folder's background and border colour.
+
+Wildcard CSS selectors apply to any artefact type's `_Archive/` subfolder automatically — no per-folder CSS needed.
 
 | Folder | Colour | Variable |
 |--------|--------|----------|
-| `{Type}/_Archive/` | Slate | `--theme-assets-fg` / `--theme-assets-bg` |
+| `_Archive/` (root) | Slate | `--theme-assets-fg` / `--theme-assets-bg` |
+| `{Type}/_Archive/` | Slate fg on parent bg | `--theme-assets-fg` |
 
 ## Living Artefact Colours
 
