@@ -68,6 +68,12 @@ def safe_write(path, content, *, encoding="utf-8", bounds=None,
     Writes *content* to a temporary file in the same directory, fsyncs, then
     atomically replaces the target via ``os.replace``.  Returns the resolved
     path that was actually written to.
+
+    **Concurrency note:** the temp filename is keyed on PID only
+    (``{target}.{pid}.tmp``).  Two threads in the same process writing the
+    same target concurrently would collide on the temp path.  All current
+    callers are single-threaded CLI invocations, so this is safe in practice
+    — but add thread-id or a tempfile random suffix if that ever changes.
     """
     if bounds is not None:
         target = resolve_and_check_bounds(path, bounds,

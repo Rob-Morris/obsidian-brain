@@ -5,23 +5,23 @@ import os
 import pytest
 
 import _common as common
-from _common._vault import _is_vault_root
+from _common import is_vault_root
 
 
 # ---------------------------------------------------------------------------
-# _is_vault_root
+# is_vault_root
 # ---------------------------------------------------------------------------
 
 class TestIsVaultRoot:
     def test_vault_with_version(self, vault):
-        assert _is_vault_root(vault) is True
+        assert is_vault_root(vault) is True
 
     def test_vault_with_agents_md(self, tmp_path):
         (tmp_path / "Agents.md").write_text("agent entry\n")
-        assert _is_vault_root(tmp_path) is True
+        assert is_vault_root(tmp_path) is True
 
     def test_non_vault(self, tmp_path):
-        assert _is_vault_root(tmp_path) is False
+        assert is_vault_root(tmp_path) is False
 
 
 # ---------------------------------------------------------------------------

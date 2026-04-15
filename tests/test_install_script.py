@@ -2,18 +2,13 @@
 
 import os
 from pathlib import Path
-import shutil
 import stat
 import subprocess
 
+from conftest import copy_install_source as _copy_source_checkout
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-
-
-def _copy_source_checkout(dest: Path) -> None:
-    shutil.copy2(REPO_ROOT / "install.sh", dest / "install.sh")
-    shutil.copytree(REPO_ROOT / "template-vault", dest / "template-vault")
-    shutil.copytree(REPO_ROOT / "src" / "brain-core", dest / "src" / "brain-core")
 
 
 def _write_executable(path: Path, content: str) -> None:
@@ -34,6 +29,14 @@ def test_install_ignores_machine_local_template_state(tmp_path):
     )
     (source / "template-vault" / ".venv" / "source-only-marker").write_text(
         "copied from source\n"
+    )
+    (source / "template-vault" / ".mcp.json").write_text(
+        '{\n  "mcpServers": {\n    "brain": {\n      "command": "stale-template-python"\n    }\n  }\n}\n'
+    )
+    leaked_codex = source / "template-vault" / ".codex" / "config.toml"
+    leaked_codex.parent.mkdir(parents=True, exist_ok=True)
+    leaked_codex.write_text(
+        '[mcp_servers.brain]\ncommand = "stale-template-python"\n'
     )
     local = source / "template-vault" / ".brain" / "local"
     local.mkdir(parents=True, exist_ok=True)
@@ -109,6 +112,10 @@ def test_install_ignores_machine_local_template_state(tmp_path):
     assert str(target) in (target / "init-args.txt").read_text()
     assert "open Claude Code in this directory and use /mcp to approve brain if prompted" in result.stderr
     assert "trust this project and ensure the project-scoped brain MCP is enabled if prompted" in result.stderr
+    assert "stale-template-python" not in (target / ".mcp.json").read_text()
+    assert '"command": "python"' in (target / ".mcp.json").read_text()
+    assert "stale-template-python" not in (target / ".codex" / "config.toml").read_text()
+    assert 'command = "python"' in (target / ".codex" / "config.toml").read_text()
     assert not (target / ".venv" / "bin" / "pip").exists()
     assert not (target / ".venv" / "source-only-marker").exists()
     assert (target / ".venv" / "pip-args.txt").read_text().startswith(

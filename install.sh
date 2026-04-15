@@ -191,6 +191,39 @@ spin() {
     return $exit_code
 }
 
+# Best-effort vault registry update. Never blocks install.
+registry_update() {
+    local action="$1"
+    local path="$2"
+    local script="${3:-$REPO_DIR/src/brain-core/scripts/vault_registry.py}"
+    [ -f "$script" ] || return 0
+    python3 "$script" "$action" "$path" >/dev/null 2>&1 || true
+}
+
+# Print the path of the single non-stale registered vault, or empty.
+# Reads the registry directly — no dependency on $REPO_DIR.
+registry_single_valid_vault() {
+    local config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+    local registry="$config_home/brain/vaults"
+    [ -f "$registry" ] || return 0
+    local valid_count=0
+    local valid_path=""
+    local alias path
+    while IFS=$'\t' read -r alias path; do
+        case "$alias" in ''|\#*) continue ;; esac
+        # Defensive CR strip in case the file was edited on Windows.
+        path="${path%$'\r'}"
+        [ -z "$path" ] && continue
+        if [ -d "$path" ] && [ -f "$path/.brain-core/VERSION" ]; then
+            valid_count=$((valid_count + 1))
+            valid_path="$path"
+        fi
+    done < "$registry"
+    if [ "$valid_count" -eq 1 ]; then
+        printf '%s' "$valid_path"
+    fi
+}
+
 # ---------------------------------------------------------------------------
 # Uninstall
 # ---------------------------------------------------------------------------
@@ -254,6 +287,8 @@ if [ "${1:-}" = "--uninstall" ]; then
     else
         warn "Skipping recorded MCP cleanup (python3 or init.py unavailable)."
     fi
+
+    registry_update --unregister "$VAULT_PATH" "$VAULT_PATH/.brain-core/scripts/vault_registry.py"
 
     spin "Removing brain system files" bash -c '
         rm -rf "$1/.brain-core"
@@ -346,9 +381,17 @@ if [ -z "$VAULT_PATH" ]; then
         VAULT_PATH="$(pwd)"
     else
         DEFAULT_PATH="$(pwd)"
-        printf '\nWhere should your brain live? [%s]: ' "$DEFAULT_PATH"
-        read -r VAULT_PATH
-        [ -z "$VAULT_PATH" ] && VAULT_PATH="$DEFAULT_PATH"
+        REGISTERED_VAULT="$(registry_single_valid_vault)"
+        if [ -n "$REGISTERED_VAULT" ]; then
+            printf '\n  Found a registered brain at \033[1m%s\033[0m\n' "$REGISTERED_VAULT" >&2
+            printf '  Upgrade it, or enter a different path? [%s]: ' "$REGISTERED_VAULT"
+            read -r VAULT_PATH
+            [ -z "$VAULT_PATH" ] && VAULT_PATH="$REGISTERED_VAULT"
+        else
+            printf '\nWhere should your brain live? [%s]: ' "$DEFAULT_PATH"
+            read -r VAULT_PATH
+            [ -z "$VAULT_PATH" ] && VAULT_PATH="$DEFAULT_PATH"
+        fi
     fi
 fi
 
@@ -532,6 +575,12 @@ else
         rm -f "$vault/.brain-core"
         cp -R "$repo/src/brain-core/." "$vault/.brain-core/"
     ' _ "$VAULT_PATH" "$REPO_DIR"
+fi
+
+if [ "$UPGRADE_MODE" = true ]; then
+    registry_update --backfill "$VAULT_PATH"
+else
+    registry_update --register "$VAULT_PATH"
 fi
 
 # ---------------------------------------------------------------------------

@@ -8,9 +8,15 @@ from pathlib import Path
 TEMPORAL_DIR = "_Temporal"
 
 
-def _is_vault_root(path):
-    """Check if a directory is a Brain vault root."""
-    return (path / ".brain-core" / "VERSION").is_file() or (path / "Agents.md").is_file()
+def is_vault_root(path):
+    """Check whether *path* is a Brain vault root.
+
+    A vault is identified by the brain-core VERSION file (modern vaults) or
+    the legacy top-level Agents.md marker (pre-0.x vaults).  Accepts either
+    a ``pathlib.Path`` or a string.
+    """
+    p = path if isinstance(path, Path) else Path(path)
+    return (p / ".brain-core" / "VERSION").is_file() or (p / "Agents.md").is_file()
 
 
 def find_vault_root(vault_arg=None):
@@ -21,21 +27,21 @@ def find_vault_root(vault_arg=None):
     """
     if vault_arg:
         p = Path(vault_arg).resolve()
-        if _is_vault_root(p):
+        if is_vault_root(p):
             return p
         print(f"Error: {vault_arg} is not a vault root.", file=sys.stderr)
         sys.exit(1)
 
     # Check cwd first (allows running from dev repo: cd vault && python3 /path/to/script)
     cwd = Path(os.getcwd()).resolve()
-    if _is_vault_root(cwd):
+    if is_vault_root(cwd):
         return cwd
 
     # Walk up from script location (works when installed inside .brain-core/scripts/)
     current = Path(__file__).resolve().parent
     for _ in range(10):
         current = current.parent
-        if _is_vault_root(current):
+        if is_vault_root(current):
             return current
     print("Error: could not find vault root.", file=sys.stderr)
     sys.exit(1)

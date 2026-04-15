@@ -2,6 +2,19 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.28.0 — 2026-04-16
+
+**Cross-vault registry at `~/.config/brain/vaults`.** `install.sh` now records every installed brain vault in a plain-text XDG-compliant registry. Running `bash install.sh` without a path offers the single registered vault for upgrade — no more "which directory did I install it in?". See [[Brain Versioning V2]].
+
+- Added `src/brain-core/scripts/vault_registry.py` — stdlib-only helper with register/backfill/unregister/list/prune/resolve commands. Plain text format (`<alias>\t<path>`, one per line) so bash can read it directly without a Python dependency.
+- Path resolves via `$XDG_CONFIG_HOME/brain/vaults`, defaulting to `~/.config/brain/vaults`. Chose XDG layout over `~/.brain/` to avoid namespace collision with vault-local `.brain/` directories and to follow standard Linux config conventions.
+- Aliases are slugified from the folder basename; on collision a random `[a-z0-9]{3}` suffix is appended (same pattern as `_common/_templates.py`).
+- Schema is deliberately minimal — per-vault metadata (version, timestamps) stays in each vault's own `.brain/`.
+- `install.sh` hook points: register on fresh install, backfill-if-absent on upgrade, unregister on uninstall (called before `.brain-core/` is removed so the vault-local script is still reachable).
+- Added integration tests covering the fresh-install → upgrade → uninstall round-trip.
+- Strengthened the installer leak regression to prove stale source `template-vault/.mcp.json` and `.codex/config.toml` are replaced by freshly generated project-scoped client config during install.
+- Minor bump because this introduces a new user-home artefact; no vault structure changes.
+
 ## v0.27.10 — 2026-04-15
 
 **Style the root `_Archive/` folder.** Previously only `/_Archive` *subfolders* within artefact folders received slate styling — the top-level `_Archive/` fell through to the default look despite being a first-class vault concept. `_css_archive_section` now emits full slate treatment (fg + 12% bg + 4px double border) for root `_Archive/`, matching the `_Assets/` style. The `⧈` archive icon badge (specified in the Status Folders design but never wired up) is also now emitted by `_css_system_folder_icons`. Artefact subfolder archive behaviour is unchanged.

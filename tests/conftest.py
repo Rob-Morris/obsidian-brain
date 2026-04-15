@@ -59,6 +59,23 @@ def make_router(artefacts, meta=None):
     return {"meta": meta, "artefacts": artefacts}
 
 
+def copy_install_source(dest):
+    """Copy the repo's install entry points into *dest* for install.sh integration tests.
+
+    Copies install.sh, template-vault/, and src/brain-core/ — the minimum required
+    to run ``bash install.sh`` against an isolated target. Callers typically stub
+    ``src/brain-core/scripts/init.py`` afterwards to avoid real MCP registration.
+    """
+    import shutil
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parents[1]
+    dest = Path(dest)
+    shutil.copy2(repo_root / "install.sh", dest / "install.sh")
+    shutil.copytree(repo_root / "template-vault", dest / "template-vault")
+    shutil.copytree(repo_root / "src" / "brain-core", dest / "src" / "brain-core")
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

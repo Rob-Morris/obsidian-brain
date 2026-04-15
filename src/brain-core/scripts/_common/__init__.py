@@ -14,6 +14,7 @@ from ._vault import (
     find_vault_root,
     is_archived_path,
     is_system_dir,
+    is_vault_root,
     match_artefact,
     read_version,
     scan_living_types,
@@ -92,6 +93,7 @@ from ._search import (
 
 from ._templates import (
     now_iso,
+    random_short_suffix,
     substitute_template_vars,
     unique_filename,
 )

@@ -60,6 +60,16 @@ def substitute_template_vars(content, template_vars=None, _now=None):
     return content
 
 
+def random_short_suffix(k=3):
+    """Return a short random ``[a-z0-9]{k}`` string.
+
+    Shared collision-avoidance primitive. Used for filename deduplication
+    (``unique_filename``) and vault-registry alias deduplication. The
+    alphabet is deliberately small so suffixes stay eyeball-readable.
+    """
+    return ''.join(random.choices(string.ascii_lowercase + string.digits, k=k))
+
+
 def unique_filename(folder, stem, ext=".md"):
     """Return a filename in *folder* that doesn't collide with existing files.
 
@@ -68,6 +78,5 @@ def unique_filename(folder, stem, ext=".md"):
     """
     filename = f"{stem}{ext}"
     while os.path.isfile(os.path.join(folder, filename)):
-        suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=3))
-        filename = f"{stem} {suffix}{ext}"
+        filename = f"{stem} {random_short_suffix()}{ext}"
     return filename

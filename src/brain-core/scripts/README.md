@@ -29,6 +29,7 @@ Scripts are the **source of truth** for all vault operations. The MCP server (`b
 | `start_shaping.py` | Bootstrap a shaping session for an existing artefact | (via MCP: `brain_action("start-shaping", ...)`) |
 | `sync_definitions.py` | Sync artefact library definitions to vault `_Config/` | `python3 sync_definitions.py [--vault V] [--dry-run] [--types t1,t2] [--json]` |
 | `upgrade.py` | In-place brain-core upgrade with local migration ledger | `python3 upgrade.py --source P [--vault V] [--dry-run] [--force] [--json]` |
+| `vault_registry.py` | User-home registry of installed brain vaults (`$XDG_CONFIG_HOME/brain/vaults`, default `~/.config/brain/vaults`) | `python3 vault_registry.py [--register PATH\|--backfill PATH\|--unregister PATH\|--list [--json]\|--prune\|--resolve ALIAS]` |
 | `workspace_registry.py` | Workspace slug→path resolution | `python3 workspace_registry.py [--register SLUG PATH] [--unregister SLUG] [--resolve SLUG] [--json]` |
 
 ## Bounded Context Map
@@ -42,7 +43,7 @@ The script layer is organised into 8 bounded contexts. This is an architectural 
 | Compliance | `check.py` |
 | Content Intelligence | `search_index.py`, `list_artefacts.py`, `process.py` |
 | Session & Configuration | `session.py`, `config.py`, `workspace_registry.py`, `generate_key.py` |
-| Lifecycle Management | `init.py`, `upgrade.py`, `migrate_naming.py`, `migrations/` |
+| Lifecycle Management | `init.py`, `upgrade.py`, `vault_registry.py`, `migrate_naming.py`, `migrations/` |
 | MCP Integration | `brain_mcp/server.py`, `brain_mcp/proxy.py` |
 | Platform Integration | `obsidian_cli.py` |
 
