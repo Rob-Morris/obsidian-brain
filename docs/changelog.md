@@ -2,6 +2,16 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.28.1 — 2026-04-16
+
+Hardening pass on the v0.28.0 vault registry:
+
+- `vault_registry.py` serializes `register`/`unregister`/`prune` behind an `fcntl.flock` on a sibling `.lock` file so parallel installers can't lose entries on a load→modify→save race.
+- `_config_home()` now falls back to `$HOME/.config` when `XDG_CONFIG_HOME` is unset, empty, *or* non-absolute, per the XDG Base Directory spec.
+- `install.sh`'s `registry_single_valid_vault` now matches Python's `is_vault_root` — also accepts the legacy `Agents.md` marker, not only `.brain-core/VERSION`.
+- Standardized all interactive prompts in `install.sh` to write to stderr (previously mixed — some prompts went to stdout).
+- Dropped a dead same-path guard in `register()` and trimmed a couple of disproportionate docstrings; added tests for concurrent register and XDG relative-path/empty fallback.
+
 ## v0.28.0 — 2026-04-16
 
 **Cross-vault registry at `~/.config/brain/vaults`.** `install.sh` now records every installed brain vault in a plain-text XDG-compliant registry. Running `bash install.sh` without a path offers the single registered vault for upgrade — no more "which directory did I install it in?". See [[Brain Versioning V2]].

@@ -202,6 +202,8 @@ registry_update() {
 
 # Print the path of the single non-stale registered vault, or empty.
 # Reads the registry directly — no dependency on $REPO_DIR.
+# Vault-root check must stay in sync with Python's _common.is_vault_root:
+# a dir is a vault if it has .brain-core/VERSION (modern) OR Agents.md (legacy).
 registry_single_valid_vault() {
     local config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
     local registry="$config_home/brain/vaults"
@@ -214,7 +216,7 @@ registry_single_valid_vault() {
         # Defensive CR strip in case the file was edited on Windows.
         path="${path%$'\r'}"
         [ -z "$path" ] && continue
-        if [ -d "$path" ] && [ -f "$path/.brain-core/VERSION" ]; then
+        if [ -d "$path" ] && { [ -f "$path/.brain-core/VERSION" ] || [ -f "$path/Agents.md" ]; }; then
             valid_count=$((valid_count + 1))
             valid_path="$path"
         fi
@@ -236,7 +238,7 @@ if [ "${1:-}" = "--uninstall" ]; then
         if [ "$NON_INTERACTIVE" = true ]; then
             err "Path is required with --non-interactive. Usage: bash install.sh --uninstall --non-interactive /path/to/vault"
         fi
-        printf 'Which vault? Path: '
+        printf 'Which vault? Path: ' >&2
         read -r VAULT_PATH
         [ -z "$VAULT_PATH" ] && err "No path provided."
     fi
@@ -264,8 +266,8 @@ if [ "${1:-}" = "--uninstall" ]; then
     info "  python3 \"$VAULT_PATH/.brain-core/scripts/init.py\" --vault \"$VAULT_PATH\" --user --client all --remove"
 
     if [ "$NON_INTERACTIVE" = false ]; then
-        printf '\n'
-        printf '  Remove brain system files from \033[1m%s\033[0m? [Y/n]: ' "$VAULT_PATH"
+        printf '\n' >&2
+        printf '  Remove brain system files from \033[1m%s\033[0m? [Y/n]: ' "$VAULT_PATH" >&2
         read -r confirm
         if [ -n "$confirm" ] && [ "$confirm" != "y" ] && [ "$confirm" != "Y" ]; then
             printf '\n\033[1;32m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m\n\n' >&2
@@ -298,8 +300,8 @@ if [ "${1:-}" = "--uninstall" ]; then
     ' _ "$VAULT_PATH"
 
     if [ "$NON_INTERACTIVE" = false ]; then
-        printf '\n'
-        printf '  Also delete the Obsidian vault and all data at \033[1m%s\033[0m? [y/N]: ' "$VAULT_PATH"
+        printf '\n' >&2
+        printf '  Also delete the Obsidian vault and all data at \033[1m%s\033[0m? [y/N]: ' "$VAULT_PATH" >&2
         read -r delete_all
         if [ "$delete_all" = "y" ] || [ "$delete_all" = "Y" ]; then
             # Count user artefacts (markdown files outside system directories)
@@ -312,16 +314,16 @@ if [ "${1:-}" = "--uninstall" ]; then
                 -path "$VAULT_PATH/_Assets" -prune -o \
                 -path "$VAULT_PATH/.pytest_cache" -prune -o \
                 -name '*.md' -type f -print 2>/dev/null | wc -l | tr -d ' ')
-            printf '\n'
-            printf '\033[1;31m  PERMANENTLY DELETE everything in %s, not just the brain.\033[0m\n' "$VAULT_PATH"
+            printf '\n' >&2
+            printf '\033[1;31m  PERMANENTLY DELETE everything in %s, not just the brain.\033[0m\n' "$VAULT_PATH" >&2
             if [ "$artefact_count" -gt 0 ] 2>/dev/null; then
                 info "That's ~$artefact_count artefacts — notes, projects, documents, and Obsidian settings."
             else
                 info "This includes all notes, projects, documents, and Obsidian settings."
             fi
-            printf '\033[1;31m  This cannot be undone.\033[0m Not even by your agent.\n'
-            printf '\n'
-            printf '  Type "farewell, cruel world" to confirm: '
+            printf '\033[1;31m  This cannot be undone.\033[0m Not even by your agent.\n' >&2
+            printf '\n' >&2
+            printf '  Type "farewell, cruel world" to confirm: ' >&2
             read -r confirm_all
             if [ "$confirm_all" = "farewell, cruel world" ]; then
                 rm -rf "$VAULT_PATH"
@@ -384,11 +386,11 @@ if [ -z "$VAULT_PATH" ]; then
         REGISTERED_VAULT="$(registry_single_valid_vault)"
         if [ -n "$REGISTERED_VAULT" ]; then
             printf '\n  Found a registered brain at \033[1m%s\033[0m\n' "$REGISTERED_VAULT" >&2
-            printf '  Upgrade it, or enter a different path? [%s]: ' "$REGISTERED_VAULT"
+            printf '  Upgrade it, or enter a different path? [%s]: ' "$REGISTERED_VAULT" >&2
             read -r VAULT_PATH
             [ -z "$VAULT_PATH" ] && VAULT_PATH="$REGISTERED_VAULT"
         else
-            printf '\nWhere should your brain live? [%s]: ' "$DEFAULT_PATH"
+            printf '\nWhere should your brain live? [%s]: ' "$DEFAULT_PATH" >&2
             read -r VAULT_PATH
             [ -z "$VAULT_PATH" ] && VAULT_PATH="$DEFAULT_PATH"
         fi

@@ -38,6 +38,17 @@ def test_registry_path_respects_xdg_config_home(registry_home, monkeypatch, tmp_
     assert vault_registry._registry_path() == str(xdg / "brain" / "vaults")
 
 
+def test_registry_path_falls_back_when_xdg_is_relative(registry_home, monkeypatch):
+    # XDG spec: a relative $XDG_CONFIG_HOME must be treated as unset.
+    monkeypatch.setenv("XDG_CONFIG_HOME", "relative/path")
+    assert vault_registry._registry_path() == str(registry_home / ".config" / "brain" / "vaults")
+
+
+def test_registry_path_falls_back_when_xdg_is_empty(registry_home, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", "")
+    assert vault_registry._registry_path() == str(registry_home / ".config" / "brain" / "vaults")
+
+
 def test_load_returns_empty_when_missing(registry_home):
     assert vault_registry.load() == {}
 
@@ -190,3 +201,41 @@ def test_cli_resolve_found(registry_home):
 def test_cli_resolve_missing_exits_1(registry_home):
     r = _run_cli(registry_home, "--resolve", "nope", check=False)
     assert r.returncode == 1
+
+
+# ---------------------------------------------------------------------------
+# Concurrency
+# ---------------------------------------------------------------------------
+
+
+def test_concurrent_register_does_not_lose_entries(registry_home, tmp_path):
+    """Parallel --register subprocesses must all end up in the registry.
+
+    Without the exclusive lock around load-modify-save, one writer's snapshot
+    overwrites the other and entries are silently lost.
+    """
+    env = os.environ.copy()
+    env["HOME"] = str(registry_home)
+    env.pop("XDG_CONFIG_HOME", None)
+
+    # Use a tmp_path-rooted dir so paths normalize the same under realpath.
+    base = tmp_path / "vaults"
+    base.mkdir()
+    paths = [base / f"brain-{i}" for i in range(8)]
+    for p in paths:
+        p.mkdir()
+
+    procs = [
+        subprocess.Popen(
+            [sys.executable, str(SCRIPT), "--register", str(p)],
+            env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+        for p in paths
+    ]
+    for p in procs:
+        assert p.wait(timeout=10) == 0
+
+    registry = vault_registry.load()
+    assert len(registry) == 8
+    expected = sorted(os.path.realpath(str(p)) for p in paths)
+    assert sorted(registry.values()) == expected

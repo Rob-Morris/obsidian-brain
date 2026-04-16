@@ -19,6 +19,8 @@ Usage:
 """
 
 import argparse
+import contextlib
+import fcntl
 import json
 import os
 import sys
@@ -31,8 +33,10 @@ HEADER = "# brain vault registry — one vault per line, <alias>\\t<absolute-pat
 
 
 def _config_home():
+    # Per the XDG Base Directory spec: if $XDG_CONFIG_HOME is unset, empty,
+    # or set to a relative path, fall back to $HOME/.config.
     xdg = os.environ.get("XDG_CONFIG_HOME")
-    if xdg:
+    if xdg and os.path.isabs(xdg):
         return xdg
     home = os.environ.get("HOME") or str(Path.home())
     return os.path.join(home, ".config")
@@ -40,6 +44,25 @@ def _config_home():
 
 def _registry_path():
     return os.path.join(_config_home(), "brain", "vaults")
+
+
+@contextlib.contextmanager
+def _locked():
+    """Serialize load-modify-save across concurrent installers.
+
+    Locks a sibling ``.lock`` file (not the registry itself) so locking works
+    before the registry has been created. ``load()`` on its own is
+    intentionally unlocked — best-effort reads must not block installer
+    prompts on a concurrent writer.
+    """
+    lock_path = _registry_path() + ".lock"
+    os.makedirs(os.path.dirname(lock_path), exist_ok=True)
+    with open(lock_path, "w") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
 
 def load():
@@ -88,13 +111,13 @@ def save(registry):
 
 
 def _absolute(vault_path):
-    """Resolve to absolute real path, expanding ~, cwd-relative, and symlinks.
+    """Canonicalize a vault path for registry storage.
 
-    Uses ``realpath`` so entries stay consistent with install.sh's ``cd && pwd``
-    resolution — otherwise a user registering a vault via a symlink and later
-    unregistering via the real path (or vice versa) would see mismatches.
-    ``realpath`` handles non-existent paths gracefully by resolving whatever
-    prefix does exist.
+    Uses ``realpath`` so paths reaching the same vault via different symlinks
+    collapse to one entry — keeps register/unregister idempotent. Note this
+    diverges from ``install.sh``'s ``resolve_path`` (which uses ``cd && pwd``
+    and doesn't follow symlinks), so the installer may display a different
+    path string than what's stored. Cosmetic only.
     """
     p = os.path.expanduser(vault_path)
     if not os.path.isabs(p):
@@ -118,17 +141,18 @@ def register(vault_path):
     - On basename collision with a different path, appends random [a-z0-9]{3} suffix.
     """
     abs_path = _absolute(vault_path)
-    registry = load()
-    existing = _find_alias_by_path(registry, abs_path)
-    if existing is not None:
-        return existing
-    base_alias = title_to_slug(os.path.basename(abs_path)) or "vault"
-    alias = base_alias
-    while alias in registry and registry[alias] != abs_path:
-        alias = f"{base_alias}-{random_short_suffix()}"
-    registry[alias] = abs_path
-    save(registry)
-    return alias
+    with _locked():
+        registry = load()
+        existing = _find_alias_by_path(registry, abs_path)
+        if existing is not None:
+            return existing
+        base_alias = title_to_slug(os.path.basename(abs_path)) or "vault"
+        alias = base_alias
+        while alias in registry:
+            alias = f"{base_alias}-{random_short_suffix()}"
+        registry[alias] = abs_path
+        save(registry)
+        return alias
 
 
 def backfill(vault_path):
@@ -142,14 +166,15 @@ def backfill(vault_path):
 def unregister(vault_path):
     """Remove the entry keyed to this path. Returns True if removed."""
     abs_path = _absolute(vault_path)
-    registry = load()
-    to_remove = [a for a, p in registry.items() if p == abs_path]
-    if not to_remove:
-        return False
-    for a in to_remove:
-        del registry[a]
-    save(registry)
-    return True
+    with _locked():
+        registry = load()
+        to_remove = [a for a, p in registry.items() if p == abs_path]
+        if not to_remove:
+            return False
+        for a in to_remove:
+            del registry[a]
+        save(registry)
+        return True
 
 
 def resolve(alias):
@@ -168,14 +193,15 @@ def list_entries():
 
 def prune():
     """Remove stale entries. Returns list of removed aliases."""
-    registry = load()
-    stale = [a for a, p in registry.items() if not is_vault_root(p)]
-    if not stale:
-        return []
-    for a in stale:
-        del registry[a]
-    save(registry)
-    return stale
+    with _locked():
+        registry = load()
+        stale = [a for a, p in registry.items() if not is_vault_root(p)]
+        if not stale:
+            return []
+        for a in stale:
+            del registry[a]
+        save(registry)
+        return stale
 
 
 # ---------------------------------------------------------------------------
