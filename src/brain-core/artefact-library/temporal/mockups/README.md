@@ -1,6 +1,6 @@
 # Mockups
 
-Visual or interactive prototypes generated to explore a design direction.
+Visual or interactive prototypes generated to explore a design direction. Generated assets belong under `_Assets/Generated/Mockups/`.
 
 ## Install
 

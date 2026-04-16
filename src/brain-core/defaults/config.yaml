@@ -27,5 +27,7 @@ defaults:
 
   flags: {}
 
+  tool_paths: {}
+
   exclude:
     artefact_sync: []

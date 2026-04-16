@@ -15,12 +15,19 @@ Create slide decks from vault content using Marp CLI.
 
 ## Shaping Workflow
 
-Use `brain_action("shape-presentation", {source, slug})` to create the presentation artefact and launch a live preview:
+Use `brain_action("shape-presentation", {source, slug})` to create the presentation artefact, render its PDF, and launch a live preview:
 
 1. **Call the tool.** `source` is the vault artefact to present (relative path). `slug` is the deck name (lowercase-hyphenated).
-2. **The tool creates** the presentation file from the template (if it doesn't exist) and launches `marp --preview` with the Brain theme. A browser window opens with live reload.
-3. **Iterate on slides.** Read the source artefact, write slides to the presentation file. The browser updates automatically as you save. Ask the user for feedback — they can see changes in real time.
-4. **Generate PDF.** When the user is happy, the tool can also be used to render the final PDF, or run manually: `marp {path} --theme {theme_path} -o _Assets/Generated/Presentations/yyyymmdd-deck~{Title}.pdf`
+2. **The tool creates** the presentation file from the template if it does not already exist.
+3. **The tool renders** `_Assets/Generated/Presentations/{stem}.pdf` with Marp and the Brain theme.
+4. **The tool launches** `marp --preview` with live reload unless `preview: false` is passed.
+5. **Iterate on slides.** Read the source artefact, write slides to the presentation file. The browser updates automatically as you save. Ask the user for feedback — they can see changes in real time.
+6. **Regenerate the PDF after edits.** Rerun the tool to refresh `_Assets/Generated/Presentations/{stem}.pdf` once the markdown changes.
+
+Optional params:
+
+- `render: false` — create or reopen the markdown artefact without regenerating the PDF yet
+- `preview: false` — render the PDF without launching a fresh preview window
 
 The shaping workflow is interactive: you write, the user watches, you refine together.
 
@@ -30,11 +37,12 @@ For environments without live preview (remote, mobile, headless):
 
 1. Create the presentation artefact manually using the template
 2. Write slides in markdown with `---` separators
-3. Generate PDF: `marp {path} --theme _Config/Skills/presentations/theme.css -o _Assets/Generated/Presentations/yyyymmdd-deck~{Title}.pdf`
+3. Generate PDF: `marp {path} --theme _Config/Skills/presentations/theme.css -o _Assets/Generated/Presentations/{stem}.pdf`
 
 ## Conventions
 
 - **Markdown is the artefact.** The `.md` file in `_Temporal/Presentations/` is what gets tracked, linked, and searched. The PDF is output.
+- **Generated output lives under `_Assets/Generated/Presentations/`.** Use `{stem}.pdf` for the normal single-file output. If one presentation workflow produces multiple linked files, add `hub-slug` to the owning artefact if missing and nest those files under `_Assets/Generated/Presentations/{OwnerType}~{hub-slug}/`.
 - **Link provenance.** Every presentation should reference its source artefact(s) via `**Origin:**` links.
 - **Sparse slides.** One idea per slide. Headings, bullets, whitespace. Don't cram.
 - **Regenerate PDF after edits.** If you change the markdown, regenerate the PDF. The markdown is the source of truth.

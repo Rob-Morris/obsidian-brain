@@ -1,0 +1,10 @@
+\usepackage{needspace}
+\usepackage{etoolbox}
+
+\clubpenalty=10000
+\widowpenalty=10000
+\displaywidowpenalty=10000
+
+\preto\section{\needspace{8\baselineskip}}
+\preto\subsection{\needspace{6\baselineskip}}
+\preto\subsubsection{\needspace{5\baselineskip}}

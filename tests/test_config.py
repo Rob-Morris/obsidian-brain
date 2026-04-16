@@ -72,6 +72,7 @@ def test_load_config_template_only(vault, monkeypatch):
     assert cfg["vault"]["operators"] == []
     assert cfg["defaults"]["default_profile"] == "operator"
     assert cfg["defaults"]["flags"] == {}
+    assert cfg["defaults"]["tool_paths"] == {}
     assert cfg["defaults"]["exclude"]["artefact_sync"] == []
 
 

@@ -15,7 +15,8 @@ Operational reference for scripts in `.brain-core/scripts/`. Each script exposes
 | `edit.py` | Edit artefacts and `_Config/` resources | `python3 edit.py edit\|append\|prepend\|delete_section --path P --body B [--body-file PATH] [--temp-path [SUFFIX]] [--target H] [--json]` |
 | `rename.py` | Rename/delete file + update wikilinks (full-path and filename-only) | `python3 rename.py "source" "dest" [--json]` |
 | `check.py` | Structural compliance checks | `python3 check.py [--json] [--severity S]` |
-| `shape_presentation.py` | Create presentation + launch preview | `python3 shape_presentation.py --source P --slug S` |
+| `shape_printable.py` | Create printable + render PDF | `python3 shape_printable.py --source P --slug S [--no-render] [--pdf-engine E]` |
+| `shape_presentation.py` | Create presentation + render PDF + launch preview | `python3 shape_presentation.py --source P --slug S [--no-render] [--no-preview]` |
 | `upgrade.py` | In-place brain-core upgrade | `python3 upgrade.py --source P [--vault V] [--dry-run] [--force] [--json]` |
 | `workspace_registry.py` | Workspace slug-path resolution | `python3 workspace_registry.py [--register SLUG PATH] [--unregister SLUG] [--resolve SLUG] [--json]` |
 | `migrate_naming.py` | Migrate filenames to generous conventions | `python3 migrate_naming.py [--vault V] [--dry-run] [--json]` |

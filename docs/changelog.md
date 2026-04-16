@@ -2,6 +2,30 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.28.4 — 2026-04-16
+
+**Finish the short-term local runtime contract for `printables`.** `shape-printable` now resolves machine-local binary overrides before falling back to `PATH`, so vault installs can point at explicit `pandoc` and TeX binaries without changing the MCP action surface.
+
+- Added `defaults.tool_paths` to the shipped config template and documented the machine-local override pattern in `docs/functional/config.md`.
+- Updated `src/brain-core/scripts/shape_printable.py` to resolve `pandoc`, `xelatex`, `lualatex`, and `pdflatex` in this order: `BRAIN_*` env var, `.brain/local/config.yaml` `defaults.tool_paths`, then host `PATH`.
+- Added coverage for configured tool paths and env-var precedence in `tests/test_mcp_server.py`.
+
+## v0.28.3 — 2026-04-16
+
+**Bring generated-asset workflows into line across printables, presentations, and mockups.** `shape-presentation` now matches its docs by rendering `_Assets/Generated/Presentations/{stem}.pdf` before optionally launching Marp preview, while the artefact-library docs now make the generated-assets convention explicit for `printables`, `presentations`, and `mockups`.
+
+- Updated `src/brain-core/scripts/shape_presentation.py` to render a PDF, expose `render` / `preview` toggles, and return partial status with a clear warning when Marp is unavailable.
+- Added test coverage for presentation PDF rendering and Marp-missing behaviour in `tests/test_mcp_server.py`.
+- Documented the multi-file generated-assets convention: when one artefact owns several generated files, add `hub-slug` if needed and nest the outputs under `_Assets/Generated/{Type}/{OwnerType}~{hub-slug}/`.
+
+## v0.28.2 — 2026-04-16
+
+**Add a `printables` artefact type for page-based PDF exports.** Brain now has a non-default temporal type parallel to Presentations: markdown source lives in `_Temporal/Printables/`, PDF output goes to `_Assets/Generated/Printables/`, and a new `shape-printable` action creates the source artefact then renders it via pandoc.
+
+- Added `src/brain-core/scripts/shape_printable.py` plus the `brain_action("shape-printable", ...)` MCP surface. The renderer auto-detects `xelatex`, `lualatex`, or `pdflatex`, and accepts `keep_heading_with_next` so section headings can reserve space before a page break instead of being stranded at the bottom of a page.
+- Added the `printables` artefact-library type with taxonomy, template, skill, and LaTeX support files. The artefact library now contains 33 types total (13 living + 20 temporal).
+- Updated the quick guide, specification, shaping skill routing, bounded-context docs, and tooling references for the new type and action.
+
 ## v0.28.1 — 2026-04-16
 
 Hardening pass on the v0.28.0 vault registry:

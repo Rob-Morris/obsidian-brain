@@ -158,7 +158,7 @@ Single-file mutation. Write-guarded: same folder restrictions as `brain_create`.
 Vault-wide and destructive operations, gated by explicit approval.
 
 **Parameters:**
-- `action` (required) — one of: `compile`, `build_index`, `rename`, `delete`, `convert`, `shape-presentation`, `migrate_naming`, `register_workspace`, `unregister_workspace`, `fix-links`, `sync_definitions`, `archive`, `unarchive`
+- `action` (required) — one of: `compile`, `build_index`, `rename`, `delete`, `convert`, `shape-printable`, `shape-presentation`, `migrate_naming`, `register_workspace`, `unregister_workspace`, `fix-links`, `sync_definitions`, `archive`, `unarchive`
 - `params` (optional object)
 
 **Actions:**
@@ -167,7 +167,8 @@ Vault-wide and destructive operations, gated by explicit approval.
 - **`rename`** — delegates to `rename.py`'s `rename_and_update_links()`, with Obsidian CLI override when available. Wikilink updates match full-path (`[[Wiki/topic-a]]`), filename-only (`[[topic-a]]`), heading anchors, block references, embeds, and aliases — preserving the original format; filename-only matching skipped when basename is ambiguous
 - **`delete`** — removes a file and replaces wikilinks with strikethrough (same matching as rename)
 - **`convert`** — changes artefact type, moves file, reconciles frontmatter, and updates wikilinks vault-wide
-- **`shape-presentation`** — creates a Marp presentation artefact and launches live preview (`params: {source, slug}`)
+- **`shape-printable`** — creates a printable artefact and renders `_Assets/Generated/Printables/{stem}.pdf` via pandoc. `params: {source, slug}` with optional `{render, keep_heading_with_next, pdf_engine}`
+- **`shape-presentation`** — creates a Marp presentation artefact, renders `_Assets/Generated/Presentations/{stem}.pdf`, and optionally launches live preview (`params: {source, slug}`, optional `{render, preview}`)
 - **`archive`** — moves a terminal-status artefact to `_Archive/{Type}/{Project}/` with date-prefix rename, sets `archiveddate`, and updates vault-wide wikilinks (`params: {path}`)
 - **`unarchive`** — restores an archived artefact to its original type folder, strips date prefix, removes `archiveddate` (`params: {path}`)
 - **`migrate_naming`** — migrate filenames to generous naming conventions

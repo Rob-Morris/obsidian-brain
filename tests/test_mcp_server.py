@@ -2,6 +2,7 @@
 
 import json
 import os
+import subprocess
 import time
 from unittest.mock import patch
 
@@ -1804,8 +1805,18 @@ class TestBrainActionShapePresentation:
         })
         _assert_error(result)
 
+    @staticmethod
+    def _fake_marp_run(cmd, capture_output, text):
+        pdf_path = cmd[cmd.index("-o") + 1]
+        os.makedirs(os.path.dirname(pdf_path), exist_ok=True)
+        with open(pdf_path, "wb") as f:
+            f.write(b"%PDF-1.4\n")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
     @patch("shape_presentation.subprocess.Popen")
-    def test_creates_file_and_returns_status(self, mock_popen, initialized):
+    @patch("shape_presentation.subprocess.run")
+    def test_creates_file_and_returns_status(self, mock_run, mock_popen, initialized):
+        mock_run.side_effect = self._fake_marp_run
         mock_popen.return_value.pid = 12345
         result = json.loads(server.brain_action("shape-presentation", {
             "source": "Wiki/brain-overview-abc123.md",
@@ -1815,12 +1826,19 @@ class TestBrainActionShapePresentation:
         assert "presentation" in result["path"]
         assert "test-deck" in result["path"]
         assert result["created"] is True
+        assert result["rendered"] is True
+        assert "pdf_path" in result
+        assert result["preview_pid"] == 12345
         # Verify file was created on disk
         abs_path = os.path.join(str(initialized), result["path"])
+        pdf_abs = os.path.join(str(initialized), result["pdf_path"])
         assert os.path.isfile(abs_path)
+        assert os.path.isfile(pdf_abs)
 
     @patch("shape_presentation.subprocess.Popen")
-    def test_does_not_recreate_existing_file(self, mock_popen, initialized):
+    @patch("shape_presentation.subprocess.run")
+    def test_does_not_recreate_existing_file(self, mock_run, mock_popen, initialized):
+        mock_run.side_effect = self._fake_marp_run
         mock_popen.return_value.pid = 12345
         # First call creates
         result1 = json.loads(server.brain_action("shape-presentation", {
@@ -1836,15 +1854,198 @@ class TestBrainActionShapePresentation:
         assert result2["status"] == "ok"
         assert result2["created"] is False
 
-    @patch("shape_presentation.subprocess.Popen", side_effect=FileNotFoundError)
-    def test_works_without_marp_installed(self, mock_popen, initialized):
-        """Should succeed even if marp CLI is not installed (no preview)."""
+    @patch("shape_presentation.subprocess.run", side_effect=FileNotFoundError)
+    def test_works_without_marp_installed(self, mock_run, initialized):
+        """Should create markdown but return partial when Marp is unavailable."""
         result = json.loads(server.brain_action("shape-presentation", {
             "source": "Wiki/brain-overview-abc123.md",
             "slug": "no-marp",
         }))
-        assert result["status"] == "ok"
+        assert result["status"] == "partial"
+        assert result["rendered"] is False
+        assert "marp" in result["warning"]
         assert "preview_pid" not in result
+
+
+# ---------------------------------------------------------------------------
+# brain_action shape-printable tests
+# ---------------------------------------------------------------------------
+
+class TestBrainActionShapePrintable:
+    @pytest.fixture(autouse=True)
+    def setup_printable_files(self, initialized):
+        """Add printable template and support files to the vault fixture."""
+        self.vault = initialized
+        templates_dir = initialized / "_Config" / "Templates" / "Temporal"
+        templates_dir.mkdir(parents=True, exist_ok=True)
+        (templates_dir / "Printables.md").write_text(
+            "---\ntype: temporal/printable\ntags:\n  - printable\n"
+            "keep_heading_with_next: true\n---\n\n"
+            "# PRINTABLE TITLE\n\n"
+            "**{{date:YYYY-MM-DD}}**\n\n"
+            "**Origin:** [[source-artefact|Source document]]\n\n"
+            "## Summary\n\n"
+            "Summary text.\n"
+        )
+        skills_dir = initialized / "_Config" / "Skills" / "printables"
+        skills_dir.mkdir(parents=True, exist_ok=True)
+        (skills_dir / "base.tex").write_text("\\usepackage{parskip}\n")
+        (skills_dir / "keep-headings.tex").write_text("\\usepackage{needspace}\n")
+
+    def test_missing_params_returns_error(self, initialized):
+        result = server.brain_action("shape-printable")
+        _assert_error(result)
+
+    def test_missing_source_returns_error(self, initialized):
+        result = server.brain_action("shape-printable", {"slug": "brief"})
+        _assert_error(result)
+
+    def test_missing_slug_returns_error(self, initialized):
+        result = server.brain_action("shape-printable", {"source": "Wiki/brain-overview-abc123.md"})
+        _assert_error(result)
+
+    def test_source_not_found_returns_error(self, initialized):
+        result = server.brain_action("shape-printable", {
+            "source": "Wiki/nonexistent.md",
+            "slug": "brief",
+        })
+        _assert_error(result)
+
+    @staticmethod
+    def _fake_which_default(cmd):
+        if cmd in {"pandoc", "xelatex"}:
+            return f"/usr/bin/{cmd}"
+        return None
+
+    @staticmethod
+    def _fake_pandoc_run(cmd, capture_output, text):
+        pdf_path = cmd[cmd.index("--output") + 1]
+        os.makedirs(os.path.dirname(pdf_path), exist_ok=True)
+        with open(pdf_path, "wb") as f:
+            f.write(b"%PDF-1.4\n")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    @patch("shape_printable.subprocess.run")
+    @patch("shape_printable.shutil.which")
+    def test_creates_file_and_renders_pdf(self, mock_which, mock_run, initialized):
+        mock_which.side_effect = self._fake_which_default
+        mock_run.side_effect = self._fake_pandoc_run
+
+        result = json.loads(server.brain_action("shape-printable", {
+            "source": "Wiki/brain-overview-abc123.md",
+            "slug": "board-brief",
+        }))
+        assert result["status"] == "ok"
+        assert "printable" in result["path"]
+        assert "board-brief" in result["path"]
+        assert result["created"] is True
+        assert result["rendered"] is True
+        assert result["pdf_engine"] == "xelatex"
+        abs_path = os.path.join(str(initialized), result["path"])
+        pdf_abs = os.path.join(str(initialized), result["pdf_path"])
+        assert os.path.isfile(abs_path)
+        assert os.path.isfile(pdf_abs)
+        cmd = mock_run.call_args[0][0]
+        assert any(arg.endswith("keep-headings.tex") for arg in cmd)
+
+    @patch("shape_printable.subprocess.run")
+    @patch("shape_printable.shutil.which")
+    def test_can_disable_keep_heading_with_next(self, mock_which, mock_run, initialized):
+        mock_which.side_effect = self._fake_which_default
+        mock_run.side_effect = self._fake_pandoc_run
+
+        result = json.loads(server.brain_action("shape-printable", {
+            "source": "Wiki/brain-overview-abc123.md",
+            "slug": "tight-layout",
+            "keep_heading_with_next": False,
+        }))
+        assert result["status"] == "ok"
+        assert result["keep_heading_with_next"] is False
+        cmd = mock_run.call_args[0][0]
+        assert not any(arg.endswith("keep-headings.tex") for arg in cmd)
+
+    @patch("shape_printable.shutil.which")
+    def test_works_without_pandoc_installed(self, mock_which, initialized):
+        def fake_which(cmd):
+            if cmd == "pandoc":
+                return None
+            if cmd == "xelatex":
+                return "/usr/bin/xelatex"
+            return None
+
+        mock_which.side_effect = fake_which
+        result = json.loads(server.brain_action("shape-printable", {
+            "source": "Wiki/brain-overview-abc123.md",
+            "slug": "no-pandoc",
+        }))
+        assert result["status"] == "partial"
+        assert result["rendered"] is False
+        assert "pandoc" in result["warning"]
+
+    @patch("shape_printable.subprocess.run")
+    @patch("shape_printable.shutil.which")
+    def test_uses_local_config_tool_paths(self, mock_which, mock_run, initialized):
+        config_dir = initialized / ".brain" / "local"
+        config_dir.mkdir(parents=True, exist_ok=True)
+        (config_dir / "config.yaml").write_text(
+            "defaults:\n"
+            "  tool_paths:\n"
+            "    pandoc: /opt/brain-tools/pandoc\n"
+            "    xelatex: /opt/brain-tools/xelatex\n"
+        )
+
+        def fake_which(cmd):
+            if cmd in {"/opt/brain-tools/pandoc", "/opt/brain-tools/xelatex"}:
+                return cmd
+            return None
+
+        mock_which.side_effect = fake_which
+        mock_run.side_effect = self._fake_pandoc_run
+
+        result = json.loads(server.brain_action("shape-printable", {
+            "source": "Wiki/brain-overview-abc123.md",
+            "slug": "configured-tools",
+        }))
+        assert result["status"] == "ok"
+        cmd = mock_run.call_args[0][0]
+        assert cmd[0] == "/opt/brain-tools/pandoc"
+        assert "--pdf-engine=/opt/brain-tools/xelatex" in cmd
+
+    @patch("shape_printable.subprocess.run")
+    @patch("shape_printable.shutil.which")
+    def test_env_tool_paths_override_local_config(self, mock_which, mock_run, initialized, monkeypatch):
+        config_dir = initialized / ".brain" / "local"
+        config_dir.mkdir(parents=True, exist_ok=True)
+        (config_dir / "config.yaml").write_text(
+            "defaults:\n"
+            "  tool_paths:\n"
+            "    pandoc: /opt/brain-tools/pandoc-config\n"
+            "    xelatex: /opt/brain-tools/xelatex-config\n"
+        )
+        monkeypatch.setenv("BRAIN_PANDOC_PATH", "/env/brain-tools/pandoc")
+        monkeypatch.setenv("BRAIN_XELATEX_PATH", "/env/brain-tools/xelatex")
+
+        def fake_which(cmd):
+            if cmd in {
+                "/env/brain-tools/pandoc",
+                "/env/brain-tools/xelatex",
+                "/opt/brain-tools/pandoc-config",
+                "/opt/brain-tools/xelatex-config",
+            }:
+                return cmd
+            return None
+
+        mock_which.side_effect = fake_which
+        mock_run.side_effect = self._fake_pandoc_run
+
+        result = json.loads(server.brain_action("shape-printable", {
+            "source": "Wiki/brain-overview-abc123.md",
+            "slug": "env-tools",
+        }))
+        assert result["status"] == "ok"
+        cmd = mock_run.call_args[0][0]
+        assert cmd[0] == "/env/brain-tools/pandoc"
+        assert "--pdf-engine=/env/brain-tools/xelatex" in cmd
 
 
 # ---------------------------------------------------------------------------

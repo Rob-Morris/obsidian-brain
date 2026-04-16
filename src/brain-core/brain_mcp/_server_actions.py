@@ -8,6 +8,7 @@ import fix_links
 import migrate_naming
 import obsidian_cli
 import rename
+import shape_printable
 import shape_presentation
 import start_shaping
 import sync_definitions
@@ -133,6 +134,21 @@ def _action_shape_presentation(runtime: ServerRuntime, params: dict | None):
         return runtime.fmt_error("shape-presentation requires params: {source, slug}")
     try:
         result = shape_presentation.shape(state.vault_root, params)
+        if isinstance(result, dict) and "error" in result:
+            return runtime.fmt_error(result["error"])
+        return json.dumps(result, indent=2)
+    except (ValueError, FileNotFoundError) as e:
+        return runtime.fmt_error(str(e))
+
+
+def _action_shape_printable(runtime: ServerRuntime, params: dict | None):
+    state = runtime.get_state()
+    if state.vault_root is None:
+        return runtime.fmt_error("server not initialized")
+    if not params or "source" not in params or "slug" not in params:
+        return runtime.fmt_error("shape-printable requires params: {source, slug}")
+    try:
+        result = shape_printable.shape(state.vault_root, params)
         if isinstance(result, dict) and "error" in result:
             return runtime.fmt_error(result["error"])
         return json.dumps(result, indent=2)
@@ -297,6 +313,7 @@ _ACTION_HANDLERS = {
     "rename": _action_rename,
     "delete": _action_delete,
     "convert": _action_convert,
+    "shape-printable": _action_shape_printable,
     "shape-presentation": _action_shape_presentation,
     "start-shaping": _action_start_shaping,
     "register_workspace": _action_register_workspace,
@@ -322,22 +339,8 @@ def handle_brain_action(action: str, params: dict | None, runtime: ServerRuntime
 
     handler = _ACTION_HANDLERS.get(action)
     if handler is None:
-        valid = [
-            "compile",
-            "build_index",
-            "rename",
-            "delete",
-            "convert",
-            "shape-presentation",
-            "start-shaping",
-            "migrate_naming",
-            "register_workspace",
-            "unregister_workspace",
-            "fix-links",
-            "sync_definitions",
-            "archive",
-            "unarchive",
-        ]
-        return runtime.fmt_error(f"Unknown action '{action}'. Valid: {', '.join(valid)}")
+        return runtime.fmt_error(
+            f"Unknown action '{action}'. Valid: {', '.join(sorted(_ACTION_HANDLERS))}"
+        )
 
     return handler(runtime, params)

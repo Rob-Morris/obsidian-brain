@@ -80,7 +80,7 @@ Pick the artefact type that fits, create the file in the right folder with the r
 | Thought | `_Temporal/Thoughts/yyyy-mm/` | `yyyymmdd-thought~{Title}.md` |
 | Transcript | `_Temporal/Transcripts/yyyy-mm/` | `yyyymmdd-transcript~{Title}.md` |
 
-Additional types available from the artefact library: Wiki, Journals, Zettelkasten (living); Idea Logs, Journal Entries (temporal).
+Additional types available from the artefact library: Wiki, Journals, Zettelkasten (living); Idea Logs, Journal Entries, Printables (temporal).
 
 Every file needs frontmatter with at least `type` and `tags`:
 

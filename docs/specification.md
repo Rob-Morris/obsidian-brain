@@ -123,6 +123,6 @@ Archiving uses `brain_action("archive")` which moves artefacts to a top-level `_
 - `_Plugins/` — empty, ready for plugins
 - `_Workspaces/` — workspace data bucket (infrastructure)
 
-Additional types are available in the artefact library (`.brain-core/artefact-library/`) for install as needed: Wiki, Journals, Zettelkasten (living); Idea Logs, Journal Entries (temporal).
+Additional types are available in the artefact library (`.brain-core/artefact-library/`) for install as needed: Wiki, Journals, Zettelkasten (living); Idea Logs, Journal Entries, Printables (temporal).
 
-The starter vault ships 27 defaults (10 living + 17 temporal) out of 32 in the library.
+The starter vault ships 27 defaults (10 living + 17 temporal) out of 33 in the library.

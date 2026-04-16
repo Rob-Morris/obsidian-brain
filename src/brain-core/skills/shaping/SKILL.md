@@ -37,7 +37,7 @@ All file paths below are relative to this skill's base directory. Use the Read t
 1. Read and follow `assess/SKILL.md` to set up the session (artefact, transcript, taxonomy).
 2. Based on what assess found, select the mode:
    - Artefact is new, empty, or a stub without enough information to make specific decisions → **brainstorm**
-   - Artefact has content and is a convergent type (Designs, Plans, Tasks, Reports, Research, Presentations, Mockups) with open decisions → **refine**
+   - Artefact has content and is a convergent type (Designs, Plans, Tasks, Reports, Research, Presentations, Printables, Mockups) with open decisions → **refine**
    - Artefact is a discovery type → **discover**
 3. Read and follow the skill file for the selected mode.
 

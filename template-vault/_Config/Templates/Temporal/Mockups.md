@@ -12,4 +12,6 @@ tags:
 
 ## Result
 
+**Generated assets:** `_Assets/Generated/Mockups/...`
+
 ## Verdict

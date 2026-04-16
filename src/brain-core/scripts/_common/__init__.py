@@ -91,6 +91,10 @@ from ._search import (
     tokenise,
 )
 
+from ._coerce import (
+    coerce_bool,
+)
+
 from ._templates import (
     now_iso,
     random_short_suffix,

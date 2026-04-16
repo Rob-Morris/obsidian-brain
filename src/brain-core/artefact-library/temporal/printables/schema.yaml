@@ -1,0 +1,9 @@
+required:
+  type:
+    const: "temporal/printable"
+  tags:
+    type: array
+    contains: "printable"
+optional:
+  status:
+    enum: [shaping, ready]

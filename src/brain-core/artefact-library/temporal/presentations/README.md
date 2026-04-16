@@ -1,6 +1,6 @@
 # Presentations
 
-Slide decks generated from markdown content using Marp CLI. Source is markdown; output is PDF.
+Slide decks generated from markdown content using Marp CLI. Source is markdown; output is PDF in `_Assets/Generated/Presentations/`.
 
 ## Install
 

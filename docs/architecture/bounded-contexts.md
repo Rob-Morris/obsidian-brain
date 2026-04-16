@@ -7,7 +7,7 @@ brain-core is organised around a small set of bounded contexts. These are docume
 | Context | Responsibilities | Scripts |
 |---|---|---|
 | Compilation | Compile runtime artefacts from source definitions; keep generated router, colours, and search index current | `compile_router.py`, `compile_colours.py`, `build_index.py`, `sync_definitions.py` |
-| Artefact Operations | Read and mutate vault content and config resources through the router contract | `create.py`, `edit.py`, `read.py`, `rename.py`, `fix_links.py`, `start_shaping.py`, `shape_presentation.py` |
+| Artefact Operations | Read and mutate vault content and config resources through the router contract | `create.py`, `edit.py`, `read.py`, `rename.py`, `fix_links.py`, `start_shaping.py`, `shape_printable.py`, `shape_presentation.py` |
 | Compliance | Validate structure, naming, and taxonomy conformance | `check.py` |
 | Content Intelligence | Search, enumerate, classify, resolve, and ingest content | `search_index.py`, `list_artefacts.py`, `process.py` |
 | Session & Configuration | Assemble runtime config, bootstrap sessions, manage operator/auth state, resolve registered workspaces | `session.py`, `config.py`, `workspace_registry.py`, `generate_key.py` |

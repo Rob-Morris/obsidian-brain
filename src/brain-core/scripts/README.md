@@ -25,7 +25,8 @@ Scripts are the **source of truth** for all vault operations. The MCP server (`b
 | `rename.py` | Rename/delete file + update wikilinks | `python3 rename.py "source" "dest" [--json]` |
 | `search_index.py` | BM25 keyword search | `python3 search_index.py "query" [--type T] [--json]` |
 | `session.py` | Build the canonical session model and refresh `.brain/local/session.md` | `python3 session.py [--json] [--workspace-dir PATH]` |
-| `shape_presentation.py` | Create presentation + launch Marp preview | (via MCP: `brain_action("shape-presentation", ...)`) |
+| `shape_printable.py` | Create printable + render PDF | `python3 shape_printable.py --source P --slug S [--no-render] [--pdf-engine E]` |
+| `shape_presentation.py` | Create presentation + render PDF + launch Marp preview | (via MCP: `brain_action("shape-presentation", ...)`) |
 | `start_shaping.py` | Bootstrap a shaping session for an existing artefact | (via MCP: `brain_action("start-shaping", ...)`) |
 | `sync_definitions.py` | Sync artefact library definitions to vault `_Config/` | `python3 sync_definitions.py [--vault V] [--dry-run] [--types t1,t2] [--json]` |
 | `upgrade.py` | In-place brain-core upgrade with local migration ledger | `python3 upgrade.py --source P [--vault V] [--dry-run] [--force] [--json]` |
@@ -39,7 +40,7 @@ The script layer is organised into 8 bounded contexts. This is an architectural 
 | Context | Scripts |
 |---|---|
 | Compilation | `compile_router.py`, `compile_colours.py`, `build_index.py`, `sync_definitions.py` |
-| Artefact Operations | `create.py`, `edit.py`, `read.py`, `rename.py`, `fix_links.py`, `start_shaping.py`, `shape_presentation.py` |
+| Artefact Operations | `create.py`, `edit.py`, `read.py`, `rename.py`, `fix_links.py`, `start_shaping.py`, `shape_printable.py`, `shape_presentation.py` |
 | Compliance | `check.py` |
 | Content Intelligence | `search_index.py`, `list_artefacts.py`, `process.py` |
 | Session & Configuration | `session.py`, `config.py`, `workspace_registry.py`, `generate_key.py` |
@@ -74,6 +75,7 @@ These scripts import from `_common/` for vault discovery, frontmatter parsing, a
 - `rename.py`
 - `search_index.py`
 - `session.py`
+- `shape_printable.py`
 - `shape_presentation.py`
 - `start_shaping.py`
 - `sync_definitions.py`

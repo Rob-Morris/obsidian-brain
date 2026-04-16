@@ -83,6 +83,7 @@ from _common import (
 import edit
 import obsidian_cli
 import session
+import shape_printable
 import shape_presentation
 import start_shaping
 import migrate_naming
@@ -1267,7 +1268,7 @@ def brain_edit(operation: Literal["edit", "append", "prepend", "delete_section"]
 def brain_action(
     action: Literal[
         "compile", "build_index", "rename", "delete", "convert",
-        "shape-presentation", "start-shaping", "migrate_naming",
+        "shape-printable", "shape-presentation", "start-shaping", "migrate_naming",
         "register_workspace", "unregister_workspace", "fix-links",
         "sync_definitions", "archive", "unarchive",
     ],
@@ -1281,7 +1282,8 @@ def brain_action(
       rename               — rename/move a file (params: {source, dest} as relative paths)
       delete               — delete a file and clean wikilinks (params: {path})
       convert              — convert artefact to different type (params: {path, target_type}, optional: {parent})
-      shape-presentation   — create presentation + launch live preview (params: {source, slug})
+      shape-printable      — create printable + render PDF (params: {source, slug}, optional: {render, keep_heading_with_next, pdf_engine})
+      shape-presentation   — create presentation + render PDF + optional live preview (params: {source, slug}, optional: {render, preview})
       start-shaping        — bootstrap shaping session (params: {target}, optional: {title})
       migrate_naming       — migrate vault filenames to generous naming conventions (optional: {dry_run})
       register_workspace   — register a linked workspace (params: {slug, path})

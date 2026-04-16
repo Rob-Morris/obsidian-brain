@@ -3,7 +3,7 @@ name: shaping:refine
 description: >
   Use when an artefact is clear but has open decisions to work through.
   Convergent, decision-driven shaping for Designs, Plans, Tasks, Reports,
-  Research, Presentations, Mockups.
+  Research, Presentations, Printables, Mockups.
 ---
 
 # Shaping: Refine

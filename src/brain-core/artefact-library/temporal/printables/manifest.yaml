@@ -1,0 +1,19 @@
+files:
+  taxonomy:
+    source: taxonomy.md
+    target: _Config/Taxonomy/Temporal/printables.md
+  template:
+    source: template.md
+    target: _Config/Templates/Temporal/Printables.md
+  skill:
+    source: SKILL.md
+    target: _Config/Skills/printables/SKILL.md
+  latex_base:
+    source: base.tex
+    target: _Config/Skills/printables/base.tex
+  latex_keep_headings:
+    source: keep-headings.tex
+    target: _Config/Skills/printables/keep-headings.tex
+folders:
+  - _Temporal/Printables/
+router_trigger: "When converting vault content into a printable PDF or handout → [[_Config/Taxonomy/Temporal/printables]]"

@@ -152,7 +152,8 @@ If your vault runs the Brain MCP server (`.brain-core/brain_mcp/server.py`), eig
 - `rename` — rename a file with automatic wikilink updates (uses Obsidian CLI when available)
 - `delete` — delete a file and replace wikilinks with strikethrough text
 - `convert` — change artefact type, move file, reconcile frontmatter, update wikilinks
-- `shape-presentation` — create a presentation artefact and launch Marp live preview (params: `{source, slug}`)
+- `shape-printable` — create a printable artefact and render `_Assets/Generated/Printables/{stem}.pdf` via pandoc (params: `{source, slug}`, optional `{render, keep_heading_with_next, pdf_engine}`)
+- `shape-presentation` — create a presentation artefact, render `_Assets/Generated/Presentations/{stem}.pdf`, and optionally launch Marp live preview (params: `{source, slug}`, optional `{render, preview}`)
 - `migrate_naming` — migrate vault filenames from old aggressive slugs to generous naming conventions (optional `{dry_run}`)
 - `register_workspace` — register a linked workspace (params: `{slug, path}`)
 - `unregister_workspace` — remove a linked workspace registration (params: `{slug}`)

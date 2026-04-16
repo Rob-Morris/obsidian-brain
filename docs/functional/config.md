@@ -38,6 +38,21 @@ defaults/config.yaml          # template (shipped with brain-core)
 
 The loader locates the template relative to the script file, so it works both from the dev repo (`src/brain-core/scripts/` → `src/brain-core/defaults/`) and from an installed vault (`.brain-core/scripts/` → `.brain-core/defaults/`).
 
+### Local tool paths
+
+Tool-backed workflows can resolve machine-local binaries from the `defaults` zone before falling back to `PATH`. This is the current short-term contract for tools such as `pandoc` and TeX engines.
+
+Example:
+
+```yaml
+defaults:
+  tool_paths:
+    pandoc: /opt/homebrew/bin/pandoc
+    xelatex: /Library/TeX/texbin/xelatex
+```
+
+These values belong in `.brain/local/config.yaml`, not `.brain/config.yaml`, because they are machine-local installation details. Environment variables can still override them when a specific runtime launch needs a different binary path.
+
 ### Startup behaviour
 
 On startup, the MCP server calls `load_config()`, which reads all three layers, runs the merge, validates the result (unknown profile tool names raise warnings), and returns a typed dict. If a layer's YAML is missing or unparseable, it is treated as `{}` with a warning — the server continues with the remaining layers.
