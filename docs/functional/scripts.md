@@ -117,25 +117,25 @@ Top-level script for installing, upgrading, and uninstalling the brain. Handles 
 
 ```bash
 # Fresh install (downloads repo, creates vault, sets up MCP)
-bash <(curl -fsSL https://raw.githubusercontent.com/robmorris/obsidian-brain/main/install.sh)
-bash <(curl -fsSL https://raw.githubusercontent.com/robmorris/obsidian-brain/main/install.sh) ~/brain
+bash <(curl -fsSL https://raw.githubusercontent.com/rob-morris/obsidian-brain/main/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/rob-morris/obsidian-brain/main/install.sh) /path/to/brain
 
 # From a local clone (skips download)
-bash install.sh ~/brain
+bash install.sh /path/to/brain
 
 # Upgrade an existing brain vault
-bash install.sh ~/brain          # detects .brain-core/, offers upgrade
+bash install.sh /path/to/brain   # detects .brain-core/, offers upgrade
 
 # Install into an existing Obsidian vault or directory
 bash install.sh ~/my-vault       # detects non-empty dir, installs brain-core only
 
 # Uninstall
-bash install.sh --uninstall ~/brain
+bash install.sh --uninstall /path/to/brain
 
 # Non-interactive (for scripts/agents)
-bash install.sh --non-interactive ~/brain
-bash install.sh --non-interactive --skip-mcp ~/brain
-bash install.sh --uninstall --non-interactive ~/brain
+bash install.sh --non-interactive /path/to/brain
+bash install.sh --non-interactive --skip-mcp /path/to/brain
+bash install.sh --uninstall --non-interactive /path/to/brain
 ```
 
 ### Modes

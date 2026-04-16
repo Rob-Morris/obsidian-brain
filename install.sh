@@ -3,7 +3,7 @@
 # install.sh — Create a new Obsidian Brain vault.
 #
 # One-liner:
-#   bash <(curl -fsSL https://raw.githubusercontent.com/robmorris/obsidian-brain/main/install.sh)
+#   bash <(curl -fsSL https://raw.githubusercontent.com/rob-morris/obsidian-brain/main/install.sh)
 #
 # From a clone:
 #   bash install.sh ~/my-brain
@@ -48,7 +48,7 @@ if [ "$HAS_LEGACY_FORCE" = true ]; then
     printf '\n' >&2
     printf '  Use this instead:\n' >&2
     printf '\n' >&2
-    printf '    bash install.sh --non-interactive ~/brain\n' >&2
+    printf '    bash install.sh --non-interactive /path/to/brain\n' >&2
     printf '\n' >&2
     exit 1
 fi
@@ -59,11 +59,11 @@ if [ ! -t 0 ] && [ "$HAS_NON_INTERACTIVE" != true ]; then
     printf '  It looks like you piped this script (curl ... | bash).\n' >&2
     printf '  Use this instead:\n' >&2
     printf '\n' >&2
-    printf '    bash <(curl -fsSL https://raw.githubusercontent.com/robmorris/obsidian-brain/main/install.sh)\n' >&2
+    printf '    bash <(curl -fsSL https://raw.githubusercontent.com/rob-morris/obsidian-brain/main/install.sh)\n' >&2
     printf '\n' >&2
     printf '  Or pass --non-interactive to skip all prompts:\n' >&2
     printf '\n' >&2
-    printf '    bash <(curl -fsSL https://raw.githubusercontent.com/robmorris/obsidian-brain/main/install.sh) --non-interactive ~/brain\n' >&2
+    printf '    bash <(curl -fsSL https://raw.githubusercontent.com/rob-morris/obsidian-brain/main/install.sh) --non-interactive /path/to/brain\n' >&2
     printf '\n' >&2
     exit 1
 fi
@@ -443,7 +443,7 @@ fi
 # Clone repo (to temp dir if running via curl or outside a clone)
 # ---------------------------------------------------------------------------
 
-REPO_URL="https://github.com/robmorris/obsidian-brain.git"
+REPO_URL="https://github.com/rob-morris/obsidian-brain.git"
 REPO_DIR=""
 CLEANUP_REPO=false
 

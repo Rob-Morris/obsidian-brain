@@ -2,7 +2,7 @@
 
 Brain is a system for organising your Obsidian vault. It gives every file a home, keeps things findable, and grows with you.
 
-This guide covers what you need to know day-to-day. For the full reference, see the [Brain User Guide](https://github.com/robmorris/obsidian-brain/blob/main/docs/user/getting-started.md).
+This guide covers what you need to know day-to-day. For the full reference, see the [Brain User Guide](https://github.com/rob-morris/obsidian-brain/blob/main/docs/user/getting-started.md).
 
 ## Your Vault at a Glance
 
@@ -182,7 +182,7 @@ To add a living type: create the root folder, create the taxonomy file in `_Conf
 
 To add a temporal type: create the folder under `_Temporal/`, create taxonomy in `_Config/Taxonomy/Temporal/`, then run `brain_action("compile")` — rose-blended colours are auto-generated.
 
-Full details in the [Template Library Guide — Extending Your Vault](https://github.com/robmorris/obsidian-brain/blob/main/docs/user/template-library-guide.md).
+Full details in the [Template Library Guide — Extending Your Vault](https://github.com/rob-morris/obsidian-brain/blob/main/docs/user/template-library-guide.md).
 
 ## Configuration
 
@@ -238,7 +238,7 @@ Without MCP, read `.brain-core/index.md` first. It routes to the generated markd
 
 ## Further Reading
 
-- [Workflows](https://github.com/robmorris/obsidian-brain/blob/main/docs/user/workflows.md) — day-to-day usage patterns with examples
-- [Reference](https://github.com/robmorris/obsidian-brain/blob/main/docs/user-reference.md) — every artefact type, configuration point, and system in detail
+- [Workflows](https://github.com/rob-morris/obsidian-brain/blob/main/docs/user/workflows.md) — day-to-day usage patterns with examples
+- [Reference](https://github.com/rob-morris/obsidian-brain/blob/main/docs/user-reference.md) — every artefact type, configuration point, and system in detail
 - `.brain-core/standards/extending/` — extension procedures (developer reference)
 - `.brain-core/index.md` — bootstrap entry point for MCP, generated markdown, and degraded fallback paths

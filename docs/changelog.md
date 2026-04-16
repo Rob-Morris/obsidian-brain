@@ -2,6 +2,10 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.28.5 — 2026-04-16
+
+**Fix GitHub URL and install path examples across docs.** Corrected `robmorris` to `rob-morris` in all GitHub URLs and replaced hardcoded `~/brain` paths with generic `/path/to/brain` placeholders so the install command can be run interactively without proposing a default location.
+
 ## v0.28.4 — 2026-04-16
 
 **Finish the short-term local runtime contract for `printables`.** `shape-printable` now resolves machine-local binary overrides before falling back to `PATH`, so vault installs can point at explicit `pandoc` and TeX binaries without changing the MCP action surface.

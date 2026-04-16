@@ -1,6 +1,6 @@
 # Obsidian Brain
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.28.4-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.10-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.28.5-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.10-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
 
 A self-evolving knowledge base for agents and humans working together on what matters.
 
@@ -36,21 +36,21 @@ The [Getting Started guide](docs/user/getting-started.md) walks through all of t
 **Create your vault:**
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/robmorris/obsidian-brain/main/install.sh) ~/brain
+bash <(curl -fsSL https://raw.githubusercontent.com/rob-morris/obsidian-brain/main/install.sh)
 ```
 
-This downloads the repo, creates the vault at `~/brain`, and then attempts project-scope MCP setup for Claude Code and Codex. If you want the vault scaffold without `.venv` / MCP setup, use `bash install.sh --skip-mcp ~/brain` (or add `--non-interactive` for non-interactive agent installs). Run without a path to be prompted for a location. From a local clone, use `bash install.sh ~/brain` instead.
+This downloads the repo, creates the vault in the current directory, and then attempts project-scope MCP setup for Claude Code and Codex. Pass a path to install elsewhere. If you want the vault scaffold without `.venv` / MCP setup, pass `--skip-mcp` (or add `--non-interactive` for non-interactive agent installs). From a local clone, use `bash install.sh` instead.
 
 **Open in Obsidian (recommended):** Open the vault folder, then enable the `brain-folder-colours` CSS snippet in Settings > Appearance > CSS Snippets.
 
-**Start talking:** Open your agent in the vault folder (for example `cd ~/brain && claude` or `cd ~/brain && codex`). It reads the vault structure and knows what to do. See [Workflows](docs/user/workflows.md) for what working with the brain looks like in practice.
+**Start talking:** Open your agent in the vault folder (for example `cd /path/to/brain && claude` or `cd /path/to/brain && codex`). It reads the vault structure and knows what to do. See [Workflows](docs/user/workflows.md) for what working with the brain looks like in practice.
 
 #### Upgrade
 
 Re-run the install script on an existing vault to upgrade brain-core:
 
 ```bash
-bash install.sh ~/brain
+bash install.sh /path/to/brain
 ```
 
 The script detects the existing installation, shows the version change, and asks to confirm.
@@ -66,7 +66,7 @@ bash install.sh ~/my-existing-vault
 #### Uninstall
 
 ```bash
-bash install.sh --uninstall ~/brain
+bash install.sh --uninstall /path/to/brain
 ```
 
 Removes brain system files (`.brain-core/`, `.brain/`, `.venv/`, `CLAUDE.md`) and removes only recorded Brain-managed project MCP entries from `.mcp.json` / `.codex/config.toml`. Your notes are not affected. User-scope MCP cleanup stays explicit. Optionally offers to delete the entire vault with a multi-stage confirmation.
@@ -74,9 +74,9 @@ Removes brain system files (`.brain-core/`, `.brain/`, `.venv/`, `CLAUDE.md`) an
 #### Non-interactive mode
 
 ```bash
-bash install.sh --non-interactive ~/brain
-bash install.sh --non-interactive --skip-mcp ~/brain
-bash install.sh --uninstall --non-interactive ~/brain
+bash install.sh --non-interactive /path/to/brain
+bash install.sh --non-interactive --skip-mcp /path/to/brain
+bash install.sh --uninstall --non-interactive /path/to/brain
 ```
 
 Skips all prompts. Useful for scripted or agent-driven installs. Add `--skip-mcp` to scaffold the vault without creating `.venv` or registering Claude/Codex MCP — useful in network-restricted agent sandboxes. If MCP dependency install or registration fails, the installer now leaves the vault in place and prints manual retry steps instead of aborting the whole install. On uninstall, `--non-interactive` removes system files without prompting and skips the vault-deletion offer entirely. If you need same-version re-apply, downgrade, or migration rerun behaviour, call `upgrade.py --force` directly.
@@ -88,10 +88,10 @@ Skips all prompts. Useful for scripted or agent-driven installs. Add `--skip-mcp
 
 If you prefer to do it yourself:
 
-1. Clone this repo: `git clone https://github.com/robmorris/obsidian-brain.git`
-2. Copy `template-vault/` to your preferred location: `cp -R template-vault ~/brain`
-3. Copy brain-core into the vault: `cp -R src/brain-core ~/brain/.brain-core`
-4. Create a venv and install dependencies: `cd ~/brain && python3 -m venv .venv && .venv/bin/pip install "mcp>=1.0.0"`
+1. Clone this repo: `git clone https://github.com/rob-morris/obsidian-brain.git`
+2. Copy `template-vault/` to your preferred location: `cp -R template-vault /path/to/brain`
+3. Copy brain-core into the vault: `cp -R src/brain-core /path/to/brain/.brain-core`
+4. Create a venv and install dependencies: `cd /path/to/brain && python3 -m venv .venv && .venv/bin/pip install "mcp>=1.0.0"`
 5. Register the MCP server: `python3 .brain-core/scripts/init.py --client all` (or `--user --client all` for all projects)
    For project scope, the file write is not the whole story: Claude still needs `/mcp` approval for `brain`, and Codex still needs the project trusted with `brain` enabled.
 6. Open the folder as an Obsidian vault
