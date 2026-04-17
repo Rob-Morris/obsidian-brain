@@ -104,9 +104,37 @@ Artefact types that have a lifecycle should include a `status` field in frontmat
 
 ## Installing a type
 
-**Automated:** `brain_action("sync_definitions")` syncs all library definitions to vault `_Config/` using three-way hash comparison. After a CLI upgrade (`install.sh` or `upgrade.py`), sync behaviour follows the `artefact_sync` preference in `.brain/preferences.json`: `auto` applies safe updates, `ask` (default) includes a preview for the caller to present, `skip` does nothing. CLI flags `--sync` / `--no-sync` override. Preserves user customisations; returns warnings for conflicts. Use `force` to override, or `artefact_sync_exclude` to permanently skip specific files.
+**Install a specific type into the vault:**
 
-**Manual:**
+```
+brain_action("sync_definitions", params={"types": ["living/releases"]})
+```
+
+or from the CLI:
+
+```
+python3 sync_definitions.py --types living/releases
+```
+
+Installs any type listed in `types` that is not already in the vault, and updates any that are. Install is additive — no `--force` needed. Router recompiles automatically when a type is installed via MCP.
+
+**Check what's installable or syncable:**
+
+```
+brain_action("sync_definitions", params={"status": true})
+```
+
+Returns a read-only classification of every library type: `uninstalled`, `in_sync`, `sync_ready`, `locally_customised`, `conflict`, plus a `not_installable` bucket for library-side errors. See the [state taxonomy](../../../docs/functional/scripts.md#sync_definitionspy) for what each state means.
+
+**Sync already-installed types to their latest library versions:**
+
+```
+brain_action("sync_definitions")
+```
+
+Bare sync never installs new types — it only updates already-installed ones. After a CLI upgrade (`install.sh` or `upgrade.py`), this runs automatically governed by the `artefact_sync` preference in `.brain/preferences.json`: `auto` applies safe updates, `ask` (default) returns a preview, `skip` does nothing. CLI flags `--sync` / `--no-sync` override. Use `force` for conflicts, or `artefact_sync_exclude` to permanently skip specific files.
+
+**Manual install** (equivalent to the automated path; useful for sandbox debugging):
 
 1. Copy `taxonomy.md` to `_Config/Taxonomy/{Living|Temporal}/{key}.md`
 2. Copy `template.md` to `_Config/Templates/{Living|Temporal}/{Type Name}.md`

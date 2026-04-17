@@ -2,6 +2,15 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.28.7 — 2026-04-17
+
+**Restore library-type install path and add a status mode to `sync_definitions`.** A regression (commit 95df8f9, then 07e4f05) had removed the ability to install new artefact-library types into an existing vault under any flag combination. `sync_definitions --types X` now installs uninstalled types additively, while bare `sync_definitions` still refuses to install new types — preserving the guard that stopped the old bulk-install foot-gun.
+
+- Restored `sync_definitions --types <type>` as an additive install for uninstalled library types. No `--force` required; `--force` is reserved for overwriting locally customised or conflicting files.
+- Added `sync_definitions --status` (and `brain_action("sync_definitions", params={"status": true})`) — read-only classification of every library type into `uninstalled`, `in_sync`, `sync_ready`, `locally_customised`, `conflict`, plus a `not_installable` bucket for library-side errors.
+- Documented the state taxonomy in `docs/functional/scripts.md` and rewrote the "Installing a type" section in `src/brain-core/artefact-library/README.md` with explicit install / status / sync examples.
+- Expanded the `sync_definitions` docstring in the MCP `brain_action` tool to describe status mode and install-via-types.
+
 ## v0.28.6 — 2026-04-17
 
 **Add a default `release` artefact type and finish status-aware artefact naming.** Brain now ships a `Releases/` root folder with per-project release records whose filenames change as the release moves from `planned` to `shipped`. The naming contract driving that behaviour is generalised: every artefact type can now declare a `### Rules` table keyed on frontmatter state and a `### Placeholders` table that backs custom placeholders with frontmatter fields.

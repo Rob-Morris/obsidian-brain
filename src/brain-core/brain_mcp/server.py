@@ -1289,7 +1289,7 @@ def brain_action(
       register_workspace   — register a linked workspace (params: {slug, path})
       unregister_workspace — remove a linked workspace registration (params: {slug})
       fix-links            — scan/fix broken wikilinks (optional: {fix} to apply)
-      sync_definitions     — sync artefact library definitions to vault (optional: {dry_run, force, types, preference})
+      sync_definitions     — sync artefact library definitions to vault (optional: {dry_run, force, types, preference, status}). Set status=true for a read-only classification of every library type (uninstalled, in_sync, sync_ready, locally_customised, conflict) plus a not_installable bucket. Install a new library type with types=["living/X"] — bare sync (no types) never installs, only updates already-installed types.
       archive              — archive an artefact to _Archive/ (params: {path}). Must have terminal status.
       unarchive            — restore an archived artefact to its original type folder (params: {path})
     """

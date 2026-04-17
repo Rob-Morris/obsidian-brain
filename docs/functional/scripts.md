@@ -21,7 +21,7 @@ Operational reference for scripts in `.brain-core/scripts/`. Each script exposes
 | `workspace_registry.py` | Workspace slug-path resolution | `python3 workspace_registry.py [--register SLUG PATH] [--unregister SLUG] [--resolve SLUG] [--json]` |
 | `migrate_naming.py` | Migrate filenames to generous conventions | `python3 migrate_naming.py [--vault V] [--dry-run] [--json]` |
 | `fix_links.py` | Auto-repair broken wikilinks | `python3 fix_links.py [--fix] [--json] [--vault V]` |
-| `sync_definitions.py` | Sync artefact library definitions to vault _Config/ | `python3 sync_definitions.py [--vault V] [--dry-run] [--types t1,t2] [--json]` |
+| `sync_definitions.py` | Install / sync artefact library definitions and classify vault state | `python3 sync_definitions.py [--vault V] [--dry-run] [--force] [--types t1,t2] [--status] [--json]` |
 | `config.py` | Vault configuration loader (three-layer merge) | `python3 config.py` |
 | `session.py` | Build the canonical session model and refresh `.brain/local/session.md` | `python3 session.py [--json] [--workspace-dir PATH]` |
 | `generate_key.py` | Generate operator key + hash for config.yaml | `python3 generate_key.py [--count N]` |
@@ -269,6 +269,41 @@ python3 upgrade.py --source src/brain-core --json                   # structured
 python3 upgrade.py --source src/brain-core --sync      # upgrade + sync definitions
 python3 upgrade.py --source src/brain-core --no-sync    # upgrade without sync
 ```
+
+## sync_definitions.py
+
+The single tool for reconciling vault `_Config/` definitions with the artefact library. Covers install of new library types, update of drifted ones, conflict surfacing, and a read-only status classifier.
+
+**Invocation modes:**
+
+| Command | Behaviour |
+|---|---|
+| `sync_definitions.py` | Safely syncs already-installed types. Never installs new ones. |
+| `sync_definitions.py --types living/X` | Installs X if absent, updates if safely updatable. No `--force` needed to install — install is additive. |
+| `sync_definitions.py --types X --force` | Overwrites local customisation or conflict for X with the library version. |
+| `sync_definitions.py --force` | Overwrites conflicts for already-installed types (does not install new types). |
+| `sync_definitions.py --status` | Read-only. Classifies every library type by vault state. |
+| `sync_definitions.py --dry-run` | Preview any of the above without modifying files. |
+
+**Design decisions:**
+- **Install requires explicit intent.** Bare sync never installs uninstalled types — that's the safety rail keeping upgrade.py from surprise-installing every new library type. `--types X` is the explicit install path.
+- **Install is not destructive.** It's additive (file doesn't exist; library file is copied in). `--force` is only needed when there's something to overwrite.
+- **Status is a separate mode**, not the default. Bare invocation stays a sync so chained callers (`upgrade.py`) keep working.
+- **Target-missing is indistinguishable from upstream-added.** If tracking says a file is installed but it's gone, sync just copies it back from the library — same code path as a genuine upstream addition.
+
+**State taxonomy** (used by `--status` and by callers of `status_definitions()`):
+
+| State | Meaning | Sync action |
+|---|---|---|
+| `uninstalled` | Not present in the vault at all | Install via `--types X` |
+| `in_sync` | Hashes match library | None |
+| `sync_ready` | Library has content the vault lacks or differs on (upstream side) | Bare sync auto-applies |
+| `locally_customised` | Local diverged, library unchanged | Preserved; `--force` to revert |
+| `conflict` | Both sides diverged | Warned; `--force` to overwrite |
+
+Plus a separate `not_installable` bucket in `--status` output for library-side errors (missing manifest sources, etc.) — these cannot be fixed from the vault.
+
+**MCP parity:** exposed via `brain_action("sync_definitions", params={...})`. Pass `status=true` for the read-only classifier. All CLI params (`types`, `force`, `dry_run`) are accepted on the MCP surface too.
 
 ## build_index.py / search_index.py
 

@@ -158,7 +158,7 @@ If your vault runs the Brain MCP server (`.brain-core/brain_mcp/server.py`), eig
 - `register_workspace` — register a linked workspace (params: `{slug, path}`)
 - `unregister_workspace` — remove a linked workspace registration (params: `{slug}`)
 - `fix-links` — scan for broken wikilinks and attempt auto-resolution; optional `{fix: true}` applies unambiguous fixes; returns JSON report
-- `sync_definitions` — sync artefact library definitions to vault `_Config/` using three-way hash comparison (optional `{dry_run, force, types, preference}`); returns warnings for conflicts. The `preference` parameter overrides the file-based `artefact_sync` setting for this invocation
+- `sync_definitions` — sync artefact library definitions to vault `_Config/` using three-way hash comparison (optional `{dry_run, force, types, preference, status}`); returns warnings for conflicts. Pass `types: ["living/<type>"]` to additively install a new library type. Pass `status: true` for a read-only classification (`uninstalled` / `in_sync` / `sync_ready` / `locally_customised` / `conflict`). The `preference` parameter overrides the file-based `artefact_sync` setting for this invocation
 
 **brain_process** (content processing — classify/resolve are read-only, ingest can create/update)
 - `classify` — determine the best artefact type for content; returns ranked matches with confidence scores. Modes: `auto` (default), `embedding`, `bm25_only`, `context_assembly`

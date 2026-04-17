@@ -210,6 +210,12 @@ def _action_sync_definitions(runtime: ServerRuntime, params: dict | None):
         return runtime.fmt_error("server not initialized")
     try:
         p = params or {}
+        if p.get("status", False):
+            result = sync_definitions.status_definitions(
+                state.vault_root,
+                types=p.get("types", None),
+            )
+            return json.dumps(result, indent=2)
         result = sync_definitions.sync_definitions(
             state.vault_root,
             dry_run=p.get("dry_run", False),

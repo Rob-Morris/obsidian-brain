@@ -687,3 +687,158 @@ class TestTemplateVaultSync:
 
         assert source_hits == []
         assert template_hits == []
+
+
+# ---------------------------------------------------------------------------
+# Install via --types X
+# ---------------------------------------------------------------------------
+
+class TestTypesInstall:
+    def test_bare_sync_does_not_install_uninstalled(self, vault):
+        """Bare sync (no types filter) preserves the 'never install' invariant."""
+        result = sync.sync_definitions(str(vault))
+        assert result["status"] == "ok"
+        assert result["updated"] == []
+        # Target file must not exist
+        target = vault / "_Config" / "Taxonomy" / "Temporal" / "cookies.md"
+        assert not target.exists()
+
+    def test_types_installs_uninstalled(self, vault):
+        """sync_definitions(types=[X]) installs X even if uninstalled."""
+        result = sync.sync_definitions(
+            str(vault), types=["temporal/cookies"],
+        )
+        assert result["status"] == "ok"
+        # Both files should have been written as "new"
+        new_items = [u for u in result["updated"] if u["action"] == "new"]
+        assert len(new_items) == 2
+        target = vault / "_Config" / "Taxonomy" / "Temporal" / "cookies.md"
+        assert target.is_file()
+        # Tracking should record the install
+        tracking = sync.load_tracking(str(vault))
+        assert "temporal/cookies" in tracking["installed"]
+
+    def test_types_install_creates_folders(self, vault):
+        """Install via --types X should create manifest folders."""
+        assert not (vault / "_Temporal" / "Cookies").exists()
+        sync.sync_definitions(str(vault), types=["temporal/cookies"])
+        assert (vault / "_Temporal" / "Cookies").is_dir()
+
+    def test_types_install_dry_run(self, vault):
+        """Dry-run install leaves the filesystem untouched but reports the action."""
+        result = sync.sync_definitions(
+            str(vault), types=["temporal/cookies"], dry_run=True,
+        )
+        assert result["dry_run"] is True
+        new_items = [u for u in result["updated"] if u["action"] == "new"]
+        assert len(new_items) == 2
+        target = vault / "_Config" / "Taxonomy" / "Temporal" / "cookies.md"
+        assert not target.exists()
+
+    def test_types_install_does_not_require_force(self, vault):
+        """Install is additive — no --force needed when nothing to overwrite."""
+        result = sync.sync_definitions(
+            str(vault), types=["temporal/cookies"], force=False,
+        )
+        assert result["status"] == "ok"
+        assert len(result["updated"]) == 2
+
+    def test_types_install_then_in_sync(self, vault):
+        """A type installed via --types is subsequently reported as in_sync."""
+        sync.sync_definitions(str(vault), types=["temporal/cookies"])
+        result = sync.sync_definitions(str(vault))
+        assert result["updated"] == []
+        assert all(s["reason"] == "in_sync" for s in result["skipped"])
+
+
+# ---------------------------------------------------------------------------
+# Status classifier
+# ---------------------------------------------------------------------------
+
+class TestStatusDefinitions:
+    def test_uninstalled(self, vault):
+        """A type with no tracking and no target files is uninstalled."""
+        result = sync.status_definitions(str(vault))
+        assert result["status"] == "ok"
+        uninstalled = [t["type"] for t in result["types"]["uninstalled"]]
+        assert "temporal/cookies" in uninstalled
+
+    def test_in_sync(self, vault):
+        """Installed type with matching hashes classifies as in_sync."""
+        _install_type(vault)
+        result = sync.status_definitions(str(vault))
+        in_sync = [t["type"] for t in result["types"]["in_sync"]]
+        assert "temporal/cookies" in in_sync
+
+    def test_sync_ready_upstream_changed(self, vault):
+        """Installed type with library changes classifies as sync_ready."""
+        _install_type(vault)
+        lib_tax = vault / ".brain-core" / "artefact-library" / "temporal" / "cookies" / "taxonomy.md"
+        lib_tax.write_text("# Updated\n")
+        result = sync.status_definitions(str(vault))
+        ready = [t["type"] for t in result["types"]["sync_ready"]]
+        assert "temporal/cookies" in ready
+
+    def test_sync_ready_missing_target(self, vault):
+        """Tracked type with a missing target file classifies as sync_ready
+        (library has content the vault lacks — indistinguishable from
+        upstream adding a new file)."""
+        _install_type(vault)
+        (vault / "_Config" / "Taxonomy" / "Temporal" / "cookies.md").unlink()
+        result = sync.status_definitions(str(vault))
+        ready = [t["type"] for t in result["types"]["sync_ready"]]
+        assert "temporal/cookies" in ready
+
+    def test_locally_customised(self, vault):
+        """Installed type with local edits and unchanged library is
+        locally_customised."""
+        _install_type(vault)
+        target = vault / "_Config" / "Taxonomy" / "Temporal" / "cookies.md"
+        target.write_text("# Locally edited\n")
+        result = sync.status_definitions(str(vault))
+        custom = [t["type"] for t in result["types"]["locally_customised"]]
+        assert "temporal/cookies" in custom
+
+    def test_conflict(self, vault):
+        """Installed type with both upstream and local changes is conflict."""
+        _install_type(vault)
+        target = vault / "_Config" / "Taxonomy" / "Temporal" / "cookies.md"
+        target.write_text("# Locally edited\n")
+        lib_tax = vault / ".brain-core" / "artefact-library" / "temporal" / "cookies" / "taxonomy.md"
+        lib_tax.write_text("# Upstream edited\n")
+        result = sync.status_definitions(str(vault))
+        conflicts = [t["type"] for t in result["types"]["conflict"]]
+        assert "temporal/cookies" in conflicts
+
+    def test_not_installable_missing_source(self, vault):
+        """A library type whose declared source file is missing appears in
+        not_installable, not the state groups."""
+        lib_tax = vault / ".brain-core" / "artefact-library" / "temporal" / "cookies" / "taxonomy.md"
+        lib_tax.unlink()
+        result = sync.status_definitions(str(vault))
+        reasons = {t["type"]: t["reason"] for t in result["not_installable"]}
+        assert "temporal/cookies" in reasons
+        assert "taxonomy.md" in reasons["temporal/cookies"]
+        for state in result["types"].values():
+            assert "temporal/cookies" not in [t["type"] for t in state]
+
+    def test_type_filter(self, vault_two_types):
+        """types= parameter restricts status output to named types."""
+        result = sync.status_definitions(
+            str(vault_two_types), types=["living/wiki"],
+        )
+        all_listed = []
+        for group in result["types"].values():
+            all_listed.extend(t["type"] for t in group)
+        all_listed.extend(t["type"] for t in result["not_installable"])
+        assert all_listed == ["living/wiki"]
+
+    def test_status_is_readonly(self, vault):
+        """Calling status_definitions does not modify tracking or files."""
+        before_tracking = (vault / ".brain" / "tracking.json").read_text()
+        sync.status_definitions(str(vault))
+        sync.status_definitions(str(vault), types=["temporal/cookies"])
+        after_tracking = (vault / ".brain" / "tracking.json").read_text()
+        assert before_tracking == after_tracking
+        target = vault / "_Config" / "Taxonomy" / "Temporal" / "cookies.md"
+        assert not target.exists()

@@ -13,6 +13,15 @@ Returns warnings for conflicts/collisions — callers decide how to act
 
 Usage:
   python3 sync_definitions.py [--vault /path] [--dry-run] [--force] [--types t1,t2] [--json]
+  python3 sync_definitions.py --status [--types t1,t2] [--json]
+
+Sync rules:
+  - Bare invocation (no --types): safely syncs already-installed types.
+    Never installs uninstalled types — use --types to install explicitly.
+  - --types X: targets type X. Installs if absent, updates if safely updatable,
+    preserves local customisation, warns on conflict. No --force needed to install.
+  - --force: overwrites local customisation or conflicts with the library version.
+  - --status: read-only. Classifies every library type by its vault state.
 """
 
 import argparse
@@ -230,13 +239,21 @@ def compute_file_status(
 
 
 # ---------------------------------------------------------------------------
-# Core sync
+# Install helpers
 # ---------------------------------------------------------------------------
 
 def load_exclude_set(prefs: dict) -> set:
     """Read artefact_sync_exclude list from preferences as a set."""
     raw = prefs.get("artefact_sync_exclude", [])
     return set(raw) if isinstance(raw, list) else set()
+
+
+def _filter_types(library_types: list, types: Optional[list[str]]) -> list:
+    """Filter discovered library types to the requested subset, if any."""
+    if types is None:
+        return library_types
+    type_set = set(types)
+    return [t for t in library_types if t["type_key"] in type_set]
 
 
 def _make_tracking_entry(upstream_hash: str, target: str) -> dict:
@@ -259,6 +276,160 @@ def _is_type_installed(vault_root: str, type_files_tracking: dict, manifest: dic
         for fi in manifest["files"].values()
     )
 
+
+# ---------------------------------------------------------------------------
+# Read-only status classifier
+# ---------------------------------------------------------------------------
+
+# State priority for type-level aggregation across files.
+# Higher number wins when files in one type hold different states.
+_STATE_PRIORITY = {
+    "in_sync": 0,
+    "locally_customised": 1,
+    "sync_ready": 2,
+    "conflict": 3,
+}
+
+
+def _classify_file(
+    source_path: str,
+    installed_entry: Optional[dict],
+    vault_path: str,
+) -> str:
+    """Classify a single library→vault file relationship as a state name.
+
+    Returns one of: in_sync, sync_ready, locally_customised, conflict.
+    Never returns "uninstalled" — absence at file level is rolled into
+    sync_ready (library has content the vault lacks; indistinguishable
+    from upstream adding a new file).
+    """
+    if not os.path.isfile(vault_path):
+        return "sync_ready"
+
+    fs = compute_file_status(source_path, installed_entry, vault_path)
+    action = fs["action"]
+    if action == "skip":
+        if fs["local_hash"] == fs["upstream_hash"]:
+            return "in_sync"
+        return "locally_customised"
+    if action in ("update", "new", "baseline"):
+        return "sync_ready"
+    return "conflict"
+
+
+def classify_type(
+    vault_root: str,
+    type_info: dict,
+    tracking: dict,
+) -> dict:
+    """Classify a library type's state relative to the vault.
+
+    Returns a dict with:
+      type:   type key (e.g. "living/releases")
+      state:  one of uninstalled | in_sync | sync_ready | locally_customised | conflict
+      files:  optional per-file state map (omitted for uninstalled)
+
+    A type is "uninstalled" only when nothing is present in the vault —
+    no tracking entry AND no target files on disk. Any other combination
+    classifies as one of the four installed states.
+    """
+    type_key = type_info["type_key"]
+    manifest = type_info["manifest"]
+    lib_dir = type_info["library_dir"]
+
+    type_tracking = tracking["installed"].get(type_key, {})
+    type_files_tracking = type_tracking.get("files", {})
+
+    if not _is_type_installed(vault_root, type_files_tracking, manifest):
+        return {"type": type_key, "state": "uninstalled"}
+
+    per_file = {}
+    worst = "in_sync"
+    for role, file_info in manifest["files"].items():
+        source_path = os.path.join(lib_dir, file_info["source"])
+        target_rel = file_info["target"]
+        vault_path = os.path.join(vault_root, target_rel)
+
+        installed_entry = type_files_tracking.get(role)
+        state = _classify_file(source_path, installed_entry, vault_path)
+        per_file[role] = state
+        if _STATE_PRIORITY[state] > _STATE_PRIORITY[worst]:
+            worst = state
+
+    return {"type": type_key, "state": worst, "files": per_file}
+
+
+def status_definitions(
+    vault_root: str,
+    *,
+    types: Optional[list[str]] = None,
+) -> dict:
+    """Read-only status: classify every library type by its vault state.
+
+    Returns:
+      {
+        "status": "ok",
+        "brain_core_version": "<version>",
+        "types": {
+          "uninstalled": [...],
+          "in_sync": [...],
+          "sync_ready": [...],
+          "locally_customised": [...],
+          "conflict": [...],
+        },
+        "not_installable": [
+          {"type": "...", "reason": "..."},
+          ...
+        ],
+      }
+    """
+    brain_core_version = read_version(vault_root) or "unknown"
+    tracking = load_tracking(vault_root)
+    library_types = _filter_types(discover_library_types(vault_root), types)
+
+    groups = {
+        "uninstalled": [],
+        "in_sync": [],
+        "sync_ready": [],
+        "locally_customised": [],
+        "conflict": [],
+    }
+    not_installable = []
+
+    for type_info in library_types:
+        type_key = type_info["type_key"]
+        manifest = type_info["manifest"]
+        lib_dir = type_info["library_dir"]
+
+        missing_sources = [
+            file_info["source"]
+            for file_info in manifest["files"].values()
+            if not os.path.isfile(os.path.join(lib_dir, file_info["source"]))
+        ]
+        if missing_sources:
+            not_installable.append({
+                "type": type_key,
+                "reason": f"library source(s) missing: {', '.join(missing_sources)}",
+            })
+            continue
+
+        classified = classify_type(vault_root, type_info, tracking)
+        groups[classified["state"]].append({
+            "type": type_key,
+            **({"files": classified["files"]} if "files" in classified else {}),
+        })
+
+    return {
+        "status": "ok",
+        "brain_core_version": brain_core_version,
+        "types": groups,
+        "not_installable": not_installable,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Core sync
+# ---------------------------------------------------------------------------
 
 def sync_definitions(
     vault_root: str,
@@ -294,12 +465,8 @@ def sync_definitions(
             "message": "Sync disabled (artefact_sync: skip).",
         }
     tracking = load_tracking(vault_root)
-    library_types = discover_library_types(vault_root)
+    library_types = _filter_types(discover_library_types(vault_root), types)
     exclude_set = load_exclude_set(prefs)
-
-    if types is not None:
-        type_set = set(types)
-        library_types = [t for t in library_types if t["type_key"] in type_set]
 
     updated = []
     skipped = []
@@ -316,7 +483,8 @@ def sync_definitions(
         type_files_tracking = type_tracking.get("files", {})
 
         if not _is_type_installed(vault_root, type_files_tracking, manifest):
-            continue
+            if types is None:
+                continue
 
         new_type_files = {}
         type_changed = False
@@ -377,10 +545,8 @@ def sync_definitions(
                 })
                 continue
 
-            # Apply update: safe updates (no local changes) always apply;
-            # conflicts (both sides changed) require force.
             should_apply = (
-                status["action"] == "update"
+                status["action"] in ("update", "new")
                 or force
             )
             if should_apply:
@@ -463,12 +629,16 @@ def main() -> None:
         description="Sync artefact library definitions to vault.",
         epilog=(
             "Examples:\n"
+            "  python3 sync_definitions.py --status\n"
+            "      Show the sync state of every library type\n\n"
             "  python3 sync_definitions.py --json\n"
-            "      Sync all types, JSON output\n\n"
+            "      Sync installed types, JSON output\n\n"
             "  python3 sync_definitions.py --dry-run\n"
             "      Preview what would change\n\n"
             "  python3 sync_definitions.py --force\n"
             "      Overwrite despite conflicts\n\n"
+            "  python3 sync_definitions.py --types living/releases\n"
+            "      Install the releases type (or update if present)\n\n"
             "  python3 sync_definitions.py --types temporal/cookies,living/wiki\n"
             "      Sync specific types only\n"
         ),
@@ -478,6 +648,8 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true", help="Preview without modifying")
     parser.add_argument("--force", action="store_true", help="Overwrite despite conflicts")
     parser.add_argument("--types", help="Comma-separated type keys to sync")
+    parser.add_argument("--status", action="store_true",
+                        help="Read-only: classify every library type by its vault state")
     parser.add_argument("--json", action="store_true", dest="json_output", help="JSON output")
     args = parser.parse_args()
 
@@ -488,6 +660,15 @@ def main() -> None:
         sys.exit(1)
 
     type_list = args.types.split(",") if args.types else None
+
+    if args.status:
+        result = status_definitions(vault_root, types=type_list)
+        if args.json_output:
+            print(json.dumps(result, indent=2))
+        else:
+            _print_status_human(result)
+        return
+
     result = sync_definitions(
         vault_root, dry_run=args.dry_run, force=args.force, types=type_list,
     )
@@ -526,6 +707,40 @@ def _print_human(result: dict) -> None:
 
     if result["dry_run"]:
         print("\n  (dry run — no files modified)", file=sys.stderr)
+
+
+_STATUS_DISPLAY = [
+    ("uninstalled", "Uninstalled (install via --types X)"),
+    ("sync_ready", "Sync ready (bare sync applies)"),
+    ("locally_customised", "Locally customised (library unchanged; --force to revert)"),
+    ("conflict", "Conflict (both diverged; --force to overwrite)"),
+    ("in_sync", "In sync"),
+]
+
+
+def _print_status_human(result: dict) -> None:
+    """Print status classifier result in human-readable grouped form."""
+    groups = result.get("types", {})
+    not_installable = result.get("not_installable", [])
+
+    any_shown = False
+    for key, label in _STATUS_DISPLAY:
+        entries = groups.get(key, [])
+        if not entries:
+            continue
+        any_shown = True
+        print(f"\n  {label}:", file=sys.stderr)
+        for entry in entries:
+            print(f"    - {entry['type']}", file=sys.stderr)
+
+    if not_installable:
+        any_shown = True
+        print("\n  Not installable (library errors):", file=sys.stderr)
+        for entry in not_installable:
+            print(f"    - {entry['type']} — {entry['reason']}", file=sys.stderr)
+
+    if not any_shown:
+        print("  No library types discovered.", file=sys.stderr)
 
 
 if __name__ == "__main__":
