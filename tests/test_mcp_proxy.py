@@ -150,6 +150,43 @@ def _read_all_responses(proc, *, timeout: float = 5.0, idle: float = 0.5, max_co
     return results
 
 
+def _read_until_id(proc, target_id: int | str, *, timeout: float = 15.0) -> list[dict]:
+    """Read messages until one with ``id == target_id`` arrives, or ``timeout`` elapses.
+
+    Unlike ``_read_all_responses``, this does not return early on idle gaps —
+    it keeps reading until the target response is seen. Useful when a
+    slow-to-start child server may introduce a gap between an early
+    notification and the real response.
+    """
+    import select
+
+    results: list[dict] = []
+    deadline = time.monotonic() + timeout
+
+    while time.monotonic() < deadline:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        ready, _, _ = select.select([proc.stdout], [], [], remaining)
+        if not ready:
+            break
+        chunk = proc.stdout.readline()
+        if not chunk:
+            break
+        line = chunk.strip()
+        if not line:
+            continue
+        try:
+            msg = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        results.append(msg)
+        if msg.get("id") == target_id:
+            return results
+
+    return results
+
+
 def _find_by_id(messages: list[dict], id: int | str) -> dict | None:
     """Return the first message whose 'id' matches."""
     for m in messages:
@@ -592,7 +629,10 @@ class TestVersionResetAfterGiveUp:
             proc.stdin.write(_make_jsonrpc("tools/call", id=100, params={"name": "anything"}))
             proc.stdin.flush()
 
-            all_post = _read_all_responses(proc, timeout=15.0, idle=5.0, max_count=20)
+            # Keep reading until the id=100 response arrives (or timeout).
+            # Child restart + init can introduce a long gap after the
+            # list_changed notification under heavy load, so don't stop on idle.
+            all_post = _read_until_id(proc, 100, timeout=15.0)
 
             resp = _find_by_id(all_post, 100)
             assert resp is not None, (
