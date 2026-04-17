@@ -38,7 +38,11 @@ Person index files — one per person, serving as the living source of truth for
 
 ### Projects
 
-Project index files linking to all related artefacts — designs, research, plans, transcripts. Use a project file as the hub for any body of work. All related vault artefacts use a nested project tag so everything connected to a project is findable from one place.
+Project index files linking to all related artefacts — designs, research, plans, releases, transcripts. Use a project file as the hub for any body of work. All related vault artefacts use a nested project tag so everything connected to a project is findable from one place.
+
+### Releases
+
+Version-scoped shipment records for a project. Use a release artefact when a project has a named version or milestone worth planning, tracking, or recording separately from the project hub. Each release captures the goal, ship gates, human-readable changelog, and sources for one version, and lives under a project-specific folder in `Releases/`.
 
 ### Tasks
 

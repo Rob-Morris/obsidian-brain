@@ -36,15 +36,17 @@ All living artefact folders share a rose gold background tint (`--theme-artefact
 
 | Folder | Colour | Variable |
 |--------|--------|----------|
-| `Daily Notes/` | `#E0988F` | `--color-daily-notes` |
-| `Designs/` | `#E0B88F` | `--color-designs` |
-| `Documentation/` | `#E0D78F` | `--color-documentation` |
-| `Ideas/` | `#CAE08F` | `--color-ideas` |
-| `Notes/` | `#AAE08F` | `--color-notes` |
-| `People/` | `#8FE093` | `--color-people` |
-| `Projects/` | `#8FE0B3` | `--color-projects` |
-| `Workspaces/` | `#8F9CE0` | `--color-workspaces` |
-| `Writing/` | `#A18FE0` | `--color-writing` |
+| `Daily Notes/` | `#E0958F` | `--color-daily-notes` |
+| `Designs/` | `#E0AF8F` | `--color-designs` |
+| `Documentation/` | `#E0C98F` | `--color-documentation` |
+| `Ideas/` | `#DEE08F` | `--color-ideas` |
+| `Notes/` | `#C4E08F` | `--color-notes` |
+| `People/` | `#AAE08F` | `--color-people` |
+| `Projects/` | `#90E08F` | `--color-projects` |
+| `Releases/` | `#8FE0A8` | `--color-releases` |
+| `Tasks/` | `#8FD6E0` | `--color-tasks` |
+| `Workspaces/` | `#8F94E0` | `--color-workspaces` |
+| `Writing/` | `#E08FCB` | `--color-writing` |
 
 ## Temporal Child Colours
 
@@ -52,16 +54,20 @@ Temporal children share a rose background tint. Each gets a unique foreground de
 
 | Folder | Colour | Variable |
 |--------|--------|----------|
-| `_Temporal/Captures/` | `#E69AA2` | `--color-temporal-captures` |
-| `_Temporal/Cookies/` | `#E6A9A2` | `--color-temporal-cookies` |
-| `_Temporal/Decision Logs/` | `#E6B7A2` | `--color-temporal-decision-logs` |
+| `_Temporal/Bug Logs/` | `#E698A2` | `--color-temporal-bug-logs` |
+| `_Temporal/Captures/` | `#E6A3A2` | `--color-temporal-captures` |
+| `_Temporal/Cookies/` | `#E6AEA2` | `--color-temporal-cookies` |
+| `_Temporal/Decision Logs/` | `#E6BAA2` | `--color-temporal-decision-logs` |
 | `_Temporal/Friction Logs/` | `#E6C5A2` | `--color-temporal-friction-logs` |
-| `_Temporal/Logs/` | `#E0CCA2` | `--color-temporal-logs` |
-| `_Temporal/Observations/` | `#D2CCA2` | `--color-temporal-observations` |
-| `_Temporal/Plans/` | `#C3CCA2` | `--color-temporal-plans` |
-| `_Temporal/Reports/` | `#B5CCA2` | `--color-temporal-reports` |
-| `_Temporal/Research/` | `#B2CCAD` | `--color-temporal-research` |
-| `_Temporal/Shaping Transcripts/` | `#B2CCBB` | `--color-temporal-shaping-transcripts` |
-| `_Temporal/Snippets/` | `#B2BFD6` | `--color-temporal-snippets` |
-| `_Temporal/Thoughts/` | `#B298D6` | `--color-temporal-thoughts` |
-| `_Temporal/Transcripts/` | `#E698C7` | `--color-temporal-transcripts` |
+| `_Temporal/Ingestions/` | `#E4CCA2` | `--color-temporal-ingestions` |
+| `_Temporal/Logs/` | `#D9CCA2` | `--color-temporal-logs` |
+| `_Temporal/Mockups/` | `#CECCA2` | `--color-temporal-mockups` |
+| `_Temporal/Observations/` | `#C3CCA2` | `--color-temporal-observations` |
+| `_Temporal/Plans/` | `#B8CCA2` | `--color-temporal-plans` |
+| `_Temporal/Presentations/` | `#B2CCA5` | `--color-temporal-presentations` |
+| `_Temporal/Reports/` | `#B2CCB0` | `--color-temporal-reports` |
+| `_Temporal/Research/` | `#B2CCBC` | `--color-temporal-research` |
+| `_Temporal/Shaping Transcripts/` | `#B2C2D6` | `--color-temporal-shaping-transcripts` |
+| `_Temporal/Snippets/` | `#B29DD6` | `--color-temporal-snippets` |
+| `_Temporal/Thoughts/` | `#B898D6` | `--color-temporal-thoughts` |
+| `_Temporal/Transcripts/` | `#E698C6` | `--color-temporal-transcripts` |

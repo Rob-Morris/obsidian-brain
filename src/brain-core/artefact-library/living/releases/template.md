@@ -1,0 +1,33 @@
+---
+type: living/release
+tags:
+  - release
+  - project/PROJECT-SLUG
+status: planned
+version:
+tag:
+commit:
+shipped:
+---
+
+## Goal
+
+## Gates
+
+| Gate | Status | Implicated Designs |
+|---|---|---|
+|  | pending |  |
+
+## Changelog
+
+### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## Sources
+
+- 

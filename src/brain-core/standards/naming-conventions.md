@@ -54,3 +54,41 @@ Most living types use the title directly as the filename with no date or type pr
 - **Daily Notes** — `yyyy-mm-dd ddd.md` (e.g. `2026-03-15 Sun.md`). A daily working document that the user builds throughout the day.
 
 These date prefixes are a practical UX choice for human browsing, not a temporal signal. The files remain living artefacts — they evolve and can be updated at any time.
+
+## Status-Aware and Frontmatter-Backed Naming
+
+Most types declare a single naming pattern as a one-line `## Naming` entry (e.g. `` `{Title}.md` in `Wiki/` ``). Types whose filename depends on frontmatter state use the canonical **advanced `## Naming`** form — a `### Rules` table keyed on a frontmatter field, plus a `### Placeholders` table declaring any non-built-in placeholder.
+
+**Built-in placeholders** (always available, need no declaration): `{Title}`, `{title}`, `{name}`, `{slug}`, `yyyymmdd`, `yyyy-mm-dd`, `yyyy`, `mm`, `dd`, `ddd`, `{sourcedoctype}`.
+
+Any other placeholder must be declared with a backing frontmatter field.
+
+**Canonical advanced form:**
+
+```md
+## Naming
+
+Primary folder: `Releases/{Project}/`.
+
+### Rules
+
+| Match field | Match values | Pattern |
+|---|---|---|
+| `status` | `planned`, `active`, `cancelled` | `{Title}.md` |
+| `status` | `shipped` | `{Version} - {Title}.md` |
+
+### Placeholders
+
+| Placeholder | Field | Required when field | Required values | Regex |
+|---|---|---|---|---|
+| `Version` | `version` | `status` | `shipped` | `^v?\d+\.\d+\.\d+$` |
+```
+
+**Cell grammar:**
+
+- Values in `Match values` and `Required values` are backticked literals separated by commas (e.g. `` `planned`, `active` ``).
+- `*` is the reserved wildcard — matches any value of the named field.
+- Blank cells are invalid; use `*` when you mean unconditional.
+- The first rule whose match succeeds wins.
+
+**How the compiled contract drives tooling:** the compiled naming contract is the single source of truth for render (`create`, `convert`), validate (`check`), reverse-parse (`edit`, `convert`, `migrate_naming`), and rename-on-change (`edit`). When frontmatter changes select a different rule, `edit` re-renders and renames automatically. `rename` validates the destination against the contract with no bypass. See [[Status-Aware Artefact Naming]] for the full design.

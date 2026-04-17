@@ -19,8 +19,16 @@ import json
 import os
 import re
 import sys
+from datetime import datetime, timezone
 
-from _common import find_vault_root, load_compiled_router, naming_pattern_to_regex, slug_to_title, title_to_filename
+from _common import (
+    find_vault_root,
+    load_compiled_router,
+    parse_frontmatter,
+    render_filename,
+    slug_to_title,
+    validate_filename,
+)
 from check import find_type_files
 from rename import rename_and_update_links
 
@@ -48,42 +56,62 @@ _OLD_LIVING_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*\.md$")
 # Core logic
 # ---------------------------------------------------------------------------
 
-def compute_new_filename(filename, artefact):
-    """Compute the new filename for an old-convention file.
+def compute_new_filename(filename, artefact, fields=None):
+    """Compute the new filename for an old-convention or off-rule file.
 
-    Returns the new filename string, or None if no migration needed.
+    Two detection paths run in order:
+
+    1. Legacy-regex pass — recognises pre-contract slug forms (aggressive
+       living slugs, prefixless or double-dash temporals) and extracts a
+       title from the old shape.
+    2. State-aware pass — if the filename does not match the naming rule
+       selected for the current frontmatter state, re-render it from the
+       current state (using the stem as the title).
+
+    Rendering always goes through the shared naming engine so the result is
+    whatever the current naming contract says the filename should be.
+
+    Returns the new filename string, or None if no migration is needed.
     """
     classification = artefact.get("classification", "living")
+    naming = artefact.get("naming")
+    fields = fields or {}
+
+    title = None
+    historical_date = None
 
     if classification == "temporal":
         m = _OLD_TEMPORAL_RE.match(filename)
         if m:
-            prefix, slug = m.group(1), m.group(2)
-            return f"{prefix}~{slug_to_title(slug)}.md"
+            title = slug_to_title(m.group(2))
+            historical_date = m.group(1)[:8]
+        else:
+            m = _OLD_PREFIXLESS_RE.match(filename)
+            if m:
+                title = slug_to_title(m.group(2))
+                historical_date = m.group(1)
+    elif _OLD_LIVING_RE.match(filename):
+        title = slug_to_title(filename[:-3])
 
-        # Prefixless temporal: yyyymmdd-{slug}.md → yyyymmdd-{type-prefix}~{Title}.md
-        # Extract the type prefix from the artefact's naming pattern (e.g. "research" from
-        # "yyyymmdd-research~{Title}.md")
-        m = _OLD_PREFIXLESS_RE.match(filename)
-        if m:
-            naming_pattern = (artefact.get("naming") or {}).get("pattern", "")
-            prefix_match = re.match(r"yyyymmdd-([a-z]+(?:-[a-z]+)*)~", naming_pattern)
-            if prefix_match:
-                date, slug = m.group(1), m.group(2)
-                type_prefix = prefix_match.group(1)
-                return f"{date}-{type_prefix}~{slug_to_title(slug)}.md"
+    if title is None and naming and not validate_filename(naming, fields, filename):
+        title = os.path.splitext(filename)[0]
 
-        return None  # doesn't match old pattern (e.g. logs, daily notes)
+    if title is None or not naming:
+        return None
 
-    # Living types: aggressive-slug.md → Title Case.md
-    if _OLD_LIVING_RE.match(filename):
-        stem = filename[:-3]  # strip .md
-        new_stem = slug_to_title(stem)
-        new_filename = title_to_filename(new_stem) + ".md"
-        if new_filename != filename:
-            return new_filename
+    now = None
+    if historical_date:
+        try:
+            now = datetime.strptime(historical_date, "%Y%m%d").replace(tzinfo=timezone.utc)
+        except ValueError:
+            now = None
 
-    return None
+    try:
+        new_filename = render_filename(naming, title, fields, _now=now)
+    except ValueError:
+        return None
+
+    return new_filename if new_filename != filename else None
 
 
 def migrate_vault(vault_root, router=None, dry_run=False):
@@ -111,7 +139,15 @@ def migrate_vault(vault_root, router=None, dry_run=False):
 
         for rel_path in files:
             filename = os.path.basename(rel_path)
-            new_filename = compute_new_filename(filename, art)
+            abs_path = os.path.join(vault_root, rel_path)
+            try:
+                with open(abs_path, "r", encoding="utf-8") as f:
+                    text = f.read()
+                fields, _ = parse_frontmatter(text)
+            except (OSError, UnicodeDecodeError):
+                fields = {}
+
+            new_filename = compute_new_filename(filename, art, fields=fields)
 
             if new_filename is None or new_filename == filename:
                 skipped += 1

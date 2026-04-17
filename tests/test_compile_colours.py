@@ -428,8 +428,8 @@ class TestTemplateVault:
         router = _load_router(template_vault)
         assignments = cc.compute_colours(router)
 
-        # Template vault currently has 10 living + 17 temporal types
-        assert len(assignments["living"]) == 10
+        # Template vault currently has 11 living + 17 temporal types
+        assert len(assignments["living"]) == 11
         assert len(assignments["temporal"]) == 17
 
         # All should have valid hex colours
@@ -448,6 +448,7 @@ class TestTemplateVault:
         assert 'data-path="Daily Notes"' in css
         assert 'data-path="Notes"' in css
         assert 'data-path="Designs"' in css
+        assert 'data-path="Releases"' in css
 
         # Temporal types should have folder selectors
         assert 'data-path="_Temporal/Logs"' in css

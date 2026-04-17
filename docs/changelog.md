@@ -2,6 +2,18 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.28.6 — 2026-04-17
+
+**Add a default `release` artefact type and finish status-aware artefact naming.** Brain now ships a `Releases/` root folder with per-project release records whose filenames change as the release moves from `planned` to `shipped`. The naming contract driving that behaviour is generalised: every artefact type can now declare a `### Rules` table keyed on frontmatter state and a `### Placeholders` table that backs custom placeholders with frontmatter fields.
+
+- Added the `release` artefact-library definition with planned/active/shipped/cancelled lifecycle, version-aware filenames, gate checklists, and human-written changelog sections. Living types in the artefact library: 13 → 14.
+- Promoted Releases to the starter vault defaults and updated the quick guide, getting-started guide, template library guide, specification, and colour/count tests. Starter vault defaults: 27 → 28 (10 → 11 living, 17 temporal). Library total: 33 → 34.
+- Introduced the shared naming engine in `_common/_naming.py` — one source of truth for rule selection, filename render, validate, and reverse-parse. `brain_create`, `brain_edit`, `check`, `rename`, and `migrate_naming` all read from it.
+- Formalised the canonical advanced `## Naming` form (Rules + Placeholders tables with a `*` wildcard cell grammar) in `src/brain-core/standards/naming-conventions.md`. The simple one-line form still works for types that don't branch on state.
+- `brain_edit` now renames an artefact when frontmatter changes flip the active rule (e.g. a release going from `active` → `shipped` renames `Search Hardening.md` → `v0.28.6 - Search Hardening.md`). Wikilinks are updated in place.
+- `migrate_naming` now preserves the original date for legacy temporal filenames when re-rendering through the current naming contract, so historical entries don't spontaneously move to today's month.
+- Simplified the journal-entries taxonomy to the standard `yyyymmdd-journal~{Title}.md` form and deferred folder-scoping temporal artefacts by parent hub to a draft design.
+
 ## v0.28.5 — 2026-04-16
 
 **Fix GitHub URL and install path examples across docs.** Corrected `robmorris` to `rob-morris` in all GitHub URLs and replaced hardcoded `~/brain` paths with generic `/path/to/brain` placeholders so the install command can be run interactively without proposing a default location.

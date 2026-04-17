@@ -46,23 +46,19 @@ Journal entries are always in the user's own words unless the user explicitly as
 
 ## Naming
 
-Journal slug required, topic slug optional.
+`yyyymmdd-journal~{Title}.md` in `_Temporal/Journal Entries/yyyy-mm/`.
 
-| Variant | Pattern |
-|---|---|
-| General | `yyyymmdd-journal~{journal-slug}.md` |
-| Topic | `yyyymmdd-journal~{journal-slug}~{topic}.md` |
+The title is the topic or subject of the entry, in the same sense as `{Title}` for research or report artefacts. The journal stream is carried by the `journal/{slug}` tag, not the filename — scope by tag when browsing a stream.
 
-In `_Temporal/Journal Entries/yyyy-mm/`.
+If an entry has no specific topic, title it for the broad theme of the reflection (e.g. `Evening Reflection`, `Quiet Thoughts`) rather than the journal stream.
 
 Examples:
-```
-_Temporal/Journal Entries/2026-03/
-  20260322-journal~personal.md                     ← general daily entry
-  20260322-journal~personal~moving-house.md       ← topic-specific
-  20260322-journal~health.md                       ← different journal
-  20260322-journal~health~knee-rehab.md           ← topic in health journal
-```
+
+- `20260322-journal~Moving House.md` (tagged `journal/personal`)
+- `20260322-journal~Knee Rehab.md` (tagged `journal/health`)
+- `20260322-journal~Evening Reflection.md` (general entry, tagged `journal/personal`)
+
+> Folder-scoping temporal entries by their parent hub (e.g. `_Temporal/Journal Entries/{journal-slug}/yyyy-mm/`) is a deliberate deferred question. See [[Hub Slug Folder Scoping For Temporal Artefacts]].
 
 ## Frontmatter
 
@@ -74,6 +70,8 @@ tags:
   - journal/{journal-slug}
 ---
 ```
+
+The `journal/{journal-slug}` tag identifies which journal stream the entry belongs to. Substitute the stream slug at create time (e.g. `journal/personal`, `journal/health`).
 
 No lifecycle. Optional `status: shaping` or `status: ready` when shaping is active or complete.
 

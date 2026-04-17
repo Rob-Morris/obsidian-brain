@@ -1,6 +1,7 @@
 """Shared artefact and config-resource helpers."""
 
 import os
+import re
 from datetime import datetime, timezone
 
 from ._slugs import title_to_filename, title_to_slug
@@ -22,8 +23,16 @@ def read_file_content(vault_root, rel_path):
         return f.read()
 
 
-def resolve_naming_pattern(pattern, title, _now=None):
-    """Resolve a naming pattern to a filename using the given title and today's date."""
+PLACEHOLDER_TOKEN_RE = re.compile(r"\{([A-Za-z][A-Za-z0-9_-]*)\}")
+
+
+def resolve_naming_pattern(pattern, title, _now=None, variables=None):
+    """Resolve a naming pattern to a filename.
+
+    Built-in placeholders cover date/title patterns. Additional placeholders
+    may be supplied via ``variables`` using frontmatter or caller-provided
+    values (for example ``{Version}`` from ``{"version": "v1.2.0"}``).
+    """
     now = _now if _now is not None else datetime.now(timezone.utc).astimezone()
     safe_title = title_to_filename(title)
 
@@ -37,11 +46,33 @@ def resolve_naming_pattern(pattern, title, _now=None):
         ("{slug}", safe_title),
         ("{name}", safe_title),
         ("{Title}", safe_title),
+        ("{title}", safe_title),
     ]
 
     result = pattern
     for placeholder, value in replacements:
         result = result.replace(placeholder, value)
+
+    if variables:
+        for key, raw_value in variables.items():
+            if raw_value is None or isinstance(raw_value, (list, dict)):
+                continue
+            safe_value = title_to_filename(str(raw_value))
+            placeholder_names = {
+                key,
+                str(key).lower(),
+                str(key).upper(),
+                str(key).title(),
+            }
+            for name in placeholder_names:
+                result = result.replace(f"{{{name}}}", safe_value)
+
+    unresolved = sorted({f"{{{name}}}" for name in PLACEHOLDER_TOKEN_RE.findall(result)})
+    if unresolved:
+        placeholders = ", ".join(unresolved)
+        raise ValueError(
+            f"Naming pattern '{pattern}' requires values for placeholder(s): {placeholders}"
+        )
 
     return result
 

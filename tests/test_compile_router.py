@@ -223,6 +223,10 @@ class TestParseTaxonomyFile:
         result = cr.parse_taxonomy_file(path)
         assert result["naming"]["pattern"] == "{slug}.md"
         assert result["naming"]["folder"] == "Wiki/"
+        assert result["naming"]["rules"] == [
+            {"match_field": None, "match_values": None, "pattern": "{slug}.md"}
+        ]
+        assert result["naming"]["placeholders"] == []
         assert result["frontmatter"]["type"] == "living/wiki"
         assert "type" in result["frontmatter"]["required"]
         assert result["template_file"] == "_Config/Templates/Living/Wiki"
@@ -233,6 +237,174 @@ class TestParseTaxonomyFile:
         assert result["trigger"] is not None
         assert result["trigger"]["category"] == "after"
         assert "meaningful work" in result["trigger"]["condition"].lower()
+
+
+# ---------------------------------------------------------------------------
+# Advanced naming (canonical ## Naming table form)
+# ---------------------------------------------------------------------------
+
+
+_ADVANCED_RELEASE_TAXONOMY = (
+    "# Releases\n\n"
+    "## Naming\n\n"
+    "Primary folder: `Releases/{Project}/`.\n\n"
+    "### Rules\n\n"
+    "| Match field | Match values | Pattern |\n"
+    "|---|---|---|\n"
+    "| `status` | `planned`, `active`, `cancelled` | `{Title}.md` |\n"
+    "| `status` | `shipped` | `{Version} - {Title}.md` |\n\n"
+    "### Placeholders\n\n"
+    "| Placeholder | Field | Required when field | Required values | Regex |\n"
+    "|---|---|---|---|---|\n"
+    "| `Version` | `version` | `status` | `shipped` | `^v?\\d+\\.\\d+\\.\\d+$` |\n\n"
+    "## Frontmatter\n\n"
+    "```yaml\n---\ntype: living/release\nstatus: planned\n---\n```\n"
+)
+
+
+class TestAdvancedNaming:
+    def test_parses_rules_table(self, tmp_path):
+        f = tmp_path / "releases.md"
+        f.write_text(_ADVANCED_RELEASE_TAXONOMY)
+        result = cr.parse_taxonomy_file(str(f))
+        naming = result["naming"]
+        assert naming["pattern"] is None
+        assert naming["folder"] == "Releases/{Project}/"
+        assert naming["rules"] == [
+            {
+                "match_field": "status",
+                "match_values": ["planned", "active", "cancelled"],
+                "pattern": "{Title}.md",
+            },
+            {
+                "match_field": "status",
+                "match_values": ["shipped"],
+                "pattern": "{Version} - {Title}.md",
+            },
+        ]
+
+    def test_parses_placeholders_table(self, tmp_path):
+        f = tmp_path / "releases.md"
+        f.write_text(_ADVANCED_RELEASE_TAXONOMY)
+        result = cr.parse_taxonomy_file(str(f))
+        assert result["naming"]["placeholders"] == [
+            {
+                "name": "Version",
+                "field": "version",
+                "required_when_field": "status",
+                "required_values": ["shipped"],
+                "regex": "^v?\\d+\\.\\d+\\.\\d+$",
+            }
+        ]
+
+    def test_wildcard_match_values(self, tmp_path):
+        f = tmp_path / "tax.md"
+        f.write_text(
+            "# Test\n\n"
+            "## Naming\n\n"
+            "Primary folder: `Things/`.\n\n"
+            "### Rules\n\n"
+            "| Match field | Match values | Pattern |\n"
+            "|---|---|---|\n"
+            "| `status` | `done` | `{slug}-done.md` |\n"
+            "| `status` | `*` | `{slug}.md` |\n"
+        )
+        result = cr.parse_taxonomy_file(str(f))
+        rules = result["naming"]["rules"]
+        assert rules[1]["match_values"] == ["*"]
+
+    def test_undeclared_placeholder_raises(self, tmp_path):
+        f = tmp_path / "tax.md"
+        f.write_text(
+            "# Test\n\n"
+            "## Naming\n\n"
+            "Primary folder: `Things/`.\n\n"
+            "### Rules\n\n"
+            "| Match field | Match values | Pattern |\n"
+            "|---|---|---|\n"
+            "| `status` | `shipped` | `{Mystery} - {Title}.md` |\n"
+        )
+        with pytest.raises(ValueError, match="undeclared placeholder"):
+            cr.parse_taxonomy_file(str(f))
+
+    def test_blank_match_values_raises(self, tmp_path):
+        f = tmp_path / "tax.md"
+        f.write_text(
+            "# Test\n\n"
+            "## Naming\n\n"
+            "Primary folder: `Things/`.\n\n"
+            "### Rules\n\n"
+            "| Match field | Match values | Pattern |\n"
+            "|---|---|---|\n"
+            "| `status` |  | `{Title}.md` |\n"
+        )
+        with pytest.raises(ValueError, match="blank match values"):
+            cr.parse_taxonomy_file(str(f))
+
+    def test_missing_rules_table_raises(self, tmp_path):
+        # ### Placeholders present but no ### Rules
+        f = tmp_path / "tax.md"
+        f.write_text(
+            "# Test\n\n"
+            "## Naming\n\n"
+            "Primary folder: `Things/`.\n\n"
+            "### Rules\n\n"
+            "### Placeholders\n\n"
+            "| Placeholder | Field |\n|---|---|\n| `X` | `x` |\n"
+        )
+        with pytest.raises(ValueError, match="no data rows"):
+            cr.parse_taxonomy_file(str(f))
+
+    def test_unrecognised_value_cell_raises(self, tmp_path):
+        f = tmp_path / "tax.md"
+        f.write_text(
+            "# Test\n\n"
+            "## Naming\n\n"
+            "Primary folder: `Things/`.\n\n"
+            "### Rules\n\n"
+            "| Match field | Match values | Pattern |\n"
+            "|---|---|---|\n"
+            "| `status` | shipped | `{Title}.md` |\n"
+        )
+        with pytest.raises(ValueError, match="no backticked literals"):
+            cr.parse_taxonomy_file(str(f))
+
+    def test_placeholder_regex_optional(self, tmp_path):
+        f = tmp_path / "tax.md"
+        f.write_text(
+            "# Test\n\n"
+            "## Naming\n\n"
+            "Primary folder: `Things/`.\n\n"
+            "### Rules\n\n"
+            "| Match field | Match values | Pattern |\n"
+            "|---|---|---|\n"
+            "| `status` | `shipped` | `{Code}.md` |\n\n"
+            "### Placeholders\n\n"
+            "| Placeholder | Field | Required when field | Required values | Regex |\n"
+            "|---|---|---|---|---|\n"
+            "| `Code` | `code` |  |  |  |\n"
+        )
+        result = cr.parse_taxonomy_file(str(f))
+        ph = result["naming"]["placeholders"][0]
+        assert ph["name"] == "Code"
+        assert ph["field"] == "code"
+        assert ph["required_when_field"] is None
+        assert ph["required_values"] is None
+        assert ph["regex"] is None
+
+    def test_builtin_placeholders_do_not_need_declaration(self, tmp_path):
+        f = tmp_path / "tax.md"
+        f.write_text(
+            "# Test\n\n"
+            "## Naming\n\n"
+            "Primary folder: `Things/`.\n\n"
+            "### Rules\n\n"
+            "| Match field | Match values | Pattern |\n"
+            "|---|---|---|\n"
+            "| `status` | `*` | `yyyymmdd-{Title}.md` |\n"
+        )
+        result = cr.parse_taxonomy_file(str(f))
+        assert result["naming"]["rules"][0]["pattern"] == "yyyymmdd-{Title}.md"
 
 
 # ---------------------------------------------------------------------------
@@ -741,6 +913,7 @@ class TestTemplateVault:
         # Should find Notes (living) and Logs/Plans/Transcripts (temporal)
         folders = [a["folder"] for a in result["artefacts"]]
         assert "Notes" in folders
+        assert "Releases" in folders
 
         temporal = [a for a in result["artefacts"] if a["classification"] == "temporal"]
         temporal_folders = [a["folder"] for a in temporal]
@@ -759,6 +932,47 @@ class TestTemplateVault:
         json_str = json.dumps(result, indent=2)
         roundtripped = json.loads(json_str)
         assert roundtripped["meta"]["brain_core_version"] == result["meta"]["brain_core_version"]
+
+    def test_template_vault_release_taxonomy_metadata(self, template_vault):
+        path = os.path.join(
+            template_vault,
+            "_Config",
+            "Taxonomy",
+            "Living",
+            "releases.md",
+        )
+        parsed = cr.parse_taxonomy_file(path)
+        # Advanced table form: no simple one-line pattern.
+        assert parsed["naming"]["pattern"] is None
+        assert parsed["naming"]["folder"] == "Releases/{Project}/"
+        rules = parsed["naming"]["rules"]
+        assert len(rules) == 2
+        assert rules[0]["match_field"] == "status"
+        assert rules[0]["match_values"] == ["planned", "active", "cancelled"]
+        assert rules[0]["pattern"] == "{Title}.md"
+        assert rules[1]["match_field"] == "status"
+        assert rules[1]["match_values"] == ["shipped"]
+        assert rules[1]["pattern"] == "{Version} - {Title}.md"
+        placeholders = parsed["naming"]["placeholders"]
+        assert len(placeholders) == 1
+        assert placeholders[0]["name"] == "Version"
+        assert placeholders[0]["field"] == "version"
+        assert placeholders[0]["required_when_field"] == "status"
+        assert placeholders[0]["required_values"] == ["shipped"]
+        assert placeholders[0]["regex"] == r"^v?\d+\.\d+\.\d+$"
+        assert parsed["frontmatter"]["type"] == "living/release"
+        assert parsed["frontmatter"]["status_enum"] == [
+            "planned",
+            "active",
+            "shipped",
+            "cancelled",
+        ]
+        assert parsed["frontmatter"]["terminal_statuses"] == [
+            "shipped",
+            "cancelled",
+        ]
+        for field in ["version", "tag", "commit", "shipped"]:
+            assert field in parsed["frontmatter"]["required"]
 
 
 # ---------------------------------------------------------------------------

@@ -23,13 +23,9 @@ from ._vault import (
 
 from ._router import (
     COMPILED_ROUTER_REL,
-    extract_title_from_naming_pattern,
     load_compiled_router,
-    naming_pattern_to_regex,
     resolve_and_validate_folder,
     validate_artefact_folder,
-    validate_artefact_naming,
-    validate_artefact_path,
 )
 
 from ._artefacts import (
@@ -38,6 +34,15 @@ from ._artefacts import (
     resolve_folder,
     resolve_naming_pattern,
     resolve_type,
+)
+
+from ._naming import (
+    PLACEHOLDER_TOKEN_RE,
+    extract_title,
+    render_filename,
+    render_filename_or_default,
+    select_rule,
+    validate_filename,
 )
 
 from ._filesystem import (

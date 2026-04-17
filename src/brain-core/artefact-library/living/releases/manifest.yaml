@@ -1,0 +1,9 @@
+files:
+  taxonomy:
+    source: taxonomy.md
+    target: _Config/Taxonomy/Living/releases.md
+  template:
+    source: template.md
+    target: _Config/Templates/Living/Releases.md
+folders:
+  - Releases/

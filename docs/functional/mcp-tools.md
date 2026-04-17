@@ -112,7 +112,7 @@ Additive, safe to auto-approve. Creates a new vault resource. Write-guarded: rej
 - `parent` (optional) — project subfolder name for living types (e.g. `"Brain"`); ignored for temporal types and non-artefact resources
 
 **Behaviour:**
-- For artefacts: resolves type from compiled router, reads template, generates filename from naming pattern, writes file with merged frontmatter; auto-injects `created` and `modified` ISO 8601 timestamps (respects overrides); auto-disambiguates basename collisions by appending `(type)`
+- For artefacts: resolves type from compiled router, reads template, generates filename from naming pattern, writes file with merged frontmatter; naming patterns can also consume matching frontmatter/template values such as `{Version}`; unresolved placeholders return an error instead of writing a broken filename; auto-injects `created` and `modified` ISO 8601 timestamps (respects overrides); auto-disambiguates basename collisions by appending `(type)`
 - For non-artefact resources: creates in the appropriate `_Config/` subfolder — skills at `_Config/Skills/{name}/SKILL.md`, memories at `_Config/Memories/{name}.md`, styles at `_Config/Styles/{name}.md`, templates at `_Config/Templates/{classification}/{Type}.md`
 
 **Response format:** Plain text confirmation: `"**Created** {type}: {path}"` for artefacts, `"**Created** {resource}: {path}"` for non-artefact resources.

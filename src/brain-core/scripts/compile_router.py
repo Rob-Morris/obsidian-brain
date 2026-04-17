@@ -22,6 +22,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from _common import (
+    PLACEHOLDER_TOKEN_RE,
     TEMPORAL_DIR,
     find_vault_root,
     is_system_dir,
@@ -76,8 +77,16 @@ def parse_status_enum(content):
         return [v.strip() for v in comment_match.group(1).split("|") if v.strip()]
 
     # Pattern 2: markdown table rows with backtick-delimited status values
+    # Scope to the ## Lifecycle section so unrelated tables elsewhere (e.g.
+    # ## Naming placeholder tables) don't leak into the status enum.
+    lifecycle_match = re.search(
+        r"^## Lifecycle\s*\n(.*?)(?=^## |\Z)",
+        content,
+        re.MULTILINE | re.DOTALL,
+    )
+    search_scope = lifecycle_match.group(1) if lifecycle_match else content
     table_values = re.findall(
-        r"^\|\s*`([^`]+)`\s*\|", content, re.MULTILINE
+        r"^\|\s*`([^`]+)`\s*\|", search_scope, re.MULTILINE
     )
     # Filter out header rows (e.g. "Status")
     table_values = [v for v in table_values if v.lower() != "status"]
@@ -136,6 +145,217 @@ def parse_terminal_statuses(content, status_enum):
     return terminal if terminal else None
 
 
+_BUILTIN_NAMING_PLACEHOLDERS = {
+    "yyyy", "yyyymmdd", "yyyy-mm-dd", "mm", "dd", "ddd",
+    "Title", "title", "slug", "name",
+    "sourcedoctype",
+}
+
+
+def _unwrap_backticks(cell):
+    """Strip wrapping backticks from a single-value cell.
+
+    '`foo`' → 'foo'. 'foo' → 'foo'. '' → ''.
+    """
+    cell = cell.strip()
+    m = re.match(r"^`([^`]*)`$", cell)
+    return m.group(1) if m else cell
+
+
+def _split_backticked_values(cell):
+    """Parse a value cell: '`a`, `b`, `c`' → ['a','b','c']; '`*`' or '*' → ['*'].
+
+    Empty or whitespace-only cell returns []. Cells without any backticked
+    value (and not '*') raise ValueError.
+    """
+    cell = cell.strip()
+    if not cell:
+        return []
+    if cell == "*" or cell == "`*`":
+        return ["*"]
+    values = re.findall(r"`([^`]+)`", cell)
+    if not values:
+        raise ValueError(
+            f"Naming value cell '{cell}' contains no backticked literals or `*` wildcard"
+        )
+    return values
+
+
+def _parse_markdown_table(text):
+    """Parse a markdown table. Returns list of row dicts keyed by lowercased header.
+
+    Stops at the first blank line after the table. Skips the |---|---| separator.
+    Returns [] if no table is present.
+    """
+    lines = text.split("\n")
+    rows = []
+    headers = None
+    in_table = False
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            if in_table:
+                break
+            continue
+        if stripped.startswith("|") and stripped.endswith("|"):
+            cells = [c.strip() for c in stripped.strip("|").split("|")]
+            if headers is None:
+                headers = [c.strip().lower() for c in cells]
+                in_table = True
+                continue
+            if all(re.match(r"^:?-+:?$", c) for c in cells):
+                continue
+            if len(cells) != len(headers):
+                continue
+            rows.append(dict(zip(headers, cells)))
+        elif in_table:
+            break
+    return rows
+
+
+def _parse_advanced_naming(naming_text):
+    """Parse advanced table-form ## Naming. Returns (folder, rules, placeholders).
+
+    Raises ValueError for missing rules, malformed value cells, or undeclared
+    non-built-in placeholders.
+    """
+    folder_match = re.search(r"Primary folder:\s*`([^`]+)`", naming_text)
+    folder = folder_match.group(1) if folder_match else None
+
+    rules_match = re.search(
+        r"^### Rules\s*\n(.*?)(?=^### |^## |\Z)",
+        naming_text,
+        re.MULTILINE | re.DOTALL,
+    )
+    if not rules_match:
+        raise ValueError("## Naming advanced form requires a ### Rules subsection")
+
+    rules_rows = _parse_markdown_table(rules_match.group(1))
+    if not rules_rows:
+        raise ValueError("## Naming ### Rules table has no data rows")
+
+    rules = []
+    for row in rules_rows:
+        match_field = _unwrap_backticks(row.get("match field", ""))
+        match_values_cell = row.get("match values", "")
+        pattern = _unwrap_backticks(row.get("pattern", ""))
+        if not pattern:
+            raise ValueError("## Naming ### Rules row missing pattern")
+        if not match_field:
+            raise ValueError(
+                "## Naming ### Rules row missing match field "
+                "(use `*` values for unconditional rules or use simple one-line form)"
+            )
+        match_values = _split_backticked_values(match_values_cell)
+        if not match_values:
+            raise ValueError(
+                f"## Naming ### Rules row for '{match_field}' has blank match values "
+                "(use `*` for wildcard)"
+            )
+        rules.append({
+            "match_field": match_field,
+            "match_values": match_values,
+            "pattern": pattern,
+        })
+
+    placeholders = []
+    ph_match = re.search(
+        r"^### Placeholders\s*\n(.*?)(?=^### |^## |\Z)",
+        naming_text,
+        re.MULTILINE | re.DOTALL,
+    )
+    if ph_match:
+        for row in _parse_markdown_table(ph_match.group(1)):
+            name = _unwrap_backticks(row.get("placeholder", ""))
+            field = _unwrap_backticks(row.get("field", ""))
+            required_when = _unwrap_backticks(row.get("required when field", ""))
+            required_vals_cell = row.get("required values", "").strip()
+            regex_cell = row.get("regex", "").strip()
+            if not name:
+                raise ValueError("## Naming ### Placeholders row missing placeholder name")
+            if not field:
+                raise ValueError(
+                    f"## Naming ### Placeholders row for '{name}' missing field"
+                )
+            required_values = (
+                _split_backticked_values(required_vals_cell)
+                if required_vals_cell and required_when
+                else None
+            )
+            placeholders.append({
+                "name": name,
+                "field": field,
+                "required_when_field": required_when or None,
+                "required_values": required_values,
+                "regex": _unwrap_backticks(regex_cell) if regex_cell else None,
+            })
+
+    declared_names = {p["name"] for p in placeholders}
+    declared_names |= {p["name"].lower() for p in placeholders}
+    for rule in rules:
+        for token in PLACEHOLDER_TOKEN_RE.findall(rule["pattern"]):
+            if token in _BUILTIN_NAMING_PLACEHOLDERS or token.lower() in _BUILTIN_NAMING_PLACEHOLDERS:
+                continue
+            if token in declared_names:
+                continue
+            raise ValueError(
+                f"## Naming pattern '{rule['pattern']}' uses undeclared "
+                f"placeholder '{{{token}}}'. Declare it in ### Placeholders."
+            )
+
+    return folder, rules, placeholders
+
+
+def _parse_naming_section(content):
+    """Parse ## Naming section. Returns dict or None.
+
+    Simple form ('`pattern.md` in `folder/`'):
+        {"pattern": "...", "folder": "...",
+         "rules": [{"match_field": None, "match_values": None, "pattern": "..."}],
+         "placeholders": []}
+
+    Advanced form (### Rules [+ ### Placeholders] subsections):
+        {"pattern": None, "folder": "...",
+         "rules": [{...}, ...], "placeholders": [{...}, ...]}
+
+    Returns None if no ## Naming section present or section has no content.
+    """
+    naming_match = re.search(
+        r"^## Naming\s*\n(.*?)(?=^## |\Z)", content, re.MULTILINE | re.DOTALL
+    )
+    if not naming_match:
+        return None
+    naming_text = naming_match.group(1)
+
+    if re.search(r"^### Rules\s*$", naming_text, re.MULTILINE):
+        folder, rules, placeholders = _parse_advanced_naming(naming_text)
+        return {
+            "pattern": None,
+            "folder": folder,
+            "rules": rules,
+            "placeholders": placeholders,
+        }
+
+    naming_text_stripped = naming_text.strip()
+    pattern_match = re.search(r"`([^`]+\.md)`", naming_text_stripped)
+    folder_match = re.search(r"in `([^`]+)`", naming_text_stripped)
+    if not (pattern_match or folder_match):
+        return None
+    pattern = pattern_match.group(1) if pattern_match else None
+    folder = folder_match.group(1) if folder_match else None
+    rules = (
+        [{"match_field": None, "match_values": None, "pattern": pattern}]
+        if pattern
+        else []
+    )
+    return {
+        "pattern": pattern,
+        "folder": folder,
+        "rules": rules,
+        "placeholders": [],
+    }
+
+
 def parse_taxonomy_file(path):
     """Parse a taxonomy .md file, extracting Naming, Frontmatter, Trigger, Template sections."""
     with open(path, "r", encoding="utf-8") as f:
@@ -148,21 +368,7 @@ def parse_taxonomy_file(path):
         "template_file": None,
     }
 
-    # Parse ## Naming
-    naming_match = re.search(
-        r"^## Naming\s*\n(.*?)(?=^## |\Z)", content, re.MULTILINE | re.DOTALL
-    )
-    if naming_match:
-        naming_text = naming_match.group(1).strip()
-        # Extract pattern (first backtick-delimited string)
-        pattern_match = re.search(r"`([^`]+\.md)`", naming_text)
-        # Extract folder path — look for "in `path`"
-        folder_match = re.search(r"in `([^`]+)`", naming_text)
-        if pattern_match or folder_match:
-            result["naming"] = {
-                "pattern": pattern_match.group(1) if pattern_match else None,
-                "folder": folder_match.group(1) if folder_match else None,
-            }
+    result["naming"] = _parse_naming_section(content)
 
     # Parse ## Frontmatter — extract YAML code block
     fm_match = re.search(

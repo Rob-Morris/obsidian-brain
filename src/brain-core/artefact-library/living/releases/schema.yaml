@@ -1,0 +1,18 @@
+required:
+  type:
+    const: "living/release"
+  tags:
+    type: array
+    contains: "release"
+optional:
+  status:
+    enum: [planned, active, shipped, cancelled]
+    default: planned
+  version:
+    type: string
+  tag:
+    type: string
+  commit:
+    type: string
+  shipped:
+    type: string

@@ -26,6 +26,22 @@ Brain classifies every file as either **living** or **temporal**.
 - May have a lifecycle with status values (e.g., `draft` → `published`)
 - Some reach a terminal status and get archived; others are evergreen
 
+#### Default living types
+
+| Type | Folder | Lifecycle | Purpose |
+|---|---|---|---|
+| `living/daily-note` | `Daily Notes/` | none | End-of-day summaries distilled from logs. |
+| `living/design` | `Designs/` | `proposed` → `shaping` → `ready` → `active` → terminal | Design documents and implementation proposals. |
+| `living/documentation` | `Documentation/` | `new` → `shaping` → `ready` → `active` → `deprecated` | Prescriptive reference material that governs work. |
+| `living/idea` | `Ideas/` | `new` → `shaping` → `ready` → `adopted`/`parked` | Concepts being articulated to clarity. |
+| `living/note` | `Notes/` | none | Low-friction knowledge capture. |
+| `living/person` | `People/` | `active` → `shaping` → `parked` | Living hub for what you know about a person. |
+| `living/project` | `Projects/` | none | Living hub for project state, related artefacts, and release tracking. |
+| `living/release` | `Releases/{Project}/` | `planned` → `active` → `shipped`/`cancelled` | Version-scoped shipment record for one planned or shipped release. |
+| `living/task` | `Tasks/` | `open` → `shaping` → `in-progress` → `done`/`blocked` | Persistent unit of work linked to the artefacts it serves. |
+| `living/workspace` | `Workspaces/` | `active` → `parked` → `completed` | Hub linking brain artefacts to a bounded data container. |
+| `living/writing` | `Writing/` | `draft` → `editing` → `review` → `published`/`parked` | Long-form written work crafted for an audience. |
+
 ### Temporal Artefacts
 
 - Sit under `_Temporal/` in type-specific subfolders

@@ -9,7 +9,7 @@ from datetime import datetime, timezone, timedelta
 import pytest
 
 import create
-from _common import parse_frontmatter
+from _common import parse_frontmatter, resolve_naming_pattern
 
 
 # ---------------------------------------------------------------------------
@@ -38,6 +38,9 @@ def vault(tmp_path):
     # Living type: Ideas
     (tmp_path / "Ideas").mkdir()
 
+    # Living type: Releases
+    (tmp_path / "Releases").mkdir()
+
     # Temporal type: Logs
     temporal = tmp_path / "_Temporal"
     temporal.mkdir()
@@ -61,6 +64,24 @@ def vault(tmp_path):
         "## Template\n\n[[_Config/Templates/Living/Ideas]]\n"
     )
 
+    # Taxonomy: Releases
+    (tax_living / "releases.md").write_text(
+        "# Releases\n\n"
+        "## Naming\n\n`{Version} - {Title}.md` in `Releases/{Project}/`.\n\n"
+        "## Lifecycle\n\n"
+        "| Status | Meaning |\n|---|---|\n"
+        "| `planned` | Scoped. |\n"
+        "| `active` | In progress. |\n"
+        "| `shipped` | Released. |\n"
+        "| `cancelled` | Stopped. |\n\n"
+        "## Terminal Status\n\n"
+        "When a release reaches `shipped` status, move to `Releases/{Project}/+Shipped/`.\n"
+        "When a release reaches `cancelled` status, move to `Releases/{Project}/+Cancelled/`.\n\n"
+        "## Frontmatter\n\n```yaml\n---\ntype: living/release\ntags:\n  - release\n"
+        "status: planned\nversion:\ntag:\ncommit:\nshipped:\n---\n```\n\n"
+        "## Template\n\n[[_Config/Templates/Living/Releases]]\n"
+    )
+
     # Taxonomy: Logs
     tax_temporal = config / "Taxonomy" / "Temporal"
     tax_temporal.mkdir(parents=True)
@@ -79,6 +100,11 @@ def vault(tmp_path):
     )
     (templates_living / "Ideas.md").write_text(
         "---\ntype: living/ideas\ntags: []\nstatus: shaping\n---\n\n# {{title}}\n\nWhat if...\n"
+    )
+    (templates_living / "Releases.md").write_text(
+        "---\ntype: living/release\ntags:\n  - release\nstatus: planned\nversion:\ntag:\ncommit:\nshipped:\n---\n\n"
+        "## Goal\n\n## Gates\n\n| Gate | Status | Implicated Designs |\n|---|---|---|\n|  | pending |  |\n\n"
+        "## Changelog\n\n### Added\n\n### Changed\n\n### Fixed\n\n### Removed\n\n## Sources\n\n- \n"
     )
 
     templates_temporal = config / "Templates" / "Temporal"
@@ -147,6 +173,37 @@ class TestCreateArtefact:
         with open(abs_path) as f:
             content = f.read()
         assert "What if..." in content
+
+    def test_create_release_type_uses_version_in_filename(self, vault, router):
+        result = create.create_artefact(
+            str(vault),
+            router,
+            "release",
+            "Search Hardening",
+            frontmatter_overrides={"version": "v0.28.6"},
+            parent="Brain",
+        )
+        assert result["type"] == "living/releases"
+        assert result["path"] == os.path.join(
+            "Releases",
+            "Brain",
+            "v0.28.6 - Search Hardening.md",
+        )
+        content = open(os.path.join(str(vault), result["path"])).read()
+        fields, body = parse_frontmatter(content)
+        assert fields["type"] == "living/release"
+        assert fields["version"] == "v0.28.6"
+        assert "## Changelog" in body
+
+    def test_create_release_type_requires_version_for_filename(self, vault, router):
+        with pytest.raises(ValueError, match=r"\{Version\}"):
+            create.create_artefact(
+                str(vault),
+                router,
+                "release",
+                "Missing Version",
+                parent="Brain",
+            )
 
     def test_frontmatter_overrides(self, vault, router):
         result = create.create_artefact(
@@ -269,31 +326,43 @@ class TestCreateArtefact:
 
 class TestResolveNamingPattern:
     def test_slug_pattern(self):
-        assert create.resolve_naming_pattern("{slug}.md", "My Title") == "My Title.md"
+        assert resolve_naming_pattern("{slug}.md", "My Title") == "My Title.md"
 
     def test_name_pattern(self):
-        assert create.resolve_naming_pattern("{name}.md", "My Title") == "My Title.md"
+        assert resolve_naming_pattern("{name}.md", "My Title") == "My Title.md"
 
     def test_title_pattern(self):
-        assert create.resolve_naming_pattern("{Title}.md", "My Title") == "My Title.md"
+        assert resolve_naming_pattern("{Title}.md", "My Title") == "My Title.md"
+
+    def test_custom_variable_pattern(self):
+        result = resolve_naming_pattern(
+            "{Version} - {Title}.md",
+            "Release Notes",
+            variables={"version": "v1.2.0"},
+        )
+        assert result == "v1.2.0 - Release Notes.md"
 
     def test_prefixed_title(self):
-        result = create.resolve_naming_pattern("log~{Title}.md", "My Session")
+        result = resolve_naming_pattern("log~{Title}.md", "My Session")
         assert result == "log~My Session.md"
 
     def test_unsafe_chars_stripped(self):
-        result = create.resolve_naming_pattern("{Title}.md", "Q3 / Q4 Review")
+        result = resolve_naming_pattern("{Title}.md", "Q3 / Q4 Review")
         assert result == "Q3 Q4 Review.md"
 
     def test_date_pattern_uses_injected_now(self):
         fixed = datetime(2026, 1, 15, 0, 0, 0, tzinfo=timezone(timedelta(hours=11)))
-        result = create.resolve_naming_pattern("yyyymmdd-log~{slug}.md", "My Entry", _now=fixed)
+        result = resolve_naming_pattern("yyyymmdd-log~{slug}.md", "My Entry", _now=fixed)
         assert result == "20260115-log~My Entry.md"
 
     def test_mmdd_pattern_uses_injected_now(self):
         fixed = datetime(2026, 3, 7, 0, 0, 0, tzinfo=timezone(timedelta(hours=11)))
-        result = create.resolve_naming_pattern("yyyy-mm-dd~{slug}.md", "Entry", _now=fixed)
+        result = resolve_naming_pattern("yyyy-mm-dd~{slug}.md", "Entry", _now=fixed)
         assert result == "2026-03-07~Entry.md"
+
+    def test_missing_custom_variable_raises(self):
+        with pytest.raises(ValueError, match=r"\{Version\}"):
+            resolve_naming_pattern("{Version} - {Title}.md", "Release Notes")
 
 
 # ---------------------------------------------------------------------------

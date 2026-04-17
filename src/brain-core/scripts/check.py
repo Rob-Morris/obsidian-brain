@@ -22,22 +22,19 @@ import sys
 from datetime import datetime, timezone
 
 from _common import (
-    COMPILED_ROUTER_REL,
     find_vault_root,
     is_system_dir,
     parse_frontmatter,
     extract_wikilinks,
     build_vault_file_index,
-    resolve_artefact_path,
     fenced_ranges,
     INDEX_SKIP_DIRS,
     strip_md_ext,
     FM_RE,
     load_compiled_router,
-    naming_pattern_to_regex,
+    select_rule,
     validate_artefact_folder,
-    validate_artefact_naming,
-    validate_artefact_path,
+    validate_filename,
     resolve_and_validate_folder,
 )
 
@@ -125,26 +122,44 @@ def check_root_files(vault_root, router):
 
 
 def check_naming(vault_root, router):
-    """Check file naming against patterns from taxonomy."""
+    """Check file naming against the rule selected for each file's frontmatter state."""
     findings = []
     for art in router.get("artefacts", []):
         if not art.get("configured") or not art.get("naming"):
             continue
-        pattern_str = art["naming"].get("pattern")
-        regex = naming_pattern_to_regex(pattern_str)
-        if regex is None:
-            continue
+        naming = art["naming"]
 
         files = find_type_files(vault_root, art["path"], skip_archive=True)
         for rel_path in files:
+            abs_path = os.path.join(vault_root, rel_path)
+            try:
+                with open(abs_path, "r", encoding="utf-8") as f:
+                    text = f.read()
+            except (OSError, UnicodeDecodeError):
+                continue
+
+            fields, _ = parse_frontmatter(text)
             filename = os.path.basename(rel_path)
-            if not regex.match(filename):
+
+            rule = select_rule(naming, fields or {})
+            if rule is None:
+                status = (fields or {}).get("status")
                 findings.append({
                     "check": "naming",
                     "severity": "warning",
                     "file": rel_path,
-                    "message": f"Does not match pattern {pattern_str}",
-                    "fix": f"Rename to match pattern: {pattern_str}",
+                    "message": f"No naming rule matches current state (status={status!r})",
+                    "fix": "Align frontmatter with one of the type's naming rules",
+                })
+                continue
+
+            if not validate_filename(naming, fields or {}, filename):
+                findings.append({
+                    "check": "naming",
+                    "severity": "warning",
+                    "file": rel_path,
+                    "message": f"Does not match pattern {rule['pattern']}",
+                    "fix": f"Rename to match pattern: {rule['pattern']}",
                 })
 
     return findings

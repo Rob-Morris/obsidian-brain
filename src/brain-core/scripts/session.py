@@ -350,11 +350,15 @@ def _condense_artefacts(artefacts):
     for a in artefacts:
         naming = a.get("naming") or {}
         fm = a.get("frontmatter") or {}
+        pattern = naming.get("pattern")
+        if pattern is None:
+            rule_patterns = [r.get("pattern") for r in (naming.get("rules") or []) if r.get("pattern")]
+            pattern = " | ".join(rule_patterns) if rule_patterns else None
         condensed.append({
             "type": a.get("type"),
             "key": a.get("key"),
             "path": a.get("path"),
-            "naming_pattern": naming.get("pattern"),
+            "naming_pattern": pattern,
             "status_enum": fm.get("status_enum"),
             "configured": a.get("configured", False),
         })

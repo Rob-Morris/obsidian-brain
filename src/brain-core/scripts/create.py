@@ -30,9 +30,9 @@ from _common import (
     make_temp_path,
     parse_frontmatter,
     read_file_content,
+    render_filename_or_default,
     resolve_body_file,
     resolve_folder,
-    resolve_naming_pattern,
     resolve_type,
     safe_write,
     serialize_frontmatter,
@@ -71,30 +71,22 @@ def create_artefact(vault_root, router, type_key, title, body="", frontmatter_ov
     """
     vault_root = str(vault_root)
 
-    # 1. Resolve type
     artefact = resolve_type(router, type_key)
-
-    # 2. Read template (base frontmatter + body)
     template_fields, template_body = _read_template(vault_root, artefact)
 
-    # 3. Capture now once for consistent filename, folder, and timestamps
+    # Capture now once so filename, folder, and timestamps stay consistent.
     now = datetime.now(timezone.utc).astimezone()
     now_iso = now.isoformat()
 
-    # 4. Generate filename
-    pattern = artefact.get("naming", {}).get("pattern") if artefact.get("naming") else None
-    if pattern:
-        filename = resolve_naming_pattern(pattern, title, _now=now)
-    else:
-        filename = title_to_filename(title) + ".md"
-
-    # 5. Resolve folder
-    folder = resolve_folder(artefact, parent=parent, _now=now)
-
-    # 6. Merge frontmatter: template → overrides → force type → timestamps
+    # Seed frontmatter before filename generation so naming patterns can
+    # reference template/frontmatter values such as {Version}.
     fields = dict(template_fields)
     if frontmatter_overrides:
         fields.update(frontmatter_overrides)
+
+    filename = render_filename_or_default(artefact.get("naming"), title, fields, _now=now)
+    folder = resolve_folder(artefact, parent=parent, _now=now)
+
     if artefact.get("frontmatter") and artefact["frontmatter"].get("type"):
         fields["type"] = artefact["frontmatter"]["type"]
     if "created" not in fields:
@@ -102,27 +94,24 @@ def create_artefact(vault_root, router, type_key, title, body="", frontmatter_ov
     if "modified" not in fields:
         fields["modified"] = now_iso
 
-    # 7. Determine body and substitute template variables
     final_body = body if body else template_body
     if not body and final_body:
         final_body = substitute_template_vars(final_body, template_vars, _now=now)
 
-    # 8. Disambiguate basename collisions
     basename_stem = os.path.splitext(filename)[0]
 
-    # Same-folder: append random 3-char suffix to make filename unique
+    # Same-folder: append random 3-char suffix to make filename unique.
     abs_folder = os.path.join(vault_root, folder)
     os.makedirs(abs_folder, exist_ok=True)
     filename = unique_filename(abs_folder, basename_stem)
 
-    # Cross-folder: append type key if original basename exists elsewhere
+    # Cross-folder: append type key if original basename exists elsewhere.
     duplicates = find_duplicate_basenames(vault_root, basename_stem, limit=1)
     folder_prefix = os.path.join(folder, "")
     if duplicates and not any(d.startswith(folder_prefix) for d in duplicates):
         current_stem = os.path.splitext(filename)[0]
         filename = f"{current_stem} ({artefact['key']}).md"
 
-    # 9. Write
     rel_path = os.path.join(folder, filename)
     check_write_allowed(rel_path)
     abs_path = os.path.join(vault_root, rel_path)

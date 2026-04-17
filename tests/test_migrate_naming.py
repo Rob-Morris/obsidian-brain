@@ -31,17 +31,17 @@ class TestSlugToTitle:
 
 class TestComputeNewFilename:
     def test_old_temporal_pattern(self):
-        art = {"classification": "temporal"}
+        art = {"classification": "temporal", "naming": {"pattern": "yyyymmdd-plan~{Title}.md"}}
         result = migrate_naming.compute_new_filename("20260324-plan--api-refactor.md", art)
         assert result == "20260324-plan~Api Refactor.md"
 
     def test_old_temporal_multi_word_prefix(self):
-        art = {"classification": "temporal"}
+        art = {"classification": "temporal", "naming": {"pattern": "yyyymmdd-idea-log~{Title}.md"}}
         result = migrate_naming.compute_new_filename("20260324-idea-log--voice-memo.md", art)
         assert result == "20260324-idea-log~Voice Memo.md"
 
     def test_old_shaping_transcript(self):
-        art = {"classification": "temporal"}
+        art = {"classification": "temporal", "naming": {"pattern": "yyyymmdd-design-transcript~{Title}.md"}}
         result = migrate_naming.compute_new_filename(
             "20260307-design-transcript--pistols-at-dawn.md", art
         )
@@ -53,17 +53,17 @@ class TestComputeNewFilename:
         assert result is None
 
     def test_old_living_pattern(self):
-        art = {"classification": "living"}
+        art = {"classification": "living", "naming": {"pattern": "{Title}.md"}}
         result = migrate_naming.compute_new_filename("my-project.md", art)
         assert result == "My Project.md"
 
     def test_living_already_titled(self):
-        art = {"classification": "living"}
+        art = {"classification": "living", "naming": {"pattern": "{Title}.md"}}
         result = migrate_naming.compute_new_filename("My Project.md", art)
         assert result is None  # doesn't match old aggressive slug pattern
 
     def test_temporal_already_new_style(self):
-        art = {"classification": "temporal"}
+        art = {"classification": "temporal", "naming": {"pattern": "yyyymmdd-plan~{Title}.md"}}
         result = migrate_naming.compute_new_filename("20260324-plan~API Refactor.md", art)
         assert result is None  # doesn't match old -- pattern
 
@@ -87,7 +87,7 @@ class TestComputeNewFilename:
         assert result is None
 
     def test_single_word_slug(self):
-        art = {"classification": "living"}
+        art = {"classification": "living", "naming": {"pattern": "{Title}.md"}}
         result = migrate_naming.compute_new_filename("auth.md", art)
         assert result == "Auth.md"
 

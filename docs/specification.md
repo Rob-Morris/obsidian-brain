@@ -53,7 +53,7 @@ Documented in `.brain-core/standards/extending/README.md`:
 
 Some living artefact types act as hubs — containers that group related artefacts (temporal or living) via nested tags. The hub file carries a nested tag (e.g. `person/{slug}`, `project/{slug}`, `journal/{slug}`), and all related artefacts share that tag. The hub is the index; the tag is the query mechanism.
 
-This pattern is useful when a single living artefact organises a stream of related work or content across the vault. Current examples: People (groups observations and other artefacts related to a person via `person/{slug}`), Projects (groups plans, research, designs, logs via `project/{slug}`), Journals (groups journal entries via `journal/{slug}`), Workspaces (groups brain artefacts related to a bounded data container via `workspace/{slug}`).
+This pattern is useful when a single living artefact organises a stream of related work or content across the vault. Current examples: People (groups observations and other artefacts related to a person via `person/{slug}`), Projects (groups plans, research, designs, releases, and logs via `project/{slug}`), Journals (groups journal entries via `journal/{slug}`), Workspaces (groups brain artefacts related to a bounded data container via `workspace/{slug}`).
 
 ### Master/Sub-Artefact Convention
 
@@ -94,6 +94,7 @@ Archiving uses `brain_action("archive")` which moves artefacts to a top-level `_
 - `Notes/` — low-friction knowledge notes
 - `People/` — person hubs
 - `Projects/` — project index files linking related artefacts
+- `Releases/` — version-scoped shipment records grouped by project
 - `Tasks/` — persistent units of work, tracked and linked to artefacts
 - `Workspaces/` — scoped data containers
 - `Writing/` — long-form written works with lifecycle
@@ -125,4 +126,4 @@ Archiving uses `brain_action("archive")` which moves artefacts to a top-level `_
 
 Additional types are available in the artefact library (`.brain-core/artefact-library/`) for install as needed: Wiki, Journals, Zettelkasten (living); Idea Logs, Journal Entries, Printables (temporal).
 
-The starter vault ships 27 defaults (10 living + 17 temporal) out of 33 in the library.
+The starter vault ships 28 defaults (11 living + 17 temporal) out of 34 in the library.

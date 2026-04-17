@@ -9,7 +9,7 @@ from unittest.mock import patch
 import pytest
 
 import edit
-from _common import find_section, parse_frontmatter
+from _common import find_section, parse_frontmatter, validate_artefact_folder
 
 
 # ---------------------------------------------------------------------------
@@ -45,6 +45,10 @@ def vault(tmp_path):
     # Living type: Ideas
     ideas = tmp_path / "Ideas"
     ideas.mkdir()
+
+    # Living type: Releases
+    releases = tmp_path / "Releases"
+    releases.mkdir()
 
     # Temporal type: Logs
     temporal = tmp_path / "_Temporal"
@@ -91,6 +95,36 @@ def vault(tmp_path):
         "## Template\n\n[[_Config/Templates/Living/Ideas]]\n"
     )
 
+    # Taxonomy: Releases (with two terminal statuses)
+    (tax_living / "releases.md").write_text(
+        "# Releases\n\n"
+        "## Naming\n\n"
+        "Primary folder: `Releases/{Project}/`.\n\n"
+        "### Rules\n\n"
+        "| Match field | Match values | Pattern |\n"
+        "|---|---|---|\n"
+        "| `status` | `planned`, `active`, `cancelled` | `{Title}.md` |\n"
+        "| `status` | `shipped` | `{Version} - {Title}.md` |\n\n"
+        "### Placeholders\n\n"
+        "| Placeholder | Field | Required when field | Required values | Regex |\n"
+        "|---|---|---|---|---|\n"
+        "| `Version` | `version` | `status` | `shipped` | `^v?\\d+\\.\\d+\\.\\d+$` |\n\n"
+        "## Lifecycle\n\n"
+        "| Status | Meaning |\n|---|---|\n"
+        "| `planned` | Scoped. |\n"
+        "| `active` | In progress. |\n"
+        "| `shipped` | Released. |\n"
+        "| `cancelled` | Stopped. |\n\n"
+        "## Terminal Status\n\n"
+        "When a release reaches `shipped` status, move to `Releases/{Project}/+Shipped/`.\n"
+        "Set `status: shipped` before the move.\n"
+        "When a release reaches `cancelled` status, move to `Releases/{Project}/+Cancelled/`.\n"
+        "Set `status: cancelled` before the move.\n\n"
+        "## Frontmatter\n\n```yaml\n---\ntype: living/release\ntags:\n  - release\n"
+        "status: planned\nversion:\ntag:\ncommit:\nshipped:\n---\n```\n\n"
+        "## Template\n\n[[_Config/Templates/Living/Releases]]\n"
+    )
+
     # Taxonomy: Logs
     tax_temporal = config / "Taxonomy" / "Temporal"
     tax_temporal.mkdir(parents=True)
@@ -130,6 +164,9 @@ def vault(tmp_path):
     (templates_living / "Designs.md").write_text(
         "---\ntype: living/designs\ntags: []\nstatus: shaping\n---\n\n# {{title}}\n\n"
     )
+    (templates_living / "Releases.md").write_text(
+        "---\ntype: living/release\ntags:\n  - release\nstatus: planned\nversion:\ntag:\ncommit:\nshipped:\n---\n\n"
+    )
 
     return tmp_path
 
@@ -145,56 +182,26 @@ def router(vault):
 # Path validation tests
 # ---------------------------------------------------------------------------
 
-class TestValidateArtefactPath:
-    def test_valid_path(self, vault, router):
-        art = edit.validate_artefact_path(str(vault), router, "Wiki/test-page.md")
-        assert art["key"] == "wiki"
-
-    def test_invalid_folder(self, vault, router):
-        with pytest.raises(ValueError, match="does not belong"):
-            edit.validate_artefact_path(str(vault), router, "Unknown/file.md")
-
-    def test_wrong_naming_pattern(self, vault, router):
-        # Temporal log pattern requires yyyymmdd prefix — a bare name should fail
-        month = vault / "_Temporal" / "Logs" / "2026-03"
-        month.mkdir(parents=True)
-        (month / "bad-name.md").write_text("---\ntype: temporal/logs\n---\n")
-        with pytest.raises(ValueError, match="does not match expected pattern"):
-            edit.validate_artefact_path(str(vault), router, "_Temporal/Logs/2026-03/bad-name.md")
-
-
 class TestValidateArtefactFolder:
     def test_valid_folder_returns_artefact(self, vault, router):
-        art = edit.validate_artefact_folder(str(vault), router, "Wiki/test-page.md")
+        art = validate_artefact_folder(str(vault), router, "Wiki/test-page.md")
         assert art["key"] == "wiki"
 
     def test_invalid_folder_raises(self, vault, router):
         with pytest.raises(ValueError, match="does not belong"):
-            edit.validate_artefact_folder(str(vault), router, "Unknown/file.md")
+            validate_artefact_folder(str(vault), router, "Unknown/file.md")
 
     def test_ignores_naming_pattern(self, vault, router):
         """File with non-conforming name in valid folder succeeds."""
         month = vault / "_Temporal" / "Logs" / "2026-03"
         month.mkdir(parents=True)
         (month / "bad-name.md").write_text("---\ntype: temporal/logs\n---\n")
-        art = edit.validate_artefact_folder(str(vault), router, "_Temporal/Logs/2026-03/bad-name.md")
+        art = validate_artefact_folder(str(vault), router, "_Temporal/Logs/2026-03/bad-name.md")
         assert art["key"] == "logs"
 
 
-class TestValidateArtefactNaming:
-    def test_rejects_bad_name(self, vault, router):
-        art = edit.validate_artefact_folder(str(vault), router, "_Temporal/Logs/2026-03/bad-name.md")
-        with pytest.raises(ValueError, match="does not match expected pattern"):
-            edit.validate_artefact_naming(art, "_Temporal/Logs/2026-03/bad-name.md")
-
-    def test_accepts_conforming_name(self, vault, router):
-        art = edit.validate_artefact_folder(str(vault), router, "Wiki/test-page.md")
-        # Should not raise
-        edit.validate_artefact_naming(art, "Wiki/test-page.md")
-
-
 class TestNonConformingNameOperations:
-    """Edit/append succeed on existing files with non-conforming names."""
+    """Edit/append renames non-conforming names to match the naming contract."""
 
     def test_edit_existing_file_with_nonconforming_name(self, vault, router):
         month = vault / "_Temporal" / "Logs" / "2026-03"
@@ -207,8 +214,11 @@ class TestNonConformingNameOperations:
             "# New Log\n\nReplaced.\n",
         )
         assert result["operation"] == "edit"
-        content = (month / "legacy-log.md").read_text()
-        assert "Replaced." in content
+        # Edit re-renders the filename from the current frontmatter state.
+        # The legacy nonconforming name gets rewritten to the canonical form.
+        renamed = month / "log-legacy-log.md"
+        assert renamed.is_file()
+        assert "Replaced." in renamed.read_text()
 
     def test_append_existing_file_with_nonconforming_name(self, vault, router):
         month = vault / "_Temporal" / "Logs" / "2026-03"
@@ -221,7 +231,9 @@ class TestNonConformingNameOperations:
             "\nAppended.\n",
         )
         assert result["operation"] == "append"
-        content = (month / "legacy-log.md").read_text()
+        renamed = month / "log-legacy-log.md"
+        assert renamed.is_file()
+        content = renamed.read_text()
         assert "Existing." in content
         assert "Appended." in content
 
@@ -1426,6 +1438,25 @@ class TestTerminalStatusMove:
             f"---\ntype: living/ideas\ntags: []\nstatus: {status}\n---\n\n{body}"
         )
 
+    def _make_release(self, vault, path, status="active", version="v0.28.6", body="## Goal\n\nShip it.\n"):
+        """Helper to create a release file at the given relative path."""
+        abs_path = vault / path
+        abs_path.parent.mkdir(parents=True, exist_ok=True)
+        abs_path.write_text(
+            "---\n"
+            "type: living/release\n"
+            "tags:\n"
+            "  - release\n"
+            "  - project/brain\n"
+            f"status: {status}\n"
+            f"version: {version}\n"
+            "tag:\n"
+            "commit:\n"
+            "shipped:\n"
+            "---\n\n"
+            f"{body}"
+        )
+
     def test_edit_terminal_status_moves_to_plus_folder(self, vault, router):
         self._make_idea(vault, "Ideas/my-idea.md")
         result = edit.edit_artefact(
@@ -1503,6 +1534,32 @@ class TestTerminalStatusMove:
         assert result["path"] == "Ideas/Brain/+Adopted/project-idea.md"
         assert (vault / "Ideas" / "Brain" / "+Adopted" / "project-idea.md").is_file()
         assert not (vault / "Ideas" / "Brain" / "project-idea.md").exists()
+
+    def test_release_shipped_moves_to_project_status_folder(self, vault, router):
+        # Pre-ship releases use title-led filenames; shipping renames to version-led.
+        self._make_release(vault, "Releases/Brain/Search Hardening.md", version="v0.28.6")
+        result = edit.edit_artefact(
+            str(vault),
+            router,
+            "Releases/Brain/Search Hardening.md",
+            "",
+            frontmatter_changes={"status": "shipped", "shipped": "2026-04-16"},
+        )
+        assert result["path"] == "Releases/Brain/+Shipped/v0.28.6 - Search Hardening.md"
+        assert (vault / "Releases" / "Brain" / "+Shipped" / "v0.28.6 - Search Hardening.md").is_file()
+
+    def test_release_cancelled_moves_to_project_status_folder(self, vault, router):
+        # Cancelled releases stay title-led — no version in the filename.
+        self._make_release(vault, "Releases/Brain/Experimental Cut.md")
+        result = edit.edit_artefact(
+            str(vault),
+            router,
+            "Releases/Brain/Experimental Cut.md",
+            "",
+            frontmatter_changes={"status": "cancelled"},
+        )
+        assert result["path"] == "Releases/Brain/+Cancelled/Experimental Cut.md"
+        assert (vault / "Releases" / "Brain" / "+Cancelled" / "Experimental Cut.md").is_file()
 
     def test_edit_no_terminal_defined(self, vault, router):
         """Type with no terminal_statuses doesn't move on status change."""

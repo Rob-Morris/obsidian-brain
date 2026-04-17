@@ -19,10 +19,15 @@ import sys
 from _common import (
     check_not_in_brain_core,
     find_vault_root,
+    is_archived_path,
+    load_compiled_router,
     make_wikilink_replacer,
+    parse_frontmatter,
     replace_wikilinks_in_vault,
     resolve_and_check_bounds,
     resolve_wikilink_stems,
+    validate_artefact_folder,
+    validate_filename,
 )
 
 
@@ -30,19 +35,26 @@ from _common import (
 # Core logic
 # ---------------------------------------------------------------------------
 
-def rename_and_update_links(vault_root, source, dest):
+def rename_and_update_links(vault_root, source, dest, router=None):
     """Rename a file and update wikilinks via grep-and-replace.
 
     Args:
         vault_root: Absolute path to the vault root.
         source: Relative path from vault root to the source file.
         dest: Relative path from vault root to the destination.
+        router: Optional compiled router. When provided, the destination
+                filename is validated against the target type's naming
+                contract using the source file's current frontmatter state.
+                ``_Archive/`` destinations are exempt (they carry an archival
+                prefix outside the naming contract).
 
     Returns:
         Number of wikilinks updated across all files.
 
     Raises:
         FileNotFoundError: If the source file does not exist.
+        ValueError: If the destination filename violates the target type's
+                    naming contract.
     """
     abs_source = os.path.join(vault_root, source)
     abs_dest = os.path.join(vault_root, dest)
@@ -52,6 +64,9 @@ def rename_and_update_links(vault_root, source, dest):
 
     if not os.path.isfile(abs_source):
         raise FileNotFoundError(f"Source file not found: {source}")
+
+    if router is not None:
+        _validate_destination_naming(vault_root, router, source, dest, abs_source)
 
     pattern, stem_map = resolve_wikilink_stems(vault_root, source, dest)
     links_updated = replace_wikilinks_in_vault(
@@ -63,6 +78,36 @@ def rename_and_update_links(vault_root, source, dest):
     os.rename(abs_source, abs_dest)
 
     return links_updated
+
+
+def _validate_destination_naming(vault_root, router, source, dest, abs_source):
+    """Validate dest filename against the target type's naming contract.
+
+    Skipped when the destination lives outside any known artefact folder
+    (e.g. ``_Archive/``) or the target type has no naming contract.
+    """
+    if is_archived_path(dest):
+        return
+    try:
+        target_art = validate_artefact_folder(vault_root, router, dest)
+    except ValueError:
+        return
+    naming = target_art.get("naming")
+    if not naming:
+        return
+    try:
+        with open(abs_source, "r", encoding="utf-8") as f:
+            text = f.read()
+    except (OSError, UnicodeDecodeError):
+        fields = {}
+    else:
+        fields, _ = parse_frontmatter(text)
+    filename = os.path.basename(dest)
+    if not validate_filename(naming, fields or {}, filename):
+        raise ValueError(
+            f"Destination filename '{filename}' does not match the naming "
+            f"contract for type '{target_art['key']}'."
+        )
 
 
 def delete_and_clean_links(vault_root, path):
@@ -134,9 +179,13 @@ def main():
     source, dest = positional
     vault_root = str(find_vault_root(vault_arg))
 
+    router = load_compiled_router(vault_root)
+    if "error" in router:
+        router = None  # rename can still run without a router
+
     try:
-        links_updated = rename_and_update_links(vault_root, source, dest)
-    except FileNotFoundError as e:
+        links_updated = rename_and_update_links(vault_root, source, dest, router=router)
+    except (FileNotFoundError, ValueError) as e:
         if json_mode:
             print(json.dumps({"error": str(e)}))
         else:

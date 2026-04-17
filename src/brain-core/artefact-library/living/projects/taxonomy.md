@@ -28,6 +28,19 @@ tags:
 
 Every file related to a project should use the nested project tag, e.g. `project/pistols-at-dawn`.
 
+## Releases
+
+Projects track releases through a hub pattern. The project hub keeps the release index; each release lives as its own artefact under `Releases/{Project}/`.
+
+A complete release section in the hub should include:
+
+- **Release policy** — cadence, versioning scheme, and any branch or tag rules
+- **Active releases** — wikilinks to `active` release artefacts
+- **Shipped releases** — wikilinks to `shipped` release artefacts, newest first
+- **Backlog** — planned future versions or named release ideas not yet active
+
+Release artefacts should share the project's `project/{slug}` tag so they remain queryable alongside designs, plans, and decision logs.
+
 ## Temporal Handshake
 
 Research, decisions, plans, and logs tagged `project/{slug}` feed this hub. When a temporal artefact changes the project's current picture — a decision that alters scope, research that shifts direction, a plan that's been superseded — distil the change into the hub body. Temporals preserve what happened and when; the project hub reflects where things stand now.

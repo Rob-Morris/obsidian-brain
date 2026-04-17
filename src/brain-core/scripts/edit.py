@@ -20,7 +20,7 @@ import sys
 from _common import (
     check_write_allowed,
     config_resource_rel_path,
-    extract_title_from_naming_pattern,
+    extract_title,
     find_body_preamble,
     find_section,
     find_vault_root,
@@ -28,25 +28,21 @@ from _common import (
     load_compiled_router,
     make_wikilink_replacer,
     make_temp_path,
-    naming_pattern_to_regex,
     now_iso,
     parse_frontmatter,
+    render_filename,
+    render_filename_or_default,
     replace_wikilinks_in_vault,
     resolve_folder,
     resolve_and_validate_folder,
     resolve_body_file,
-    resolve_naming_pattern,
     resolve_type,
     resolve_wikilink_stems,
     safe_write,
     serialize_frontmatter,
     parse_structural_anchor_line,
     strip_md_ext,
-    title_to_slug,
     unique_filename,
-    validate_artefact_folder,
-    validate_artefact_naming,
-    validate_artefact_path,
 )
 from rename import rename_and_update_links
 
@@ -526,10 +522,45 @@ def _maybe_status_move(vault_root, path, terminal_statuses, frontmatter_changes)
     return new_path
 
 
-def _finish_artefact(vault_root, abs_path, fields, old_body, new_body, path, art, frontmatter_changes, operation):
-    """Save artefact, handle terminal-status auto-move, return result dict."""
+def _maybe_rename_on_field_change(vault_root, path, art, old_fields, new_fields):
+    """Rename artefact file if frontmatter changes imply a new basename.
+
+    Extracts the title from the current basename using the rule selected for
+    the *old* fields, then re-renders using the *new* fields. If the resulting
+    basename differs, rename in place (same directory) and update wikilinks.
+    Archived files are exempt (they carry an archival prefix outside the
+    naming contract).
+    """
+    naming = art.get("naming")
+    if not naming:
+        return path
+    if is_archived_path(path):
+        return path
+    current_basename = os.path.basename(path)
+    title = extract_title(naming, old_fields, current_basename)
+    if title is None:
+        title = os.path.splitext(current_basename)[0]
+    try:
+        new_basename = render_filename(naming, title, new_fields)
+    except ValueError:
+        return path
+    if new_basename == current_basename:
+        return path
+    new_path = os.path.join(os.path.dirname(path), new_basename)
+    rename_and_update_links(vault_root, path, new_path)
+    return new_path
+
+
+def _finish_artefact(vault_root, abs_path, fields, old_body, new_body, path, art,
+                     frontmatter_changes, operation, old_fields=None):
+    """Save artefact, rename on name-driving change, status-move, return result."""
     _save_artefact(abs_path, fields, new_body, vault_root)
     resolved_path = path
+    if old_fields is not None:
+        new_path = _maybe_rename_on_field_change(vault_root, path, art, old_fields, fields)
+        if new_path != path:
+            path = new_path
+            abs_path = os.path.join(vault_root, path)
     terminal = (art.get("frontmatter") or {}).get("terminal_statuses")
     path = _maybe_status_move(vault_root, path, terminal, frontmatter_changes)
     return _result_payload(path, resolved_path, operation, old_body, new_body)
@@ -563,6 +594,7 @@ def edit_artefact(vault_root, router, path, body="", frontmatter_changes=None, t
     """
     _validate_edit_request("edit", body, frontmatter_changes, target)
     path, abs_path, fields, existing_body, art = _open_artefact(vault_root, router, path)
+    old_fields = dict(fields)
     _merge_frontmatter(fields, frontmatter_changes, "edit")
     new_body = _apply_edit(existing_body, body, target)
     return _finish_artefact(
@@ -575,6 +607,7 @@ def edit_artefact(vault_root, router, path, body="", frontmatter_changes=None, t
         art,
         frontmatter_changes,
         "edit",
+        old_fields=old_fields,
     )
 
 
@@ -598,6 +631,7 @@ def delete_section_artefact(vault_root, router, path, target, frontmatter_change
     """
     _validate_edit_request("delete_section", "", frontmatter_changes, target)
     path, abs_path, fields, existing_body, art = _open_artefact(vault_root, router, path)
+    old_fields = dict(fields)
     _merge_frontmatter(fields, frontmatter_changes, "edit")
     new_body = _apply_delete_section(existing_body, target)
     return _finish_artefact(
@@ -610,6 +644,7 @@ def delete_section_artefact(vault_root, router, path, target, frontmatter_change
         art,
         frontmatter_changes,
         "delete_section",
+        old_fields=old_fields,
     )
 
 
@@ -635,6 +670,7 @@ def append_to_artefact(vault_root, router, path, content="", frontmatter_changes
     """
     _validate_edit_request("append", content, frontmatter_changes, target)
     path, abs_path, fields, body, art = _open_artefact(vault_root, router, path)
+    old_fields = dict(fields)
     _merge_frontmatter(fields, frontmatter_changes, "append")
     new_body = _apply_append(body, content, target)
     return _finish_artefact(
@@ -647,6 +683,7 @@ def append_to_artefact(vault_root, router, path, content="", frontmatter_changes
         art,
         frontmatter_changes,
         "append",
+        old_fields=old_fields,
     )
 
 
@@ -673,6 +710,7 @@ def prepend_to_artefact(vault_root, router, path, content="", frontmatter_change
     """
     _validate_edit_request("prepend", content, frontmatter_changes, target)
     path, abs_path, fields, body, art = _open_artefact(vault_root, router, path)
+    old_fields = dict(fields)
     _merge_frontmatter(fields, frontmatter_changes, "prepend")
     new_body = _apply_prepend(body, content, target)
     return _finish_artefact(
@@ -685,6 +723,7 @@ def prepend_to_artefact(vault_root, router, path, content="", frontmatter_change
         art,
         frontmatter_changes,
         "prepend",
+        old_fields=old_fields,
     )
 
 
@@ -737,13 +776,9 @@ def convert_artefact(vault_root, router, path, target_type, parent=None):
     title = fields.get("title")
     if not title:
         stem = os.path.splitext(os.path.basename(path))[0]
-        source_pattern = (source_art.get("naming") or {}).get("pattern")
-        title = extract_title_from_naming_pattern(source_pattern, stem) or stem
-    target_naming = target_art.get("naming")
-    if target_naming and target_naming.get("pattern"):
-        new_filename = resolve_naming_pattern(target_naming["pattern"], title)
-    else:
-        new_filename = title_to_slug(title) + ".md"
+        source_naming = source_art.get("naming")
+        title = extract_title(source_naming, fields, stem) or stem
+    new_filename = render_filename_or_default(target_art.get("naming"), title, fields)
 
     if parent is None and target_art.get("classification") != "temporal":
         source_dir = os.path.dirname(path)

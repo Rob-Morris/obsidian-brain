@@ -14,6 +14,7 @@ Ideas/
 Notes/
 People/
 Projects/
+Releases/
 Tasks/
 Workspaces/
 Writing/
@@ -59,6 +60,7 @@ Pick the artefact type that fits, create the file in the right folder with the r
 | Note | `Notes/` | `yyyymmdd - {Title}.md` |
 | Person | `People/` | `{Title}.md` |
 | Project | `Projects/` | `{Title}.md` |
+| Release | `Releases/{Project}/` | `{Version} - {Title}.md` |
 | Task | `Tasks/` | `{Title}.md` |
 | Workspace | `Workspaces/` | `{Title}.md` |
 | Writing | `Writing/` | `{Title}.md` |
@@ -125,6 +127,7 @@ Some types have a lifecycle. Status values are defined per type:
 - **Ideas:** `new` → `shaping` → `ready` → `adopted` | `parked`
 - **Idea Logs:** `open` → `adopted` | `parked`
 - **People:** `active` → `shaping` → `parked`
+- **Releases:** `planned` → `active` → `shipped` | `cancelled`
 - **Tasks:** `open` → `shaping` → `in-progress` → `done` | `blocked`
 - **Writing:** `draft` → `editing` → `review` → `published` | `parked`
 - **Plans:** `draft` → `shaping` → `approved` → `implementing` → `completed`
@@ -163,6 +166,7 @@ Living artefacts that reach a terminal status move to a `+Status/` folder within
 
 - **Designs:** `+Implemented/`, `+Rejected/`
 - **Ideas:** `+Adopted/`
+- **Releases:** `+Shipped/`, `+Cancelled/`
 - **Tasks:** `+Done/`
 - **Workspaces:** `+Completed/`
 - **Writing:** `+Published/`
