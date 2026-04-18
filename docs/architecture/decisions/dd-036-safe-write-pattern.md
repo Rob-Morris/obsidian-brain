@@ -10,7 +10,8 @@ Simple `open(path, "w").write(content)` is not atomic: it truncates the target f
 
 ## Decision
 
-`safe_write(path, content, *, bounds, ...)` implements the tmp-fsync-rename pattern:
+`safe_write(path, content, *, bounds, ...)` and `safe_write_via(path, writer, *, bounds, ...)`
+share the same tmp-fsync-rename kernel:
 
 1. **Bounds check** — `resolve_and_check_bounds()` resolves all symlinks and confirms the target is within the vault root before any I/O begins.
 2. **Write to a unique sibling temp file** — Content is written to a fresh `mkstemp()` path in the same directory. Using a sibling (same filesystem, same directory) ensures `os.replace()` is atomic on POSIX — it is a single `rename(2)` syscall.
@@ -25,7 +26,9 @@ The same sibling-tempfile pattern is used directly in the self-contained
 bootstrap scripts (`init.py`, `upgrade.py`) and the historical migrations so
 early install and upgrade flows stay atomic without depending on `_common`.
 
-`safe_write_json()` is a thin wrapper that serialises to JSON first, then delegates to `safe_write`.
+`safe_write_json()` is a thin wrapper over the same kernel, and embeddings-local
+binary writers can use `safe_write_via()` without promoting NumPy-specific
+helpers into `_common`.
 
 ## Consequences
 

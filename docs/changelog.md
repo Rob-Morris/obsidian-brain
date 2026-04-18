@@ -2,6 +2,15 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.29.6 — 2026-04-19
+
+**Harden embeddings persistence with the shared atomic write kernel.** `build_index.py` no longer writes `type-embeddings.npy` and `doc-embeddings.npy` via direct `np.save(path, ...)` calls. A new low-level `safe_write_via(...)` primitive now exposes the same sibling-tempfile, `fsync`, and `os.replace()` guarantees for callback-driven serializers, and embeddings consume it through a local `_safe_save_npy(...)` wrapper. `safe_write_json()` now uses the same kernel, so text, JSON, and handle-driven serializers all share one atomic-write path.
+
+- `src/brain-core/scripts/_common/_filesystem.py` now exposes `safe_write_via(...)` for callback-driven serializers and routes `safe_write()` / `safe_write_json()` through the same atomic write kernel.
+- `src/brain-core/scripts/build_index.py` now persists both embeddings arrays through a local `_safe_save_npy(...)` helper backed by `safe_write_via(...)`, eliminating the direct path-based `np.save(...)` calls for embeddings outputs.
+- Added focused regressions in `tests/test_common_filesystem.py` for `safe_write_via(...)` success, cleanup-on-failure, bounds refusal, and text-mode support, plus a `tests/test_build_index.py` integration test proving `build_embeddings()` routes both `.npy` writes through the new wrapper.
+- `docs/architecture/decisions/dd-036-safe-write-pattern.md` and `docs/architecture/security.md` now describe the callback-driven atomic-write kernel and its intended scope.
+
 ## v0.29.5 — 2026-04-19
 
 **Phase 1 mutation-safety hardening: startup observability, safe_write alignment, and a non-blocking session-mirror write path.** MCP startup now brackets each major phase with stable begin/success/failure markers for config load, router freshness, index freshness, embeddings load, workspace registry load, and session-mirror refresh. The non-critical session-mirror write is routed through a single long-lived daemon worker that drains a `maxsize=1` queue, so startup is strictly non-blocking (it just enqueues) and rapid-fire refreshes coalesce to the latest intent — no abandoned threads, no late-writer clobber of newer on-disk state. An `atexit` drain (2s cap) lets in-flight writes finish on clean shutdown, and a startup-time sweep removes orphaned `session.md.*.tmp` files left by prior killed workers. `_run_with_timeout` remains in use for the critical router compile and index build phases where fail-loud semantics are correct. The remaining legacy migration write helpers are now aligned with `_common.safe_write`, and `init.py` no longer uses a non-atomic append path when inserting the Claude bootstrap line.

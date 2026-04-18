@@ -61,19 +61,8 @@ def check_not_in_brain_core(path, vault_root):
         raise ValueError(f"Cannot modify files inside .brain-core/: {path}")
 
 
-def safe_write(path, content, *, encoding="utf-8", bounds=None,
-               follow_symlinks=True, exclusive=False):
-    """Atomic file write with optional symlink resolution and bounds checking.
-
-    Writes *content* to a temporary file in the same directory, fsyncs, then
-    atomically replaces the target via ``os.replace``.  Returns the resolved
-    path that was actually written to.
-
-    **Concurrency note:** each call uses a unique tempfile in the destination
-    directory, so same-process concurrent writes to the same target do not
-    collide on a shared ``.tmp`` path. Higher-level last-writer-wins races are
-    still possible when callers mutate the same file concurrently.
-    """
+def _resolve_write_target(path, *, bounds=None, follow_symlinks=True):
+    """Resolve symlinks and bounds for a write target."""
     if bounds is not None:
         target = resolve_and_check_bounds(path, bounds,
                                           follow_symlinks=follow_symlinks)
@@ -83,6 +72,24 @@ def safe_write(path, content, *, encoding="utf-8", bounds=None,
         target = str(path)
         if os.path.islink(target):
             raise ValueError(f"Refusing to follow symlink: {path}")
+    return target
+
+
+def safe_write_via(path, writer, *, mode="wb", encoding="utf-8", bounds=None,
+                   follow_symlinks=True, exclusive=False):
+    """Atomic file write for callback-driven serializers.
+
+    Opens a unique sibling tempfile in the target directory, invokes *writer*
+    with the writable handle, flushes and fsyncs it, then atomically replaces
+    the destination via ``os.replace``.
+
+    **Concurrency note:** each call uses a unique tempfile in the destination
+    directory, so same-process concurrent writes to the same target do not
+    collide on a shared ``.tmp`` path. Higher-level last-writer-wins races are
+    still possible when callers mutate the same file concurrently.
+    """
+    target = _resolve_write_target(path, bounds=bounds,
+                                   follow_symlinks=follow_symlinks)
 
     if exclusive and os.path.exists(target):
         raise FileExistsError(f"File already exists: {target}")
@@ -95,10 +102,13 @@ def safe_write(path, content, *, encoding="utf-8", bounds=None,
         dir=os.path.dirname(target) or ".",
     )
     try:
-        with os.fdopen(fd, "w", encoding=encoding) as f:
-            f.write(content)
-            f.flush()
-            os.fsync(f.fileno())
+        open_kwargs = {}
+        if "b" not in mode:
+            open_kwargs["encoding"] = encoding
+        with os.fdopen(fd, mode, **open_kwargs) as handle:
+            writer(handle)
+            handle.flush()
+            os.fsync(handle.fileno())
         os.replace(tmp_path, target)
     except BaseException:
         try:
@@ -110,12 +120,38 @@ def safe_write(path, content, *, encoding="utf-8", bounds=None,
     return target
 
 
+def safe_write(path, content, *, encoding="utf-8", bounds=None,
+               follow_symlinks=True, exclusive=False):
+    """Atomic file write with optional symlink resolution and bounds checking.
+
+    Writes *content* through ``safe_write_via`` and returns the resolved path
+    that was actually written to.
+    """
+    return safe_write_via(
+        path,
+        lambda handle: handle.write(content),
+        mode="w",
+        encoding=encoding,
+        bounds=bounds,
+        follow_symlinks=follow_symlinks,
+        exclusive=exclusive,
+    )
+
+
 def safe_write_json(path, data, *, indent=2, bounds=None,
                     follow_symlinks=True):
-    """Atomic JSON write.  Serialises *data* and delegates to ``safe_write``."""
-    content = json.dumps(data, indent=indent, ensure_ascii=False) + "\n"
-    return safe_write(path, content, bounds=bounds,
-                      follow_symlinks=follow_symlinks)
+    """Atomic JSON write using the shared callback-driven write kernel."""
+    def _dump_json(handle):
+        json.dump(data, handle, indent=indent, ensure_ascii=False)
+        handle.write("\n")
+
+    return safe_write_via(
+        path,
+        _dump_json,
+        mode="w",
+        bounds=bounds,
+        follow_symlinks=follow_symlinks,
+    )
 
 
 def make_temp_path(suffix=".md"):

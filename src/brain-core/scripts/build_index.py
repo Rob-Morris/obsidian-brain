@@ -24,6 +24,7 @@ from _common import (
     parse_frontmatter,
     read_version,
     safe_write,
+    safe_write_via,
     safe_write_json,
     scan_living_types,
     scan_temporal_types,
@@ -146,6 +147,15 @@ def _extract_section(content, heading):
 # Embedding building (optional)
 # ---------------------------------------------------------------------------
 
+def _safe_save_npy(path, array, *, bounds=None):
+    """Persist a NumPy array atomically via the shared write primitive."""
+    return safe_write_via(
+        path,
+        lambda handle: np.save(handle, array),
+        bounds=bounds,
+    )
+
+
 def build_embeddings(vault_root, router, documents):
     """Compute embeddings for type descriptions and documents.
 
@@ -194,8 +204,8 @@ def build_embeddings(vault_root, router, documents):
 
     # .brain/local/ may not exist yet (directory changed from _Config/ in v0.16.0)
     os.makedirs(os.path.join(vault_str, os.path.dirname(TYPE_EMBEDDINGS_REL)), exist_ok=True)
-    np.save(os.path.join(vault_str, TYPE_EMBEDDINGS_REL), type_embeddings)
-    np.save(os.path.join(vault_str, DOC_EMBEDDINGS_REL), doc_embeddings)
+    _safe_save_npy(os.path.join(vault_str, TYPE_EMBEDDINGS_REL), type_embeddings, bounds=vault_str)
+    _safe_save_npy(os.path.join(vault_str, DOC_EMBEDDINGS_REL), doc_embeddings, bounds=vault_str)
 
     meta = {
         "model": EMBEDDING_MODEL,

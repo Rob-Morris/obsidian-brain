@@ -1,5 +1,4 @@
 """Tests for _common._filesystem — safe writes, bounds checking, body file resolution."""
-
 import os
 import tempfile
 import threading
@@ -211,6 +210,46 @@ class TestSafeWriteJson:
         target = tmp_path / "data.json"
         common.safe_write_json(target, {"emoji": "\U0001f600"})
         assert "\U0001f600" in target.read_text()
+
+
+# ---------------------------------------------------------------------------
+# safe_write_via
+# ---------------------------------------------------------------------------
+
+class TestSafeWriteVia:
+    def test_writes_binary_via_callback(self, tmp_path):
+        target = tmp_path / "data.bin"
+        result = common.safe_write_via(
+            target,
+            lambda handle: handle.write(b"abc123"),
+        )
+        assert result == str(target)
+        assert target.read_bytes() == b"abc123"
+
+    def test_cleans_up_tmp_on_callback_failure(self, tmp_path):
+        target = tmp_path / "data.bin"
+
+        def failing_writer(handle):
+            handle.write(b"partial")
+            raise RuntimeError("boom")
+
+        with pytest.raises(RuntimeError, match="boom"):
+            common.safe_write_via(target, failing_writer)
+        assert not any(p.suffix == ".tmp" for p in tmp_path.iterdir())
+
+    def test_rejects_out_of_bounds_target(self, tmp_path):
+        target = tmp_path / ".." / "escape.bin"
+        with pytest.raises(ValueError, match="outside allowed boundary"):
+            common.safe_write_via(target, lambda handle: handle.write(b"x"), bounds=tmp_path)
+
+    def test_text_mode_supports_text_serializers(self, tmp_path):
+        target = tmp_path / "data.txt"
+        common.safe_write_via(
+            target,
+            lambda handle: handle.write("hello via callback"),
+            mode="w",
+        )
+        assert target.read_text() == "hello via callback"
 
 
 # ---------------------------------------------------------------------------

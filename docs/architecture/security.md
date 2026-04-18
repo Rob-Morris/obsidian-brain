@@ -141,8 +141,10 @@ See: [DD-033: Operator profiles](decisions/dd-033-operator-profiles.md)
 
 ## Safe Write Pattern
 
-All vault writes go through `safe_write(path, content, *, bounds, ...)`, which
-implements the tmp-fsync-rename pattern:
+Vault writes use a shared atomic-write kernel exposed through
+`safe_write(path, content, *, bounds, ...)` and
+`safe_write_via(path, writer, *, bounds, ...)`, which implements the
+tmp-fsync-rename pattern:
 
 1. **Bounds check** — `resolve_and_check_bounds()` runs first; no I/O begins for
    out-of-bounds paths.
@@ -170,8 +172,9 @@ upgrade flows.
 **Exclusive mode:** `safe_write(exclusive=True)` (used by `brain_create`) checks file
 existence before writing, providing a lightweight create-or-fail guarantee.
 
-**`safe_write_json()`** is a thin wrapper that serialises to JSON first, then delegates
-to `safe_write`.
+**`safe_write_json()`** is a thin wrapper over the same kernel, and
+callback-driven serializers such as embeddings-local `.npy` writers can use
+`safe_write_via()` without bypassing the atomic replacement path.
 
 **Guarantees provided:** A crash at any point leaves either the complete old content or
 the complete new content on disk — never a partial write. This is essential because

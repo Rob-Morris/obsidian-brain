@@ -1,5 +1,6 @@
 """Tests for build_index.py — BM25 retrieval index builder."""
 
+import io
 import json
 import os
 from unittest.mock import patch
@@ -462,3 +463,42 @@ class TestBuildEmbeddings:
         with patch.object(bi, "_HAS_EMBEDDINGS", False):
             result = bi.build_embeddings(vault, {"artefacts": []}, [])
             assert result is None
+
+    def test_routes_npy_writes_through_safe_save_wrapper(self, vault, monkeypatch):
+        """build_embeddings writes both arrays through the local atomic wrapper path."""
+        calls = []
+
+        class FakeNumpy:
+            @staticmethod
+            def zeros(shape):
+                return {"shape": shape}
+
+            @staticmethod
+            def save(handle, array):
+                handle.write(b"\x93NUMPY")
+                handle.write(repr(array).encode("utf-8"))
+
+        class FakeModel:
+            def encode(self, texts, normalize_embeddings=True):  # pragma: no cover - empty inputs below
+                raise AssertionError("encode should not run for empty inputs")
+
+        def fake_safe_write_via(path, writer, **kwargs):
+            handle = io.BytesIO()
+            writer(handle)
+            calls.append((path, kwargs.get("bounds"), handle.getvalue()))
+            return str(path)
+
+        monkeypatch.setattr(bi, "_HAS_EMBEDDINGS", True)
+        monkeypatch.setattr(bi, "np", FakeNumpy(), raising=False)
+        monkeypatch.setattr(bi, "SentenceTransformer", lambda model: FakeModel(), raising=False)
+        monkeypatch.setattr(bi, "safe_write_via", fake_safe_write_via)
+
+        result = bi.build_embeddings(vault, {"artefacts": []}, [])
+
+        assert result is not None
+        assert [path for path, _bounds, _payload in calls] == [
+            str(vault / bi.TYPE_EMBEDDINGS_REL),
+            str(vault / bi.DOC_EMBEDDINGS_REL),
+        ]
+        assert all(bounds == str(vault) for _path, bounds, _payload in calls)
+        assert all(payload.startswith(b"\x93NUMPY") for _path, _bounds, payload in calls)

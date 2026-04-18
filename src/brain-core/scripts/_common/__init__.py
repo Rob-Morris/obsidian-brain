@@ -53,6 +53,7 @@ from ._filesystem import (
     resolve_and_check_bounds,
     resolve_body_file,
     safe_write,
+    safe_write_via,
     safe_write_json,
 )
 
