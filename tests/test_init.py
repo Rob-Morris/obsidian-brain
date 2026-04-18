@@ -161,6 +161,35 @@ class TestEnsureClaudeMd:
         content = (project / "CLAUDE.md").read_text()
         assert content.count(init.CLAUDE_MD_BOOTSTRAP_PROJECT) == 1
 
+    def test_existing_empty_file_is_normalised_to_bootstrap_only(self, project):
+        claude_md = project / "CLAUDE.md"
+        claude_md.write_text("", encoding="utf-8")
+
+        init.ensure_claude_md(project)
+
+        assert claude_md.read_text(encoding="utf-8") == (
+            f"{init.CLAUDE_MD_BOOTSTRAP_PROJECT}\n"
+        )
+
+    def test_append_routes_through_safe_write(self, project, monkeypatch):
+        claude_md = project / "CLAUDE.md"
+        claude_md.write_text("# My Project\n\nExisting content.\n")
+        calls = []
+
+        def fake_safe_write(path, content):
+            calls.append((path, content))
+            path.write_text(content, encoding="utf-8")
+            return str(path.resolve())
+
+        monkeypatch.setattr(init, "_safe_write", fake_safe_write)
+
+        init.ensure_claude_md(project)
+
+        assert len(calls) == 1
+        assert calls[0][0] == claude_md
+        assert "Existing content." in calls[0][1]
+        assert init.CLAUDE_MD_BOOTSTRAP_PROJECT in calls[0][1]
+
 class TestEnsureWorkspaceManifest:
     def test_creates_new_manifest(self, project):
         init.ensure_workspace_manifest(project)

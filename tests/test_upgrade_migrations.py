@@ -437,3 +437,19 @@ def test_upgrade_runs_real_mcp_transport_repair_migration(tmp_path):
     assert repaired["env"]["PYTHONPATH"] == str(vault / ".brain-core")
     assert repaired["env"]["BRAIN_WORKSPACE_DIR"] == str(vault)
     assert ledger["migrations"]["0.27.6"]["status"] == "ok"
+
+
+def test_remaining_pid_scoped_temp_helpers_are_gone():
+    scripts = _REAL_SCRIPTS
+    targets = [
+        scripts / "init.py",
+        scripts / "upgrade.py",
+        scripts / "migrations" / "migrate_to_0_16_0.py",
+        scripts / "migrations" / "migrate_to_0_17_0.py",
+        scripts / "migrations" / "migrate_to_0_27_6.py",
+    ]
+
+    for path in targets:
+        content = path.read_text()
+        assert "os.getpid()" not in content, path
+        assert ".{os.getpid()}.tmp" not in content, path

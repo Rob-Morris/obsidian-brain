@@ -40,12 +40,15 @@ preserving the stable `server.py` module surface used by tests and the proxy.
 Requires Python >=3.10 and the `mcp` SDK (see requirements.txt).
 """
 
+import atexit
 import contextlib
 import errno
+import glob
 import json
 import logging
 import logging.handlers
 import os
+import queue
 import signal
 import sys
 import threading
@@ -145,8 +148,21 @@ _CLI_PROBE_TTL = 30
 _ROUTER_CHECK_TTL = 5
 _INDEX_CHECK_TTL = 30
 _STARTUP_OP_TIMEOUT = 30   # seconds — guard against iCloud I/O hangs during startup
+_MIRROR_DRAIN_TIMEOUT = 2.0  # seconds — atexit drain cap; filesystem stalls terminate normally
 _router_checked_at: float = 0.0
 _index_checked_at: float = 0.0
+
+# Session-mirror worker: one long-lived daemon thread drains a coalescing
+# queue (maxsize=1 so rapid-fire refreshes collapse to the latest intent).
+# This replaces the old per-refresh "spawn thread + abandon on timeout"
+# pattern — there is no abandonment, no late-writer clobber, and startup
+# never blocks on a slow `fsync`. See docs/architecture/decisions/
+# dd-036-safe-write-pattern.md for the phase-2 rationale.
+_MIRROR_SHUTDOWN = object()
+_mirror_queue: "queue.Queue" = queue.Queue(maxsize=1)
+_mirror_worker_thread: threading.Thread | None = None
+_mirror_worker_lock = threading.Lock()  # guards worker thread start/replace
+_mirror_drain_registered: bool = False
 
 # Logging
 _LOG_REL = os.path.join(".brain", "local", "mcp-server.log")
@@ -281,6 +297,38 @@ def _run_with_timeout(label, fn, timeout=_STARTUP_OP_TIMEOUT):
     return result
 
 
+def _run_startup_phase(phase_key: str, fn):
+    """Log a startup phase with begin/success/failure outcomes.
+
+    Contract: all exceptions are logged and swallowed, returning ``None``.
+    Per the mutation-safety phase 1 plan, this preserves pre-refactor
+    semantics — readiness-model changes for critical phases (router, index)
+    are deferred to phase 2.
+    """
+    started_at = time.monotonic()
+    if _logger:
+        _logger.info("startup phase begin: %s", phase_key)
+    try:
+        result = fn()
+    except Exception as e:
+        if _logger:
+            _logger.error(
+                "startup phase failure: %s %.3fs: %s",
+                phase_key,
+                time.monotonic() - started_at,
+                e,
+                exc_info=True,
+            )
+        return None
+    if _logger:
+        _logger.info(
+            "startup phase success: %s %.3fs",
+            phase_key,
+            time.monotonic() - started_at,
+        )
+    return result
+
+
 def _refresh_cli_available() -> bool:
     """Re-probe Obsidian CLI availability if TTL has elapsed."""
     global _cli_available, _cli_probed_at
@@ -289,6 +337,144 @@ def _refresh_cli_available() -> bool:
         _cli_available = obsidian_cli.check_available()
         _cli_probed_at = now
     return _cli_available
+
+
+def _mirror_worker_loop() -> None:
+    """Drain the session-mirror queue until a shutdown sentinel arrives.
+
+    One long-lived daemon thread runs this loop for the lifetime of the
+    server process. Requests are coalesced by the enqueue path (maxsize=1
+    queue; latest intent wins), so rapid-fire refreshes do not pile up. A
+    slow filesystem stalls only this worker — every other caller just
+    enqueues and returns.
+    """
+    while True:
+        req = _mirror_queue.get()
+        try:
+            if req is _MIRROR_SHUTDOWN:
+                return
+            vault_root = req["vault_root"]
+            build_kwargs = req["build_kwargs"]
+            try:
+                model = session.build_session_model(**build_kwargs)
+                session.persist_session_markdown(model, vault_root)
+            except Exception as e:
+                if _logger:
+                    _logger.warning(
+                        "session mirror refresh failed: %s", e, exc_info=True,
+                    )
+        finally:
+            _mirror_queue.task_done()
+
+
+def _ensure_mirror_worker_started() -> None:
+    """Start the session-mirror worker thread if it is not already running.
+
+    Idempotent. Safe to call from repeated startup() invocations (tests).
+    """
+    global _mirror_worker_thread
+    with _mirror_worker_lock:
+        if _mirror_worker_thread is not None and _mirror_worker_thread.is_alive():
+            return
+        _mirror_worker_thread = threading.Thread(
+            target=_mirror_worker_loop,
+            daemon=True,
+            name="brain-mirror-worker",
+        )
+        _mirror_worker_thread.start()
+
+
+def _enqueue_mirror_refresh() -> None:
+    """Enqueue a session-mirror refresh for the background worker.
+
+    Non-blocking. Coalesces with any pending request — the queue has
+    ``maxsize=1`` and the latest intent always wins. Safe to call from any
+    MCP request thread or from startup.
+    """
+    if _vault_root is None or _router is None:
+        return
+    _ensure_mirror_worker_started()
+    req = {
+        "vault_root": _vault_root,
+        "build_kwargs": {
+            "router": _router,
+            "vault_root": _vault_root,
+            "obsidian_cli_available": _cli_available,
+            "config": _config,
+            "active_profile": _session_profile,
+            "load_config_if_missing": False,
+        },
+    }
+    # Coalesce: drop a pending request, enqueue the latest. A race with the
+    # worker dequeuing between our get_nowait() and put_nowait() just means
+    # both requests land in order (worker processes stale, then latest) —
+    # still converges to the latest state on disk. queue.Full can only fire
+    # if the worker has not yet claimed the slot we just freed; rare and
+    # harmless (latest intent arrives via the next enqueue).
+    try:
+        _mirror_queue.get_nowait()
+        _mirror_queue.task_done()
+    except queue.Empty:
+        pass
+    try:
+        _mirror_queue.put_nowait(req)
+    except queue.Full:
+        pass
+
+
+def _drain_mirror_queue(timeout: float = _MIRROR_DRAIN_TIMEOUT) -> None:
+    """Signal the mirror worker to exit and wait briefly for it to finish.
+
+    Registered via atexit. Best-effort: on a stuck filesystem the worker
+    may outlive the timeout, in which case the process exits normally
+    (daemon threads are killed on interpreter exit). Any orphaned
+    tempfile is swept on the next startup by ``_sweep_mirror_tmpfiles``.
+    """
+    global _mirror_worker_thread
+    thread = _mirror_worker_thread
+    if thread is None or not thread.is_alive():
+        return
+    try:
+        _mirror_queue.put(_MIRROR_SHUTDOWN, timeout=0.1)
+    except queue.Full:
+        # A pending refresh holds the slot; drain it so shutdown can enqueue.
+        try:
+            _mirror_queue.get_nowait()
+            _mirror_queue.task_done()
+        except queue.Empty:
+            pass
+        try:
+            _mirror_queue.put_nowait(_MIRROR_SHUTDOWN)
+        except queue.Full:
+            return
+    thread.join(timeout=timeout)
+
+
+def _register_mirror_drain_once() -> None:
+    """Register the atexit drain hook at most once per process."""
+    global _mirror_drain_registered
+    if _mirror_drain_registered:
+        return
+    atexit.register(_drain_mirror_queue)
+    _mirror_drain_registered = True
+
+
+def _sweep_mirror_tmpfiles(vault_root: str) -> None:
+    """Remove orphaned session.md tempfiles from ``.brain/local/``.
+
+    The mirror worker writes via ``safe_write`` (tmp → fsync → rename). If
+    the process was killed mid-write, the tempfile is orphaned. Sweep at
+    startup — the rename-on-success guarantee means any unrenamed tempfile
+    is stale by definition.
+    """
+    pattern = os.path.join(vault_root, ".brain", "local", "session.md.*.tmp")
+    for path in glob.glob(pattern):
+        try:
+            os.unlink(path)
+            if _logger:
+                _logger.info("swept orphaned session mirror tempfile: %s", path)
+        except OSError:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -463,6 +649,18 @@ def _ensure_router_fresh() -> None:
     except Exception as e:
         if _logger:
             _logger.error("router recompile failed: %s", e, exc_info=True)
+        return
+    _refresh_session_mirror_best_effort()
+
+
+def _refresh_session_mirror_best_effort() -> None:
+    """Enqueue a background mirror refresh; never blocks or raises.
+
+    Used on mid-session recompile paths where a failed or slow refresh
+    must not impact the triggering tool call. The actual build + persist
+    runs in the session-mirror worker; failures are logged there.
+    """
+    _enqueue_mirror_refresh()
 
 
 def _mark_index_dirty() -> None:
@@ -565,36 +763,19 @@ def _save_json(data: dict, vault_root: str, rel_path: str) -> None:
     safe_write_json(output_path, data, bounds=vault_root)
 
 
-def _refresh_session_mirror() -> None:
-    """Refresh `.brain/local/session.md` from the current session model."""
-    if _vault_root is None or _router is None:
-        return
-    model = session.build_session_model(
-        _router,
-        _vault_root,
-        obsidian_cli_available=_cli_available,
-        config=_config,
-        active_profile=_session_profile,
-        load_config_if_missing=False,
-    )
-    session.persist_session_markdown(model, _vault_root)
-
-
 def _compile_and_save(vault_root: str) -> dict:
     """Compile router and colours, write to disk, return compiled data.
 
-    Resets the router staleness-check TTL so callers don't need to.
+    Resets the router staleness-check TTL so callers don't need to. Does
+    not refresh the session mirror — that belongs to the caller so the
+    operation is logged against the right scope (startup phase vs.
+    mid-session recompile).
     """
     global _router_checked_at
     compiled = compile_router.compile(vault_root)
     _save_json(compiled, vault_root, _router_rel())
     compile_colours.generate(vault_root, compiled)
     _set_router(compiled)
-    try:
-        _refresh_session_mirror()
-    except Exception as e:
-        if _logger:
-            _logger.error("session mirror refresh failed after compile: %s", e, exc_info=True)
     _router_checked_at = time.monotonic()
     return compiled
 
@@ -667,63 +848,71 @@ def startup(vault_root: str | None = None) -> None:
     _logger = _setup_logging(_vault_root)
     _logger.info("startup begin (version %s, vault %s)", _loaded_version, _vault_root)
 
+    # Sweep orphaned session-mirror tempfiles from a prior killed worker.
+    # Cheap, idempotent, and the one layer with authority to decide "stale".
+    _sweep_mirror_tmpfiles(_vault_root)
+
+    # Start the session-mirror worker thread and register the atexit drain
+    # before any caller might enqueue. Both are idempotent across repeated
+    # startup() invocations (test fixtures call startup many times).
+    _ensure_mirror_worker_started()
+    _register_mirror_drain_once()
+
     # Load vault config (three-layer merge: template → vault → local)
-    try:
-        _config = config_mod.load_config(_vault_root)
-    except Exception as e:
-        _logger.error("startup: config load failed: %s", e, exc_info=True)
+    _config = _run_startup_phase(
+        "config_load",
+        lambda: config_mod.load_config(_vault_root),
+    )
 
     # Auto-compile router if stale (reuse parsed data when fresh)
     # Timeout guard: compile writes CSS + graph.json to the vault, which can
     # hang indefinitely on iCloud-synced vaults if files are mid-upload.
-    compiled_this_startup = False
-    try:
+    def _load_router():
+        global _router
         stale, data = _check_router(_vault_root)
         if stale:
             t0 = time.monotonic()
             _router = _run_with_timeout("router compile",
                                         lambda: _compile_and_save(_vault_root))
-            compiled_this_startup = True
             _logger.info("router compile (stale) %.1fs", time.monotonic() - t0)
+            return _router
         else:
             _router = data
             _logger.info("router compile (fresh)")
-    except Exception as e:
-        _logger.error("startup: router compile failed: %s", e, exc_info=True)
+            return _router
+    _run_startup_phase("router_freshness", _load_router)
 
     # Auto-build index if stale (same iCloud timeout concern)
-    try:
+    def _load_index():
+        global _index
         stale, data = _check_index(_vault_root)
         if stale:
             t0 = time.monotonic()
             _index = _run_with_timeout("index build",
                                        lambda: _build_index_and_save(_vault_root))
             _logger.info("index build (stale) %.1fs", time.monotonic() - t0)
+            return _index
         else:
             _index = data
             _logger.info("index build (fresh)")
-    except Exception as e:
-        _logger.error("startup: index build failed: %s", e, exc_info=True)
+            return _index
+    _run_startup_phase("index_freshness", _load_index)
 
     # Load pre-built embeddings if available
-    try:
-        _load_embeddings(_vault_root)
-    except Exception as e:
-        _logger.error("startup: embeddings load failed: %s", e, exc_info=True)
+    _run_startup_phase("embeddings_load", lambda: _load_embeddings(_vault_root))
 
     # Load workspace registry
-    try:
-        _workspace_registry = workspace_registry.load_registry(_vault_root)
-    except Exception as e:
-        _logger.error("startup: workspace registry failed: %s", e, exc_info=True)
+    _workspace_registry = _run_startup_phase(
+        "workspace_registry_load",
+        lambda: workspace_registry.load_registry(_vault_root),
+    )
 
-    # _compile_and_save already refreshes the session mirror; only refresh
-    # here when the router was fresh and no compile happened.
-    if not compiled_this_startup:
-        try:
-            _refresh_session_mirror()
-        except Exception as e:
-            _logger.error("startup: session mirror refresh failed: %s", e, exc_info=True)
+    # Session mirror is owned by startup, not by _compile_and_save, so
+    # mid-session recompiles don't log under a misleading "startup phase"
+    # label. The refresh is enqueued (non-blocking) and handled by the
+    # mirror worker; startup completes the phase as soon as the request
+    # lands in the queue. Failures (if any) are logged from the worker.
+    _run_startup_phase("session_mirror_refresh", _enqueue_mirror_refresh)
 
     # CLI availability is probed lazily on first tool call via _refresh_cli_available()
     # to avoid blocking startup (the Obsidian IPC socket check is fast but we defer entirely).
@@ -794,6 +983,7 @@ def _runtime() -> ServerRuntime:
         mark_index_pending=_mark_index_pending,
         compile_and_save=_compile_and_save,
         build_index_and_save=_build_index_and_save,
+        refresh_session_mirror_best_effort=_refresh_session_mirror_best_effort,
         surrounding_headings=_surrounding_headings,
     )
 

@@ -296,7 +296,13 @@ def _read_json_safe(path: Path) -> Dict[str, Any]:
 
 
 def _safe_write(path: Path, content: str) -> str:
-    """Atomic file write: tmp -> fsync -> os.replace. Returns resolved path."""
+    """Atomic file write: tmp -> fsync -> os.replace. Returns resolved path.
+
+    Duplicated from _common/_filesystem.safe_write because init.py may run
+    before pip deps are installed and stays self-contained. Keep this body
+    structurally aligned with the canonical helper and with the peer
+    upgrade.py copy so future safe-write fixes are easy to mirror here.
+    """
     target = os.path.realpath(str(path))
     os.makedirs(os.path.dirname(target) or ".", exist_ok=True)
     fd, tmp_path = tempfile.mkstemp(
@@ -714,22 +720,24 @@ def ensure_claude_md(target_dir: Path, local: bool = False) -> Path:
     bootstrap = _bootstrap_line_for_target(target_dir)
     rel_path = CLAUDE_LOCAL_MD_FILE if local else CLAUDE_MD_FILE
     claude_md = target_dir / rel_path
-    content = ""
 
-    if claude_md.is_file():
-        with open(claude_md, "r", encoding="utf-8") as handle:
-            content = handle.read()
-        if bootstrap in content:
-            info(f"{rel_path} already has bootstrap line")
-            return claude_md
-        separator = "\n" if content.endswith("\n") else "\n\n"
-        with open(claude_md, "a", encoding="utf-8") as handle:
-            handle.write(f"{separator}{bootstrap}\n")
-        info(f"Appended brain bootstrap to {rel_path}")
+    try:
+        existing = claude_md.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        existing = ""
+
+    if not existing:
+        _safe_write(claude_md, f"{bootstrap}\n")
+        info(f"Created {rel_path} with brain bootstrap")
         return claude_md
 
-    _safe_write(claude_md, f"{bootstrap}\n")
-    info(f"Created {rel_path} with brain bootstrap")
+    if bootstrap in existing:
+        info(f"{rel_path} already has bootstrap line")
+        return claude_md
+
+    separator = "\n" if existing.endswith("\n") else "\n\n"
+    _safe_write(claude_md, f"{existing}{separator}{bootstrap}\n")
+    info(f"Appended brain bootstrap to {rel_path}")
     return claude_md
 
 

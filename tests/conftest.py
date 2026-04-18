@@ -122,13 +122,17 @@ def fake_home(tmp_path, monkeypatch):
 def non_tmp_vault():
     """Vault directory outside the system temp dir.
 
-    Uses a unique per-run directory under the repo's build artefacts to avoid
-    collisions with parallel test runs and permission issues in restricted
-    environments.
+    Uses a unique per-run directory under the repo's build artefacts by
+    default. Temp-rooted worktrees can override the base path with
+    ``BRAIN_TEST_NON_TMP_ROOT`` so the fixture remains meaningfully "non-temp"
+    for path validation tests.
     """
     import shutil
     import uuid
-    base = os.path.join(os.path.dirname(__file__), "..", ".pytest-vaults")
+    from pathlib import Path
+
+    override = os.environ.get("BRAIN_TEST_NON_TMP_ROOT")
+    base = Path(override).expanduser() if override else (Path(__file__).resolve().parents[1] / ".pytest-vaults")
     vault_dir = os.path.join(os.path.realpath(base), f"vault-{uuid.uuid4().hex[:8]}")
     os.makedirs(os.path.join(vault_dir, "Wiki"), exist_ok=True)
     os.makedirs(os.path.join(vault_dir, ".brain-core"), exist_ok=True)

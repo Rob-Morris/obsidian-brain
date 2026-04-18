@@ -32,7 +32,7 @@ Generated, gitignored. The compiled outputs that tooling reads at runtime:
 | `.brain/config.yaml` | Vault-level configuration (layer 2 of 3) |
 | `.brain/local/config.yaml` | Machine-local overrides (layer 3 of 3; gitignored) |
 | `.brain/local/workspaces.json` | Workspace slug-to-path registry |
-| `.brain/local/mcp-server.log` | Rotating server log (2 MB max, 1 backup) |
+| `.brain/local/mcp-server.log` | Rotating server log (2 MB max, 1 backup) with explicit startup phase markers |
 
 ### `_Config/` — user-customisable definitions
 
@@ -74,7 +74,7 @@ MCP client request
   → returns a structured response to the MCP client
 ```
 
-The server loads the compiled router and retrieval index at startup and holds both in memory for the session lifetime. This means scripts called via MCP pay no disk I/O for router or index reads. Scripts called directly (without MCP) read the same JSON files from disk on each invocation — same logic, higher cold-start cost.
+The server loads the compiled router and retrieval index at startup and holds both in memory for the session lifetime. Startup now emits stable begin/success/failure markers for each major phase into `.brain/local/mcp-server.log`, which makes a stalled config load, router compile, index rebuild, embeddings load, registry load, or session-mirror refresh diagnosable without extra instrumentation. The `session-mirror refresh` phase is an enqueue onto a single long-lived daemon worker (see dd-036), so startup never blocks on that write; router and index phases are still synchronous and fail-loud on timeout because stale router/index data would silently break every subsequent call. Scripts called via MCP pay no disk I/O for router or index reads. Scripts called directly (without MCP) read the same JSON files from disk on each invocation — same logic, higher cold-start cost.
 
 Mid-session, if `.brain-core/` is upgraded the server detects version drift on the next tool call and exits cleanly with code `10`. The MCP proxy interprets that as a planned restart and relaunches the server with the new code.
 

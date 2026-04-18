@@ -34,10 +34,17 @@ from typing import Optional
 
 
 def _safe_write(path, content):
-    """Atomic write: tmp → fsync → os.replace for text or bytes."""
+    """Atomic file write: tmp -> fsync -> os.replace.
+
+    Duplicated from _common/_filesystem.safe_write because upgrade.py
+    rewrites _common/ mid-execution and cannot rely on importing it.
+    Keep this body structurally aligned with the canonical helper while
+    preserving byte writes for rollback snapshots, and mirror relevant
+    fixes into the peer init.py copy when the shared pattern changes.
+    """
     target = os.path.realpath(str(path))
     os.makedirs(os.path.dirname(target) or ".", exist_ok=True)
-    fd, tmp = tempfile.mkstemp(
+    fd, tmp_path = tempfile.mkstemp(
         prefix=os.path.basename(target) + ".",
         suffix=".tmp",
         dir=os.path.dirname(target) or ".",
@@ -45,14 +52,14 @@ def _safe_write(path, content):
     mode = "wb" if isinstance(content, bytes) else "w"
     kwargs = {} if mode == "wb" else {"encoding": "utf-8"}
     try:
-        with os.fdopen(fd, mode, **kwargs) as f:
-            f.write(content)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp, target)
+        with os.fdopen(fd, mode, **kwargs) as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp_path, target)
     except BaseException:
         try:
-            os.unlink(tmp)
+            os.unlink(tmp_path)
         except OSError:
             pass
         raise

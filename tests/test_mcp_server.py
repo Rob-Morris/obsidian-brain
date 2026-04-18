@@ -223,6 +223,8 @@ class TestStartup:
         session_path = vault / ".brain" / "local" / "session.md"
         assert not session_path.exists()
         server.startup(vault_root=str(vault))
+        # Shape 2: mirror write is async via the worker queue.
+        server._mirror_queue.join()
         assert session_path.exists()
         content = session_path.read_text()
         assert "# Brain Session" in content
@@ -671,6 +673,7 @@ class TestBrainAction:
 
     def test_action_compile_refreshes_session_markdown(self, initialized):
         session_path = initialized / ".brain" / "local" / "session.md"
+        server._mirror_queue.join()  # drain any pending fixture startup refresh
         original = session_path.read_text()
 
         user_dir = initialized / "_Config" / "User"
@@ -680,11 +683,22 @@ class TestBrainAction:
         )
 
         result = server.brain_action("compile")
+        server._mirror_queue.join()  # wait for background refresh to land
 
         assert result.startswith("**Compiled:**")
         updated = session_path.read_text()
         assert "Compile refreshes the session mirror." in updated
         assert updated != original
+
+    def test_action_compile_does_not_emit_startup_session_phase(self, initialized):
+        log_path = initialized / ".brain" / "local" / "mcp-server.log"
+        before = log_path.read_text().count("startup phase begin: session_mirror_refresh")
+
+        result = server.brain_action("compile")
+
+        assert result.startswith("**Compiled:**")
+        after = log_path.read_text().count("startup phase begin: session_mirror_refresh")
+        assert after == before
 
     def test_action_compile_updates_memory(self, initialized):
         old_compiled_at = server._router["meta"]["compiled_at"]
@@ -917,6 +931,29 @@ class TestReloadRobustness:
 
 
 class TestEnsureFreshRobustness:
+    def test_ensure_router_fresh_refreshes_session_markdown(self, initialized):
+        session_path = initialized / ".brain" / "local" / "session.md"
+        server._mirror_queue.join()
+        original = session_path.read_text()
+
+        user_dir = initialized / "_Config" / "User"
+        user_dir.mkdir(parents=True, exist_ok=True)
+        (user_dir / "preferences-always.md").write_text(
+            "---\ntype: user-preferences\n---\n\nEnsure fresh refreshes the session mirror.\n"
+        )
+
+        time.sleep(0.1)
+        router_md = initialized / "_Config" / "router.md"
+        router_md.write_text(router_md.read_text() + "\n- Recompile for ensure_fresh.\n")
+        server._router_checked_at = 0.0
+
+        server._ensure_router_fresh()
+        server._mirror_queue.join()
+
+        updated = session_path.read_text()
+        assert "Ensure fresh refreshes the session mirror." in updated
+        assert updated != original
+
     def test_ensure_router_fresh_survives_compile_error(self, initialized):
         """If _compile_and_save raises, the old router should be preserved."""
         old_router = server._router
@@ -2921,6 +2958,37 @@ class TestBrainActionSyncDefinitions:
         }))
         assert result["dry_run"] is True
 
+    def test_sync_enqueues_mirror_refresh_on_update(self, initialized, monkeypatch):
+        """Finding 3: sync_definitions with updates triggers a background mirror refresh."""
+        import session as session_mod
+
+        vault = initialized
+        tracking_path = vault / ".brain" / "tracking.json"
+        if tracking_path.exists():
+            tracking_path.unlink()
+
+        calls: list[tuple] = []
+        original_persist = session_mod.persist_session_markdown
+
+        def tracking_persist(model, vault_root):
+            calls.append((time.monotonic(), vault_root))
+            original_persist(model, vault_root)
+
+        monkeypatch.setattr(session_mod, "persist_session_markdown", tracking_persist)
+
+        # Drain any pending work from fixture startup.
+        server._mirror_queue.join()
+        baseline = len(calls)
+
+        result = json.loads(server.brain_action("sync_definitions"))
+        server._mirror_queue.join()
+
+        if result.get("updated"):
+            assert len(calls) > baseline, (
+                "sync_definitions with updates should trigger a mirror refresh "
+                "via refresh_session_mirror_best_effort"
+            )
+
 
 # ---------------------------------------------------------------------------
 # brain_action migrate_naming tests
@@ -2990,6 +3058,36 @@ class TestBrainActionMigrateNaming:
         if renamed_count > 0:
             assert server._router["meta"]["compiled_at"] != old_compiled_at
             assert server._index["meta"]["built_at"] != old_built_at
+
+    def test_migrate_enqueues_mirror_refresh_on_rename(self, initialized, monkeypatch):
+        """Finding 3: migrate_naming with renames triggers a background mirror refresh."""
+        import session as session_mod
+
+        self._create_old_convention_file(name="mirror-refresh", title="Mirror Refresh")
+
+        calls: list[tuple] = []
+        original_persist = session_mod.persist_session_markdown
+
+        def tracking_persist(model, vault_root):
+            calls.append((time.monotonic(), vault_root))
+            original_persist(model, vault_root)
+
+        monkeypatch.setattr(session_mod, "persist_session_markdown", tracking_persist)
+
+        server._mirror_queue.join()
+        baseline = len(calls)
+
+        result = json.loads(server.brain_action("migrate_naming"))
+        server._mirror_queue.join()
+
+        renamed_count = result.get("renamed", 0)
+        if isinstance(renamed_count, list):
+            renamed_count = len(renamed_count)
+        if renamed_count > 0:
+            assert len(calls) > baseline, (
+                "migrate_naming with renames should trigger a mirror refresh "
+                "via refresh_session_mirror_best_effort"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -3482,11 +3580,18 @@ class TestStartupLogging:
         assert log_path.is_file()
 
     def test_startup_messages_logged(self, vault):
-        """Log file contains startup begin and startup complete."""
+        """Log file contains startup begin, phase markers, and startup complete."""
         server.startup(vault_root=str(vault))
         log_path = vault / ".brain" / "local" / "mcp-server.log"
         content = log_path.read_text()
         assert "startup begin" in content
+        assert "startup phase begin: config_load" in content
+        assert "startup phase success: config_load" in content
+        assert "startup phase begin: router_freshness" in content
+        assert "startup phase begin: index_freshness" in content
+        assert "startup phase begin: embeddings_load" in content
+        assert "startup phase begin: workspace_registry_load" in content
+        assert "startup phase begin: session_mirror_refresh" in content
         assert "startup complete" in content
 
     def test_router_compile_logged(self, vault):
@@ -3496,6 +3601,162 @@ class TestStartupLogging:
         content = log_path.read_text()
         # First startup always compiles (no cached router)
         assert "router compile" in content
+
+    def test_startup_does_not_block_on_slow_mirror_write(self, vault, monkeypatch):
+        """Startup returns promptly even if the background mirror write would stall."""
+        import session as session_mod
+
+        release = threading.Event()
+        entered = threading.Event()
+
+        def slow_persist(model, vault_root):
+            entered.set()
+            release.wait(timeout=2.0)
+            # Intentionally do not actually write — this test only asserts
+            # that startup() does not wait for this call to complete.
+
+        monkeypatch.setattr(session_mod, "persist_session_markdown", slow_persist)
+
+        try:
+            started = time.monotonic()
+            server.startup(vault_root=str(vault))
+            elapsed = time.monotonic() - started
+            assert elapsed < 1.0, f"startup blocked for {elapsed:.2f}s"
+            assert entered.wait(timeout=2.0), "worker did not pick up the refresh"
+        finally:
+            release.set()
+            # Let the worker finish so subsequent tests start from a clean state.
+            try:
+                server._mirror_queue.join()
+            except Exception:
+                pass
+
+    def test_startup_does_not_block_on_slow_mirror_write_after_recompile(
+        self, vault, monkeypatch
+    ):
+        """Stale-router startup also returns promptly under a slow background write."""
+        import session as session_mod
+
+        monkeypatch.setattr(server, "_check_router", lambda _vault_root: (True, None))
+
+        release = threading.Event()
+        entered = threading.Event()
+
+        def slow_persist(model, vault_root):
+            entered.set()
+            release.wait(timeout=2.0)
+
+        monkeypatch.setattr(session_mod, "persist_session_markdown", slow_persist)
+
+        try:
+            started = time.monotonic()
+            server.startup(vault_root=str(vault))
+            elapsed = time.monotonic() - started
+            log_path = vault / ".brain" / "local" / "mcp-server.log"
+            content = log_path.read_text()
+            assert elapsed < 2.0, f"startup blocked for {elapsed:.2f}s"
+            assert "startup phase begin: router_freshness" in content
+            assert entered.wait(timeout=2.0), "worker did not pick up the refresh"
+        finally:
+            release.set()
+            try:
+                server._mirror_queue.join()
+            except Exception:
+                pass
+
+
+class TestMirrorWorker:
+    """Shape 2: queue-based session-mirror worker — coalescing, drain, sweep."""
+
+    def test_mirror_worker_coalesces_rapid_fire_refreshes(self, vault, monkeypatch):
+        """Rapid-fire enqueues while the worker is busy collapse to the latest."""
+        import session as session_mod
+
+        calls = []
+        calls_lock = threading.Lock()
+        in_first = threading.Event()
+        release_first = threading.Event()
+
+        original_persist = session_mod.persist_session_markdown
+
+        def counting_persist(model, vault_root):
+            with calls_lock:
+                calls.append(time.monotonic())
+                count = len(calls)
+            if count == 1:
+                in_first.set()
+                release_first.wait(timeout=2.0)
+            original_persist(model, vault_root)
+
+        monkeypatch.setattr(session_mod, "persist_session_markdown", counting_persist)
+
+        server.startup(vault_root=str(vault))
+        assert in_first.wait(timeout=2.0), "first refresh did not enter worker"
+
+        # Fire many refreshes while the worker is blocked on the first call.
+        for _ in range(20):
+            server._enqueue_mirror_refresh()
+
+        release_first.set()
+        server._mirror_queue.join()
+
+        with calls_lock:
+            total = len(calls)
+        # Expected: 1 (the initial startup refresh we blocked) + at most 1
+        # coalesced follow-up. A racing ordering may process 2 follow-ups
+        # if the worker drained between the startup enqueue and the loop.
+        assert total <= 3, f"coalescing failed: {total} persist calls"
+
+    def test_mirror_worker_drains_pending_on_shutdown(self, vault, monkeypatch):
+        """Atexit drain waits briefly for the in-flight refresh to complete."""
+        import session as session_mod
+
+        completed = threading.Event()
+        original_persist = session_mod.persist_session_markdown
+
+        def tracked_persist(model, vault_root):
+            original_persist(model, vault_root)
+            completed.set()
+
+        monkeypatch.setattr(session_mod, "persist_session_markdown", tracked_persist)
+
+        server.startup(vault_root=str(vault))
+        assert completed.wait(timeout=2.0), "initial refresh did not complete"
+
+        # Force-enqueue one more, then drain explicitly with a short timeout.
+        completed.clear()
+        server._enqueue_mirror_refresh()
+        server._drain_mirror_queue(timeout=2.0)
+
+        # After drain, the worker thread should have processed the pending
+        # request (or exited cleanly via the SHUTDOWN sentinel).
+        assert completed.is_set() or not server._mirror_worker_thread.is_alive()
+
+    def test_sweep_mirror_tmpfiles_removes_orphans(self, vault):
+        """Orphaned session.md.*.tmp files in .brain/local/ are swept at startup."""
+        local = vault / ".brain" / "local"
+        local.mkdir(parents=True, exist_ok=True)
+        orphan = local / "session.md.orphan.tmp"
+        orphan.write_text("abandoned by a killed worker")
+        assert orphan.exists()
+
+        server.startup(vault_root=str(vault))
+
+        assert not orphan.exists(), "orphaned tempfile was not swept"
+
+    def test_sweep_leaves_non_tmp_files_alone(self, vault):
+        """Sweep does not touch session.md itself or unrelated files."""
+        local = vault / ".brain" / "local"
+        local.mkdir(parents=True, exist_ok=True)
+        keeper = local / "session.md"
+        keeper.write_text("existing mirror")
+        sibling = local / "other.tmp"
+        sibling.write_text("not a mirror tempfile")
+
+        server._sweep_mirror_tmpfiles(str(vault))
+
+        assert keeper.exists()
+        assert sibling.exists()
 
 
 class TestToolCallTracing:

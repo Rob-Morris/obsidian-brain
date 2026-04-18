@@ -13,9 +13,10 @@ from __future__ import annotations
 
 import json
 import os
-import tempfile
 from pathlib import Path
 from typing import Any
+
+from _common import safe_write, safe_write_json
 
 
 VERSION = "0.27.6"
@@ -25,34 +26,6 @@ INIT_STATE_REL = os.path.join(".brain", "local", "init-state.json")
 PACKAGE_ROOT_REL = os.path.join(".brain-core")
 LEGACY_PROXY_REL = os.path.join(".brain-core", "mcp", "proxy.py")
 LEGACY_SERVER_REL = os.path.join(".brain-core", "mcp", "server.py")
-
-
-def _safe_write(path: Path, content: str) -> str:
-    """Atomic file write: tmp -> fsync -> os.replace."""
-    target = os.path.realpath(str(path))
-    os.makedirs(os.path.dirname(target) or ".", exist_ok=True)
-    fd, tmp_path = tempfile.mkstemp(
-        prefix=os.path.basename(target) + ".",
-        suffix=".tmp",
-        dir=os.path.dirname(target) or ".",
-    )
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(content)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(tmp_path, target)
-    except BaseException:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-        raise
-    return target
-
-
-def _safe_write_json(path: Path, data: dict[str, Any]) -> str:
-    return _safe_write(path, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
 
 
 def _read_json_safe(path: Path) -> dict[str, Any]:
@@ -303,7 +276,7 @@ def _write_codex_server_config(path: Path, server_config: dict[str, Any]) -> Non
         "mcp_servers.brain.env",
         _toml_body_lines(server_config["env"]),
     )
-    _safe_write(path, _render_toml(preamble, sections))
+    safe_write(path, _render_toml(preamble, sections))
 
 
 def _scan_json_config(
@@ -331,7 +304,7 @@ def _scan_json_config(
         return None
 
     servers[BRAIN_SERVER_NAME] = rewritten
-    _safe_write_json(path, data)
+    safe_write_json(path, data)
     return rewritten, f"rewrote legacy Brain MCP entry in {_display_path(path, vault_root)}"
 
 
@@ -375,7 +348,7 @@ def _load_init_state(vault_root: str) -> dict[str, Any]:
 
 
 def _save_init_state(vault_root: str, state: dict[str, Any]) -> None:
-    _safe_write_json(_state_path(vault_root), state)
+    safe_write_json(_state_path(vault_root), state, bounds=vault_root)
 
 
 def _repair_init_state(

@@ -104,7 +104,7 @@ If your vault runs the Brain MCP server (`.brain-core/brain_mcp/server.py`), eig
 - Includes: static core bootstrap content, structured core-doc references with MCP load instructions, always-rules, user preferences, gotchas, triggers, condensed artefact types, environment, memory/skill/plugin/style indexes, config metadata, and when available workspace-aware bootstrap fields (`workspace`, `workspace_record`, `workspace_defaults`)
 - Optional `context` parameter for scoped sessions (not yet implemented)
 - Optional `operator_key` parameter for operator authentication — sets the session profile for per-call tool enforcement
-- Refreshes `.brain/local/session.md`, the generated markdown bootstrap mirror, from the same model
+- Refreshes `.brain/local/session.md`, the generated markdown bootstrap mirror, from the same model; that refresh is best-effort and runs on a background worker, so a stalled write never blocks readiness or tool calls
 
 **brain_read** (safe, no side effects)
 - Look up artefacts, triggers, styles, templates, skills, plugins, memories, workspaces, environment info, the compiled router, structural compliance results, or read artefact files by path
@@ -167,7 +167,7 @@ If your vault runs the Brain MCP server (`.brain-core/brain_mcp/server.py`), eig
 
 ### Server Logging
 
-The MCP server writes persistent logs to `.brain/local/mcp-server.log` (2 MB max, 1 backup). Startup diagnostics, tool call tracing, and errors are logged at INFO level. To include tool arguments in the log, set the environment variable `BRAIN_LOG_LEVEL=DEBUG`. The log file is local-only (gitignored).
+The MCP server writes persistent logs to `.brain/local/mcp-server.log` (2 MB max, 1 backup). Startup diagnostics, tool call tracing, and errors are logged at INFO level. Startup now emits explicit begin/success/failure markers for config load, router freshness, index freshness, embeddings load, workspace registry load, and session-mirror refresh, so a stalled startup can be localised from the log alone. To include tool arguments in the log, set the environment variable `BRAIN_LOG_LEVEL=DEBUG`. The log file is local-only (gitignored).
 
 ### Scripts
 
@@ -182,9 +182,9 @@ Available in `.brain-core/scripts/`. Scripts are the source of truth for all vau
 | `create.py` | Create a new artefact with template/naming resolution |
 | `edit.py` | Edit, append to, or convert an existing artefact |
 | `rename.py` | Rename a file with automatic wikilink updates; refuses existing-destination collisions before touching links |
-| `upgrade.py` | Upgrade brain-core in-place from a source directory, including versioned pre-compile compatibility patches, binary-safe rollback snapshots for `.brain/` / `_Config/`, post-compile migration rollback of touched artefact roots, and applied-migration tracking in `.brain/local/` (CLI-only, not shipped to vaults) |
+| `upgrade.py` | Upgrade brain-core in-place from a source directory, including versioned pre-compile compatibility patches, binary-safe rollback snapshots for `.brain/` / `_Config/`, post-compile migration rollback of touched artefact roots, applied-migration tracking in `.brain/local/`, and self-contained atomic writes (CLI-only, not shipped to vaults) |
 | `workspace_registry.py` | Workspace slug→path resolution and registration |
-| `init.py` | Set up Claude Code and/or Codex to use this vault's MCP server; folder-scoped installs also scaffold `.brain/local/workspace.yaml` (migrates legacy `.brain/workspace.yaml` automatically). Project scope outranks user scope once the client activates the project entry: approve via `/mcp` in Claude, or trust/enable the project-scoped server in Codex. |
+| `init.py` | Set up Claude Code and/or Codex to use this vault's MCP server; folder-scoped installs also scaffold `.brain/local/workspace.yaml` (migrates legacy `.brain/workspace.yaml` automatically), and direct config writes stay atomic with unique sibling temp files. Project scope outranks user scope once the client activates the project entry: approve via `/mcp` in Claude, or trust/enable the project-scoped server in Codex. |
 | `check.py` | Structural compliance checker — validates naming, frontmatter, month folders, archives, status values |
 | `migrate_naming.py` | Migrate vault filenames from old aggressive slugs to generous naming conventions |
 | `fix_links.py` | Auto-repair broken wikilinks using naming convention heuristics |

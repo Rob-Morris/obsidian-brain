@@ -124,3 +124,23 @@ The quick-start guide (`src/brain-core/guide.md`) ships in every vault and shoul
 - Core conventions change (naming, frontmatter, filing)
 - New user-facing tooling is introduced
 - Workflows are added or modified
+
+## Running tests from a `/tmp` worktree
+
+Some tests (e.g. the install/upgrade path-validation suite) use a `non_tmp_vault`
+fixture that asserts the vault root does **not** live under the system temp
+directory. When the working tree itself is a git worktree under `/tmp/` (common
+with `git worktree add /tmp/<branch>`), that assertion fails with confusing
+messages because `pytest`'s `tmp_path` also resolves inside `/tmp`.
+
+Set the `BRAIN_TEST_NON_TMP_ROOT` environment variable to an absolute path
+outside `/tmp` / `/private/tmp` before running the suite:
+
+```bash
+BRAIN_TEST_NON_TMP_ROOT=$HOME/.cache/brain-test-non-tmp make test
+```
+
+The fixture at `tests/conftest.py::non_tmp_vault` reads this override and uses
+it as the parent directory for the non-temp vault. No override is needed when
+the working tree lives outside `/tmp` (the default `~`/repo-local path is
+already outside the temp root).

@@ -17,7 +17,7 @@ Operational reference for scripts in `.brain-core/scripts/`. Each script exposes
 | `check.py` | Structural compliance checks | `python3 check.py [--json] [--severity S]` |
 | `shape_printable.py` | Create printable + render PDF | `python3 shape_printable.py --source P --slug S [--no-render] [--pdf-engine E]` |
 | `shape_presentation.py` | Create presentation + render PDF + launch preview | `python3 shape_presentation.py --source P --slug S [--no-render] [--no-preview]` |
-| `upgrade.py` | In-place brain-core upgrade | `python3 upgrade.py --source P [--vault V] [--dry-run] [--force] [--json]` |
+| `upgrade.py` | In-place brain-core upgrade with local migration ledger; direct bootstrap writes stay self-contained and atomic | `python3 upgrade.py --source P [--vault V] [--dry-run] [--force] [--json]` |
 | `workspace_registry.py` | Workspace slug-path resolution | `python3 workspace_registry.py [--register SLUG PATH] [--unregister SLUG] [--resolve SLUG] [--json]` |
 | `migrate_naming.py` | Migrate filenames to generous conventions | `python3 migrate_naming.py [--vault V] [--dry-run] [--json]` |
 | `migrations/migrate_to_0_29_0.py` | v0.29.0 migration bundle: `pre_compile_patch` remediates blocking missing-`date_source` taxonomies, then `post_compile` backfills `created`/`modified`/`date_source` across the vault | `python3 migrations/migrate_to_0_29_0.py [--vault V] [--dry-run] [--json]` |
@@ -27,7 +27,7 @@ Operational reference for scripts in `.brain-core/scripts/`. Each script exposes
 | `session.py` | Build the canonical session model and refresh `.brain/local/session.md` | `python3 session.py [--json] [--workspace-dir PATH]` |
 | `generate_key.py` | Generate operator key + hash for config.yaml | `python3 generate_key.py [--count N]` |
 | `process.py` | Content classification, duplicate resolution, ingestion | (library module, used by MCP server) |
-| `init.py` | Claude/Codex MCP registration + recorded removal | `python3 init.py [--client {claude,codex,all}] [--user] [--local] [--project PATH] [--remove] [--force]` |
+| `init.py` | Claude/Codex MCP registration + recorded removal; keeps direct file writes atomic with unique sibling temp files | `python3 init.py [--client {claude,codex,all}] [--user] [--local] [--project PATH] [--remove] [--force]` |
 
 ## Architecture
 
@@ -241,7 +241,7 @@ Canonical session bootstrap builder at `.brain-core/scripts/session.py`. Owns on
 **Behaviour:**
 - Builds the canonical session model from static core bootstrap content, structured core-doc references, and dynamic vault state
 - Writes `.brain/local/session.md` on direct CLI execution
-- Is also called by the MCP server and router compile path so JSON and markdown stay in parity for shared content
+- Is also called by the MCP server and router compile path so JSON and markdown stay in parity for shared content. MCP-side invocations are dispatched through a dedicated daemon worker with a `maxsize=1` coalescing queue (see dd-036), so callers never block on the markdown write and rapid successive refreshes collapse to the latest intent
 - When an active workspace is supplied, reads `.brain/local/workspace.yaml` from that workspace (falling back to the legacy `.brain/workspace.yaml` with a warning) and exposes raw `workspace` identity plus any resolvable `workspace_record` and `workspace_defaults`
 - Keeps the current `context` parameter as a forward-compatible stub; no context-specific scoping yet
 

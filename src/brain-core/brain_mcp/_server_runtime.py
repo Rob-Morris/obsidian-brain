@@ -39,4 +39,5 @@ class ServerRuntime:
     mark_index_pending: Callable[[str, str | None], None]
     compile_and_save: Callable[[str], dict]
     build_index_and_save: Callable[[str], dict]
+    refresh_session_mirror_best_effort: Callable[[], None]
     surrounding_headings: Callable[[str, str, str], tuple[str | None, str | None]]

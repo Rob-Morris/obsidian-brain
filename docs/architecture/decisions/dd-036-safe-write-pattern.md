@@ -21,6 +21,10 @@ Simple `open(path, "w").write(content)` is not atomic: it truncates the target f
 Each write gets its own sibling temp path, so same-process concurrent writers no
 longer collide on a shared temp filename when they target the same file.
 
+The same sibling-tempfile pattern is used directly in the self-contained
+bootstrap scripts (`init.py`, `upgrade.py`) and the historical migrations so
+early install and upgrade flows stay atomic without depending on `_common`.
+
 `safe_write_json()` is a thin wrapper that serialises to JSON first, then delegates to `safe_write`.
 
 ## Consequences
@@ -30,3 +34,16 @@ longer collide on a shared temp filename when they target the same file.
 - The tmp file is in the same directory, so it is visible in Obsidian briefly. The `.tmp` suffix prevents Obsidian from treating it as a markdown file.
 - This is an atomic replacement primitive, not a transaction manager. Parallel read-modify-write flows can still lose updates unless a higher layer coordinates them.
 - `exclusive=True` mode (used by `brain_create`) checks file existence before writing, providing a lightweight create-or-fail guarantee.
+
+## Session-mirror write path (v0.29.5)
+
+The `.brain/local/session.md` mirror does **not** use `_run_with_timeout` or an abandon-on-timeout worker pattern. `v0.29.5` routes refreshes through a single long-lived daemon worker consuming a coalescing queue (`maxsize=1`). Callers enqueue a refresh request — non-blocking — and the worker drains the queue FIFO. Rapid-fire refreshes collapse to the latest intent because a pending slot is dropped on the next enqueue. The worker writes via `safe_write` inside `session.persist_session_markdown`, so each write is still atomic.
+
+Invariants:
+
+- Startup never blocks on the mirror write; `_run_startup_phase("session_mirror_refresh", ...)` completes as soon as the request lands in the queue.
+- No abandoned threads: there is one worker per process, not one per refresh.
+- No late-writer clobber: a slow write delays subsequent writes, but the queue ordering guarantees the most recent enqueue wins once the worker unsticks.
+- Shutdown registers an `atexit` drain (2s cap) that signals the worker to exit after the in-flight write. If the filesystem is stuck longer than the cap, the daemon thread is killed on interpreter exit; any orphaned `session.md.*.tmp` file is swept by `_sweep_mirror_tmpfiles` at the next startup.
+
+This pattern is deliberately scoped to the mirror write path. `_run_with_timeout` remains in use for the critical startup compile and index-build phases, where fail-loud-on-timeout is the right semantic.

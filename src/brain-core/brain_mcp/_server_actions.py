@@ -25,6 +25,7 @@ def _action_compile(runtime: ServerRuntime, params: dict | None):
     try:
         router = runtime.compile_and_save(state.vault_root)
         runtime.set_router(router)
+        runtime.refresh_session_mirror_best_effort()
         art_count = len(router["artefacts"])
         configured = sum(1 for a in router["artefacts"] if a["configured"])
         trigger_count = len(router["triggers"])
@@ -225,6 +226,7 @@ def _action_sync_definitions(runtime: ServerRuntime, params: dict | None):
         if result["status"] == "ok" and not p.get("dry_run") and result["updated"]:
             router = runtime.compile_and_save(state.vault_root)
             runtime.set_router(router)
+            runtime.refresh_session_mirror_best_effort()
             result["post_sync"] = "Recompiled router."
         return json.dumps(result, indent=2)
     except (OSError, json.JSONDecodeError) as e:
@@ -251,6 +253,7 @@ def _action_migrate_naming(runtime: ServerRuntime, params: dict | None):
             index = runtime.build_index_and_save(state.vault_root)
             runtime.set_router(router)
             runtime.set_index(index)
+            runtime.refresh_session_mirror_best_effort()
         return json.dumps(result, indent=2)
     except (ValueError, FileNotFoundError, OSError) as e:
         return runtime.fmt_error(str(e))

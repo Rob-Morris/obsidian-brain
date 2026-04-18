@@ -162,6 +162,11 @@ implements the tmp-fsync-rename pattern:
 threads in the same process no longer collide on a shared temp filename when they
 target the same file.
 
+The same sibling-tempfile pattern is used directly in the self-contained
+bootstrap scripts (`init.py`, `upgrade.py`) and the historical migrations so
+those paths stay atomic without depending on `_common` during early install or
+upgrade flows.
+
 **Exclusive mode:** `safe_write(exclusive=True)` (used by `brain_create`) checks file
 existence before writing, providing a lightweight create-or-fail guarantee.
 
@@ -176,7 +181,14 @@ Obsidian has no crash recovery, and a corrupted artefact may not be noticed imme
 not a transaction manager. If two independent callers both read-modify-write the
 same target concurrently, the later replace still wins. Higher-level coordination
 is required for multi-file rewrite flows and concurrent writers in multiple
-processes.
+processes. During MCP startup, the non-critical session-mirror refresh is
+dispatched to a single long-lived daemon worker via a `maxsize=1` coalescing
+queue (see dd-036 "Session-mirror write path"). Startup only enqueues, so a
+stalled markdown-mirror write cannot block readiness; the single-worker
+invariant also means two concurrent mirror writes can never interleave on
+disk, and an `atexit` drain with a bounded cap lets any in-flight write
+finish cleanly on normal shutdown. An orphaned `session.md.*.tmp` left
+behind by a killed worker is swept on the next startup.
 
 `upgrade.py` carries its own self-contained sibling-temp write helper because it
 cannot import `_common` while replacing `.brain-core/` in place. Its rollback

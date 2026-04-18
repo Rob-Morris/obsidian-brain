@@ -11,29 +11,7 @@ Restructures vault config storage:
 import json
 import os
 import shutil
-import tempfile
-
-def _safe_write(path, content):
-    """Atomic write: tmp → fsync → os.replace."""
-    target = os.path.realpath(path)
-    os.makedirs(os.path.dirname(target) or ".", exist_ok=True)
-    fd, tmp = tempfile.mkstemp(
-        prefix=os.path.basename(target) + ".",
-        suffix=".tmp",
-        dir=os.path.dirname(target) or ".",
-    )
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(content)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp, target)
-    except BaseException:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
+from _common import safe_write
 
 
 VERSION = "0.16.0"
@@ -91,7 +69,7 @@ def migrate(vault_root):
         path = os.path.join(vault_root, *path_parts)
         if os.path.exists(path):
             continue
-        _safe_write(path, default_content + "\n")
+        safe_write(path, default_content + "\n", bounds=vault_root)
         actions.append(f"created {os.path.join(*path_parts)}")
 
     if not actions:

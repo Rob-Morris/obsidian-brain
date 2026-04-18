@@ -4,7 +4,13 @@ MCP tool specifications for the brain server.
 
 `server.py` remains the MCP composition root and runtime-state owner. Tool
 implementation logic may delegate through sibling `_server_*.py` handler
-modules, but the external tool contracts documented here stay unchanged.
+modules, but the external tool contracts documented here stay unchanged. The
+server now logs explicit startup phases to `.brain/local/mcp-server.log`, and
+the non-critical `.brain/local/session.md` refresh runs on a dedicated daemon
+worker fed by a `maxsize=1` coalescing queue — startup only enqueues, rapid
+successive refreshes collapse to the latest intent, and an `atexit` drain
+with a bounded cap lets the last in-flight write finish on clean shutdown.
+See dd-036 for the full contract.
 
 ## Tool Overview
 
@@ -29,7 +35,7 @@ coordinate their own parallel writes.
 
 ### brain_session
 
-Agent bootstrap tool — safe, auto-approvable. Builds the canonical session model in one call: static core bootstrap content (`core_bootstrap`), structured core-doc references with explicit MCP load instructions (`core_docs`), always-rules, user preferences, gotchas, triggers, condensed artefact types, environment, memory/skill/plugin/style indexes, and config/profile metadata when known. When the caller supplies a workspace directory, the payload also includes raw `workspace` identity plus optional `workspace_record` and `workspace_defaults` derived from `.brain/local/workspace.yaml` (with legacy `.brain/workspace.yaml` fallback) and any resolvable workspace binding. The server actively compiles this — strips frontmatter from user files, condenses artefact metadata, merges runtime environment state, and refreshes the generated markdown mirror at `.brain/local/session.md` from the same model.
+Agent bootstrap tool — safe, auto-approvable. Builds the canonical session model in one call: static core bootstrap content (`core_bootstrap`), structured core-doc references with explicit MCP load instructions (`core_docs`), always-rules, user preferences, gotchas, triggers, condensed artefact types, environment, memory/skill/plugin/style indexes, and config/profile metadata when known. When the caller supplies a workspace directory, the payload also includes raw `workspace` identity plus optional `workspace_record` and `workspace_defaults` derived from `.brain/local/workspace.yaml` (with legacy `.brain/workspace.yaml` fallback) and any resolvable workspace binding. The server actively compiles this — strips frontmatter from user files, condenses artefact metadata, merges runtime environment state, and refreshes the generated markdown mirror at `.brain/local/session.md` from the same model. That refresh is best-effort: the MCP server enqueues it onto a single long-lived daemon worker so a stalled write only degrades the markdown mirror, never startup or subsequent tool calls.
 
 **Parameters:**
 - `context` (optional) — scoped session hint (forward-compatible, not yet implemented)
