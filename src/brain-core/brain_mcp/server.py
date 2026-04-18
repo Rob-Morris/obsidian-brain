@@ -125,6 +125,7 @@ _index_dirty: bool = False       # set True for full rebuild (e.g. version drift
 # _ensure_index_fresh (drain), _build_index_and_save (clear on full rebuild).
 _index_pending: list[tuple[str, str | None]] = []
 _index_pending_lock = threading.Lock()
+_mutation_lock = threading.RLock()
 _cli_available: bool = False
 _cli_probed_at: float = 0.0  # monotonic timestamp of last CLI probe
 _vault_name: str | None = None
@@ -227,6 +228,26 @@ def _trace_tool(tool_name: str, **kwargs):
     yield
     if _logger:
         _logger.info("tool done: %s %.3fs", tool_name, time.monotonic() - t0)
+
+
+@contextlib.contextmanager
+def _serialize_mutation(label: str):
+    """Serialize vault mutations within this MCP server process.
+
+    The script layer remains the source of truth for mutation behaviour; this
+    lock only prevents overlapping mutating MCP calls from interleaving writes
+    inside the shared server process.
+    """
+    if _logger:
+        _logger.debug("mutation wait: %s", label)
+    with _mutation_lock:
+        if _logger:
+            _logger.debug("mutation enter: %s", label)
+        try:
+            yield
+        finally:
+            if _logger:
+                _logger.debug("mutation exit: %s", label)
 
 
 def _run_with_timeout(label, fn, timeout=_STARTUP_OP_TIMEOUT):
@@ -1174,18 +1195,19 @@ def brain_create(type: str = "", title: str = "", body: str = "", body_file: str
     """
     with _trace_tool("brain_create", resource=resource, type=type, title=title, name=name):
         try:
-            return _server_artefacts.handle_brain_create(
-                type=type,
-                title=title,
-                body=body,
-                body_file=body_file,
-                frontmatter=frontmatter,
-                parent=parent,
-                resource=resource,
-                name=name,
-                runtime=_runtime(),
-                fix_links=fix_links,
-            )
+            with _serialize_mutation(f"brain_create:{resource}:{type or name or title}"):
+                return _server_artefacts.handle_brain_create(
+                    type=type,
+                    title=title,
+                    body=body,
+                    body_file=body_file,
+                    frontmatter=frontmatter,
+                    parent=parent,
+                    resource=resource,
+                    name=name,
+                    runtime=_runtime(),
+                    fix_links=fix_links,
+                )
         except (ValueError, FileNotFoundError) as e:
             return _fmt_error(str(e))
         except Exception as e:
@@ -1250,18 +1272,19 @@ def brain_edit(operation: Literal["edit", "append", "prepend", "delete_section"]
     """
     with _trace_tool("brain_edit", resource=resource, operation=operation, path=path, name=name, target=target):
         try:
-            return _server_artefacts.handle_brain_edit(
-                operation=operation,
-                path=path,
-                body=body,
-                body_file=body_file,
-                frontmatter=frontmatter,
-                target=target,
-                resource=resource,
-                name=name,
-                runtime=_runtime(),
-                fix_links=fix_links,
-            )
+            with _serialize_mutation(f"brain_edit:{resource}:{path or name}"):
+                return _server_artefacts.handle_brain_edit(
+                    operation=operation,
+                    path=path,
+                    body=body,
+                    body_file=body_file,
+                    frontmatter=frontmatter,
+                    target=target,
+                    resource=resource,
+                    name=name,
+                    runtime=_runtime(),
+                    fix_links=fix_links,
+                )
         except (ValueError, FileNotFoundError) as e:
             return _fmt_error(str(e))
         except Exception as e:
@@ -1308,11 +1331,12 @@ def brain_action(
     """
     with _trace_tool("brain_action", action=action, params=params):
         try:
-            return _server_actions.handle_brain_action(
-                action=action,
-                params=params,
-                runtime=_runtime(),
-            )
+            with _serialize_mutation(f"brain_action:{action}"):
+                return _server_actions.handle_brain_action(
+                    action=action,
+                    params=params,
+                    runtime=_runtime(),
+                )
 
         except Exception as e:
             if _logger:
@@ -1411,6 +1435,16 @@ def brain_process(
     """
     with _trace_tool("brain_process", operation=operation):
         try:
+            if operation == "ingest":
+                with _serialize_mutation(f"brain_process:{operation}"):
+                    return _server_content.handle_brain_process(
+                        operation=operation,
+                        content=content,
+                        type=type,
+                        title=title,
+                        mode=mode,
+                        runtime=_runtime(),
+                    )
             return _server_content.handle_brain_process(
                 operation=operation,
                 content=content,

@@ -92,7 +92,7 @@ The compiled router (`.brain/local/compiled-router.json`) is the interface betwe
 
 ### Scripts as single source of truth
 
-The MCP server is a thin wrapper. All vault operation logic lives in `.brain-core/scripts/` as importable Python modules, each with a CLI entry point. The server imports functions from scripts and adds only MCP transport, in-memory caching, and Obsidian CLI delegation. This means agents without MCP use the scripts directly and get identical results. New operations are always implemented as scripts first, then exposed via MCP — never the reverse.
+The MCP server is a thin wrapper. All vault operation logic lives in `.brain-core/scripts/` as importable Python modules, each with a CLI entry point. The server imports functions from scripts and adds MCP transport, in-memory caching, process-local mutation serialization for mutating tool calls, and Obsidian CLI delegation. This means agents without MCP use the scripts directly and get identical results. New operations are always implemented as scripts first, then exposed via MCP — never the reverse.
 
 ### Three-layer config merge
 
@@ -130,5 +130,5 @@ All modes begin with the `Agents.md` bootstrap directive, which points agents to
 
 - `bounded-contexts.md` — bounded context map, responsibilities, and import policy
 - `decisions/` — individual design decisions (rationale, trade-offs, status)
-- `security.md` — detailed security model (to be created)
-- `../functional/` — tool and script reference documentation (to be created)
+- `security.md` — detailed security model
+- `../functional/` — tool and script reference documentation

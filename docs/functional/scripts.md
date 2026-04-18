@@ -31,12 +31,14 @@ Operational reference for scripts in `.brain-core/scripts/`. Each script exposes
 
 ## Architecture
 
-The MCP server is a thin wrapper that imports functions from scripts and holds the compiled router and search index in memory. Scripts are the single implementation — the server adds only MCP transport, in-memory caching, and Obsidian CLI delegation. This means:
+The MCP server is a thin wrapper that imports functions from scripts and holds the compiled router and search index in memory. Scripts are the single implementation — the server adds MCP transport, in-memory caching, process-local mutation serialization for mutating tool calls, and Obsidian CLI delegation. This means:
 
 - Agents without MCP use scripts directly — same logic, same results
 - No logic duplication between MCP and CLI paths
 - The server gets in-memory caching for free (router/index loaded at startup)
+- The server, not the script layer, owns the policy that mutating MCP calls do not overlap in one process
 - Standalone scripts pay a cold-start cost reading JSON from disk
+- Standalone or multi-process script callers still need to coordinate their own concurrent writes when they target the same files
 - New operations are implemented as scripts first, then exposed via MCP
 
 ## compile_router.py

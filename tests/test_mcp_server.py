@@ -3,6 +3,7 @@
 import json
 import os
 import subprocess
+import threading
 import time
 from unittest.mock import patch
 
@@ -3523,6 +3524,52 @@ class TestToolCallTracing:
         log_path = initialized / ".brain" / "local" / "mcp-server.log"
         content = log_path.read_text()
         assert "tool args:" not in content
+
+
+class TestMutationSerialization:
+    def test_brain_edit_calls_are_serialized(self, initialized):
+        active = 0
+        max_active = 0
+        state_lock = threading.Lock()
+        first_entered = threading.Event()
+        second_entered = threading.Event()
+        release_first = threading.Event()
+        results = []
+
+        def fake_handle_brain_edit(**_kwargs):
+            nonlocal active, max_active
+            with state_lock:
+                active += 1
+                max_active = max(max_active, active)
+                first_call = not first_entered.is_set()
+            if first_call:
+                first_entered.set()
+                release_first.wait(timeout=2)
+            else:
+                second_entered.set()
+            time.sleep(0.01)
+            with state_lock:
+                active -= 1
+            return "ok"
+
+        def invoke():
+            results.append(server.brain_edit(operation="edit", path="test.md", body="x"))
+
+        with patch.object(server._server_artefacts, "handle_brain_edit", side_effect=fake_handle_brain_edit):
+            t1 = threading.Thread(target=invoke)
+            t2 = threading.Thread(target=invoke)
+            t1.start()
+            assert first_entered.wait(timeout=1)
+            t2.start()
+            time.sleep(0.05)
+            assert not second_entered.is_set()
+            release_first.set()
+            t1.join(timeout=1)
+            t2.join(timeout=1)
+
+        assert results == ["ok", "ok"]
+        assert second_entered.is_set()
+        assert max_active == 1
 
 
 class TestShutdownLogging:

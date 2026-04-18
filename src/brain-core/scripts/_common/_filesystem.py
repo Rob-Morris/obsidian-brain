@@ -69,11 +69,10 @@ def safe_write(path, content, *, encoding="utf-8", bounds=None,
     atomically replaces the target via ``os.replace``.  Returns the resolved
     path that was actually written to.
 
-    **Concurrency note:** the temp filename is keyed on PID only
-    (``{target}.{pid}.tmp``).  Two threads in the same process writing the
-    same target concurrently would collide on the temp path.  All current
-    callers are single-threaded CLI invocations, so this is safe in practice
-    — but add thread-id or a tempfile random suffix if that ever changes.
+    **Concurrency note:** each call uses a unique tempfile in the destination
+    directory, so same-process concurrent writes to the same target do not
+    collide on a shared ``.tmp`` path. Higher-level last-writer-wins races are
+    still possible when callers mutate the same file concurrently.
     """
     if bounds is not None:
         target = resolve_and_check_bounds(path, bounds,
@@ -90,9 +89,13 @@ def safe_write(path, content, *, encoding="utf-8", bounds=None,
 
     os.makedirs(os.path.dirname(target) or ".", exist_ok=True)
 
-    tmp_path = f"{target}.{os.getpid()}.tmp"
+    fd, tmp_path = tempfile.mkstemp(
+        prefix=os.path.basename(target) + ".",
+        suffix=".tmp",
+        dir=os.path.dirname(target) or ".",
+    )
     try:
-        with open(tmp_path, "w", encoding=encoding) as f:
+        with os.fdopen(fd, "w", encoding=encoding) as f:
             f.write(content)
             f.flush()
             os.fsync(f.fileno())

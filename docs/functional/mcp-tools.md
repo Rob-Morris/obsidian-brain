@@ -19,6 +19,12 @@ modules, but the external tool contracts documented here stay unchanged.
 | `brain_action` | Vault-wide / destructive — require explicit approval | Compile, rename, delete, convert, archive, and other multi-file ops |
 | `brain_process` | Classify/resolve: read-only; ingest: creates/updates files | Content classification, duplicate resolution, ingestion |
 
+Mutating MCP calls are serialized within one server process. This applies to
+`brain_create`, `brain_edit`, `brain_action`, and `brain_process` when
+`operation="ingest"`. The lock lives in the MCP wrapper only: scripts remain
+the source of truth for mutation behavior, and direct script callers must still
+coordinate their own parallel writes.
+
 ## Tool Specifications
 
 ### brain_session

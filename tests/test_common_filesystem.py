@@ -2,6 +2,7 @@
 
 import os
 import tempfile
+import threading
 
 import pytest
 
@@ -152,6 +153,35 @@ class TestSafeWrite:
             common.safe_write(target, "content")
         remaining = list(tmp_path.iterdir())
         assert not any(str(f).endswith(".tmp") for f in remaining)
+
+    def test_concurrent_same_target_uses_unique_tempfiles(self, tmp_path, monkeypatch):
+        target = tmp_path / "out.txt"
+        barrier = threading.Barrier(2)
+        real_fsync = os.fsync
+        errors = []
+
+        def synced_fsync(fd):
+            barrier.wait(timeout=2)
+            return real_fsync(fd)
+
+        monkeypatch.setattr("_common._filesystem.os.fsync", synced_fsync)
+
+        def writer(content):
+            try:
+                common.safe_write(target, content)
+            except Exception as e:  # pragma: no cover - asserted below
+                errors.append(e)
+
+        t1 = threading.Thread(target=writer, args=("one",))
+        t2 = threading.Thread(target=writer, args=("two",))
+        t1.start()
+        t2.start()
+        t1.join(timeout=2)
+        t2.join(timeout=2)
+
+        assert not errors
+        assert target.read_text() in {"one", "two"}
+        assert not any(p.suffix == ".tmp" for p in tmp_path.iterdir())
 
 
 # ---------------------------------------------------------------------------

@@ -2,6 +2,14 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.29.1 — 2026-04-18
+
+**Harden concurrent mutation handling in the MCP server and shared write path.** `safe_write()` now uses a unique sibling tempfile per write instead of a PID-scoped temp name, eliminating same-process tmp-file collisions when two threads target the same file. The MCP wrapper also serializes mutating tool calls inside one server process so vault-wide rewrite paths cannot interleave with parallel `brain_create`, `brain_edit`, `brain_action`, or `brain_process(..., operation="ingest")` calls.
+
+- `src/brain-core/scripts/_common/_filesystem.py` now allocates temp files with `tempfile.mkstemp()` in the destination directory, keeps the same fsync + `os.replace` atomic write pattern, and documents the remaining higher-level last-writer-wins caveat for truly concurrent writers.
+- `src/brain-core/brain_mcp/server.py` adds a process-local mutation lock around `brain_create`, `brain_edit`, `brain_action`, and `brain_process("ingest")`, preserving the scripts-as-source-of-truth split while moving concurrency policy into the MCP wrapper.
+- Added regression coverage for concurrent same-target `safe_write()` calls and for serialized concurrent `brain_edit` calls in `tests/test_common_filesystem.py` and `tests/test_mcp_server.py`.
+
 ## v0.29.0 — 2026-04-18
 
 **Frontmatter-backed filename rendering — filenames are now a pure function of frontmatter.** The v0.28.6 status-aware naming contract restamped temporal artefacts on every edit because `_now` was threaded through the render stack independently of frontmatter. v0.29.0 removes `_now` from the naming engine entirely: every naming rule binds its date tokens to a `date_source` frontmatter field, and rendering reads that field. Creates, edits, renames, and migrations all round-trip through the same reconciled frontmatter state.

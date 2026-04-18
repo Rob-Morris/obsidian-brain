@@ -1,8 +1,9 @@
 # Security Model
 
 Brain-core applies a layered security model to all vault writes. The layers are:
-path boundary enforcement, write-guard filtering, privilege-split profiles, and atomic
-writes. Each layer is independent; all must pass for a write to succeed.
+path boundary enforcement, write-guard filtering, privilege-split profiles,
+process-local mutation serialization in the MCP wrapper, and atomic writes.
+Each layer is independent; all must pass for a write to succeed.
 
 ---
 
@@ -145,19 +146,21 @@ implements the tmp-fsync-rename pattern:
 
 1. **Bounds check** — `resolve_and_check_bounds()` runs first; no I/O begins for
    out-of-bounds paths.
-2. **Write to sibling temp file** — Content is written to `{target}.{pid}.tmp` in the
-   same directory. A sibling file on the same filesystem guarantees that `os.replace()`
-   is a single `rename(2)` syscall — atomic on POSIX.
+2. **Write to a unique sibling temp file** — Content is written to a fresh
+   `mkstemp()` path in the same directory as the target. Keeping the temp file on
+   the same filesystem guarantees that `os.replace()` is a single `rename(2)`
+   syscall — atomic on POSIX.
 3. **`f.flush()` + `os.fsync(f.fileno())`** — Flushes the OS page cache to stable
    storage before the rename, so a crash after the rename cannot produce an empty file.
 4. **`os.replace(tmp, target)`** — Atomically replaces the target. The old content
    remains intact until the rename completes. If the rename fails, the original file
    is untouched.
 5. **Cleanup on any exception** — A `BaseException` handler unlinks the tmp file if
-   any step fails, preventing `.pid.tmp` orphans in the vault.
+   any step fails, preventing orphan temp files in the vault.
 
-**PID in temp name:** `{target}.{pid}.tmp` avoids collisions when concurrent processes
-write to the same target.
+**Unique temp names:** Because each call gets its own sibling temp path, two
+threads in the same process no longer collide on a shared temp filename when they
+target the same file.
 
 **Exclusive mode:** `safe_write(exclusive=True)` (used by `brain_create`) checks file
 existence before writing, providing a lightweight create-or-fail guarantee.
@@ -169,7 +172,38 @@ to `safe_write`.
 the complete new content on disk — never a partial write. This is essential because
 Obsidian has no crash recovery, and a corrupted artefact may not be noticed immediately.
 
+**What it does not guarantee:** `safe_write()` is an atomic replacement primitive,
+not a transaction manager. If two independent callers both read-modify-write the
+same target concurrently, the later replace still wins. Higher-level coordination
+is required for multi-file rewrite flows and concurrent writers in multiple
+processes.
+
 See: [DD-036: Safe write pattern](decisions/dd-036-safe-write-pattern.md)
+
+---
+
+## MCP Mutation Serialization
+
+Within the MCP server process, mutating tool calls are serialized behind a
+process-local lock. This applies to:
+
+- `brain_create`
+- `brain_edit`
+- `brain_action`
+- `brain_process(operation="ingest")`
+
+**Why it exists:** some script paths that look single-file can trigger broader
+vault mutations, such as status-driven moves and vault-wide wikilink rewrites.
+Serializing mutating MCP calls prevents those flows from interleaving inside one
+shared server process.
+
+**Why it lives in the MCP layer:** the script layer remains the source of truth
+for vault behavior. The lock is runtime orchestration policy, so it belongs in
+the wrapper rather than in the domain scripts themselves.
+
+**Scope limit:** this protects one MCP server process only. Direct script users
+and multi-process callers still need their own coordination if they perform
+parallel writes against the same vault.
 
 ---
 
