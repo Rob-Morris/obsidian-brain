@@ -350,15 +350,36 @@ class TestResolveNamingPattern:
         result = resolve_naming_pattern("{Title}.md", "Q3 / Q4 Review")
         assert result == "Q3 Q4 Review.md"
 
-    def test_date_pattern_uses_injected_now(self):
-        fixed = datetime(2026, 1, 15, 0, 0, 0, tzinfo=timezone(timedelta(hours=11)))
-        result = resolve_naming_pattern("yyyymmdd-log~{slug}.md", "My Entry", _now=fixed)
+    def test_date_pattern_uses_date_source(self):
+        result = resolve_naming_pattern(
+            "yyyymmdd-log~{slug}.md",
+            "My Entry",
+            variables={"created": "2026-01-15T00:00:00+11:00"},
+            date_source="created",
+        )
         assert result == "20260115-log~My Entry.md"
 
-    def test_mmdd_pattern_uses_injected_now(self):
-        fixed = datetime(2026, 3, 7, 0, 0, 0, tzinfo=timezone(timedelta(hours=11)))
-        result = resolve_naming_pattern("yyyy-mm-dd~{slug}.md", "Entry", _now=fixed)
+    def test_mmdd_pattern_uses_date_source(self):
+        result = resolve_naming_pattern(
+            "yyyy-mm-dd~{slug}.md",
+            "Entry",
+            variables={"created": "2026-03-07T00:00:00+11:00"},
+            date_source="created",
+        )
         assert result == "2026-03-07~Entry.md"
+
+    def test_date_pattern_without_date_source_raises(self):
+        with pytest.raises(ValueError, match="date_source"):
+            resolve_naming_pattern("yyyymmdd-log~{slug}.md", "My Entry")
+
+    def test_date_pattern_with_missing_field_raises(self):
+        with pytest.raises(ValueError, match="parseable 'created'"):
+            resolve_naming_pattern(
+                "yyyymmdd-log~{slug}.md",
+                "My Entry",
+                variables={},
+                date_source="created",
+            )
 
     def test_missing_custom_variable_raises(self):
         with pytest.raises(ValueError, match=r"\{Version\}"):

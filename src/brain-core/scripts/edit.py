@@ -30,6 +30,8 @@ from _common import (
     make_temp_path,
     now_iso,
     parse_frontmatter,
+    reconcile_date_source,
+    reconcile_timestamps,
     render_filename,
     render_filename_or_default,
     replace_wikilinks_in_vault,
@@ -39,6 +41,7 @@ from _common import (
     resolve_type,
     resolve_wikilink_stems,
     safe_write,
+    select_rule,
     serialize_frontmatter,
     parse_structural_anchor_line,
     strip_md_ext,
@@ -525,6 +528,76 @@ def _maybe_status_move(vault_root, path, terminal_statuses, frontmatter_changes)
     return new_path
 
 
+def _apply_status_change_hooks(fields, old_fields, art):
+    """Apply ``{status}_at`` convention and ``on_status_change`` hooks.
+
+    When ``status`` changes value, set ``{status}_at = now()`` (ISO date) for
+    the new status unless the type's ``on_status_change`` hook overrides the
+    field name. Also backfills ``{status}_at`` when a status is observed for
+    the first time without its timestamp (reconcile path).
+    """
+    new_status = fields.get("status")
+    old_status = (old_fields or {}).get("status")
+    if not new_status:
+        return
+    changed = new_status != old_status
+    if not changed:
+        return
+    today = now_iso()[:10]
+    hook = ((art or {}).get("on_status_change") or {}).get(new_status) or {}
+    set_map = hook.get("set") or {}
+    for field_name, raw_value in set_map.items():
+        if fields.get(field_name):
+            continue
+        value = today if str(raw_value).lower() in ("now", "today") else raw_value
+        fields[field_name] = value
+    default_field = f"{new_status}_at"
+    if default_field not in set_map and not fields.get(default_field):
+        fields[default_field] = today
+
+
+def _reconcile_fields_for_render(fields, art, abs_path, filename):
+    """Reconcile timestamps + type-specific date_source before rendering.
+
+    Mutates ``fields`` in place. ``art`` may be partially resolved (``naming``
+    optional). Falls back gracefully when ``select_rule`` returns None.
+    """
+    reconcile_timestamps(fields, abs_path, filename=filename)
+    naming = (art or {}).get("naming")
+    if naming:
+        rule = select_rule(naming, fields)
+        if rule:
+            try:
+                reconcile_date_source(fields, abs_path, filename, naming, rule)
+            except ValueError:
+                pass
+    return fields
+
+
+def _maybe_relocate_temporal_month(vault_root, path, art, fields):
+    """Relocate a temporal artefact to ``_Temporal/<Type>/yyyy-mm/`` for its ``created``.
+
+    Returns the (possibly-updated) path. No-op for living artefacts, archived
+    files, or artefacts already in the correct month folder.
+    """
+    if (art or {}).get("classification") != "temporal":
+        return path
+    if is_archived_path(path):
+        return path
+    try:
+        target_folder = resolve_folder(art, fields=fields)
+    except ValueError:
+        return path
+    current_folder = os.path.dirname(path)
+    if current_folder == target_folder:
+        return path
+    new_path = os.path.join(target_folder, os.path.basename(path))
+    abs_target = os.path.join(vault_root, target_folder)
+    os.makedirs(abs_target, exist_ok=True)
+    rename_and_update_links(vault_root, path, new_path)
+    return new_path
+
+
 def _maybe_rename_on_field_change(vault_root, path, art, old_fields, new_fields):
     """Rename artefact file if frontmatter changes imply a new basename.
 
@@ -557,8 +630,18 @@ def _maybe_rename_on_field_change(vault_root, path, art, old_fields, new_fields)
 def _finish_artefact(vault_root, abs_path, fields, old_body, new_body, path, art,
                      frontmatter_changes, operation, old_fields=None):
     """Save artefact, rename on name-driving change, status-move, return result."""
+    _apply_status_change_hooks(fields, old_fields, art)
+    had_explicit_created = bool((old_fields or {}).get("created")) or bool(
+        (frontmatter_changes or {}).get("created")
+    )
+    _reconcile_fields_for_render(fields, art, abs_path, os.path.basename(path))
     _save_artefact(abs_path, fields, new_body, vault_root)
     resolved_path = path
+    if art.get("classification") == "temporal" and had_explicit_created:
+        new_path = _maybe_relocate_temporal_month(vault_root, path, art, fields)
+        if new_path != path:
+            path = new_path
+            abs_path = os.path.join(vault_root, path)
     if old_fields is not None:
         new_path = _maybe_rename_on_field_change(vault_root, path, art, old_fields, fields)
         if new_path != path:
@@ -781,6 +864,7 @@ def convert_artefact(vault_root, router, path, target_type, parent=None):
         stem = os.path.splitext(os.path.basename(path))[0]
         source_naming = source_art.get("naming")
         title = extract_title(source_naming, fields, stem) or stem
+    _reconcile_fields_for_render(fields, target_art, abs_source, os.path.basename(path))
     new_filename = render_filename_or_default(target_art.get("naming"), title, fields)
 
     if parent is None and target_art.get("classification") != "temporal":
@@ -790,7 +874,7 @@ def convert_artefact(vault_root, router, path, target_type, parent=None):
 
     # Compute new path. Reuse the standard same-folder collision suffix so
     # converting same-titled artefacts never overwrites an existing target.
-    target_folder = resolve_folder(target_art, parent=parent)
+    target_folder = resolve_folder(target_art, parent=parent, fields=fields)
     target_abs_folder = os.path.join(vault_root, target_folder)
     candidate_new_path = os.path.join(target_folder, new_filename)
     if candidate_new_path != path:

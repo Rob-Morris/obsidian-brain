@@ -99,7 +99,9 @@ Boundary rule:
 | Module | Purpose | Functions |
 |--------|---------|-----------|
 | `_vault.py` | Vault root discovery, version, scanning, artefact matching | 8 |
-| `_artefacts.py` | Shared artefact naming, folder resolution, config-resource paths, file reads | 5 |
+| `_artefacts.py` | Shared artefact naming, folder resolution, config-resource paths, file reads, frontmatter date parsing | 6 |
+| `_naming.py` | Naming-rule selection, filename render/validate, title reverse-parse | 6 |
+| `_reconcile.py` | §5 reconciliation cascade for `created`/`modified` and type-specific `date_source` fields | 2 |
 | `_router.py` | Compiled router loading, naming-pattern matching, artefact path validation | 6 |
 | `_filesystem.py` | Safe writes, bounds checking, body file resolution | 7 |
 | `_frontmatter.py` | Frontmatter parsing and serialisation | 2 |
@@ -108,12 +110,15 @@ Boundary rule:
 | `_slugs.py` | Slug generation, title-to-filename conversion | 3 |
 | `_search.py` | BM25 tokenisation | 1 |
 | `_templates.py` | Timestamp utilities, template variable substitution | 3 |
+| `_coerce.py` | Type coercion helpers for MCP boundary | 1 |
 
 Internal dependencies flow from leaves to integrators:
 
 ```
 _slugs, _search, _markdown, _frontmatter, _templates, _vault  (standalone)
 _artefacts   → _slugs, _vault
+_naming      → _artefacts, _slugs
+_reconcile   → _artefacts
 _router      → _wikilinks
 _filesystem  → _vault
 _wikilinks   → _vault, _filesystem, _slugs

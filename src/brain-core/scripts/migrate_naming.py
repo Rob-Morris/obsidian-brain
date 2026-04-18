@@ -99,15 +99,16 @@ def compute_new_filename(filename, artefact, fields=None):
     if title is None or not naming:
         return None
 
-    now = None
-    if historical_date:
+    render_fields = dict(fields)
+    if historical_date and "created" not in render_fields:
         try:
-            now = datetime.strptime(historical_date, "%Y%m%d").replace(tzinfo=timezone.utc)
+            dt = datetime.strptime(historical_date, "%Y%m%d").replace(tzinfo=timezone.utc)
+            render_fields["created"] = dt.astimezone().isoformat()
         except ValueError:
-            now = None
+            pass
 
     try:
-        new_filename = render_filename(naming, title, fields, _now=now)
+        new_filename = render_filename(naming, title, render_fields)
     except ValueError:
         return None
 

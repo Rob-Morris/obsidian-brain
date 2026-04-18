@@ -31,17 +31,17 @@ class TestSlugToTitle:
 
 class TestComputeNewFilename:
     def test_old_temporal_pattern(self):
-        art = {"classification": "temporal", "naming": {"pattern": "yyyymmdd-plan~{Title}.md"}}
+        art = {"classification": "temporal", "naming": {"pattern": "yyyymmdd-plan~{Title}.md", "rules": [{"match_field": None, "match_values": None, "pattern": "yyyymmdd-plan~{Title}.md", "date_source": "created"}]}}
         result = migrate_naming.compute_new_filename("20260324-plan--api-refactor.md", art)
         assert result == "20260324-plan~Api Refactor.md"
 
     def test_old_temporal_multi_word_prefix(self):
-        art = {"classification": "temporal", "naming": {"pattern": "yyyymmdd-idea-log~{Title}.md"}}
+        art = {"classification": "temporal", "naming": {"pattern": "yyyymmdd-idea-log~{Title}.md", "rules": [{"match_field": None, "match_values": None, "pattern": "yyyymmdd-idea-log~{Title}.md", "date_source": "created"}]}}
         result = migrate_naming.compute_new_filename("20260324-idea-log--voice-memo.md", art)
         assert result == "20260324-idea-log~Voice Memo.md"
 
     def test_old_shaping_transcript(self):
-        art = {"classification": "temporal", "naming": {"pattern": "yyyymmdd-design-transcript~{Title}.md"}}
+        art = {"classification": "temporal", "naming": {"pattern": "yyyymmdd-design-transcript~{Title}.md", "rules": [{"match_field": None, "match_values": None, "pattern": "yyyymmdd-design-transcript~{Title}.md", "date_source": "created"}]}}
         result = migrate_naming.compute_new_filename(
             "20260307-design-transcript--pistols-at-dawn.md", art
         )
@@ -63,20 +63,20 @@ class TestComputeNewFilename:
         assert result is None  # doesn't match old aggressive slug pattern
 
     def test_temporal_already_new_style(self):
-        art = {"classification": "temporal", "naming": {"pattern": "yyyymmdd-plan~{Title}.md"}}
+        art = {"classification": "temporal", "naming": {"pattern": "yyyymmdd-plan~{Title}.md", "rules": [{"match_field": None, "match_values": None, "pattern": "yyyymmdd-plan~{Title}.md", "date_source": "created"}]}}
         result = migrate_naming.compute_new_filename("20260324-plan~API Refactor.md", art)
         assert result is None  # doesn't match old -- pattern
 
     def test_prefixless_temporal(self):
         """Old research/plan/transcript files without a type prefix."""
-        art = {"classification": "temporal", "naming": {"pattern": "yyyymmdd-research~{Title}.md"}}
+        art = {"classification": "temporal", "naming": {"pattern": "yyyymmdd-research~{Title}.md", "rules": [{"match_field": None, "match_values": None, "pattern": "yyyymmdd-research~{Title}.md", "date_source": "created"}]}}
         result = migrate_naming.compute_new_filename(
             "20260307-discord-animation-research.md", art
         )
         assert result == "20260307-research~Discord Animation Research.md"
 
     def test_prefixless_temporal_plan(self):
-        art = {"classification": "temporal", "naming": {"pattern": "yyyymmdd-plan~{Title}.md"}}
+        art = {"classification": "temporal", "naming": {"pattern": "yyyymmdd-plan~{Title}.md", "rules": [{"match_field": None, "match_values": None, "pattern": "yyyymmdd-plan~{Title}.md", "date_source": "created"}]}}
         result = migrate_naming.compute_new_filename("20260309-obsidian-brain-standard.md", art)
         assert result == "20260309-plan~Obsidian Brain Standard.md"
 

@@ -31,6 +31,7 @@ from _common import (
     scan_living_types,
     scan_temporal_types,
 )
+from _common._artefacts import pattern_has_date_tokens
 import session
 
 OUTPUT_PATH = os.path.join(".brain", "local", "compiled-router.json")
@@ -239,6 +240,7 @@ def _parse_advanced_naming(naming_text):
         match_field = _unwrap_backticks(row.get("match field", ""))
         match_values_cell = row.get("match values", "")
         pattern = _unwrap_backticks(row.get("pattern", ""))
+        date_source = _unwrap_backticks(row.get("date source", "")) or None
         if not pattern:
             raise ValueError("## Naming ### Rules row missing pattern")
         if not match_field:
@@ -256,6 +258,7 @@ def _parse_advanced_naming(naming_text):
             "match_field": match_field,
             "match_values": match_values,
             "pattern": pattern,
+            "date_source": date_source,
         })
 
     placeholders = []
@@ -339,12 +342,21 @@ def _parse_naming_section(content):
     naming_text_stripped = naming_text.strip()
     pattern_match = re.search(r"`([^`]+\.md)`", naming_text_stripped)
     folder_match = re.search(r"in `([^`]+)`", naming_text_stripped)
+    date_source_match = re.search(
+        r"date\s+source:?\s*`([^`]+)`", naming_text_stripped, re.IGNORECASE
+    )
     if not (pattern_match or folder_match):
         return None
     pattern = pattern_match.group(1) if pattern_match else None
     folder = folder_match.group(1) if folder_match else None
+    date_source = date_source_match.group(1) if date_source_match else None
     rules = (
-        [{"match_field": None, "match_values": None, "pattern": pattern}]
+        [{
+            "match_field": None,
+            "match_values": None,
+            "pattern": pattern,
+            "date_source": date_source,
+        }]
         if pattern
         else []
     )
@@ -354,6 +366,37 @@ def _parse_naming_section(content):
         "rules": rules,
         "placeholders": [],
     }
+
+
+def finalize_naming_date_sources(naming, classification, type_key):
+    """Apply classification defaults for ``date_source`` and validate.
+
+    - Temporal rules with date tokens and no explicit ``date_source`` default
+      to ``created``.
+    - Living rules with date tokens and no ``date_source`` → ``ValueError``.
+    - Rules without date tokens are left untouched (``date_source`` stays
+      whatever the taxonomy declared, typically ``None``).
+
+    Returns ``naming`` (mutated in place for the rules list).
+    """
+    if not naming:
+        return naming
+    for rule in naming.get("rules") or []:
+        pattern = rule.get("pattern") or ""
+        if not pattern_has_date_tokens(pattern):
+            continue
+        if rule.get("date_source"):
+            continue
+        if classification == "temporal":
+            rule["date_source"] = "created"
+            continue
+        raise ValueError(
+            f"Type '{type_key}' rule '{pattern}' has date tokens but no "
+            f"`date_source` declared. Add a `date source` column to the "
+            f"### Rules table (or switch to the simple one-line form without "
+            f"date tokens)."
+        )
+    return naming
 
 
 def parse_taxonomy_file(path):
@@ -366,6 +409,7 @@ def parse_taxonomy_file(path):
         "frontmatter": None,
         "trigger": None,
         "template_file": None,
+        "on_status_change": None,
     }
 
     result["naming"] = _parse_naming_section(content)
@@ -426,6 +470,31 @@ def parse_taxonomy_file(path):
         link_match = re.search(r"\[\[([^\]|]+?)(?:\|[^\]]+)?\]\]", template_text)
         if link_match:
             result["template_file"] = link_match.group(1)
+
+    # Parse ## On Status Change — optional per-status hook that overrides the
+    # {status}_at convention. Format:
+    #
+    #   ## On Status Change
+    #
+    #   When `status` transitions to `published`, set `publisheddate` to today.
+    #
+    # Compiles to {"published": {"set": {"publisheddate": "today"}}}.
+    hooks_match = re.search(
+        r"^## On Status Change\s*\n(.*?)(?=^## |\Z)", content, re.MULTILINE | re.DOTALL
+    )
+    if hooks_match:
+        hooks = {}
+        for m in re.finditer(
+            r"transitions?\s+to\s+`([^`]+)`[^\n]*?set\s+`([^`]+)`\s+to\s+([^\n.]+)",
+            hooks_match.group(1),
+            re.IGNORECASE,
+        ):
+            status_val = m.group(1).strip()
+            field_name = m.group(2).strip()
+            raw_value = m.group(3).strip().rstrip(".").strip("`").strip()
+            hooks.setdefault(status_val, {}).setdefault("set", {})[field_name] = raw_value
+        if hooks:
+            result["on_status_change"] = hooks
 
     return result
 
@@ -759,6 +828,9 @@ def compile(vault_root):
         if tax_rel:
             track(tax_rel)
             parsed = parse_taxonomy_file(os.path.join(vault_root, tax_rel))
+            parsed["naming"] = finalize_naming_date_sources(
+                parsed.get("naming"), classification, t["key"]
+            )
             artefacts.append({
                 "folder": t["folder"],
                 "type": t["type"],
@@ -771,6 +843,7 @@ def compile(vault_root):
                 "trigger": parsed["trigger"],
                 "taxonomy_file": tax_rel,
                 "template_file": parsed["template_file"],
+                "on_status_change": parsed.get("on_status_change"),
                 "path": t["path"],
             })
         else:
@@ -786,6 +859,7 @@ def compile(vault_root):
                 "trigger": None,
                 "taxonomy_file": None,
                 "template_file": None,
+                "on_status_change": None,
                 "path": t["path"],
             })
 

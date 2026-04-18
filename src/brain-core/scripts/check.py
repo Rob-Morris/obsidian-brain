@@ -234,6 +234,34 @@ def check_frontmatter_required(vault_root, router):
     return findings
 
 
+def check_missing_timestamps(vault_root, router):
+    """Flag artefacts missing `created` or `modified` in frontmatter."""
+    findings = []
+    for art in router.get("artefacts", []):
+        if not art.get("configured"):
+            continue
+        for rel_path in find_type_files(vault_root, art["path"], skip_archive=True):
+            abs_path = os.path.join(vault_root, rel_path)
+            try:
+                with open(abs_path, "r", encoding="utf-8") as f:
+                    text = f.read()
+            except (OSError, UnicodeDecodeError):
+                continue
+            fields, _ = parse_frontmatter(text)
+            if not fields:
+                continue
+            missing = [k for k in ("created", "modified") if not fields.get(k)]
+            if missing:
+                findings.append({
+                    "check": "missing_timestamps",
+                    "severity": "warning",
+                    "file": rel_path,
+                    "message": f"Missing timestamp field(s): {', '.join(missing)}",
+                    "fix": "Edit the file once — reconciliation will populate the missing timestamps.",
+                })
+    return findings
+
+
 def check_month_folders(vault_root, router):
     """Check temporal files are in yyyy-mm/ subfolders."""
     findings = []
@@ -527,6 +555,7 @@ ALL_CHECKS = [
     check_naming,
     check_frontmatter_type,
     check_frontmatter_required,
+    check_missing_timestamps,
     check_month_folders,
     check_archive_metadata,
     check_status_values,

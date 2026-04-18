@@ -80,13 +80,12 @@ def create_artefact(vault_root, router, type_key, title, body="", frontmatter_ov
     now_iso = now.isoformat()
 
     # Seed frontmatter before filename generation so naming patterns can
-    # reference template/frontmatter values such as {Version}.
+    # reference template/frontmatter values such as {Version}, and so that
+    # date tokens resolve from the reconciled ``created`` / ``date_source``
+    # field rather than the wallclock.
     fields = dict(template_fields)
     if frontmatter_overrides:
         fields.update(frontmatter_overrides)
-
-    filename = render_filename_or_default(artefact.get("naming"), title, fields, _now=now)
-    folder = resolve_folder(artefact, parent=parent, _now=now)
 
     if artefact.get("frontmatter") and artefact["frontmatter"].get("type"):
         fields["type"] = artefact["frontmatter"]["type"]
@@ -94,6 +93,9 @@ def create_artefact(vault_root, router, type_key, title, body="", frontmatter_ov
         fields["created"] = now_iso
     if "modified" not in fields:
         fields["modified"] = now_iso
+
+    filename = render_filename_or_default(artefact.get("naming"), title, fields)
+    folder = resolve_folder(artefact, parent=parent, fields=fields)
 
     final_body = body if body else template_body
     if not body and final_body:

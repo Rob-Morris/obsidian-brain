@@ -49,11 +49,40 @@ When creating a new temporal artefact type, choose a short prefix that matches t
 
 Most living types use the title directly as the filename with no date or type prefix — the folder provides the type context (e.g. `Designs/Brain App Auth.md` is a design, `Wiki/Rust Lifetimes.md` is a wiki page).
 
-**Date-prefixed living types:** Some user-facing living types prepend a creation date for chronological sort ordering in Obsidian's file explorer:
-- **Notes** — `yyyymmdd - {Title}.md` (e.g. `20260315 - Rust Lifetimes.md`). The date helps users browse notes chronologically. The note itself is a living document — meant to be updated and expanded over time.
+**Date-prefixed living types:** Some user-facing living types prepend a date for chronological sort ordering in Obsidian's file explorer:
+- **Notes** — `yyyymmdd - {Title}.md` (e.g. `20260315 - Rust Lifetimes.md`). Date helps users browse notes chronologically. The note itself is a living document — meant to be updated and expanded over time.
 - **Daily Notes** — `yyyy-mm-dd ddd.md` (e.g. `2026-03-15 Sun.md`). A daily working document that the user builds throughout the day.
+- **Writing** — `yyyymmdd-{Title}.md` once published (drafts use `{Title}.md`).
 
-These date prefixes are a practical UX choice for human browsing, not a temporal signal. The files remain living artefacts — they evolve and can be updated at any time.
+Date prefixes are a synchronised signal derived from a source-of-truth frontmatter field. Humans and agents can read the filename; frontmatter remains authoritative. If filename and frontmatter disagree, frontmatter wins and the file is renamed on next edit — never the other way around.
+
+## Date Source and Reconciliation
+
+Every naming rule that uses a date token (`yyyymmdd`, `yyyy-mm-dd`, etc.) binds those tokens to a specific frontmatter field via `date_source`. The compiler validates this at router build time.
+
+**Classification defaults and overrides:**
+
+- **Temporal** artefacts default to `date_source: created` — no declaration needed on the rule.
+- **Living** artefacts with date tokens *must* declare `date_source` explicitly. Compile fails otherwise.
+
+**Declared `date_source` examples:**
+
+- `living/daily-notes` → `date_source: date` (a dedicated per-type field; the subject date of the note, which may differ from physical creation when notes are backfilled)
+- `living/writing` (on the `published` rule) → `date_source: publisheddate`
+- `living/release` (on the `shipped` rule) → `date_source: shipped_at`
+
+**The `{status}_at` convention.** When a status transition is observed, the runtime sets `{status}_at = now()` unless the type declares an `on_status_change` override. Example: `writing` transitioning to `published` runs `on_status_change: { published: { set: { publisheddate: now } } }` because its date field is `publisheddate`, not `published_at`. Types whose status-date field follows the `{status}_at` convention need no override.
+
+**Reconciliation cascade.** When the runtime (edit, migration) needs a timestamp and frontmatter is incomplete, it applies this cascade, in order:
+
+1. Frontmatter value if present and parseable.
+2. Date prefix from the filename (`yyyymmdd` / `yyyy-mm-dd`) — `created` only.
+3. File `mtime` — last resort.
+4. `now()` — only when nothing else is available.
+
+Reconciliation is idempotent: a second pass is a no-op. It runs only on write paths (`edit`, `rename`, migration) — `brain_read` is side-effect-free. Once reconciled, the values are written back to frontmatter and the filename is re-rendered from the selected rule; any disagreement is resolved in favour of the reconciled frontmatter.
+
+**One-time migration.** Vaults upgrading through v0.29.0 run `migrate_to_0_29_0.py` once via `upgrade.py` to backfill `created`, `modified`, and any type-specific `date_source` fields across every artefact. Temporal artefacts whose resolved `created` falls in a different month than their current folder are relocated (wikilink-safe). The `check missing-timestamps` warning surfaces stragglers that arrive afterwards — a single edit reconciles them.
 
 ## Status-Aware and Frontmatter-Backed Naming
 

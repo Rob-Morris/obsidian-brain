@@ -224,7 +224,12 @@ class TestParseTaxonomyFile:
         assert result["naming"]["pattern"] == "{slug}.md"
         assert result["naming"]["folder"] == "Wiki/"
         assert result["naming"]["rules"] == [
-            {"match_field": None, "match_values": None, "pattern": "{slug}.md"}
+            {
+                "match_field": None,
+                "match_values": None,
+                "pattern": "{slug}.md",
+                "date_source": None,
+            }
         ]
         assert result["naming"]["placeholders"] == []
         assert result["frontmatter"]["type"] == "living/wiki"
@@ -275,11 +280,13 @@ class TestAdvancedNaming:
                 "match_field": "status",
                 "match_values": ["planned", "active", "cancelled"],
                 "pattern": "{Title}.md",
+                "date_source": None,
             },
             {
                 "match_field": "status",
                 "match_values": ["shipped"],
                 "pattern": "{Version} - {Title}.md",
+                "date_source": None,
             },
         ]
 

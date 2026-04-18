@@ -20,9 +20,11 @@ When recording standalone knowledge about a concept — more personal and inform
 
 ## Naming
 
-`yyyymmdd - {Title}.md` in `Notes/`.
+`yyyymmdd - {Title}.md` in `Notes/`, date source `created`.
 
 Example: `Notes/20260315 - Rust Lifetimes.md`
+
+The `yyyymmdd` prefix is rendered from `created`. Backdate a note by setting `created` in frontmatter before saving.
 
 ## Frontmatter
 

@@ -22,12 +22,7 @@ When crafting a self-contained piece of written work — essay, post, chapter, l
 
 ## Terminal Status
 
-When a piece reaches `published` status, `brain_edit` automatically moves it to `Writing/+Published/`. Additional steps before or after the move:
-
-1. Add `publisheddate: YYYY-MM-DD` to frontmatter
-2. Optionally date-prefix the filename (`yyyymmdd-{slug}.md`) using `brain_action("rename")`
-
-Published writing remains searchable and indexed in `+Published/`. Companion files (HTML pastes, exports) belong in `Assets/Attachments/` or `Assets/Generated/`, not alongside the writing file.
+When a piece reaches `published` status, `brain_edit` automatically moves it to `Writing/+Published/` and renames the file with a `yyyymmdd-` prefix (rendered from `publisheddate`). The `publisheddate` is set to today on the transition into `published` unless already present. Companion files (HTML pastes, exports) belong in `Assets/Attachments/` or `Assets/Generated/`, not alongside the writing file.
 
 ## Archiving
 
@@ -41,10 +36,21 @@ The status stays `published` — archiving is an action, not a status.
 
 ## Naming
 
-`{Title}.md` in `Writing/` (or `Writing/{project-slug}/{Title}.md` for grouped pieces).
+Primary folder: `Writing/`.
 
-Example: `Writing/On Tool Use.md`
-Example: `Writing/my-novel/Chapter 1.md`
+### Rules
+
+| Match field | Match values | Pattern | Date source |
+|---|---|---|---|
+| `status` | `draft`, `editing`, `review`, `parked` | `{Title}.md` |  |
+| `status` | `published` | `yyyymmdd-{Title}.md` | `publisheddate` |
+
+Example (draft): `Writing/On Tool Use.md`
+Example (published): `Writing/+Published/20260315-On Tool Use.md`
+
+## On Status Change
+
+When `status` transitions to `published`, set `publisheddate` to today (if not already present).
 
 ## Frontmatter
 
@@ -56,6 +62,8 @@ tags:
 status: draft
 ---
 ```
+
+`publisheddate: YYYY-MM-DD` is required when `status: published`.
 
 ## Template
 

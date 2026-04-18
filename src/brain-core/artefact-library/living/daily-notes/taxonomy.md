@@ -12,9 +12,11 @@ When writing an end-of-day summary. Use the day's log as source material — dis
 
 ## Naming
 
-`yyyy-mm-dd ddd.md` in `Daily Notes/`.
+`yyyy-mm-dd ddd.md` in `Daily Notes/`, date source `date`.
 
 Example: `Daily Notes/2026-03-15 Sun.md`
+
+The `date` frontmatter field is the subject date of the note — the day the note covers, which may differ from `created` when backfilling a missed day. The filename is a rendering of `date`.
 
 ## Frontmatter
 
@@ -23,6 +25,7 @@ Example: `Daily Notes/2026-03-15 Sun.md`
 type: living/daily-note
 tags:
   - daily-note
+date:
 ---
 ```
 

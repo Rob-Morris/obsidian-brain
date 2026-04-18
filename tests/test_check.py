@@ -407,6 +407,58 @@ class TestCheckMonthFolders:
 
 
 # ---------------------------------------------------------------------------
+# TestCheckMissingTimestamps
+# ---------------------------------------------------------------------------
+
+class TestCheckMissingTimestamps:
+    def test_file_with_both_timestamps_passes(self, vault):
+        tmp_path, router = vault
+        write_md(tmp_path / "Wiki" / "with-ts.md",
+                 {"type": "living/wiki", "tags": ["wiki"],
+                  "created": "2026-03-15T09:00:00+11:00",
+                  "modified": "2026-03-15T09:00:00+11:00"})
+        findings = check.check_missing_timestamps(str(tmp_path), router)
+        assert not any("with-ts" in f.get("file", "") for f in findings)
+
+    def test_missing_created_flagged_as_warning(self, vault):
+        tmp_path, router = vault
+        write_md(tmp_path / "Wiki" / "no-created.md",
+                 {"type": "living/wiki", "tags": ["wiki"],
+                  "modified": "2026-03-15T09:00:00+11:00"})
+        findings = check.check_missing_timestamps(str(tmp_path), router)
+        hits = [f for f in findings if "no-created" in f.get("file", "")]
+        assert len(hits) == 1
+        assert hits[0]["severity"] == "warning"
+        assert "created" in hits[0]["message"]
+
+    def test_missing_modified_flagged(self, vault):
+        tmp_path, router = vault
+        write_md(tmp_path / "Wiki" / "no-modified.md",
+                 {"type": "living/wiki", "tags": ["wiki"],
+                  "created": "2026-03-15T09:00:00+11:00"})
+        findings = check.check_missing_timestamps(str(tmp_path), router)
+        hits = [f for f in findings if "no-modified" in f.get("file", "")]
+        assert len(hits) == 1
+        assert "modified" in hits[0]["message"]
+
+    def test_missing_both_flagged_once(self, vault):
+        tmp_path, router = vault
+        write_md(tmp_path / "Wiki" / "no-ts.md",
+                 {"type": "living/wiki", "tags": ["wiki"]})
+        findings = check.check_missing_timestamps(str(tmp_path), router)
+        hits = [f for f in findings if "no-ts" in f.get("file", "")]
+        assert len(hits) == 1
+        assert "created" in hits[0]["message"]
+        assert "modified" in hits[0]["message"]
+
+    def test_no_frontmatter_skipped(self, vault):
+        tmp_path, router = vault
+        (tmp_path / "Wiki" / "plain.md").write_text("# No frontmatter\n")
+        findings = check.check_missing_timestamps(str(tmp_path), router)
+        assert not any("plain" in f.get("file", "") for f in findings)
+
+
+# ---------------------------------------------------------------------------
 # TestCheckArchiveMetadata
 # ---------------------------------------------------------------------------
 

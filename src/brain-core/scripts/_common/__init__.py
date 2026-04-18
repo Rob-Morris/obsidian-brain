@@ -30,6 +30,7 @@ from ._router import (
 
 from ._artefacts import (
     config_resource_rel_path,
+    parse_date_value,
     read_file_content,
     resolve_folder,
     resolve_naming_pattern,
@@ -106,4 +107,9 @@ from ._templates import (
     random_short_suffix,
     substitute_template_vars,
     unique_filename,
+)
+
+from ._reconcile import (
+    reconcile_date_source,
+    reconcile_timestamps,
 )

@@ -570,11 +570,10 @@ class TestConvertArtefact:
         )
 
     def test_convert_collision_uses_standard_suffix_in_target_folder(self, vault, router):
-        first_month = vault / "_Temporal" / "Logs" / "2026-03"
-        second_month = vault / "_Temporal" / "Logs" / "2026-04"
-        first_month.mkdir(parents=True)
-        second_month.mkdir(parents=True)
-        (first_month / "20260301-log-foo.md").write_text(
+        # Same created date → both converts target the same report folder and filename.
+        month = vault / "_Temporal" / "Logs" / "2026-03"
+        month.mkdir(parents=True)
+        (month / "20260301-log-foo-a.md").write_text(
             "---\n"
             "type: temporal/logs\n"
             "title: Foo\n"
@@ -583,7 +582,7 @@ class TestConvertArtefact:
             "---\n\n"
             "First body.\n"
         )
-        (second_month / "20260410-log-foo.md").write_text(
+        (month / "20260301-log-foo-b.md").write_text(
             "---\n"
             "type: temporal/logs\n"
             "title: Foo\n"
@@ -594,10 +593,10 @@ class TestConvertArtefact:
         )
 
         first = edit.convert_artefact(
-            str(vault), router, "_Temporal/Logs/2026-03/20260301-log-foo.md", "reports"
+            str(vault), router, "_Temporal/Logs/2026-03/20260301-log-foo-a.md", "reports"
         )
         second = edit.convert_artefact(
-            str(vault), router, "_Temporal/Logs/2026-04/20260410-log-foo.md", "reports"
+            str(vault), router, "_Temporal/Logs/2026-03/20260301-log-foo-b.md", "reports"
         )
 
         assert first["new_path"] != second["new_path"]
@@ -1304,16 +1303,22 @@ class TestEditTimestamps:
         assert fields["modified"] == self.FIXED_ISO
 
     def test_edit_does_not_change_created(self, vault, router):
-        original = (vault / "Wiki" / "test-page.md").read_text()
-        original_fields, _ = parse_frontmatter(original)
-        original_created = original_fields.get("created", "__absent__")
+        # Seed a stable ``created`` so this test exercises preservation rather
+        # than reconciliation-on-absence (which is covered by reconcile tests).
+        seed = (
+            "---\ntype: living/wiki\ntags:\n  - brain-core\nstatus: active\n"
+            "created: 2026-03-01T09:00:00+11:00\n---\n\n# Test Page\n\nOriginal body.\n"
+        )
+        (vault / "Wiki" / "test-page.md").write_text(seed)
+        original_fields, _ = parse_frontmatter(seed)
+        original_created = original_fields["created"]
 
         with patch("_common._templates.datetime") as mock_dt:
             mock_dt.now.return_value = self.FIXED_DT
             edit.edit_artefact(str(vault), router, "Wiki/test-page.md", "Changed body\n")
         content = (vault / "Wiki" / "test-page.md").read_text()
         fields, _ = parse_frontmatter(content)
-        assert fields.get("created", "__absent__") == original_created
+        assert fields["created"] == original_created
 
     def test_append_updates_modified(self, vault, router):
         with patch("_common._templates.datetime") as mock_dt:

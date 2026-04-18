@@ -10,6 +10,8 @@ commit:
 shipped:
 ---
 
+**Project:** [[PROJECT]]
+
 ## Goal
 
 ## Gates

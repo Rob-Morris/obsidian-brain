@@ -100,11 +100,16 @@ def _required_placeholders_for_rule(naming, rule, fields):
         yield ph
 
 
-def render_filename(naming, title, fields, _now=None):
+def render_filename(naming, title, fields):
     """Render a filename from the rule matching the given fields.
 
-    Raises ``ValueError`` if no rule matches, or if a required placeholder's
-    backing frontmatter field is missing.
+    Date tokens in the pattern resolve from ``fields[rule["date_source"]]``;
+    the compiler fills ``date_source`` at compile time (temporal classification
+    default ``created``; living types with date tokens must declare one).
+
+    Raises ``ValueError`` if no rule matches, a required placeholder's
+    backing field is missing, or a date token's backing field is missing or
+    unparseable.
     """
     rule = select_rule(naming, fields)
     if rule is None:
@@ -123,11 +128,14 @@ def render_filename(naming, title, fields, _now=None):
                 f"'{field_name}' for placeholder '{{{ph['name']}}}'"
             )
     return resolve_naming_pattern(
-        rule["pattern"], title, _now=_now, variables=fields or {}
+        rule["pattern"],
+        title,
+        variables=fields or {},
+        date_source=rule.get("date_source"),
     )
 
 
-def render_filename_or_default(naming, title, fields, _now=None):
+def render_filename_or_default(naming, title, fields):
     """Render via the naming contract when present, else fall back to ``{slug}.md``.
 
     Centralises the "no naming contract declared" policy so every caller that
@@ -135,7 +143,7 @@ def render_filename_or_default(naming, title, fields, _now=None):
     identically.
     """
     if naming:
-        return render_filename(naming, title, fields, _now=_now)
+        return render_filename(naming, title, fields)
     return title_to_slug(title) + ".md"
 
 

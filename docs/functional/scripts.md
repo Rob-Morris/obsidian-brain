@@ -20,6 +20,7 @@ Operational reference for scripts in `.brain-core/scripts/`. Each script exposes
 | `upgrade.py` | In-place brain-core upgrade | `python3 upgrade.py --source P [--vault V] [--dry-run] [--force] [--json]` |
 | `workspace_registry.py` | Workspace slug-path resolution | `python3 workspace_registry.py [--register SLUG PATH] [--unregister SLUG] [--resolve SLUG] [--json]` |
 | `migrate_naming.py` | Migrate filenames to generous conventions | `python3 migrate_naming.py [--vault V] [--dry-run] [--json]` |
+| `migrations/migrate_to_0_29_0.py` | Backfill `created`/`modified`/`date_source` across the vault for the v0.29.0 frontmatter-backed filename contract | `python3 migrations/migrate_to_0_29_0.py [--vault V] [--dry-run] [--json]` |
 | `fix_links.py` | Auto-repair broken wikilinks | `python3 fix_links.py [--fix] [--json] [--vault V]` |
 | `sync_definitions.py` | Install / sync artefact library definitions and classify vault state | `python3 sync_definitions.py [--vault V] [--dry-run] [--force] [--types t1,t2] [--status] [--json]` |
 | `config.py` | Vault configuration loader (three-layer merge) | `python3 config.py` |
@@ -104,6 +105,7 @@ python3 compile_router.py --json    # output JSON to stdout
 | `broken_wikilinks` | warning | Wikilink target file does not exist |
 | `ambiguous_wikilinks` | info | Basename-only wikilink matches multiple files |
 | `unconfigured_type` | info | Folder has no taxonomy file |
+| `missing_timestamps` | warning | Artefact frontmatter missing `created` or `modified` (naming-contract source of truth) |
 
 **Constraints:** Python 3.8+ stdlib only, self-locating, stateless, idempotent, stdout-only.
 
