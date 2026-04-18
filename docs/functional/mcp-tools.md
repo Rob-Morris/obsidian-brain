@@ -110,10 +110,12 @@ Additive, safe to auto-approve. Creates a new vault resource. Write-guarded: rej
 - `body_file` (optional) — absolute path to a file containing body content; must be inside the vault or system temp directory; temp files deleted after reading, vault files left in place; mutually exclusive with `body`; use for large content to keep MCP call displays compact; to stage content, run `mktemp /tmp/brain-body-XXXXXX` to get a safe temp path, write content there, then pass that path here
 - `frontmatter` (optional overrides) — for memories, use `{"triggers": ["keyword1", "keyword2"]}`
 - `parent` (optional) — project subfolder name for living types (e.g. `"Brain"`); ignored for temporal types and non-artefact resources
+- `fix_links` (optional, default `false`) — when `true`, resolvable broken wikilinks in the written artefact are auto-rewritten to their canonical target immediately after creation; remaining unresolvable or ambiguous links are still reported as warnings
 
 **Behaviour:**
 - For artefacts: resolves type from compiled router, reads template, generates filename from naming pattern, writes file with merged frontmatter; naming patterns can also consume matching frontmatter/template values such as `{Version}`; unresolved placeholders return an error instead of writing a broken filename; auto-injects `created` and `modified` ISO 8601 timestamps (respects overrides); auto-disambiguates basename collisions by appending `(type)`
 - For non-artefact resources: creates in the appropriate `_Config/` subfolder — skills at `_Config/Skills/{name}/SKILL.md`, memories at `_Config/Memories/{name}.md`, styles at `_Config/Styles/{name}.md`, templates at `_Config/Templates/{classification}/{Type}.md`
+- Every artefact write runs a per-file wikilink check; broken, resolvable, and ambiguous links are appended to the response as `⚠` warning lines (and auto-applied fixes as a `✔` block when `fix_links=true`)
 
 **Response format:** Plain text confirmation: `"**Created** {type}: {path}"` for artefacts, `"**Created** {resource}: {path}"` for non-artefact resources.
 
@@ -144,10 +146,12 @@ Single-file mutation. Write-guarded: same folder restrictions as `brain_create`.
   - `target=":body"` is rejected; use one of the explicit reserved targets instead
   - Use `target=":section:## Heading"` or `target=":section:[!note] Title"` with `edit` to replace the entire matched section including its heading/title line
   - Plain targeted `edit` remains content-only: one exact copied heading/callout wrapper at the start of `body` is stripped; leading callouts and lower-level headings are allowed as section content; same-level or higher headings are rejected with an error directing the caller to `:section:...`
+- `fix_links` (optional, default `false`) — when `true`, resolvable broken wikilinks in the edited artefact are auto-rewritten to their canonical target after the edit completes; remaining unresolvable or ambiguous links are still reported as warnings
 
 **Behaviour:**
 - For artefacts: path validated against compiled router — wrong folder or naming rejected with helpful error; auto-updates `modified` frontmatter field on every write; auto-sets `statusdate` (YYYY-MM-DD) whenever `status` actually changes; terminal status auto-moves to `+Status/` subfolder with vault-wide wikilink updates, reverts on non-terminal
 - For non-artefact resources: resolves via `_Config/` conventions; no terminal status auto-move or `modified` injection
+- Every artefact edit runs a per-file wikilink check; broken, resolvable, and ambiguous links are appended to the response as `⚠` warning lines (and auto-applied fixes as a `✔` block when `fix_links=true`)
 
 **Response format:** Plain text confirmation: `"**Edited:** {path}"`, `"**Appended:** {path}"`, `"**Prepended:** {path}"`, or `"**Deleted section from:** {path}"`. Heading/callout targets include surrounding heading context for placement verification. Successful `edit` with `target=":entire_body"` stays on one line and includes old/new line counts.
 
@@ -174,7 +178,7 @@ Vault-wide and destructive operations, gated by explicit approval.
 - **`migrate_naming`** — migrate filenames to generous naming conventions
 - **`register_workspace`** — registers a linked workspace in `.brain/local/workspaces.json` (`params: {slug, path}`)
 - **`unregister_workspace`** — removes a linked workspace registration (`params: {slug}`)
-- **`fix-links`** — scans for broken wikilinks and attempts auto-resolution using naming convention heuristics (slug→title, double-dash→tilde, temporal prefix matching); optional `params: {fix: true}` applies unambiguous fixes; returns JSON with fixed/ambiguous/unresolvable breakdown
+- **`fix-links`** — scans for broken wikilinks and attempts auto-resolution using naming convention heuristics (slug→title, double-dash→tilde, temporal prefix matching); `params: {fix: true}` applies unambiguous fixes; `params: {path: "..."}` scopes scan/fix to a single file; `params: {links: [...]}` narrows a single-file fix to specific target stems; returns JSON with fixed/ambiguous/unresolvable breakdown. `brain_create` and `brain_edit` accept a `fix_links: true` convenience flag that runs the single-file fixer on the written artefact
 - **`sync_definitions`** — syncs artefact library definitions to vault `_Config/` using three-way hash comparison (upstream vs installed vs local); optional `params: {dry_run, force, types, status}`. Bare call updates already-installed types only. Pass `types: ["living/<type>"]` to additively install a new library type. Pass `status: true` for a read-only classification of every library type as `uninstalled`, `in_sync`, `sync_ready`, `locally_customised`, or `conflict` (plus a `not_installable` bucket). Safe updates always apply; conflicts return as warnings and `force` overwrites. Per-file exclusions via `defaults.exclude.artefact_sync` in `.brain/config.yaml`. Set `artefact_sync: skip` in preferences to disable post-upgrade sync entirely
 
 **Response format:** Plain text status line with bold past-tense action for simple actions (e.g. `**Compiled:** N artefacts...`, `**Renamed** (method): ...`). JSON for complex responses (convert with link counts, migrate_naming with rename lists).

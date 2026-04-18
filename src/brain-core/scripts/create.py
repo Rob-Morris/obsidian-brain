@@ -40,13 +40,14 @@ from _common import (
     title_to_slug,
     unique_filename,
 )
+import fix_links as _fix_links
 
 
 # ---------------------------------------------------------------------------
 # Core logic
 # ---------------------------------------------------------------------------
 
-def create_artefact(vault_root, router, type_key, title, body="", frontmatter_overrides=None, parent=None, template_vars=None):
+def create_artefact(vault_root, router, type_key, title, body="", frontmatter_overrides=None, parent=None, template_vars=None, fix_links=False):
     """Create a new artefact. Returns {"path": relative_path, "type": ..., "title": ...}.
 
     Args:
@@ -118,7 +119,9 @@ def create_artefact(vault_root, router, type_key, title, body="", frontmatter_ov
     content = serialize_frontmatter(fields, body=final_body)
     safe_write(abs_path, content, bounds=vault_root, exclusive=True)
 
-    return {"path": rel_path, "type": artefact["type"], "title": title}
+    result = {"path": rel_path, "type": artefact["type"], "title": title}
+    _fix_links.attach_wikilink_warnings(vault_root, result, apply_fixes=fix_links)
+    return result
 
 
 # ---------------------------------------------------------------------------

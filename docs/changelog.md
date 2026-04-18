@@ -2,6 +2,17 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.28.8 — 2026-04-18
+
+**Warn on broken wikilinks at create/edit time and extend `fix-links` with a single-file mode.** Every `brain_create` / `brain_edit` run now performs a per-file wikilink check after the write and reports broken, resolvable, and ambiguous targets inline. `fix-links` gains `path` and `links` params so a single artefact can be repaired without a vault-wide pass, and both tools accept a `fix_links` convenience flag that auto-rewrites resolvable links immediately after the write. The vault-wide checker excludes `_Config/` to stop template and skill placeholders producing false positives.
+
+- Added `check_wikilinks_in_file` in `src/brain-core/scripts/_common/_wikilinks.py` — the shared per-file helper used by the compliance checker, the inline create/edit check, and the single-file fix-links path. Accepts a pre-built `file_index` and `temporal_prefixes` so batch callers avoid redundant vault walks.
+- Refactored `check.py:check_broken_wikilinks` onto the helper and dropped `_Config/` (including skills workspace output) from the walk. Direct-basename ambiguity still reports as `ambiguous_wikilinks`; strategy-driven ambiguity keeps its prior `broken_wikilinks` classification so existing behaviour is preserved.
+- `create.py` and `edit.py` attach a `wikilink_warnings` key to their return dict whenever the written artefact contains non-clean findings, and an optional `wikilink_fixes` key when `fix_links=True` auto-rewrites resolvable targets. Non-artefact resources are not checked inline.
+- `fix_links.py` now exposes `scan_and_resolve_file`, `scan_file`, and `apply_fixes_to_file` alongside the vault-wide functions. The MCP `fix-links` action routes to the single-file path whenever `path` is provided; `links` narrows the fix to specific targets.
+- `brain_create` and `brain_edit` MCP tools expose a `fix_links: bool = False` parameter and surface `⚠` warning / `✔ Wikilink fixes applied` blocks in the tool response. Warning formatting lives in the new `format_wikilink_warnings` / `format_wikilink_fixes` helpers in `_server_artefacts.py`.
+- Added `src/brain-core/standards/wikilinks.md` covering the core rule (only wikilink to targets that exist), the brain-managed scope boundary, the fix-links interface, and the file-index trade-off. Listed the standard in `session-core.md` and referenced it from `guide.md`.
+
 ## v0.28.7 — 2026-04-17
 
 **Restore library-type install path and add a status mode to `sync_definitions`.** A regression (commit 95df8f9, then 07e4f05) had removed the ability to install new artefact-library types into an existing vault under any flag combination. `sync_definitions --types X` now installs uninstalled types additively, while bare `sync_definitions` still refuses to install new types — preserving the guard that stopped the old bulk-install foot-gun.

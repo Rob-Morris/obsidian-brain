@@ -1139,7 +1139,7 @@ def brain_list(resource: Literal[
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def brain_create(type: str = "", title: str = "", body: str = "", body_file: str = "", frontmatter: dict | None = None, parent: str | None = None, resource: str = "artefact", name: str = ""):
+def brain_create(type: str = "", title: str = "", body: str = "", body_file: str = "", frontmatter: dict | None = None, parent: str | None = None, resource: str = "artefact", name: str = "", fix_links: bool = False):
     """Create a new vault resource. Additive — creates a file, cannot destroy existing work.
 
     For bodies over ~1 KB, prefer body_file over body to save tokens in the tool call.
@@ -1165,6 +1165,10 @@ def brain_create(type: str = "", title: str = "", body: str = "", body_file: str
                    For memories, use {"triggers": ["keyword1", "keyword2"]}.
       parent     — optional project name to group artefacts under (e.g. "Brain").
                    Living types only; ignored for temporal types and non-artefact resources.
+      fix_links  — optional boolean (default false). When true, resolvable broken
+                   wikilinks in the created file are auto-rewritten to their
+                   target immediately after creation. Remaining unresolvable or
+                   ambiguous links are still reported as warnings.
 
     Returns: confirmation message with path.
     """
@@ -1180,6 +1184,7 @@ def brain_create(type: str = "", title: str = "", body: str = "", body_file: str
                 resource=resource,
                 name=name,
                 runtime=_runtime(),
+                fix_links=fix_links,
             )
         except (ValueError, FileNotFoundError) as e:
             return _fmt_error(str(e))
@@ -1194,7 +1199,7 @@ def brain_create(type: str = "", title: str = "", body: str = "", body_file: str
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def brain_edit(operation: Literal["edit", "append", "prepend", "delete_section"], path: str = "", body: str = "", body_file: str = "", frontmatter: dict | None = None, target: str | None = None, resource: str = "artefact", name: str = ""):
+def brain_edit(operation: Literal["edit", "append", "prepend", "delete_section"], path: str = "", body: str = "", body_file: str = "", frontmatter: dict | None = None, target: str | None = None, resource: str = "artefact", name: str = "", fix_links: bool = False):
     """Modify an existing vault resource. Single-file mutation.
 
     For bodies over ~1 KB, prefer body_file over body to save tokens in the tool call.
@@ -1235,6 +1240,10 @@ def brain_edit(operation: Literal["edit", "append", "prepend", "delete_section"]
                    body content before the first targetable section (heading or
                    callout).
                    target=":body" is rejected; use one of the explicit reserved targets.
+      fix_links  — optional boolean (default false). When true, resolvable broken
+                   wikilinks in the edited file are auto-rewritten to their
+                   target after the edit completes. Remaining unresolvable or
+                   ambiguous links are still reported as warnings.
 
     Artefact paths validated against compiled router — wrong folder or naming rejected with helpful error.
     Non-artefact resources resolve via _Config/ conventions (no terminal status auto-move).
@@ -1251,6 +1260,7 @@ def brain_edit(operation: Literal["edit", "append", "prepend", "delete_section"]
                 resource=resource,
                 name=name,
                 runtime=_runtime(),
+                fix_links=fix_links,
             )
         except (ValueError, FileNotFoundError) as e:
             return _fmt_error(str(e))
@@ -1288,7 +1298,10 @@ def brain_action(
       migrate_naming       — migrate vault filenames to generous naming conventions (optional: {dry_run})
       register_workspace   — register a linked workspace (params: {slug, path})
       unregister_workspace — remove a linked workspace registration (params: {slug})
-      fix-links            — scan/fix broken wikilinks (optional: {fix} to apply)
+      fix-links            — scan/fix broken wikilinks (optional: {fix} to apply;
+                             {path} to scope scan/fix to a single file;
+                             {links} = list of target stems to limit which
+                             resolvable links are fixed when {path} is set)
       sync_definitions     — sync artefact library definitions to vault (optional: {dry_run, force, types, preference, status}). Set status=true for a read-only classification of every library type (uninstalled, in_sync, sync_ready, locally_customised, conflict) plus a not_installable bucket. Install a new library type with types=["living/X"] — bare sync (no types) never installs, only updates already-installed types.
       archive              — archive an artefact to _Archive/ (params: {path}). Must have terminal status.
       unarchive            — restore an archived artefact to its original type folder (params: {path})

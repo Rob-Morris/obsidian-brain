@@ -6,6 +6,8 @@ from collections import namedtuple
 
 from ._vault import is_system_dir, TEMPORAL_DIR
 from ._filesystem import safe_write
+from ._frontmatter import FM_RE
+from ._markdown import fenced_ranges
 from ._slugs import slug_to_title
 
 # ---------------------------------------------------------------------------
@@ -439,3 +441,129 @@ def resolve_broken_link(target, file_index, temporal_prefixes=None):
             return Resolution("ambiguous", None, matches, "path_segment_title")
 
     return Resolution("unresolvable", None, [], "none")
+
+
+# File extensions that indicate a non-markdown link target (embeds, assets).
+_ASSET_EXTENSIONS = {
+    ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".bmp",
+    ".pdf", ".mp3", ".mp4", ".wav", ".webm", ".mov",
+    ".csv", ".json", ".xml", ".html", ".css", ".js",
+}
+
+
+def _has_file_extension(stem):
+    """Return True if the stem ends with a known asset extension."""
+    _, ext = os.path.splitext(stem)
+    return ext.lower() in _ASSET_EXTENSIONS
+
+
+def check_wikilinks_in_file(vault_root, rel_path, file_index=None, temporal_prefixes=None):
+    """Check wikilinks in a single file against the vault file index.
+
+    If file_index is not provided, builds one via build_vault_file_index().
+    If temporal_prefixes is not provided, discovers them via discover_temporal_prefixes().
+    Both are built from the same vault walk, so callers with pre-built values
+    should pass both to avoid redundant walks. Building the index for a single
+    call requires an os.walk of the vault — this is acceptable (milliseconds
+    for typical vaults) but callers inside a loop should build once and pass in.
+
+    Returns a list of findings, each a dict with:
+        stem         — the wikilink target stem
+        status       — "broken", "ambiguous", or "resolvable"
+        resolved_to  — for resolvable findings, the corrected stem; else None
+        strategy     — the resolution strategy name (or "none" / "ambiguous")
+        candidates   — for ambiguous findings, list of matching paths; else []
+
+    Clean (resolved) links are not returned. Only problem findings are reported.
+    """
+    if file_index is None:
+        file_index = build_vault_file_index(vault_root)
+    if temporal_prefixes is None:
+        temporal_prefixes = discover_temporal_prefixes(file_index["md_basenames"])
+
+    md_basenames = file_index["md_basenames"]
+    all_basenames = file_index["all_basenames"]
+    md_relpaths = file_index["md_relpaths"]
+
+    fpath = os.path.join(vault_root, rel_path)
+    try:
+        with open(fpath, "r", encoding="utf-8") as f:
+            text = f.read()
+    except OSError:
+        return []
+
+    skip_ranges = []
+    fm_match = FM_RE.match(text)
+    if fm_match:
+        skip_ranges.append((0, fm_match.end()))
+    skip_ranges.extend(fenced_ranges(text))
+
+    findings = []
+    for link in extract_wikilinks(text):
+        pos = link["start"]
+        if any(start <= pos < end for start, end in skip_ranges):
+            continue
+
+        stem = link["stem"]
+        is_embed = link["is_embed"]
+        resolved = False
+        ambiguous = False
+        ambiguous_matches = []
+
+        if is_embed or _has_file_extension(stem):
+            basename_key = os.path.basename(stem).lower()
+            if basename_key in all_basenames:
+                resolved = True
+        elif "/" in stem:
+            stem_lower = strip_md_ext(stem).lower()
+            if stem_lower in md_relpaths:
+                resolved = True
+            else:
+                basename_key = os.path.splitext(os.path.basename(stem))[0].lower()
+                if basename_key in md_basenames:
+                    resolved = True
+        else:
+            stem_lower = stem.lower()
+            matches = md_basenames.get(stem_lower, [])
+            if matches:
+                resolved = True
+                if len(matches) > 1:
+                    ambiguous = True
+                    ambiguous_matches = matches
+
+        if resolved and ambiguous:
+            findings.append({
+                "stem": stem,
+                "status": "ambiguous",
+                "resolved_to": None,
+                "strategy": "ambiguous",
+                "candidates": ambiguous_matches,
+            })
+        elif not resolved:
+            resolution = resolve_broken_link(stem, file_index, temporal_prefixes)
+            if resolution.status == "resolved":
+                findings.append({
+                    "stem": stem,
+                    "status": "resolvable",
+                    "resolved_to": resolution.resolved_to,
+                    "strategy": resolution.strategy,
+                    "candidates": resolution.candidates,
+                })
+            elif resolution.status == "ambiguous":
+                findings.append({
+                    "stem": stem,
+                    "status": "ambiguous",
+                    "resolved_to": None,
+                    "strategy": resolution.strategy,
+                    "candidates": resolution.candidates,
+                })
+            else:
+                findings.append({
+                    "stem": stem,
+                    "status": "broken",
+                    "resolved_to": None,
+                    "strategy": "none",
+                    "candidates": [],
+                })
+
+    return findings

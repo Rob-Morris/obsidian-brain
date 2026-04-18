@@ -10,6 +10,63 @@ import edit
 from ._server_runtime import ServerRuntime
 
 
+def format_wikilink_fixes(fixes):
+    """Format applied-fix summary into a markdown block.
+
+    ``fixes`` is the ``wikilink_fixes`` dict attached by create/edit scripts.
+    Returns an empty string when no fixes were applied.
+    """
+    if not fixes:
+        return ""
+    entries = fixes.get("fixes") or []
+    if not entries:
+        return ""
+    lines = [f"✔ Wikilink fixes applied ({fixes.get('applied', 0)}):"]
+    for item in entries:
+        lines.append(f"  [[{item['target']}]] → [[{item['resolved_to']}]]")
+    return "\n".join(lines)
+
+
+def format_wikilink_warnings(findings):
+    """Format wikilink check findings into markdown warning lines.
+
+    Groups findings by status and emits one block per category. Returns an
+    empty string when *findings* is empty or None, so callers can concatenate
+    unconditionally.
+
+    Output shape:
+        ⚠ Broken wikilinks: [[Helix]], [[Skogarmaor]]
+        ⚠ Resolvable wikilinks (use fix-links to fix all or selected):
+          [[old stem]] → [[new stem]]
+        ⚠ Ambiguous wikilinks: [[dup]] matches 2 files
+    """
+    if not findings:
+        return ""
+
+    broken = [f for f in findings if f["status"] == "broken"]
+    resolvable = [f for f in findings if f["status"] == "resolvable"]
+    ambiguous = [f for f in findings if f["status"] == "ambiguous"]
+
+    lines = []
+    if broken:
+        stems = ", ".join(f"[[{f['stem']}]]" for f in broken)
+        lines.append(f"⚠ Broken wikilinks: {stems}")
+    if resolvable:
+        lines.append(
+            "⚠ Resolvable wikilinks (use fix-links to fix all or selected):"
+        )
+        for f in resolvable:
+            lines.append(f"  [[{f['stem']}]] → [[{f['resolved_to']}]]")
+    if ambiguous:
+        for f in ambiguous:
+            n = len(f.get("candidates") or [])
+            lines.append(
+                f"⚠ Ambiguous wikilinks: [[{f['stem']}]] matches {n} files"
+            )
+
+    return "\n".join(lines)
+
+
 def handle_brain_create(
     type: str,
     title: str,
@@ -20,6 +77,7 @@ def handle_brain_create(
     resource: str,
     name: str,
     runtime: ServerRuntime,
+    fix_links: bool = False,
 ):
     runtime.check_version_drift()
     runtime.ensure_router_fresh()
@@ -47,6 +105,7 @@ def handle_brain_create(
             body=body,
             frontmatter_overrides=frontmatter,
             parent=parent,
+            fix_links=fix_links,
         )
         runtime.mark_index_pending(result["path"], type_hint=result["type"])
         label = f"**Created** {result['type']}: {result['path']}"
@@ -66,6 +125,12 @@ def handle_brain_create(
             os.remove(cleanup_path)
         except OSError:
             pass
+    fixes = format_wikilink_fixes(result.get("wikilink_fixes"))
+    if fixes:
+        label = f"{label}\n{fixes}"
+    warnings = format_wikilink_warnings(result.get("wikilink_warnings"))
+    if warnings:
+        label = f"{label}\n{warnings}"
     return label
 
 
@@ -79,6 +144,7 @@ def handle_brain_edit(
     resource: str,
     name: str,
     runtime: ServerRuntime,
+    fix_links: bool = False,
 ):
     runtime.check_version_drift()
     runtime.ensure_router_fresh()
@@ -109,6 +175,7 @@ def handle_brain_edit(
         body=body,
         frontmatter_changes=frontmatter,
         target=target,
+        fix_links=fix_links,
     )
 
     moved = result["path"] != result["resolved_path"]
@@ -122,6 +189,8 @@ def handle_brain_edit(
         except OSError:
             pass
     past = edit.OPERATION_LABELS[result["operation"]]
+    fixes = format_wikilink_fixes(result.get("wikilink_fixes"))
+    warnings = format_wikilink_warnings(result.get("wikilink_warnings"))
     if operation == "edit" and target == edit.ENTIRE_BODY_TARGET:
         parts = []
         if moved:
@@ -132,7 +201,12 @@ def handle_brain_edit(
         parts.append(
             f"lines: {result['old_body_line_count']}->{result['new_body_line_count']}"
         )
-        return f"**{past}:** {result['path']} ({'; '.join(parts)})"
+        msg = f"**{past}:** {result['path']} ({'; '.join(parts)})"
+        if fixes:
+            msg += f"\n{fixes}"
+        if warnings:
+            msg += f"\n{warnings}"
+        return msg
 
     msg = f"**{past}:** {result['path']}"
     if moved:
@@ -152,4 +226,8 @@ def handle_brain_edit(
                 prev_label = prev_h or "(start)"
                 next_label = next_h or "(end)"
                 msg += f"\n**Context:** prev={prev_label} | next={next_label}"
+    if fixes:
+        msg += f"\n{fixes}"
+    if warnings:
+        msg += f"\n{warnings}"
     return msg

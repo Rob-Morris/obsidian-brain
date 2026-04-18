@@ -2265,3 +2265,80 @@ class TestTempPathFlag:
         finally:
             if os.path.exists(out):
                 os.remove(out)
+
+
+class TestEditWikilinkWarnings:
+    def test_clean_edit_no_warnings_key(self, vault, router):
+        result = edit.edit_resource(
+            str(vault), router, resource="artefact", operation="edit",
+            path="Wiki/test-page.md", body="No links.\n",
+            target=":entire_body",
+        )
+        assert "wikilink_warnings" not in result
+
+    def test_broken_link_returns_warnings(self, vault, router):
+        result = edit.edit_resource(
+            str(vault), router, resource="artefact", operation="edit",
+            path="Wiki/test-page.md", body="See [[missing-target]].\n",
+            target=":entire_body",
+        )
+        assert "wikilink_warnings" in result
+        warnings = result["wikilink_warnings"]
+        assert len(warnings) == 1
+        assert warnings[0]["stem"] == "missing-target"
+        assert warnings[0]["status"] == "broken"
+
+    def test_append_with_broken_link(self, vault, router):
+        result = edit.edit_resource(
+            str(vault), router, resource="artefact", operation="append",
+            path="Wiki/test-page.md", body="\nAlso [[also-missing]].\n",
+        )
+        assert "wikilink_warnings" in result
+
+    def test_prepend_with_broken_link(self, vault, router):
+        result = edit.edit_resource(
+            str(vault), router, resource="artefact", operation="prepend",
+            path="Wiki/test-page.md", body="Top [[top-missing]]\n\n",
+        )
+        assert "wikilink_warnings" in result
+
+
+class TestEditFixLinks:
+    def test_fix_links_applies_resolvable(self, vault, router):
+        (vault / "Wiki" / "Real Target.md").write_text("# Real\n")
+        import compile_router
+        router2 = compile_router.compile(str(vault))
+        result = edit.edit_resource(
+            str(vault), router2, resource="artefact", operation="edit",
+            path="Wiki/test-page.md", body="See [[real-target]].\n",
+            target=":entire_body", fix_links=True,
+        )
+        assert "wikilink_fixes" in result
+        assert result["wikilink_fixes"]["applied"] == 1
+        assert "wikilink_warnings" not in result
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        assert "[[Real Target]]" in content
+        assert "[[real-target]]" not in content
+
+    def test_fix_links_leaves_unresolvable_as_warning(self, vault, router):
+        result = edit.edit_resource(
+            str(vault), router, resource="artefact", operation="edit",
+            path="Wiki/test-page.md", body="See [[never-existed]].\n",
+            target=":entire_body", fix_links=True,
+        )
+        assert "wikilink_fixes" not in result
+        assert "wikilink_warnings" in result
+        assert result["wikilink_warnings"][0]["status"] == "broken"
+
+    def test_fix_links_false_leaves_file_untouched(self, vault, router):
+        (vault / "Wiki" / "Real Target.md").write_text("# Real\n")
+        import compile_router
+        router2 = compile_router.compile(str(vault))
+        result = edit.edit_resource(
+            str(vault), router2, resource="artefact", operation="edit",
+            path="Wiki/test-page.md", body="See [[real-target]].\n",
+            target=":entire_body",
+        )
+        assert "wikilink_fixes" not in result
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        assert "[[real-target]]" in content

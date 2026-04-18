@@ -66,6 +66,7 @@ from ._wikilinks import (
     Resolution,
     build_vault_file_index,
     build_wikilink_pattern,
+    check_wikilinks_in_file,
     discover_temporal_prefixes,
     extract_wikilinks,
     find_duplicate_basenames,

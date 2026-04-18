@@ -25,12 +25,10 @@ from _common import (
     find_vault_root,
     is_system_dir,
     parse_frontmatter,
-    extract_wikilinks,
     build_vault_file_index,
-    fenced_ranges,
+    check_wikilinks_in_file,
+    discover_temporal_prefixes,
     INDEX_SKIP_DIRS,
-    strip_md_ext,
-    FM_RE,
     load_compiled_router,
     select_rule,
     validate_artefact_folder,
@@ -458,95 +456,44 @@ def check_taxonomy_type_consistency(vault_root, router):
 # Broken and ambiguous wikilinks
 # ---------------------------------------------------------------------------
 
-# File extensions that indicate a non-markdown link target (embeds, etc.)
-_ASSET_EXTENSIONS = {
-    ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".bmp",
-    ".pdf", ".mp3", ".mp4", ".wav", ".webm", ".mov",
-    ".csv", ".json", ".xml", ".html", ".css", ".js",
-}
-
-
-def _has_file_extension(stem):
-    """Return True if the stem ends with a known file extension."""
-    _, ext = os.path.splitext(stem)
-    return ext.lower() in _ASSET_EXTENSIONS
-
-
 def check_broken_wikilinks(vault_root, router, file_index=None):
-    """Check for wikilinks that target non-existent or ambiguous files."""
+    """Check for wikilinks that target non-existent or ambiguous files.
+
+    Infrastructure folders (``_Config``) are excluded from the walk because
+    template and taxonomy files contain intentional placeholder wikilinks
+    that generate false positives. Those files remain in the file index so
+    they stay valid link targets — they are just not themselves checked.
+    """
     findings = []
     if file_index is None:
         file_index = build_vault_file_index(vault_root)
-    md_basenames = file_index["md_basenames"]
-    all_basenames = file_index["all_basenames"]
-    md_relpaths = file_index["md_relpaths"]
+    temporal_prefixes = discover_temporal_prefixes(file_index["md_basenames"])
 
     for dirpath, dirnames, filenames in os.walk(vault_root):
-        dirnames[:] = [d for d in dirnames if d not in INDEX_SKIP_DIRS and d != "_Archive"]
+        dirnames[:] = [
+            d for d in dirnames
+            if d not in INDEX_SKIP_DIRS and d not in {"_Archive", "_Config"}
+        ]
         for fname in filenames:
             if not fname.endswith(".md"):
                 continue
-            fpath = os.path.join(dirpath, fname)
-            rel_path = os.path.relpath(fpath, vault_root)
-            try:
-                with open(fpath, "r", encoding="utf-8") as f:
-                    text = f.read()
-            except OSError:
-                continue
+            rel_path = os.path.relpath(os.path.join(dirpath, fname), vault_root)
 
-            # Compute ranges to skip: frontmatter and fenced code blocks
-            skip_ranges = []
-            fm_match = FM_RE.match(text)
-            if fm_match:
-                skip_ranges.append((0, fm_match.end()))
-            skip_ranges.extend(fenced_ranges(text))
-
-            links = extract_wikilinks(text)
-            for link in links:
-                # Skip links inside frontmatter or code blocks
-                pos = link["start"]
-                if any(start <= pos < end for start, end in skip_ranges):
-                    continue
-
-                stem = link["stem"]
-                is_embed = link["is_embed"]
-                resolved = False
-                ambiguous = False
-
-                if is_embed or _has_file_extension(stem):
-                    # Embed or asset link — check all files by basename
-                    basename_key = os.path.basename(stem).lower()
-                    if basename_key in all_basenames:
-                        resolved = True
-                elif "/" in stem:
-                    # Path-qualified link — try exact relpath, then basename fallback
-                    stem_lower = strip_md_ext(stem).lower()
-                    if stem_lower in md_relpaths:
-                        resolved = True
-                    else:
-                        # Basename fallback
-                        basename_key = os.path.splitext(os.path.basename(stem))[0].lower()
-                        if basename_key in md_basenames:
-                            resolved = True
-                else:
-                    # Basename-only link
-                    stem_lower = stem.lower()
-                    matches = md_basenames.get(stem_lower, [])
-                    if matches:
-                        resolved = True
-                        if len(matches) > 1:
-                            ambiguous = True
-
-                if not resolved:
-                    findings.append({
-                        "check": "broken_wikilinks",
-                        "severity": "warning",
-                        "file": rel_path,
-                        "stem": stem,
-                        "message": f"Broken wikilink: [[{stem}]]",
-                    })
-                elif ambiguous:
-                    file_list = ', '.join(matches[:5])
+            file_findings = check_wikilinks_in_file(
+                vault_root, rel_path,
+                file_index=file_index,
+                temporal_prefixes=temporal_prefixes,
+            )
+            for f in file_findings:
+                stem = f["stem"]
+                # Direct-basename ambiguity (stem itself matches multiple files)
+                # is surfaced as a distinct info-level check. Resolution-strategy
+                # ambiguity (e.g. slug_to_title hitting multiple titles) and
+                # resolvable-via-heuristic links both report as broken — the
+                # link as written is broken; fix-links surfaces the distinction.
+                if f["status"] == "ambiguous" and f["strategy"] == "ambiguous":
+                    matches = f["candidates"]
+                    file_list = ", ".join(matches[:5])
                     if len(matches) > 5:
                         file_list += f", ... and {len(matches) - 5} more"
                     findings.append({
@@ -554,7 +501,18 @@ def check_broken_wikilinks(vault_root, router, file_index=None):
                         "severity": "info",
                         "file": rel_path,
                         "stem": stem,
-                        "message": f"Ambiguous wikilink: [[{stem}]] matches {len(matches)} files: {file_list}",
+                        "message": (
+                            f"Ambiguous wikilink: [[{stem}]] matches "
+                            f"{len(matches)} files: {file_list}"
+                        ),
+                    })
+                else:
+                    findings.append({
+                        "check": "broken_wikilinks",
+                        "severity": "warning",
+                        "file": rel_path,
+                        "stem": stem,
+                        "message": f"Broken wikilink: [[{stem}]]",
                     })
 
     return findings

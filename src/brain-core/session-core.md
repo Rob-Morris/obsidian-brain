@@ -35,6 +35,7 @@ The system is self-extending. When content has no appropriate home, add a new ar
 ## Standards
 
 - [Apply artefact naming conventions](standards/naming-conventions.md)
+- [Only wikilink to artefacts that exist in the vault](standards/wikilinks.md)
 - [Track provenance and lineage between artefacts](standards/provenance.md)
 - [Archive living artefacts safely](standards/archiving.md)
 - [Use the hub pattern to group related artefacts](standards/hub-pattern.md)

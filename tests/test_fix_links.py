@@ -169,3 +169,85 @@ class TestJsonOutput:
         assert result["summary"]["total_broken"] == 2
         assert result["summary"]["fixed"] == 1
         assert result["summary"]["unresolvable"] == 1
+
+
+class TestScanAndResolveFile:
+    def test_returns_only_resolvable(self, vault, router):
+        write_md(vault / "Wiki" / "Real Page.md",
+                 {"type": "living/wiki", "tags": ["test"]}, "# Real")
+        write_md(vault / "Wiki" / "linker.md",
+                 {"type": "living/wiki", "tags": ["test"]},
+                 "See [[real-page]] and [[definitely-gone]].")
+        fixes = fix_links.scan_and_resolve_file(str(vault), "Wiki/linker.md")
+        assert len(fixes) == 1
+        assert fixes[0]["target"] == "real-page"
+        assert fixes[0]["resolved_to"] == "Real Page"
+
+    def test_clean_file(self, vault, router):
+        write_md(vault / "Wiki" / "linker.md",
+                 {"type": "living/wiki", "tags": ["test"]}, "# No links")
+        fixes = fix_links.scan_and_resolve_file(str(vault), "Wiki/linker.md")
+        assert fixes == []
+
+    def test_scan_file_result_shape(self, vault, router):
+        write_md(vault / "Wiki" / "Real Page.md",
+                 {"type": "living/wiki", "tags": ["test"]}, "# Real")
+        write_md(vault / "Wiki" / "linker.md",
+                 {"type": "living/wiki", "tags": ["test"]},
+                 "See [[real-page]] and [[gone]].")
+        result = fix_links.scan_file(str(vault), "Wiki/linker.md", router=router)
+        assert result["summary"]["fixed"] == 1
+        assert result["summary"]["unresolvable"] == 1
+        assert result["path"] == "Wiki/linker.md"
+
+
+class TestApplyFixesToFile:
+    def test_applies_all(self, vault, router):
+        write_md(vault / "Wiki" / "Real Page.md",
+                 {"type": "living/wiki", "tags": ["test"]}, "# Real")
+        write_md(vault / "Wiki" / "linker.md",
+                 {"type": "living/wiki", "tags": ["test"]},
+                 "See [[real-page]] for details.")
+        fixes = fix_links.scan_and_resolve_file(str(vault), "Wiki/linker.md")
+        count = fix_links.apply_fixes_to_file(str(vault), "Wiki/linker.md", fixes)
+        assert count >= 1
+        content = (vault / "Wiki" / "linker.md").read_text()
+        assert "[[Real Page]]" in content
+
+    def test_applies_subset_via_filter(self, vault, router):
+        write_md(vault / "Wiki" / "Real One.md",
+                 {"type": "living/wiki", "tags": ["test"]}, "# R1")
+        write_md(vault / "Wiki" / "Real Two.md",
+                 {"type": "living/wiki", "tags": ["test"]}, "# R2")
+        write_md(vault / "Wiki" / "linker.md",
+                 {"type": "living/wiki", "tags": ["test"]},
+                 "See [[real-one]] and [[real-two]].")
+        fixes = fix_links.scan_and_resolve_file(str(vault), "Wiki/linker.md")
+        count = fix_links.apply_fixes_to_file(
+            str(vault), "Wiki/linker.md", fixes, links_filter=["real-one"],
+        )
+        assert count == 1
+        content = (vault / "Wiki" / "linker.md").read_text()
+        assert "[[Real One]]" in content
+        assert "[[real-two]]" in content
+
+    def test_dry_run_via_empty_fixes(self, vault, router):
+        write_md(vault / "Wiki" / "Real.md",
+                 {"type": "living/wiki", "tags": ["test"]}, "# R")
+        write_md(vault / "Wiki" / "linker.md",
+                 {"type": "living/wiki", "tags": ["test"]},
+                 "See [[real]] nothing.")
+        count = fix_links.apply_fixes_to_file(str(vault), "Wiki/linker.md", [])
+        assert count == 0
+
+    def test_filter_no_matches_zero(self, vault, router):
+        write_md(vault / "Wiki" / "Real.md",
+                 {"type": "living/wiki", "tags": ["test"]}, "# R")
+        write_md(vault / "Wiki" / "linker.md",
+                 {"type": "living/wiki", "tags": ["test"]},
+                 "See [[real]] nothing.")
+        fixes = fix_links.scan_and_resolve_file(str(vault), "Wiki/linker.md")
+        count = fix_links.apply_fixes_to_file(
+            str(vault), "Wiki/linker.md", fixes, links_filter=["not-there"],
+        )
+        assert count == 0

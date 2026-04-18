@@ -636,3 +636,76 @@ class TestTempPathFlag:
         finally:
             if os.path.exists(out):
                 os.remove(out)
+
+
+class TestCreateWikilinkWarnings:
+    def test_clean_body_no_warnings_key(self, vault, router):
+        result = create.create_artefact(
+            str(vault), router, "wiki", "Clean", body="No links here.\n"
+        )
+        assert "wikilink_warnings" not in result
+
+    def test_broken_link_returns_warnings(self, vault, router):
+        result = create.create_artefact(
+            str(vault), router, "wiki", "Broken",
+            body="See [[definitely-nowhere]].\n",
+        )
+        assert "wikilink_warnings" in result
+        warnings = result["wikilink_warnings"]
+        assert len(warnings) == 1
+        assert warnings[0]["stem"] == "definitely-nowhere"
+        assert warnings[0]["status"] == "broken"
+
+    def test_resolvable_link_returns_warnings(self, vault, router):
+        (vault / "Wiki" / "My Target.md").write_text("# Target\n")
+        import compile_router
+        router2 = compile_router.compile(str(vault))
+        result = create.create_artefact(
+            str(vault), router2, "wiki", "Resolvable",
+            body="See [[my-target]].\n",
+        )
+        assert "wikilink_warnings" in result
+        warnings = result["wikilink_warnings"]
+        assert warnings[0]["status"] == "resolvable"
+        assert warnings[0]["resolved_to"] == "My Target"
+
+
+class TestCreateFixLinks:
+    def test_fix_links_applies_resolvable(self, vault, router):
+        (vault / "Wiki" / "My Target.md").write_text("# Target\n")
+        import compile_router
+        router2 = compile_router.compile(str(vault))
+        result = create.create_artefact(
+            str(vault), router2, "wiki", "Resolvable Fix",
+            body="See [[my-target]].\n",
+            fix_links=True,
+        )
+        assert "wikilink_fixes" in result
+        assert result["wikilink_fixes"]["applied"] == 1
+        assert "wikilink_warnings" not in result
+        written = (vault / result["path"]).read_text()
+        assert "[[My Target]]" in written
+        assert "[[my-target]]" not in written
+
+    def test_fix_links_leaves_unresolvable_as_warning(self, vault, router):
+        result = create.create_artefact(
+            str(vault), router, "wiki", "Still Broken",
+            body="See [[really-gone]].\n",
+            fix_links=True,
+        )
+        assert "wikilink_fixes" not in result
+        assert "wikilink_warnings" in result
+        assert result["wikilink_warnings"][0]["status"] == "broken"
+
+    def test_fix_links_false_is_default(self, vault, router):
+        (vault / "Wiki" / "My Target.md").write_text("# Target\n")
+        import compile_router
+        router2 = compile_router.compile(str(vault))
+        result = create.create_artefact(
+            str(vault), router2, "wiki", "No Auto",
+            body="See [[my-target]].\n",
+        )
+        assert "wikilink_fixes" not in result
+        assert "wikilink_warnings" in result
+        written = (vault / result["path"]).read_text()
+        assert "[[my-target]]" in written

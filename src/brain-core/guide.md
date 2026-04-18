@@ -138,7 +138,9 @@ Not every type has status. Wiki, Notes, and most temporal types are evergreen.
 
 Use **basename-only** wikilinks: `[[My Page]]`, not `[[Wiki/My Page]]`. Basename links survive folder moves and archiving. Path-qualified links break when files move into subfolders.
 
-`brain_create` auto-disambiguates basename collisions across type folders by appending the type key (e.g. `My Page (idea).md`). Full details are in the [linking standard](standards/linking.md).
+Only wikilink to targets that already exist. If the artefact doesn't exist yet, write plain text — create the artefact first, then link. `brain_create` and `brain_edit` warn about broken or resolvable wikilinks in every write, and `brain_action("fix-links", ...)` repairs them one file or vault-wide at a time. Full rules are in the [wikilinks standard](standards/wikilinks.md); resolution mechanics are in the [linking standard](standards/linking.md).
+
+`brain_create` auto-disambiguates basename collisions across type folders by appending the type key (e.g. `My Page (idea).md`).
 
 ## Provenance
 

@@ -45,6 +45,7 @@ from _common import (
     unique_filename,
 )
 from rename import rename_and_update_links
+import fix_links as _fix_links
 
 
 # ---------------------------------------------------------------------------
@@ -388,7 +389,7 @@ _BODY_OPS = {
 
 def edit_resource(vault_root, router, resource="artefact", operation="edit",
                   path=None, name=None, body="", frontmatter_changes=None,
-                  target=None):
+                  target=None, fix_links=False):
     """Edit a vault resource. Dispatches to the appropriate handler.
 
     For artefacts: delegates to existing edit/append/prepend/delete_section functions.
@@ -417,19 +418,21 @@ def edit_resource(vault_root, router, resource="artefact", operation="edit",
         if not path:
             raise ValueError("path is required when resource='artefact'")
         if operation == "edit":
-            return edit_artefact(vault_root, router, path, body,
+            result = edit_artefact(vault_root, router, path, body,
                                 frontmatter_changes=frontmatter_changes, target=target)
         elif operation == "append":
-            return append_to_artefact(vault_root, router, path, body,
+            result = append_to_artefact(vault_root, router, path, body,
                                      frontmatter_changes=frontmatter_changes, target=target)
         elif operation == "prepend":
-            return prepend_to_artefact(vault_root, router, path, body,
+            result = prepend_to_artefact(vault_root, router, path, body,
                                       frontmatter_changes=frontmatter_changes, target=target)
         elif operation == "delete_section":
-            return delete_section_artefact(vault_root, router, path,
+            result = delete_section_artefact(vault_root, router, path,
                                           target=target, frontmatter_changes=frontmatter_changes)
         else:
             raise ValueError(f"Unknown operation '{operation}'")
+        _fix_links.attach_wikilink_warnings(vault_root, result, apply_fixes=fix_links)
+        return result
 
     if resource not in _EDITABLE_RESOURCES:
         raise ValueError(

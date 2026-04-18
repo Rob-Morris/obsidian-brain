@@ -263,12 +263,30 @@ def _action_fix_links(runtime: ServerRuntime, params: dict | None):
     if state.vault_root is None:
         return runtime.fmt_error("server not initialized")
     try:
-        do_fix = (params or {}).get("fix", False)
-        result = fix_links.scan_and_resolve(state.vault_root, router=state.router)
-        if do_fix and result["fixed"]:
-            total = fix_links.apply_fixes(state.vault_root, result["fixed"])
-            result["substitutions"] = total
-            runtime.mark_index_dirty()
+        params = params or {}
+        do_fix = params.get("fix", False)
+        path = params.get("path")
+        links_filter = params.get("links")
+
+        if path:
+            result = fix_links.scan_file(
+                state.vault_root, path, router=state.router,
+            )
+            if do_fix and result["fixed"]:
+                total = fix_links.apply_fixes_to_file(
+                    state.vault_root, path, result["fixed"],
+                    links_filter=links_filter,
+                )
+                result["substitutions"] = total
+                runtime.mark_index_dirty()
+        else:
+            result = fix_links.scan_and_resolve(
+                state.vault_root, router=state.router,
+            )
+            if do_fix and result["fixed"]:
+                total = fix_links.apply_fixes(state.vault_root, result["fixed"])
+                result["substitutions"] = total
+                runtime.mark_index_dirty()
         result["mode"] = "fix" if do_fix else "dry_run"
         return json.dumps(result, indent=2)
     except (ValueError, OSError) as e:
