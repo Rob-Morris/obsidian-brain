@@ -3,7 +3,7 @@ PYTHON := $(VENV)/bin/python
 PIP := $(VENV)/bin/pip
 PYTEST := $(VENV)/bin/pytest
 
-.PHONY: venv install test lint clean hooks sync-template dev-link
+.PHONY: venv install test lint clean hooks sync-template sync-template-check dev-link
 
 venv:
 	python3.12 -m venv $(VENV)
@@ -27,8 +27,10 @@ hooks:
 	git config core.hooksPath .githooks
 
 sync-template: dev-link
-	$(PYTHON) src/brain-core/scripts/sync_definitions.py --vault template-vault --force
-	cd template-vault && $(abspath $(PYTHON)) $(abspath src/brain-core/scripts/compile_router.py)
+	PYTHON_BIN=$(abspath $(PYTHON)) bash src/scripts/sync-template-vault.sh --apply
+
+sync-template-check: dev-link
+	PYTHON_BIN=$(abspath $(PYTHON)) bash src/scripts/sync-template-vault.sh --check
 
 clean:
 	rm -rf $(VENV) __pycache__ .pytest_cache tests/__pycache__

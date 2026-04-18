@@ -559,6 +559,8 @@ def _run_migrations(
                         and "validate_compile" in context
                     ):
                         context["compile_error"] = context["validate_compile"]()
+                if result.get("status") == "error":
+                    raise RuntimeError(result.get("message", "migration returned status=error"))
                 result["version"] = version_str
                 result["target"] = target
             results.append(result)
@@ -994,10 +996,14 @@ def upgrade(vault_root: str, source: str, *, force: bool = False, dry_run: bool 
 
     precompile_snapshots: dict[str, dict] = {}
     precompile_snapshot_roots: set[str] = set()
+    postcompile_snapshots: dict[str, dict] = {}
+    postcompile_snapshot_roots: set[str] = set()
 
     def _rollback(msg):
         if precompile_snapshots:
             _restore_snapshots(precompile_snapshots, roots=precompile_snapshot_roots)
+        if postcompile_snapshots:
+            _restore_snapshots(postcompile_snapshots, roots=postcompile_snapshot_roots)
         _restore_brain_core(backup_dir, target)
         shutil.rmtree(backup_dir, ignore_errors=True)
         err_result = {
@@ -1061,15 +1067,35 @@ def upgrade(vault_root: str, source: str, *, force: bool = False, dry_run: bool 
     except Exception as e:
         return _rollback(f"copy failed: {e}")
 
-    shutil.rmtree(backup_dir, ignore_errors=True)
+    compiled_router_path = os.path.join(vault_root, ".brain", "local", "compiled-router.json")
+    try:
+        with open(compiled_router_path, "r", encoding="utf-8") as f:
+            compiled_router = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        compiled_router = {}
 
-    migrations, ledger = _run_migrations(
-        vault_root, old_version, new_version, force=force,
-    )
+    for art in compiled_router.get("artefacts", []):
+        path = art.get("path")
+        if not path:
+            continue
+        _snapshot_tree(
+            os.path.join(vault_root, path),
+            postcompile_snapshots,
+            roots=postcompile_snapshot_roots,
+        )
+
+    try:
+        migrations, ledger = _run_migrations(
+            vault_root, old_version, new_version, force=force, raise_on_error=True,
+        )
+    except Exception as e:
+        return _rollback(f"post-compile migration failed: {e}")
     if migrations:
         result["migrations"] = migrations
     if _all_migrations_recorded(vault_root, new_version, ledger=ledger):
         _write_migrated_version_marker(vault_root, new_version)
+
+    shutil.rmtree(backup_dir, ignore_errors=True)
 
     # --- Post-upgrade definition sync ---
     sync_info = _post_upgrade_sync(vault_root, sync=sync)

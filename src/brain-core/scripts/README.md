@@ -22,7 +22,7 @@ Scripts are the **source of truth** for all vault operations. The MCP server (`b
 | `obsidian_cli.py` | IPC client for native Obsidian CLI | (library module, used by MCP server) |
 | `process.py` | Content classification, duplicate resolution, ingestion | (library module, used by MCP server) |
 | `read.py` | Query compiled router resources | `python3 read.py RESOURCE [--name N]` |
-| `rename.py` | Rename/delete file + update wikilinks | `python3 rename.py "source" "dest" [--json]` |
+| `rename.py` | Rename/delete file + update wikilinks, refusing existing-destination collisions | `python3 rename.py "source" "dest" [--json]` |
 | `search_index.py` | BM25 keyword search | `python3 search_index.py "query" [--type T] [--json]` |
 | `session.py` | Build the canonical session model and refresh `.brain/local/session.md` | `python3 session.py [--json] [--workspace-dir PATH]` |
 | `shape_printable.py` | Create printable + render PDF | `python3 shape_printable.py --source P --slug S [--no-render] [--pdf-engine E]` |
@@ -85,7 +85,7 @@ These scripts import from `_common/` for vault discovery, frontmatter parsing, a
 
 - `generate_key.py` — stdlib only
 - `obsidian_cli.py` — stdlib only; IPC socket client
-- `upgrade.py` — deliberately self-contained (it may replace `_common` during execution); duplicates only `find_vault_root()`, runs versioned `pre_compile_patch` handlers before compile validation, snapshots `.brain/` and `_Config/` for rollback using raw-byte restore so binary local-state files are safe, and records target-aware migration history in `.brain/local/` so reinstalls do not replay migrations unless forced
+- `upgrade.py` — deliberately self-contained (it may replace `_common` during execution); duplicates only `find_vault_root()`, runs versioned `pre_compile_patch` handlers before compile validation, snapshots `.brain/` and `_Config/` for rollback using raw-byte restore so binary local-state files are safe, snapshots post-compile artefact roots before running migrations, and records target-aware migration history in `.brain/local/` so reinstalls do not replay migrations unless forced
 
 ## `_common/` Package Structure
 

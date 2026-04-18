@@ -12,6 +12,7 @@ import re
 from datetime import datetime, timezone
 
 from ._artefacts import parse_date_value
+from ._naming import select_rule
 
 
 _FILENAME_DATE_RE = re.compile(r"^(\d{8}|\d{4}-\d{2}-\d{2})")
@@ -113,4 +114,29 @@ def reconcile_date_source(fields, abs_path, filename, naming, selected_rule):
         )
 
     fields[source] = dt.date().isoformat()
+    return fields
+
+
+def reconcile_fields_for_render(fields, artefact=None, abs_path=None, filename=None):
+    """Populate render-driving date fields before filename or folder resolution.
+
+    Applies the universal timestamp cascade first, then reconciles the selected
+    naming rule's explicit ``date_source`` field when needed. Callers should use
+    this before rendering filenames or temporal month folders so explicit
+    per-type subject dates (for example logs keyed by ``date`` rather than
+    physical ``created`` time) are available consistently across create, edit,
+    convert, and migration flows.
+    """
+    fields = fields or {}
+    reconcile_timestamps(fields, abs_path, filename=filename)
+    naming = (artefact or {}).get("naming")
+    if not naming:
+        return fields
+    rule = select_rule(naming, fields)
+    if not rule:
+        return fields
+    try:
+        reconcile_date_source(fields, abs_path, filename, naming, rule)
+    except ValueError:
+        pass
     return fields

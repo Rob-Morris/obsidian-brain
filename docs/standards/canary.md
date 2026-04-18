@@ -62,6 +62,12 @@ The `[id]` brackets are literal (they appear in the output). Condition is option
 - condition (optional) — "if" or "skip if" guidance on when the instruction should be performed or skipped, always followed by `:` if present
 - instruction — what the agent should do
 
+A task can point at a deterministic verification command plus a conditional
+repair command. Example: "Run `make sync-template-check`; if it reports drift,
+run `make sync-template` and log both outcomes." This keeps the canary focused
+on proving the workflow was followed, not on re-implementing the underlying
+checker in prose.
+
 ### Tasks example
 
 ```markdown

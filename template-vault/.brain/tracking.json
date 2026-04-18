@@ -230,15 +230,15 @@
       }
     },
     "temporal/logs": {
-      "brain_core_version": "0.23.2",
-      "installed_at": "2026-04-08T00:46:45.939286+00:00",
+      "brain_core_version": "0.29.3",
+      "installed_at": "2026-04-18T11:40:28.094039+00:00",
       "files": {
         "taxonomy": {
-          "source_hash": "sha256:dcd7f92d24e3b32afcca59f5c38097c72ddf1ec1038c107cf61c11bb915ef955",
+          "source_hash": "sha256:c2e2cedaf1f5dcc375b466b11d6ed0e43793a8d658c3bf9f1ce9d5ed73c6939c",
           "target": "_Config/Taxonomy/Temporal/logs.md"
         },
         "template": {
-          "source_hash": "sha256:6261d6ca3994d41739f1f9fddd53beb0b9ccb2e90511872ef6106b69150d1af6",
+          "source_hash": "sha256:66581cb6263ecf52c9d6bf01ba5c07d81b2b6bacf9ab1c42f45a18b144b1dd0f",
           "target": "_Config/Templates/Temporal/Logs.md"
         }
       }

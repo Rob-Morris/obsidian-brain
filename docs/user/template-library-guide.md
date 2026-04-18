@@ -104,7 +104,7 @@ Personal journal entries — reflections, recollections, and life updates. Use j
 
 ### Logs
 
-Append-only daily activity logs. Running chronological record of what happened. Use logs as the raw, timestamped record of the day — every meaningful action goes here. Daily notes are distilled from logs at end of day.
+Append-only daily activity logs. Running chronological record of what happened. Use logs as the raw, timestamped record of the day — every meaningful action goes here. Daily notes are distilled from logs at end of day. The filename and month folder are keyed by the log's subject day, so backfilled logs stay on the day they describe even if written later.
 
 ### Mockups
 

@@ -20,7 +20,7 @@ def vault_root():
 
 def check_log(root):
     t = date.today()
-    p = root / "_Temporal/Logs" / t.strftime("%Y-%m") / f"log--{t.isoformat()}.md"
+    p = root / "_Temporal/Logs" / t.strftime("%Y-%m") / f"{t.strftime('%Y%m%d')}-log.md"
     if not p.exists(): return "MISSING", f"No log at {p.relative_to(root)}"
     lines = [l for l in p.read_text().strip().split("\n") if l.strip() and not any(l.startswith(s) for s in SKIP)]
     if not lines: return "EMPTY", "Log exists but has no entries"

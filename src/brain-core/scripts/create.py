@@ -30,6 +30,7 @@ from _common import (
     make_temp_path,
     parse_frontmatter,
     read_file_content,
+    reconcile_fields_for_render,
     render_filename_or_default,
     resolve_body_file,
     resolve_folder,
@@ -94,6 +95,7 @@ def create_artefact(vault_root, router, type_key, title, body="", frontmatter_ov
     if "modified" not in fields:
         fields["modified"] = now_iso
 
+    reconcile_fields_for_render(fields, artefact)
     filename = render_filename_or_default(artefact.get("naming"), title, fields)
     folder = resolve_folder(artefact, parent=parent, fields=fields)
 

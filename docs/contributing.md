@@ -6,7 +6,7 @@ Guide for anyone working on brain-core. For the pre-commit checklist, see [pre-c
 
 ## Canary Hook
 
-A git pre-commit hook verifies the [pre-commit canary](canaries/pre-commit.md) was followed. It checks that `.canary--pre-commit` exists and covers all numbered items. The hook deletes the file after a successful commit so it can't go stale.
+A git pre-commit hook verifies the [pre-commit canary](../.canaries/pre-commit.md) was followed. It checks that `.canary--pre-commit` exists and covers all numbered items. The hook deletes the file after a successful commit so it can't go stale.
 
 The hook source is tracked at `.githooks/pre-commit`. To activate:
 
@@ -94,6 +94,17 @@ make install   # first time — creates venv, installs dependencies
 make test      # runs pytest
 ```
 
+If you change artefact-library definitions or template-vault defaults, also run:
+
+```bash
+make sync-template-check         # verifies template-vault is truly in sync
+make sync-template               # force-syncs _Config + .brain/tracking.json, then recompiles
+```
+
+`make test` now enforces the clean-state invariant through
+`TestTemplateVaultSync::test_no_drift`, but `make sync-template-check` gives a
+faster failure mode while you are iterating.
+
 ## Agents.md vs agents.local.md
 
 `Agents.md` is checked in and universal — it applies to every contributor on every machine. Keep it lean: project identity, pre-commit canary, pointer to local overrides.
@@ -146,6 +157,7 @@ obsidian-brain/
 │       ├── plugins.md           # plugin system
 │       ├── scripts/             # tooling (compile_router, check, build_index, search)
 │       └── mcp/                 # MCP server (brain_read, brain_search, brain_action)
+├── src/scripts/                 # repo-maintenance helpers (e.g. template-vault sync)
 ├── tests/                       # test suite (make test)
 ├── docs/
 │   ├── user/                    # user-facing docs (getting-started, workflows, system-guide, template-library)

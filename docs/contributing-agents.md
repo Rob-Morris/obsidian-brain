@@ -109,6 +109,14 @@ Install/extension procedures appear in `user/getting-started.md`, `standards/ext
 
 The quick-start guide (`src/brain-core/guide.md`) type table should show template vault defaults. The artefact library README shows all available types. These are different lists — don't copy one into the other.
 
+### Template-vault drift is not just file content
+
+When artefact-library definitions change, matching `template-vault/_Config/`
+content alone is not enough. `.brain/tracking.json` may still record stale
+installed hashes, which means the template vault is not truly clean even if the
+rendered files already match upstream. Use `make sync-template-check` to verify
+state, and `make sync-template` to refresh both `_Config/` and tracking.
+
 ### When to update guide.md
 
 The quick-start guide (`src/brain-core/guide.md`) ships in every vault and should be updated when:

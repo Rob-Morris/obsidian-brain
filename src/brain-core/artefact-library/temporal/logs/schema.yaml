@@ -4,3 +4,5 @@ required:
   tags:
     type: array
     contains: "log"
+  date:
+    type: string

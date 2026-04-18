@@ -111,5 +111,6 @@ from ._templates import (
 
 from ._reconcile import (
     reconcile_date_source,
+    reconcile_fields_for_render,
     reconcile_timestamps,
 )

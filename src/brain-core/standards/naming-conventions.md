@@ -27,7 +27,7 @@ The `title_to_filename()` function in `_common/_slugs.py` implements this.
 **Why the prefix matters:** Wikilinks become self-documenting. `[[20260324-report~Session Failure Analysis]]` tells you the artefact type without opening the file. Without the prefix, `[[20260324-Session Failure Analysis]]` could be research, a plan, a transcript, or anything else. Temporal artefacts share a flat date-ordered namespace within their month folder, so the prefix is the only type signal in the filename.
 
 **Special cases:**
-- **Logs** use `yyyymmdd-log.md` (no title). One log per day — the date is the only identifier.
+- **Logs** use `yyyymmdd-log.md` (no title). One log per day — the date is the only identifier, and it is the subject day of the log rather than the physical file creation time.
 - **Shaping Transcripts** embed the source document type: `yyyymmdd-{sourcedoctype}-transcript~{Title}.md`.
 
 **Examples:**
@@ -67,9 +67,12 @@ Every naming rule that uses a date token (`yyyymmdd`, `yyyy-mm-dd`, etc.) binds 
 
 **Declared `date_source` examples:**
 
+- `temporal/logs` → `date_source: date` (the day the log is about, which may differ from `created` when a log is backfilled later)
 - `living/daily-notes` → `date_source: date` (a dedicated per-type field; the subject date of the note, which may differ from physical creation when notes are backfilled)
 - `living/writing` (on the `published` rule) → `date_source: publisheddate`
 - `living/release` (on the `shipped` rule) → `date_source: shipped_at`
+
+Month-bucket temporal folders follow the selected rule's `date_source` too. A backfilled log for 2026-03-31 created on 2026-04-01 therefore still lives in `_Temporal/Logs/2026-03/`, not `_Temporal/Logs/2026-04/`.
 
 **The `{status}_at` convention.** When a status transition is observed, the runtime sets `{status}_at = now()` unless the type declares an `on_status_change` override. Example: `writing` transitioning to `published` runs `on_status_change: { published: { set: { publisheddate: now } } }` because its date field is `publisheddate`, not `published_at`. Types whose status-date field follows the `{status}_at` convention need no override.
 
@@ -82,7 +85,7 @@ Every naming rule that uses a date token (`yyyymmdd`, `yyyy-mm-dd`, etc.) binds 
 
 Reconciliation is idempotent: a second pass is a no-op. It runs only on write paths (`edit`, `rename`, migration) — `brain_read` is side-effect-free. Once reconciled, the values are written back to frontmatter and the filename is re-rendered from the selected rule; any disagreement is resolved in favour of the reconciled frontmatter.
 
-**One-time migration bundle.** Vaults upgrading through v0.29.0 run the `migrate_to_0_29_0.py` bundle via `upgrade.py`. Its `pre_compile_patch` stage first remediates blocking missing-`date_source` taxonomy definitions narrowly enough to satisfy the new compiler gate, then its normal post-compile migration backfills `created`, `modified`, and any type-specific `date_source` fields across every artefact. Temporal artefacts whose resolved `created` falls in a different month than their current folder are relocated (wikilink-safe). The `check missing-timestamps` warning surfaces stragglers that arrive afterwards — a single edit reconciles them.
+**One-time migration bundle.** Vaults upgrading through v0.29.0 run the `migrate_to_0_29_0.py` bundle via `upgrade.py`. Its `pre_compile_patch` stage first remediates blocking missing-`date_source` taxonomy definitions narrowly enough to satisfy the new compiler gate, then its normal post-compile migration backfills `created`, `modified`, and any type-specific `date_source` fields across every artefact. Temporal artefacts whose resolved naming date falls in a different month than their current folder are relocated (wikilink-safe), and planned rename collisions now abort the migration instead of overwriting existing files. The `check missing-timestamps` warning surfaces stragglers that arrive afterwards — a single edit reconciles them.
 
 ## Status-Aware and Frontmatter-Backed Naming
 

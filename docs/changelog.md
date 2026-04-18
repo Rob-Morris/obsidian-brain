@@ -2,6 +2,16 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.29.4 — 2026-04-18
+
+**Fix temporal log date semantics, fail closed on rename collisions, and tighten template-vault maintenance.** `temporal/logs` now keys filenames and month folders from the log's subject day instead of the physical file creation time, so backfilled logs no longer migrate onto the day they were typed. Upgrade-time rename flows now preflight collisions and refuse existing destinations before rewriting links, and post-compile migration failures roll back snapped artefact roots instead of leaving a half-migrated vault behind. The template vault now has an explicit maintenance flow (`make sync-template-check` / `make sync-template`) that refreshes both `_Config/` and `.brain/tracking.json`, and the drift test now enforces true `in_sync` state for installed defaults.
+
+- `src/brain-core/artefact-library/temporal/logs/` now declares `date source date`, adds `date:` to frontmatter, and documents that both the filename and `yyyy-mm/` month folder are keyed by the log's subject day. `template-vault/_Config/Taxonomy/Temporal/logs.md`, `template-vault/_Config/Templates/Temporal/Logs.md`, and the shipped `vault-maintenance` hygiene script were updated to match.
+- `src/brain-core/scripts/_common/_reconcile.py`, `_common/_artefacts.py`, `create.py`, and `edit.py` now share one render-time reconciliation path, and temporal folder resolution follows the selected naming rule's `date_source` rather than always assuming `created`.
+- `rename.py` now refuses to clobber an existing destination before touching wikilinks. `migrate_naming.py` and `migrations/migrate_to_0_29_0.py` now preflight planned targets and abort on collisions instead of partly applying a conflicting rename plan.
+- `upgrade.py` now snapshots post-compile artefact roots as well as the pre-compile `.brain/` / `_Config/` rollback surfaces, so failing post-compile migrations restore both vault content and `.brain-core/` cleanly.
+- Added `src/scripts/sync-template-vault.sh`, routed `make sync-template` through it, added `make sync-template-check`, tightened `TestTemplateVaultSync::test_no_drift`, and updated the contributor canary/docs so template-vault tracking drift is caught before commit.
+
 ## v0.29.3 — 2026-04-18
 
 **Make pre-compile rollback snapshots binary-safe.** The new `pre_compile_patch` rollback path in v0.29.2 began snapshotting all of `.brain/` and `_Config/` before patch handlers run. That surfaced a real-world vault case where one file under the rollback roots was not valid UTF-8; the snapshot pass raised during upgrade, and the partial rollback could remove later files it had not managed to snapshot yet. Snapshot/restore now operates on raw bytes, so pre-compile rollback covers binary and text files uniformly.

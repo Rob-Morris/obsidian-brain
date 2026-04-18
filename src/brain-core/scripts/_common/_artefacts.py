@@ -156,17 +156,32 @@ def resolve_folder(artefact, parent=None, fields=None):
     """Resolve the target folder for a new artefact.
 
     Temporal artefacts go into ``{base}/yyyy-mm/`` where ``yyyy-mm`` is
-    derived from ``fields["created"]``. Callers must reconcile ``created``
-    before calling — this function does not consult the wallclock.
+    derived from the selected naming rule's ``date_source`` when one is
+    declared, else ``created``. Callers must reconcile timestamps and any
+    explicit ``date_source`` field before calling — this function does not
+    consult the wallclock.
     """
     base_path = artefact["path"]
     if artefact.get("classification") == "temporal":
         fields = fields or {}
-        dt = parse_date_value(fields.get("created"))
+        source_field = "created"
+        naming = artefact.get("naming") or {}
+        for rule in naming.get("rules") or []:
+            match_field = rule.get("match_field")
+            if match_field is None:
+                source_field = rule.get("date_source") or "created"
+                break
+            if match_field not in fields:
+                continue
+            values = rule.get("match_values") or []
+            if "*" in values or fields[match_field] in values:
+                source_field = rule.get("date_source") or "created"
+                break
+        dt = parse_date_value(fields.get(source_field))
         if dt is None:
             raise ValueError(
                 "resolve_folder: temporal artefact requires a parseable "
-                "'created' in fields. Reconcile timestamps before calling."
+                f"'{source_field}' in fields. Reconcile render fields before calling."
             )
         month_folder = dt.strftime("%Y-%m")
         return os.path.join(base_path, month_folder)

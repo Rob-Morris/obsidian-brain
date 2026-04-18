@@ -615,22 +615,36 @@ class TestTemplateVaultSync:
         return path
 
     def test_no_drift(self, template_vault):
-        """All installed definitions should be in sync with brain-core."""
-        result = sync.sync_definitions(
-            template_vault, dry_run=True, force=True
-        )
-        collisions = [
-            w for w in result.get("warnings", [])
-            if w.get("action") == "collision"
-        ]
-        updates = [
-            u for u in result.get("updated", [])
-            if u.get("action") in ("collision", "update", "new")
-        ]
-        drift = collisions + updates
+        """All installed template-vault types should classify as in_sync."""
+        result = sync.status_definitions(template_vault)
+        if result.get("not_installable"):
+            problems = "\n  ".join(
+                f"{entry.get('type', '?')}: {entry.get('reason', 'unknown')}"
+                for entry in result["not_installable"]
+            )
+            pytest.fail(
+                "Template vault contains non-installable library types:\n"
+                f"  {problems}"
+            )
+
+        drift = []
+        for state in ("sync_ready", "locally_customised", "conflict"):
+            for entry in result.get("types", {}).get(state, []):
+                files = ", ".join(
+                    f"{role}={file_state}"
+                    for role, file_state in sorted(entry.get("files", {}).items())
+                    if file_state != "in_sync"
+                )
+                drift.append({
+                    "type": entry.get("type", "?"),
+                    "state": state,
+                    "files": files,
+                })
         if drift:
             files = "\n  ".join(
-                d.get("target", d.get("type", "?")) for d in drift
+                f"[{d['state']}] {d['type']}"
+                + (f" ({d['files']})" if d["files"] else "")
+                for d in drift
             )
             pytest.fail(
                 f"Template vault has {len(drift)} drifted definition(s). "

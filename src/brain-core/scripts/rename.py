@@ -65,6 +65,14 @@ def rename_and_update_links(vault_root, source, dest, router=None):
     if not os.path.isfile(abs_source):
         raise FileNotFoundError(f"Source file not found: {source}")
 
+    if os.path.isfile(abs_dest):
+        try:
+            same = os.path.samefile(abs_source, abs_dest)
+        except OSError:
+            same = False
+        if not same:
+            raise FileExistsError(f"Destination file already exists: {dest}")
+
     if router is not None:
         _validate_destination_naming(vault_root, router, source, dest, abs_source)
 

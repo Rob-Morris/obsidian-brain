@@ -182,7 +182,14 @@ processes.
 cannot import `_common` while replacing `.brain-core/` in place. Its rollback
 snapshot path now stores raw bytes and restores them through the same temp +
 fsync + replace shape, so binary or non-UTF-8 files under `.brain/` and
-`_Config/` do not break pre-compile rollback.
+`_Config/` do not break pre-compile rollback. Post-compile migrations also
+snapshot the affected artefact roots before mutating them, so a failed migration
+restores both vault content and `.brain-core/` instead of leaving a half-moved
+artefact tree behind.
+
+`rename.py` now also fails closed on destination collisions: if the target path
+already exists, it raises before any wikilink rewrite begins. That keeps a
+path-valid but unsafe rename plan from clobbering an existing artefact.
 
 See: [DD-036: Safe write pattern](decisions/dd-036-safe-write-pattern.md)
 

@@ -437,22 +437,18 @@ def _target_folder(art: dict, fields: dict, current_folder: str) -> str | None:
     return target if target != current_folder else None
 
 
-def _process_artefact(
+def _plan_artefact(
     vault_root: str,
     art: dict,
     rel_path: str,
-    *,
-    dry_run: bool,
-    counts: dict[str, int],
-    actions: list[str],
-) -> None:
-    """Backfill one artefact. Mutates ``counts`` and ``actions``."""
+) -> dict[str, Any] | None:
+    """Return the post-backfill plan for one artefact without mutating it."""
     abs_path = os.path.join(vault_root, rel_path)
     try:
         with open(abs_path, "r", encoding="utf-8") as f:
             text = f.read()
     except (OSError, UnicodeDecodeError):
-        return
+        return None
 
     fields, body = parse_frontmatter(text)
     original = dict(fields)
@@ -461,44 +457,108 @@ def _process_artefact(
         inferred = _infer_writing_status(fields)
         if inferred is not None:
             fields["status"] = inferred
-            counts["writing_status_inferred"] += 1
 
     reconcile_timestamps(fields, abs_path, filename=os.path.basename(rel_path))
 
     naming = art.get("naming")
     rule = select_rule(naming, fields) if naming else None
+    date_source_backfilled = False
+    date_source_unresolvable = False
     if rule is not None:
         try:
             before = fields.get(rule.get("date_source")) if rule.get("date_source") else None
             reconcile_date_source(fields, abs_path, os.path.basename(rel_path), naming, rule)
             after = fields.get(rule.get("date_source")) if rule.get("date_source") else None
-            if rule.get("date_source") and before != after:
-                counts["date_source_backfilled"] += 1
+            date_source_backfilled = bool(rule.get("date_source") and before != after)
         except ValueError:
-            counts["date_source_unresolvable"] += 1
-
-    frontmatter_changed = fields != original
-    if frontmatter_changed:
-        counts["frontmatter_backfilled"] += 1
+            date_source_unresolvable = True
 
     current_folder = os.path.dirname(rel_path)
     new_folder = _target_folder(art, fields, current_folder)
     new_filename = _rendered_filename(naming, fields, os.path.basename(rel_path))
-
     final_folder = new_folder if new_folder is not None else current_folder
     final_basename = new_filename or os.path.basename(rel_path)
     final_rel = os.path.join(final_folder, final_basename) if final_folder else final_basename
 
+    return {
+        "rel_path": rel_path,
+        "abs_path": abs_path,
+        "body": body,
+        "fields": fields,
+        "frontmatter_changed": fields != original,
+        "writing_status_inferred": art.get("type") == "living/writing" and "status" not in original and bool(fields.get("status")),
+        "date_source_backfilled": date_source_backfilled,
+        "date_source_unresolvable": date_source_unresolvable,
+        "relocated": new_folder is not None,
+        "renamed": new_filename is not None and new_filename != os.path.basename(rel_path),
+        "final_rel": final_rel,
+    }
+
+
+def _preflight_plans(vault_root: str, plans: list[dict[str, Any]]) -> list[str]:
+    """Return human-readable collision errors for planned rename targets."""
+    errors: list[str] = []
+    seen_targets: dict[str, str] = {}
+    for plan in plans:
+        rel_path = plan["rel_path"]
+        final_rel = plan["final_rel"]
+        if final_rel == rel_path:
+            continue
+        previous = seen_targets.get(final_rel)
+        if previous and previous != rel_path:
+            errors.append(
+                f"{rel_path}: planned target {final_rel} also claimed by {previous}"
+            )
+            continue
+        seen_targets[final_rel] = rel_path
+
+        dest_abs = os.path.join(vault_root, final_rel)
+        if not os.path.isfile(dest_abs):
+            continue
+        try:
+            same = os.path.samefile(plan["abs_path"], dest_abs)
+        except OSError:
+            same = False
+        if not same:
+            errors.append(f"{rel_path}: target file already exists ({final_rel})")
+    return errors
+
+
+def _process_artefact(
+    vault_root: str,
+    plan: dict[str, Any],
+    *,
+    dry_run: bool,
+    counts: dict[str, int],
+    actions: list[str],
+) -> None:
+    """Backfill one artefact. Mutates ``counts`` and ``actions``."""
+    rel_path = plan["rel_path"]
+    abs_path = plan["abs_path"]
+    fields = dict(plan["fields"])
+    body = plan["body"]
+    final_rel = plan["final_rel"]
+    frontmatter_changed = plan["frontmatter_changed"]
+
+    if plan["writing_status_inferred"]:
+        counts["writing_status_inferred"] += 1
+    if plan["date_source_backfilled"]:
+        counts["date_source_backfilled"] += 1
+    if plan["date_source_unresolvable"]:
+        counts["date_source_unresolvable"] += 1
+    if frontmatter_changed:
+        counts["frontmatter_backfilled"] += 1
+
     if dry_run:
         if frontmatter_changed:
             actions.append(f"backfill {rel_path}")
-        if new_folder is not None:
+        if plan["relocated"]:
             counts["relocated"] += 1
             actions.append(f"relocate {rel_path} → {final_rel}")
-        if new_filename is not None:
+        if plan["renamed"]:
             counts["renamed"] += 1
             actions.append(f"rename {rel_path} → {final_rel}")
-        if not frontmatter_changed and new_folder is None and new_filename is None:
+        if not frontmatter_changed and not plan["relocated"] and not plan["renamed"]:
             counts["already_clean"] += 1
         return
 
@@ -507,22 +567,16 @@ def _process_artefact(
         safe_write(abs_path, new_content, bounds=vault_root)
         actions.append(f"backfill {rel_path}")
 
-    if new_folder is not None:
-        abs_target_dir = os.path.join(vault_root, new_folder)
-        os.makedirs(abs_target_dir, exist_ok=True)
-        relocated_rel = os.path.join(new_folder, os.path.basename(rel_path))
-        rename_and_update_links(vault_root, rel_path, relocated_rel)
-        rel_path = relocated_rel
-        counts["relocated"] += 1
-        actions.append(f"relocate → {rel_path}")
+    if final_rel != rel_path:
+        rename_and_update_links(vault_root, rel_path, final_rel)
+        if plan["relocated"]:
+            counts["relocated"] += 1
+            actions.append(f"relocate → {final_rel}")
+        if plan["renamed"]:
+            counts["renamed"] += 1
+            actions.append(f"rename → {final_rel}")
 
-    if new_filename is not None and new_filename != os.path.basename(rel_path):
-        renamed_rel = os.path.join(os.path.dirname(rel_path), new_filename)
-        rename_and_update_links(vault_root, rel_path, renamed_rel)
-        counts["renamed"] += 1
-        actions.append(f"rename → {renamed_rel}")
-
-    if not frontmatter_changed and new_folder is None and new_filename is None:
+    if not frontmatter_changed and not plan["relocated"] and not plan["renamed"]:
         counts["already_clean"] += 1
 
 
@@ -548,6 +602,7 @@ def backfill_vault(vault_root: str, *, router: dict | None = None, dry_run: bool
         "writing_status_inferred": 0,
     }
     actions: list[str] = []
+    plans: list[dict[str, Any]] = []
 
     for art in router.get("artefacts", []):
         if not art.get("configured"):
@@ -555,14 +610,28 @@ def backfill_vault(vault_root: str, *, router: dict | None = None, dry_run: bool
         for rel_path in find_type_files(vault_root, art["path"], skip_archive=True):
             if is_archived_path(rel_path):
                 continue
-            _process_artefact(
-                vault_root,
-                art,
-                rel_path,
-                dry_run=dry_run,
-                counts=counts,
-                actions=actions,
-            )
+            plan = _plan_artefact(vault_root, art, rel_path)
+            if plan is not None:
+                plans.append(plan)
+
+    errors = _preflight_plans(vault_root, plans)
+    if errors:
+        return {
+            "status": "error",
+            "dry_run": dry_run,
+            "message": errors[0],
+            "errors": errors,
+            "actions": [],
+        }
+
+    for plan in plans:
+        _process_artefact(
+            vault_root,
+            plan,
+            dry_run=dry_run,
+            counts=counts,
+            actions=actions,
+        )
 
     return {
         "status": "ok",
@@ -583,12 +652,14 @@ def migrate(vault_root: str) -> dict[str, Any]:
 
     # 1. Legacy filename canonicalisation (RD-8).
     naming_result = migrate_naming.migrate_vault(vault_root, dry_run=False)
+    if naming_result.get("error_count"):
+        first = naming_result["errors"][0]
+        message = f"migrate_naming error on {first.get('file')}: {first.get('error')}"
+        return {"status": "error", "message": message, "errors": naming_result["errors"]}
     if naming_result.get("renamed"):
         summary_actions.append(
             f"migrate_naming: renamed {naming_result['renamed']} files"
         )
-    for err in naming_result.get("errors", []):
-        summary_actions.append(f"migrate_naming error on {err.get('file')}: {err.get('error')}")
 
     # 2. Backfill timestamps + type-specific date fields + writing status.
     backfill = backfill_vault(vault_root, dry_run=False)

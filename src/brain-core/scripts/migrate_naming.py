@@ -25,6 +25,7 @@ from _common import (
     find_vault_root,
     load_compiled_router,
     parse_frontmatter,
+    reconcile_fields_for_render,
     render_filename,
     slug_to_title,
     validate_filename,
@@ -56,7 +57,7 @@ _OLD_LIVING_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*\.md$")
 # Core logic
 # ---------------------------------------------------------------------------
 
-def compute_new_filename(filename, artefact, fields=None):
+def compute_new_filename(filename, artefact, fields=None, abs_path=None):
     """Compute the new filename for an old-convention or off-rule file.
 
     Two detection paths run in order:
@@ -106,6 +107,7 @@ def compute_new_filename(filename, artefact, fields=None):
             render_fields["created"] = dt.astimezone().isoformat()
         except ValueError:
             pass
+    reconcile_fields_for_render(render_fields, artefact, abs_path, filename)
 
     try:
         new_filename = render_filename(naming, title, render_fields)
@@ -130,6 +132,7 @@ def migrate_vault(vault_root, router=None, dry_run=False):
     renamed = []
     skipped = 0
     errors = []
+    planned = []
 
     for art in router.get("artefacts", []):
         if not art.get("configured"):
@@ -148,57 +151,75 @@ def migrate_vault(vault_root, router=None, dry_run=False):
             except (OSError, UnicodeDecodeError):
                 fields = {}
 
-            new_filename = compute_new_filename(filename, art, fields=fields)
+            new_filename = compute_new_filename(filename, art, fields=fields, abs_path=abs_path)
 
             if new_filename is None or new_filename == filename:
                 skipped += 1
                 continue
 
-            # Compute new relative path (same directory, new filename)
             dir_part = os.path.dirname(rel_path)
             new_rel_path = os.path.join(dir_part, new_filename) if dir_part else new_filename
+            planned.append((rel_path, new_rel_path))
 
-            # Check if target already exists (but allow case-only renames
-            # on case-insensitive filesystems like macOS HFS+/APFS)
-            dest_abs = os.path.join(vault_root, new_rel_path)
-            source_abs = os.path.join(vault_root, rel_path)
-            if os.path.isfile(dest_abs):
-                try:
-                    if not os.path.samefile(source_abs, dest_abs):
-                        errors.append({
-                            "file": rel_path,
-                            "target": new_rel_path,
-                            "error": "Target file already exists",
-                        })
-                        continue
-                except OSError:
-                    errors.append({
-                        "file": rel_path,
-                        "target": new_rel_path,
-                        "error": "Target file already exists",
-                    })
-                    continue
+    seen_targets = {}
+    for rel_path, new_rel_path in planned:
+        previous = seen_targets.get(new_rel_path)
+        if previous and previous != rel_path:
+            errors.append({
+                "file": rel_path,
+                "target": new_rel_path,
+                "error": f"Planned target also claimed by {previous}",
+            })
+            continue
+        seen_targets[new_rel_path] = rel_path
 
-            if dry_run:
-                renamed.append({
-                    "source": rel_path,
-                    "dest": new_rel_path,
-                    "links_updated": 0,
-                })
-            else:
-                try:
-                    links = rename_and_update_links(vault_root, rel_path, new_rel_path)
-                    renamed.append({
-                        "source": rel_path,
-                        "dest": new_rel_path,
-                        "links_updated": links,
-                    })
-                except (FileNotFoundError, OSError) as e:
-                    errors.append({
-                        "file": rel_path,
-                        "target": new_rel_path,
-                        "error": str(e),
-                    })
+        dest_abs = os.path.join(vault_root, new_rel_path)
+        source_abs = os.path.join(vault_root, rel_path)
+        if not os.path.isfile(dest_abs):
+            continue
+        try:
+            same = os.path.samefile(source_abs, dest_abs)
+        except OSError:
+            same = False
+        if not same:
+            errors.append({
+                "file": rel_path,
+                "target": new_rel_path,
+                "error": "Target file already exists",
+            })
+
+    if errors:
+        return {
+            "dry_run": dry_run,
+            "renamed": 0,
+            "skipped": skipped,
+            "error_count": len(errors),
+            "details": [],
+            "errors": errors,
+        }
+
+    for rel_path, new_rel_path in planned:
+        if dry_run:
+            renamed.append({
+                "source": rel_path,
+                "dest": new_rel_path,
+                "links_updated": 0,
+            })
+            continue
+        try:
+            links = rename_and_update_links(vault_root, rel_path, new_rel_path)
+            renamed.append({
+                "source": rel_path,
+                "dest": new_rel_path,
+                "links_updated": links,
+            })
+        except (FileNotFoundError, FileExistsError, OSError) as e:
+            errors.append({
+                "file": rel_path,
+                "target": new_rel_path,
+                "error": str(e),
+            })
+            break
 
     return {
         "dry_run": dry_run,

@@ -20,9 +20,13 @@ The log is the **raw chronological record** — every activity timestamped as it
 
 ## Naming
 
-`yyyymmdd-log.md` in `_Temporal/Logs/yyyy-mm/`.
+`yyyymmdd-log.md` in `_Temporal/Logs/yyyy-mm/`, date source `date`.
 
 Example: `_Temporal/Logs/2026-03/20260314-log.md`
+
+The filename date is the subject day of the log, not the physical creation
+time of the markdown file. Backfilled logs therefore keep the day they describe
+even when the file itself was created later.
 
 ## Frontmatter
 
@@ -31,6 +35,7 @@ Example: `_Temporal/Logs/2026-03/20260314-log.md`
 type: temporal/log
 tags:
   - log
+date:
 ---
 ```
 

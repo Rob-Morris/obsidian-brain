@@ -30,8 +30,7 @@ from _common import (
     make_temp_path,
     now_iso,
     parse_frontmatter,
-    reconcile_date_source,
-    reconcile_timestamps,
+    reconcile_fields_for_render,
     render_filename,
     render_filename_or_default,
     replace_wikilinks_in_vault,
@@ -41,7 +40,6 @@ from _common import (
     resolve_type,
     resolve_wikilink_stems,
     safe_write,
-    select_rule,
     serialize_frontmatter,
     parse_structural_anchor_line,
     strip_md_ext,
@@ -556,24 +554,6 @@ def _apply_status_change_hooks(fields, old_fields, art):
         fields[default_field] = today
 
 
-def _reconcile_fields_for_render(fields, art, abs_path, filename):
-    """Reconcile timestamps + type-specific date_source before rendering.
-
-    Mutates ``fields`` in place. ``art`` may be partially resolved (``naming``
-    optional). Falls back gracefully when ``select_rule`` returns None.
-    """
-    reconcile_timestamps(fields, abs_path, filename=filename)
-    naming = (art or {}).get("naming")
-    if naming:
-        rule = select_rule(naming, fields)
-        if rule:
-            try:
-                reconcile_date_source(fields, abs_path, filename, naming, rule)
-            except ValueError:
-                pass
-    return fields
-
-
 def _maybe_relocate_temporal_month(vault_root, path, art, fields):
     """Relocate a temporal artefact to ``_Temporal/<Type>/yyyy-mm/`` for its ``created``.
 
@@ -634,7 +614,7 @@ def _finish_artefact(vault_root, abs_path, fields, old_body, new_body, path, art
     had_explicit_created = bool((old_fields or {}).get("created")) or bool(
         (frontmatter_changes or {}).get("created")
     )
-    _reconcile_fields_for_render(fields, art, abs_path, os.path.basename(path))
+    reconcile_fields_for_render(fields, art, abs_path, os.path.basename(path))
     _save_artefact(abs_path, fields, new_body, vault_root)
     resolved_path = path
     if art.get("classification") == "temporal" and had_explicit_created:
@@ -864,7 +844,7 @@ def convert_artefact(vault_root, router, path, target_type, parent=None):
         stem = os.path.splitext(os.path.basename(path))[0]
         source_naming = source_art.get("naming")
         title = extract_title(source_naming, fields, stem) or stem
-    _reconcile_fields_for_render(fields, target_art, abs_source, os.path.basename(path))
+    reconcile_fields_for_render(fields, target_art, abs_source, os.path.basename(path))
     new_filename = render_filename_or_default(target_art.get("naming"), title, fields)
 
     if parent is None and target_art.get("classification") != "temporal":
