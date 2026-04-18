@@ -2,6 +2,13 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.29.3 — 2026-04-18
+
+**Make pre-compile rollback snapshots binary-safe.** The new `pre_compile_patch` rollback path in v0.29.2 began snapshotting all of `.brain/` and `_Config/` before patch handlers run. That surfaced a real-world vault case where one file under the rollback roots was not valid UTF-8; the snapshot pass raised during upgrade, and the partial rollback could remove later files it had not managed to snapshot yet. Snapshot/restore now operates on raw bytes, so pre-compile rollback covers binary and text files uniformly.
+
+- `src/brain-core/scripts/upgrade.py` now snapshots files in binary mode and restores them through a text-or-bytes-safe atomic write helper. The helper also now uses unique sibling temp files via `tempfile.mkstemp()`.
+- Added a regression in `tests/test_upgrade_migrations.py` that reproduces a failing `pre_compile_patch` with a binary file already present under `.brain/local/` and proves rollback restores it intact.
+
 ## v0.29.2 — 2026-04-18
 
 **Harden the upgrade migration runner and bundle the v0.29 compatibility patch as a standard migration target.** `upgrade.py` now supports a versioned `pre_compile_patch` stage alongside normal post-compile migrations, so compatibility repairs can be bundled with the migration that needs them instead of being hard-coded into the upgrader. The first use is the v0.29.0 migration bundle, which repairs blocking missing-`date_source` taxonomy definitions before the new compiler gate runs. The runner now treats pre-compile patch failures as fatal rollback conditions, executes migrations in a fresh import context rooted at the upgraded scripts tree, and validates non-default migration targets statically before import.

@@ -85,7 +85,7 @@ These scripts import from `_common/` for vault discovery, frontmatter parsing, a
 
 - `generate_key.py` — stdlib only
 - `obsidian_cli.py` — stdlib only; IPC socket client
-- `upgrade.py` — deliberately self-contained (it may replace `_common` during execution); duplicates only `find_vault_root()`, runs versioned `pre_compile_patch` handlers before compile validation, and records target-aware migration history in `.brain/local/` so reinstalls do not replay migrations unless forced
+- `upgrade.py` — deliberately self-contained (it may replace `_common` during execution); duplicates only `find_vault_root()`, runs versioned `pre_compile_patch` handlers before compile validation, snapshots `.brain/` and `_Config/` for rollback using raw-byte restore so binary local-state files are safe, and records target-aware migration history in `.brain/local/` so reinstalls do not replay migrations unless forced
 
 ## `_common/` Package Structure
 

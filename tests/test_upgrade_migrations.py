@@ -357,6 +357,37 @@ def test_upgrade_rolls_back_precompile_patch_failure(tmp_path):
     assert (vault / ".brain-core" / "VERSION").read_text().strip() == "0.9.0"
 
 
+def test_upgrade_rolls_back_precompile_patch_failure_with_binary_brain_files(tmp_path):
+    source = _make_source(
+        tmp_path,
+        "1.0.0",
+        migrations={
+            "migrate_to_1_0_0.py": (
+                "import os\n"
+                "TARGET_HANDLERS = {'pre_compile_patch': 'patch_pre_compile'}\n"
+                "\n"
+                "def patch_pre_compile(vault_root, *, context=None):\n"
+                "    path = os.path.join(vault_root, '.brain', 'local', 'touched.txt')\n"
+                "    with open(path, 'w', encoding='utf-8') as f:\n"
+                "        f.write('partial')\n"
+                "    raise RuntimeError('boom')\n"
+            )
+        },
+    )
+    vault = _make_vault(tmp_path, "0.9.0")
+    binary_path = vault / ".brain" / "local" / "index.bin"
+    binary_content = b"\x80brain\x00index"
+    binary_path.write_bytes(binary_content)
+
+    result = upgrade.upgrade(str(vault), str(source), sync=False)
+
+    assert result["status"] == "error"
+    assert "pre-compile patch failed" in result["message"]
+    assert not (vault / ".brain" / "local" / "touched.txt").exists()
+    assert binary_path.read_bytes() == binary_content
+    assert (vault / ".brain-core" / "VERSION").read_text().strip() == "0.9.0"
+
+
 def test_upgrade_runs_real_mcp_transport_repair_migration(tmp_path):
     source = _make_source(tmp_path, "0.27.6", migrations=None)
     vault = _make_vault(tmp_path, "0.27.5")

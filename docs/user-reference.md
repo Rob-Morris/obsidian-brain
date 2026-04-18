@@ -182,7 +182,7 @@ Available in `.brain-core/scripts/`. Scripts are the source of truth for all vau
 | `create.py` | Create a new artefact with template/naming resolution |
 | `edit.py` | Edit, append to, or convert an existing artefact |
 | `rename.py` | Rename a file with automatic wikilink updates |
-| `upgrade.py` | Upgrade brain-core in-place from a source directory, including versioned pre-compile compatibility patches and applied-migration tracking in `.brain/local/` (CLI-only, not shipped to vaults) |
+| `upgrade.py` | Upgrade brain-core in-place from a source directory, including versioned pre-compile compatibility patches, binary-safe rollback snapshots for `.brain/` / `_Config/`, and applied-migration tracking in `.brain/local/` (CLI-only, not shipped to vaults) |
 | `workspace_registry.py` | Workspace slug→path resolution and registration |
 | `init.py` | Set up Claude Code and/or Codex to use this vault's MCP server; folder-scoped installs also scaffold `.brain/local/workspace.yaml` (migrates legacy `.brain/workspace.yaml` automatically). Project scope outranks user scope once the client activates the project entry: approve via `/mcp` in Claude, or trust/enable the project-scoped server in Codex. |
 | `check.py` | Structural compliance checker — validates naming, frontmatter, month folders, archives, status values |

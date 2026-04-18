@@ -178,6 +178,12 @@ same target concurrently, the later replace still wins. Higher-level coordinatio
 is required for multi-file rewrite flows and concurrent writers in multiple
 processes.
 
+`upgrade.py` carries its own self-contained sibling-temp write helper because it
+cannot import `_common` while replacing `.brain-core/` in place. Its rollback
+snapshot path now stores raw bytes and restores them through the same temp +
+fsync + replace shape, so binary or non-UTF-8 files under `.brain/` and
+`_Config/` do not break pre-compile rollback.
+
 See: [DD-036: Safe write pattern](decisions/dd-036-safe-write-pattern.md)
 
 ---

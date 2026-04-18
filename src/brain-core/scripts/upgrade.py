@@ -34,12 +34,18 @@ from typing import Optional
 
 
 def _safe_write(path, content):
-    """Atomic write: tmp → fsync → os.replace."""
+    """Atomic write: tmp → fsync → os.replace for text or bytes."""
     target = os.path.realpath(str(path))
     os.makedirs(os.path.dirname(target) or ".", exist_ok=True)
-    tmp = f"{target}.{os.getpid()}.tmp"
+    fd, tmp = tempfile.mkstemp(
+        prefix=os.path.basename(target) + ".",
+        suffix=".tmp",
+        dir=os.path.dirname(target) or ".",
+    )
+    mode = "wb" if isinstance(content, bytes) else "w"
+    kwargs = {} if mode == "wb" else {"encoding": "utf-8"}
     try:
-        with open(tmp, "w", encoding="utf-8") as f:
+        with os.fdopen(fd, mode, **kwargs) as f:
             f.write(content)
             f.flush()
             os.fsync(f.fileno())
@@ -135,7 +141,7 @@ def _snapshot_file(path: str, snapshots: dict[str, dict]) -> None:
     if path in snapshots:
         return
     if os.path.exists(path):
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, "rb") as f:
             snapshots[path] = {"exists": True, "content": f.read()}
     else:
         snapshots[path] = {"exists": False}
