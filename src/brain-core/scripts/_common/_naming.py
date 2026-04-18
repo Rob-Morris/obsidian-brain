@@ -210,11 +210,28 @@ _RULE_REGEX_CACHE = {}
 def _rule_regex(naming, rule, capture_title=False):
     """Return a compiled anchored regex for a rule's pattern, or None on error.
 
-    Results are cached keyed on (id(rule), capture_title). The compiled naming
-    contract is immutable after ``load_compiled_router``, so one compile per
-    rule/flavour per process is enough for hot paths (check, migrate, edit).
+    Results are cached keyed on the rule's structural content rather than
+    ``id(rule)``. Object ids can be reused across long-lived test runs, which
+    can incorrectly alias regexes between unrelated rule dicts.
     """
-    cache_key = (id(rule), capture_title)
+    placeholders_key = tuple(
+        (
+            ph.get("name"),
+            ph.get("field"),
+            ph.get("regex"),
+            ph.get("required_when_field"),
+            tuple(ph.get("required_values") or []),
+        )
+        for ph in (naming.get("placeholders") or [])
+    )
+    cache_key = (
+        rule.get("match_field"),
+        tuple(rule.get("match_values") or []),
+        rule.get("pattern"),
+        rule.get("date_source"),
+        placeholders_key,
+        capture_title,
+    )
     if cache_key in _RULE_REGEX_CACHE:
         return _RULE_REGEX_CACHE[cache_key]
     placeholders_by_name = {

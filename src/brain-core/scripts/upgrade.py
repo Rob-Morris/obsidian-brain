@@ -17,6 +17,7 @@ the MCP server wrapper handles them automatically.
 """
 
 import argparse
+import ast
 import filecmp
 import importlib
 import importlib.util
@@ -129,6 +130,59 @@ def _parse_version(v: str) -> tuple:
     return tuple(parts)
 
 
+def _snapshot_file(path: str, snapshots: dict[str, dict]) -> None:
+    """Capture the original state of ``path`` once for rollback."""
+    if path in snapshots:
+        return
+    if os.path.exists(path):
+        with open(path, "r", encoding="utf-8") as f:
+            snapshots[path] = {"exists": True, "content": f.read()}
+    else:
+        snapshots[path] = {"exists": False}
+
+
+def _snapshot_tree(root: str, snapshots: dict[str, dict], *, roots: Optional[set[str]] = None) -> None:
+    """Capture every file currently under ``root`` for rollback."""
+    if roots is not None:
+        roots.add(root)
+    if not os.path.exists(root):
+        return
+    for dirpath, _dirnames, filenames in os.walk(root):
+        for filename in filenames:
+            _snapshot_file(os.path.join(dirpath, filename), snapshots)
+
+
+def _restore_snapshots(snapshots: dict[str, dict], *, roots: Optional[set[str]] = None) -> None:
+    """Restore files captured by ``_snapshot_file`` and remove new files under roots."""
+    if roots:
+        known_paths = set(snapshots)
+        for root in roots:
+            if not os.path.exists(root):
+                continue
+            for dirpath, dirnames, filenames in os.walk(root, topdown=False):
+                for filename in filenames:
+                    path = os.path.join(dirpath, filename)
+                    if path in known_paths:
+                        continue
+                    try:
+                        os.remove(path)
+                    except OSError:
+                        pass
+                for dirname in dirnames:
+                    try:
+                        os.rmdir(os.path.join(dirpath, dirname))
+                    except OSError:
+                        pass
+    for path, state in snapshots.items():
+        if not state.get("exists"):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+            continue
+        _safe_write(path, state["content"])
+
+
 # ---------------------------------------------------------------------------
 # File tree diffing
 # ---------------------------------------------------------------------------
@@ -178,6 +232,22 @@ def _diff_trees(source: str, target: str) -> dict:
 # ---------------------------------------------------------------------------
 
 _MIGRATION_RE_PATTERN = r"^migrate_to_(\d+(?:_\d+)*)\.py$"
+_DEFAULT_MIGRATION_TARGET = "post_compile"
+_PRECOMPILE_PATCH_TARGET = "pre_compile_patch"
+_MIGRATION_RECORD_SEP = "@"
+_TARGET_HANDLERS_ATTR = "TARGET_HANDLERS"
+_MIGRATION_TARGETS = {
+    _DEFAULT_MIGRATION_TARGET: {
+        "stage": "after compile validation succeeds",
+    },
+    _PRECOMPILE_PATCH_TARGET: {
+        "stage": "after copy, before compile validation",
+    },
+}
+
+
+class MigrationDefinitionError(ValueError):
+    """Raised when a migration file violates the static discovery contract."""
 
 
 def _discover_migrations(migrations_dir: str) -> list[tuple[tuple, str]]:
@@ -195,12 +265,227 @@ def _discover_migrations(migrations_dir: str) -> list[tuple[tuple, str]]:
     return sorted(migrations)
 
 
+def _require_known_migration_target(target: str) -> None:
+    """Reject unknown migration targets early."""
+    if target not in _MIGRATION_TARGETS:
+        known = ", ".join(sorted(_MIGRATION_TARGETS))
+        raise ValueError(f"Unknown migration target {target!r}. Expected one of: {known}")
+
+
+def _load_migration_module(version_str: str, script_path: str, target: str):
+    """Load a migration module from disk with a target-specific module name."""
+    spec = importlib.util.spec_from_file_location(
+        f"migration_{version_str}_{target}", script_path,
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _resolve_migration_handler(mod, target: str):
+    """Return the callable handler for a migration target, or None.
+
+    ``TARGET_HANDLERS`` values are validated as string literals during AST
+    discovery, so only the named-string and default-``migrate`` paths are
+    reachable here.
+    """
+    target_handlers = getattr(mod, _TARGET_HANDLERS_ATTR, {}) or {}
+    handler_name = target_handlers.get(target)
+    if isinstance(handler_name, str):
+        handler = getattr(mod, handler_name, None)
+        if callable(handler):
+            return handler
+    if target == _DEFAULT_MIGRATION_TARGET:
+        handler = getattr(mod, "migrate", None)
+        if callable(handler):
+            return handler
+    return None
+
+
+def _load_migration_ast(script_path: str) -> ast.AST:
+    """Parse a migration file without importing it from current on-disk contents."""
+    try:
+        with open(script_path, "r", encoding="utf-8") as f:
+            return ast.parse(f.read(), filename=script_path)
+    except OSError as exc:
+        raise MigrationDefinitionError(
+            f"{os.path.basename(script_path)} could not be read for migration discovery: {exc}",
+        ) from exc
+    except SyntaxError as exc:
+        raise MigrationDefinitionError(
+            f"{os.path.basename(script_path)} has invalid Python syntax for migration discovery: {exc.msg}",
+        ) from exc
+
+
+def _top_level_function_names(tree: ast.AST) -> set[str]:
+    """Return top-level function names declared in a module AST."""
+    return {
+        node.name
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+
+
+def _find_target_handlers_assignment(tree: ast.AST, script_path: str) -> Optional[ast.AST]:
+    """Return the single TARGET_HANDLERS assignment value node, if present."""
+    matches = []
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            if any(
+                isinstance(target, ast.Name) and target.id == _TARGET_HANDLERS_ATTR
+                for target in node.targets
+            ):
+                matches.append(node.value)
+        elif isinstance(node, ast.AnnAssign):
+            if isinstance(node.target, ast.Name) and node.target.id == _TARGET_HANDLERS_ATTR:
+                if node.value is None:
+                    raise MigrationDefinitionError(
+                        f"{os.path.basename(script_path)} declares {_TARGET_HANDLERS_ATTR} without a value",
+                    )
+                matches.append(node.value)
+
+    if len(matches) > 1:
+        raise MigrationDefinitionError(
+            f"{os.path.basename(script_path)} declares {_TARGET_HANDLERS_ATTR} more than once",
+        )
+    return matches[0] if matches else None
+
+
+def _extract_target_handler_names(script_path: str) -> dict[str, str]:
+    """Return statically-declared target handlers from ``TARGET_HANDLERS``."""
+    tree = _load_migration_ast(script_path)
+    value_node = _find_target_handlers_assignment(tree, script_path)
+    if value_node is None:
+        return {}
+    if not isinstance(value_node, ast.Dict):
+        raise MigrationDefinitionError(
+            f"{os.path.basename(script_path)} must declare {_TARGET_HANDLERS_ATTR} as a dict literal",
+        )
+
+    handlers: dict[str, str] = {}
+    function_names = _top_level_function_names(tree)
+    for key_node, handler_node in zip(value_node.keys, value_node.values):
+        if not isinstance(key_node, ast.Constant) or not isinstance(key_node.value, str):
+            raise MigrationDefinitionError(
+                f"{os.path.basename(script_path)} must use string literal keys in {_TARGET_HANDLERS_ATTR}",
+            )
+        target_name = key_node.value
+        if target_name not in _MIGRATION_TARGETS:
+            known = ", ".join(sorted(_MIGRATION_TARGETS))
+            raise MigrationDefinitionError(
+                f"{os.path.basename(script_path)} declares unknown migration target {target_name!r}; "
+                f"expected one of: {known}",
+            )
+        if not isinstance(handler_node, ast.Constant) or not isinstance(handler_node.value, str):
+            raise MigrationDefinitionError(
+                f"{os.path.basename(script_path)} must map {target_name!r} to a string literal "
+                "naming a top-level function",
+            )
+        handler_name = handler_node.value
+        if handler_name not in function_names:
+            raise MigrationDefinitionError(
+                f"{os.path.basename(script_path)} maps {target_name!r} to missing function "
+                f"{handler_name!r}",
+            )
+        handlers[target_name] = handler_name
+    return handlers
+
+
+def _module_defines_function(script_path: str, func_name: str) -> bool:
+    """Return True when ``script_path`` defines a top-level function."""
+    tree = _load_migration_ast(script_path)
+    return func_name in _top_level_function_names(tree)
+
+
+def _discover_script_modules(scripts_dir: str) -> set[str]:
+    """List importable top-level modules/packages in a scripts directory."""
+    names = set()
+    if not os.path.isdir(scripts_dir):
+        return names
+    for entry in os.listdir(scripts_dir):
+        if entry in {"__pycache__", "upgrade.py"}:
+            continue
+        full_path = os.path.join(scripts_dir, entry)
+        if entry.endswith(".py"):
+            names.add(entry[:-3])
+        elif os.path.isfile(os.path.join(full_path, "__init__.py")):
+            names.add(entry)
+    return names
+
+
+class _MigrationImportContext:
+    """Temporarily force migration imports to resolve from one scripts tree."""
+
+    def __init__(self, script_path: str):
+        self.scripts_dir = os.path.dirname(os.path.dirname(script_path))
+        self.module_names = _discover_script_modules(self.scripts_dir)
+        self.saved_modules: dict[str, object] = {}
+        self.saved_sys_path: list[str] = []
+
+    def _managed_module_keys(self) -> list[str]:
+        """Return loaded module keys owned by this scripts tree."""
+        managed = []
+        for key in sys.modules:
+            for name in self.module_names:
+                if key == name or key.startswith(f"{name}."):
+                    managed.append(key)
+                    break
+        return managed
+
+    def __enter__(self):
+        self.saved_modules = {
+            key: sys.modules[key]
+            for key in self._managed_module_keys()
+        }
+        for key in self.saved_modules:
+            sys.modules.pop(key, None)
+        self.saved_sys_path = list(sys.path)
+        sys.path[:] = [p for p in sys.path if p != self.scripts_dir]
+        sys.path.insert(0, self.scripts_dir)
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        for key in self._managed_module_keys():
+            sys.modules.pop(key, None)
+        sys.modules.update(self.saved_modules)
+        sys.path[:] = self.saved_sys_path
+        return False
+
+
+def _discover_target_migrations(
+    migrations_dir: str, *, target: str,
+) -> list[tuple[tuple, str, str, str]]:
+    """Return versioned migration handlers for the requested target."""
+    _require_known_migration_target(target)
+    discovered = []
+    for version_tuple, script_path in _discover_migrations(migrations_dir):
+        version_str = _migration_version_str(version_tuple)
+        declared_handlers = _extract_target_handler_names(script_path)
+        if target == _DEFAULT_MIGRATION_TARGET:
+            handler_name = "migrate" if _module_defines_function(script_path, "migrate") else None
+        else:
+            handler_name = declared_handlers.get(target)
+        if handler_name:
+            discovered.append((version_tuple, version_str, script_path, handler_name))
+    return discovered
+
+
+def _migration_record_key(version_str: str, target: str) -> str:
+    """Return the ledger key for a migration target/version pair."""
+    if target == _DEFAULT_MIGRATION_TARGET:
+        return version_str
+    return f"{version_str}{_MIGRATION_RECORD_SEP}{target}"
+
+
 def _run_migrations(
     vault_root: str,
     old_version: Optional[str],
     new_version: str,
     *,
     force: bool = False,
+    target: str = _DEFAULT_MIGRATION_TARGET,
+    context: Optional[dict] = None,
+    raise_on_error: bool = False,
 ) -> tuple[list[dict], dict]:
     """Run pending migrations between old_version and new_version.
 
@@ -215,8 +500,9 @@ def _run_migrations(
     Returns (results, ledger) so callers can check completeness without
     re-discovering migrations or re-loading the ledger from disk.
     """
+    _require_known_migration_target(target)
     migrations_dir = os.path.join(vault_root, BRAIN_CORE_DIR, "scripts", "migrations")
-    all_migrations = _discover_migrations(migrations_dir)
+    all_migrations = _discover_target_migrations(migrations_dir, target=target)
     if not all_migrations:
         return [], _load_migration_ledger(vault_root)
 
@@ -225,73 +511,66 @@ def _run_migrations(
         vault_root,
         old_version,
         source=f"installed-version:{old_version}",
+        target=target,
     )
 
     if force:
         pending = [
-            (vt, sp) for vt, sp in all_migrations
+            (vt, version_str, sp, handler)
+            for vt, version_str, sp, handler in all_migrations
             if vt <= new_tuple
         ]
     else:
         old_tuple = _parse_version(old_version) if old_version else (0,)
         pending = []
-        for version_tuple, script_path in all_migrations:
+        for version_tuple, version_str, script_path, handler in all_migrations:
             if version_tuple <= old_tuple or version_tuple > new_tuple:
                 continue
-            if _migration_version_str(version_tuple) in ledger["migrations"]:
+            if _migration_record_key(version_str, target) in ledger["migrations"]:
                 continue
-            pending.append((version_tuple, script_path))
+            pending.append((version_tuple, version_str, script_path, handler))
     if not pending:
         return [], ledger
 
-    # Reload modules that migration scripts import.  After an upgrade the
-    # new files are on disk but sys.modules still holds the old versions,
-    # so ``from _common import safe_write`` (etc.) would fail or pick up
-    # stale code.  Reload once before the first migration, not per-script.
-    _reload_migration_deps()
-
     results = []
-    for version_tuple, script_path in pending:
-        version_str = _migration_version_str(version_tuple)
+    for _version_tuple, version_str, script_path, _handler_name in pending:
         try:
-            spec = importlib.util.spec_from_file_location(
-                f"migration_{version_str}", script_path,
-            )
-            mod = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(mod)
-            result = mod.migrate(vault_root)
-            result["version"] = version_str
+            with _MigrationImportContext(script_path):
+                mod = _load_migration_module(version_str, script_path, target)
+                handler = _resolve_migration_handler(mod, target)
+                if handler is None:
+                    raise RuntimeError(
+                        f"Migration {os.path.basename(script_path)} no longer exposes target {target!r}",
+                    )
+                if target == _DEFAULT_MIGRATION_TARGET:
+                    result = handler(vault_root)
+                else:
+                    patch_context = context if context is not None else {}
+                    result = handler(vault_root, context=patch_context)
+                    if (
+                        target == _PRECOMPILE_PATCH_TARGET
+                        and context is not None
+                        and "validate_compile" in context
+                    ):
+                        context["compile_error"] = context["validate_compile"]()
+                result["version"] = version_str
+                result["target"] = target
             results.append(result)
             ledger = _record_migration_result(
-                vault_root, ledger, version_str, script_path, result,
+                vault_root, ledger, version_str, script_path, result, target=target,
             )
         except Exception as e:
+            if raise_on_error:
+                raise RuntimeError(
+                    f"Migration {os.path.basename(script_path)} target {target!r} failed: {e}",
+                ) from e
             results.append({
                 "version": version_str,
+                "target": target,
                 "status": "error",
                 "message": str(e),
             })
     return results, ledger
-
-
-# Modules that migration scripts commonly import.  Kept as a small
-# allow-list so we don't reload the entire process.
-_MIGRATION_DEPS = ["_common", "rename"]
-
-
-def _reload_migration_deps():
-    """Reload cached modules that migration scripts depend on.
-
-    Called before executing migrations so that ``from _common import …``
-    picks up the freshly-copied files rather than the stale module cache.
-    Only reloads modules already in sys.modules — if a module hasn't been
-    imported yet the fresh file will be loaded naturally.
-    """
-    for name in _MIGRATION_DEPS:
-        mod = sys.modules.get(name)
-        if mod is not None:
-            importlib.reload(mod)
-
 
 _MIGRATED_VERSION_FILE = os.path.join(".brain", "local", ".migrated-version")
 _MIGRATION_LEDGER_FILE = os.path.join(".brain", "local", "migrations.json")
@@ -348,6 +627,7 @@ def _seed_migration_ledger(
     upto_version: Optional[str],
     *,
     source: str,
+    target: str = _DEFAULT_MIGRATION_TARGET,
 ) -> dict:
     """Backfill ledger entries for migrations already implied by old state.
 
@@ -359,20 +639,22 @@ def _seed_migration_ledger(
         return ledger
 
     migrations_dir = os.path.join(vault_root, BRAIN_CORE_DIR, "scripts", "migrations")
-    all_migrations = _discover_migrations(migrations_dir)
+    all_migrations = _discover_target_migrations(migrations_dir, target=target)
     if not all_migrations:
         return ledger
 
     upto_tuple = _parse_version(upto_version)
     changed = False
     recorded_at = datetime.now(timezone.utc).isoformat()
-    for version_tuple, script_path in all_migrations:
+    for version_tuple, version_str, script_path, _handler in all_migrations:
         if version_tuple > upto_tuple:
             continue
-        version_str = _migration_version_str(version_tuple)
-        if version_str in ledger["migrations"]:
+        record_key = _migration_record_key(version_str, target)
+        if record_key in ledger["migrations"]:
             continue
-        ledger["migrations"][version_str] = {
+        ledger["migrations"][record_key] = {
+            "version": version_str,
+            "target": target,
             "status": "backfilled",
             "recorded_at": recorded_at,
             "recorded_from": source,
@@ -392,13 +674,17 @@ def _record_migration_result(
     version_str: str,
     script_path: str,
     result: dict,
+    *,
+    target: str = _DEFAULT_MIGRATION_TARGET,
 ) -> dict:
     """Record a successful or skipped migration in the local ledger."""
     status = result.get("status")
     if status == "error":
         return ledger
 
-    ledger["migrations"][version_str] = {
+    ledger["migrations"][_migration_record_key(version_str, target)] = {
+        "version": version_str,
+        "target": target,
         "status": status or "ok",
         "recorded_at": datetime.now(timezone.utc).isoformat(),
         "recorded_from": "runner",
@@ -408,13 +694,19 @@ def _record_migration_result(
     return ledger
 
 
-def _all_migrations_recorded(vault_root: str, target_version: str, ledger: Optional[dict] = None) -> bool:
+def _all_migrations_recorded(
+    vault_root: str,
+    target_version: str,
+    ledger: Optional[dict] = None,
+    *,
+    target: str = _DEFAULT_MIGRATION_TARGET,
+) -> bool:
     """Return True when every migration up to target_version is in the ledger.
 
     Pass a pre-loaded *ledger* to avoid re-reading the file from disk.
     """
     migrations_dir = os.path.join(vault_root, BRAIN_CORE_DIR, "scripts", "migrations")
-    all_migrations = _discover_migrations(migrations_dir)
+    all_migrations = _discover_target_migrations(migrations_dir, target=target)
     if not all_migrations:
         return True
 
@@ -423,8 +715,8 @@ def _all_migrations_recorded(vault_root: str, target_version: str, ledger: Optio
         ledger = _load_migration_ledger(vault_root)
     recorded = set(ledger["migrations"])
     required = {
-        _migration_version_str(version_tuple)
-        for version_tuple, _ in all_migrations
+        _migration_record_key(version_str, target)
+        for version_tuple, version_str, _script_path, _handler in all_migrations
         if version_tuple <= target_tuple
     }
     return required <= recorded
@@ -694,7 +986,12 @@ def upgrade(vault_root: str, source: str, *, force: bool = False, dry_run: bool 
     # --- Backup .brain-core/ before modifying anything ---
     backup_dir = _backup_brain_core(target)
 
+    precompile_snapshots: dict[str, dict] = {}
+    precompile_snapshot_roots: set[str] = set()
+
     def _rollback(msg):
+        if precompile_snapshots:
+            _restore_snapshots(precompile_snapshots, roots=precompile_snapshot_roots)
         _restore_brain_core(backup_dir, target)
         shutil.rmtree(backup_dir, ignore_errors=True)
         err_result = {
@@ -730,8 +1027,28 @@ def upgrade(vault_root: str, source: str, *, force: bool = False, dry_run: bool 
             except OSError:
                 pass
 
-        # --- Validate: compile must succeed before migrations run ---
-        compile_err = _validate_compile(vault_root)
+        _snapshot_tree(os.path.join(vault_root, ".brain"), precompile_snapshots, roots=precompile_snapshot_roots)
+        _snapshot_tree(os.path.join(vault_root, "_Config"), precompile_snapshots, roots=precompile_snapshot_roots)
+        compile_context = {
+            "compile_error": _validate_compile(vault_root),
+            "validate_compile": lambda: _validate_compile(vault_root),
+            "snapshot_file": lambda path: _snapshot_file(path, precompile_snapshots),
+        }
+        try:
+            precompile_patches, _patch_ledger = _run_migrations(
+                vault_root,
+                old_version,
+                new_version,
+                force=force,
+                target=_PRECOMPILE_PATCH_TARGET,
+                context=compile_context,
+                raise_on_error=True,
+            )
+        except Exception as e:
+            return _rollback(f"pre-compile patch failed: {e}")
+        if precompile_patches:
+            result["precompile_patch_migrations"] = precompile_patches
+        compile_err = compile_context.get("compile_error")
         if compile_err:
             return _rollback(compile_err)
 
@@ -740,7 +1057,6 @@ def upgrade(vault_root: str, source: str, *, force: bool = False, dry_run: bool 
 
     shutil.rmtree(backup_dir, ignore_errors=True)
 
-    # --- Migrations run only after copy + compile succeeded ---
     migrations, ledger = _run_migrations(
         vault_root, old_version, new_version, force=force,
     )

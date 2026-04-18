@@ -82,7 +82,7 @@ Every naming rule that uses a date token (`yyyymmdd`, `yyyy-mm-dd`, etc.) binds 
 
 Reconciliation is idempotent: a second pass is a no-op. It runs only on write paths (`edit`, `rename`, migration) — `brain_read` is side-effect-free. Once reconciled, the values are written back to frontmatter and the filename is re-rendered from the selected rule; any disagreement is resolved in favour of the reconciled frontmatter.
 
-**One-time migration.** Vaults upgrading through v0.29.0 run `migrate_to_0_29_0.py` once via `upgrade.py` to backfill `created`, `modified`, and any type-specific `date_source` fields across every artefact. Temporal artefacts whose resolved `created` falls in a different month than their current folder are relocated (wikilink-safe). The `check missing-timestamps` warning surfaces stragglers that arrive afterwards — a single edit reconciles them.
+**One-time migration bundle.** Vaults upgrading through v0.29.0 run the `migrate_to_0_29_0.py` bundle via `upgrade.py`. Its `pre_compile_patch` stage first remediates blocking missing-`date_source` taxonomy definitions narrowly enough to satisfy the new compiler gate, then its normal post-compile migration backfills `created`, `modified`, and any type-specific `date_source` fields across every artefact. Temporal artefacts whose resolved `created` falls in a different month than their current folder are relocated (wikilink-safe). The `check missing-timestamps` warning surfaces stragglers that arrive afterwards — a single edit reconciles them.
 
 ## Status-Aware and Frontmatter-Backed Naming
 

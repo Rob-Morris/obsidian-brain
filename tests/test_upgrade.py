@@ -30,6 +30,79 @@ def _read(path):
         return f.read()
 
 
+def _copy_real_scripts(source):
+    """Copy the repo scripts directory into a source brain-core tree."""
+    src_scripts = source / "scripts"
+    shutil.copytree(_REAL_SCRIPTS, str(src_scripts))
+    upgrade_in_source = src_scripts / "upgrade.py"
+    if upgrade_in_source.exists():
+        upgrade_in_source.unlink()
+
+
+def _make_real_compile_source(tmp_path, version="0.29.1"):
+    """Create a source tree with the real compiler and upgrade-time scripts."""
+    source = tmp_path / f"source-{version.replace('.', '-')}"
+    source.mkdir()
+    (source / "VERSION").write_text(version + "\n")
+    (source / "session-core.md").write_text("# Session Core\n")
+    (source / "index.md").write_text("# Index\n")
+    (source / "md-bootstrap.md").write_text("# Markdown Bootstrap\n")
+    _copy_real_scripts(source)
+    return source
+
+
+def _make_minimal_upgrade_vault(tmp_path, version="0.28.7"):
+    """Create a minimal vault that can run the real compile_router."""
+    vault = tmp_path / f"vault-{version.replace('.', '-')}"
+    vault.mkdir()
+
+    bc = vault / ".brain-core"
+    bc.mkdir()
+    (bc / "VERSION").write_text(version + "\n")
+    (bc / "session-core.md").write_text("# Session Core\n")
+    (bc / "scripts").mkdir()
+    (bc / "scripts" / "compile_router.py").write_text("import sys; sys.exit(0)\n")
+
+    config = vault / "_Config"
+    config.mkdir()
+    (config / "router.md").write_text(
+        "Prefer MCP tools.\n\n"
+        "Always:\n"
+        "- Every artefact belongs in a typed folder.\n"
+        "- Keep instruction files lean.\n"
+    )
+    (config / "Taxonomy" / "Living").mkdir(parents=True)
+
+    brain = vault / ".brain"
+    brain.mkdir()
+    (brain / "preferences.json").write_text("{}\n")
+    (brain / "local").mkdir()
+    return vault
+
+
+def _seed_tracking(vault, type_key, taxonomy_path, version="0.18.0"):
+    """Record a tracked installed taxonomy against the file currently on disk."""
+    from compile_router import hash_file
+
+    tracking = {
+        "schema_version": 1,
+        "installed": {
+            type_key: {
+                "brain_core_version": version,
+                "installed_at": "2026-01-01T00:00:00+00:00",
+                "files": {
+                    "taxonomy": {
+                        "source_hash": hash_file(str(taxonomy_path)),
+                        "target": f"_Config/Taxonomy/Living/{type_key.split('/', 1)[1]}.md",
+                    }
+                },
+            }
+        },
+    }
+    (vault / ".brain" / "tracking.json").write_text(json.dumps(tracking, indent=2) + "\n")
+    return tracking["installed"][type_key]["files"]["taxonomy"]["source_hash"]
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -169,6 +242,190 @@ class TestPostUpgradeSync:
         assert "sync_result" not in result
         assert "sync_preview" not in result
 
+
+class TestPrecompileDefinitionRemediation:
+    def test_upgrade_repairs_blocking_tracked_taxonomy_before_compile(self, tmp_path):
+        source = _make_real_compile_source(tmp_path)
+        daily_lib = source / "artefact-library" / "living" / "daily-notes"
+        daily_lib.mkdir(parents=True)
+        canonical = (
+            "# Daily Notes\n\n"
+            "## Naming\n\n"
+            "`yyyy-mm-dd ddd.md` in `Daily Notes/`, date source `date`.\n\n"
+            "## Frontmatter\n\n"
+            "```yaml\n---\n"
+            "type: living/daily-note\n"
+            "tags:\n"
+            "  - daily-note\n"
+            "date:\n"
+            "---\n```\n"
+        )
+        (daily_lib / "taxonomy.md").write_text(canonical)
+
+        vault = _make_minimal_upgrade_vault(tmp_path)
+        (vault / "Daily Notes").mkdir()
+        old_taxonomy = vault / "_Config" / "Taxonomy" / "Living" / "daily-notes.md"
+        old_taxonomy.write_text(
+            "# Daily Notes\n\n"
+            "## Naming\n\n"
+            "`yyyy-mm-dd ddd.md` in `Daily Notes/`.\n\n"
+            "## Frontmatter\n\n"
+            "```yaml\n---\n"
+            "type: living/daily-note\n"
+            "tags:\n"
+            "  - daily-note\n"
+            "---\n```\n"
+        )
+        old_hash = _seed_tracking(vault, "living/daily-notes", old_taxonomy)
+
+        result = upgrade.upgrade(str(vault), str(source), sync=False)
+
+        assert result["status"] == "ok"
+        assert result["precompile_patch_migrations"][0]["version"] == "0.29.0"
+        assert result["precompile_patch_migrations"][0]["target"] == "pre_compile_patch"
+        assert result["precompile_patch_migrations"][0]["updated"] == [
+            {
+                "type": "living/daily-notes",
+                "target": "_Config/Taxonomy/Living/daily-notes.md",
+                "action": "update",
+            }
+        ]
+        assert "date source `date`" in _read(str(old_taxonomy))
+        assert "date:" in _read(str(old_taxonomy))
+
+        tracking = json.loads((vault / ".brain" / "tracking.json").read_text())
+        assert tracking["installed"]["living/daily-notes"]["files"]["taxonomy"]["source_hash"] != old_hash
+        ledger = json.loads((vault / ".brain" / "local" / "migrations.json").read_text())
+        assert ledger["migrations"]["0.29.0@pre_compile_patch"]["status"] == "ok"
+
+    def test_upgrade_patches_blocking_customised_taxonomy_before_compile(self, tmp_path):
+        source = _make_real_compile_source(tmp_path)
+        daily_lib = source / "artefact-library" / "living" / "daily-notes"
+        daily_lib.mkdir(parents=True)
+        (daily_lib / "taxonomy.md").write_text(
+            "# Daily Notes\n\n"
+            "## Naming\n\n"
+            "`yyyy-mm-dd ddd.md` in `Daily Notes/`, date source `date`.\n\n"
+            "## Frontmatter\n\n"
+            "```yaml\n---\n"
+            "type: living/daily-note\n"
+            "tags:\n"
+            "  - daily-note\n"
+            "date:\n"
+            "---\n```\n"
+        )
+
+        vault = _make_minimal_upgrade_vault(tmp_path)
+        (vault / "Daily Notes").mkdir()
+        old_taxonomy = vault / "_Config" / "Taxonomy" / "Living" / "daily-notes.md"
+        old_taxonomy.write_text(
+            "# Daily Notes\n\n"
+            "## Purpose\n\n"
+            "Original local note.\n\n"
+            "## Naming\n\n"
+            "`yyyy-mm-dd ddd.md` in `Daily Notes/`.\n\n"
+            "## Frontmatter\n\n"
+            "```yaml\n---\n"
+            "type: living/daily-note\n"
+            "tags:\n"
+            "  - daily-note\n"
+            "---\n```\n"
+        )
+        tracked_hash = _seed_tracking(vault, "living/daily-notes", old_taxonomy)
+
+        old_taxonomy.write_text(
+            "# Daily Notes\n\n"
+            "## Purpose\n\n"
+            "Original local note.\n\n"
+            "Custom sentence worth preserving.\n\n"
+            "## Naming\n\n"
+            "`yyyy-mm-dd ddd.md` in `Daily Notes/`.\n\n"
+            "## Frontmatter\n\n"
+            "```yaml\n---\n"
+            "type: living/daily-note\n"
+            "tags:\n"
+            "  - daily-note\n"
+            "---\n```\n"
+        )
+
+        result = upgrade.upgrade(str(vault), str(source), sync=False)
+
+        assert result["status"] == "ok"
+        assert result["precompile_patch_migrations"][0]["patched"] == [
+            {
+                "type": "living/daily-notes",
+                "target": "_Config/Taxonomy/Living/daily-notes.md",
+                "action": "conflict",
+            }
+        ]
+        updated = _read(str(old_taxonomy))
+        assert "Custom sentence worth preserving." in updated
+        assert "date source `date`" in updated
+        assert "date:" in updated
+
+        tracking = json.loads((vault / ".brain" / "tracking.json").read_text())
+        assert tracking["installed"]["living/daily-notes"]["files"]["taxonomy"]["source_hash"] == tracked_hash
+
+    def test_rollback_restores_precompile_taxonomy_edits(self, tmp_path):
+        source = _make_real_compile_source(tmp_path)
+        daily_lib = source / "artefact-library" / "living" / "daily-notes"
+        daily_lib.mkdir(parents=True)
+        (daily_lib / "taxonomy.md").write_text(
+            "# Daily Notes\n\n"
+            "## Naming\n\n"
+            "`yyyy-mm-dd ddd.md` in `Daily Notes/`, date source `date`.\n\n"
+            "## Frontmatter\n\n"
+            "```yaml\n---\n"
+            "type: living/daily-note\n"
+            "tags:\n"
+            "  - daily-note\n"
+            "date:\n"
+            "---\n```\n"
+        )
+
+        vault = _make_minimal_upgrade_vault(tmp_path)
+        (vault / "Daily Notes").mkdir()
+        (vault / "Legacy").mkdir()
+        daily_taxonomy = vault / "_Config" / "Taxonomy" / "Living" / "daily-notes.md"
+        original_daily = (
+            "# Daily Notes\n\n"
+            "## Naming\n\n"
+            "`yyyy-mm-dd ddd.md` in `Daily Notes/`.\n\n"
+            "## Frontmatter\n\n"
+            "```yaml\n---\n"
+            "type: living/daily-note\n"
+            "tags:\n"
+            "  - daily-note\n"
+            "---\n```\n"
+        )
+        daily_taxonomy.write_text(original_daily)
+        tracked_hash = _seed_tracking(vault, "living/daily-notes", daily_taxonomy)
+
+        legacy_taxonomy = vault / "_Config" / "Taxonomy" / "Living" / "legacy.md"
+        legacy_taxonomy.write_text(
+            "# Legacy\n\n"
+            "## Naming\n\n"
+            "`yyyymmdd - {Title}.md` in `Legacy/`.\n\n"
+            "## Frontmatter\n\n"
+            "```yaml\n---\n"
+            "type: living/legacy\n"
+            "tags:\n"
+            "  - legacy\n"
+            "---\n```\n"
+        )
+
+        result = upgrade.upgrade(str(vault), str(source), sync=False)
+
+        assert result["status"] == "error"
+        assert "legacy" in result["message"]
+        assert _read(str(daily_taxonomy)) == original_daily
+        assert not (vault / ".brain" / "local" / "migrations.json").exists()
+
+        tracking = json.loads((vault / ".brain" / "tracking.json").read_text())
+        assert tracking["installed"]["living/daily-notes"]["files"]["taxonomy"]["source_hash"] == tracked_hash
+
+
+class TestPostUpgradeSyncOverrides:
     def test_upgrade_sync_flag_overrides_ask(self, source_and_vault):
         """sync=True overrides ask preference → definitions synced."""
         source, vault = source_and_vault

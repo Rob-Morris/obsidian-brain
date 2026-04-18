@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -30,9 +31,13 @@ def _safe_write(path: Path, content: str) -> str:
     """Atomic file write: tmp -> fsync -> os.replace."""
     target = os.path.realpath(str(path))
     os.makedirs(os.path.dirname(target) or ".", exist_ok=True)
-    tmp_path = f"{target}.{os.getpid()}.tmp"
+    fd, tmp_path = tempfile.mkstemp(
+        prefix=os.path.basename(target) + ".",
+        suffix=".tmp",
+        dir=os.path.dirname(target) or ".",
+    )
     try:
-        with open(tmp_path, "w", encoding="utf-8") as handle:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(content)
             handle.flush()
             os.fsync(handle.fileno())

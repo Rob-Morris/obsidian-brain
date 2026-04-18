@@ -11,15 +11,20 @@ See migrate_to_0_17_0.md for the canary-format companion.
 
 import json
 import os
+import tempfile
 
 
 def _safe_write(path, content):
     """Atomic write: tmp → fsync → os.replace."""
     target = os.path.realpath(path)
     os.makedirs(os.path.dirname(target) or ".", exist_ok=True)
-    tmp = f"{target}.{os.getpid()}.tmp"
+    fd, tmp = tempfile.mkstemp(
+        prefix=os.path.basename(target) + ".",
+        suffix=".tmp",
+        dir=os.path.dirname(target) or ".",
+    )
     try:
-        with open(tmp, "w", encoding="utf-8") as f:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(content)
             f.flush()
             os.fsync(f.fileno())
