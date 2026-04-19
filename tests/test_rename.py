@@ -376,6 +376,48 @@ class TestPathBoundary:
             rename.delete_and_clean_links(str(vault), "../../etc/hosts")
 
 
+class TestRenameRegionAwareness:
+    """Rename honours literal-region skip ranges and the FM-property contract."""
+
+    def test_literal_wikilink_in_inline_code_preserved(self, vault):
+        (vault / "Wiki" / "docs.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "Use `[[Wiki/topic-a]]` as an example.\n"
+            "Real link: [[Wiki/topic-a]].\n"
+        )
+        rename.rename_and_update_links(
+            str(vault), "Wiki/topic-a.md", "Wiki/topic-a-renamed.md"
+        )
+        content = (vault / "Wiki" / "docs.md").read_text()
+        assert "`[[Wiki/topic-a]]`" in content
+        assert "Real link: [[Wiki/topic-a-renamed]]." in content
+
+    def test_literal_wikilink_in_fence_preserved(self, vault):
+        (vault / "Wiki" / "docs.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "```\n[[Wiki/topic-a]]\n```\n"
+            "[[Wiki/topic-a]]\n"
+        )
+        rename.rename_and_update_links(
+            str(vault), "Wiki/topic-a.md", "Wiki/topic-a-renamed.md"
+        )
+        content = (vault / "Wiki" / "docs.md").read_text()
+        assert "```\n[[Wiki/topic-a]]\n```" in content
+        assert "\n[[Wiki/topic-a-renamed]]\n" in content
+
+    def test_frontmatter_property_is_rewritten(self, vault):
+        """YAML property wikilinks are real links (D10) and must be renamed."""
+        (vault / "Wiki" / "has-parent.md").write_text(
+            "---\ntype: living/wiki\ntags: []\nparent: \"[[Wiki/topic-a]]\"\n---\n\n"
+            "body\n"
+        )
+        rename.rename_and_update_links(
+            str(vault), "Wiki/topic-a.md", "Wiki/topic-a-renamed.md"
+        )
+        content = (vault / "Wiki" / "has-parent.md").read_text()
+        assert 'parent: "[[Wiki/topic-a-renamed]]"' in content
+
+
 class TestBrainCoreProtection:
     """Ensure .brain-core/ files cannot be modified via rename/delete."""
 

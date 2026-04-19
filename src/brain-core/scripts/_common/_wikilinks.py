@@ -6,8 +6,7 @@ from collections import namedtuple
 
 from ._vault import is_system_dir, TEMPORAL_DIR
 from ._filesystem import safe_write
-from ._frontmatter import FM_RE
-from ._markdown import fenced_ranges
+from ._markdown import in_any_range, literal_ranges
 from ._slugs import slug_to_title
 
 # ---------------------------------------------------------------------------
@@ -128,11 +127,44 @@ def resolve_wikilink_stems(vault_root, old_path, new_path=None):
     return pattern, stem_map
 
 
+def replace_wikilinks_in_text(text, pattern, replacement):
+    """Apply *pattern* to *text*, rewriting only matches outside literal regions.
+
+    Honours :func:`literal_ranges` (fences, inline code, HTML comments, math
+    blocks, raw HTML). Literal wikilinks in those contexts are preserved
+    verbatim — callers (rename, fix-links, edit) never mutate documentation
+    examples. *replacement* may be a string or a callable (as per
+    :func:`re.sub`).
+
+    Returns ``(new_text, count)``.
+    """
+    skip = None
+    count = 0
+    out = []
+    cursor = 0
+    for m in pattern.finditer(text):
+        if skip is None:
+            skip = literal_ranges(text)
+        start = m.start()
+        if in_any_range(start, skip):
+            continue
+        out.append(text[cursor:start])
+        out.append(replacement(m) if callable(replacement) else m.expand(replacement))
+        cursor = m.end()
+        count += 1
+    if count == 0:
+        return text, 0
+    out.append(text[cursor:])
+    return "".join(out), count
+
+
 def replace_wikilinks_in_vault(vault_root, pattern, replacement):
     """Walk all .md files in the vault and apply a wikilink regex substitution.
 
     Skips system directories except _Temporal (which contains artefacts).
-    replacement can be a string or a callable (as per re.sub).
+    replacement can be a string or a callable (as per re.sub). Substitutions
+    only apply outside literal regions (code, comments, math, raw HTML) via
+    :func:`replace_wikilinks_in_text`.
 
     Returns the total number of substitutions made.
     """
@@ -144,7 +176,7 @@ def replace_wikilinks_in_vault(vault_root, pattern, replacement):
                 content = f.read()
         except OSError:
             continue
-        new_content, count = pattern.subn(replacement, content)
+        new_content, count = replace_wikilinks_in_text(content, pattern, replacement)
         if count > 0:
             safe_write(fpath, new_content, bounds=vault_root)
             total += count
@@ -161,7 +193,7 @@ _WIKILINK_EXTRACT_RE = re.compile(r"(!?)\[\[([^\]]+)\]\]")
 INDEX_SKIP_DIRS = {".git", ".obsidian", ".venv", ".brain-core", "__pycache__", "_Archive"}
 
 
-def extract_wikilinks(text):
+def extract_wikilinks(text, literals="exclude"):
     """Extract all wikilinks from markdown text.
 
     Returns a list of dicts with keys:
@@ -169,13 +201,38 @@ def extract_wikilinks(text):
         anchor — heading/block ref including ``#``, or None
         alias  — display text (without leading ``|``), or None
         is_embed — True for ``![[…]]`` embeds
-        start  — character offset of the match (for code-block filtering)
+        start  — character offset of the match
 
     Skips same-file anchors (``[[#heading]]``) and template placeholders
     (``[[{{…}}]]``).
+
+    *literals* controls how wikilinks inside literal-text contexts (fenced
+    code, inline code, HTML comments, ``$$`` math blocks, raw HTML blocks)
+    are treated:
+
+    - ``"exclude"`` (default) — drop wikilinks inside literal regions; return
+      only live links
+    - ``"include"`` — return every match regardless of context
+    - ``"only"`` — return only wikilinks inside literal regions
     """
+    if literals not in ("exclude", "include", "only"):
+        raise ValueError(
+            f"literals must be 'exclude', 'include', or 'only'; got {literals!r}"
+        )
+
+    if literals == "include":
+        skip = None
+    else:
+        skip = literal_ranges(text)
+
     results = []
     for m in _WIKILINK_EXTRACT_RE.finditer(text):
+        if skip is not None:
+            in_literal = in_any_range(m.start(), skip)
+            if literals == "exclude" and in_literal:
+                continue
+            if literals == "only" and not in_literal:
+                continue
         is_embed = m.group(1) == "!"
         inner = m.group(2)
 
@@ -492,18 +549,8 @@ def check_wikilinks_in_file(vault_root, rel_path, file_index=None, temporal_pref
     except OSError:
         return []
 
-    skip_ranges = []
-    fm_match = FM_RE.match(text)
-    if fm_match:
-        skip_ranges.append((0, fm_match.end()))
-    skip_ranges.extend(fenced_ranges(text))
-
     findings = []
     for link in extract_wikilinks(text):
-        pos = link["start"]
-        if any(start <= pos < end for start, end in skip_ranges):
-            continue
-
         stem = link["stem"]
         is_embed = link["is_embed"]
         resolved = False

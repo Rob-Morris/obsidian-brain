@@ -854,6 +854,59 @@ class TestCheckBrokenWikilinks:
                   and "nonexistent-in-code" in f["message"]]
         assert broken == []
 
+    def test_inline_code_span_ignored(self, vault):
+        tmp_path, router = vault
+        body = "Use `[[nonexistent-inline]]` to link, but not ``[[also-nonexistent]]``."
+        write_md(tmp_path / "Wiki" / "with-inline-code.md",
+                 {"type": "living/wiki", "tags": ["test"]}, body)
+        findings = check.check_broken_wikilinks(str(tmp_path), router)
+        broken = [f for f in findings if f["check"] == "broken_wikilinks"
+                  and ("nonexistent-inline" in f["message"]
+                       or "also-nonexistent" in f["message"])]
+        assert broken == []
+
+    def test_inline_code_span_does_not_hide_real_broken_link(self, vault):
+        tmp_path, router = vault
+        body = "Safe: `[[in-code]]`. Broken: [[really-missing]]."
+        write_md(tmp_path / "Wiki" / "mixed-inline.md",
+                 {"type": "living/wiki", "tags": ["test"]}, body)
+        findings = check.check_broken_wikilinks(str(tmp_path), router)
+        broken = [f for f in findings if f["check"] == "broken_wikilinks"]
+        in_code = [f for f in broken if "in-code" in f["message"]]
+        real = [f for f in broken if "really-missing" in f["message"]]
+        assert in_code == []
+        assert len(real) == 1
+
+    def test_html_comment_ignored(self, vault):
+        tmp_path, router = vault
+        body = "Before\n<!-- [[nonexistent-in-comment]] -->\nAfter"
+        write_md(tmp_path / "Wiki" / "with-comment.md",
+                 {"type": "living/wiki", "tags": ["test"]}, body)
+        findings = check.check_broken_wikilinks(str(tmp_path), router)
+        broken = [f for f in findings if f["check"] == "broken_wikilinks"
+                  and "nonexistent-in-comment" in f["message"]]
+        assert broken == []
+
+    def test_math_block_ignored(self, vault):
+        tmp_path, router = vault
+        body = "Math:\n$$\nf(x) = [[nonexistent-in-math]]\n$$\nDone."
+        write_md(tmp_path / "Wiki" / "with-math.md",
+                 {"type": "living/wiki", "tags": ["test"]}, body)
+        findings = check.check_broken_wikilinks(str(tmp_path), router)
+        broken = [f for f in findings if f["check"] == "broken_wikilinks"
+                  and "nonexistent-in-math" in f["message"]]
+        assert broken == []
+
+    def test_raw_html_block_ignored(self, vault):
+        tmp_path, router = vault
+        body = "<pre>\n[[nonexistent-in-pre]]\n</pre>"
+        write_md(tmp_path / "Wiki" / "with-pre.md",
+                 {"type": "living/wiki", "tags": ["test"]}, body)
+        findings = check.check_broken_wikilinks(str(tmp_path), router)
+        broken = [f for f in findings if f["check"] == "broken_wikilinks"
+                  and "nonexistent-in-pre" in f["message"]]
+        assert broken == []
+
     def test_ambiguous_link_flagged(self, vault):
         tmp_path, router = vault
         # Create a second file with same basename in different type folder

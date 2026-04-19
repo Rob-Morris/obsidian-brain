@@ -137,6 +137,31 @@ class TestApplyFixes:
         content = (vault / "Wiki" / "linker.md").read_text()
         assert "[[Brain Inbox|my inbox]]" in content
 
+    def test_fix_preserves_literal_wikilink_in_inline_code(self, vault, router):
+        """fix_links must not rewrite a documentation example inside backticks."""
+        write_md(vault / "Wiki" / "Brain Inbox.md",
+                 {"type": "living/wiki", "tags": ["test"]}, "# Brain Inbox")
+        write_md(vault / "Wiki" / "linker.md",
+                 {"type": "living/wiki", "tags": ["test"]},
+                 "Doc: `[[brain-inbox]]` example.\nReal: [[brain-inbox]] here.")
+        result = fix_links.scan_and_resolve(str(vault), router)
+        fix_links.apply_fixes(str(vault), result["fixed"])
+        content = (vault / "Wiki" / "linker.md").read_text()
+        assert "`[[brain-inbox]]`" in content
+        assert "Real: [[Brain Inbox]] here." in content
+
+    def test_fix_preserves_literal_wikilink_in_fence(self, vault, router):
+        write_md(vault / "Wiki" / "Brain Inbox.md",
+                 {"type": "living/wiki", "tags": ["test"]}, "# Brain Inbox")
+        write_md(vault / "Wiki" / "linker.md",
+                 {"type": "living/wiki", "tags": ["test"]},
+                 "```\n[[brain-inbox]]\n```\n[[brain-inbox]]\n")
+        result = fix_links.scan_and_resolve(str(vault), router)
+        fix_links.apply_fixes(str(vault), result["fixed"])
+        content = (vault / "Wiki" / "linker.md").read_text()
+        assert "```\n[[brain-inbox]]\n```" in content
+        assert "\n[[Brain Inbox]]\n" in content
+
     def test_fix_skips_ambiguous(self, vault, router):
         write_md(vault / "Wiki" / "Foo Bar.md",
                  {"type": "living/wiki", "tags": ["test"]}, "# Foo")

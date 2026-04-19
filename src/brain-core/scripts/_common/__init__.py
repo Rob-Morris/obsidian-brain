@@ -73,6 +73,7 @@ from ._wikilinks import (
     extract_wikilinks,
     find_duplicate_basenames,
     make_wikilink_replacer,
+    replace_wikilinks_in_text,
     replace_wikilinks_in_vault,
     resolve_artefact_path,
     resolve_broken_link,
@@ -82,11 +83,21 @@ from ._wikilinks import (
 )
 
 from ._markdown import (
+    REGION_FENCE,
+    REGION_HTML_COMMENT,
+    REGION_INLINE_CODE,
+    REGION_MATH_BLOCK,
+    REGION_RAW_HTML,
     collect_headings,
     fenced_ranges,
     find_body_preamble,
     find_section,
+    html_comment_ranges,
+    inline_code_ranges,
+    markdown_region_ranges,
+    math_block_ranges,
     parse_structural_anchor_line,
+    raw_html_block_ranges,
 )
 
 from ._slugs import (

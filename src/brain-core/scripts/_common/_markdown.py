@@ -5,21 +5,46 @@ import re
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.*?)[^\S\n]*$", re.MULTILINE)
 _FENCE_RE = re.compile(r"^(`{3,}|~{3,})", re.MULTILINE)
 _CALLOUT_TITLE_RE = re.compile(r"^\s*>\s*(\[\![^\]]+\][^\n]*)\s*$")
+_BACKTICK_RUN_RE = re.compile(r"`+")
+_HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
+_MATH_FENCE_RE = re.compile(r"\$\$")
+_RAW_HTML_BLOCK_RE = re.compile(
+    r"<(pre|script|style)\b[^>]*>.*?</\1\s*>",
+    re.DOTALL | re.IGNORECASE,
+)
+
+
+def literal_ranges(body):
+    """Flat ``(start, end)`` skip list covering every markdown literal region.
+
+    Frontmatter is intentionally **not** skipped: wikilinks in YAML properties
+    (e.g. ``parent: "[[foo]]"``) are real links, matching Obsidian's
+    property-as-link model.
+    """
+    return [(s, e) for _, s, e in markdown_region_ranges(body)]
+
+
+def in_any_range(pos, ranges):
+    """True when *pos* falls within any ``(start, end)`` in *ranges* (end-exclusive)."""
+    return any(s <= pos < e for s, e in ranges)
 
 
 def collect_headings(body):
-    """Collect all markdown headings outside fenced code blocks.
+    """Collect all markdown headings outside literal regions.
 
     Returns list of (position, level, text, raw) tuples where:
     - position: character offset of the heading line start
     - level: heading level (1-6)
     - text: heading text (stripped, original case)
     - raw: full heading line (e.g. "## Alpha")
+
+    Headings inside fenced code, raw HTML blocks, HTML comments, ``$$`` math
+    blocks, and inline code spans are ignored.
     """
-    fenced = fenced_ranges(body)
+    skip = literal_ranges(body)
     headings = []
     for m in _HEADING_RE.finditer(body):
-        if any(fs <= m.start() < fe for fs, fe in fenced):
+        if in_any_range(m.start(), skip):
             continue
         headings.append((
             m.start(),
@@ -81,6 +106,110 @@ def fenced_ranges(body):
     return ranges
 
 
+def inline_code_ranges(body, skip=None):
+    """Return list of (start, end) ranges for inline code spans.
+
+    Pairs backtick runs of equal length outside fenced code blocks. Ranges
+    cover the full span including the delimiters. *skip* may carry
+    pre-computed fenced ranges to avoid recomputation.
+    """
+    if skip is None:
+        skip = fenced_ranges(body)
+    runs = []
+    for m in _BACKTICK_RUN_RE.finditer(body):
+        if in_any_range(m.start(), skip):
+            continue
+        runs.append((m.start(), m.end()))
+
+    ranges = []
+    i = 0
+    while i < len(runs):
+        open_start = runs[i][0]
+        open_len = runs[i][1] - open_start
+        close_idx = None
+        for j in range(i + 1, len(runs)):
+            if runs[j][1] - runs[j][0] == open_len:
+                close_idx = j
+                break
+        if close_idx is not None:
+            ranges.append((open_start, runs[close_idx][1]))
+            i = close_idx + 1
+        else:
+            i += 1
+    return ranges
+
+
+def html_comment_ranges(body):
+    """Return list of (start, end) ranges for HTML comments (``<!-- ... -->``)."""
+    return [(m.start(), m.end()) for m in _HTML_COMMENT_RE.finditer(body)]
+
+
+def math_block_ranges(body, skip=None):
+    """Return list of (start, end) ranges for ``$$...$$`` math blocks.
+
+    Pairs ``$$`` markers outside fenced code blocks and inline code spans.
+    Ranges cover the full span including the delimiters. *skip* may carry
+    pre-computed fenced+inline-code ranges to avoid recomputation.
+    """
+    if skip is None:
+        skip = fenced_ranges(body) + inline_code_ranges(body)
+    markers = []
+    for m in _MATH_FENCE_RE.finditer(body):
+        if in_any_range(m.start(), skip):
+            continue
+        markers.append((m.start(), m.end()))
+
+    ranges = []
+    i = 0
+    while i + 1 < len(markers):
+        ranges.append((markers[i][0], markers[i + 1][1]))
+        i += 2
+    return ranges
+
+
+def raw_html_block_ranges(body):
+    """Return list of (start, end) ranges for raw HTML blocks.
+
+    Matches ``<pre>``, ``<script>``, and ``<style>`` elements (case-insensitive)
+    and everything up to their matching close tag.
+    """
+    return [(m.start(), m.end()) for m in _RAW_HTML_BLOCK_RE.finditer(body)]
+
+
+# Region kinds — tags on each range returned by `markdown_region_ranges`.
+# Callers that care about *which* context a range belongs to can match on kind;
+# callers that just need a flat skip list can discard it.
+REGION_FENCE = "fence"
+REGION_RAW_HTML = "raw_html"
+REGION_MATH_BLOCK = "math_block"
+REGION_INLINE_CODE = "inline_code"
+REGION_HTML_COMMENT = "html_comment"
+
+
+def markdown_region_ranges(body):
+    """Return typed ``(kind, start, end)`` regions for markdown contexts
+    where inline syntax should be treated as literal text.
+
+    Walks block-level constructs first (fences, raw HTML blocks, ``$$`` math
+    blocks), then inline constructs (backtick code spans, HTML comments) in
+    a second pass that respects the block ranges. Each returned tuple is
+    ``(kind, start, end)``; the start/end are character offsets into *body*.
+    """
+    fence = fenced_ranges(body)
+    raw_html = raw_html_block_ranges(body)
+    inline = inline_code_ranges(body, skip=fence)
+    math = math_block_ranges(body, skip=fence + inline)
+    comment = html_comment_ranges(body)
+
+    regions = []
+    regions.extend((REGION_FENCE, s, e) for s, e in fence)
+    regions.extend((REGION_RAW_HTML, s, e) for s, e in raw_html)
+    regions.extend((REGION_MATH_BLOCK, s, e) for s, e in math)
+    regions.extend((REGION_INLINE_CODE, s, e) for s, e in inline)
+    regions.extend((REGION_HTML_COMMENT, s, e) for s, e in comment)
+    return regions
+
+
 def find_section(body, heading, include_heading=False):
     """Find start/end of a markdown section by heading or callout title.
 
@@ -98,7 +227,8 @@ def find_section(body, heading, include_heading=False):
     If heading starts with [! (e.g. "[!note] Status"), matches a callout title.
     If heading is plain text (e.g. "Notes"), matches on text at any level.
     Sub-headings are part of the parent section (lower-level headings don't end it).
-    Headings inside fenced code blocks are ignored.
+    Headings inside literal regions (fenced code, raw HTML, HTML comments,
+    math blocks, inline code) are ignored.
 
     Raises ValueError if heading/callout not found.
     """
@@ -116,10 +246,10 @@ def find_section(body, heading, include_heading=False):
         target_level = None
         target_text = stripped.lower()
 
-    fenced = fenced_ranges(body)
+    skip = literal_ranges(body)
     headings = []
     for m in _HEADING_RE.finditer(body):
-        if any(fs <= m.start() < fe for fs, fe in fenced):
+        if in_any_range(m.start(), skip):
             continue
         headings.append((m, len(m.group(1)), m.group(2).strip().lower()))
 
@@ -152,17 +282,18 @@ def _find_callout_section(body, target, include_heading=False):
 
     The section includes all contiguous blockquote lines after the title.
     A non-blockquote line (including blank) ends the section.
-    Callouts inside fenced code blocks are ignored.
+    Callouts inside literal regions (fenced code, raw HTML, HTML comments,
+    math blocks, inline code) are ignored.
 
     When include_heading=True, start points to the callout title line itself.
     """
     target_lower = target.lower()
-    fenced = fenced_ranges(body)
+    skip = literal_ranges(body)
     lines = body.split("\n")
     pos = 0
 
     for i, line in enumerate(lines):
-        if any(fs <= pos < fe for fs, fe in fenced):
+        if in_any_range(pos, skip):
             pos += len(line) + 1
             continue
         after_gt = line.lstrip()[1:].lstrip() if line.lstrip().startswith(">") else None
@@ -195,14 +326,16 @@ def find_body_preamble(body):
     Returns ``(start, end)`` offsets into ``body``. The range is:
     - the full body when the document has no headings or callout sections
     - empty when the document starts with a heading or callout section
-    - otherwise everything before the first targetable section outside fenced code blocks
+    - otherwise everything before the first targetable section, ignoring
+      heading-shaped lines inside literal regions (fenced code, raw HTML,
+      HTML comments, math blocks, inline code)
     """
-    fenced = fenced_ranges(body)
+    skip = literal_ranges(body)
     lines = body.split("\n")
     pos = 0
 
     for line in lines:
-        if any(fs <= pos < fe for fs, fe in fenced):
+        if in_any_range(pos, skip):
             pos += len(line) + 1
             continue
         if _HEADING_RE.match(line) or _CALLOUT_TITLE_RE.match(line):

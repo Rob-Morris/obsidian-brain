@@ -37,9 +37,20 @@ class TestCheckWikilinksInFile:
         assert findings[0]["resolved_to"] == "My Page"
         assert findings[0]["strategy"] == "slug_to_title"
 
-    def test_skips_frontmatter(self, vault):
+    def test_scans_frontmatter_property_links(self, vault):
+        """Wikilinks in YAML property values are real links and should be checked."""
         (vault / "Wiki" / "source.md").write_text(
             "---\ntype: notes/wiki\nlinks:\n  - [[nowhere]]\n---\n# Title\n"
+        )
+        findings = check_wikilinks_in_file(str(vault), "Wiki/source.md")
+        assert len(findings) == 1
+        assert findings[0]["stem"] == "nowhere"
+        assert findings[0]["status"] == "broken"
+
+    def test_scans_frontmatter_valid_property_link(self, vault):
+        (vault / "Wiki" / "target.md").write_text("# Target\n")
+        (vault / "Wiki" / "source.md").write_text(
+            "---\ntype: notes/wiki\nparent: \"[[target]]\"\n---\n# Title\n"
         )
         findings = check_wikilinks_in_file(str(vault), "Wiki/source.md")
         assert findings == []

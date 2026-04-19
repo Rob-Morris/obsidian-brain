@@ -105,8 +105,8 @@ Boundary rule:
 | `_router.py` | Compiled router loading, naming-pattern matching, artefact path validation | 6 |
 | `_filesystem.py` | Safe writes, bounds checking, body file resolution | 7 |
 | `_frontmatter.py` | Frontmatter parsing and serialisation | 2 |
-| `_wikilinks.py` | Wikilink extraction, file index, broken link resolution | 17 |
-| `_markdown.py` | Heading collection, fenced ranges, section finding | 4 |
+| `_wikilinks.py` | Wikilink extraction, file index, broken link resolution, region-aware text mutation | 15 |
+| `_markdown.py` | Heading/callout parsing, section finding, typed literal-text regions (fenced code, inline code, HTML comments, `$$` math, raw HTML) | 17 |
 | `_slugs.py` | Slug generation, title-to-filename conversion | 3 |
 | `_search.py` | BM25 tokenisation | 1 |
 | `_templates.py` | Timestamp utilities, template variable substitution | 3 |
@@ -121,7 +121,7 @@ _naming      → _artefacts, _slugs
 _reconcile   → _artefacts
 _router      → _wikilinks
 _filesystem  → _vault
-_wikilinks   → _vault, _filesystem, _slugs
+_wikilinks   → _vault, _filesystem, _slugs, _markdown
 ```
 
 Tests may import owning submodules directly when validating internal helpers.

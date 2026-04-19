@@ -104,8 +104,8 @@ python3 compile_router.py --json    # output JSON to stdout
 | `month_folders` | warning | Temporal files in correct `yyyy-mm/` subfolder |
 | `archive_metadata` | warning | Files in `_Archive/` (top-level and legacy per-type archives) have `archiveddate` field, `yyyymmdd-` filename prefix, and a terminal status from `frontmatter.terminal_statuses` |
 | `status_values` | warning | Status field values match `frontmatter.status_enum` from compiled router |
-| `broken_wikilinks` | warning | Wikilink target file does not exist |
-| `ambiguous_wikilinks` | info | Basename-only wikilink matches multiple files |
+| `broken_wikilinks` | warning | Wikilink target file does not exist. Scans both body and YAML frontmatter property-links (e.g. `parent: "[[foo]]"`); wikilinks inside fenced/inline code, HTML comments, `$$` math, and raw HTML blocks are treated as literal text and ignored. |
+| `ambiguous_wikilinks` | info | Basename-only wikilink matches multiple files. Same region-aware scanning scope as `broken_wikilinks`. |
 | `unconfigured_type` | info | Folder has no taxonomy file |
 | `missing_timestamps` | warning | Artefact frontmatter missing `created` or `modified` (naming-contract source of truth) |
 

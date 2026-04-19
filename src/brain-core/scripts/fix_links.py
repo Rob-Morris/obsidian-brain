@@ -26,6 +26,7 @@ from _common import (
     find_vault_root,
     load_compiled_router,
     make_wikilink_replacer,
+    replace_wikilinks_in_text,
     replace_wikilinks_in_vault,
     resolve_broken_link,
     safe_write,
@@ -131,7 +132,7 @@ def apply_fixes_to_file(vault_root, rel_path, fixes, links_filter=None):
             content = f.read()
     except OSError:
         return 0
-    new_content, count = pattern.subn(replacer, content)
+    new_content, count = replace_wikilinks_in_text(content, pattern, replacer)
     if count > 0:
         safe_write(abs_path, new_content, bounds=vault_root)
     return count
