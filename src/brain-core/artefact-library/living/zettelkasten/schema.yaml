@@ -9,3 +9,7 @@ optional:
     type: array
   related:
     type: array
+  follows:
+    type: string
+  sequence:
+    type: integer

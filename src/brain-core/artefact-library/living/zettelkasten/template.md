@@ -1,10 +1,13 @@
 ---
 type: living/zettelkasten
 tags:
-  -
-sources:
-  -
-related:
-  -
+  - topic-tag
+# Maintenance populates relationship fields when they exist:
+# sources:
+#   - "[[Rust Lifetimes]]"
+# related:
+#   - "[[Borrowing]]"
+# Optional for explicit sequence chains:
+# follows: "[[Ownership]]"
+# sequence: 2
 ---
-

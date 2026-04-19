@@ -2,6 +2,13 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.29.7 — 2026-04-19
+
+**Align zettelkasten definitions with current standards and catch two docs up with already-shipped behaviour.** Zettelkasten sequencing metadata is renamed from `parent + sequence` to `follows + sequence` so sequence lineage stays distinct from ownership semantics and matches the existing `**Follows:**` body convention. Taxonomy, template, schema, and the artefact-library README are aligned so the frontmatter-relationship-metadata exception is explicit, the template starts schema-valid with the `topic-tag` sentinel seeded instead of blank relationship arrays, and examples use human-readable basenames on a flat `Zettelkasten/` mesh. Architecture and user-guide docs now cover `safe_write_via(...)` alongside `safe_write(...)`, and the queryable `date` naming field used by temporal types such as `temporal/log`.
+
+- Zettelkasten: `schema.yaml`, `taxonomy.md`, `template.md`, and `artefact-library/README.md`.
+- Docs catch-up: `docs/architecture/overview.md` and `docs/user/system-guide.md`.
+
 ## v0.29.6 — 2026-04-19
 
 **Harden embeddings persistence with the shared atomic write kernel.** `build_index.py` no longer writes `type-embeddings.npy` and `doc-embeddings.npy` via direct `np.save(path, ...)` calls. A new low-level `safe_write_via(...)` primitive now exposes the same sibling-tempfile, `fsync`, and `os.replace()` guarantees for callback-driven serializers, and embeddings consume it through a local `_safe_save_npy(...)` wrapper. `safe_write_json()` now uses the same kernel, so text, JSON, and handle-driven serializers all share one atomic-write path.

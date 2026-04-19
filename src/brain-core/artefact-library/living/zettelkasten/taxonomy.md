@@ -40,16 +40,21 @@ The zettelkasten has two layers of authorship:
 For natural thought-sequences, use an optional body link:
 
 ```
-**Follows:** [[Zettelkasten/ownership]]
+**Follows:** [[Ownership]]
 ```
 
-This captures thought-lineage without numeric IDs. For notes that form explicit sequences (tutorials, argument chains), optional `parent` + `sequence` frontmatter fields give sequencing where it matters without forcing it everywhere.
+This captures thought-lineage without numeric IDs. For notes that form explicit sequences (tutorials, argument chains), optional `follows` + `sequence` frontmatter fields give sequencing where it matters without forcing it everywhere.
 
 ## Relationship Metadata
 
 Frontmatter carries machine-maintained relationship fields:
+
+These fields are a deliberate exception to the general artefact-library rule that navigational references belong in the body. Here they are machine-maintained graph edges, not user-authored navigation.
+
 - `sources` — which artefacts mention this concept (provenance)
 - `related` — lateral connections to other zettels (derived from co-occurrence)
+- `follows` — predecessor zettel for explicit sequence chains (optional)
+- `sequence` — explicit order within a chain when needed (optional)
 
 Body carries navigational links:
 - `**Follows:**` — thought-lineage (optional)
@@ -69,18 +74,24 @@ Zettelkasten and wiki form a two-layer semantic graph:
 | **Editorial stance** | Unopinionated — indexes everything | Selective — only what's worth explaining in depth |
 
 - A zettel **discovers** a concept; a wiki page **explains** it in depth
-- Zettels link to wiki pages when deeper explanation exists (`**Depth:** [[Wiki/slug]]`)
+- Zettels link to wiki pages when deeper explanation exists (`**Depth:** [[Rust Lifetimes]]`)
 - Wiki pages link to zettels when referencing atomic concepts
 - Not every zettel needs a wiki page (most won't); not every wiki page needs a zettel
 - When both exist for a concept, the zettel stays atomic — it defers depth to the wiki
+
+## Folder Structure
+
+Zettels stay flat in `Zettelkasten/`. Do not use living-type subfolders for topic groupings or sequence chains — the graph carries those relationships. Ordered lineage uses `follows`, not folder nesting.
 
 ## Naming
 
 `{Title}.md` in `Zettelkasten/`.
 
-Example: `Zettelkasten/ownership.md`
+Example: `Zettelkasten/Ownership.md`
 
 ## Frontmatter
+
+Maintenance populates relationship fields as links become known. A hand-written zettel can start with only `type` and `tags`; add `follows` and `sequence` only when you need an explicit sequence chain.
 
 ```yaml
 ---
@@ -88,9 +99,11 @@ type: living/zettelkasten
 tags:
   - topic-tag
 sources:
-  - "[[Wiki/rust-lifetimes]]"
+  - "[[Rust Lifetimes]]"
 related:
-  - "[[Zettelkasten/borrowing]]"
+  - "[[Borrowing]]"
+follows: "[[Ownership]]"  # optional
+sequence: 2                            # optional
 ---
 ```
 

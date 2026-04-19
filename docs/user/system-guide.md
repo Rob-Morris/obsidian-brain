@@ -111,6 +111,8 @@ tags:
 
 `created` and `modified` are auto-set to the current ISO 8601 timestamp when an artefact is created via script or MCP. If either field is provided in `frontmatter_overrides`, the provided value is preserved. On subsequent edits and appends via script or MCP, `modified` is automatically updated to the current timestamp; `created` is never changed by edit operations.
 
+Some types also declare an explicit queryable naming date separate from physical file creation time. For example, `temporal/log` requires a `date` field for the subject day of the log. Its filename and month folder are keyed from `date`, while `created` still records when the file itself was written or backfilled.
+
 ### Status
 
 Only types with a defined lifecycle have status. Status values are type-specific — see the [Reference](../user-reference.md) for the full table. The general shape is a progression from open/draft states through active work to a terminal state (implemented, published, adopted, etc.).

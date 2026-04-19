@@ -82,13 +82,15 @@ Rules for defining and extending artefact types.
 
 ### Frontmatter is for queryable state, not navigation
 
-Frontmatter fields should be **queryable metadata** — fields agents and Dataview can filter on: `type`, `status`, `tags`, `created`, `modified`, `statusdate`, `archiveddate`.
+Frontmatter fields should be **queryable metadata** — fields agents and Dataview can filter on: `type`, `status`, `tags`, `created`, `modified`, `date`, `statusdate`, `archiveddate`. Type-specific naming-source fields such as `date` are valid frontmatter when the taxonomy declares them.
 
 **Wikilinks and navigational references belong in the body**, not frontmatter. This includes origin links, transcript lists, "superseded by" pointers, and any other inter-doc references. Reasons:
 
 - **Backlinks/graph:** Obsidian reliably resolves wikilinks in body text for backlinks and graph view. Frontmatter wikilinks require specific property type configuration and behave inconsistently.
 - **Reading mode:** Body links are visible and clickable in reading mode. Frontmatter links are hidden unless the user opens the Properties panel.
 - **Search indexing:** Body text is tokenised by BM25. Frontmatter is parsed for structured fields only — wikilink text in frontmatter is not searchable.
+
+**Exception:** a type may declare wikilink-bearing frontmatter when the field is machine-maintained graph metadata rather than user-authored navigation. `living/zettelkasten` is the current example: `sources`, `related`, and `follows` are maintenance-owned graph edges, not prose navigation.
 
 ### Status fields
 

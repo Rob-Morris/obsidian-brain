@@ -110,7 +110,7 @@ Two complementary guards protect the vault from unintended writes:
 
 - **`resolve_and_check_bounds(path, bounds)`** — resolves symlinks and verifies the target is within the vault root. Raises `ValueError` if the resolved path escapes the boundary or is a symlink when symlink-following is disabled. Used on every read that accepts a caller-supplied path.
 - **`check_write_allowed(rel_path)`** — enforces folder-level write restrictions. Dot-prefixed top-level folders (`.brain/`, `.obsidian/`, `.brain-core/`) are always blocked. Underscore-prefixed top-level folders are blocked unless in the explicit allowlist: only `_Temporal/` and `_Config/` are writable. `_Archive/`, `_Plugins/`, `_Workspaces/`, and `_Assets/` are protected.
-- **`safe_write(path, content, bounds=...)`** — atomic write (temp file + `os.replace`) that calls `resolve_and_check_bounds` before writing. All script write operations go through this function.
+- **`safe_write(path, content, bounds=...)` / `safe_write_via(path, writer, bounds=...)`** — shared atomic write primitives (temp file + `os.replace`) that call `resolve_and_check_bounds` before writing. Text/JSON writes go through `safe_write(...)`; callback-driven serializers such as embeddings persistence go through `safe_write_via(...)`.
 
 ---
 
