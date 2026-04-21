@@ -22,6 +22,8 @@ import sys
 from datetime import datetime, timezone
 
 from _common import (
+    BOOTSTRAP_VARIANTS,
+    LOCAL_OVERRIDE_VARIANTS,
     find_vault_root,
     is_system_dir,
     parse_frontmatter,
@@ -40,8 +42,16 @@ from _common import (
 # Constants
 # ---------------------------------------------------------------------------
 
-ROOT_ALLOW = {
-    "AGENTS.md", "Agents.md", "CLAUDE.md", "agents.local.md",
+ROOT_BOOTSTRAP_VARIANTS = {
+    variant
+    for variants in (
+        *BOOTSTRAP_VARIANTS.values(),
+        *LOCAL_OVERRIDE_VARIANTS.values(),
+    )
+    for variant in variants
+}
+
+ROOT_ALLOW_OTHER = {
     ".gitignore", ".gitattributes", ".mcp.json",
 }
 
@@ -94,7 +104,7 @@ def check_root_files(vault_root, router):
         known_folders.add(top)
 
     for entry in sorted(os.listdir(vault_root)):
-        if entry in ROOT_ALLOW:
+        if entry in ROOT_BOOTSTRAP_VARIANTS or entry in ROOT_ALLOW_OTHER:
             continue
         if entry.startswith(".") or entry.startswith("_"):
             continue
@@ -113,7 +123,7 @@ def check_root_files(vault_root, router):
             "severity": "error",
             "file": entry,
             "message": f"Content file in vault root: {entry}",
-            "fix": f"Move to an appropriate artefact folder or add to ROOT_ALLOW",
+            "fix": "Move to an appropriate artefact folder or add to the root allow-list",
         })
 
     return findings

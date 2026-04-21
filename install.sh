@@ -542,7 +542,7 @@ elif [ "$EXISTING_VAULT" = true ]; then
             fi
         done
 
-        # Agent bootstrap files (skip if present)
+        # Agent bootstrap files (skip if any tolerated historical variant is present)
         [ -f "$vault/AGENTS.md" ] || [ -f "$vault/Agents.md" ] || cp "$tmpl/AGENTS.md" "$vault/AGENTS.md"
         [ -f "$vault/CLAUDE.md" ] || cp "$tmpl/CLAUDE.md" "$vault/CLAUDE.md"
 

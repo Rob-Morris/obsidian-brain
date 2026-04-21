@@ -10,7 +10,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from _common import safe_write
+from _common import BOOTSTRAP_VARIANTS, find_root_bootstrap_file, safe_write
 
 VERSION = "0.24.0"
 
@@ -36,10 +36,10 @@ def migrate(vault_root):
     actions = []
     seen_paths = set()
 
-    # --- Update CLAUDE.md / AGENTS.md (plus legacy Agents.md) ---
-    for filename in ("CLAUDE.md", "AGENTS.md", "Agents.md"):
-        filepath = os.path.join(vault_root, filename)
-        if not os.path.isfile(filepath):
+    # --- Update bootstrap files using canonical-first variant lookup ---
+    for canonical_name in BOOTSTRAP_VARIANTS:
+        filepath = find_root_bootstrap_file(vault_root, canonical_name)
+        if filepath is None:
             continue
 
         # Resolve symlinks — edit the target, not the link

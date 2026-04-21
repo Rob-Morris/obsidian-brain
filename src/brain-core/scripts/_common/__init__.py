@@ -10,8 +10,11 @@ This package re-exports all public names from its internal modules.
 """
 
 from ._vault import (
+    BOOTSTRAP_VARIANTS,
+    LOCAL_OVERRIDE_VARIANTS,
     TEMPORAL_DIR,
     find_vault_root,
+    find_root_bootstrap_file,
     is_archived_path,
     is_system_dir,
     is_vault_root,

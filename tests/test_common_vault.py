@@ -7,6 +7,8 @@ import pytest
 import _common as common
 from _common import is_vault_root
 
+from conftest import filesystem_is_case_sensitive
+
 
 # ---------------------------------------------------------------------------
 # is_vault_root
@@ -16,12 +18,61 @@ class TestIsVaultRoot:
     def test_vault_with_version(self, vault):
         assert is_vault_root(vault) is True
 
-    def test_vault_with_agents_md(self, tmp_path):
-        (tmp_path / "AGENTS.md").write_text("agent entry\n")
+    @pytest.mark.parametrize("filename", ["AGENTS.md", "Agents.md"])
+    def test_vault_with_agents_md_variants(self, tmp_path, filename):
+        (tmp_path / filename).write_text("agent entry\n")
         assert is_vault_root(tmp_path) is True
 
     def test_non_vault(self, tmp_path):
         assert is_vault_root(tmp_path) is False
+
+    def test_directory_named_agents_md_is_not_a_vault(self, tmp_path):
+        (tmp_path / "AGENTS.md").mkdir()
+        assert is_vault_root(tmp_path) is False
+
+
+class TestFindRootBootstrapFile:
+    @pytest.mark.parametrize(
+        ("canonical_name", "filename"),
+        [
+            ("AGENTS.md", "AGENTS.md"),
+            ("AGENTS.md", "Agents.md"),
+            ("CLAUDE.md", "CLAUDE.md"),
+        ],
+    )
+    def test_finds_enumerated_variants(self, tmp_path, canonical_name, filename):
+        (tmp_path / filename).write_text("bootstrap\n")
+        found = common.find_root_bootstrap_file(tmp_path, canonical_name)
+        assert found is not None
+        if filesystem_is_case_sensitive(tmp_path):
+            assert found == tmp_path / filename
+        else:
+            assert found.name.lower() == filename.lower()
+            assert found.name == canonical_name
+
+    def test_prefers_canonical_name_when_both_exist(self, tmp_path):
+        (tmp_path / "AGENTS.md").write_text("canonical\n")
+        (tmp_path / "Agents.md").write_text("legacy\n")
+        found = common.find_root_bootstrap_file(tmp_path, "AGENTS.md")
+        assert found == tmp_path / "AGENTS.md"
+
+    @pytest.mark.parametrize(
+        ("canonical_name", "filename"),
+        [
+            ("AGENTS.md", "agents.md"),
+            ("CLAUDE.md", "Claude.md"),
+            ("CLAUDE.md", "claude.md"),
+        ],
+    )
+    def test_rejects_non_enumerated_variants_on_case_sensitive_fs(self, tmp_path, canonical_name, filename):
+        if not filesystem_is_case_sensitive(tmp_path):
+            pytest.skip("case-insensitive filesystem accepts alternate casing automatically")
+        (tmp_path / filename).write_text("bootstrap\n")
+        assert common.find_root_bootstrap_file(tmp_path, canonical_name) is None
+
+    def test_ignores_directory_named_like_bootstrap(self, tmp_path):
+        (tmp_path / "AGENTS.md").mkdir()
+        assert common.find_root_bootstrap_file(tmp_path, "AGENTS.md") is None
 
 
 # ---------------------------------------------------------------------------

@@ -363,6 +363,14 @@ class TestRenderCss:
         a2 = extract_section(css2, "Assets Folder", "Config Folders")
         assert a1 == a2
 
+    def test_bootstrap_css_targets_canonical_casing_only(self, vault):
+        router = _load_router(vault)
+        assignments = cc.compute_colours(router)
+        css = cc.render_css(assignments)
+        assert 'data-path="AGENTS.md"' in css
+        assert 'data-path="CLAUDE.md"' in css
+        assert 'data-path="Agents.md"' not in css
+
     def test_contains_living_type_variables(self, vault):
         router = _load_router(vault)
         assignments = cc.compute_colours(router)

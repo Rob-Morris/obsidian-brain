@@ -7,19 +7,43 @@ from pathlib import Path
 # _Temporal contains temporal artefacts — scanned separately from living types
 TEMPORAL_DIR = "_Temporal"
 
+BOOTSTRAP_VARIANTS = {
+    "AGENTS.md": ("AGENTS.md", "Agents.md"),
+    "CLAUDE.md": ("CLAUDE.md",),
+}
+
+LOCAL_OVERRIDE_VARIANTS = {
+    "AGENTS.local.md": ("AGENTS.local.md", "agents.local.md"),
+}
+
+
+def find_root_bootstrap_file(vault_root, canonical_name):
+    """Return the actual bootstrap path for ``canonical_name`` if present.
+
+    Variants are tried in declared order so canonical names win when both the
+    canonical and a tolerated historical casing exist side by side on a
+    case-sensitive filesystem.
+    """
+    root = vault_root if isinstance(vault_root, Path) else Path(vault_root)
+    variants = BOOTSTRAP_VARIANTS.get(canonical_name, (canonical_name,))
+    for variant in variants:
+        candidate = root / variant
+        if candidate.is_file():
+            return candidate
+    return None
+
 
 def is_vault_root(path):
     """Check whether *path* is a Brain vault root.
 
-    A vault is identified by the brain-core VERSION file (modern vaults), the
-    canonical top-level ``AGENTS.md`` bootstrap, or the legacy ``Agents.md``
-    marker (pre-0.x vaults). Accepts either a ``pathlib.Path`` or a string.
+    A vault is identified by the brain-core VERSION file (modern vaults) or a
+    tolerated top-level ``AGENTS.md`` bootstrap variant. Accepts either a
+    ``pathlib.Path`` or a string.
     """
     p = path if isinstance(path, Path) else Path(path)
     return (
         (p / ".brain-core" / "VERSION").is_file()
-        or (p / "AGENTS.md").is_file()
-        or (p / "Agents.md").is_file()
+        or find_root_bootstrap_file(p, "AGENTS.md") is not None
     )
 
 

@@ -59,6 +59,13 @@ def make_router(artefacts, meta=None):
     return {"meta": meta, "artefacts": artefacts}
 
 
+def filesystem_is_case_sensitive(tmp_path):
+    """Return True when the test filesystem distinguishes path casing."""
+    probe = tmp_path / "CaseProbe.txt"
+    probe.write_text("probe\n")
+    return not (tmp_path / "caseprobe.txt").exists()
+
+
 def copy_install_source(dest):
     """Copy the repo's install entry points into *dest* for install.sh integration tests.
 

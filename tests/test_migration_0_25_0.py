@@ -1,5 +1,6 @@
 """Tests for migrations/migrate_to_0_25_0.py — canonical bootstrap text."""
 
+from conftest import filesystem_is_case_sensitive
 from migrate_to_0_25_0 import NEW_BOOTSTRAP, migrate
 
 
@@ -35,6 +36,30 @@ def test_updates_legacy_router_bootstrap_variant(tmp_path):
 
     assert result["status"] == "ok"
     assert NEW_BOOTSTRAP in agents.read_text()
+
+
+def test_updates_legacy_agents_md_only_vault(tmp_path):
+    vault = make_vault(tmp_path)
+    legacy_agents = vault / "Agents.md"
+    legacy_agents.write_text("ALWAYS DO FIRST: Call brain_session. Read [[.brain-core/index]]\n")
+
+    result = migrate(str(vault))
+
+    assert result["status"] == "ok"
+    assert legacy_agents.read_text() == NEW_BOOTSTRAP + "\n"
+    expected_name = "Agents.md" if filesystem_is_case_sensitive(tmp_path) else "AGENTS.md"
+    assert f"updated bootstrap in {expected_name}" in result["actions"]
+
+
+def test_does_not_rewrite_local_override_file(tmp_path):
+    vault = make_vault(tmp_path)
+    local_override = vault / "agents.local.md"
+    local_override.write_text("ALWAYS DO FIRST: Call brain_session. Read [[.brain-core/index]]\n")
+
+    result = migrate(str(vault))
+
+    assert result["status"] == "skipped"
+    assert local_override.read_text() == "ALWAYS DO FIRST: Call brain_session. Read [[.brain-core/index]]\n"
 
 
 def test_canonicalises_manual_form_without_period(tmp_path):

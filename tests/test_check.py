@@ -9,6 +9,7 @@ import check
 import compile_router as cr
 
 from conftest import make_router, write_md
+from conftest import filesystem_is_case_sensitive
 
 
 # ---------------------------------------------------------------------------
@@ -254,11 +255,22 @@ class TestCheckRootFiles:
     def test_root_allow_files_pass(self, vault):
         tmp_path, router = vault
         (tmp_path / "AGENTS.md").write_text("# Agents\n")
+        (tmp_path / "Agents.md").write_text("# Legacy Agents\n")
         (tmp_path / "CLAUDE.md").write_text("# Claude\n")
+        (tmp_path / "AGENTS.local.md").write_text("# Local Canonical\n")
         (tmp_path / "agents.local.md").write_text("# Local\n")
         (tmp_path / ".mcp.json").write_text("{}")
         findings = check.check_root_files(str(tmp_path), router)
         assert len(findings) == 0
+
+    def test_non_canonical_agents_md_flagged_on_case_sensitive_fs(self, vault):
+        tmp_path, router = vault
+        if not filesystem_is_case_sensitive(tmp_path):
+            pytest.skip("case-insensitive filesystem accepts alternate casing automatically")
+        (tmp_path / "agents.md").write_text("# lower-case\n")
+        findings = check.check_root_files(str(tmp_path), router)
+        assert len(findings) == 1
+        assert findings[0]["file"] == "agents.md"
 
 
 # ---------------------------------------------------------------------------

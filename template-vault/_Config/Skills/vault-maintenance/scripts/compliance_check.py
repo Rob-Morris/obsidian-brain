@@ -44,13 +44,19 @@ def check_backup(root):
     return "INFO", f"Latest backup {age_h:.0f}h old ({backups[0].name})"
 
 # Files allowed in vault root (not content — system/config only)
-ROOT_ALLOW = {"AGENTS.md", "Agents.md", "CLAUDE.md", ".gitignore", ".gitattributes", ".mcp.json", ".obsidian", ".brain-core", ".backups", ".git", ".DS_Store", ".trash"}
+ROOT_BOOTSTRAP_VARIANTS = {
+    "AGENTS.md", "Agents.md", "CLAUDE.md", "AGENTS.local.md", "agents.local.md",
+}
+ROOT_ALLOW_OTHER = {
+    ".gitignore", ".gitattributes", ".mcp.json",
+    ".obsidian", ".brain-core", ".backups", ".git", ".DS_Store", ".trash",
+}
 
 def check_root_files(root):
     orphans = []
     for p in root.iterdir():
         name = p.name
-        if name in ROOT_ALLOW:
+        if name in ROOT_BOOTSTRAP_VARIANTS or name in ROOT_ALLOW_OTHER:
             continue
         if p.is_dir() and not name.startswith("."):
             # Top-level folders are fine (artefact/temporal/config folders)

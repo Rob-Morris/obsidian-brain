@@ -2,6 +2,15 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.30.2 — 2026-04-21
+
+**Keep bootstrap lookup working across the shipped filename-casing transition without forcing user-vault renames.** Vault detection, compliance checks, migrations, and installer checks now tolerate the historical `Agents.md` and `agents.local.md` casings on read via a small enumerated variant list, while all generated styling and canonical write targets stay on `AGENTS.md`, `CLAUDE.md`, and `AGENTS.local.md`.
+
+- Add `_common.find_root_bootstrap_file(...)` plus shared `BOOTSTRAP_VARIANTS`, and route vault-root detection and bootstrap migrations through the canonical-first lookup so case-sensitive filesystems still find older shipped bootstrap filenames.
+- Restructure root-allow handling in `check.py` and the template-vault `vault-maintenance` compliance script so canonical and tolerated legacy bootstrap filenames are accepted, while arbitrary user-invented casings remain orphan files.
+- Keep `compile_colours.py` styling on canonical filenames only, and align `install.sh` comments/copy-step wording with the new tolerant-read contract.
+- Add case-sensitivity-aware regressions for bootstrap lookup, root-file compliance, migration of legacy `Agents.md`, and canonical-only CSS selectors.
+
 ## v0.30.1 — 2026-04-21
 
 **Restructure the repo documentation around clear layer indexes, contributor surfaces, and the shipped documentation boundary.** Repo docs now route through layer `README.md` files, contributor-facing docs move under `docs/contributor/`, plugin guidance is split cleanly between vault use and repo authoring, and the documentation set now explicitly conforms to the Agent-Ready Documentation Standard v1.0.0. Shipped `.brain-core/` docs were tightened in parallel: plugin guidance stays vault-facing, `session-core.md` now includes the linking standard in its curated bootstrap list, and the standards set gains a top-level `README.md` plus refreshed naming, shaping, provenance, and extension guidance aligned with current behaviour.
