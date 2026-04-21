@@ -13,7 +13,7 @@ Brain is a self-extending system for organising Obsidian vaults, for agents and 
 3. **Every file belongs in a folder** — no content in the vault root
 4. **Self-extending** — when content doesn't fit existing folders, the vault grows to accommodate it
 5. **Lean instructions** — the router stays minimal; detailed reference lives in core docs and config files
-6. **Agent-first** — `Agents.md` → `_Config/router.md` is the entry point; the router teaches agents everything they need for a session (`CLAUDE.md` is a symlink to `Agents.md` for Claude Code compatibility)
+6. **Agent-first** — `AGENTS.md` → `_Config/router.md` is the entry point; the router teaches agents everything they need for a session (`CLAUDE.md` is a symlink to `AGENTS.md` for Claude Code compatibility)
 
 ## Artefact Model
 
@@ -28,7 +28,7 @@ System folders (`_Assets/`, `_Config/`, `_Plugins/`, `.obsidian/`) are infrastru
 
 ## Architecture
 
-For the system architecture (components, data flow, agent reading flow, folder tiers), see [Architecture Overview](architecture/overview.md).
+For the system architecture (components, data flow, agent reading flow, folder tiers), see [Architecture Overview](../architecture/overview.md).
 
 ## Colour System
 
@@ -71,18 +71,19 @@ Archiving uses `brain_action("archive")` which moves artefacts to a top-level `_
 
 ## Documentation
 
-- `docs/specification.md` — this file; design rationale and structural decisions
+- `docs/contributor/specification.md` — this file; design rationale and structural decisions
 - `docs/user/getting-started.md` — installation, first vault, orientation
 - `docs/user/workflows.md` — day-to-day usage patterns and examples
 - `docs/user/system-guide.md` — artefact system mechanics, lifecycle, extension
 - `docs/user/template-library-guide.md` — template library, available types, install procedures
-- `docs/user-reference.md` — full type specs, conventions, config reference
-- `docs/changelog.md` — single-file version history. When it exceeds ~500 lines, consider splitting into per-version files under `docs/changelog/` with the main file as an index
+- `docs/user/plugins.md` — plugin installation and usage guide
+- `docs/user/user-reference.md` — full type specs, conventions, config reference
+- `docs/CHANGELOG.md` — single-file version history. When it exceeds ~500 lines, consider splitting into per-version files under `docs/changelog/` with the main file as an index
 - `.canaries/pre-commit.md` — pre-commit canary: versioning, changelog, routing table, cross-checks
-- `docs/contributing.md` — contributor guide: doc architecture, drift prevention, testing, pitfalls
+- `docs/CONTRIBUTING.md` — contributor guide: doc architecture, drift prevention, testing, pitfalls
+- `docs/contributor/agents.md` — contributor workflow guidance for agents
+- `docs/contributor/plugins.md` — plugin authoring and packaging guide
 - `docs/standards/canary.md` — canary brief pattern (reusable technique for testing subjective agent work)
-- `docs/tooling.md` — redirect to `docs/functional/` and `docs/architecture/decisions/`
-- `docs/plugins.md` — plugin writing and installation guide
 
 ## What Ships in the Starter Vault
 

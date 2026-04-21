@@ -1,6 +1,6 @@
 # Brain Reference
 
-Complete reference for every artefact type, convention, configuration point, and system in a Brain vault. For a walkthrough of how to use the Brain day-to-day, see [Getting Started](user/getting-started.md) and [Workflows](user/workflows.md).
+Complete reference for every artefact type, convention, configuration point, and system in a Brain vault. For a walkthrough of how to use the Brain day-to-day, see [Getting Started](getting-started.md) and [Workflows](workflows.md).
 
 ---
 
@@ -18,13 +18,13 @@ Complete reference for every artefact type, convention, configuration point, and
 
 ## Artefact Types
 
-For the full list of default artefact types, see [Template Library Guide](user/template-library-guide.md).
+For the full list of default artefact types, see [Template Library Guide](template-library-guide.md).
 
 For type definitions (frontmatter, naming patterns, filing rules), see the artefact library at `src/brain-core/artefact-library/`.
 
 ## System Reference
 
-For artefact system mechanics (lifecycle, frontmatter, filing, workflows), see [System Guide](user/system-guide.md).
+For artefact system mechanics (lifecycle, frontmatter, filing, workflows), see [System Guide](system-guide.md).
 
 ---
 

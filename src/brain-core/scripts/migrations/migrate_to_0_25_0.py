@@ -2,7 +2,7 @@
 """
 migrate_to_0_25_0.py — Canonicalise installed bootstrap text.
 
-Rewrites historical bootstrap variants in CLAUDE.md / Agents.md to the
+Rewrites historical bootstrap variants in CLAUDE.md / AGENTS.md to the
 current contract text that points agents at `brain_session` first and the
 bootloader `index.md` only for the no-MCP path.
 """
@@ -35,7 +35,7 @@ def migrate(vault_root):
     actions = []
     seen_paths = set()
 
-    for filename in ("CLAUDE.md", "Agents.md"):
+    for filename in ("CLAUDE.md", "AGENTS.md", "Agents.md"):
         filepath = os.path.join(vault_root, filename)
         if not os.path.isfile(filepath):
             continue

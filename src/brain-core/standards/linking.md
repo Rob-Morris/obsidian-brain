@@ -36,12 +36,14 @@ This keeps source docs readable in the repo, keeps bootstrap instructions transp
 
 A collision happens when two files share the same basename (e.g. `Wiki/JWT Refresh.md` and `Ideas/JWT Refresh.md`). Every `[[JWT Refresh]]` link becomes ambiguous — Obsidian picks whichever is "closest", which may not be what the author intended.
 
-**Automatic disambiguation:** `brain_create` and `start-shaping` handle collisions automatically:
+**Automatic disambiguation for new artefacts:** `brain_create` handles collisions automatically:
 
 - **Cross-folder** (same basename in a different type folder): appends the type key — `JWT Refresh (ideas).md`. Links use the full name: `[[JWT Refresh (ideas)]]`.
 - **Same-folder** (duplicate title in the same type): appends a random 3-character suffix — `JWT Refresh k7f.md`.
 
 The original file always keeps its clean name. The compliance checker flags ambiguous links at `info` severity.
+
+Shaping transcripts use a stable same-day filename (`yyyymmdd-shaping-transcript~{Title}.md`). If that day's transcript already exists, `start-shaping` appends a new session heading instead of minting a suffixed duplicate.
 
 ## Link Maintenance
 

@@ -203,7 +203,8 @@ registry_update() {
 # Print the path of the single non-stale registered vault, or empty.
 # Reads the registry directly — no dependency on $REPO_DIR.
 # Vault-root check must stay in sync with Python's _common.is_vault_root:
-# a dir is a vault if it has .brain-core/VERSION (modern) OR Agents.md (legacy).
+# a dir is a vault if it has .brain-core/VERSION (modern), AGENTS.md
+# (canonical bootstrap), or Agents.md (legacy bootstrap).
 registry_single_valid_vault() {
     local config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
     local registry="$config_home/brain/vaults"
@@ -216,7 +217,7 @@ registry_single_valid_vault() {
         # Defensive CR strip in case the file was edited on Windows.
         path="${path%$'\r'}"
         [ -z "$path" ] && continue
-        if [ -d "$path" ] && { [ -f "$path/.brain-core/VERSION" ] || [ -f "$path/Agents.md" ]; }; then
+        if [ -d "$path" ] && { [ -f "$path/.brain-core/VERSION" ] || [ -f "$path/AGENTS.md" ] || [ -f "$path/Agents.md" ]; }; then
             valid_count=$((valid_count + 1))
             valid_path="$path"
         fi
@@ -542,7 +543,7 @@ elif [ "$EXISTING_VAULT" = true ]; then
         done
 
         # Agent bootstrap files (skip if present)
-        [ -f "$vault/Agents.md" ] || cp "$tmpl/Agents.md" "$vault/Agents.md"
+        [ -f "$vault/AGENTS.md" ] || [ -f "$vault/Agents.md" ] || cp "$tmpl/AGENTS.md" "$vault/AGENTS.md"
         [ -f "$vault/CLAUDE.md" ] || cp "$tmpl/CLAUDE.md" "$vault/CLAUDE.md"
 
         # CSS snippet only — namespaced, safe to overwrite (it is ours)

@@ -44,7 +44,7 @@ def check_backup(root):
     return "INFO", f"Latest backup {age_h:.0f}h old ({backups[0].name})"
 
 # Files allowed in vault root (not content — system/config only)
-ROOT_ALLOW = {"CLAUDE.md", "Agents.md", ".gitignore", ".gitattributes", ".mcp.json", ".obsidian", ".brain-core", ".backups", ".git", ".DS_Store", ".trash"}
+ROOT_ALLOW = {"AGENTS.md", "Agents.md", "CLAUDE.md", ".gitignore", ".gitattributes", ".mcp.json", ".obsidian", ".brain-core", ".backups", ".git", ".DS_Store", ".trash"}
 
 def check_root_files(root):
     orphans = []

@@ -1,161 +1,106 @@
 # Documentation Philosophy
 
-Brain-core documentation is structured around three composable layers, each serving
-a distinct audience and purpose. The structure is deliberate: it optimises for agents
-that load documentation by context, and for contributors who need to understand why
-something exists before changing it.
+Obsidian Brain's repo documentation conforms to the [Agent-Ready Documentation Standard v1.0.0](../standards/agent-ready-documentation.md). This document describes the local implementation of that standard.
 
----
+## Four Documentation Layers
 
-## Three Composable Layers
+Brain organises repo-facing documentation into four default layers, each with a fixed subtree and layer index:
 
-Documentation separates into three layers that can be consumed independently or
-together, depending on the task at hand.
+- **User** (`docs/user/README.md`) — how to use the brain: setup, workflows, and user-facing reference
+- **Functional** (`docs/functional/README.md`) — what the system does: tool contracts, script behaviour, and configuration rules
+- **Architecture** (`docs/architecture/README.md`) — how and why the system is structured this way
+- **Contributor** (`docs/contributor/README.md`) — how to contribute to the repo, including contributor-facing product docs and workflow guidance
 
-### User layer (`docs/user/`)
+The layer model matters because agents and contributors should be able to load only the context relevant to the task at hand. A user-flow question should not require architectural rationale; a contributor workflow question should not require shipped runtime docs.
 
-How to use it. External interface, behaviour, and usage patterns. This layer describes
-what a user or consuming agent sees from the outside, without exposing internal
-mechanics.
+## Index-First Discovery
 
-### Functional layer (`docs/functional/` + co-located in `src/brain-core/`)
+Brain's repo docs are navigated through an explicit index chain:
 
-What it does. Internal capabilities, logic, rules, and specifications. This layer
-defines the contracts that the code implements — what inputs are accepted, what
-outputs are produced, what invariants hold.
+1. `AGENTS.md` or `README.md` at the repo root
+2. `docs/README.md`
+3. `docs/{layer}/README.md`
+4. The target document
 
-### Architectural layer (`docs/architecture/`)
+Agents should be able to reach any repo doc through that chain without crawling the filesystem. The root docs index routes to layer indexes first; layer indexes then route to individual artefacts.
 
-How and why it is built this way. Design decisions, structural trade-offs, and the
-reasoning behind them. This layer explains the shape of the system and why
-alternatives were rejected.
-
-### Why composable layers matter
-
-The layers are separable by design. An agent could load:
-
-- **Functional only** — enough to reimplement the same capabilities in a different
-  architecture.
-- **Functional + architectural** — enough to reimplement with the same architecture
-  and design trade-offs.
-- **All three** — the complete picture, including user-facing contracts and behaviour.
-
-This composability is primarily about token efficiency. A monolithic document forces
-every consumer to load everything, regardless of what they need. Separable layers
-let an agent or contributor load only the context relevant to their task.
-
-The layers may have natural cross-over — an architectural decision might reference
-a functional spec, or a user doc might link to a design decision for background.
-But no fact is duplicated across layers. Cross-references connect them instead.
-
----
+Convention-based exceptions still exist. In this repo, `docs/CONTRIBUTING.md` and `docs/CHANGELOG.md` live under `docs/` rather than the repo root, but they are still listed from `docs/README.md` so they remain part of the explicit discovery surface.
 
 ## Co-location of Functional Docs
 
-Functional documentation lives in two places: `docs/functional/` for repo browsing,
-and alongside the code in `src/brain-core/` (which ships into vaults as
-`.brain-core/`).
+Functional documentation lives in two places:
 
-This is deliberate. An agent working inside a vault finds the functional specs right
-next to the code it is using, without navigating back to the repository. The
-centralised copies in `docs/functional/` provide the same specs in a repo-browsing
-context.
+- `docs/functional/` for repo browsing
+- `src/brain-core/` for shipped, in-vault functional docs
 
-The principle comes from arc42: component-level documentation lives with the
-component, system-level documentation lives at the root. Brain-core applies this
-by co-locating specs that an in-vault agent needs, while keeping a central index
-for contributors working on the repo itself.
+This is deliberate. An agent working inside a vault finds the functional specifications next to the shipped code it is using, without having to navigate back to the repo. The centralised copies in `docs/functional/` provide a stable repo-facing entry point for contributors.
 
-### Runtime bootstrap vs contributor docs
+This is Brain's main local extension of the general standard: functional documentation is both indexed centrally and co-located where normal vault agents actually need it.
 
-Co-location does not mean every document near `src/brain-core/` is fair game for
-repo contributor process guidance.
+## Shipped Runtime Docs vs Repo Contributor Docs
 
-Anything that ships in `.brain-core/` and participates in agent bootstrap is part
-of the runtime surface for normal Brain agents. That surface must stay focused on
-operating the vault: bootstrap flow, vault conventions, user preferences, and
-core runtime references.
+Co-location does not mean every document near `src/brain-core/` is a valid home for contributor process guidance.
 
-Contributor-only process material belongs in `docs/`, even when it discusses
-brain-core internals. Workflow tiers, canaries, pre-commit process, release
-discipline, and repo change-management rules are contributor standards, not
-runtime bootstrap content.
+Anything that ships in `.brain-core/` and participates in vault-agent bootstrap is part of the runtime surface for normal Brain agents. That surface must stay focused on operating the vault: bootstrap flow, vault conventions, user preferences, and core runtime references.
 
-In short:
+Contributor-only process material belongs in `docs/`, even when it discusses brain-core internals. Workflow tiers, canaries, pre-commit process, release discipline, and repo change-management rules are contributor documentation, not runtime bootstrap content.
 
-- shipped `.brain-core/` bootstrap docs are written for vault agents
-- repo contributor process docs stay under `docs/`
-- if a rule would confuse a normal vault agent, it does not belong in bootstrap
+In practice:
 
----
+- shipped `.brain-core/` docs are written for normal vault agents
+- repo contributor workflow docs stay under `docs/`
+- if a rule would confuse a normal vault agent, it does not belong in shipped bootstrap surfaces
 
-## Three-Way Verification
+## Architecture and Decision Records
 
-Code, documentation, and tests form a triangle where each vertex is independently
-verifiable against the other two:
+Architectural documentation is routed from `docs/architecture/README.md`, which acts as the architecture-layer entry point for this repo.
 
-- **Code against docs** — does the implementation match the specification?
-- **Docs against tests** — do the tests cover every documented behaviour?
-- **Code against tests** — do the tests exercise the actual implementation?
+Within that layer:
 
-Any two should catch drift in the third. This redundancy is intentional. You could
-delete the code entirely and not lose any intended design, because the docs and tests
-together fully describe it. You could delete the docs and still verify correctness
-from the code and tests. The triangle means no single point of failure for design
-knowledge.
+- overview documents describe system structure, boundaries, and cross-cutting patterns
+- decision records live under `docs/architecture/decisions/`
+- the decisions subtree keeps its own local index at `docs/architecture/decisions/README.md`
 
----
+The important rule is not the exact nesting shape; it is that decision records are explicitly indexed and reachable through the architecture layer rather than discovered by crawling.
 
-## No Duplication, Cross-References Instead
+## Three-Way Reconstruction as the Maturity Bar
 
-The same fact lives in one place. Other documents cross-reference it rather than
-restating it.
+Brain follows the standard's three-way reconstruction bar: code, docs, and tests are three views of one system, and any two should be sufficient to reconstruct the third.
 
-This is the single biggest maintenance discipline in the documentation structure.
-Most documentation bugs come from updating one layer but not others — a functional
-spec changes, the architectural rationale is updated, but the user doc still
-describes the old behaviour. The pre-commit canary exists specifically to catch
-this kind of drift by flagging when changes touch one layer without considering
-the others.
+That matters here because Brain's behaviour is expressed across several surfaces at once:
 
----
+- code implements the tool and runtime behaviour
+- docs describe the intended contracts, workflows, and rationale
+- tests assert the behavioural claims
 
-## Design Decisions: Co-located Content with Central Index
+Most documentation bugs in this repo are drift bugs: one of those views changes while another does not. The pre-commit canary and contributor guidance exist largely to catch that failure mode.
 
-Following arc42 and ADR best practice, design decision content lives alongside the
-module or subsystem it governs. A decision about the security model lives near the
-security documentation. A decision about archive handling lives near the archive
-specification.
+## No Duplication, Cross-Reference Instead
 
-A lightweight central index (`docs/architecture/decisions/README.md`) acts as a
-router: one-line summaries and links, not a container. The index tells you what
-decisions exist and where to find them. The decisions themselves carry the full
-context and reasoning.
+The same fact should live in one canonical place. Other documents should link to it, summarise it briefly when needed for orientation, and avoid restating it in full.
 
----
+For Brain, this is especially important because the same topic can easily appear in:
 
-## Progressive Refinement Process
+- repo-facing docs under `docs/`
+- shipped docs under `src/brain-core/`
+- tests
+- installer or migration text
 
-The development process gates each phase on clarity rather than speed:
+If a fact is duplicated across those surfaces without a clear ownership boundary, it will drift.
 
-```
-idea → design → plan → tests+docs → implement → review
+## Progressive Refinement
+
+Brain development follows a progressive refinement path:
+
+```text
+idea -> design -> plan -> tests+docs -> implement -> review
 ```
 
-Tests and documentation are written before implementation. This is not ceremony for
-its own sake — it forces the design to be concrete enough to test before any code
-is written. If you cannot write a test for a behaviour, the specification is not
-clear enough. If you cannot document a feature, it is not well enough understood to
-build.
+Documentation is not an afterthought in that sequence. It is part of making the design concrete enough to implement and verify. If a behaviour cannot be documented or tested clearly, the design is usually not ready.
 
-The sequence also means documentation is never an afterthought. It is a first-class
-deliverable that arrives before the code, not a chore that follows it.
+## Cross-References
 
----
-
-## Cross-references
-
-- [Security model](security.md) — example of an architectural document in this layer
-- [Contributing guide](../contributing.md) — documentation layers table and practical workflow
-- [Contributing — Agents](../contributing-agents.md) — which layer to update for each change type
-- [Pre-commit canary](../../.canaries/pre-commit.md) — drift detection between layers
+- [Architecture README](README.md) — architecture-layer index
+- [Contributing guide](../CONTRIBUTING.md) — contributor rules, maintenance surfaces, and testing workflow
+- [Contributing — Agents](../contributor/agents.md) — contributor guidance for agents and layer-update routing
+- [Pre-commit canary](../../.canaries/pre-commit.md) — drift detection and cross-check expectations

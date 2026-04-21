@@ -245,6 +245,6 @@ Without MCP, read `.brain-core/index.md` first. It routes to the generated markd
 ## Further Reading
 
 - [Workflows](https://github.com/rob-morris/obsidian-brain/blob/main/docs/user/workflows.md) — day-to-day usage patterns with examples
-- [Reference](https://github.com/rob-morris/obsidian-brain/blob/main/docs/user-reference.md) — every artefact type, configuration point, and system in detail
+- [Reference](https://github.com/rob-morris/obsidian-brain/blob/main/docs/user/user-reference.md) — every artefact type, configuration point, and system in detail
 - `.brain-core/standards/extending/` — extension procedures (developer reference)
 - `.brain-core/index.md` — bootstrap entry point for MCP, generated markdown, and degraded fallback paths

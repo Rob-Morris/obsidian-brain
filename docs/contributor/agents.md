@@ -1,11 +1,11 @@
 # Contributing — Agent Instructions
 
-Instructions for agents contributing to brain-core. Read [contributing.md](contributing.md) first for general rules (versioning, changelog, testing, doc layers).
+Instructions for agents contributing to brain-core. Read [CONTRIBUTING.md](../CONTRIBUTING.md) first for general rules (versioning, changelog, testing, doc layers).
 
 Contributor standards:
 
-- [Agent Workflow](standards/agent-workflow.md) — contributor workflow tiers and escalation bar
-- [Canary](standards/canary.md) — subjective-work checklists and log enforcement
+- [Agent Workflow](../standards/agent-workflow.md) — contributor workflow tiers and escalation bar
+- [Canary](../standards/canary.md) — subjective-work checklists and log enforcement
 
 ## Bootstrap Contract
 
@@ -14,6 +14,7 @@ Bootstrap changes have an unusually high drift risk because the same user-facing
 When touching bootstrap:
 
 - Treat `session.py` as the canonical bootstrap owner. Do not add payload content independently to `brain_session`, `index.md`, or fallback docs.
+- Treat `session-core.md` as the authored source for bootstrap principles and curated core-doc references. When a core doc, standard, or bootstrap principle changes, decide whether `session-core.md` must change too.
 - Preserve parity between `brain_session` JSON and `.brain/local/session.md` for shared bootstrap content.
 - Keep `index.md` thin. It is a bootloader, not a second payload surface.
 - Treat `md-bootstrap.md` as the degraded fallback only, not as a peer of the canonical session model.
@@ -30,11 +31,12 @@ When editing docs that ship in `.brain-core/`:
 
 ## Documentation Entry Point
 
-[docs/README.md](README.md) is the documentation entry point. It routes to all three layers:
+[docs/README.md](../README.md) is the documentation entry point. It routes to the main doc layers and contributor docs:
 
-- **User layer** (`user/`) — how to use the system: `user/getting-started.md`, `user/system-guide.md`, `user/template-library-guide.md`, `user/workflows.md`
+- **User layer** (`user/`) — how to use the system: `user/getting-started.md`, `user/system-guide.md`, `user/template-library-guide.md`, `user/plugins.md`, `user/workflows.md`, `user/user-reference.md`
 - **Functional layer** (`functional/`) — what it does: `functional/mcp-tools.md`, `functional/scripts.md`, `functional/config.md`
 - **Architectural layer** (`architecture/`) — how and why it's built this way: `architecture/overview.md`, `architecture/documentation-philosophy.md`, `architecture/decisions/`
+- **Contributor docs** (`contributor/`) — repo-facing product and workflow surfaces: `contributor/specification.md`, `contributor/agents.md`, `contributor/plugins.md`
 
 ## When to Update Which Layer
 
@@ -47,6 +49,9 @@ When editing docs that ship in `.brain-core/`:
 | Template vault defaults change | `user/template-library-guide.md` |
 | Install, upgrade, or first-vault steps | `user/getting-started.md` |
 | Day-to-day workflow or MCP tool workflow | `user/workflows.md` |
+| Plugin install/use in a vault | `user/plugins.md`, `src/brain-core/plugins.md` |
+| Plugin authoring or packaging | `contributor/plugins.md`; if the shipped overview changes too, also `src/brain-core/plugins.md` |
+| Bootstrap principles or curated core-doc/standards links | `src/brain-core/session-core.md`; if the bootstrap entry flow changes too, also `src/brain-core/index.md` and `src/brain-core/md-bootstrap.md` |
 | Architectural decision (non-obvious, cross-cutting) | Add a DD file to `architecture/decisions/` |
 | System boundary or security model | `architecture/overview.md` or `architecture/security.md` (if present) |
 
@@ -97,7 +102,7 @@ Brain-core is developed here (`src/brain-core/`) and deployed to vaults by copyi
 
 Never deploy to both simultaneously. Core-first, always.
 
-Step 3 depends on having a local vault. Post-core-commit canaries are machine-specific and belong in `agents.local.md`, not `Agents.md`.
+Step 3 depends on having a local vault. Post-core-commit canaries are machine-specific and belong in `agents.local.md`, not `AGENTS.md`.
 
 ## Common Pitfalls
 

@@ -32,24 +32,24 @@ Most artefacts lean one way, but a session can blend both — a design might sta
 
 ## Starting a Shaping Session
 
-Use `brain_action("start_shaping", {target, ...})` to commence shaping. This handles the mechanical setup:
+Use `brain_action("start-shaping", {target, ...})` to commence shaping. This handles the mechanical setup:
 
 1. **Identifies the artefact** — resolves an existing artefact by name or path
-2. **Creates the transcript** — linked to the artefact, with provenance in both directions
+2. **Creates or appends to today's transcript** — linked to the artefact, with provenance in both directions
 3. **Sets status** — moves the artefact to `shaping` if not already there
 
-Sometimes shaping begins before the user knows what they're shaping. In this case, the first questions are exploratory — identifying the artefact type and creating it is part of the process. The agent can call `start_shaping` once the target is clear.
+Sometimes shaping begins before the user knows what they're shaping. In this case, the first questions are exploratory — identifying the artefact type and creating it is part of the process. The agent can call `start-shaping` once the target is clear.
 
 ### Source linking
 
 The transcript's first body line identifies all source artefacts:
 ```
-Shaping transcript for [[Artefact1|Title1]].
+**Source:** [[Artefact1|Title1]]
 ```
 
 As shaping expands to touch additional artefacts, append them:
 ```
-Shaping transcript for [[Artefact1|Title1]], [[Artefact2|Title2]].
+**Source:** [[Artefact1|Title1]], [[Artefact2|Title2]]
 ```
 
 Each source artefact links back via `**Transcripts:** [[transcript|Session]]` — see the [provenance standard](provenance.md).
@@ -150,5 +150,5 @@ The artefact's lifecycle continues beyond shaping. The type's taxonomy defines s
 
 Shaping transcripts follow the shaping-transcript taxonomy with these additions:
 - **Naming:** `yyyymmdd-shaping-transcript~{Title}.md` in `_Temporal/Shaping Transcripts/yyyy-mm/`
-- **Multi-source:** First line lists all source artefacts, growing as scope expands
-- **One transcript per session:** If shaping resumes in a new session, create a new transcript (append to the artefact's `**Transcripts:**` list)
+- **Multi-source:** The `**Source:**` line lists all source artefacts, growing as scope expands
+- **One file per day per artefact:** If shaping resumes later the same day, `start-shaping` appends a new `## ... session start` heading to the existing transcript instead of creating a fresh file

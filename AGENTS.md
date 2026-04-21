@@ -11,7 +11,7 @@ ALWAYS DO FIRST: Call MCP `brain_session`, else read `.brain-core/index.md` if i
 
 ## Agent Contributors
 
-ALWAYS READ BEFORE contributing: `docs/contributing-agents.md`
+ALWAYS READ BEFORE contributing: `docs/contributor/agents.md`
 
 ## Agent Installs
 

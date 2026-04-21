@@ -1,34 +1,21 @@
 # Documentation
 
-Router for brain-core's development documentation.
+Root index for Obsidian Brain's repo-facing documentation. Start with the layer index that matches your task; each layer `README.md` introduces the layer and routes to its artefacts.
 
-## User Layer — How to Use It
+## Layer Indexes
 
-- [Getting Started](user/getting-started.md) — installation, first vault, orientation
-- [System Guide](user/system-guide.md) — artefact system mechanics: lifecycle, frontmatter, statuses, compliance, extension
-- [Template Library Guide](user/template-library-guide.md) — default template library: what ships, what each type is for
-- [Workflows](user/workflows.md) — day-to-day usage patterns, MCP tool workflows
+- [User](user/README.md) — how to use the brain: setup, workflows, and user-facing reference
+- [Functional](functional/README.md) — what the system does: tools, scripts, and configuration contracts
+- [Architecture](architecture/README.md) — how and why the system is structured this way
+- [Contributor](contributor/README.md) — how to contribute to the repo, including contributor-facing product docs
 
-## Functional Layer — What It Does
+## Convention-Based Exceptions
 
-- [MCP Tools](functional/mcp-tools.md) — MCP tool specifications
-- [Scripts](functional/scripts.md) — script reference: entry points, arguments, behaviour
-- [Config](functional/config.md) — configuration: profiles, merge rules, environment
+- [Contributing](CONTRIBUTING.md) — contributor entry point at the chosen location
+- [Changelog](CHANGELOG.md) — release history at the chosen location
 
-## Architectural Layer — How/Why It's Built This Way
+## Shared Standards
 
-- [Architecture Overview](architecture/overview.md) — system architecture: components, data flow, boundaries
-- [Bounded Contexts](architecture/bounded-contexts.md) — bounded context map, responsibilities, import policy
-- [Documentation Philosophy](architecture/documentation-philosophy.md) — why docs are structured in three composable layers
-- [Design Decisions](architecture/decisions/) — decision index + per-decision records
-- [Security](architecture/security.md) — path boundary model, privilege split, write guards
-
-## Other
-
-- [Specification](specification.md) — vault specification
-- [Contributing](contributing.md) — how to contribute (humans)
-- [Contributing — Agents](contributing-agents.md) — how to contribute (agents)
-- [Plugins](plugins.md) — plugin system
+- [Agent-Ready Documentation](standards/agent-ready-documentation.md) — documentation structure standard for agent-effective projects
 - [Agent Workflow](standards/agent-workflow.md) — contributor workflow tiers
 - [Canary](standards/canary.md) — canary system standard
-- [Changelog](changelog.md) — release history

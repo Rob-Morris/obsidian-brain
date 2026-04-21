@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-migrate_to_0_24_0.py — Update bootstrap text in CLAUDE.md/Agents.md and router.
+migrate_to_0_24_0.py — Update bootstrap text in CLAUDE.md/AGENTS.md and router.
 
 Replaces old bootstrap variants with the new brain_session + index pattern.
 Removes the stale 'Always read [[.brain-core/index]].' directive from router.md.
@@ -36,8 +36,8 @@ def migrate(vault_root):
     actions = []
     seen_paths = set()
 
-    # --- Update CLAUDE.md / Agents.md ---
-    for filename in ("CLAUDE.md", "Agents.md"):
+    # --- Update CLAUDE.md / AGENTS.md (plus legacy Agents.md) ---
+    for filename in ("CLAUDE.md", "AGENTS.md", "Agents.md"):
         filepath = os.path.join(vault_root, filename)
         if not os.path.isfile(filepath):
             continue
@@ -45,7 +45,7 @@ def migrate(vault_root):
         # Resolve symlinks — edit the target, not the link
         real_path = os.path.realpath(filepath)
         if real_path in seen_paths:
-            continue  # already handled (e.g. CLAUDE.md → Agents.md symlink)
+            continue  # already handled (e.g. CLAUDE.md → AGENTS.md symlink)
         seen_paths.add(real_path)
 
         try:

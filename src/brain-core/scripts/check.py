@@ -41,7 +41,7 @@ from _common import (
 # ---------------------------------------------------------------------------
 
 ROOT_ALLOW = {
-    "Agents.md", "CLAUDE.md", "agents.local.md",
+    "AGENTS.md", "Agents.md", "CLAUDE.md", "agents.local.md",
     ".gitignore", ".gitattributes", ".mcp.json",
 }
 

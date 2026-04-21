@@ -54,7 +54,7 @@ Each DD captures the reasoning behind an architectural decision at the time it w
 | DD-012 | Lean router — always-rules only, conditional triggers co-located | Accepted | [dd-012](dd-012-lean-router.md) |
 | DD-013 | Compiled router required for tools; markdown fallback for agents only | Accepted | [dd-013](dd-013-compiled-router-required.md) |
 | DD-014 | MCP server auto-compiles on startup | Implemented (v0.7.0) | [dd-014](dd-014-auto-compile.md) |
-| DD-015 | Single-line install — never require changes to Agents.md | Implemented (v0.4.0) | [dd-015](dd-015-single-line-install.md) |
+| DD-015 | Single-line install — never require changes to AGENTS.md | Implemented (v0.4.0) | [dd-015](dd-015-single-line-install.md) |
 | DD-016 | Filesystem-first artefact discovery | Implemented (v0.5.0) | [dd-016](dd-016-filesystem-first.md) |
 | DD-017 | Shorthand trigger index with gotos | Implemented (v0.4.0) | [dd-017](dd-017-shorthand-triggers.md) |
 | DD-018 | Taxonomy index dropped — filesystem is the index | Implemented (v0.4.0) | [dd-018](dd-018-no-taxonomy-index.md) |

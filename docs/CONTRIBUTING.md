@@ -2,7 +2,7 @@
 
 Guide for anyone working on brain-core. For the pre-commit checklist, see [pre-commit canary](../.canaries/pre-commit.md).
 
-**Agent contributors:** also read [contributing-agents.md](contributing-agents.md) and [standards/agent-workflow.md](standards/agent-workflow.md) for contributor-only workflow guidance.
+**Agent contributors:** also read [contributor/agents.md](contributor/agents.md) and [standards/agent-workflow.md](standards/agent-workflow.md) for contributor-only workflow guidance.
 
 ## Canary Hook
 
@@ -28,32 +28,34 @@ Adding a new numbered item to the canary file automatically enforces it — no h
 
 Brain has multiple documentation layers, each serving a different audience. For the reasoning behind this structure, see [Documentation Philosophy](architecture/documentation-philosophy.md). Keeping them in sync is the single biggest maintenance challenge — most documentation bugs come from updating one layer but not others.
 
-### User-facing docs (in `docs/`)
+This repo's documentation structure follows the [Agent-Ready Documentation Standard v1.0.0](standards/agent-ready-documentation.md). For how Brain applies that standard locally, see [Documentation Philosophy](architecture/documentation-philosophy.md).
 
-| File | Audience | Purpose |
-|---|---|---|
-| `user/getting-started.md` | Vault users | Installation, first vault, orientation |
-| `user/workflows.md` | Vault users | Day-to-day usage patterns and examples |
-| `user/system-guide.md` | Vault users | Artefact system mechanics, lifecycle, extension |
-| `user/template-library-guide.md` | Vault users | Template library, available types, install procedures |
-| `user-reference.md` | Vault users | Complete reference for every type, convention, config point |
-| `specification.md` | Contributors | Design rationale, architecture, what ships in the vault |
-| `tooling.md` | Contributors | Redirect → `functional/` and `architecture/decisions/` |
-| `changelog.md` | Everyone | Version history |
-| `standards/canary.md` | Contributors | How canaries work |
-| `standards/agent-workflow.md` | Contributors | Workflow tiers for brain-core changes |
+### Repo docs (in `docs/`)
+
+Most repo documentation lives under `docs/`, with a separate folder for each layer. Each folder has its own `README.md`. Start with [docs/README.md](README.md), which links to the main documentation areas:
+
+- [Architecture docs](architecture/README.md) — system design and decisions
+- [Contributor docs](contributor/README.md) — contributor-facing docs
+- [Functional docs](functional/README.md) — tool, script, and config reference
+- [User docs](user/README.md) — user-facing guides and reference
+
+This repo keeps its changelog at [docs/CHANGELOG.md](CHANGELOG.md).
+
+If you add, move, remove, or rename repo docs, update the relevant `README.md` files so people and agents can still find them.
 
 ### Brain-core docs (in `src/brain-core/`, ship as `.brain-core/` in vaults)
 
 | File | Audience | Purpose |
 |---|---|---|
-| `guide.md` | Vault users + agents | Quick-start guide, ships in the vault |
-| `index.md` | Agents | Thin bootstrap entry point, read every session |
-| `session-core.md` | Agents | Checked-in authored source for static core bootstrap content and core-doc references |
-| `standards/extending/README.md` | Agents + contributors | How to extend the vault (add types, memories, principles) |
-| `standards/` | Agents + contributors | Operational standards — naming, provenance, archiving, hub pattern, subfolders, user preferences |
-| `colours.md` | Contributors | Colour system algorithm, CSS templates |
-| `artefact-library/README.md` | Agents + contributors | Type catalogue, install steps, browsing guide |
+| [guide.md](../src/brain-core/guide.md) | Vault users + agents | Quick-start guide, ships in the vault |
+| [index.md](../src/brain-core/index.md) | Agents | Thin bootstrap entry point, read every session |
+| [session-core.md](../src/brain-core/session-core.md) | Agents | Checked-in authored source for static core bootstrap content and core-doc references |
+| [standards/extending/README.md](../src/brain-core/standards/extending/README.md) | Agents + contributors | How to extend the vault (add types, memories, principles) |
+| [standards/](../src/brain-core/standards/README.md) | Agents + contributors | Operational standards — naming, provenance, archiving, hub pattern, subfolders, user preferences |
+| [colours.md](../src/brain-core/colours.md) | Contributors | Colour system algorithm, CSS templates |
+| [artefact-library/README.md](../src/brain-core/artefact-library/README.md) | Agents + contributors | Type catalogue, install steps, browsing guide |
+
+`session-core.md` is a curated bootstrap surface, not an exhaustive index of every shipped file. When bootstrap principles or the recommended core-doc/standards set changes, update it deliberately.
 
 Rule: if a document ships in `.brain-core/`, write it for normal vault agents.
 Contributor-only process guidance belongs in `docs/`, even when it explains how
@@ -77,7 +79,7 @@ Bump `src/brain-core/VERSION` for any change to files under `src/brain-core/`, i
 
 ## Changelog
 
-New entry at the top of `docs/changelog.md`. Format: `## v{x.y.z} — YYYY-MM-DD`. Never edit past entries.
+New entry at the top of `docs/CHANGELOG.md`. Format: `## v{x.y.z} — YYYY-MM-DD`. Never edit past entries.
 
 - **Bold lead** for significant changes — what changed and why in one sentence
 - Regular bullets for smaller changes
@@ -105,9 +107,9 @@ make sync-template               # force-syncs _Config + .brain/tracking.json, t
 `TestTemplateVaultSync::test_no_drift`, but `make sync-template-check` gives a
 faster failure mode while you are iterating.
 
-## Agents.md vs agents.local.md
+## AGENTS.md vs agents.local.md
 
-`Agents.md` is checked in and universal — it applies to every contributor on every machine. Keep it lean: project identity, pre-commit canary, pointer to local overrides.
+`AGENTS.md` is checked in and universal — it applies to every contributor on every machine. Keep it lean: project identity, pre-commit canary, pointer to local overrides.
 
 `agents.local.md` is gitignored and machine-specific. It holds:
 
@@ -115,7 +117,7 @@ faster failure mode while you are iterating.
 - **Workflow triggers that depend on the local environment** — e.g. post-core-commit canary (only relevant if a vault is co-located), deploy steps for a local staging environment
 - **Machine-specific tool config** — local CLI paths, env vars, capability flags
 
-**Rule of thumb:** if the instruction only makes sense when a specific path or local resource exists, it goes in `agents.local.md`. If it applies to anyone working on the repo, it goes in `Agents.md` or `docs/`.
+**Rule of thumb:** if the instruction only makes sense when a specific path or local resource exists, it goes in `agents.local.md`. If it applies to anyone working on the repo, it goes in `AGENTS.md` or `docs/`.
 
 ## Contributor Skills
 
@@ -123,7 +125,7 @@ Contributor skills are Claude Code commands that help with brain-core developmen
 
 To add a contributor skill, create `.claude/commands/{name}.md` with a `description` field in the frontmatter. Claude Code discovers commands from their description and makes them available as `/command-name`.
 
-These are distinct from user skills (`_Config/Skills/` in vaults), which teach agents how to use vault tools. User skills ship via the template vault and are documented in `src/brain-core/plugins.md`.
+These are distinct from user skills (`_Config/Skills/` in vaults), which teach agents how to use vault tools. User skills ship via the template vault and are documented in `src/brain-core/plugins.md`; repo-level plugin authoring is documented in `docs/contributor/plugins.md`.
 
 **Example `agents.local.md`:**
 
@@ -144,30 +146,32 @@ After committing brain-core changes in this repo, follow `.canaries/post-core-co
 ```
 obsidian-brain/
 ├── src/
-│   └── brain-core/              # core methodology (source of truth)
+│   └── brain-core/              # source of truth for shipped `.brain-core/` files and tooling
 │       ├── VERSION              # brain-core version
 │       ├── index.md             # bootstrap entry point; routes to normal vs degraded paths
 │       ├── session-core.md      # static authored source for canonical bootstrap content
 │       ├── guide.md             # quick-start guide (ships into vaults)
 │       ├── artefact-library/    # ready-to-install type definitions
 │       ├── md-bootstrap.md      # degraded fallback bootstrap for non-MCP/no-session-mirror environments
-│       ├── standards/extending/  # how to add types, colours, triggers
+│       ├── standards/extending/  # how to extend the vault: types, memories, triggers, principles
 │       ├── triggers.md          # workflow trigger system
 │       ├── colours.md           # folder colour system design
-│       ├── plugins.md           # plugin system
-│       ├── scripts/             # tooling (compile_router, check, build_index, search)
-│       └── mcp/                 # MCP server (brain_read, brain_search, brain_action)
+│       ├── plugins.md           # shipped plugin overview and vault-side plugin workflow
+│       ├── scripts/             # brain-core tooling and vault-operation scripts
+│       └── mcp/                 # MCP server and tool surface
 ├── src/scripts/                 # repo-maintenance helpers (e.g. template-vault sync)
 ├── tests/                       # test suite (make test)
 ├── docs/
-│   ├── user/                    # user-facing docs (getting-started, workflows, system-guide, template-library)
+│   ├── contributor/             # contributor-facing product docs and workflow guidance
+│   │   ├── agents.md            # contributor workflow guidance for agents
+│   │   ├── plugins.md           # writing and packaging plugin integrations
+│   │   └── specification.md     # design rationale and structural decisions
+│   ├── user/                    # user-facing docs (getting-started, workflows, system-guide, template-library, plugins, reference)
 │   ├── functional/              # functional specs (mcp-tools, scripts, config)
 │   ├── architecture/            # architectural docs (overview, bounded-contexts, documentation-philosophy, decisions/, security)
-│   ├── user-reference.md        # full reference for all types and conventions
-│   ├── tooling.md               # redirect → functional/ and architecture/decisions/
-│   ├── changelog.md             # version history
-│   ├── plugins.md               # how to install and write plugins
-│   └── specification.md         # design rationale and structural decisions
+│   ├── CHANGELOG.md             # version history
+│   ├── CONTRIBUTING.md          # contributor guide and maintenance rules
+│   └── README.md                # documentation router
 ├── template-vault/              # starter vault; copy to create a new Brain
 └── README.md
 ```

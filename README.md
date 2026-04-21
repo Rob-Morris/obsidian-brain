@@ -1,6 +1,6 @@
 # Obsidian Brain
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.30.0-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.10-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.30.1-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.10-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
 
 A self-evolving knowledge base for agents and humans working together on what matters.
 
@@ -133,27 +133,11 @@ Use `--user` if you want the brain everywhere. Use `--project` to connect a sing
 
 ## Documentation
 
-Docs are organised into three layers so you can find what you need quickly. The **user** layer covers how to use the brain — start here. The **functional** layer is the exact specification of each tool, script, and config option. The **architectural** layer explains why things are built the way they are. Functional docs also live alongside the code in `src/brain-core/`, which ships inside your vault, where agents naturally find and maintain them.
+Most repo documentation lives under [docs/README.md](docs/README.md), which routes to the user, functional, architecture, and contributor docs.
 
-**Using the Brain:**
+Good starting points:
 
-- [Getting Started](docs/user/getting-started.md) — installation, first vault, orientation
-- [Workflows](docs/user/workflows.md) — day-to-day usage patterns
-- [System Guide](docs/user/system-guide.md) — artefact lifecycle, frontmatter, statuses
-- [Template Library](docs/user/template-library-guide.md) — what ships, what each type is for
-- [Quick-Start Guide](src/brain-core/guide.md) — in-vault cheat sheet (ships as `.brain-core/guide.md`)
-
-**Reference:**
-
-- [MCP Tools](docs/functional/mcp-tools.md) — tool specifications
-- [Scripts](docs/functional/scripts.md) — script reference
-- [Config](docs/functional/config.md) — configuration profiles and environment
-- [User Reference](docs/user-reference.md) — configuration points, colour system, writing style
-- [Plugins](docs/plugins.md) — install and write plugins
-
-**Architecture:**
-
-- [Specification](docs/specification.md) — design rationale and structural decisions
-- [Architecture Overview](docs/architecture/overview.md) — components, data flow, boundaries
-- [Changelog](docs/changelog.md) — version history
-- [Contributing](docs/contributing.md) — contributor guide (general + [agent-specific](docs/contributing-agents.md))
+- [Getting Started](docs/user/getting-started.md) — install Obsidian Brain and create your first vault
+- [User Docs](docs/user/README.md) — user-facing guides, workflows, and reference
+- [Contributing](docs/CONTRIBUTING.md) — repo contribution guide, including links to contributor-specific docs
+- [CHANGELOG](docs/CHANGELOG.md) — release history

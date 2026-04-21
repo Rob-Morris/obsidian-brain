@@ -182,7 +182,7 @@ When the target is a non-empty directory without `.brain-core/`, the script inst
 
 - **Always installed:** `.brain-core/` (the brain engine)
 - **Created if missing:** `_Config/`, `_Assets/`, `_Temporal/`, `_Plugins/`, `_Workspaces/`, `.backups/`
-- **Copied if absent:** `Agents.md`, `CLAUDE.md`
+- **Copied if absent:** `AGENTS.md`, `CLAUDE.md`
 - **Always overwritten:** `.obsidian/snippets/brain-folder-colours.css` (namespaced, safe — this file is ours)
 
 Existing files and directories are never touched. The script detects `.obsidian/` and adjusts its messaging accordingly ("Existing Obsidian vault detected" vs "Existing directory detected").

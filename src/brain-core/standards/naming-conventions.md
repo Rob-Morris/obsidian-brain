@@ -28,7 +28,7 @@ The `title_to_filename()` function in `_common/_slugs.py` implements this.
 
 **Special cases:**
 - **Logs** use `yyyymmdd-log.md` (no title). One log per day — the date is the only identifier, and it is the subject day of the log rather than the physical file creation time.
-- **Shaping Transcripts** embed the source document type: `yyyymmdd-{sourcedoctype}-transcript~{Title}.md`.
+- **Shaping Transcripts** use `yyyymmdd-shaping-transcript~{Title}.md`. Source artefact identity lives in the transcript body (`**Source:** ...`), not in the filename.
 
 **Examples:**
 
@@ -89,11 +89,13 @@ Reconciliation is idempotent: a second pass is a no-op. It runs only on write pa
 
 ## Status-Aware and Frontmatter-Backed Naming
 
+This section owns the **platform contract** for naming that depends on frontmatter or lifecycle state. Individual artefact taxonomies declare their semantics in `## Naming`; they do not invent private command-specific naming behaviour.
+
 Most types declare a single naming pattern as a one-line `## Naming` entry (e.g. `` `{Title}.md` in `Wiki/` ``). Types whose filename depends on frontmatter state use the canonical **advanced `## Naming`** form — a `### Rules` table keyed on a frontmatter field, plus a `### Placeholders` table declaring any non-built-in placeholder.
 
 **Built-in placeholders** (always available, need no declaration): `{Title}`, `{title}`, `{name}`, `{slug}`, `yyyymmdd`, `yyyy-mm-dd`, `yyyy`, `mm`, `dd`, `ddd`, `{sourcedoctype}`.
 
-Any other placeholder must be declared with a backing frontmatter field.
+Any other placeholder must be declared with a backing frontmatter field. Using an undeclared non-built-in placeholder is a type-definition error caught at compile time.
 
 **Canonical advanced form:**
 
@@ -123,4 +125,12 @@ Primary folder: `Releases/{Project}/`.
 - Blank cells are invalid; use `*` when you mean unconditional.
 - The first rule whose match succeeds wins.
 
-**How the compiled contract drives tooling:** the compiled naming contract is the single source of truth for render (`create`, `convert`), validate (`check`), reverse-parse (`edit`, `convert`, `migrate_naming`), and rename-on-change (`edit`). When frontmatter changes select a different rule, `edit` re-renders and renames automatically. `rename` validates the destination against the contract with no bypass. See [[Status-Aware Artefact Naming]] for the full design.
+**How the compiled contract drives tooling:** the compiled naming contract is the single source of truth for rendering, validation, reverse parsing, migration, and rename-on-change. Tooling does not carry private per-command naming rules: when frontmatter changes alter the active rule or rendered filename, the artefact is renamed through the shared contract; explicit renames still validate against that same contract; naming migrations parse and re-render through it rather than relying on bespoke historical regexes.
+
+**Operational consequences:**
+
+- **Status-aware naming is declarative.** Taxonomies describe rule selection in `## Naming`; scripts read the compiled contract instead of hard-coding per-type filename branches.
+- **Frontmatter is authoritative.** Filenames are a projection of the selected rule plus declared placeholders, not an independent source of truth. If frontmatter and filename disagree, tooling reconciles to frontmatter and re-renders the filename.
+- **Custom placeholders are frontmatter-backed.** A placeholder exists only when declared in `### Placeholders`, with any required-field/value gates and regex checks enforced by the compiled contract. Missing or invalid data fails render instead of guessing.
+- **Rename-on-change is normal behaviour.** If an edit changes the active rule or a placeholder value, the filename changes too, and link-aware tooling updates wikilinks in place.
+- **Reverse parsing uses the same contract.** `edit`, `convert`, and `migrate_naming` recover titles and date-bearing fields through the compiled naming rules rather than bespoke per-type parsers.

@@ -17,7 +17,7 @@ def make_vault(tmp_path):
 
 def test_updates_current_pre_unified_bootstrap(tmp_path):
     vault = make_vault(tmp_path)
-    agents = vault / "Agents.md"
+    agents = vault / "AGENTS.md"
     agents.write_text("ALWAYS DO FIRST: Call brain_session. Read [[.brain-core/index]]\n")
 
     result = migrate(str(vault))
@@ -28,7 +28,7 @@ def test_updates_current_pre_unified_bootstrap(tmp_path):
 
 def test_updates_legacy_router_bootstrap_variant(tmp_path):
     vault = make_vault(tmp_path)
-    agents = vault / "Agents.md"
+    agents = vault / "AGENTS.md"
     agents.write_text('If brain MCP tools are available, call brain_read(resource="router") at session start.\n')
 
     result = migrate(str(vault))
@@ -39,7 +39,7 @@ def test_updates_legacy_router_bootstrap_variant(tmp_path):
 
 def test_canonicalises_manual_form_without_period(tmp_path):
     vault = make_vault(tmp_path)
-    agents = vault / "Agents.md"
+    agents = vault / "AGENTS.md"
     agents.write_text("ALWAYS DO FIRST: Call MCP `brain_session`, else read `.brain-core/index.md` if it exists\n")
 
     result = migrate(str(vault))
@@ -65,7 +65,7 @@ def test_removes_stale_router_directive(tmp_path):
 
 def test_skips_when_already_canonical(tmp_path):
     vault = make_vault(tmp_path)
-    agents = vault / "Agents.md"
+    agents = vault / "AGENTS.md"
     agents.write_text(NEW_BOOTSTRAP + "\n")
 
     result = migrate(str(vault))
@@ -75,10 +75,10 @@ def test_skips_when_already_canonical(tmp_path):
 
 def test_symlinked_claude_and_agents_only_updated_once(tmp_path):
     vault = make_vault(tmp_path)
-    agents = vault / "Agents.md"
+    agents = vault / "AGENTS.md"
     agents.write_text("ALWAYS DO FIRST: Call brain_session. Read [[.brain-core/index]]\n")
     claude = vault / "CLAUDE.md"
-    claude.symlink_to("Agents.md")
+    claude.symlink_to("AGENTS.md")
 
     result = migrate(str(vault))
 

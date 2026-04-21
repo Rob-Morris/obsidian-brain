@@ -253,7 +253,7 @@ class TestCheckRootFiles:
 
     def test_root_allow_files_pass(self, vault):
         tmp_path, router = vault
-        (tmp_path / "Agents.md").write_text("# Agents\n")
+        (tmp_path / "AGENTS.md").write_text("# Agents\n")
         (tmp_path / "CLAUDE.md").write_text("# Claude\n")
         (tmp_path / "agents.local.md").write_text("# Local\n")
         (tmp_path / ".mcp.json").write_text("{}")

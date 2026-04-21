@@ -24,8 +24,8 @@ Individual artefact taxonomy files may document specific provenance patterns (e.
 When an artefact is shaped through Q&A (producing a shaping transcript), link bidirectionally:
 
 **On the shaping transcript** (already required by the shaping-transcript taxonomy):
-- First line after frontmatter: `Shaping transcript for [[Source/Path|Source Title]].`
-- Multi-source transcripts list all sources: `Shaping transcript for [[Source1|Title1]], [[Source2|Title2]].`
+- First line after frontmatter: `**Source:** [[Source/Path|Source Title]]`
+- Multi-source transcripts list all sources: `**Source:** [[Source1|Title1]], [[Source2|Title2]]`
 
 **On the shaped artefact:**
 - Add a `**Transcripts:**` line in the body listing all shaping sessions:

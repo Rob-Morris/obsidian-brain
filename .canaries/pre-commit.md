@@ -8,31 +8,31 @@ Follow before every commit.
 
 [2] **Version bumped.** Bump `src/brain-core/VERSION` for any change to files under `src/brain-core/`, including doc-only edits. If it ships in `.brain-core/`, it gets a version bump. Patch = doc clarifications, additive changes; minor = breaking vault structure; major = fundamental model changes.
 
-[3] **Changelog updated.** New entry at the top of `docs/changelog.md`. Format: `## v{x.y.z} — YYYY-MM-DD`. Bold lead for significant changes. Never edit past entries.
+[3] **Changelog updated.** New entry at the top of `docs/CHANGELOG.md`. Format: `## v{x.y.z} — YYYY-MM-DD`. Bold lead for significant changes. Never edit past entries.
 
 [4] **Docs updated.** Update every file affected by your change:
 
-    [4a] **Artefact type** — if added/removed/renamed: `src/brain-core/artefact-library/README.md` (source of truth), `docs/user/template-library-guide.md` (if guide needs updating), `docs/specification.md` (starter vault list if default)
-    [4b] **Template vault defaults** — if added/removed: `docs/user/getting-started.md` (What's in the Vault), `src/brain-core/guide.md` (type table), `docs/specification.md` (starter vault section)
+    [4a] **Artefact type** — if added/removed/renamed: `src/brain-core/artefact-library/README.md` (source of truth), `docs/user/template-library-guide.md` (if guide needs updating), `docs/contributor/specification.md` (starter vault list if default)
+    [4b] **Template vault defaults** — if added/removed: `docs/user/getting-started.md` (What's in the Vault), `src/brain-core/guide.md` (type table), `docs/contributor/specification.md` (starter vault section)
     [4c] **Status/lifecycle values** — `src/brain-core/artefact-library/README.md` (conventions section), `docs/user/system-guide.md` (if system-level lifecycle affected)
     [4d] **Install/extension procedures** — `docs/user/system-guide.md` (Extension), `src/brain-core/standards/extending/README.md`, `src/brain-core/artefact-library/README.md` (Installing a type)
-    [4e] **Colour system** — `src/brain-core/colours.md`, `docs/user-reference.md` (Colour System), `docs/specification.md` (Colour System)
-    [4f] **System design/architecture** — `docs/architecture/overview.md`, `docs/architecture/decisions/` (if new design decision — create the DD file AND add a row to `docs/architecture/decisions/README.md`), `src/brain-core/index.md` (if principles change)
+    [4e] **Colour system** — `src/brain-core/colours.md`, `docs/user/user-reference.md` (Colour System), `docs/contributor/specification.md` (Colour System)
+    [4f] **System design/architecture / bootstrap principles** — `docs/architecture/overview.md`, `docs/architecture/decisions/` (if new design decision — create the DD file AND add a row to `docs/architecture/decisions/README.md`), `src/brain-core/session-core.md` (if bootstrap principles or curated core-doc/standards links change), `src/brain-core/index.md` / `src/brain-core/md-bootstrap.md` (if bootstrap entry flow changes)
     [4g] **Day-to-day workflows** — `docs/user/workflows.md`, `src/brain-core/guide.md`
-    [4h] **Tooling** — scripts, MCP tools, config: `docs/functional/scripts.md` (scripts), `docs/functional/mcp-tools.md` (MCP tools), `docs/functional/config.md` (config), `src/brain-core/scripts/README.md` (co-located module map), `docs/user-reference.md` (Tooling summary)
-    [4i] **General pattern** — hub, provenance, archiving: `src/brain-core/standards/`, `docs/specification.md`, `docs/user/system-guide.md`
+    [4h] **Tooling** — scripts, MCP tools, config: `docs/functional/scripts.md` (scripts), `docs/functional/mcp-tools.md` (MCP tools), `docs/functional/config.md` (config), `src/brain-core/scripts/README.md` (co-located module map), `docs/user/user-reference.md` (Tooling summary)
+    [4i] **General pattern** — hub, provenance, archiving: `src/brain-core/standards/`, `docs/contributor/specification.md`, `docs/user/system-guide.md`
     [4j] **Template vault** — if artefact types, taxonomy, config, or default structure changed: update `template-vault/` to match
     [4k] **Artefact library metadata** — if taxonomy, README, template, or SKILL changed in `artefact-library/`: update `manifest.yaml` and `schema.yaml` in the same type directory to match
     [4l] **Security model** — if path boundaries, write guards, privilege model, or safe write pattern changed: `docs/architecture/security.md`
-    [4m] **Plugin system** — if plugin conventions, install procedures, or plugin API changed: `docs/plugins.md`, `src/brain-core/plugins.md`
-    [4n] **Doc structure** — if doc files added/moved/removed or navigation changed: `docs/README.md` (router), `docs/contributing.md` (Documentation Layers table)
-    [4o] **Contribution process** — if canary items, pre-commit workflow, versioning rules, or testing procedures changed: `docs/contributing.md`, `docs/contributing-agents.md`, `docs/standards/canary.md` (canary system standard)
-    [4p] **Bootstrap audience boundary** — if bootstrap surfaces or contributor-doc boundaries changed: `docs/architecture/documentation-philosophy.md`, `docs/architecture/decisions/dd-038-unified-session-bootstrap.md`, `docs/contributing.md`; shipped `.brain-core/` bootstrap docs must stay written for normal vault agents, not repo contributors
+    [4m] **Plugin system** — if plugin conventions, install procedures, or plugin API changed: `docs/user/plugins.md`, `docs/contributor/plugins.md`, `src/brain-core/plugins.md`
+    [4n] **Doc structure** — if doc files added/moved/removed or navigation changed: `docs/README.md` (router), `docs/CONTRIBUTING.md` (Documentation Layers table)
+    [4o] **Contribution process** — if canary items, pre-commit workflow, versioning rules, or testing procedures changed: `docs/CONTRIBUTING.md`, `docs/contributor/agents.md`, `docs/standards/canary.md` (canary system standard)
+    [4p] **Bootstrap audience boundary** — if bootstrap surfaces or contributor-doc boundaries changed: `docs/architecture/documentation-philosophy.md`, `docs/architecture/decisions/dd-038-unified-session-bootstrap.md`, `docs/CONTRIBUTING.md`; shipped `.brain-core/` bootstrap docs must stay written for normal vault agents, not repo contributors
 
 [5] **Shared facts cross-checked.** Grep for the specific values you changed to catch stale references in other files. With the three-layer structure, most facts now live in one place — only check if you changed a shared fact:
 
-    [5a] **Type counts** — count `artefact-library/{living,temporal}/` directories as canonical source, then verify prose counts match in `src/brain-core/artefact-library/README.md` and `docs/specification.md`. Do not trust existing prose numbers — always recount from directories.
-    [5b] **Template vault defaults list** — `docs/user/getting-started.md`, `src/brain-core/guide.md`, `docs/specification.md`
+    [5a] **Type counts** — count `artefact-library/{living,temporal}/` directories as canonical source, then verify prose counts match in `src/brain-core/artefact-library/README.md` and `docs/contributor/specification.md`. Do not trust existing prose numbers — always recount from directories.
+    [5b] **Template vault defaults list** — `docs/user/getting-started.md`, `src/brain-core/guide.md`, `docs/contributor/specification.md`
     [5c] **Status values** — `src/brain-core/artefact-library/README.md`, `docs/user/system-guide.md`
     [5d] **Install step counts** — `docs/user/system-guide.md`, `src/brain-core/artefact-library/README.md`, `src/brain-core/standards/extending/`
     [5e] **Bootstrap audience split** — if changing shipped bootstrap docs or contributor workflow guidance, grep the relevant surfaces and confirm contributor-only process language stays out of `.brain-core/` bootstrap docs

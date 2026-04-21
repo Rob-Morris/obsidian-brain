@@ -11,12 +11,16 @@ TEMPORAL_DIR = "_Temporal"
 def is_vault_root(path):
     """Check whether *path* is a Brain vault root.
 
-    A vault is identified by the brain-core VERSION file (modern vaults) or
-    the legacy top-level Agents.md marker (pre-0.x vaults).  Accepts either
-    a ``pathlib.Path`` or a string.
+    A vault is identified by the brain-core VERSION file (modern vaults), the
+    canonical top-level ``AGENTS.md`` bootstrap, or the legacy ``Agents.md``
+    marker (pre-0.x vaults). Accepts either a ``pathlib.Path`` or a string.
     """
     p = path if isinstance(path, Path) else Path(path)
-    return (p / ".brain-core" / "VERSION").is_file() or (p / "Agents.md").is_file()
+    return (
+        (p / ".brain-core" / "VERSION").is_file()
+        or (p / "AGENTS.md").is_file()
+        or (p / "Agents.md").is_file()
+    )
 
 
 def find_vault_root(vault_arg=None):

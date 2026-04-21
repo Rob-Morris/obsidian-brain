@@ -17,7 +17,7 @@ class TestIsVaultRoot:
         assert is_vault_root(vault) is True
 
     def test_vault_with_agents_md(self, tmp_path):
-        (tmp_path / "Agents.md").write_text("agent entry\n")
+        (tmp_path / "AGENTS.md").write_text("agent entry\n")
         assert is_vault_root(tmp_path) is True
 
     def test_non_vault(self, tmp_path):

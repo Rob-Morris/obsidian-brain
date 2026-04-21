@@ -1,6 +1,6 @@
 # Brain System Guide
 
-How the artefact system works — lifecycle, frontmatter contracts, vault structure, and extension. For a walkthrough of day-to-day use, see [Workflows](workflows.md). For the full type reference, see the [Reference](../user-reference.md).
+How the artefact system works — lifecycle, frontmatter contracts, vault structure, and extension. For a walkthrough of day-to-day use, see [Workflows](workflows.md). For the full type reference, see the [Reference](user-reference.md).
 
 ---
 
@@ -115,7 +115,7 @@ Some types also declare an explicit queryable naming date separate from physical
 
 ### Status
 
-Only types with a defined lifecycle have status. Status values are type-specific — see the [Reference](../user-reference.md) for the full table. The general shape is a progression from open/draft states through active work to a terminal state (implemented, published, adopted, etc.).
+Only types with a defined lifecycle have status. Status values are type-specific — see the [Reference](user-reference.md) for the full table. The general shape is a progression from open/draft states through active work to a terminal state (implemented, published, adopted, etc.).
 
 ### Archive Fields
 
