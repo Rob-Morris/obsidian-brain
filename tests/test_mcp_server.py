@@ -1,5 +1,6 @@
 """Tests for Brain MCP server — unit tests with a minimal vault fixture."""
 
+import asyncio
 import json
 import os
 import subprocess
@@ -680,7 +681,13 @@ class TestBrainSearch:
         text = _search_text(server.brain_search("qwertymorphic"))
         assert "0 results" in text
         # Edit the artefact to include a unique term
-        edit_result = server.brain_edit(operation="edit", path=created_path, body="Now has qwertymorphic content.")
+        edit_result = server.brain_edit(
+            operation="edit",
+            path=created_path,
+            body="Now has qwertymorphic content.",
+            target=":body",
+            scope="section",
+        )
         assert "Error" not in edit_result
         # Verify the file on disk has the new content
         file_path = initialized / created_path
@@ -847,9 +854,11 @@ class TestBrainAction:
                 "source": "Wiki/old.md",
                 "dest": "Wiki/subdir/new.md",
             })
-            mock_makedirs.assert_called_once()
             mock_move.assert_called_once()
-            assert mock_makedirs.call_args[0][0].endswith("Wiki/subdir")
+            assert any(
+                call.args[0].endswith("Wiki/subdir")
+                for call in mock_makedirs.call_args_list
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -1453,13 +1462,36 @@ class TestBrainCreate:
 # ---------------------------------------------------------------------------
 
 class TestBrainEdit:
+    def test_brain_edit_schema_exposes_scope_and_resource_enums(self):
+        tool = asyncio.run(server.mcp.list_tools())
+        brain_edit_tool = next(item for item in tool if item.name == "brain_edit")
+        schema = brain_edit_tool.inputSchema
+        props = schema["properties"]
+
+        assert props["resource"]["enum"] == [
+            "artefact",
+            "skill",
+            "memory",
+            "style",
+            "template",
+        ]
+        assert props["scope"]["anyOf"] == [
+            {
+                "enum": ["section", "intro", "body", "heading", "header"],
+                "type": "string",
+            },
+            {"type": "null"},
+        ]
+
     def test_edit_replaces_body(self, initialized):
         result = server.brain_edit(
             operation="edit",
             path="Wiki/brain-overview-abc123.md",
-            body="# New Body\n\nReplaced.\n"
+            body="# New Body\n\nReplaced.\n",
+            target=":body",
+            scope="section",
         )
-        assert result == "**Edited:** Wiki/brain-overview-abc123.md"
+        assert result == "**Edited:** Wiki/brain-overview-abc123.md (body section)"
         content = (initialized / "Wiki" / "brain-overview-abc123.md").read_text()
         assert "Replaced." in content
 
@@ -1467,7 +1499,9 @@ class TestBrainEdit:
         server.brain_edit(
             operation="edit",
             path="Wiki/brain-overview-abc123.md",
-            body="# New\n"
+            body="# New\n",
+            target=":body",
+            scope="section",
         )
         content = (initialized / "Wiki" / "brain-overview-abc123.md").read_text()
         from _common import parse_frontmatter
@@ -1479,7 +1513,9 @@ class TestBrainEdit:
             operation="edit",
             path="Wiki/brain-overview-abc123.md",
             body="# New\n",
-            frontmatter={"status": "archived"}
+            frontmatter={"status": "archived"},
+            target=":body",
+            scope="section",
         )
         content = (initialized / "Wiki" / "brain-overview-abc123.md").read_text()
         from _common import parse_frontmatter
@@ -1490,9 +1526,11 @@ class TestBrainEdit:
         result = server.brain_edit(
             operation="append",
             path="Wiki/brain-overview-abc123.md",
-            body="\n\nAppended text.\n"
+            body="\n\nAppended text.\n",
+            target=":body",
+            scope="section",
         )
-        assert result == "**Appended:** Wiki/brain-overview-abc123.md"
+        assert result == "**Appended:** Wiki/brain-overview-abc123.md (body section)"
         content = (initialized / "Wiki" / "brain-overview-abc123.md").read_text()
         assert "Appended text." in content
         assert "Brain Overview" in content  # original preserved
@@ -1501,7 +1539,9 @@ class TestBrainEdit:
         result = server.brain_edit(
             operation="edit",
             path="Unknown/file.md",
-            body="test"
+            body="test",
+            target=":body",
+            scope="section",
         )
         _assert_error(result)
 
@@ -1509,7 +1549,9 @@ class TestBrainEdit:
         result = server.brain_edit(
             operation="edit",
             path="Wiki/nonexistent.md",
-            body="test"
+            body="test",
+            target=":body",
+            scope="section",
         )
         _assert_error(result)
 
@@ -1525,9 +1567,11 @@ class TestBrainEdit:
         result = server.brain_edit(
             operation="prepend",
             path="Wiki/brain-overview-abc123.md",
-            body="Prepended text.\n\n"
+            body="Prepended text.\n\n",
+            target=":body",
+            scope="section",
         )
-        assert "**Prepended:**" in result
+        assert result == "**Prepended:** Wiki/brain-overview-abc123.md (body section)"
         content = (initialized / "Wiki" / "brain-overview-abc123.md").read_text()
         assert "Prepended text." in content
         assert "Brain Overview" in content  # original preserved
@@ -1552,7 +1596,7 @@ class TestBrainEdit:
             path="Wiki/brain-overview-abc123.md",
             target=":entire_body",
         )
-        _assert_error(result, "no-op")
+        _assert_error(result, "target=':entire_body' is no longer valid")
 
     def test_noop_prepend_rejected(self, initialized):
         result = server.brain_edit(
@@ -1567,7 +1611,7 @@ class TestBrainEdit:
             path="Wiki/brain-overview-abc123.md",
             target=":entire_body",
         )
-        _assert_error(result, "no-op")
+        _assert_error(result, "target=':entire_body' is no longer valid")
 
     def test_edit_with_target_and_empty_body_allowed(self, initialized):
         """edit with target + empty body clears that section — not a no-op."""
@@ -1582,6 +1626,7 @@ class TestBrainEdit:
             operation="edit",
             path="Wiki/brain-overview-abc123.md",
             target="Alpha",
+            scope="body",
         )
         assert "**Edited:**" in result
 
@@ -1593,6 +1638,46 @@ class TestBrainEdit:
             frontmatter={"status": "archived"},
         )
         assert "**Appended:**" in result
+
+    def test_targeted_frontmatter_only_append_omits_structural_summary(self, initialized):
+        from _common import parse_frontmatter
+
+        path = initialized / "Wiki" / "brain-overview-abc123.md"
+        path.write_text(
+            "---\ntype: living/wiki\ntags: [overview]\nstatus: active\n---\n\n"
+            "## Alpha\n\nBody.\n"
+        )
+        result = server.brain_edit(
+            operation="append",
+            path="Wiki/brain-overview-abc123.md",
+            frontmatter={"tags": ["server-tag"]},
+            target="## Alpha",
+            scope="body",
+        )
+        assert result == "**Appended:** Wiki/brain-overview-abc123.md"
+        fields, body = parse_frontmatter(path.read_text())
+        assert "server-tag" in fields["tags"]
+        assert body == "## Alpha\n\nBody.\n"
+
+    def test_targeted_frontmatter_only_prepend_omits_structural_summary(self, initialized):
+        from _common import parse_frontmatter
+
+        path = initialized / "Wiki" / "brain-overview-abc123.md"
+        path.write_text(
+            "---\ntype: living/wiki\ntags: [overview]\nstatus: active\n---\n\n"
+            "## Alpha\n\nBody.\n"
+        )
+        result = server.brain_edit(
+            operation="prepend",
+            path="Wiki/brain-overview-abc123.md",
+            frontmatter={"tags": ["server-tag"]},
+            target="## Alpha",
+            scope="body",
+        )
+        assert result == "**Prepended:** Wiki/brain-overview-abc123.md"
+        fields, body = parse_frontmatter(path.read_text())
+        assert "server-tag" in fields["tags"]
+        assert body == "## Alpha\n\nBody.\n"
 
     def test_append_frontmatter_extends_list(self, initialized):
         """append should extend list fields, not overwrite."""
@@ -1616,7 +1701,8 @@ class TestBrainEdit:
         server.brain_edit(
             operation="edit",
             path=path,
-            target=":entire_body",
+            target=":body",
+            scope="section",
             body="## Intro\n\nIntro content.\n\n## Notes\n\nNotes content.\n\n## Summary\n\nSummary content.\n"
         )
         result = server.brain_edit(
@@ -1648,8 +1734,7 @@ class TestBrainEdit:
         )
         _assert_error(result, "not found")
 
-    def test_targeted_edit_includes_context(self, initialized):
-        """Targeted operations should include surrounding headings in response."""
+    def test_targeted_edit_mentions_resolved_scope(self, initialized):
         path = initialized / "Wiki" / "brain-overview-abc123.md"
         path.write_text(
             "---\ntype: living/wiki\ntags: []\n---\n\n"
@@ -1660,12 +1745,14 @@ class TestBrainEdit:
             path="Wiki/brain-overview-abc123.md",
             body="Replaced.\n",
             target="Beta",
+            scope="body",
         )
-        assert "**Context:**" in result
-        assert "Alpha" in result
-        assert "Gamma" in result
+        assert result == (
+            "**Edited:** Wiki/brain-overview-abc123.md "
+            "(heading body: ## Beta)"
+        )
 
-    def test_entire_body_edit_returns_one_line_summary(self, initialized):
+    def test_body_section_edit_returns_resolved_summary(self, initialized):
         path = initialized / "Wiki" / "brain-overview-abc123.md"
         path.write_text(
             "---\ntype: living/wiki\ntags: []\n---\n\n"
@@ -1674,15 +1761,13 @@ class TestBrainEdit:
         result = server.brain_edit(
             operation="edit",
             path="Wiki/brain-overview-abc123.md",
-            target=":entire_body",
+            target=":body",
+            scope="section",
             body="Replacement.\n",
         )
-        assert result == (
-            "**Edited:** Wiki/brain-overview-abc123.md "
-            "(target: :entire_body; lines: 3->1)"
-        )
+        assert result == "**Edited:** Wiki/brain-overview-abc123.md (body section)"
 
-    def test_entire_body_target_skips_context(self, initialized):
+    def test_body_target_response_uses_scope_not_context(self, initialized):
         path = initialized / "Wiki" / "brain-overview-abc123.md"
         path.write_text(
             "---\ntype: living/wiki\ntags: []\n---\n\n"
@@ -1691,12 +1776,13 @@ class TestBrainEdit:
         result = server.brain_edit(
             operation="edit",
             path="Wiki/brain-overview-abc123.md",
-            target=":entire_body",
+            target=":body",
+            scope="section",
             body="Replacement.\n",
         )
-        assert "**Context:**" not in result
+        assert result == "**Edited:** Wiki/brain-overview-abc123.md (body section)"
 
-    def test_entire_body_append_and_prepend_work_explicitly(self, initialized):
+    def test_body_section_append_and_prepend_work_explicitly(self, initialized):
         path = initialized / "Wiki" / "brain-overview-abc123.md"
         path.write_text(
             "---\ntype: living/wiki\ntags: []\n---\n\nBody.\n"
@@ -1704,22 +1790,24 @@ class TestBrainEdit:
         prepend_result = server.brain_edit(
             operation="prepend",
             path="Wiki/brain-overview-abc123.md",
-            target=":entire_body",
+            target=":body",
+            scope="section",
             body="Before.\n\n",
         )
         append_result = server.brain_edit(
             operation="append",
             path="Wiki/brain-overview-abc123.md",
-            target=":entire_body",
+            target=":body",
+            scope="section",
             body="\nAfter.\n",
         )
-        assert "(target: :entire_body)" in prepend_result
-        assert "(target: :entire_body)" in append_result
+        assert prepend_result == "**Prepended:** Wiki/brain-overview-abc123.md (body section)"
+        assert append_result == "**Appended:** Wiki/brain-overview-abc123.md (body section)"
         content = path.read_text()
         assert "Before." in content
         assert "After." in content
 
-    def test_body_preamble_replaces_only_leading_body(self, initialized):
+    def test_body_intro_replaces_only_heading_defined_intro(self, initialized):
         path = initialized / "Wiki" / "brain-overview-abc123.md"
         path.write_text(
             "---\ntype: living/wiki\ntags: []\n---\n\n"
@@ -1732,18 +1820,19 @@ class TestBrainEdit:
         result = server.brain_edit(
             operation="edit",
             path="Wiki/brain-overview-abc123.md",
-            target=":body_preamble",
+            target=":body",
+            scope="intro",
             body="Updated intro.\n",
         )
-        assert "**Context:**" not in result
+        assert result == "**Edited:** Wiki/brain-overview-abc123.md (body intro)"
         content = path.read_text()
-        assert "Updated intro." in content
+        assert "Updated intro.\n## Alpha" in content
         assert "Intro text." not in content
-        assert "> [!note] Status" in content
+        assert "> [!note] Status" not in content
         assert "## Alpha" in content
         assert "Alpha content." in content
 
-    def test_body_preamble_inserts_before_heading_first_doc(self, initialized):
+    def test_body_intro_inserts_before_heading_first_doc(self, initialized):
         path = initialized / "Wiki" / "brain-overview-abc123.md"
         path.write_text(
             "---\ntype: living/wiki\ntags: []\n---\n\n"
@@ -1752,14 +1841,15 @@ class TestBrainEdit:
         result = server.brain_edit(
             operation="edit",
             path="Wiki/brain-overview-abc123.md",
-            target=":body_preamble",
+            target=":body",
+            scope="intro",
             body="Lead text.\n",
         )
-        assert "**Context:**" not in result
+        assert result == "**Edited:** Wiki/brain-overview-abc123.md (body intro)"
         content = path.read_text()
-        assert "Lead text.\n\n## Alpha" in content
+        assert "Lead text.\n## Alpha" in content
 
-    def test_body_preamble_inserts_before_callout_first_doc(self, initialized):
+    def test_body_intro_replaces_whole_body_without_headings(self, initialized):
         path = initialized / "Wiki" / "brain-overview-abc123.md"
         path.write_text(
             "---\ntype: living/wiki\ntags: []\n---\n\n"
@@ -1769,21 +1859,24 @@ class TestBrainEdit:
         result = server.brain_edit(
             operation="edit",
             path="Wiki/brain-overview-abc123.md",
-            target=":body_preamble",
+            target=":body",
+            scope="intro",
             body="Lead text.\n",
         )
-        assert "**Context:**" not in result
+        assert result == "**Edited:** Wiki/brain-overview-abc123.md (body intro)"
         content = path.read_text()
-        assert "Lead text.\n\n> [!note] Status" in content
+        from _common import parse_frontmatter
+        _fields, body = parse_frontmatter(content)
+        assert body == "Lead text.\n"
 
-    def test_legacy_body_target_rejected(self, initialized):
+    def test_body_target_requires_scope_for_mutations(self, initialized):
         edit_result = server.brain_edit(
             operation="edit",
             path="Wiki/brain-overview-abc123.md",
             target=":body",
             body="Replacement.\n",
         )
-        _assert_error(edit_result, "target=':body' is no longer valid")
+        _assert_error(edit_result, "requires scope")
 
         append_result = server.brain_edit(
             operation="append",
@@ -1791,7 +1884,7 @@ class TestBrainEdit:
             target=":body",
             body="Extra.\n",
         )
-        _assert_error(append_result, "target=':body' is no longer valid")
+        _assert_error(append_result, "requires scope")
 
         prepend_result = server.brain_edit(
             operation="prepend",
@@ -1799,14 +1892,14 @@ class TestBrainEdit:
             target=":body",
             body="Extra.\n",
         )
-        _assert_error(prepend_result, "target=':body' is no longer valid")
+        _assert_error(prepend_result, "requires scope")
 
         delete_result = server.brain_edit(
             operation="delete_section",
             path="Wiki/brain-overview-abc123.md",
             target=":body",
         )
-        _assert_error(delete_result, "target=':body' is no longer valid")
+        _assert_error(delete_result, "delete_section requires a heading or callout target")
 
     def test_legacy_body_before_first_heading_target_rejected(self, initialized):
         result = server.brain_edit(
@@ -1817,14 +1910,14 @@ class TestBrainEdit:
         )
         _assert_error(result, "target=':body_before_first_heading' is no longer valid")
 
-    def test_body_preamble_rejected_for_append_and_prepend(self, initialized):
+    def test_legacy_body_preamble_rejected_for_append_and_prepend(self, initialized):
         append_result = server.brain_edit(
             operation="append",
             path="Wiki/brain-overview-abc123.md",
             target=":body_preamble",
             body="Extra.\n",
         )
-        _assert_error(append_result, "only supported for operation='edit'")
+        _assert_error(append_result, "Use target=':body' with scope='intro'")
 
         prepend_result = server.brain_edit(
             operation="prepend",
@@ -1832,9 +1925,9 @@ class TestBrainEdit:
             target=":body_preamble",
             body="Extra.\n",
         )
-        _assert_error(prepend_result, "only supported for operation='edit'")
+        _assert_error(prepend_result, "Use target=':body' with scope='intro'")
 
-    def test_targeted_edit_strips_redundant_heading_wrapper(self, initialized):
+    def test_targeted_edit_heading_body_rejects_heading_wrapper(self, initialized):
         path = initialized / "Wiki" / "brain-overview-abc123.md"
         path.write_text(
             "---\ntype: living/wiki\ntags: []\n---\n\n"
@@ -1844,12 +1937,10 @@ class TestBrainEdit:
             operation="edit",
             path="Wiki/brain-overview-abc123.md",
             target="## Alpha",
+            scope="body",
             body="## Alpha\n\nUpdated alpha.\n",
         )
-        assert "Error" not in str(result)
-        content = path.read_text()
-        assert content.count("## Alpha") == 1
-        assert "Updated alpha." in content
+        _assert_error(result, "Use scope='section'")
 
     def test_targeted_edit_rejects_structural_change_without_section_mode(self, initialized):
         path = initialized / "Wiki" / "brain-overview-abc123.md"
@@ -1861,9 +1952,10 @@ class TestBrainEdit:
             operation="edit",
             path="Wiki/brain-overview-abc123.md",
             target="## Alpha",
+            scope="body",
             body="# Alpha\n\nPromoted.\n",
         )
-        _assert_error(result, ":section:## Alpha")
+        _assert_error(result, "Use scope='section'")
 
     def test_targeted_edit_allows_nested_heading_content(self, initialized):
         path = initialized / "Wiki" / "brain-overview-abc123.md"
@@ -1875,6 +1967,7 @@ class TestBrainEdit:
             operation="edit",
             path="Wiki/brain-overview-abc123.md",
             target="## Alpha",
+            scope="body",
             body="### Overview\n\nPromoted content.\n",
         )
         assert "Error" not in str(result)
@@ -1892,6 +1985,7 @@ class TestBrainEdit:
             operation="edit",
             path="Wiki/brain-overview-abc123.md",
             target="## Alpha",
+            scope="body",
             body="> [!note] Fresh note\n> Promoted content.\n",
         )
         assert "Error" not in str(result)
@@ -1908,14 +2002,85 @@ class TestBrainEdit:
         result = server.brain_edit(
             operation="edit",
             path="Wiki/brain-overview-abc123.md",
-            target=":section:## Alpha",
+            target="## Alpha",
+            scope="section",
             body="# Renamed Alpha\n\nUpdated alpha.\n",
         )
-        assert "Error" not in str(result)
+        assert result == (
+            "**Edited:** Wiki/brain-overview-abc123.md "
+            "(heading section: ## Alpha)"
+        )
         content = path.read_text()
         assert "## Alpha" not in content
         assert "# Renamed Alpha" in content
         assert "## Beta" in content
+
+    def test_callout_header_response_mentions_resolved_scope(self, initialized):
+        path = initialized / "Wiki" / "brain-overview-abc123.md"
+        path.write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "## Status\n\n"
+            "> [!note] Implementation status\n"
+            "> Old status content.\n"
+        )
+        result = server.brain_edit(
+            operation="edit",
+            path="Wiki/brain-overview-abc123.md",
+            target="[!note] Implementation status",
+            scope="header",
+            body="> [!warning] Updated status\n",
+        )
+        assert result == (
+            "**Edited:** Wiki/brain-overview-abc123.md "
+            "(callout header: [!note] Implementation status)"
+        )
+        content = path.read_text()
+        assert "[!warning] Updated status" in content
+
+    def test_selector_disambiguates_duplicate_targets(self, initialized):
+        path = initialized / "Wiki" / "brain-overview-abc123.md"
+        path.write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "# API\n\n"
+            "## Notes\n\nFirst notes.\n\n"
+            "# API\n\n"
+            "## Notes\n\nSecond notes.\n"
+        )
+        result = server.brain_edit(
+            operation="edit",
+            path="Wiki/brain-overview-abc123.md",
+            target="## Notes",
+            selector={"within": [{"target": "# API", "occurrence": 2}]},
+            scope="body",
+            body="Selected notes.\n",
+        )
+        assert result == (
+            "**Edited:** Wiki/brain-overview-abc123.md "
+            "(heading body: # API [2] > ## Notes)"
+        )
+        content = path.read_text()
+        assert "First notes." in content
+        assert "Selected notes." in content
+        assert "Second notes." not in content
+
+    def test_ambiguous_target_reports_candidates(self, initialized):
+        path = initialized / "Wiki" / "brain-overview-abc123.md"
+        path.write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "# API\n\n"
+            "## Notes\n\nFirst notes.\n\n"
+            "# API\n\n"
+            "## Notes\n\nSecond notes.\n"
+        )
+        result = server.brain_edit(
+            operation="edit",
+            path="Wiki/brain-overview-abc123.md",
+            target="## Notes",
+            scope="body",
+            body="Selected notes.\n",
+        )
+        _assert_error(result, "Ambiguous target '## Notes'")
+        _assert_error(result, "Candidates:")
 
     def test_edit_skill_resource(self, initialized):
         # Create a skill first
@@ -1927,6 +2092,8 @@ class TestBrainEdit:
         result = server.brain_edit(
             resource="skill", operation="edit", name="test-skill",
             body="# Updated Skill\n\nNew content.\n",
+            target=":body",
+            scope="section",
         )
         assert "**Edited:**" in result
         assert "_Config/Skills/test-skill/SKILL.md" in result
@@ -1942,6 +2109,8 @@ class TestBrainEdit:
         result = server.brain_edit(
             resource="memory", operation="append", name="test-memory",
             body="\nAppended.\n",
+            target=":body",
+            scope="section",
         )
         assert "**Appended:**" in result
 

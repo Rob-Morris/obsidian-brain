@@ -234,6 +234,7 @@ class TestNonConformingNameOperations:
         result = edit.edit_artefact(
             str(vault), router, "_Temporal/Logs/2026-03/legacy-log.md",
             "# New Log\n\nReplaced.\n",
+            target=":body", scope="section",
         )
         assert result["operation"] == "edit"
         # Edit re-renders the filename from the current frontmatter state.
@@ -251,6 +252,7 @@ class TestNonConformingNameOperations:
         result = edit.append_to_artefact(
             str(vault), router, "_Temporal/Logs/2026-03/legacy-log.md",
             "\nAppended.\n",
+            target=":body", scope="section",
         )
         assert result["operation"] == "append"
         renamed = month / "log-legacy-log.md"
@@ -266,13 +268,19 @@ class TestNonConformingNameOperations:
 
 class TestEditArtefact:
     def test_edit_replaces_body(self, vault, router):
-        edit.edit_artefact(str(vault), router, "Wiki/test-page.md", "# New Body\n\nReplaced.\n")
+        edit.edit_artefact(
+            str(vault), router, "Wiki/test-page.md", "# New Body\n\nReplaced.\n",
+            target=":body", scope="section",
+        )
         content = (vault / "Wiki" / "test-page.md").read_text()
         assert "Replaced." in content
         assert "Original body." not in content
 
     def test_edit_preserves_frontmatter(self, vault, router):
-        edit.edit_artefact(str(vault), router, "Wiki/test-page.md", "# New\n")
+        edit.edit_artefact(
+            str(vault), router, "Wiki/test-page.md", "# New\n",
+            target=":body", scope="section",
+        )
         content = (vault / "Wiki" / "test-page.md").read_text()
         fields, _ = parse_frontmatter(content)
         assert fields["type"] == "living/wiki"
@@ -282,7 +290,8 @@ class TestEditArtefact:
     def test_edit_merges_frontmatter_changes(self, vault, router):
         edit.edit_artefact(
             str(vault), router, "Wiki/test-page.md", "# New\n",
-            frontmatter_changes={"status": "archived"}
+            frontmatter_changes={"status": "archived"},
+            target=":body", scope="section",
         )
         content = (vault / "Wiki" / "test-page.md").read_text()
         fields, _ = parse_frontmatter(content)
@@ -315,30 +324,28 @@ class TestEditArtefact:
         assert fields["status"] == "archived"
         assert body == original_body  # body preserved, not wiped
 
-    def test_edit_target_entire_body_clears_content(self, vault, router):
-        """target=':entire_body' with empty string should clear the body."""
+    def test_edit_target_body_section_clears_content(self, vault, router):
         edit.edit_artefact(
             str(vault), router, "Wiki/test-page.md", "",
             frontmatter_changes={"status": "archived"},
-            target=":entire_body",
+            target=":body", scope="section",
         )
         content = (vault / "Wiki" / "test-page.md").read_text()
         fields, body = parse_frontmatter(content)
         assert fields["status"] == "archived"
         assert body.strip() == ""  # body intentionally cleared
 
-    def test_edit_target_entire_body_replaces_content(self, vault, router):
-        """target=':entire_body' with content should replace the entire body."""
+    def test_edit_target_body_section_replaces_content(self, vault, router):
         edit.edit_artefact(
             str(vault), router, "Wiki/test-page.md", "# New Content\n\nReplaced.",
-            target=":entire_body",
+            target=":body", scope="section",
         )
         content = (vault / "Wiki" / "test-page.md").read_text()
         _, body = parse_frontmatter(content)
         assert "New Content" in body
         assert "Original body." not in body
 
-    def test_edit_target_body_preamble_replaces_only_leading_body(self, vault, router):
+    def test_edit_target_body_intro_replaces_only_leading_body(self, vault, router):
         (vault / "Wiki" / "test-page.md").write_text(
             "---\ntype: living/wiki\ntags: []\n---\n\n"
             "Intro text.\n\n"
@@ -349,30 +356,30 @@ class TestEditArtefact:
         )
         edit.edit_artefact(
             str(vault), router, "Wiki/test-page.md", "Updated intro.\n",
-            target=":body_preamble",
+            target=":body", scope="intro",
         )
         content = (vault / "Wiki" / "test-page.md").read_text()
         _, body = parse_frontmatter(content)
-        assert body.startswith("Updated intro.\n\n> [!note] Status")
+        assert body.startswith("Updated intro.\n## Notes")
         assert "Intro text." not in body
-        assert "Status content." in body
+        assert "Status content." not in body
         assert "Notes content." in body
 
-    def test_edit_target_body_preamble_inserts_before_heading_first_doc(self, vault, router):
+    def test_edit_target_body_intro_inserts_before_heading_first_doc(self, vault, router):
         (vault / "Wiki" / "test-page.md").write_text(
             "---\ntype: living/wiki\ntags: []\n---\n\n"
             "## Notes\n\nNotes content.\n"
         )
         edit.edit_artefact(
             str(vault), router, "Wiki/test-page.md", "Lead text.\n",
-            target=":body_preamble",
+            target=":body", scope="intro",
         )
         content = (vault / "Wiki" / "test-page.md").read_text()
         _, body = parse_frontmatter(content)
-        assert body.startswith("Lead text.\n\n## Notes")
+        assert body.startswith("Lead text.\n## Notes")
         assert body.count("## Notes") == 1
 
-    def test_edit_target_body_preamble_inserts_before_callout_first_doc(self, vault, router):
+    def test_edit_target_body_intro_inserts_before_callout_first_doc(self, vault, router):
         (vault / "Wiki" / "test-page.md").write_text(
             "---\ntype: living/wiki\ntags: []\n---\n\n"
             "> [!note] Status\n"
@@ -380,20 +387,19 @@ class TestEditArtefact:
         )
         edit.edit_artefact(
             str(vault), router, "Wiki/test-page.md", "Lead text.\n",
-            target=":body_preamble",
+            target=":body", scope="intro",
         )
         content = (vault / "Wiki" / "test-page.md").read_text()
         _, body = parse_frontmatter(content)
-        assert body.startswith("Lead text.\n\n> [!note] Status")
-        assert "Status content." in body
+        assert body == "Lead text.\n"
 
-    def test_edit_target_body_preamble_replaces_whole_body_without_targetable_sections(self, vault, router):
+    def test_edit_target_body_intro_replaces_whole_body_without_headings(self, vault, router):
         (vault / "Wiki" / "test-page.md").write_text(
             "---\ntype: living/wiki\ntags: []\n---\n\nOnly body.\n"
         )
         edit.edit_artefact(
             str(vault), router, "Wiki/test-page.md", "Replacement body.\n",
-            target=":body_preamble",
+            target=":body", scope="intro",
         )
         content = (vault / "Wiki" / "test-page.md").read_text()
         _, body = parse_frontmatter(content)
@@ -406,8 +412,8 @@ class TestEditArtefact:
                 target=":body_before_first_heading",
             )
 
-    def test_edit_target_body_rejected(self, vault, router):
-        with pytest.raises(ValueError, match="target=':body' is no longer valid"):
+    def test_edit_target_body_requires_scope(self, vault, router):
+        with pytest.raises(ValueError, match="requires scope"):
             edit.edit_artefact(
                 str(vault), router, "Wiki/test-page.md", "Replacement.\n",
                 target=":body",
@@ -415,17 +421,26 @@ class TestEditArtefact:
 
     def test_edit_file_not_found(self, vault, router):
         with pytest.raises(FileNotFoundError):
-            edit.edit_artefact(str(vault), router, "Wiki/nonexistent.md", "body")
+            edit.edit_artefact(
+                str(vault), router, "Wiki/nonexistent.md", "body",
+                target=":body", scope="section",
+            )
 
     def test_edit_basename_fallback(self, vault, router):
-        edit.edit_artefact(str(vault), router, "test-page", "# Resolved Body\n")
+        edit.edit_artefact(
+            str(vault), router, "test-page", "# Resolved Body\n",
+            target=":body", scope="section",
+        )
         content = (vault / "Wiki" / "test-page.md").read_text()
         assert "Resolved Body" in content
         assert "Original body." not in content
 
     def test_edit_full_path_without_md_extension(self, vault, router):
         """Agents should not need to pass the .md extension on full paths."""
-        edit.edit_artefact(str(vault), router, "Wiki/test-page", "# No Extension\n")
+        edit.edit_artefact(
+            str(vault), router, "Wiki/test-page", "# No Extension\n",
+            target=":body", scope="section",
+        )
         content = (vault / "Wiki" / "test-page.md").read_text()
         assert "No Extension" in content
 
@@ -435,16 +450,19 @@ class TestEditArtefact:
 # ---------------------------------------------------------------------------
 
 class TestAppendToArtefact:
-    def test_append_adds_content(self, vault, router):
-        edit.append_to_artefact(str(vault), router, "Wiki/test-page.md", "\n\nAppended text.\n")
+    def test_append_adds_content_to_explicit_body_section(self, vault, router):
+        edit.append_to_artefact(
+            str(vault), router, "Wiki/test-page.md", "\n\nAppended text.\n",
+            target=":body", scope="section",
+        )
         content = (vault / "Wiki" / "test-page.md").read_text()
         assert "Original body." in content
         assert "Appended text." in content
 
-    def test_append_target_entire_body_appends_to_whole_body(self, vault, router):
+    def test_append_target_body_section_appends_to_whole_body(self, vault, router):
         edit.append_to_artefact(
             str(vault), router, "Wiki/test-page.md", "\n\nAppended text.\n",
-            target=":entire_body",
+            target=":body", scope="section",
         )
         content = (vault / "Wiki" / "test-page.md").read_text()
         assert "Original body." in content
@@ -452,31 +470,46 @@ class TestAppendToArtefact:
 
     def test_append_file_not_found(self, vault, router):
         with pytest.raises(FileNotFoundError):
-            edit.append_to_artefact(str(vault), router, "Wiki/nonexistent.md", "text")
+            edit.append_to_artefact(
+                str(vault), router, "Wiki/nonexistent.md", "text",
+                target=":body", scope="section",
+            )
 
-    def test_append_target_body_rejected(self, vault, router):
-        with pytest.raises(ValueError, match="target=':body' is no longer valid"):
+    def test_append_target_body_requires_scope(self, vault, router):
+        with pytest.raises(ValueError, match="requires scope"):
             edit.append_to_artefact(
                 str(vault), router, "Wiki/test-page.md", "Extra.\n",
                 target=":body",
             )
 
-    def test_append_body_preamble_rejected(self, vault, router):
-        with pytest.raises(ValueError, match="only supported for operation='edit'"):
-            edit.append_to_artefact(
-                str(vault), router, "Wiki/test-page.md", "Extra.\n",
-                target=":body_preamble",
-            )
+    def test_append_body_intro_is_valid(self, vault, router):
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "Lead.\n\n## Notes\n\nBody.\n"
+        )
+        edit.append_to_artefact(
+            str(vault), router, "Wiki/test-page.md", "More lead.\n",
+            target=":body", scope="intro",
+        )
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        _, body = parse_frontmatter(content)
+        assert "Lead.\n\nMore lead.\n## Notes" in body
 
     def test_append_basename_fallback(self, vault, router):
-        edit.append_to_artefact(str(vault), router, "test-page", "\n\nAppended via basename.\n")
+        edit.append_to_artefact(
+            str(vault), router, "test-page", "\n\nAppended via basename.\n",
+            target=":body", scope="section",
+        )
         content = (vault / "Wiki" / "test-page.md").read_text()
         assert "Original body." in content
         assert "Appended via basename." in content
 
     def test_append_full_path_without_md_extension(self, vault, router):
         """Agents should not need to pass the .md extension on full paths."""
-        edit.append_to_artefact(str(vault), router, "Wiki/test-page", "\n\nNo ext append.\n")
+        edit.append_to_artefact(
+            str(vault), router, "Wiki/test-page", "\n\nNo ext append.\n",
+            target=":body", scope="section",
+        )
         content = (vault / "Wiki" / "test-page.md").read_text()
         assert "No ext append." in content
 
@@ -971,7 +1004,7 @@ class TestAppendWithSection:
         )
         edit.append_to_artefact(
             str(vault), router, "Wiki/test-page.md",
-            "Appended to alpha.\n", target="Alpha",
+            "Appended to alpha.\n", target="Alpha", scope="section",
         )
         content = (vault / "Wiki" / "test-page.md").read_text()
         _, body = parse_frontmatter(content)
@@ -987,7 +1020,7 @@ class TestAppendWithSection:
         )
         edit.append_to_artefact(
             str(vault), router, "Wiki/test-page.md",
-            "More stuff.\n", target="Only",
+            "More stuff.\n", target="Only", scope="section",
         )
         content = (vault / "Wiki" / "test-page.md").read_text()
         _, body = parse_frontmatter(content)
@@ -997,15 +1030,22 @@ class TestAppendWithSection:
         with pytest.raises(ValueError, match="not found"):
             edit.append_to_artefact(
                 str(vault), router, "Wiki/test-page.md",
-                "text", target="Nonexistent",
+                "text", target="Nonexistent", scope="section",
             )
 
-    def test_append_without_section_unchanged(self, vault, router):
+    def test_append_without_target_is_rejected(self, vault, router):
+        with pytest.raises(ValueError, match="explicit target and scope"):
+            edit.append_to_artefact(
+                str(vault), router, "Wiki/test-page.md", "\nAppended.\n",
+            )
+
+    def test_append_to_body_intro(self, vault, router):
         edit.append_to_artefact(
-            str(vault), router, "Wiki/test-page.md", "\nAppended.\n",
+            str(vault), router, "Wiki/test-page.md", "Appended.\n",
+            target=":body", scope="section",
         )
         content = (vault / "Wiki" / "test-page.md").read_text()
-        assert content.endswith("\nAppended.\n")
+        assert content.endswith("Appended.\n")
 
     def test_append_to_sub_heading(self, vault, router):
         (vault / "Wiki" / "test-page.md").write_text(
@@ -1015,7 +1055,7 @@ class TestAppendWithSection:
         )
         edit.append_to_artefact(
             str(vault), router, "Wiki/test-page.md",
-            "- Item 2\n", target="### Child",
+            "- Item 2\n", target="### Child", scope="section",
         )
         content = (vault / "Wiki" / "test-page.md").read_text()
         _, body = parse_frontmatter(content)
@@ -1036,7 +1076,7 @@ class TestAppendWithSection:
         )
         edit.append_to_artefact(
             str(vault), router, "Wiki/test-page.md",
-            "> Appended line.\n", target="[!note] Status",
+            "> Appended line.\n", target="[!note] Status", scope="body",
         )
         content = (vault / "Wiki" / "test-page.md").read_text()
         _, body = parse_frontmatter(content)
@@ -1051,19 +1091,20 @@ class TestAppendWithSection:
 # ---------------------------------------------------------------------------
 
 class TestPrependToArtefact:
-    def test_prepend_adds_content_before_body(self, vault, router):
+    def test_prepend_adds_content_before_explicit_body(self, vault, router):
         edit.prepend_to_artefact(
             str(vault), router, "Wiki/test-page.md", "Prepended text.\n",
+            target=":body", scope="section",
         )
         content = (vault / "Wiki" / "test-page.md").read_text()
         _, body = parse_frontmatter(content)
         assert body.startswith("Prepended text.\n")
         assert "Original body." in body
 
-    def test_prepend_target_entire_body_prepends_to_whole_body(self, vault, router):
+    def test_prepend_target_body_section_prepends_to_whole_body(self, vault, router):
         edit.prepend_to_artefact(
             str(vault), router, "Wiki/test-page.md", "Prepended text.\n",
-            target=":entire_body",
+            target=":body", scope="section",
         )
         content = (vault / "Wiki" / "test-page.md").read_text()
         _, body = parse_frontmatter(content)
@@ -1077,7 +1118,7 @@ class TestPrependToArtefact:
         )
         edit.prepend_to_artefact(
             str(vault), router, "Wiki/test-page.md",
-            "## New Section\n\nInserted.\n", target="Beta",
+            "## New Section\n\nInserted.\n", target="Beta", scope="section",
         )
         content = (vault / "Wiki" / "test-page.md").read_text()
         _, body = parse_frontmatter(content)
@@ -1096,7 +1137,7 @@ class TestPrependToArtefact:
         )
         edit.prepend_to_artefact(
             str(vault), router, "Wiki/test-page.md",
-            "## Zeroth\n\nBefore everything.\n", target="First",
+            "## Zeroth\n\nBefore everything.\n", target="First", scope="section",
         )
         content = (vault / "Wiki" / "test-page.md").read_text()
         _, body = parse_frontmatter(content)
@@ -1110,7 +1151,7 @@ class TestPrependToArtefact:
         )
         edit.prepend_to_artefact(
             str(vault), router, "Wiki/test-page.md",
-            "## Inserted\n\nBefore last.\n", target="Last",
+            "## Inserted\n\nBefore last.\n", target="Last", scope="section",
         )
         content = (vault / "Wiki" / "test-page.md").read_text()
         _, body = parse_frontmatter(content)
@@ -1119,31 +1160,43 @@ class TestPrependToArtefact:
 
     def test_prepend_file_not_found(self, vault, router):
         with pytest.raises(FileNotFoundError):
-            edit.prepend_to_artefact(str(vault), router, "Wiki/nonexistent.md", "text")
+            edit.prepend_to_artefact(
+                str(vault), router, "Wiki/nonexistent.md", "text",
+                target=":body", scope="section",
+            )
 
-    def test_prepend_target_body_rejected(self, vault, router):
-        with pytest.raises(ValueError, match="target=':body' is no longer valid"):
+    def test_prepend_target_body_requires_scope(self, vault, router):
+        with pytest.raises(ValueError, match="requires scope"):
             edit.prepend_to_artefact(
                 str(vault), router, "Wiki/test-page.md", "Extra.\n",
                 target=":body",
             )
 
-    def test_prepend_body_preamble_rejected(self, vault, router):
-        with pytest.raises(ValueError, match="only supported for operation='edit'"):
-            edit.prepend_to_artefact(
-                str(vault), router, "Wiki/test-page.md", "Extra.\n",
-                target=":body_preamble",
-            )
+    def test_prepend_body_intro_is_valid(self, vault, router):
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "Lead.\n\n## Notes\n\nBody.\n"
+        )
+        edit.prepend_to_artefact(
+            str(vault), router, "Wiki/test-page.md", "Before lead.\n",
+            target=":body", scope="intro",
+        )
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        _, body = parse_frontmatter(content)
+        assert body.startswith("Before lead.\nLead.\n")
 
     def test_prepend_section_not_found(self, vault, router):
         with pytest.raises(ValueError, match="not found"):
             edit.prepend_to_artefact(
                 str(vault), router, "Wiki/test-page.md",
-                "text", target="Nonexistent",
+                "text", target="Nonexistent", scope="section",
             )
 
     def test_prepend_basename_fallback(self, vault, router):
-        edit.prepend_to_artefact(str(vault), router, "test-page", "Prepended.\n")
+        edit.prepend_to_artefact(
+            str(vault), router, "test-page", "Prepended.\n",
+            target=":body", scope="section",
+        )
         content = (vault / "Wiki" / "test-page.md").read_text()
         assert "Prepended." in content
 
@@ -1154,7 +1207,7 @@ class TestPrependToArtefact:
         )
         edit.prepend_to_artefact(
             str(vault), router, "Wiki/test-page.md",
-            "## Inserted\n\nNew.\n", target="Beta",
+            "## Inserted\n\nNew.\n", target="Beta", scope="section",
         )
         content = (vault / "Wiki" / "test-page.md").read_text()
         _, body = parse_frontmatter(content)
@@ -1174,7 +1227,7 @@ class TestEditWithSection:
         )
         edit.edit_artefact(
             str(vault), router, "Wiki/test-page.md",
-            "\nReplaced alpha.\n\n", target="Alpha",
+            "\nReplaced alpha.\n\n", target="Alpha", scope="body",
         )
         content = (vault / "Wiki" / "test-page.md").read_text()
         _, body = parse_frontmatter(content)
@@ -1189,7 +1242,7 @@ class TestEditWithSection:
         )
         edit.edit_artefact(
             str(vault), router, "Wiki/test-page.md",
-            "\nNew last.\n", target="Last",
+            "\nNew last.\n", target="Last", scope="body",
         )
         content = (vault / "Wiki" / "test-page.md").read_text()
         _, body = parse_frontmatter(content)
@@ -1201,7 +1254,7 @@ class TestEditWithSection:
         with pytest.raises(ValueError, match="not found"):
             edit.edit_artefact(
                 str(vault), router, "Wiki/test-page.md",
-                "text", target="Nonexistent",
+                "text", target="Nonexistent", scope="body",
             )
 
     def test_edit_section_preserves_following_heading(self, vault, router):
@@ -1213,7 +1266,7 @@ class TestEditWithSection:
         # Body with NO trailing newline — the bug concatenated it with ## Beta
         edit.edit_artefact(
             str(vault), router, "Wiki/test-page.md",
-            "New alpha content.", target="Alpha",
+            "New alpha content.", target="Alpha", scope="body",
         )
         content = (vault / "Wiki" / "test-page.md").read_text()
         _, body = parse_frontmatter(content)
@@ -1226,6 +1279,7 @@ class TestEditWithSection:
     def test_edit_without_section_replaces_all(self, vault, router):
         edit.edit_artefact(
             str(vault), router, "Wiki/test-page.md", "# Whole new body.\n",
+            target=":body", scope="section",
         )
         content = (vault / "Wiki" / "test-page.md").read_text()
         _, body = parse_frontmatter(content)
@@ -1239,7 +1293,7 @@ class TestEditWithSection:
         )
         edit.edit_artefact(
             str(vault), router, "Wiki/test-page.md",
-            "\nNew child content.\n\n", target="### Child",
+            "\nNew child content.\n\n", target="### Child", scope="body",
         )
         content = (vault / "Wiki" / "test-page.md").read_text()
         _, body = parse_frontmatter(content)
@@ -1255,7 +1309,9 @@ class TestEditWithSection:
             "---\ntype: living/wiki\ntags: []\n---\n\n"
             "## Alpha\n\nAlpha content.\n\n## Beta\n\nBeta content.\n"
         )
-        edit.edit_artefact(str(vault), router, "Wiki/test-page.md", "", target="Alpha")
+        edit.edit_artefact(
+            str(vault), router, "Wiki/test-page.md", "", target="Alpha", scope="body",
+        )
         content = (vault / "Wiki" / "test-page.md").read_text()
         _, body = parse_frontmatter(content)
         assert "## Alpha" in body              # heading preserved
@@ -1272,7 +1328,9 @@ class TestEditWithSection:
             "---\ntype: living/wiki\ntags: []\n---\n\n"
             "## Alpha\n\nAlpha content.\n\n## Beta\n\nBeta content.\n"
         )
-        edit.edit_artefact(str(vault), router, "Wiki/test-page.md", "", target="Beta")
+        edit.edit_artefact(
+            str(vault), router, "Wiki/test-page.md", "", target="Beta", scope="body",
+        )
         content = (vault / "Wiki" / "test-page.md").read_text()
         _, body = parse_frontmatter(content)
         assert "## Beta" in body
@@ -1291,7 +1349,8 @@ class TestEditWithSection:
         )
         edit.edit_artefact(
             str(vault), router, "Wiki/test-page.md",
-            "> New status content.\n", target="[!note] Implementation status",
+            "> New status content.\n",
+            target="[!note] Implementation status", scope="body",
         )
         content = (vault / "Wiki" / "test-page.md").read_text()
         _, body = parse_frontmatter(content)
@@ -1300,14 +1359,14 @@ class TestEditWithSection:
         assert "After callout." in body
         assert "> [!note] Implementation status" in body
 
-    def test_edit_section_strips_exact_heading_wrapper(self, vault, router):
+    def test_edit_heading_body_scope_replaces_content_without_heading(self, vault, router):
         (vault / "Wiki" / "test-page.md").write_text(
             "---\ntype: living/wiki\ntags: []\n---\n\n"
             "## Alpha\n\nAlpha content.\n\n## Beta\n\nBeta content.\n"
         )
         edit.edit_artefact(
             str(vault), router, "Wiki/test-page.md",
-            "## Alpha\n\nUpdated alpha.\n", target="## Alpha",
+            "Updated alpha.\n", target="## Alpha", scope="body",
         )
         content = (vault / "Wiki" / "test-page.md").read_text()
         _, body = parse_frontmatter(content)
@@ -1315,25 +1374,25 @@ class TestEditWithSection:
         assert "Updated alpha." in body
         assert "Alpha content." not in body
 
-    def test_edit_section_rejects_different_heading_wrapper(self, vault, router):
+    def test_edit_heading_body_scope_rejects_heading_line_replacement(self, vault, router):
         (vault / "Wiki" / "test-page.md").write_text(
             "---\ntype: living/wiki\ntags: []\n---\n\n"
             "## Alpha\n\nAlpha content.\n\n## Beta\n\nBeta content.\n"
         )
-        with pytest.raises(ValueError, match=":section:## Alpha"):
+        with pytest.raises(ValueError, match="Use scope='section'"):
             edit.edit_artefact(
                 str(vault), router, "Wiki/test-page.md",
-                "# Alpha\n\nUpdated alpha.\n", target="## Alpha",
+                "# Alpha\n\nUpdated alpha.\n", target="## Alpha", scope="body",
             )
 
-    def test_edit_section_allows_nested_heading_content(self, vault, router):
+    def test_edit_heading_body_scope_allows_nested_heading_content(self, vault, router):
         (vault / "Wiki" / "test-page.md").write_text(
             "---\ntype: living/wiki\ntags: []\n---\n\n"
             "## Alpha\n\nAlpha content.\n\n## Beta\n\nBeta content.\n"
         )
         edit.edit_artefact(
             str(vault), router, "Wiki/test-page.md",
-            "### Overview\n\nUpdated alpha.\n", target="## Alpha",
+            "### Overview\n\nUpdated alpha.\n", target="## Alpha", scope="body",
         )
         content = (vault / "Wiki" / "test-page.md").read_text()
         _, body = parse_frontmatter(content)
@@ -1341,18 +1400,18 @@ class TestEditWithSection:
         assert "### Overview" in body
         assert "Updated alpha." in body
 
-    def test_edit_section_rejects_same_or_higher_level_heading_content(self, vault, router):
+    def test_edit_heading_body_scope_rejects_same_or_higher_level_heading_content(self, vault, router):
         (vault / "Wiki" / "test-page.md").write_text(
             "---\ntype: living/wiki\ntags: []\n---\n\n"
             "## Alpha\n\nAlpha content.\n\n## Beta\n\nBeta content.\n"
         )
-        with pytest.raises(ValueError, match=":section:## Alpha"):
+        with pytest.raises(ValueError, match="Use scope='section'"):
             edit.edit_artefact(
                 str(vault), router, "Wiki/test-page.md",
-                "# Overview\n\nUpdated alpha.\n", target="## Alpha",
+                "# Overview\n\nUpdated alpha.\n", target="## Alpha", scope="body",
             )
 
-    def test_edit_callout_strips_exact_wrapper(self, vault, router):
+    def test_edit_callout_header_scope_replaces_only_header(self, vault, router):
         (vault / "Wiki" / "test-page.md").write_text(
             "---\ntype: living/wiki\ntags: []\n---\n\n"
             "## Section\n\n"
@@ -1363,16 +1422,16 @@ class TestEditWithSection:
         )
         edit.edit_artefact(
             str(vault), router, "Wiki/test-page.md",
-            "> [!note] Implementation status\n>\n> Updated status.\n",
-            target="[!note] Implementation status",
+            "> [!warning] Updated status\n",
+            target="[!note] Implementation status", scope="header",
         )
         content = (vault / "Wiki" / "test-page.md").read_text()
         _, body = parse_frontmatter(content)
-        assert body.count("[!note] Implementation status") == 1
-        assert "Updated status." in body
-        assert "Old status content." not in body
+        assert "[!note] Implementation status" not in body
+        assert "[!warning] Updated status" in body
+        assert "Old status content." in body
 
-    def test_edit_section_allows_callout_content(self, vault, router):
+    def test_edit_heading_body_scope_allows_callout_content(self, vault, router):
         (vault / "Wiki" / "test-page.md").write_text(
             "---\ntype: living/wiki\ntags: []\n---\n\n"
             "## Alpha\n\nAlpha content.\n"
@@ -1380,7 +1439,7 @@ class TestEditWithSection:
         edit.edit_artefact(
             str(vault), router, "Wiki/test-page.md",
             "> [!note] Fresh note\n> Updated alpha.\n",
-            target="## Alpha",
+            target="## Alpha", scope="body",
         )
         content = (vault / "Wiki" / "test-page.md").read_text()
         _, body = parse_frontmatter(content)
@@ -1388,14 +1447,14 @@ class TestEditWithSection:
         assert "[!note] Fresh note" in body
         assert "Updated alpha." in body
 
-    def test_edit_section_mode_replaces_heading(self, vault, router):
+    def test_edit_section_scope_replaces_heading(self, vault, router):
         (vault / "Wiki" / "test-page.md").write_text(
             "---\ntype: living/wiki\ntags: []\n---\n\n"
             "## Alpha\n\nAlpha content.\n\n## Beta\n\nBeta content.\n"
         )
         edit.edit_artefact(
             str(vault), router, "Wiki/test-page.md",
-            "# Renamed Alpha\n\nUpdated alpha.\n", target=":section:## Alpha",
+            "# Renamed Alpha\n\nUpdated alpha.\n", target="## Alpha", scope="section",
         )
         content = (vault / "Wiki" / "test-page.md").read_text()
         _, body = parse_frontmatter(content)
@@ -1404,30 +1463,354 @@ class TestEditWithSection:
         assert "Updated alpha." in body
         assert "## Beta" in body
 
-    def test_edit_section_mode_requires_structural_anchor(self, vault, router):
+    def test_edit_section_scope_requires_structural_anchor(self, vault, router):
         (vault / "Wiki" / "test-page.md").write_text(
             "---\ntype: living/wiki\ntags: []\n---\n\n"
             "## Alpha\n\nAlpha content.\n"
         )
-        with pytest.raises(ValueError, match="must begin with a heading or callout title line"):
+        with pytest.raises(ValueError, match="must begin with a heading line"):
             edit.edit_artefact(
                 str(vault), router, "Wiki/test-page.md",
-                "Updated alpha.\n", target=":section:## Alpha",
+                "Updated alpha.\n", target="## Alpha", scope="section",
             )
 
-    def test_append_section_prefix_is_redundant_alias(self, vault, router):
+    def test_edit_heading_intro_scope_replaces_only_intro(self, vault, router):
         (vault / "Wiki" / "test-page.md").write_text(
             "---\ntype: living/wiki\ntags: []\n---\n\n"
-            "## Alpha\n\nAlpha content.\n"
+            "## Alpha\n\nIntro.\n\n### Child\n\nChild content.\n\n## Beta\n\nBeta content.\n"
         )
-        edit.append_to_artefact(
+        edit.edit_artefact(
             str(vault), router, "Wiki/test-page.md",
-            "Appended.\n", target=":section:## Alpha",
+            "Updated intro.\n", target="## Alpha", scope="intro",
         )
         content = (vault / "Wiki" / "test-page.md").read_text()
         _, body = parse_frontmatter(content)
-        assert "Alpha content." in body
-        assert "Appended." in body
+        assert "## Alpha\nUpdated intro.\n### Child" in body
+        assert "Intro." not in body
+        assert "Child content." in body
+        assert "## Beta" in body
+
+    def test_append_heading_intro_scope_inserts_before_first_child_heading(self, vault, router):
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "## Alpha\n\nIntro.\n\n### Child\n\nChild content.\n"
+        )
+        edit.append_to_artefact(
+            str(vault), router, "Wiki/test-page.md",
+            "More intro.\n", target="## Alpha", scope="intro",
+        )
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        _, body = parse_frontmatter(content)
+        assert "Intro.\n\nMore intro.\n### Child" in body
+
+    def test_prepend_heading_intro_scope_inserts_after_heading_line(self, vault, router):
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "## Alpha\n\nIntro.\n\n### Child\n\nChild content.\n"
+        )
+        edit.prepend_to_artefact(
+            str(vault), router, "Wiki/test-page.md",
+            "Before intro.\n", target="## Alpha", scope="intro",
+        )
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        _, body = parse_frontmatter(content)
+        assert "## Alpha\nBefore intro.\n\nIntro." in body
+
+    def test_edit_callout_section_scope_replaces_whole_block(self, vault, router):
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "## Section\n\n"
+            "> [!note] Implementation status\n"
+            "> Old status content.\n"
+            "\n"
+            "After callout.\n"
+        )
+        edit.edit_artefact(
+            str(vault), router, "Wiki/test-page.md",
+            "> [!warning] Updated status\n> New body.\n",
+            target="[!note] Implementation status", scope="section",
+        )
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        _, body = parse_frontmatter(content)
+        assert "[!note] Implementation status" not in body
+        assert "[!warning] Updated status" in body
+        assert "New body." in body
+        assert "After callout." in body
+
+    def test_append_callout_section_scope_inserts_after_whole_block(self, vault, router):
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "## Section\n\n"
+            "> [!note] Implementation status\n"
+            "> Old status content.\n"
+            "\n"
+            "After callout.\n"
+        )
+        edit.append_to_artefact(
+            str(vault), router, "Wiki/test-page.md",
+            "Inserted after.\n", target="[!note] Implementation status", scope="section",
+        )
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        _, body = parse_frontmatter(content)
+        assert body.index("Inserted after.") > body.index("Old status content.")
+        assert body.index("Inserted after.") < body.index("After callout.")
+
+    def test_prepend_callout_section_scope_inserts_before_whole_block(self, vault, router):
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "## Section\n\n"
+            "> [!note] Implementation status\n"
+            "> Old status content.\n"
+            "\n"
+            "After callout.\n"
+        )
+        edit.prepend_to_artefact(
+            str(vault), router, "Wiki/test-page.md",
+            "Inserted before.\n", target="[!note] Implementation status", scope="section",
+        )
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        _, body = parse_frontmatter(content)
+        assert body.index("Inserted before.") < body.index("[!note] Implementation status")
+
+    def test_edit_callout_body_rejects_unquoted_blank_lines(self, vault, router):
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "## Section\n\n"
+            "> [!note] Implementation status\n"
+            "> Old status content.\n"
+        )
+        with pytest.raises(ValueError, match="expects raw quoted markdown lines"):
+            edit.edit_artefact(
+                str(vault), router, "Wiki/test-page.md",
+                "> First.\n\n> Second.\n",
+                target="[!note] Implementation status", scope="body",
+            )
+
+    def test_edit_selector_disambiguates_duplicate_heading(self, vault, router):
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "# API\n\n"
+            "## Notes\n\nFirst.\n\n"
+            "# API\n\n"
+            "## Notes\n\nSecond.\n"
+        )
+        edit.edit_artefact(
+            str(vault), router, "Wiki/test-page.md",
+            "Selected.\n",
+            target="## Notes",
+            selector={"within": [{"target": "# API", "occurrence": 2}]},
+            scope="body",
+        )
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        _, body = parse_frontmatter(content)
+        assert "First." in body
+        assert "Selected." in body
+        assert "Second." not in body
+
+    def test_edit_selector_ambiguity_errors(self, vault, router):
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "# API\n\n"
+            "## Notes\n\nFirst.\n\n"
+            "# API\n\n"
+            "## Notes\n\nSecond.\n"
+        )
+        with pytest.raises(ValueError, match="Ambiguous target '## Notes'"):
+            edit.edit_artefact(
+                str(vault), router, "Wiki/test-page.md",
+                "Selected.\n", target="## Notes", scope="body",
+            )
+
+    def test_append_selector_disambiguates_duplicate_heading(self, vault, router):
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "# API\n\n"
+            "## Notes\n\nFirst.\n\n"
+            "# API\n\n"
+            "## Notes\n\nSecond.\n"
+        )
+        edit.append_to_artefact(
+            str(vault), router, "Wiki/test-page.md",
+            "Added.\n",
+            target="## Notes",
+            selector={"within": [{"target": "# API", "occurrence": 2}]},
+            scope="body",
+        )
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        _, body = parse_frontmatter(content)
+        assert "## Notes\n\nFirst.\n" in body
+        assert "## Notes\n\nSecond.\nAdded.\n" in body
+
+    def test_prepend_selector_disambiguates_duplicate_heading(self, vault, router):
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "# API\n\n"
+            "## Notes\n\nFirst.\n\n"
+            "# API\n\n"
+            "## Notes\n\nSecond.\n"
+        )
+        edit.prepend_to_artefact(
+            str(vault), router, "Wiki/test-page.md",
+            "Added first.\n",
+            target="## Notes",
+            selector={"within": [{"target": "# API", "occurrence": 2}]},
+            scope="body",
+        )
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        _, body = parse_frontmatter(content)
+        assert "## Notes\n\nFirst.\n" in body
+        assert "## Notes\nAdded first.\n\nSecond.\n" in body
+
+    def test_legacy_section_target_is_rejected(self, vault, router):
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "## Alpha\n\nAlpha content.\n"
+        )
+        with pytest.raises(ValueError, match="Use target='## Alpha' with scope='section'"):
+            edit.append_to_artefact(
+                str(vault), router, "Wiki/test-page.md",
+                "Appended.\n", target=":section:## Alpha",
+            )
+
+
+# ---------------------------------------------------------------------------
+# Trailing-newline invariant — bodies must end with \n after any mutation
+# ---------------------------------------------------------------------------
+
+class TestBodyTrailingNewline:
+    """Pin the invariant that ``_apply_body_operation`` always returns a body
+    ending in ``\\n`` when non-empty.
+
+    The pre-target-scope refactor enforced this via ``_normalize_range_replacement``;
+    after the refactor, EOF replacements via ``_prepare_boundary_safe_text`` could
+    silently drop the trailing newline. Existing tests missed this because every
+    fixture body ends in ``\\n`` and only checked substring containment.
+    """
+
+    @pytest.mark.parametrize(
+        "label,body,operation,content,kwargs",
+        [
+            (
+                "edit body of section at EOF",
+                "# A\nbody1\n## B\ncontent\n",
+                "edit",
+                "newcontent",
+                {"target": "## B", "scope": "body"},
+            ),
+            (
+                "append body of section at EOF",
+                "# A\nfoo\n",
+                "append",
+                "bar",
+                {"target": "# A", "scope": "body"},
+            ),
+            (
+                "edit :body section (whole replacement)",
+                "# A\nbody1\n## B\ncontent\n",
+                "edit",
+                "totalreplace",
+                {"target": ":body", "scope": "section"},
+            ),
+            (
+                "edit body of heading with following section",
+                "# A\nbody1\n## B\ncontent\n",
+                "edit",
+                "mid",
+                {"target": "# A", "scope": "body"},
+            ),
+            (
+                "edit heading line at EOF",
+                "# A\nfoo\n## B\nbar\n",
+                "edit",
+                "## Renamed",
+                {"target": "## B", "scope": "heading"},
+            ),
+            (
+                "prepend to body of unique heading",
+                "# A\nfoo\n",
+                "prepend",
+                "bar",
+                {"target": "# A", "scope": "body"},
+            ),
+            (
+                "append where content already ends with newline",
+                "# A\nfoo\n",
+                "append",
+                "bar\n",
+                {"target": "# A", "scope": "body"},
+            ),
+        ],
+    )
+    def test_result_ends_with_single_newline(self, label, body, operation, content, kwargs):
+        result, _ = edit._apply_body_operation(body, operation, content, **kwargs)
+        assert result.endswith("\n"), f"{label}: result did not end with newline: {result!r}"
+        assert not result.endswith("\n\n"), f"{label}: result ends with double newline: {result!r}"
+
+    def test_disk_file_ends_with_newline_after_eof_edit(self, vault, router):
+        """End-to-end check: written file preserves trailing newline after EOF edit."""
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "# A\nbody1\n## B\ncontent\n"
+        )
+        edit.edit_artefact(
+            str(vault), router, "Wiki/test-page.md",
+            "newcontent", target="## B", scope="body",
+        )
+        on_disk = (vault / "Wiki" / "test-page.md").read_text()
+        assert on_disk.endswith("\n"), f"on-disk file lost trailing newline: {on_disk!r}"
+
+
+# ---------------------------------------------------------------------------
+# Heading-body payload validation — symmetric across edit / append / prepend
+# ---------------------------------------------------------------------------
+
+class TestHeadingBodyPayloadValidation:
+    """A heading-body or heading-intro payload that begins with a same-level or
+    higher-level heading would silently restructure the document. ``edit``
+    rejects this; ``append`` and ``prepend`` must reject it on the same terms.
+    """
+
+    @pytest.mark.parametrize("operation", ["edit", "append", "prepend"])
+    @pytest.mark.parametrize("scope", ["body", "intro"])
+    def test_same_level_heading_payload_rejected(self, operation, scope):
+        body = "## Notes\nx\n## Other\ny\n"
+        with pytest.raises(ValueError, match="only replaces the content below the heading"):
+            edit._apply_body_operation(
+                body, operation, "## Splice\nzz\n",
+                target="## Notes", scope=scope,
+            )
+
+    @pytest.mark.parametrize("operation", ["edit", "append", "prepend"])
+    @pytest.mark.parametrize("scope", ["body", "intro"])
+    def test_higher_level_heading_payload_rejected(self, operation, scope):
+        body = "## Notes\nx\n### Sub\ny\n"
+        with pytest.raises(ValueError, match="only replaces the content below the heading"):
+            edit._apply_body_operation(
+                body, operation, "# H1 splice\n",
+                target="## Notes", scope=scope,
+            )
+
+    @pytest.mark.parametrize("operation", ["append", "prepend"])
+    @pytest.mark.parametrize("scope", ["body", "intro"])
+    def test_deeper_level_heading_payload_allowed(self, operation, scope):
+        """A deeper heading is content within the section — must be permitted."""
+        body = "## Notes\nx\n## Other\ny\n"
+        result, _ = edit._apply_body_operation(
+            body, operation, "### Sub\nzz\n",
+            target="## Notes", scope=scope,
+        )
+        assert "### Sub" in result
+
+    @pytest.mark.parametrize("operation", ["append", "prepend"])
+    def test_same_level_heading_payload_allowed_for_section_scope(self, operation):
+        """scope='section' on a heading append/prepend is "act as a sibling" —
+        a same-level heading payload is the user's intent, not a bug."""
+        body = "## Notes\nx\n## Other\ny\n"
+        result, _ = edit._apply_body_operation(
+            body, operation, "## Splice\nzz\n",
+            target="## Notes", scope="section",
+        )
+        assert "## Splice" in result
 
 
 # ---------------------------------------------------------------------------
@@ -1441,7 +1824,10 @@ class TestEditTimestamps:
     def test_edit_updates_modified(self, vault, router):
         with patch("_common._templates.datetime") as mock_dt:
             mock_dt.now.return_value = self.FIXED_DT
-            edit.edit_artefact(str(vault), router, "Wiki/test-page.md", "New body\n")
+            edit.edit_artefact(
+                str(vault), router, "Wiki/test-page.md", "New body\n",
+                target=":body", scope="section",
+            )
         content = (vault / "Wiki" / "test-page.md").read_text()
         fields, _ = parse_frontmatter(content)
         assert fields["modified"] == self.FIXED_ISO
@@ -1459,7 +1845,10 @@ class TestEditTimestamps:
 
         with patch("_common._templates.datetime") as mock_dt:
             mock_dt.now.return_value = self.FIXED_DT
-            edit.edit_artefact(str(vault), router, "Wiki/test-page.md", "Changed body\n")
+            edit.edit_artefact(
+                str(vault), router, "Wiki/test-page.md", "Changed body\n",
+                target=":body", scope="section",
+            )
         content = (vault / "Wiki" / "test-page.md").read_text()
         fields, _ = parse_frontmatter(content)
         assert fields["created"] == original_created
@@ -1467,7 +1856,10 @@ class TestEditTimestamps:
     def test_append_updates_modified(self, vault, router):
         with patch("_common._templates.datetime") as mock_dt:
             mock_dt.now.return_value = self.FIXED_DT
-            edit.append_to_artefact(str(vault), router, "Wiki/test-page.md", "\nAppended\n")
+            edit.append_to_artefact(
+                str(vault), router, "Wiki/test-page.md", "\nAppended\n",
+                target=":body", scope="section",
+            )
         content = (vault / "Wiki" / "test-page.md").read_text()
         fields, _ = parse_frontmatter(content)
         assert fields["modified"] == self.FIXED_ISO
@@ -1475,7 +1867,10 @@ class TestEditTimestamps:
     def test_prepend_updates_modified(self, vault, router):
         with patch("_common._templates.datetime") as mock_dt:
             mock_dt.now.return_value = self.FIXED_DT
-            edit.prepend_to_artefact(str(vault), router, "Wiki/test-page.md", "Prepended\n")
+            edit.prepend_to_artefact(
+                str(vault), router, "Wiki/test-page.md", "Prepended\n",
+                target=":body", scope="section",
+            )
         content = (vault / "Wiki" / "test-page.md").read_text()
         fields, _ = parse_frontmatter(content)
         assert fields["modified"] == self.FIXED_ISO
@@ -1493,6 +1888,7 @@ class TestFrontmatterMerge:
         edit.edit_artefact(
             str(vault), router, "Wiki/test-page.md", "Body.\n",
             frontmatter_changes={"tags": ["new"]},
+            target=":body", scope="section",
         )
         content = (vault / "Wiki" / "test-page.md").read_text()
         fields, _ = parse_frontmatter(content)
@@ -1570,6 +1966,38 @@ class TestFrontmatterMerge:
         fields, body = parse_frontmatter(content)
         assert fields["status"] == "archived"
         assert body == original_body  # body unchanged
+
+    def test_targeted_append_frontmatter_only_omits_structural_target(self, vault, router):
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "## Alpha\n\nBody.\n"
+        )
+        result = edit.append_to_artefact(
+            str(vault), router, "Wiki/test-page.md",
+            frontmatter_changes={"status": "archived"},
+            target="## Alpha", scope="body",
+        )
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        fields, body = parse_frontmatter(content)
+        assert fields["status"] == "archived"
+        assert body == "## Alpha\n\nBody.\n"
+        assert "structural_target" not in result
+
+    def test_targeted_prepend_frontmatter_only_omits_structural_target(self, vault, router):
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "## Alpha\n\nBody.\n"
+        )
+        result = edit.prepend_to_artefact(
+            str(vault), router, "Wiki/test-page.md",
+            frontmatter_changes={"status": "archived"},
+            target="## Alpha", scope="body",
+        )
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        fields, body = parse_frontmatter(content)
+        assert fields["status"] == "archived"
+        assert body == "## Alpha\n\nBody.\n"
+        assert "structural_target" not in result
 
 
 # ---------------------------------------------------------------------------
@@ -1798,6 +2226,7 @@ class TestTerminalStatusMove:
         self._make_idea(vault, "Ideas/body-only.md")
         result = edit.edit_artefact(
             str(vault), router, "Ideas/body-only.md", "# Updated\n\nNew body.\n",
+            target=":body", scope="section",
         )
         assert result["path"] == "Ideas/body-only.md"
         assert (vault / "Ideas" / "body-only.md").is_file()
@@ -1806,6 +2235,7 @@ class TestTerminalStatusMove:
         self._make_idea(vault, "Ideas/append-idea.md")
         result = edit.append_to_artefact(
             str(vault), router, "Ideas/append-idea.md", "\nExtra.\n",
+            target=":body", scope="section",
             frontmatter_changes={"status": "adopted"},
         )
         assert result["path"] == "Ideas/+Adopted/append-idea.md"
@@ -1955,6 +2385,7 @@ class TestStatusDate:
         self._make_idea(vault, "Ideas/no-sd.md", status="seed")
         edit.edit_artefact(
             str(vault), router, "Ideas/no-sd.md", "Updated body.",
+            target=":body", scope="section",
         )
         fields = self._read_fields(vault, "Ideas/no-sd.md")
         assert "statusdate" not in fields
@@ -1998,6 +2429,7 @@ class TestStatusDate:
         self._make_idea(vault, "Ideas/app-sd.md", status="seed")
         edit.append_to_artefact(
             str(vault), router, "Ideas/app-sd.md", "Extra content.",
+            target=":body", scope="section",
             frontmatter_changes={"status": "shaping"},
         )
         fields = self._read_fields(vault, "Ideas/app-sd.md")
@@ -2044,6 +2476,7 @@ class TestArchiveGuards:
         result = edit.edit_artefact(
             str(vault), router, "Ideas/_Archive/20260101-old-idea.md",
             "# Updated\n\nFixed body.\n",
+            target=":body", scope="section",
         )
         assert result["path"] == "Ideas/_Archive/20260101-old-idea.md"
         content = (vault / "Ideas" / "_Archive" / "20260101-old-idea.md").read_text()
@@ -2054,6 +2487,7 @@ class TestArchiveGuards:
         self._make_archived_idea(vault)
         result = edit.append_to_artefact(
             str(vault), router, "Ideas/_Archive/20260101-old-idea.md", "\nExtra.\n",
+            target=":body", scope="section",
             frontmatter_changes={"status": "adopted"},
         )
         assert result["path"] == "Ideas/_Archive/20260101-old-idea.md"
@@ -2264,7 +2698,7 @@ class TestDeleteSection:
             )
 
     def test_delete_section_target_body_rejected(self, vault, router):
-        with pytest.raises(ValueError, match="target=':body' is no longer valid"):
+        with pytest.raises(ValueError, match="delete_section requires a heading or callout target"):
             edit.delete_section_artefact(
                 str(vault), router, "Wiki/test-page.md", target=":body"
             )
@@ -2317,6 +2751,38 @@ class TestDeleteSection:
         assert "## Context" in body
         assert "After callout." in body
 
+    def test_delete_section_selector_disambiguates_duplicate_heading(self, vault, router):
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "# API\n\n"
+            "## Notes\n\nFirst.\n\n"
+            "# API\n\n"
+            "## Notes\n\nSecond.\n"
+        )
+        edit.delete_section_artefact(
+            str(vault), router, "Wiki/test-page.md",
+            target="## Notes",
+            selector={"within": [{"target": "# API", "occurrence": 2}]},
+        )
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        _, body = parse_frontmatter(content)
+        assert "First." in body
+        assert "Second." not in body
+        assert body.count("## Notes") == 1
+
+    def test_delete_section_ambiguity_errors(self, vault, router):
+        (vault / "Wiki" / "test-page.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "# API\n\n"
+            "## Notes\n\nFirst.\n\n"
+            "# API\n\n"
+            "## Notes\n\nSecond.\n"
+        )
+        with pytest.raises(ValueError, match="Ambiguous target '## Notes'"):
+            edit.delete_section_artefact(
+                str(vault), router, "Wiki/test-page.md", target="## Notes"
+            )
+
 
 # ---------------------------------------------------------------------------
 # Resource editing (Phase 5)
@@ -2363,6 +2829,7 @@ class TestEditResource:
             str(vault), router, resource="artefact",
             operation="edit", path="Wiki/test-page.md",
             body="# Replaced\n",
+            target=":body", scope="section",
         )
         assert result["operation"] == "edit"
         assert "Wiki/test-page.md" in result["path"]
@@ -2373,6 +2840,7 @@ class TestEditResource:
             str(vault), router, resource="skill",
             operation="edit", name="test-skill",
             body="# Updated Skill\n\nNew skill content.\n",
+            target=":body", scope="section",
         )
         assert result["path"] == "_Config/Skills/test-skill/SKILL.md"
         assert result["operation"] == "edit"
@@ -2386,7 +2854,7 @@ class TestEditResource:
             str(vault), router, resource="memory",
             operation="edit", name="test-memory",
             body="Replacement memory body.\n",
-            target=":entire_body",
+            target=":body", scope="section",
         )
         assert result["path"] == "_Config/Memories/test-memory.md"
         content = (vault / "_Config" / "Memories" / "test-memory.md").read_text()
@@ -2399,6 +2867,7 @@ class TestEditResource:
             str(vault), router, resource="memory",
             operation="append", name="test-memory",
             body="\n## New Section\n\nAppended content.\n",
+            target=":body", scope="section",
         )
         assert result["path"] == "_Config/Memories/test-memory.md"
         assert result["operation"] == "append"
@@ -2406,9 +2875,9 @@ class TestEditResource:
         assert "Original memory body." in content
         assert "Appended content." in content
 
-    def test_memory_target_body_rejected(self, vault, router):
+    def test_memory_target_body_requires_scope(self, vault, router):
         self._create_memory(vault)
-        with pytest.raises(ValueError, match="target=':body' is no longer valid"):
+        with pytest.raises(ValueError, match="requires scope"):
             edit.edit_resource(
                 str(vault), router, resource="memory",
                 operation="append", name="test-memory",
@@ -2422,6 +2891,7 @@ class TestEditResource:
             str(vault), router, resource="style",
             operation="prepend", name="test-style",
             body="> Important note\n\n",
+            target=":body", scope="section",
         )
         assert result["path"] == "_Config/Styles/test-style.md"
         assert result["operation"] == "prepend"
@@ -2507,6 +2977,7 @@ class TestEditResource:
             str(vault), router, resource="template",
             operation="edit", name="wiki",
             body="# Updated Template\n\nNew template content.\n",
+            target=":body", scope="section",
         )
         assert "_Config/Templates/" in result["path"]
         assert result["operation"] == "edit"
@@ -2518,7 +2989,7 @@ class TestEditResource:
             str(vault), router, resource="skill",
             operation="edit", name="test-skill",
             body="Replaced section content.\n",
-            target="# Test Skill",
+            target="# Test Skill", scope="body",
         )
         content = (vault / "_Config" / "Skills" / "test-skill" / "SKILL.md").read_text()
         assert "Replaced section content." in content
@@ -2552,13 +3023,33 @@ class TestTempPathFlag:
             if os.path.exists(out):
                 os.remove(out)
 
+    def test_occurrence_invalid_int_prints_error_and_exits(self, capsys):
+        with patch.object(sys, "argv", ["edit.py", "edit", "--occurrence", "abc"]):
+            with pytest.raises(SystemExit) as exc_info:
+                edit.main()
+        assert exc_info.value.code == 1
+        err = capsys.readouterr().err
+        assert "Error: --occurrence expects an integer" in err
+
+    def test_within_occurrence_invalid_int_prints_error_and_exits(self, capsys):
+        with patch.object(
+            sys,
+            "argv",
+            ["edit.py", "edit", "--within", "## Notes", "--within-occurrence", "abc"],
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                edit.main()
+        assert exc_info.value.code == 1
+        err = capsys.readouterr().err
+        assert "Error: --within-occurrence expects an integer" in err
+
 
 class TestEditWikilinkWarnings:
     def test_clean_edit_no_warnings_key(self, vault, router):
         result = edit.edit_resource(
             str(vault), router, resource="artefact", operation="edit",
             path="Wiki/test-page.md", body="No links.\n",
-            target=":entire_body",
+            target=":body", scope="section",
         )
         assert "wikilink_warnings" not in result
 
@@ -2566,7 +3057,7 @@ class TestEditWikilinkWarnings:
         result = edit.edit_resource(
             str(vault), router, resource="artefact", operation="edit",
             path="Wiki/test-page.md", body="See [[missing-target]].\n",
-            target=":entire_body",
+            target=":body", scope="section",
         )
         assert "wikilink_warnings" in result
         warnings = result["wikilink_warnings"]
@@ -2578,6 +3069,7 @@ class TestEditWikilinkWarnings:
         result = edit.edit_resource(
             str(vault), router, resource="artefact", operation="append",
             path="Wiki/test-page.md", body="\nAlso [[also-missing]].\n",
+            target=":body", scope="section",
         )
         assert "wikilink_warnings" in result
 
@@ -2585,6 +3077,7 @@ class TestEditWikilinkWarnings:
         result = edit.edit_resource(
             str(vault), router, resource="artefact", operation="prepend",
             path="Wiki/test-page.md", body="Top [[top-missing]]\n\n",
+            target=":body", scope="section",
         )
         assert "wikilink_warnings" in result
 
@@ -2597,7 +3090,7 @@ class TestEditFixLinks:
         result = edit.edit_resource(
             str(vault), router2, resource="artefact", operation="edit",
             path="Wiki/test-page.md", body="See [[real-target]].\n",
-            target=":entire_body", fix_links=True,
+            target=":body", scope="section", fix_links=True,
         )
         assert "wikilink_fixes" in result
         assert result["wikilink_fixes"]["applied"] == 1
@@ -2610,7 +3103,7 @@ class TestEditFixLinks:
         result = edit.edit_resource(
             str(vault), router, resource="artefact", operation="edit",
             path="Wiki/test-page.md", body="See [[never-existed]].\n",
-            target=":entire_body", fix_links=True,
+            target=":body", scope="section", fix_links=True,
         )
         assert "wikilink_fixes" not in result
         assert "wikilink_warnings" in result
@@ -2623,7 +3116,7 @@ class TestEditFixLinks:
         result = edit.edit_resource(
             str(vault), router2, resource="artefact", operation="edit",
             path="Wiki/test-page.md", body="See [[real-target]].\n",
-            target=":entire_body",
+            target=":body", scope="section",
         )
         assert "wikilink_fixes" not in result
         content = (vault / "Wiki" / "test-page.md").read_text()

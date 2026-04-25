@@ -144,6 +144,8 @@ def handle_brain_edit(
     body_file: str,
     frontmatter: dict | None,
     target: str | None,
+    selector: dict | None,
+    scope: str | None,
     resource: str,
     name: str,
     runtime: ServerRuntime,
@@ -178,6 +180,8 @@ def handle_brain_edit(
         body=body,
         frontmatter_changes=frontmatter,
         target=target,
+        selector=selector,
+        scope=scope,
         fix_links=fix_links,
     )
     if resource == "artefact":
@@ -194,43 +198,17 @@ def handle_brain_edit(
         except OSError:
             pass
     past = edit.OPERATION_LABELS[result["operation"]]
+    structural = result.get("structural_target")
     fixes = format_wikilink_fixes(result.get("wikilink_fixes"))
     warnings = format_wikilink_warnings(result.get("wikilink_warnings"))
-    if operation == "edit" and target == edit.ENTIRE_BODY_TARGET:
-        parts = []
-        if moved:
-            parts.append(
-                f"moved from {result['resolved_path']} due to terminal status"
-            )
-        parts.append(f"target: {target}")
-        parts.append(
-            f"lines: {result['old_body_line_count']}->{result['new_body_line_count']}"
-        )
-        msg = f"**{past}:** {result['path']} ({'; '.join(parts)})"
-        if fixes:
-            msg += f"\n{fixes}"
-        if warnings:
-            msg += f"\n{warnings}"
-        return msg
-
     msg = f"**{past}:** {result['path']}"
     if moved:
         msg += (
             f"\n**Moved:** {result['resolved_path']} → {result['path']} "
             "(terminal status)"
         )
-    if target:
-        msg += f" (target: {target})"
-        if edit.uses_heading_context(target):
-            prev_h, next_h = runtime.surrounding_headings(
-                state.vault_root,
-                result["path"],
-                target,
-            )
-            if prev_h or next_h:
-                prev_label = prev_h or "(start)"
-                next_label = next_h or "(end)"
-                msg += f"\n**Context:** prev={prev_label} | next={next_label}"
+    if structural:
+        msg += f" ({structural['display']})"
     if fixes:
         msg += f"\n{fixes}"
     if warnings:

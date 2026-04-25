@@ -6,10 +6,10 @@ Validates paths against the compiled router, then modifies file content
 with frontmatter preservation. Also provides artefact type conversion.
 
 Usage:
-    python3 edit.py edit --path "Wiki/my-page.md" --body "New body"
-    python3 edit.py append --path "Wiki/my-page.md" --body "Appended text"
-    python3 edit.py prepend --path "Wiki/my-page.md" --body "Before existing"
-    python3 edit.py edit --path "Wiki/my-page.md" --body "New body" --vault /path --json
+    python3 edit.py edit --path "Wiki/my-page.md" --target ":body" --scope "section" --body "New body"
+    python3 edit.py append --path "Wiki/my-page.md" --target "## Notes" --scope "body" --body "Appended text"
+    python3 edit.py prepend --path "Wiki/my-page.md" --target ":body" --scope "intro" --body "Before existing"
+    python3 edit.py edit --path "Wiki/my-page.md" --target "## Notes" --scope "body" --within "# API" --within-occurrence 2 --body "New body" --vault /path --json
 """
 
 import json
@@ -26,8 +26,6 @@ from _common import (
     ensure_tags_list,
     extract_slug_keyword,
     extract_title,
-    find_body_preamble,
-    find_section,
     find_vault_root,
     generate_contextual_slug,
     is_archived_path,
@@ -53,6 +51,7 @@ from _common import (
     resolve_parent_reference,
     resolve_body_file,
     resolve_type,
+    resolve_structural_target,
     resolve_wikilink_stems,
     scan_artefact_key_references,
     safe_write,
@@ -78,13 +77,27 @@ OPERATION_LABELS = {
     "delete_section": "Deleted section from",
 }
 
-LEGACY_BODY_TARGET = ":body"
+BODY_TARGET = ":body"
 ENTIRE_BODY_TARGET = ":entire_body"
 BODY_PREAMBLE_TARGET = ":body_preamble"
+BODY_BEFORE_FIRST_HEADING_TARGET = ":body_before_first_heading"
 
-_RESERVED_NON_SECTION_TARGETS = {
-    ENTIRE_BODY_TARGET,
-    BODY_PREAMBLE_TARGET,
+_VALID_SCOPES = {
+    "body": {
+        "edit": {"section", "intro"},
+        "append": {"section", "intro"},
+        "prepend": {"section", "intro"},
+    },
+    "heading": {
+        "edit": {"section", "body", "intro", "heading"},
+        "append": {"section", "body", "intro"},
+        "prepend": {"section", "body", "intro"},
+    },
+    "callout": {
+        "edit": {"section", "body", "header"},
+        "append": {"section", "body"},
+        "prepend": {"section", "body"},
+    },
 }
 
 # ---------------------------------------------------------------------------
@@ -110,71 +123,126 @@ def _line_count(text):
     return len(text.splitlines()) if text else 0
 
 
-def _result_payload(path, resolved_path, operation, old_body, new_body):
+def _result_payload(path, resolved_path, operation, old_body, new_body, *,
+                    resolved=None, scope=None):
     """Build the standard result payload for body mutations."""
-    return {
+    payload = {
         "path": path,
         "resolved_path": resolved_path,
         "operation": operation,
         "old_body_line_count": _line_count(old_body),
         "new_body_line_count": _line_count(new_body),
     }
+    if resolved and scope:
+        payload["structural_target"] = {
+            "kind": resolved["kind"],
+            "raw": resolved["raw"],
+            "scope": scope,
+            "display": _describe_structural_target(resolved, scope),
+        }
+    return payload
 
 
-def uses_heading_context(target):
-    """Return whether a target should show surrounding heading context."""
-    return bool(target) and target not in _RESERVED_NON_SECTION_TARGETS
+def _structural_target_kind(target):
+    """Infer the structural target kind from the public target string."""
+    stripped = (target or "").strip()
+    if not stripped:
+        return None
+    if stripped == BODY_TARGET:
+        return "body"
+    if stripped.startswith("[!"):
+        return "callout"
+    return "heading"
 
 
-def _validate_target_contract(operation, target):
-    """Validate reserved-target semantics for body operations."""
-    if not target:
-        return
+def _valid_scopes_for(kind, operation):
+    return sorted(_VALID_SCOPES.get(kind, {}).get(operation, set()))
 
-    if target == LEGACY_BODY_TARGET:
-        if operation == "delete_section":
+
+def _legacy_target_error(target):
+    """Raise the migration error if ``target`` is a legacy reserved spelling.
+
+    No-op for current spellings — single source of truth for the legacy set so
+    the contract validator and the structural resolver don't drift.
+    """
+    if target == ENTIRE_BODY_TARGET:
+        raise ValueError(
+            "target=':entire_body' is no longer valid. "
+            "Use target=':body' with scope='section'."
+        )
+    if target in {BODY_PREAMBLE_TARGET, BODY_BEFORE_FIRST_HEADING_TARGET}:
+        raise ValueError(
+            f"target='{target}' is no longer valid. "
+            "Use target=':body' with scope='intro'."
+        )
+    if target and target.startswith(":section:"):
+        resolved = target[len(":section:"):].strip()
+        if not resolved:
             raise ValueError(
-                "target=':body' is no longer valid because it was ambiguous and destructive. "
-                "delete_section requires a real heading or callout target."
+                "target=':section:' is no longer valid. "
+                "Use a real heading or callout target with scope='section'."
             )
         raise ValueError(
-            "target=':body' is no longer valid because it was ambiguous and destructive. "
-            "Use target=':entire_body' for the full markdown body after frontmatter "
-            "or target=':body_preamble' for the leading body content before the first "
-            "targetable section."
-        )
-
-    if target == ":body_before_first_heading":
-        raise ValueError(
-            "target=':body_before_first_heading' is no longer valid. "
-            "Use target=':body_preamble' for the leading body content before the first "
-            "targetable section."
-        )
-
-    if target == BODY_PREAMBLE_TARGET and operation != "edit":
-        raise ValueError(
-            "target=':body_preamble' is only supported for operation='edit'"
+            f"target='{target}' is no longer valid. "
+            f"Use target='{resolved}' with scope='section'."
         )
 
 
-def _validate_edit_request(operation, body, frontmatter_changes=None, target=None):
-    """Validate a public edit request before mutating content."""
-    _validate_target_contract(operation, target)
+def _validate_request_contract(operation, body, frontmatter_changes=None,
+                               target=None, selector=None, scope=None):
+    """Validate the explicit target + selector + scope contract."""
+    _legacy_target_error(target)
 
     if operation == "delete_section":
+        if scope is not None:
+            raise ValueError("delete_section does not accept scope")
+        if selector is not None and not target:
+            raise ValueError("selector requires target")
         if not target:
-            raise ValueError("delete_section requires a target heading.")
+            raise ValueError("delete_section requires a target heading or callout")
+        if target == BODY_TARGET:
+            raise ValueError(
+                "target=':body' is only valid for edit, append, or prepend with "
+                "scope='section' or scope='intro'. delete_section requires a heading "
+                "or callout target."
+            )
         return
 
-    if operation == "edit":
-        if not body and not frontmatter_changes and not target:
+    if selector is not None and not target:
+        raise ValueError("selector requires target")
+    if scope is not None and not target:
+        raise ValueError("scope requires target")
+
+    if target:
+        kind = _structural_target_kind(target)
+        if scope is None:
+            valid = ", ".join(_valid_scopes_for(kind, operation))
             raise ValueError(
-                "edit with no body and no frontmatter changes is a no-op. "
+                f"{operation} with target='{target}' requires scope. "
+                f"Valid scopes for {kind} targets: {valid}"
+            )
+        valid = _valid_scopes_for(kind, operation)
+        if scope not in valid:
+            valid_list = ", ".join(valid)
+            raise ValueError(
+                f"scope='{scope}' is not valid for {operation} on {kind} targets. "
+                f"Valid scopes: {valid_list}"
+            )
+        if operation in {"append", "prepend"} and not body and not frontmatter_changes:
+            raise ValueError(
+                f"{operation} with no body and no frontmatter changes is a no-op. "
                 "Pass body content, frontmatter changes, or both."
             )
         return
 
-    if operation in {"append", "prepend"} and not body and not frontmatter_changes:
+    if body:
+        raise ValueError(
+            "Body mutations now require explicit target and scope. "
+            "Use target=':body', scope='section' for the full markdown body or "
+            "target=':body', scope='intro' for the leading body intro."
+        )
+
+    if not frontmatter_changes:
         raise ValueError(
             f"{operation} with no body and no frontmatter changes is a no-op. "
             "Pass body content, frontmatter changes, or both."
@@ -215,180 +283,225 @@ def _save_artefact(abs_path, fields, new_body, vault_root):
 # Body operation helpers (shared by artefact and resource paths)
 # ---------------------------------------------------------------------------
 
-def _normalize_range_replacement(body, end, existing_body, empty_noop=False):
-    """Normalize a replacement body for an in-place range splice.
-
-    Ensures a trailing newline, plus a blank-line separator when the range is
-    not at EOF. When ``empty_noop`` is True, an empty body produces an empty
-    string (the caller's surrounding content provides any needed separator).
-    """
-    if body:
-        normalized = body.rstrip("\n") + "\n"
-        if end < len(existing_body):
-            normalized += "\n"
-        return normalized
-    if empty_noop:
-        return ""
-    return "" if end == len(existing_body) else "\n"
+def _describe_structural_target(resolved, scope):
+    """Render a user-facing description of the resolved structural range."""
+    if resolved["kind"] == "body":
+        return f"body {scope}"
+    if resolved["kind"] == "heading":
+        label = "heading line" if scope == "heading" else f"heading {scope}"
+    else:
+        label = "callout header" if scope == "header" else f"callout {scope}"
+    return f"{label}: {resolved['display_path']}"
 
 
-def _apply_edit(existing_body, body, target):
-    """Apply an edit operation to a body, returning the new body."""
-    if target == ENTIRE_BODY_TARGET:
-        return body
-    if target == BODY_PREAMBLE_TARGET:
-        return _apply_body_preamble_edit(existing_body, body)
-    if target:
-        section_mode, resolved_target = _resolve_edit_target(target)
-        start, end = find_section(
-            existing_body,
-            resolved_target,
-            include_heading=section_mode,
-        )
-        if section_mode:
-            _validate_whole_section_replacement(body)
-        else:
-            body = _normalize_targeted_edit_body(existing_body, resolved_target, body)
-        normalized = _normalize_range_replacement(body, end, existing_body)
-        return existing_body[:start] + normalized + existing_body[end:]
-    if body:
-        return body
-    return existing_body
-
-
-def _apply_body_preamble_edit(existing_body, body):
-    """Replace the leading body range before the first targetable section."""
-    start, end = find_body_preamble(existing_body)
-    normalized = _normalize_range_replacement(body, end, existing_body, empty_noop=True)
-    return existing_body[:start] + normalized + existing_body[end:]
-
-
-def _resolve_edit_target(target):
-    """Return (whole_section_mode, resolved_target)."""
-    if target.startswith(":section:"):
-        resolved = target[len(":section:"):].strip()
-        if not resolved:
-            raise ValueError("Section replacement target must include a heading or callout title")
-        return True, resolved
-    return False, target
-
-
-def _validate_whole_section_replacement(body):
-    """Whole-section replacement requires a leading structural anchor."""
-    if not body:
-        raise ValueError("Whole-section replacement body cannot be empty")
-    anchor = parse_structural_anchor_line(body)
-    if anchor is None:
+def _resolve_scope_span(resolved, scope):
+    """Return the concrete ``(start, end)`` span for a resolved scope."""
+    try:
+        return resolved["ranges"][scope]
+    except KeyError as exc:
         raise ValueError(
-            "Whole-section replacement body must begin with a heading or callout title line"
+            f"scope='{scope}' is not available for {resolved['kind']} targets"
+        ) from exc
+
+
+def _validate_single_structural_line(body, kind, label):
+    """Validate a single heading or callout structural line."""
+    line = body.strip("\n")
+    if not line or "\n" in line:
+        raise ValueError(f"{label} replacement must be a single {kind} line")
+    anchor = parse_structural_anchor_line(line)
+    if anchor is None or anchor["kind"] != kind:
+        raise ValueError(f"{label} replacement must be a valid {kind} line")
+
+
+def _validate_heading_section_replacement(body):
+    """Whole heading-section replacement must begin with a heading line."""
+    if not body:
+        raise ValueError("scope='section' for heading targets cannot be empty")
+    anchor = parse_structural_anchor_line(body)
+    if anchor is None or anchor["kind"] != "heading":
+        raise ValueError(
+            "scope='section' for heading targets must begin with a heading line"
         )
 
 
-def _normalize_targeted_edit_body(existing_body, target, body):
-    """Normalise or reject structural wrappers for content-only targeted edits."""
+def _validate_callout_section_replacement(body):
+    """Whole callout-section replacement must begin with a callout header line."""
     if not body:
-        return body
-
+        raise ValueError("scope='section' for callout targets cannot be empty")
     anchor = parse_structural_anchor_line(body)
-    if anchor is None:
-        return body
-
-    heading_start, section_start = find_section(existing_body, target, include_heading=True)
-    expected_anchor = parse_structural_anchor_line(existing_body[heading_start:section_start])
-    if expected_anchor and anchor["raw"] == expected_anchor["raw"]:
-        return _strip_exact_structural_wrapper(body, anchor["kind"])
-
-    if anchor["kind"] == "callout":
-        return body
-
-    if (
-        expected_anchor
-        and expected_anchor["kind"] == "heading"
-        and anchor["kind"] == "heading"
-        and anchor["level"] > expected_anchor["level"]
-    ):
-        return body
-
-    raise ValueError(
-        f"Targeted edit for '{target}' replaces section content only; "
-        f"use target=':section:{target}' to replace the section heading or callout title"
-    )
+    if anchor is None or anchor["kind"] != "callout":
+        raise ValueError(
+            "scope='section' for callout targets must begin with a callout header line"
+        )
 
 
-def _strip_exact_structural_wrapper(body, anchor_kind):
-    """Strip one exact leading heading/callout wrapper and following blank lines."""
-    lines = body.splitlines(keepends=True)
-    out = []
-    removed = False
-    for line in lines:
-        if not removed and not line.strip():
-            continue
-        if not removed:
-            anchor = parse_structural_anchor_line(line)
-            if anchor is None or anchor["kind"] != anchor_kind:
-                return body
-            removed = True
-            continue
-        out.append(line)
-
-    while out and not out[0].strip():
-        out.pop(0)
-    return "".join(out)
+def _validate_callout_body_payload(body):
+    """Callout body scope uses raw quoted markdown lines."""
+    if not body:
+        return
+    for line in body.splitlines():
+        if not line.lstrip().startswith(">"):
+            raise ValueError(
+                "scope='body' for callout targets expects raw quoted markdown lines "
+                "beginning with '>'"
+            )
 
 
-def _resolve_positional_target(target):
-    """Normalize target for append/prepend: strip :section: prefix, drop entire-body sentinel."""
-    if target and target.startswith(":section:"):
-        target = target[len(":section:"):].strip()
-    if target == ENTIRE_BODY_TARGET:
-        return None
-    return target
+def _validate_heading_body_payload(body, resolved, scope):
+    """Reject accidental section-style payloads for heading body/intro edits."""
+    if not body:
+        return
+    anchor = parse_structural_anchor_line(body)
+    if anchor is None or anchor["kind"] != "heading":
+        return
+    target_level = len(resolved["raw"].split()[0])
+    if anchor["raw"] == resolved["raw"] or anchor["level"] <= target_level:
+        raise ValueError(
+            f"scope='{scope}' for heading target '{resolved['display_path']}' only "
+            "replaces the content below the heading. Use scope='section' to replace "
+            "the heading line too."
+        )
 
 
-def _apply_append(existing_body, content, target):
-    """Apply an append operation to a body, returning the new body."""
-    target = _resolve_positional_target(target)
-    if target and content:
-        section_start, section_end = find_section(existing_body, target)
-        section_body = existing_body[section_start:section_end].rstrip("\n")
-        content_normalized = content if content.endswith("\n") else content + "\n"
-        if section_body:
-            rebuilt = section_body + "\n" + content_normalized
-        else:
-            rebuilt = "\n" + content_normalized
-        if section_end < len(existing_body):
-            rebuilt += "\n"
-        return existing_body[:section_start] + rebuilt + existing_body[section_end:]
-    if content:
-        return existing_body + content
-    return existing_body
+def _validate_edit_payload(body, resolved, scope):
+    """Validate payload shape for scope-specific edit replacements."""
+    if resolved["kind"] == "heading":
+        if scope == "section":
+            _validate_heading_section_replacement(body)
+        elif scope == "heading":
+            _validate_single_structural_line(body, "heading", "Heading")
+        elif scope in {"body", "intro"}:
+            _validate_heading_body_payload(body, resolved, scope)
+        return
+
+    if resolved["kind"] == "callout":
+        if scope == "section":
+            _validate_callout_section_replacement(body)
+        elif scope == "header":
+            _validate_single_structural_line(body, "callout", "Callout header")
+        elif scope == "body":
+            _validate_callout_body_payload(body)
+        return
 
 
-def _apply_prepend(existing_body, content, target):
-    """Apply a prepend operation to a body, returning the new body."""
-    target = _resolve_positional_target(target)
-    if target and content:
-        heading_start, _ = find_section(existing_body, target, include_heading=True)
-        content_normalized = content.rstrip("\n") + "\n"
-        if heading_start > 0:
-            content_normalized += "\n"
-        return existing_body[:heading_start] + content_normalized + existing_body[heading_start:]
-    if content:
-        content_normalized = content if content.endswith("\n") else content + "\n"
-        return content_normalized + ("\n" if existing_body else "") + existing_body
-    return existing_body
+def _validate_insert_payload(body, resolved, scope):
+    """Validate payloads for append/prepend operations."""
+    if resolved["kind"] == "callout" and scope == "body":
+        _validate_callout_body_payload(body)
+    elif resolved["kind"] == "heading" and scope in {"body", "intro"}:
+        _validate_heading_body_payload(body, resolved, scope)
 
 
-def _apply_delete_section(existing_body, target):
-    """Apply a delete_section operation to a body, returning the new body."""
-    start, end = find_section(existing_body, target, include_heading=True)
+def _prepare_boundary_safe_text(existing_body, start, end, text):
+    """Insert or replace ``text`` without merging with adjacent lines.
+
+    Also restores the body-ends-with-newline invariant when the spliced text
+    lands at end-of-body — otherwise EOF replacements would write files
+    without a trailing newline.
+    """
+    if not text:
+        return text
+    prepared = text
+    if start > 0 and existing_body[start - 1] != "\n" and not prepared.startswith("\n"):
+        prepared = "\n" + prepared
+    if end == len(existing_body):
+        needs_trailing = True
+    else:
+        needs_trailing = existing_body[end] != "\n"
+    if needs_trailing and not prepared.endswith("\n"):
+        prepared = prepared + "\n"
+    return prepared
+
+
+def _replace_range(existing_body, span, body):
+    """Replace an explicit character range with ``body``."""
+    start, end = span
+    replacement = _prepare_boundary_safe_text(existing_body, start, end, body)
+    return existing_body[:start] + replacement + existing_body[end:]
+
+
+def _insert_at(existing_body, pos, body):
+    """Insert text at ``pos`` while avoiding merged structural lines."""
+    insertion = _prepare_boundary_safe_text(existing_body, pos, pos, body)
+    return existing_body[:pos] + insertion + existing_body[pos:]
+
+
+def _delete_range(existing_body, span):
+    """Delete a structural range and collapse the surrounding blank-line seam."""
+    start, end = span
     prefix = existing_body[:start].rstrip("\n")
     suffix = existing_body[end:]
     if prefix and suffix:
         return prefix + "\n\n" + suffix
     if prefix:
         return prefix + "\n"
-    return suffix
+    return suffix.lstrip("\n")
+
+
+def _apply_edit(existing_body, body, resolved, scope):
+    """Apply a scope-aware edit to a body."""
+    _validate_edit_payload(body, resolved, scope)
+    span = _resolve_scope_span(resolved, scope)
+    replacement = body
+    if (
+        replacement == ""
+        and resolved["kind"] == "heading"
+        and scope in {"body", "intro"}
+        and span[1] < len(existing_body)
+        and existing_body[span[1]] != "\n"
+    ):
+        replacement = "\n"
+    return _replace_range(existing_body, span, replacement)
+
+
+def _apply_append(existing_body, content, resolved, scope):
+    """Append content to the resolved structural range."""
+    if not content:
+        return existing_body
+    _validate_insert_payload(content, resolved, scope)
+    _start, end = _resolve_scope_span(resolved, scope)
+    return _insert_at(existing_body, end, content)
+
+
+def _apply_prepend(existing_body, content, resolved, scope):
+    """Prepend content to the resolved structural range."""
+    if not content:
+        return existing_body
+    _validate_insert_payload(content, resolved, scope)
+    start, _end = _resolve_scope_span(resolved, scope)
+    return _insert_at(existing_body, start, content)
+
+
+def _apply_delete_section(existing_body, resolved):
+    """Delete the resolved heading-owned section or callout block."""
+    return _delete_range(existing_body, _resolve_scope_span(resolved, "section"))
+
+
+def _apply_body_operation(existing_body, operation, body, *, target=None,
+                          selector=None, scope=None):
+    """Apply the requested body mutation and return ``(new_body, resolved)``."""
+    if operation == "delete_section":
+        resolved = resolve_structural_target(existing_body, target, selector=selector)
+        return _apply_delete_section(existing_body, resolved), resolved
+
+    if not target:
+        return existing_body, None
+
+    if operation in {"append", "prepend"} and not body:
+        resolve_structural_target(existing_body, target, selector=selector)
+        return existing_body, None
+
+    resolved = resolve_structural_target(existing_body, target, selector=selector)
+
+    if operation == "edit":
+        return _apply_edit(existing_body, body, resolved, scope), resolved
+    if operation == "append":
+        return _apply_append(existing_body, body, resolved, scope), resolved
+    if operation == "prepend":
+        return _apply_prepend(existing_body, body, resolved, scope), resolved
+
+    raise ValueError(f"Unknown operation '{operation}'")
 
 
 # ---------------------------------------------------------------------------
@@ -397,17 +510,10 @@ def _apply_delete_section(existing_body, target):
 
 _EDITABLE_RESOURCES = {"artefact", "skill", "memory", "style", "template"}
 
-_BODY_OPS = {
-    "edit": _apply_edit,
-    "append": _apply_append,
-    "prepend": _apply_prepend,
-    "delete_section": _apply_delete_section,
-}
-
 
 def edit_resource(vault_root, router, resource="artefact", operation="edit",
                   path=None, name=None, body="", frontmatter_changes=None,
-                  target=None, fix_links=False):
+                  target=None, selector=None, scope=None, fix_links=False):
     """Edit a vault resource. Dispatches to the appropriate handler.
 
     For artefacts: delegates to existing edit/append/prepend/delete_section functions.
@@ -424,8 +530,9 @@ def edit_resource(vault_root, router, resource="artefact", operation="edit",
         name: Resource name (non-artefact resources only).
         body: Content for the operation.
         frontmatter_changes: Optional dict of frontmatter field changes.
-        target: Optional heading/callout for targeted operations, or reserved
-                body targets such as ":entire_body" and ":body_preamble".
+        target: Optional body, heading, or callout target.
+        selector: Optional duplicate/ancestor disambiguation object.
+        scope: Optional mutable range within the resolved structural target.
 
     Returns:
         Dict with path and operation.
@@ -437,16 +544,20 @@ def edit_resource(vault_root, router, resource="artefact", operation="edit",
             raise ValueError("path is required when resource='artefact'")
         if operation == "edit":
             result = edit_artefact(vault_root, router, path, body,
-                                frontmatter_changes=frontmatter_changes, target=target)
+                                frontmatter_changes=frontmatter_changes,
+                                target=target, selector=selector, scope=scope)
         elif operation == "append":
             result = append_to_artefact(vault_root, router, path, body,
-                                     frontmatter_changes=frontmatter_changes, target=target)
+                                     frontmatter_changes=frontmatter_changes,
+                                     target=target, selector=selector, scope=scope)
         elif operation == "prepend":
             result = prepend_to_artefact(vault_root, router, path, body,
-                                      frontmatter_changes=frontmatter_changes, target=target)
+                                      frontmatter_changes=frontmatter_changes,
+                                      target=target, selector=selector, scope=scope)
         elif operation == "delete_section":
             result = delete_section_artefact(vault_root, router, path,
-                                          target=target, frontmatter_changes=frontmatter_changes)
+                                          target=target, selector=selector,
+                                          frontmatter_changes=frontmatter_changes)
         else:
             raise ValueError(f"Unknown operation '{operation}'")
         _fix_links.attach_wikilink_warnings(vault_root, result, apply_fixes=fix_links)
@@ -474,25 +585,35 @@ def edit_resource(vault_root, router, resource="artefact", operation="edit",
         ) from None
     fields, existing_body = parse_frontmatter(content)
 
-    # Apply operation using shared helpers
-    apply_fn = _BODY_OPS.get(operation)
-    if not apply_fn:
-        raise ValueError(f"Unknown operation '{operation}'")
-
-    _validate_edit_request(operation, body, frontmatter_changes, target)
+    _validate_request_contract(
+        operation, body, frontmatter_changes, target, selector, scope
+    )
     fm_mode = "edit" if operation in ("edit", "delete_section") else operation
     _merge_frontmatter(fields, frontmatter_changes, fm_mode)
 
-    if operation == "delete_section":
-        new_body = apply_fn(existing_body, target)
-    else:
-        new_body = apply_fn(existing_body, body, target)
+    new_body, resolved = _apply_body_operation(
+        existing_body,
+        operation,
+        body,
+        target=target,
+        selector=selector,
+        scope=scope,
+    )
 
     # Save without artefact-specific behavior (no modified auto-set, no status move)
     new_content = serialize_frontmatter(fields, body=new_body)
     safe_write(abs_path, new_content, bounds=vault_root)
 
-    return _result_payload(rel_path, rel_path, operation, existing_body, new_body)
+    result_scope = "section" if operation == "delete_section" and resolved else scope
+    return _result_payload(
+        rel_path,
+        rel_path,
+        operation,
+        existing_body,
+        new_body,
+        resolved=resolved,
+        scope=result_scope,
+    )
 
 
 def _replace_exact_tag(fields, old_tag, new_tag=None):
@@ -894,7 +1015,8 @@ def _maybe_rename_on_field_change(vault_root, path, art, old_fields, new_fields)
 
 
 def _finish_artefact(vault_root, router, abs_path, fields, old_body, new_body, path, art,
-                     frontmatter_changes, operation, old_fields=None):
+                     frontmatter_changes, operation, *, old_fields=None,
+                     resolved=None, scope=None):
     """Save artefact, rename on name-driving change, status-move, return result."""
     _apply_status_change_hooks(fields, old_fields, art)
     had_explicit_created = bool((old_fields or {}).get("created")) or bool(
@@ -921,14 +1043,23 @@ def _finish_artefact(vault_root, router, abs_path, fields, old_body, new_body, p
             abs_path = os.path.join(vault_root, path)
     terminal = (art.get("frontmatter") or {}).get("terminal_statuses")
     path = _maybe_status_move(vault_root, path, terminal, frontmatter_changes)
-    return _result_payload(path, resolved_path, operation, old_body, new_body)
+    return _result_payload(
+        path,
+        resolved_path,
+        operation,
+        old_body,
+        new_body,
+        resolved=resolved,
+        scope=scope,
+    )
 
 
 # ---------------------------------------------------------------------------
 # Core operations
 # ---------------------------------------------------------------------------
 
-def edit_artefact(vault_root, router, path, body="", frontmatter_changes=None, target=None):
+def edit_artefact(vault_root, router, path, body="", frontmatter_changes=None,
+                  target=None, selector=None, scope=None):
     """Replace body of existing artefact. Merges frontmatter_changes into existing FM.
 
     Args:
@@ -937,11 +1068,11 @@ def edit_artefact(vault_root, router, path, body="", frontmatter_changes=None, t
         path: Relative path from vault root.
         body: New body content. Empty string with no frontmatter changes and no
               target is a no-op error. With frontmatter-only changes, the
-              existing body is preserved. Use target=":entire_body" to explicitly
-              replace the full body (including clearing it).
+              existing body is preserved.
         frontmatter_changes: Optional dict of frontmatter field changes (overwrites fields).
-        target: Optional heading, callout title, ":entire_body", or ":body_preamble".
-                When given, replaces that section or reserved body range with body.
+        target: Optional ":body", heading, or callout target.
+        selector: Optional structural selector object for duplicate disambiguation.
+        scope: Optional mutable range within the selected target.
 
     Returns:
         Dict with path and operation.
@@ -950,7 +1081,9 @@ def edit_artefact(vault_root, router, path, body="", frontmatter_changes=None, t
         ValueError: If path validation fails or target not found.
         FileNotFoundError: If the file does not exist.
     """
-    _validate_edit_request("edit", body, frontmatter_changes, target)
+    _validate_request_contract(
+        "edit", body, frontmatter_changes, target, selector, scope
+    )
     path, abs_path, fields, existing_body, art = _open_artefact(vault_root, router, path)
     old_fields = dict(fields)
     frontmatter_changes = _normalise_ownership_changes(
@@ -958,7 +1091,14 @@ def edit_artefact(vault_root, router, path, body="", frontmatter_changes=None, t
     )
     _merge_frontmatter(fields, frontmatter_changes, "edit")
     ensure_parent_tag(fields)
-    new_body = _apply_edit(existing_body, body, target)
+    new_body, resolved = _apply_body_operation(
+        existing_body,
+        "edit",
+        body,
+        target=target,
+        selector=selector,
+        scope=scope,
+    )
     return _finish_artefact(
         vault_root,
         router,
@@ -971,10 +1111,13 @@ def edit_artefact(vault_root, router, path, body="", frontmatter_changes=None, t
         frontmatter_changes,
         "edit",
         old_fields=old_fields,
+        resolved=resolved,
+        scope=scope,
     )
 
 
-def delete_section_artefact(vault_root, router, path, target, frontmatter_changes=None):
+def delete_section_artefact(vault_root, router, path, target, selector=None,
+                            frontmatter_changes=None):
     """Delete a section (heading + all its content) from an existing artefact.
 
     Args:
@@ -992,7 +1135,9 @@ def delete_section_artefact(vault_root, router, path, target, frontmatter_change
         ValueError: If path validation fails or target not found.
         FileNotFoundError: If the file does not exist.
     """
-    _validate_edit_request("delete_section", "", frontmatter_changes, target)
+    _validate_request_contract(
+        "delete_section", "", frontmatter_changes, target, selector, None
+    )
     path, abs_path, fields, existing_body, art = _open_artefact(vault_root, router, path)
     old_fields = dict(fields)
     frontmatter_changes = _normalise_ownership_changes(
@@ -1000,7 +1145,14 @@ def delete_section_artefact(vault_root, router, path, target, frontmatter_change
     )
     _merge_frontmatter(fields, frontmatter_changes, "edit")
     ensure_parent_tag(fields)
-    new_body = _apply_delete_section(existing_body, target)
+    new_body, resolved = _apply_body_operation(
+        existing_body,
+        "delete_section",
+        "",
+        target=target,
+        selector=selector,
+        scope=None,
+    )
     return _finish_artefact(
         vault_root,
         router,
@@ -1013,10 +1165,13 @@ def delete_section_artefact(vault_root, router, path, target, frontmatter_change
         frontmatter_changes,
         "delete_section",
         old_fields=old_fields,
+        resolved=resolved,
+        scope="section",
     )
 
 
-def append_to_artefact(vault_root, router, path, content="", frontmatter_changes=None, target=None):
+def append_to_artefact(vault_root, router, path, content="", frontmatter_changes=None,
+                       target=None, selector=None, scope=None):
     """Append content to existing artefact body.
 
     Args:
@@ -1026,8 +1181,9 @@ def append_to_artefact(vault_root, router, path, content="", frontmatter_changes
         content: Content to append. Empty string for frontmatter-only changes.
         frontmatter_changes: Optional dict of frontmatter field changes
                              (extends list fields with dedup, overwrites scalars).
-        target: Optional heading or callout title. When given, appends at the end of
-                that section. Use ":entire_body" to append to the whole body explicitly.
+        target: Optional ":body", heading, or callout target.
+        selector: Optional structural selector object for duplicate disambiguation.
+        scope: Optional mutable range within the selected target.
 
     Returns:
         Dict with path and operation.
@@ -1036,7 +1192,9 @@ def append_to_artefact(vault_root, router, path, content="", frontmatter_changes
         ValueError: If path validation fails or target not found.
         FileNotFoundError: If the file does not exist.
     """
-    _validate_edit_request("append", content, frontmatter_changes, target)
+    _validate_request_contract(
+        "append", content, frontmatter_changes, target, selector, scope
+    )
     path, abs_path, fields, body, art = _open_artefact(vault_root, router, path)
     old_fields = dict(fields)
     frontmatter_changes = _normalise_ownership_changes(
@@ -1044,7 +1202,14 @@ def append_to_artefact(vault_root, router, path, content="", frontmatter_changes
     )
     _merge_frontmatter(fields, frontmatter_changes, "append")
     ensure_parent_tag(fields)
-    new_body = _apply_append(body, content, target)
+    new_body, resolved = _apply_body_operation(
+        body,
+        "append",
+        content,
+        target=target,
+        selector=selector,
+        scope=scope,
+    )
     return _finish_artefact(
         vault_root,
         router,
@@ -1057,10 +1222,13 @@ def append_to_artefact(vault_root, router, path, content="", frontmatter_changes
         frontmatter_changes,
         "append",
         old_fields=old_fields,
+        resolved=resolved,
+        scope=scope,
     )
 
 
-def prepend_to_artefact(vault_root, router, path, content="", frontmatter_changes=None, target=None):
+def prepend_to_artefact(vault_root, router, path, content="", frontmatter_changes=None,
+                        target=None, selector=None, scope=None):
     """Prepend content to existing artefact body.
 
     Args:
@@ -1070,9 +1238,9 @@ def prepend_to_artefact(vault_root, router, path, content="", frontmatter_change
         content: Content to prepend. Empty string for frontmatter-only changes.
         frontmatter_changes: Optional dict of frontmatter field changes
                              (extends list fields with dedup, overwrites scalars).
-        target: Optional heading or callout title. When given, inserts content before
-                that section's heading line. Use ":entire_body" to prepend to the
-                whole body explicitly.
+        target: Optional ":body", heading, or callout target.
+        selector: Optional structural selector object for duplicate disambiguation.
+        scope: Optional mutable range within the selected target.
 
     Returns:
         Dict with path and operation.
@@ -1081,7 +1249,9 @@ def prepend_to_artefact(vault_root, router, path, content="", frontmatter_change
         ValueError: If path validation fails or target not found.
         FileNotFoundError: If the file does not exist.
     """
-    _validate_edit_request("prepend", content, frontmatter_changes, target)
+    _validate_request_contract(
+        "prepend", content, frontmatter_changes, target, selector, scope
+    )
     path, abs_path, fields, body, art = _open_artefact(vault_root, router, path)
     old_fields = dict(fields)
     frontmatter_changes = _normalise_ownership_changes(
@@ -1089,7 +1259,14 @@ def prepend_to_artefact(vault_root, router, path, content="", frontmatter_change
     )
     _merge_frontmatter(fields, frontmatter_changes, "prepend")
     ensure_parent_tag(fields)
-    new_body = _apply_prepend(body, content, target)
+    new_body, resolved = _apply_body_operation(
+        body,
+        "prepend",
+        content,
+        target=target,
+        selector=selector,
+        scope=scope,
+    )
     return _finish_artefact(
         vault_root,
         router,
@@ -1102,6 +1279,8 @@ def prepend_to_artefact(vault_root, router, path, content="", frontmatter_change
         frontmatter_changes,
         "prepend",
         old_fields=old_fields,
+        resolved=resolved,
+        scope=scope,
     )
 
 
@@ -1365,6 +1544,13 @@ def unarchive_artefact(vault_root, router, path):
 # ---------------------------------------------------------------------------
 
 def main():
+    def _parse_selector_int(arg_name, raw):
+        try:
+            return int(raw)
+        except ValueError:
+            print(f"Error: {arg_name} expects an integer", file=sys.stderr)
+            sys.exit(1)
+
     operation = None
     path = None
     body = ""
@@ -1373,6 +1559,9 @@ def main():
     json_mode = False
     fm_json = None
     target = None
+    scope = None
+    occurrence = None
+    within = []
 
     i = 1
     while i < len(sys.argv):
@@ -1391,6 +1580,23 @@ def main():
             i += 2
         elif arg == "--target" and i + 1 < len(sys.argv):
             target = sys.argv[i + 1]
+            i += 2
+        elif arg == "--scope" and i + 1 < len(sys.argv):
+            scope = sys.argv[i + 1]
+            i += 2
+        elif arg == "--occurrence" and i + 1 < len(sys.argv):
+            occurrence = _parse_selector_int("--occurrence", sys.argv[i + 1])
+            i += 2
+        elif arg == "--within" and i + 1 < len(sys.argv):
+            within.append({"target": sys.argv[i + 1]})
+            i += 2
+        elif arg == "--within-occurrence" and i + 1 < len(sys.argv):
+            if not within:
+                print("Error: --within-occurrence requires a preceding --within", file=sys.stderr)
+                sys.exit(1)
+            within[-1]["occurrence"] = _parse_selector_int(
+                "--within-occurrence", sys.argv[i + 1]
+            )
             i += 2
         elif arg == "--vault" and i + 1 < len(sys.argv):
             vault_arg = sys.argv[i + 1]
@@ -1412,7 +1618,10 @@ def main():
 
     if operation not in ("edit", "append", "prepend", "delete_section") or not path:
         print(
-            'Usage: edit.py edit|append|prepend|delete_section --path PATH --target HEADING [--vault PATH] [--json] [--temp-path [SUFFIX]]',
+            "Usage: edit.py edit|append|prepend|delete_section --path PATH "
+            "[--target TARGET] [--scope SCOPE] [--occurrence N] "
+            "[--within TARGET --within-occurrence N]... [--vault PATH] "
+            "[--json] [--temp-path [SUFFIX]]",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -1434,16 +1643,37 @@ def main():
         sys.exit(1)
 
     fm_changes = json.loads(fm_json) if fm_json else None
+    selector = None
+    if within or occurrence is not None:
+        selector = {"within": within}
+        if occurrence is not None:
+            selector["occurrence"] = occurrence
 
     try:
         if operation == "edit":
-            result = edit_artefact(vault_root, router, path, body, frontmatter_changes=fm_changes, target=target)
+            result = edit_artefact(
+                vault_root, router, path, body,
+                frontmatter_changes=fm_changes,
+                target=target, selector=selector, scope=scope,
+            )
         elif operation == "append":
-            result = append_to_artefact(vault_root, router, path, body, frontmatter_changes=fm_changes, target=target)
+            result = append_to_artefact(
+                vault_root, router, path, body,
+                frontmatter_changes=fm_changes,
+                target=target, selector=selector, scope=scope,
+            )
         elif operation == "prepend":
-            result = prepend_to_artefact(vault_root, router, path, body, frontmatter_changes=fm_changes, target=target)
+            result = prepend_to_artefact(
+                vault_root, router, path, body,
+                frontmatter_changes=fm_changes,
+                target=target, selector=selector, scope=scope,
+            )
         else:
-            result = delete_section_artefact(vault_root, router, path, target=target, frontmatter_changes=fm_changes)
+            result = delete_section_artefact(
+                vault_root, router, path,
+                target=target, selector=selector,
+                frontmatter_changes=fm_changes,
+            )
     except (ValueError, FileNotFoundError) as e:
         if json_mode:
             print(json.dumps({"error": str(e)}))

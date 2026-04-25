@@ -121,6 +121,7 @@ from ._markdown import (
     markdown_region_ranges,
     math_block_ranges,
     parse_structural_anchor_line,
+    resolve_structural_target,
     raw_html_block_ranges,
 )
 

@@ -12,7 +12,7 @@ Operational reference for scripts in `.brain-core/scripts/`. Each script exposes
 | `search_index.py` | BM25 keyword search | `python3 search_index.py "query" [--type T] [--json]` |
 | `read.py` | Query compiled router resources | `python3 read.py RESOURCE [--name N]` |
 | `create.py` | Create new artefact | `python3 create.py --type T --title "Title" [--body B] [--body-file PATH] [--temp-path [SUFFIX]] [--json]` |
-| `edit.py` | Edit artefacts and `_Config/` resources | `python3 edit.py edit\|append\|prepend\|delete_section --path P --body B [--body-file PATH] [--temp-path [SUFFIX]] [--target H] [--json]` |
+| `edit.py` | Edit artefacts via CLI; importable helpers also back `brain_edit` for editable `_Config/` resources | `python3 edit.py edit\|append\|prepend\|delete_section --path P [--body B\|--body-file PATH] [--frontmatter JSON] [--target T] [--scope S] [--occurrence N] [--within T --within-occurrence N]... [--vault V] [--json]` |
 | `rename.py` | Rename/delete file + update wikilinks (full-path and filename-only), refusing existing-destination collisions | `python3 rename.py "source" "dest" [--json]` |
 | `check.py` | Structural compliance checks | `python3 check.py [--json] [--severity S]` |
 | `shape_printable.py` | Create printable + render PDF | `python3 shape_printable.py --source P --slug S [--no-render] [--pdf-engine E]` |
@@ -121,6 +121,45 @@ python3 compile_router.py --json    # output JSON to stdout
 **Constraints:** Python 3.8+ stdlib only, self-locating, stateless, idempotent, stdout-only.
 
 **Relationship with `compliance_check.py`:** The vault-maintenance skill ships a separate `compliance_check.py` for **session hygiene** — quick checks like "did you log today? any transcripts? backups fresh?" It runs after each work block as a sanity check. `check.py` (this design) is **structural compliance** — "do all files have correct frontmatter? naming? month folders?" Deep scan, runs on demand or during maintenance. These are complementary tools, not competing ones.
+
+## edit.py
+
+`edit.py` is the single-file mutation implementation for artefacts and editable `_Config/` resources (`skill`, `memory`, `style`, `template`). The importable `edit_resource(...)` and MCP `brain_edit` surfaces handle both; the direct CLI edits artefacts only. The structural model is explicit:
+
+- `target` selects `:body`, a heading target, or a callout target
+- optional `selector` is expressed through CLI flags:
+  - `--occurrence N` for the final target
+  - repeated `--within TARGET [--within-occurrence N]` steps for ordered ancestor narrowing
+- `scope` selects the mutable range inside the resolved target
+
+**Scope matrix:**
+
+| Target kind | `edit` scopes | `append` / `prepend` scopes |
+|---|---|---|
+| `:body` | `section`, `intro` | `section`, `intro` |
+| Heading | `section`, `body`, `intro`, `heading` | `section`, `body`, `intro` |
+| Callout | `section`, `body`, `header` | `section`, `body` |
+
+**Contract notes:**
+
+- Body mutations are explicit. Omitted `target` no longer means "whole body"; use `--target :body --scope section`.
+- `delete_section` uses the same `target` / selector model, but does not accept `--scope`.
+- `:body` is only valid as the top-level target, not inside `--within`.
+- Legacy spellings are migration errors:
+  - `:entire_body` → `--target :body --scope section`
+  - `:body_preamble` / `:body_before_first_heading` → `--target :body --scope intro`
+  - `:section:...` → real heading/callout target plus `--scope section`
+- Body intro is heading-defined. Callouts before the first heading are still part of `--target :body --scope intro`.
+
+**Examples:**
+
+```bash
+python3 edit.py edit --path Wiki/page.md --target :body --scope section --body "# New Body"
+python3 edit.py append --path Wiki/page.md --target "## Notes" --scope body --body "More notes."
+python3 edit.py edit --path Wiki/page.md --target "## Notes" --scope body \
+  --within "# API" --within-occurrence 2 --body "Selected notes."
+python3 edit.py delete_section --path Wiki/page.md --target "[!note] Status"
+```
 
 ## install.sh
 

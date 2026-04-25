@@ -76,8 +76,6 @@ import read as read_mod
 import rename
 import create
 from _common import (
-    collect_headings,
-    find_section,
     is_archived_path,
     iter_artefact_paths,
     parse_frontmatter,
@@ -1110,7 +1108,6 @@ def _runtime() -> ServerRuntime:
         compile_and_save=_compile_and_save,
         build_index_and_save=_build_index_and_save,
         refresh_session_mirror_best_effort=_refresh_session_mirror_best_effort,
-        surrounding_headings=_surrounding_headings,
     )
 
 
@@ -1131,77 +1128,6 @@ def _enforce_profile(tool_name: str) -> CallToolResult | None:
             f"operator profile '{_session_profile}' does not allow {tool_name}"
         )
     return None
-
-
-def _surrounding_headings(vault_root, rel_path, target):
-    """Return (prev_heading, next_heading) around a target section.
-
-    Re-reads the file after a write to reflect the final state.
-    Returns heading text (e.g. "## Alpha") or None for start/end of document.
-    Uses collect_headings for a single scan, then locates the target in
-    the heading list to find its neighbors (no second scan via find_section).
-    """
-    try:
-        abs_path = os.path.join(vault_root, rel_path)
-        with open(abs_path, "r", encoding="utf-8") as f:
-            content = f.read()
-        _, body = parse_frontmatter(content)
-
-        # Callout targets don't appear in the heading list — fall back to find_section
-        stripped = target.strip()
-        if stripped.startswith("[!"):
-            headings = collect_headings(body)
-            heading_start, sec_end = find_section(body, target, include_heading=True)
-            prev_heading = None
-            next_heading = None
-            for pos, _level, _text, raw in headings:
-                if pos < heading_start:
-                    prev_heading = raw
-                elif pos >= sec_end:
-                    next_heading = raw
-                    break
-            return prev_heading, next_heading
-
-        # For heading targets: find in collected headings (single scan, no find_section)
-        headings = collect_headings(body)
-
-        # Parse target to match: level-aware if # markers present, else text-only
-        if stripped.startswith("#"):
-            markers = stripped.split()[0]
-            target_level = len(markers)
-            target_text = stripped[len(markers):].strip().lower()
-        else:
-            target_level = None
-            target_text = stripped.lower()
-
-        target_idx = None
-        for idx, (pos, level, text, raw) in enumerate(headings):
-            if text.lower() != target_text:
-                continue
-            if target_level is not None and level != target_level:
-                continue
-            target_idx = idx
-            break
-
-        if target_idx is None:
-            return None, None
-
-        # Find end of section: next heading at same or higher level
-        target_level_actual = headings[target_idx][1]
-        sec_end_idx = None
-        for j in range(target_idx + 1, len(headings)):
-            if headings[j][1] <= target_level_actual:
-                sec_end_idx = j
-                break
-
-        prev_heading = headings[target_idx - 1][3] if target_idx > 0 else None
-        next_heading = headings[sec_end_idx][3] if sec_end_idx is not None else None
-
-        return prev_heading, next_heading
-    except Exception as e:
-        if _logger:
-            _logger.warning("_surrounding_headings failed: %s", e, exc_info=True)
-        return None, None
 
 
 def _fmt_error(msg):
@@ -1545,7 +1471,19 @@ def brain_create(type: str = "", title: str = "", body: str = "", body_file: str
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def brain_edit(operation: Literal["edit", "append", "prepend", "delete_section"], path: str = "", body: str = "", body_file: str = "", frontmatter: dict | None = None, target: str | None = None, resource: str = "artefact", name: str = "", fix_links: bool = False):
+def brain_edit(
+    operation: Literal["edit", "append", "prepend", "delete_section"],
+    path: str = "",
+    body: str = "",
+    body_file: str = "",
+    frontmatter: dict | None = None,
+    target: str | None = None,
+    selector: dict | None = None,
+    scope: Literal["section", "intro", "body", "heading", "header"] | None = None,
+    resource: Literal["artefact", "skill", "memory", "style", "template"] = "artefact",
+    name: str = "",
+    fix_links: bool = False,
+):
     """Modify an existing vault resource. Single-file mutation.
 
     For bodies over ~1 KB, prefer body_file over body to save tokens in the tool call.
@@ -1553,9 +1491,12 @@ def brain_edit(operation: Literal["edit", "append", "prepend", "delete_section"]
     Parameters:
       resource   — resource kind (default "artefact"). Editable: artefact, skill,
                    memory, style, template.
-      operation  — "edit" (replace body/section), "append" (add after), "prepend" (insert before),
-                   or "delete_section" (remove a section including its heading; requires target)
-      path       — relative path or basename for artefacts (resolves like wikilinks).
+      operation  — "edit" (replace a resolved structural range), "append" (add after),
+                   "prepend" (insert before), or "delete_section" (remove a resolved
+                   heading-owned section or callout block; requires target)
+      path       — canonical artefact key (e.g. "design/brain"), relative path,
+                   or basename/display name for artefacts. Resolves via artefact
+                   index, direct path, or wikilink-style lookup.
                    Required when resource="artefact".
       name       — resource name for non-artefact resources (e.g. "my-skill").
                    Required when resource is skill, memory, style, or template.
@@ -1574,18 +1515,22 @@ def brain_edit(operation: Literal["edit", "append", "prepend", "delete_section"]
                    edit overwrites fields; append/prepend extend list fields (with dedup)
                    and overwrite scalars. Set a field to null to delete it.
                    All operations can be used for frontmatter-only changes by omitting body.
-      target     — optional heading, callout title, ":entire_body", or
-                   ":body_preamble".
-                   When given: edit replaces that section's content; append inserts at end
-                   of the section; prepend inserts before the section's heading line.
-                   Include # markers to disambiguate duplicate headings (e.g. "### Notes").
-                   For callouts, use the [!type] prefix (e.g. "[!note] Implementation status").
-                   Use target=":entire_body" to explicitly target the full markdown body
-                   after frontmatter. This spelling is also valid for append/prepend.
-                   Use target=":body_preamble" with edit to target the leading
-                   body content before the first targetable section (heading or
-                   callout).
-                   target=":body" is rejected; use one of the explicit reserved targets.
+      target     — optional structural target. Use ":body" for the markdown body
+                   after frontmatter, a heading target such as "## Notes", or a
+                   callout target such as "[!note] Implementation status".
+      selector   — optional target disambiguation object. Supported fields:
+                   "within" (ordered ancestor chain of {target, occurrence?} steps)
+                   and "occurrence" (1-based duplicate selector in the current
+                   search space). ":body" is only valid as the top-level target.
+      scope      — optional mutable range within the resolved target.
+                   Required for structural edit/append/prepend calls.
+                   Valid scopes:
+                   - body target: "section", "intro"
+                   - heading target: "section", "body", "intro", "heading"
+                     ("heading" is edit-only)
+                   - callout target: "section", "body", "header"
+                     ("header" is edit-only)
+                   delete_section does not accept scope.
       fix_links  — optional boolean (default false). When true, resolvable broken
                    wikilinks in the edited file are auto-rewritten to their
                    target after the edit completes. Remaining unresolvable or
@@ -1594,7 +1539,16 @@ def brain_edit(operation: Literal["edit", "append", "prepend", "delete_section"]
     Artefact paths validated against compiled router — wrong folder or naming rejected with helpful error.
     Non-artefact resources resolve via _Config/ conventions (no terminal status auto-move).
     """
-    with _trace_tool("brain_edit", resource=resource, operation=operation, path=path, name=name, target=target):
+    with _trace_tool(
+        "brain_edit",
+        resource=resource,
+        operation=operation,
+        path=path,
+        name=name,
+        target=target,
+        selector=selector,
+        scope=scope,
+    ):
         try:
             with _serialize_mutation(f"brain_edit:{resource}:{path or name}"):
                 return _server_artefacts.handle_brain_edit(
@@ -1604,6 +1558,8 @@ def brain_edit(operation: Literal["edit", "append", "prepend", "delete_section"]
                     body_file=body_file,
                     frontmatter=frontmatter,
                     target=target,
+                    selector=selector,
+                    scope=scope,
                     resource=resource,
                     name=name,
                     runtime=_runtime(),

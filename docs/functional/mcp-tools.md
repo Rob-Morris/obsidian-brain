@@ -146,27 +146,34 @@ Single-file mutation. Write-guarded: same folder restrictions as `brain_create`.
 - `body` — omit for frontmatter-only changes; ignored for `delete_section`
 - `body_file` (optional) — same semantics as `brain_create`'s `body_file`
 - `frontmatter` (optional) — merge strategy depends on operation: edit overwrites fields; append/prepend extend list fields with dedup and overwrite scalars; set a field to `null` to delete it
-- `target` (optional) — heading, callout title, `:entire_body`, or `:body_preamble`:
-  - `edit` replaces the section's content
-  - `append` inserts at the end of the section; `target=":entire_body"` appends to the full body explicitly
-  - `prepend` inserts before the section's heading line; `target=":entire_body"` prepends to the full body explicitly
-  - `delete_section` removes the heading and all its content (requires `target`)
-  - Include `#` markers to disambiguate duplicate headings
-  - Use `[!type]` prefix for callouts, e.g. `"[!note] Status"`
-  - Use `target=":entire_body"` to explicitly target the full markdown body after frontmatter
-  - Use `target=":body_preamble"` with `edit` to target the leading body content before the first targetable section (heading or callout)
-  - `target=":body_preamble"` is `edit`-only
-  - `target=":body"` is rejected; use one of the explicit reserved targets instead
-  - Use `target=":section:## Heading"` or `target=":section:[!note] Title"` with `edit` to replace the entire matched section including its heading/title line
-  - Plain targeted `edit` remains content-only: one exact copied heading/callout wrapper at the start of `body` is stripped; leading callouts and lower-level headings are allowed as section content; same-level or higher headings are rejected with an error directing the caller to `:section:...`
+- `target` (optional for frontmatter-only edits; required for structural mutations and `delete_section`) — one of:
+  - `":body"` — the markdown body after frontmatter
+  - a heading target such as `"## Notes"`
+  - a callout target such as `"[!note] Status"`
+- `selector` (optional) — disambiguates duplicate targets after `target` selection:
+  - `occurrence` — 1-based duplicate selector in the current search space
+  - `within` — ordered ancestor chain of `{target, occurrence?}` steps from outermost to innermost
+  - `":body"` is only valid as the top-level `target`, never inside `selector.within`
+- `scope` (required for structural `edit` / `append` / `prepend`) — mutable range inside the resolved target:
+  - `target=":body"`: `section`, `intro`
+  - heading targets: `section`, `body`, `intro`, `heading` (`heading` is `edit`-only)
+  - callout targets: `section`, `body`, `header` (`header` is `edit`-only)
+  - `delete_section` does not accept `scope`; it deletes the resolved heading section or callout block
+- Legacy spellings are migration errors, not aliases:
+  - `target=":entire_body"` → use `target=":body", scope="section"`
+  - `target=":body_preamble"` / `target=":body_before_first_heading"` → use `target=":body", scope="intro"`
+  - `target=":section:..."` → use the real heading/callout target with `scope="section"`
 - `fix_links` (optional, default `false`) — when `true`, resolvable broken wikilinks in the edited artefact are auto-rewritten to their canonical target after the edit completes; remaining unresolvable or ambiguous links are still reported as warnings
 
 **Behaviour:**
 - For artefacts: path validated against compiled router — wrong folder or naming rejected with helpful error; auto-updates `modified` frontmatter field on every write; auto-sets `statusdate` (YYYY-MM-DD) whenever `status` actually changes; terminal status auto-moves to `+Status/` subfolder with vault-wide wikilink updates, reverts on non-terminal
 - For non-artefact resources: resolves via `_Config/` conventions; no terminal status auto-move or `modified` injection
+- Body mutations are explicit: omitted `target` no longer means "whole body". Use `target=":body"` plus `scope`.
+- Heading structure defines intro/section boundaries. Callouts are individually targetable, but they do not terminate `target=":body", scope="intro"`.
+- Ambiguous structural matches hard-error with candidate context. Use `selector.occurrence` or `selector.within` to disambiguate.
 - Every artefact edit runs a per-file wikilink check; broken, resolvable, and ambiguous links are appended to the response as `⚠` warning lines (and auto-applied fixes as a `✔` block when `fix_links=true`)
 
-**Response format:** Plain text confirmation: `"**Edited:** {path}"`, `"**Appended:** {path}"`, `"**Prepended:** {path}"`, or `"**Deleted section from:** {path}"`. Heading/callout targets include surrounding heading context for placement verification. Successful `edit` with `target=":entire_body"` stays on one line and includes old/new line counts.
+**Response format:** Plain text confirmation: `"**Edited:** {path}"`, `"**Appended:** {path}"`, `"**Prepended:** {path}"`, or `"**Deleted section from:** {path}"`. Structural mutations append the resolved range in parentheses, e.g. `(body section)`, `(body intro)`, `(heading body: ## Notes)`, `(heading section: # API [2] > ## Notes)`, or `(callout header: [!note] Status)`.
 
 ---
 

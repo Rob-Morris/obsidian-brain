@@ -136,14 +136,26 @@ If your vault runs the Brain MCP server (`.brain-core/brain_mcp/server.py`), eig
 - `append` — add content to end of existing body
 - `prepend` — insert content before existing body or before a target section's heading
 - Optional `frontmatter` parameter — `edit` overwrites fields; `append`/`prepend` extend list fields (with dedup) and overwrite scalars. Set a field to `null` to delete it. All operations support frontmatter-only mutations (omit body)
-- Optional `target` parameter (heading or callout title) — `edit` replaces only that section; `append` inserts at the end of that section; `prepend` inserts before the section's heading line. Include `#` markers to disambiguate duplicate headings (e.g. `"### Notes"`). For callouts, use the `[!type]` prefix (e.g. `"[!note] Implementation status"`).
-- Use `target=":entire_body"` to target the full markdown body after frontmatter. This is also valid for `append` and `prepend`.
-- Use `target=":body_preamble"` with `edit` to target only the leading body content before the first targetable section (heading or callout).
-- `target=":body"` is rejected; use the explicit reserved targets instead.
-- Use `target=":section:## Heading"` or `target=":section:[!note] Title"` with `edit` to replace the whole matched section including its heading/title line. In this mode the body must begin with a heading or callout title line.
-- Plain targeted `edit` remains content-only. If the body starts with the exact matched heading/callout wrapper, `brain_edit` strips that one redundant wrapper. Leading callouts and lower-level headings are allowed as content. Same-level or higher headings are rejected and should use `:section:...`.
-- Heading/callout targets include surrounding heading context in the response for placement verification. Reserved body targets do not.
-- For artefacts: `path` accepts relative path or basename (resolves like wikilinks); validated against compiled router
+- `target` identifies the structural node:
+  - `":body"` for the full markdown body after frontmatter
+  - a heading target such as `"### Notes"`
+  - a callout target such as `"[!note] Implementation status"`
+- Optional `selector` disambiguates duplicates:
+  - `occurrence` — 1-based duplicate selector
+  - `within` — ordered ancestor chain of `{target, occurrence?}` steps
+- `scope` chooses the mutable range inside the resolved target:
+  - `target=":body"`: `section`, `intro`
+  - heading targets: `section`, `body`, `intro`, `heading` (`heading` is `edit`-only)
+  - callout targets: `section`, `body`, `header` (`header` is `edit`-only)
+  - `delete_section` uses the same `target` / `selector` model but does not take `scope`
+- Body mutations are explicit. Omitted `target` no longer means "whole body"; use `target=":body", scope="section"` for full-body mutations.
+- `target=":body", scope="intro"` runs from the start of the markdown body to the first heading. Callouts inside that range stay part of the intro instead of terminating it.
+- Old spellings are hard-errors with guidance:
+  - `:entire_body` → `target=":body", scope="section"`
+  - `:body_preamble` / `:body_before_first_heading` → `target=":body", scope="intro"`
+  - `:section:...` → the real heading/callout target with `scope="section"`
+- Structural edit confirmations include the resolved range in the response, for example `(body section)`, `(body intro)`, `(heading body: ## Notes)`, or `(callout header: [!note] Status)`.
+- For artefacts: `path` accepts canonical artefact key (for example `"design/brain"`), relative path, or basename/display name; validated against the compiled router
 - For non-artefact resources: `name` identifies the resource (e.g. `"my-skill"`); for templates, name is the artefact type key (e.g. `"wiki"`). No terminal status auto-move or `modified` injection
 
 **brain_action** (vault-wide/destructive, requires approval)
@@ -180,7 +192,7 @@ Available in `.brain-core/scripts/`. Scripts are the source of truth for all vau
 | `search_index.py` | Search the BM25 index from the command line |
 | `read.py` | Query compiled router resources (artefacts, triggers, styles, templates, skills, etc.) |
 | `create.py` | Create a new artefact with template/naming resolution |
-| `edit.py` | Edit, append to, or convert an existing artefact |
+| `edit.py` | Edit artefacts via explicit `target + selector + scope`; the importable helpers also back editable `_Config/` resources |
 | `rename.py` | Rename a file with automatic wikilink updates; refuses existing-destination collisions before touching links |
 | `upgrade.py` | Canonical brain-core upgrade entry point from a source directory, including versioned pre-compile compatibility patches, binary-safe rollback snapshots for `.brain/` / `_Config/`, post-compile migration rollback of touched artefact roots, applied-migration tracking in `.brain/local/`, self-contained atomic writes, and best-effort vault-local MCP dependency sync when requirements change |
 | `workspace_registry.py` | Workspace key→path resolution and registration |

@@ -13,7 +13,7 @@ Scripts are the **source of truth** for all vault operations. The MCP server (`b
 | `compile_router.py` | Compile router from source files and refresh session markdown | `python3 compile_router.py [--json]` |
 | `config.py` | Vault configuration loader (three-layer merge) | `python3 config.py` |
 | `create.py` | Create new artefact or `_Config/` resource | `python3 create.py --type T --title "Title" [--body B] [--body-file PATH] [--temp-path [SUFFIX]] [--json]` |
-| `edit.py` | Edit/append/prepend to artefact or resource | `python3 edit.py edit\|append --path P --body B [--body-file PATH] [--temp-path [SUFFIX]] [--target H] [--json]` |
+| `edit.py` | Edit artefacts via CLI with explicit `target + selector + scope`; the importable helpers also back `brain_edit` for editable `_Config/` resources | `python3 edit.py edit\|append\|prepend\|delete_section --path P [--body B\|--body-file PATH] [--frontmatter JSON] [--target T] [--scope S] [--occurrence N] [--within T --within-occurrence N]... [--json]` |
 | `fix_links.py` | Auto-repair broken wikilinks | `python3 fix_links.py [--fix] [--json] [--vault V]` |
 | `generate_key.py` | Generate operator key + hash for config.yaml | `python3 generate_key.py [--count N]` |
 | `init.py` | Claude/Codex MCP server registration + recorded removal; requires a Python 3.12+ runtime with the `mcp` package, scaffolds `.brain/local/workspace.yaml` for folder-scoped installs (migrates legacy `.brain/workspace.yaml` automatically), and writes config atomically with unique sibling temp files. Project-scoped MCP still needs client-side activation before it outranks user scope: approve via `/mcp` in Claude, or trust/enable the project-scoped server in Codex. | `python3 init.py [--client {claude,codex,all}] [--user] [--local] [--project PATH] [--remove] [--force]` |
@@ -106,7 +106,7 @@ Boundary rule:
 | `_filesystem.py` | Safe writes, bounds checking, body file resolution | 7 |
 | `_frontmatter.py` | Frontmatter parsing, serialisation, streaming `read_frontmatter`, and whole-file `read_artefact` | 4 |
 | `_wikilinks.py` | Wikilink extraction, file index, broken link resolution, region-aware text mutation | 15 |
-| `_markdown.py` | Heading/callout parsing, section finding, typed literal-text regions (fenced code, inline code, HTML comments, `$$` math, raw HTML) | 17 |
+| `_markdown.py` | Heading/callout parsing, shared structural target resolution, and typed literal-text regions (fenced code, inline code, HTML comments, `$$` math, raw HTML) | 28 |
 | `_slugs.py` | Slug generation, validation, title/filename/slug conversions | 8 |
 | `_search.py` | BM25 tokenisation | 1 |
 | `_templates.py` | Timestamp utilities, template variable substitution | 3 |

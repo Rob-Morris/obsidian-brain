@@ -2,6 +2,24 @@
 
 Follows a pre-1.0 [semver](https://semver.org/) policy: backward-compatible changes are patch; breaking Brain changes are minor; only fundamental model changes are major. Breaking Brain changes include vault-structure changes and breaking tool/script/MCP contract changes. Fundamental model changes are changes to the artefact model, router contract, or agent bootstrap/entry flow.
 
+## v0.32.0 — 2026-04-25
+
+**Roll out the breaking `brain_edit` structural contract and stabilise the new target/scope model.** `brain_edit` and `edit.py` now use one explicit `target + selector + scope` contract across artefacts and editable `_Config/` resources, so older target spellings and implicit whole-body mutations are no longer accepted.
+
+- Add `resolve_structural_target(...)` in `_common/_markdown.py` as the shared resolver for body, heading, and callout ranges, then refactor `edit.py`, the MCP server, and the direct CLI onto resolved structural spans and one explicit scope matrix.
+- Replace the older reserved-target spellings with the new public contract below, extend the CLI with selector flags (`--scope`, `--occurrence`, `--within`, `--within-occurrence`), and update the docs so artefact `path` is documented as accepting canonical artefact keys, relative paths, and basename/display-name forms.
+- Harden the rollout from review findings: selector validation now rejects boolean pseudo-integers, callout body edits fail fast on malformed payloads, targeted frontmatter-only append/prepend no longer claim structural body mutations, the body trailing-newline invariant is restored, heading-body payload validation applies to append/prepend as well as edit, duplicate scope/legacy-target validation collapses to one source of truth, and the orphaned `_surrounding_headings` MCP affordance is removed.
+- Tighten the MCP schema so invalid `scope` / `resource` values are rejected at the protocol boundary and add direct + MCP regression coverage for structural resolution, selector ambiguity, trailing-newline preservation, heading-body validation, schema generation, and the CLI parse path.
+- Clarify contributor semver policy so breaking Brain contract changes, not just vault-structure changes, use a minor version bump.
+
+| Old public spelling | New public contract |
+|---|---|
+| `target=":entire_body"` | `target=":body", scope="section"` |
+| `target=":body_preamble"` | `target=":body", scope="intro"` |
+| `target=":body_before_first_heading"` | `target=":body", scope="intro"` |
+| `target=":section:## Heading"` | `target="## Heading", scope="section"` |
+| plain body mutation with no target | invalid; supply `target=":body"` plus `scope` |
+
 ## v0.31.3 — 2026-04-26
 
 **Canonical upgrade ownership and a consistent Python 3.12 tooling contract.** Upgrade/install/init now present one coherent user-facing lifecycle: `install.sh` is the convenience wrapper, `upgrade.py` owns upgrade behaviour, and `init.py` remains the MCP registration entry point.

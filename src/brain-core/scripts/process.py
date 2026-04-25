@@ -481,6 +481,7 @@ def ingest_content(
         target = resolution["target_path"]
         edit_mod.append_to_artefact(
             vault_str, router, target, content,
+            target=":body", scope="section",
         )
         return {
             "action_taken": "updated",

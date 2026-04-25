@@ -1,4 +1,6 @@
-"""Markdown section parsing — headings, fenced code blocks, callouts."""
+"""Markdown structural helpers — headings, callouts, and target resolution."""
+
+from __future__ import annotations
 
 import re
 
@@ -15,12 +17,7 @@ _RAW_HTML_BLOCK_RE = re.compile(
 
 
 def literal_ranges(body):
-    """Flat ``(start, end)`` skip list covering every markdown literal region.
-
-    Frontmatter is intentionally **not** skipped: wikilinks in YAML properties
-    (e.g. ``parent: "[[foo]]"``) are real links, matching Obsidian's
-    property-as-link model.
-    """
+    """Flat ``(start, end)`` skip list covering every markdown literal region."""
     return [(s, e) for _, s, e in markdown_region_ranges(body)]
 
 
@@ -30,17 +27,7 @@ def in_any_range(pos, ranges):
 
 
 def collect_headings(body):
-    """Collect all markdown headings outside literal regions.
-
-    Returns list of (position, level, text, raw) tuples where:
-    - position: character offset of the heading line start
-    - level: heading level (1-6)
-    - text: heading text (stripped, original case)
-    - raw: full heading line (e.g. "## Alpha")
-
-    Headings inside fenced code, raw HTML blocks, HTML comments, ``$$`` math
-    blocks, and inline code spans are ignored.
-    """
+    """Collect all markdown headings outside literal regions."""
     skip = literal_ranges(body)
     headings = []
     for m in _HEADING_RE.finditer(body):
@@ -56,14 +43,7 @@ def collect_headings(body):
 
 
 def parse_structural_anchor_line(text):
-    """Parse a heading or callout-title line from the start of ``text``.
-
-    Returns ``None`` when the first non-empty line is ordinary content.
-    Otherwise returns a dict with:
-    - kind: ``"heading"`` or ``"callout"``
-    - raw: the exact structural line (trimmed)
-    - level: heading level for headings, else ``None``
-    """
+    """Parse a heading or callout-title line from the start of ``text``."""
     for line in text.splitlines():
         if not line.strip():
             continue
@@ -107,12 +87,7 @@ def fenced_ranges(body):
 
 
 def inline_code_ranges(body, skip=None):
-    """Return list of (start, end) ranges for inline code spans.
-
-    Pairs backtick runs of equal length outside fenced code blocks. Ranges
-    cover the full span including the delimiters. *skip* may carry
-    pre-computed fenced ranges to avoid recomputation.
-    """
+    """Return list of (start, end) ranges for inline code spans."""
     if skip is None:
         skip = fenced_ranges(body)
     runs = []
@@ -145,12 +120,7 @@ def html_comment_ranges(body):
 
 
 def math_block_ranges(body, skip=None):
-    """Return list of (start, end) ranges for ``$$...$$`` math blocks.
-
-    Pairs ``$$`` markers outside fenced code blocks and inline code spans.
-    Ranges cover the full span including the delimiters. *skip* may carry
-    pre-computed fenced+inline-code ranges to avoid recomputation.
-    """
+    """Return list of (start, end) ranges for ``$$...$$`` math blocks."""
     if skip is None:
         skip = fenced_ranges(body) + inline_code_ranges(body)
     markers = []
@@ -168,17 +138,10 @@ def math_block_ranges(body, skip=None):
 
 
 def raw_html_block_ranges(body):
-    """Return list of (start, end) ranges for raw HTML blocks.
-
-    Matches ``<pre>``, ``<script>``, and ``<style>`` elements (case-insensitive)
-    and everything up to their matching close tag.
-    """
+    """Return list of (start, end) ranges for raw HTML blocks."""
     return [(m.start(), m.end()) for m in _RAW_HTML_BLOCK_RE.finditer(body)]
 
 
-# Region kinds — tags on each range returned by `markdown_region_ranges`.
-# Callers that care about *which* context a range belongs to can match on kind;
-# callers that just need a flat skip list can discard it.
 REGION_FENCE = "fence"
 REGION_RAW_HTML = "raw_html"
 REGION_MATH_BLOCK = "math_block"
@@ -187,14 +150,7 @@ REGION_HTML_COMMENT = "html_comment"
 
 
 def markdown_region_ranges(body):
-    """Return typed ``(kind, start, end)`` regions for markdown contexts
-    where inline syntax should be treated as literal text.
-
-    Walks block-level constructs first (fences, raw HTML blocks, ``$$`` math
-    blocks), then inline constructs (backtick code spans, HTML comments) in
-    a second pass that respects the block ranges. Each returned tuple is
-    ``(kind, start, end)``; the start/end are character offsets into *body*.
-    """
+    """Return typed ``(kind, start, end)`` regions for literal markdown contexts."""
     fence = fenced_ranges(body)
     raw_html = raw_html_block_ranges(body)
     inline = inline_code_ranges(body, skip=fence)
@@ -210,48 +166,383 @@ def markdown_region_ranges(body):
     return regions
 
 
+def _normalize_structural_text(text):
+    """Normalize structural text for case-insensitive exact matching."""
+    return " ".join(text.strip().split()).lower()
+
+
+def _line_offsets(body):
+    """Return ``(lines, starts)`` for ``body`` preserving line endings."""
+    lines = body.splitlines(keepends=True)
+    if not body:
+        return [], []
+
+    starts = []
+    pos = 0
+    for line in lines:
+        starts.append(pos)
+        pos += len(line)
+    return lines, starts
+
+
+def _is_blockquote_line(line):
+    return line.lstrip().startswith(">")
+
+
+def _match_heading_line(line):
+    return _HEADING_RE.match(line.rstrip("\n"))
+
+
+def _match_callout_title_line(line):
+    return _CALLOUT_TITLE_RE.match(line.rstrip("\n"))
+
+
+def _scan_structural_nodes(body):
+    """Scan the body into targetable heading and callout nodes."""
+    skip = literal_ranges(body)
+    lines, starts = _line_offsets(body)
+
+    heading_nodes = []
+    for line, start in zip(lines, starts):
+        if in_any_range(start, skip):
+            continue
+        match = _match_heading_line(line)
+        if not match:
+            continue
+        heading_nodes.append(
+            {
+                "kind": "heading",
+                "raw": match.group(0).strip(),
+                "text": match.group(2).strip(),
+                "normalized_text": _normalize_structural_text(match.group(2)),
+                "level": len(match.group(1)),
+                "start": start,
+                "anchor_end": start + len(line),
+                "section_end": len(body),
+                "body_start": start + len(line),
+                "body_end": len(body),
+                "intro_end": len(body),
+                "parent": None,
+            }
+        )
+
+    stack = []
+    for node in heading_nodes:
+        while stack and stack[-1]["level"] >= node["level"]:
+            stack.pop()
+        node["parent"] = stack[-1] if stack else None
+        stack.append(node)
+
+    for idx, node in enumerate(heading_nodes):
+        section_end = len(body)
+        intro_end = section_end
+        for other in heading_nodes[idx + 1:]:
+            if other["level"] <= node["level"]:
+                section_end = other["start"]
+                break
+        for other in heading_nodes[idx + 1:]:
+            if other["start"] >= section_end:
+                break
+            if other["level"] > node["level"]:
+                intro_end = other["start"]
+                break
+        node["section_end"] = section_end
+        node["body_end"] = section_end
+        node["intro_end"] = intro_end
+
+    callout_nodes = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        start = starts[i]
+        if in_any_range(start, skip):
+            i += 1
+            continue
+
+        title_match = _match_callout_title_line(line)
+        prev_is_blockquote = False
+        if i > 0 and not in_any_range(starts[i - 1], skip):
+            prev_is_blockquote = _is_blockquote_line(lines[i - 1])
+        if not title_match or prev_is_blockquote:
+            i += 1
+            continue
+
+        end = start + len(line)
+        j = i + 1
+        while j < len(lines):
+            next_start = starts[j]
+            if in_any_range(next_start, skip):
+                break
+            if not _is_blockquote_line(lines[j]):
+                break
+            end = next_start + len(lines[j])
+            j += 1
+
+        callout_nodes.append(
+            {
+                "kind": "callout",
+                "raw": title_match.group(1).strip(),
+                "text": title_match.group(1).strip(),
+                "normalized_text": _normalize_structural_text(title_match.group(1)),
+                "level": None,
+                "start": start,
+                "anchor_end": start + len(line),
+                "section_end": end,
+                "body_start": start + len(line),
+                "body_end": end,
+                "intro_end": None,
+                "parent": None,
+            }
+        )
+        i = j
+
+    for node in callout_nodes:
+        parent = None
+        for heading in heading_nodes:
+            if heading["start"] < node["start"] < heading["section_end"]:
+                if parent is None or heading["start"] > parent["start"]:
+                    parent = heading
+        node["parent"] = parent
+
+    nodes = sorted(heading_nodes + callout_nodes, key=lambda item: item["start"])
+    intro_end = heading_nodes[0]["start"] if heading_nodes else len(body)
+    root = {
+        "kind": "body",
+        "raw": ":body",
+        "text": ":body",
+        "normalized_text": ":body",
+        "level": None,
+        "start": 0,
+        "anchor_end": 0,
+        "section_end": len(body),
+        "body_start": 0,
+        "body_end": len(body),
+        "intro_end": intro_end,
+        "parent": None,
+    }
+    return root, nodes
+
+
+def _container_descendants(container, nodes):
+    """Return nodes inside ``container``'s search space in document order."""
+    start = 0 if container["kind"] == "body" else container["body_start"]
+    end = container["section_end"]
+    return [node for node in nodes if start <= node["start"] < end and node is not container]
+
+
+def _heading_target_spec(target):
+    stripped = target.strip()
+    if stripped.startswith("#"):
+        markers = stripped.split()[0]
+        return len(markers), _normalize_structural_text(stripped[len(markers):])
+    return None, _normalize_structural_text(stripped)
+
+
+def _matches_target(node, target):
+    stripped = target.strip()
+    if stripped == ":body":
+        return node["kind"] == "body"
+    if stripped.startswith("[!"):
+        return (
+            node["kind"] == "callout"
+            and node["normalized_text"] == _normalize_structural_text(stripped)
+        )
+    level, text = _heading_target_spec(stripped)
+    return (
+        node["kind"] == "heading"
+        and node["normalized_text"] == text
+        and (level is None or node["level"] == level)
+    )
+
+
+def _normalize_selector(selector):
+    """Validate and normalize a structural selector."""
+    if selector is None:
+        return {"within": [], "occurrence": None}
+    if not isinstance(selector, dict):
+        raise ValueError("selector must be an object with optional within/occurrence fields")
+
+    unknown = set(selector) - {"within", "occurrence"}
+    if unknown:
+        bad = ", ".join(sorted(unknown))
+        raise ValueError(f"selector has unsupported fields: {bad}")
+
+    occurrence = selector.get("occurrence")
+    if occurrence is not None:
+        if type(occurrence) is not int or occurrence < 1:
+            raise ValueError("selector.occurrence must be a positive integer")
+
+    within_steps = []
+    for idx, step in enumerate(selector.get("within") or []):
+        if not isinstance(step, dict):
+            raise ValueError(f"selector.within[{idx}] must be an object")
+        unknown = set(step) - {"target", "occurrence"}
+        if unknown:
+            bad = ", ".join(sorted(unknown))
+            raise ValueError(f"selector.within[{idx}] has unsupported fields: {bad}")
+        target = step.get("target")
+        if not isinstance(target, str) or not target.strip():
+            raise ValueError(f"selector.within[{idx}].target is required")
+        if target.strip() == ":body":
+            raise ValueError("selector.within targets cannot use ':body'")
+        step_occurrence = step.get("occurrence")
+        if step_occurrence is not None:
+            if type(step_occurrence) is not int or step_occurrence < 1:
+                raise ValueError(
+                    f"selector.within[{idx}].occurrence must be a positive integer"
+                )
+        within_steps.append({"target": target, "occurrence": step_occurrence})
+
+    return {"within": within_steps, "occurrence": occurrence}
+
+
+def _step_display(raw, occurrence):
+    if occurrence and occurrence > 1:
+        return f"{raw} [{occurrence}]"
+    return raw
+
+
+def _node_chain(node):
+    chain = []
+    current = node
+    while current is not None and current["kind"] != "body":
+        chain.append(current)
+        current = current.get("parent")
+    return list(reversed(chain))
+
+
+def _candidate_label(node, occurrence=None):
+    parts = [ancestor["raw"] for ancestor in _node_chain(node)]
+    if not parts:
+        label = ":body"
+    else:
+        label = " > ".join(parts)
+    if occurrence:
+        label = f"{label} [occurrence {occurrence}]"
+    return label
+
+
+def _select_match(matches, target, occurrence, context):
+    if not matches:
+        where = f" within {context}" if context else ""
+        raise ValueError(f"Target '{target}' not found{where}")
+
+    if occurrence is not None:
+        if occurrence > len(matches):
+            raise ValueError(
+                f"selector.occurrence={occurrence} is out of range for target '{target}' "
+                f"({len(matches)} matches found)"
+            )
+        return matches[occurrence - 1], occurrence
+
+    if len(matches) == 1:
+        return matches[0], 1
+
+    candidates = "; ".join(
+        _candidate_label(node, idx + 1) for idx, node in enumerate(matches[:5])
+    )
+    more = "" if len(matches) <= 5 else f"; ... ({len(matches)} total)"
+    raise ValueError(
+        f"Ambiguous target '{target}'. Use selector.occurrence or selector.within. "
+        f"Candidates: {candidates}{more}"
+    )
+
+
+def resolve_structural_target(body, target, selector=None):
+    """Resolve ``target`` and ``selector`` into a structural node + ranges."""
+    stripped = (target or "").strip()
+    if not stripped:
+        raise ValueError("target is required for structural resolution")
+    if (
+        stripped in {":entire_body", ":body_preamble", ":body_before_first_heading"}
+        or stripped.startswith(":section:")
+    ):
+        raise ValueError(f"Legacy target '{stripped}' must be handled before resolution")
+
+    selector = _normalize_selector(selector)
+    if stripped == ":body" and (selector["within"] or selector["occurrence"] is not None):
+        raise ValueError("target=':body' does not support selector.within or selector.occurrence")
+
+    root, nodes = _scan_structural_nodes(body)
+    container = root
+    selected_within = []
+
+    for step in selector["within"]:
+        matches = [
+            node for node in _container_descendants(container, nodes)
+            if _matches_target(node, step["target"])
+        ]
+        context = _candidate_label(container) if container["kind"] != "body" else None
+        node, occurrence = _select_match(matches, step["target"], step["occurrence"], context)
+        selected_within.append({"node": node, "occurrence": occurrence})
+        container = node
+
+    if stripped == ":body":
+        display = ":body"
+        return {
+            "kind": "body",
+            "raw": ":body",
+            "occurrence": 1,
+            "within": [],
+            "display_path": display,
+            "ranges": {
+                "section": (0, root["section_end"]),
+                "intro": (0, root["intro_end"]),
+            },
+        }
+
+    matches = [
+        node for node in _container_descendants(container, nodes)
+        if _matches_target(node, stripped)
+    ]
+    context = _candidate_label(container) if container["kind"] != "body" else None
+    node, occurrence = _select_match(matches, stripped, selector["occurrence"], context)
+
+    path_parts = [_step_display(item["node"]["raw"], item["occurrence"]) for item in selected_within]
+    path_parts.append(_step_display(node["raw"], occurrence))
+    display = " > ".join(path_parts) if path_parts else node["raw"]
+
+    ranges = {"section": (node["start"], node["section_end"]), "body": (node["body_start"], node["body_end"])}
+    if node["kind"] == "heading":
+        ranges["heading"] = (node["start"], node["anchor_end"])
+        ranges["intro"] = (node["body_start"], node["intro_end"])
+    else:
+        ranges["header"] = (node["start"], node["anchor_end"])
+
+    return {
+        "kind": node["kind"],
+        "raw": node["raw"],
+        "occurrence": occurrence,
+        "within": [
+            {"raw": item["node"]["raw"], "occurrence": item["occurrence"]}
+            for item in selected_within
+        ],
+        "display_path": display,
+        "ranges": ranges,
+    }
+
+
 def find_section(body, heading, include_heading=False):
-    """Find start/end of a markdown section by heading or callout title.
-
-    Returns (start, end) character offsets into body, where:
-    - start is the position after the heading/callout title line (including its newline)
-    - end is the position before the next heading of same or higher level (or EOF);
-      for callouts, end is the last contiguous blockquote line
-
-    When include_heading=True, start points to the heading/callout line itself
-    (i.e. the position of the '#' or '>' character). Useful for inserting content
-    before a section.
-
-    Matching is case-insensitive on the text.
-    If heading includes # markers (e.g. "## Notes"), matches on level AND text.
-    If heading starts with [! (e.g. "[!note] Status"), matches a callout title.
-    If heading is plain text (e.g. "Notes"), matches on text at any level.
-    Sub-headings are part of the parent section (lower-level headings don't end it).
-    Headings inside literal regions (fenced code, raw HTML, HTML comments,
-    math blocks, inline code) are ignored.
-
-    Raises ValueError if heading/callout not found.
-    """
+    """Find start/end of a markdown section by heading or callout title."""
     stripped = heading.strip()
 
-    # Callout matching: [!type] title
     if stripped.startswith("[!"):
         return _find_callout_section(body, stripped, include_heading=include_heading)
 
     if stripped.startswith("#"):
         markers = stripped.split()[0]
         target_level = len(markers)
-        target_text = stripped[len(markers):].strip().lower()
+        target_text = _normalize_structural_text(stripped[len(markers):])
     else:
         target_level = None
-        target_text = stripped.lower()
+        target_text = _normalize_structural_text(stripped)
 
     skip = literal_ranges(body)
     headings = []
     for m in _HEADING_RE.finditer(body):
         if in_any_range(m.start(), skip):
             continue
-        headings.append((m, len(m.group(1)), m.group(2).strip().lower()))
+        headings.append((m, len(m.group(1)), _normalize_structural_text(m.group(2))))
 
     for idx, (m, level, text) in enumerate(headings):
         if text != target_text:
@@ -271,75 +562,55 @@ def find_section(body, heading, include_heading=False):
             if level2 <= level:
                 end = m2.start()
                 break
-
         return start, end
 
     raise ValueError(f"Section '{heading}' not found")
 
 
 def _find_callout_section(body, target, include_heading=False):
-    """Find start/end of an Obsidian callout by its [!type] title.
-
-    The section includes all contiguous blockquote lines after the title.
-    A non-blockquote line (including blank) ends the section.
-    Callouts inside literal regions (fenced code, raw HTML, HTML comments,
-    math blocks, inline code) are ignored.
-
-    When include_heading=True, start points to the callout title line itself.
-    """
-    target_lower = target.lower()
+    """Find start/end of an Obsidian callout by its full header line."""
+    target_normalized = _normalize_structural_text(target)
     skip = literal_ranges(body)
-    lines = body.split("\n")
-    pos = 0
+    lines, starts = _line_offsets(body)
+    i = 0
 
-    for i, line in enumerate(lines):
-        if in_any_range(pos, skip):
-            pos += len(line) + 1
+    while i < len(lines):
+        line = lines[i]
+        start = starts[i]
+        if in_any_range(start, skip):
+            i += 1
             continue
-        after_gt = line.lstrip()[1:].lstrip() if line.lstrip().startswith(">") else None
-        if after_gt is not None and after_gt.lower().startswith(target_lower):
-            content_start = pos + len(line) + 1
-            if content_start > len(body):
-                content_start = len(body)
 
-            start = pos if include_heading else content_start
-            end = content_start
-            for j in range(i + 1, len(lines)):
-                next_line = lines[j]
-                if next_line.lstrip().startswith(">"):
-                    end += len(next_line) + 1
-                else:
+        title_match = _match_callout_title_line(line)
+        prev_is_blockquote = False
+        if i > 0 and not in_any_range(starts[i - 1], skip):
+            prev_is_blockquote = _is_blockquote_line(lines[i - 1])
+        if (
+            title_match
+            and not prev_is_blockquote
+            and _normalize_structural_text(title_match.group(1)) == target_normalized
+        ):
+            content_start = start + len(line)
+            section_end = content_start
+            j = i + 1
+            while j < len(lines):
+                next_start = starts[j]
+                if in_any_range(next_start, skip):
                     break
-
-            if end > len(body):
-                end = len(body)
-            return start, end
-
-        pos += len(line) + 1
+                if not _is_blockquote_line(lines[j]):
+                    break
+                section_end = next_start + len(lines[j])
+                j += 1
+            start_pos = start if include_heading else content_start
+            return start_pos, section_end
+        i += 1
 
     raise ValueError(f"Section '{target}' not found")
 
 
 def find_body_preamble(body):
-    """Return the leading body range before the first targetable section.
-
-    Returns ``(start, end)`` offsets into ``body``. The range is:
-    - the full body when the document has no headings or callout sections
-    - empty when the document starts with a heading or callout section
-    - otherwise everything before the first targetable section, ignoring
-      heading-shaped lines inside literal regions (fenced code, raw HTML,
-      HTML comments, math blocks, inline code)
-    """
-    skip = literal_ranges(body)
-    lines = body.split("\n")
-    pos = 0
-
-    for line in lines:
-        if in_any_range(pos, skip):
-            pos += len(line) + 1
-            continue
-        if _HEADING_RE.match(line) or _CALLOUT_TITLE_RE.match(line):
-            return 0, pos
-        pos += len(line) + 1
-
-    return 0, len(body)
+    """Return the leading body range before the first heading-defined section."""
+    headings = collect_headings(body)
+    if not headings:
+        return 0, len(body)
+    return 0, headings[0][0]
