@@ -32,12 +32,31 @@ from ._router import (
 )
 
 from ._artefacts import (
+    SELF_TAG_PREFIXES,
+    STATUS_FOLDER_PREFIX,
+    artefact_type_prefix,
     config_resource_rel_path,
+    ensure_parent_tag,
+    ensure_self_tag,
+    ensure_tags_list,
+    iter_artefact_markdown_files,
+    iter_artefact_paths,
+    iter_living_markdown_files,
+    iter_markdown_under,
+    living_key_set,
+    make_artefact_key,
+    normalize_artefact_key,
     parse_date_value,
+    parse_artefact_key,
     read_file_content,
+    replace_artefact_key_references,
+    resolve_artefact_definition_for_prefix,
     resolve_folder,
+    resolve_artefact_key_entry,
     resolve_naming_pattern,
+    resolve_parent_reference,
     resolve_type,
+    scan_artefact_key_references,
 )
 
 from ._naming import (
@@ -63,6 +82,8 @@ from ._filesystem import (
 from ._frontmatter import (
     FM_RE,
     parse_frontmatter,
+    read_artefact,
+    read_frontmatter,
     serialize_frontmatter,
 )
 
@@ -104,9 +125,14 @@ from ._markdown import (
 )
 
 from ._slugs import (
+    extract_slug_keyword,
+    generate_contextual_slug,
+    generate_slug_suffix,
+    is_valid_key,
     slug_to_title,
     title_to_filename,
     title_to_slug,
+    validate_key,
 )
 
 from ._search import (

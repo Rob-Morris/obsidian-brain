@@ -4,7 +4,7 @@ Temporal artefact. Personal journal entries.
 
 ## Purpose
 
-A journal entry captures personal reflections, recollections, and life updates — things happening in the user's life, not work activity. Each entry belongs to a journal stream via the `journal/{slug}` nested tag.
+A journal entry captures personal reflections, recollections, and life updates — things happening in the user's life, not work activity. Each entry belongs to a journal stream via the `journal/{key}` nested tag.
 
 Journal entries are distinct from other temporal types:
 
@@ -48,7 +48,7 @@ Journal entries are always in the user's own words unless the user explicitly as
 
 `yyyymmdd-journal~{Title}.md` in `_Temporal/Journal Entries/yyyy-mm/`.
 
-The title is the topic or subject of the entry, in the same sense as `{Title}` for research or report artefacts. The journal stream is carried by the `journal/{slug}` tag, not the filename — scope by tag when browsing a stream.
+The title is the topic or subject of the entry, in the same sense as `{Title}` for research or report artefacts. The journal stream is carried by the `journal/{key}` tag, not the filename — scope by tag when browsing a stream.
 
 If an entry has no specific topic, title it for the broad theme of the reflection (e.g. `Evening Reflection`, `Quiet Thoughts`) rather than the journal stream.
 
@@ -58,7 +58,7 @@ Examples:
 - `20260322-journal~Knee Rehab.md` (tagged `journal/health`)
 - `20260322-journal~Evening Reflection.md` (general entry, tagged `journal/personal`)
 
-> Folder-scoping temporal entries by their parent hub (e.g. `_Temporal/Journal Entries/{journal-slug}/yyyy-mm/`) is a deliberate deferred question. See [[Hub Slug Folder Scoping For Temporal Artefacts]].
+> Folder-scoping temporal entries by their parent hub (e.g. `_Temporal/Journal Entries/{journal-key}/yyyy-mm/`) is a deliberate deferred question. See [[Hub Key Folder Scoping For Temporal Artefacts]].
 
 ## Frontmatter
 
@@ -67,11 +67,11 @@ Examples:
 type: temporal/journal-entry
 tags:
   - journal-entry
-  - journal/{journal-slug}
+  - journal/{journal-key}
 ---
 ```
 
-The `journal/{journal-slug}` tag identifies which journal stream the entry belongs to. Substitute the stream slug at create time (e.g. `journal/personal`, `journal/health`).
+The `journal/{journal-key}` tag identifies which journal stream the entry belongs to. Substitute the stream key at create time (e.g. `journal/personal`, `journal/health`). If the entry is structurally owned by a journal, persist `parent: journal/{journal-key}` as well; the entry still stays in `_Temporal/Journal Entries/yyyy-mm/`.
 
 No lifecycle. Optional `status: shaping` or `status: ready` when shaping is active or complete.
 

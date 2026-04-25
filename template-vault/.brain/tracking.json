@@ -16,11 +16,11 @@
       }
     },
     "living/designs": {
-      "brain_core_version": "0.25.1",
-      "installed_at": "2026-04-12T11:43:51.537639+00:00",
+      "brain_core_version": "0.31.0",
+      "installed_at": "2026-04-25T00:00:00+00:00",
       "files": {
         "taxonomy": {
-          "source_hash": "sha256:7cb75fef498e01488c3e9289313d3dc583648cd5358aafc162183248b2eac0aa",
+          "source_hash": "sha256:48659fe67e2e5b88c98664221594e42d0045d737f3ae57dae4e77c419dbb39d5",
           "target": "_Config/Taxonomy/Living/designs.md"
         },
         "template": {
@@ -72,29 +72,29 @@
       }
     },
     "living/people": {
-      "brain_core_version": "0.25.1",
-      "installed_at": "2026-04-12T11:43:51.537639+00:00",
+      "brain_core_version": "0.31.0",
+      "installed_at": "2026-04-25T00:00:00+00:00",
       "files": {
         "taxonomy": {
-          "source_hash": "sha256:d0e1fb913a09c9224196a6ea7ab7569c5c8d504750962b027bc95e1ce6a2b0b6",
+          "source_hash": "sha256:2044b6687c4dc667058c83c770ec162e4b37d248bffd64c96e96aadc5b6d6758",
           "target": "_Config/Taxonomy/Living/people.md"
         },
         "template": {
-          "source_hash": "sha256:643fac4c82a9538926d9b562730fd2c4633609c0a20f3183d8d05cae606015b5",
+          "source_hash": "sha256:b78c8ab332396d5346209de2d101799ab2533f01529a43dae1e9f20f2e28b16a",
           "target": "_Config/Templates/Living/People.md"
         }
       }
     },
     "living/projects": {
-      "brain_core_version": "0.29.0",
-      "installed_at": "2026-04-18T02:39:50.975258+00:00",
+      "brain_core_version": "0.31.0",
+      "installed_at": "2026-04-25T00:00:00+00:00",
       "files": {
         "taxonomy": {
-          "source_hash": "sha256:00be62ac0db431883c9d16f50b75cd90c0b1fafd82fd3fc30bb53ffd54d912b2",
+          "source_hash": "sha256:59d3036824d49781334d80ccfaf1e663229206d35e2a5aeb2e5e4e5ca1442624",
           "target": "_Config/Taxonomy/Living/projects.md"
         },
         "template": {
-          "source_hash": "sha256:e434d064477c8d7229fb31c113b70fc6c0bf4084ca81c890fa3914f1d84500d1",
+          "source_hash": "sha256:4c0a388a6d82dd2ba54e62093cd94d90a6410fea9c28c5af46149a0987bbd2e8",
           "target": "_Config/Templates/Living/Projects.md"
         }
       }
@@ -114,15 +114,15 @@
       }
     },
     "living/workspaces": {
-      "brain_core_version": "0.23.2",
-      "installed_at": "2026-04-08T00:46:45.939286+00:00",
+      "brain_core_version": "0.31.0",
+      "installed_at": "2026-04-25T00:00:00+00:00",
       "files": {
         "taxonomy": {
-          "source_hash": "sha256:2cf85e4aebed512d0fc61cb461643af02545ea7f3f49dc5eeaef211622d67a0a",
+          "source_hash": "sha256:b07ebf7a6b6e107cf439c654f8522f4406ebb6e68906f6bc648bbd494c138bcf",
           "target": "_Config/Taxonomy/Living/workspaces.md"
         },
         "template": {
-          "source_hash": "sha256:0d4d23dd3a40551123ea7622be876c0209384af46bcadd32acd9fa40fb1dd2f5",
+          "source_hash": "sha256:eafa5a16ef0cf8784d6d08e91d1f2bb23858c185a4c9607d0bde56bdd4cc2a93",
           "target": "_Config/Templates/Living/Workspaces.md"
         }
       }
@@ -244,11 +244,11 @@
       }
     },
     "temporal/mockups": {
-      "brain_core_version": "0.29.0",
-      "installed_at": "2026-04-18T02:39:50.975258+00:00",
+      "brain_core_version": "0.31.0",
+      "installed_at": "2026-04-25T00:00:00+00:00",
       "files": {
         "taxonomy": {
-          "source_hash": "sha256:50cf942bd1383cc1857cb77fa13c3b15de854e5cdac4e5047359fe0e6770c907",
+          "source_hash": "sha256:8b859090533072ebee0db5ed41c904a83dcf4d79e0926bbab0895f94c3cd1931",
           "target": "_Config/Taxonomy/Temporal/mockups.md"
         },
         "template": {
@@ -286,11 +286,11 @@
       }
     },
     "temporal/presentations": {
-      "brain_core_version": "0.29.0",
-      "installed_at": "2026-04-18T02:39:50.975258+00:00",
+      "brain_core_version": "0.31.0",
+      "installed_at": "2026-04-25T00:00:00+00:00",
       "files": {
         "taxonomy": {
-          "source_hash": "sha256:3d9ac10368bbef8b3eca35d5135b9dbfdd899af7184584530832e8a0847c196a",
+          "source_hash": "sha256:774de6fd0562589142bbc5d91dcfc438c3a88f374d13d74731370be89f46e39c",
           "target": "_Config/Taxonomy/Temporal/presentations.md"
         },
         "template": {
@@ -298,7 +298,7 @@
           "target": "_Config/Templates/Temporal/Presentations.md"
         },
         "skill": {
-          "source_hash": "sha256:43d756c1c9ed726fced0501040e335a36d731ed69535efa819258e4e6ae89bb7",
+          "source_hash": "sha256:17a8c053f4dcccf98c07b36dc6c910d216f677997cbed20c18e9de9bf12af731",
           "target": "_Config/Skills/presentations/SKILL.md"
         },
         "theme": {
@@ -392,15 +392,15 @@
       }
     },
     "living/releases": {
-      "brain_core_version": "0.29.0",
-      "installed_at": "2026-04-18T02:39:50.975258+00:00",
+      "brain_core_version": "0.31.0",
+      "installed_at": "2026-04-25T00:00:00+00:00",
       "files": {
         "taxonomy": {
-          "source_hash": "sha256:d80ba3cf1766d5537e7f8c70699f1e026286cedabb03f059ebae412f2ac2a88a",
+          "source_hash": "sha256:9e2571de7bdac80c4dc055c806c7822888d93416848b44f7017e51aba12d8805",
           "target": "_Config/Taxonomy/Living/releases.md"
         },
         "template": {
-          "source_hash": "sha256:45001d3d8102c824cb6d3abba01f0ef233614f66faeffd090cce0b30b024d6b7",
+          "source_hash": "sha256:7b5ccb4bd20a90ca6db626f2903cd136ee4e59dd488ea2638ee1aed1a5ef99c6",
           "target": "_Config/Templates/Living/Releases.md"
         }
       }

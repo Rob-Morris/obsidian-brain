@@ -18,32 +18,50 @@ import re
 import sys
 
 from _common import (
+    SELF_TAG_PREFIXES,
     check_write_allowed,
     config_resource_rel_path,
+    ensure_parent_tag,
+    ensure_self_tag,
+    ensure_tags_list,
+    extract_slug_keyword,
     extract_title,
     find_body_preamble,
     find_section,
     find_vault_root,
+    generate_contextual_slug,
     is_archived_path,
+    is_valid_key,
+    iter_living_markdown_files,
+    living_key_set,
     load_compiled_router,
+    make_artefact_key,
     make_wikilink_replacer,
     make_temp_path,
+    normalize_artefact_key,
     now_iso,
     parse_frontmatter,
+    read_file_content,
+    replace_artefact_key_references,
     reconcile_fields_for_render,
     render_filename,
     render_filename_or_default,
     replace_wikilinks_in_vault,
+    resolve_artefact_definition_for_prefix,
     resolve_folder,
     resolve_and_validate_folder,
+    resolve_parent_reference,
     resolve_body_file,
     resolve_type,
     resolve_wikilink_stems,
+    scan_artefact_key_references,
     safe_write,
     serialize_frontmatter,
     parse_structural_anchor_line,
     strip_md_ext,
     unique_filename,
+    validate_key,
+    artefact_type_prefix,
 )
 from rename import rename_and_update_links
 import fix_links as _fix_links
@@ -68,7 +86,6 @@ _RESERVED_NON_SECTION_TARGETS = {
     ENTIRE_BODY_TARGET,
     BODY_PREAMBLE_TARGET,
 }
-
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -478,6 +495,275 @@ def edit_resource(vault_root, router, resource="artefact", operation="edit",
     return _result_payload(rel_path, rel_path, operation, existing_body, new_body)
 
 
+def _replace_exact_tag(fields, old_tag, new_tag=None):
+    """Replace or remove an exact tag match, preserving order."""
+    tags = ensure_tags_list(fields)
+    updated = []
+    changed = False
+    for tag in tags:
+        if tag != old_tag:
+            updated.append(tag)
+            continue
+        changed = True
+        if new_tag and new_tag not in updated:
+            updated.append(new_tag)
+    if new_tag and new_tag not in updated:
+        updated.append(new_tag)
+        changed = True
+    fields["tags"] = updated
+    return changed
+
+
+def _derive_title_from_path(art, fields, path):
+    """Resolve a human title for filename rendering."""
+    title = fields.get("title")
+    if title:
+        return title
+    stem = os.path.splitext(os.path.basename(path))[0]
+    return extract_title(art.get("naming"), fields, stem) or stem
+
+
+def _terminal_status_folder(art, fields):
+    """Return the canonical +Status folder for terminal artefacts, if any."""
+    terminal = ((art or {}).get("frontmatter") or {}).get("terminal_statuses") or []
+    status = (fields or {}).get("status")
+    if status in terminal:
+        return f"+{status.capitalize()}"
+    return None
+
+
+def _render_existing_artefact_path(vault_root, router, art, path, fields):
+    """Render the canonical path for an existing artefact from its fields."""
+    current_basename = os.path.basename(path)
+    abs_path = os.path.join(vault_root, path)
+    title = _derive_title_from_path(art, fields, path)
+    rendered_fields = dict(fields)
+    reconcile_fields_for_render(rendered_fields, art, abs_path, current_basename)
+    folder = resolve_folder(
+        art,
+        parent=normalize_artefact_key(rendered_fields.get("parent")),
+        fields=rendered_fields,
+        router=router,
+    )
+    status_folder = _terminal_status_folder(art, rendered_fields)
+    if status_folder:
+        folder = os.path.join(folder, status_folder)
+    basename = render_filename_or_default(art.get("naming"), title, rendered_fields)
+    return os.path.join(folder, basename), rendered_fields
+
+
+def _ensure_free_artefact_key(vault_root, router, art, key, *, exclude_path=None):
+    """Fail if ``key`` is already used by another artefact of this type."""
+    existing = living_key_set(vault_root, router, art, exclude_path=exclude_path)
+    if key in existing:
+        raise ValueError(f"KEY_TAKEN: key '{key}' is already used")
+
+
+def _choose_living_key(vault_root, router, art, title, key=None, *, exclude_path=None):
+    """Return a collision-free living key for ``art``."""
+    existing = living_key_set(vault_root, router, art, exclude_path=exclude_path)
+    if key is not None:
+        key = validate_key(key)
+        if key in existing:
+            raise ValueError(f"KEY_TAKEN: key '{key}' is already used")
+        return key
+    while True:
+        candidate = generate_contextual_slug(title)
+        if candidate not in existing:
+            return candidate
+
+
+def _normalise_ownership_changes(vault_root, router, art, frontmatter_changes):
+    """Canonicalise key and parent changes before merging frontmatter."""
+    if not frontmatter_changes:
+        return frontmatter_changes
+
+    changes = dict(frontmatter_changes)
+    classification = art.get("classification")
+
+    if "key" in changes:
+        if classification != "living":
+            raise ValueError("key changes only apply to living artefacts")
+        if changes["key"] in (None, ""):
+            raise ValueError("key cannot be removed from a living artefact")
+        changes["key"] = validate_key(changes["key"])
+
+    if "parent" in changes:
+        if changes["parent"] in (None, ""):
+            changes["parent"] = None
+        else:
+            resolved_parent, _entry = resolve_parent_reference(
+                vault_root, router, changes["parent"]
+            )
+            changes["parent"] = resolved_parent
+
+    return changes
+
+
+def _preflight_destination(vault_root, source_path, dest_path):
+    """Raise if a planned destination already exists on disk."""
+    if dest_path == source_path:
+        return
+    abs_source = os.path.join(vault_root, source_path)
+    abs_dest = os.path.join(vault_root, dest_path)
+    if not os.path.exists(abs_dest):
+        return
+    try:
+        same = os.path.samefile(abs_source, abs_dest)
+    except OSError:
+        same = False
+    if not same:
+        raise FileExistsError(f"Destination file already exists: {dest_path}")
+
+
+def _router_with_pending_artefact_key(router, old_key, new_key, entry):
+    """Return a router view whose artefact index reflects an in-flight key update."""
+    updated_router = dict(router)
+    artefact_index = dict(router.get("artefact_index") or {})
+    if old_key:
+        artefact_index.pop(old_key, None)
+    artefact_index[new_key] = entry
+    updated_router["artefact_index"] = artefact_index
+    return updated_router
+
+
+def _commit_with_possible_rename(vault_root, path, new_path, fields, body):
+    """Serialize + safe_write frontmatter and body, then rename if path changed.
+
+    Caller handles _preflight_destination; this helper is the commit step.
+    """
+    abs_path = os.path.join(vault_root, path)
+    safe_write(
+        abs_path,
+        serialize_frontmatter(fields, body=body),
+        bounds=vault_root,
+    )
+    if new_path != path:
+        rename_and_update_links(vault_root, path, new_path)
+
+
+def _apply_reference_mutation(vault_root, router, old_key, new_key, *, skip_paths=None):
+    """Rewrite canonical key references and move affected direct children."""
+    if not old_key or old_key == new_key:
+        return []
+
+    skip_paths = set(skip_paths or [])
+    operations = []
+    for ref in scan_artefact_key_references(vault_root, router, old_key):
+        rel_path = ref["path"]
+        if rel_path in skip_paths:
+            continue
+        content = read_file_content(vault_root, rel_path)
+        if content.startswith("Error:"):
+            continue
+        fields, body = parse_frontmatter(content)
+        if not replace_artefact_key_references(fields, old_key, new_key):
+            continue
+        _resolved, art = resolve_and_validate_folder(vault_root, router, rel_path)
+        new_path = rel_path
+        if ref.get("parent"):
+            new_path, fields = _render_existing_artefact_path(
+                vault_root, router, art, rel_path, fields
+            )
+        operations.append(
+            {
+                "path": rel_path,
+                "new_path": new_path,
+                "fields": fields,
+                "body": body,
+            }
+        )
+
+    for op in operations:
+        _preflight_destination(vault_root, op["path"], op["new_path"])
+
+    for op in operations:
+        _commit_with_possible_rename(
+            vault_root, op["path"], op["new_path"], op["fields"], op["body"]
+        )
+
+    return operations
+
+
+def _maybe_restructure_living_ownership(vault_root, router, path, art, old_fields, new_fields):
+    """Rewrite canonical key references and move artefacts when ownership changes."""
+    old_slug = old_fields.get("key")
+    new_slug = new_fields.get("key")
+    old_parent = normalize_artefact_key(old_fields.get("parent"))
+    new_parent = normalize_artefact_key(new_fields.get("parent"))
+    type_prefix = artefact_type_prefix(art)
+    old_key = (
+        make_artefact_key(type_prefix, old_slug)
+        if is_valid_key(old_slug)
+        else None
+    )
+    new_key = (
+        make_artefact_key(type_prefix, new_slug)
+        if is_valid_key(new_slug)
+        else None
+    )
+
+    ownership_changed = old_key != new_key or old_parent != new_parent
+    if not ownership_changed:
+        return path, False
+
+    if old_key and old_key != new_key:
+        replacement = new_key if type_prefix in SELF_TAG_PREFIXES else None
+        _replace_exact_tag(new_fields, old_key, replacement)
+    elif new_key:
+        ensure_self_tag(new_fields, type_prefix, new_slug)
+
+    if new_key:
+        _ensure_free_artefact_key(
+            vault_root, router, art, new_slug, exclude_path=path
+        )
+
+    new_path, rendered_fields = _render_existing_artefact_path(
+        vault_root, router, art, path, new_fields
+    )
+
+    mutation_router = router
+    if old_key and new_key:
+        # The inbound-reference scan below uses folder derivations from the
+        # router's artefact_index entry for this key. Swap in a pending entry
+        # under the new key so children resolve their forthcoming positions
+        # (new folder, new parent pointer) rather than the now-stale old ones.
+        old_entry = (router.get("artefact_index") or {}).get(old_key) or {}
+        pending_entry = dict(old_entry)
+        pending_entry.update(
+            {
+                "path": new_path,
+                "type": art.get("frontmatter_type", art.get("type")),
+                "type_key": art.get("key"),
+                "type_prefix": type_prefix,
+                "key": new_slug,
+                "parent": new_parent,
+            }
+        )
+        mutation_router = _router_with_pending_artefact_key(
+            router, old_key, new_key, pending_entry
+        )
+        _apply_reference_mutation(
+            vault_root, mutation_router, old_key, new_key, skip_paths={path}
+        )
+
+    _preflight_destination(vault_root, path, new_path)
+    abs_path = os.path.join(vault_root, path)
+    _commit_with_possible_rename(
+        vault_root, path, new_path, rendered_fields, _read_body(abs_path)
+    )
+    if new_path != path:
+        return new_path, True
+    return path, True
+
+
+def _read_body(abs_path):
+    """Return the markdown body from an artefact file on disk."""
+    with open(abs_path, "r", encoding="utf-8") as f:
+        _fields, body = parse_frontmatter(f.read())
+    return body
+
+
 def _maybe_status_move(vault_root, path, terminal_statuses, frontmatter_changes):
     """If frontmatter_changes sets a terminal status, move file to +Status/ folder.
 
@@ -607,7 +893,7 @@ def _maybe_rename_on_field_change(vault_root, path, art, old_fields, new_fields)
     return new_path
 
 
-def _finish_artefact(vault_root, abs_path, fields, old_body, new_body, path, art,
+def _finish_artefact(vault_root, router, abs_path, fields, old_body, new_body, path, art,
                      frontmatter_changes, operation, old_fields=None):
     """Save artefact, rename on name-driving change, status-move, return result."""
     _apply_status_change_hooks(fields, old_fields, art)
@@ -622,7 +908,13 @@ def _finish_artefact(vault_root, abs_path, fields, old_body, new_body, path, art
         if new_path != path:
             path = new_path
             abs_path = os.path.join(vault_root, path)
-    if old_fields is not None:
+    ownership_handled = False
+    if art.get("classification") == "living" and old_fields is not None:
+        path, ownership_handled = _maybe_restructure_living_ownership(
+            vault_root, router, path, art, old_fields, fields
+        )
+        abs_path = os.path.join(vault_root, path)
+    if old_fields is not None and not ownership_handled:
         new_path = _maybe_rename_on_field_change(vault_root, path, art, old_fields, fields)
         if new_path != path:
             path = new_path
@@ -661,10 +953,15 @@ def edit_artefact(vault_root, router, path, body="", frontmatter_changes=None, t
     _validate_edit_request("edit", body, frontmatter_changes, target)
     path, abs_path, fields, existing_body, art = _open_artefact(vault_root, router, path)
     old_fields = dict(fields)
+    frontmatter_changes = _normalise_ownership_changes(
+        vault_root, router, art, frontmatter_changes
+    )
     _merge_frontmatter(fields, frontmatter_changes, "edit")
+    ensure_parent_tag(fields)
     new_body = _apply_edit(existing_body, body, target)
     return _finish_artefact(
         vault_root,
+        router,
         abs_path,
         fields,
         existing_body,
@@ -698,10 +995,15 @@ def delete_section_artefact(vault_root, router, path, target, frontmatter_change
     _validate_edit_request("delete_section", "", frontmatter_changes, target)
     path, abs_path, fields, existing_body, art = _open_artefact(vault_root, router, path)
     old_fields = dict(fields)
+    frontmatter_changes = _normalise_ownership_changes(
+        vault_root, router, art, frontmatter_changes
+    )
     _merge_frontmatter(fields, frontmatter_changes, "edit")
+    ensure_parent_tag(fields)
     new_body = _apply_delete_section(existing_body, target)
     return _finish_artefact(
         vault_root,
+        router,
         abs_path,
         fields,
         existing_body,
@@ -737,10 +1039,15 @@ def append_to_artefact(vault_root, router, path, content="", frontmatter_changes
     _validate_edit_request("append", content, frontmatter_changes, target)
     path, abs_path, fields, body, art = _open_artefact(vault_root, router, path)
     old_fields = dict(fields)
+    frontmatter_changes = _normalise_ownership_changes(
+        vault_root, router, art, frontmatter_changes
+    )
     _merge_frontmatter(fields, frontmatter_changes, "append")
+    ensure_parent_tag(fields)
     new_body = _apply_append(body, content, target)
     return _finish_artefact(
         vault_root,
+        router,
         abs_path,
         fields,
         body,
@@ -777,10 +1084,15 @@ def prepend_to_artefact(vault_root, router, path, content="", frontmatter_change
     _validate_edit_request("prepend", content, frontmatter_changes, target)
     path, abs_path, fields, body, art = _open_artefact(vault_root, router, path)
     old_fields = dict(fields)
+    frontmatter_changes = _normalise_ownership_changes(
+        vault_root, router, art, frontmatter_changes
+    )
     _merge_frontmatter(fields, frontmatter_changes, "prepend")
+    ensure_parent_tag(fields)
     new_body = _apply_prepend(body, content, target)
     return _finish_artefact(
         vault_root,
+        router,
         abs_path,
         fields,
         body,
@@ -805,8 +1117,9 @@ def convert_artefact(vault_root, router, path, target_type, parent=None):
         router: Compiled router dict.
         path: Relative path from vault root.
         target_type: Target type key or full type (e.g. "design" or "living/design").
-        parent: Optional hub subfolder override (e.g. "Brain"). If omitted, the parent
-                subfolder is auto-detected from the source path for living target types.
+        parent: Optional canonical parent artefact reference. If omitted, an existing
+                parent is preserved when the target contract permits it. Temporal targets
+                keep their normal date-based folders.
 
     Returns:
         Dict with old_path, new_path, type, and links_updated.
@@ -817,7 +1130,6 @@ def convert_artefact(vault_root, router, path, target_type, parent=None):
     """
     vault_root = str(vault_root)
 
-    # Resolve path (basename fallback) and validate
     path, source_art = resolve_and_validate_folder(vault_root, router, path)
 
     if is_archived_path(path):
@@ -827,59 +1139,106 @@ def convert_artefact(vault_root, router, path, target_type, parent=None):
         )
 
     target_art = resolve_type(router, target_type)
-
     abs_source = os.path.join(vault_root, path)
     if not os.path.isfile(abs_source):
         raise FileNotFoundError(f"File not found: {path}")
 
-    # Read and parse source file
     with open(abs_source, "r", encoding="utf-8") as f:
         content = f.read()
     fields, body = parse_frontmatter(content)
+    title = _derive_title_from_path(source_art, fields, path)
 
-    # When frontmatter has no `title`, strip the source type's naming prefix
-    # from the filename stem so the target pattern isn't applied on top of it.
-    title = fields.get("title")
-    if not title:
-        stem = os.path.splitext(os.path.basename(path))[0]
-        source_naming = source_art.get("naming")
-        title = extract_title(source_naming, fields, stem) or stem
-    reconcile_fields_for_render(fields, target_art, abs_source, os.path.basename(path))
-    new_filename = render_filename_or_default(target_art.get("naming"), title, fields)
-
-    if parent is None and target_art.get("classification") != "temporal":
-        source_dir = os.path.dirname(path)
-        rel = os.path.relpath(source_dir, source_art["path"])
-        parent = rel if rel != "." else None
-
-    # Compute new path. Reuse the standard same-folder collision suffix so
-    # converting same-titled artefacts never overwrites an existing target.
-    target_folder = resolve_folder(target_art, parent=parent, fields=fields)
-    target_abs_folder = os.path.join(vault_root, target_folder)
-    candidate_new_path = os.path.join(target_folder, new_filename)
-    if candidate_new_path != path:
-        stem, ext = os.path.splitext(new_filename)
-        new_filename = unique_filename(target_abs_folder, stem, ext or ".md")
-    new_path = os.path.join(target_folder, new_filename)
-    check_write_allowed(new_path)
-
-    # Reconcile frontmatter: set type to target type
-    if target_art.get("frontmatter_type"):
-        fields["type"] = target_art["frontmatter_type"]
-
-    # Write updated content to new path
-    abs_new = os.path.join(vault_root, new_path)
-    new_content = serialize_frontmatter(fields, body=body)
-    safe_write(abs_new, new_content, bounds=vault_root)
-
-    # Update wikilinks vault-wide (old stem → new stem)
-    pattern, stem_map = resolve_wikilink_stems(vault_root, path, new_path)
-    links_updated = replace_wikilinks_in_vault(
-        vault_root, pattern, make_wikilink_replacer(stem_map),
+    source_prefix = artefact_type_prefix(source_art)
+    target_prefix = artefact_type_prefix(target_art)
+    source_slug = fields.get("key")
+    old_key = (
+        make_artefact_key(source_prefix, source_slug)
+        if source_art.get("classification") == "living" and is_valid_key(source_slug)
+        else None
     )
+    old_parent = normalize_artefact_key(fields.get("parent"))
 
-    # Remove old file
-    os.remove(abs_source)
+    if target_art.get("classification") == "living":
+        target_key = _choose_living_key(
+            vault_root,
+            router,
+            target_art,
+            title,
+            key=source_slug if is_valid_key(source_slug) else None,
+            exclude_path=path,
+        )
+        target_parent = None
+        if parent is not None:
+            target_parent, _parent_entry = resolve_parent_reference(
+                vault_root, router, parent
+            )
+        elif old_parent:
+            target_parent = old_parent
+
+        fields["key"] = target_key
+        if target_parent:
+            fields["parent"] = target_parent
+            ensure_parent_tag(fields)
+        else:
+            fields.pop("parent", None)
+        new_key = make_artefact_key(target_prefix, target_key)
+    else:
+        fields.pop("key", None)
+        if parent is not None:
+            target_parent, _parent_entry = resolve_parent_reference(
+                vault_root, router, parent
+            )
+        else:
+            target_parent = old_parent
+        if target_parent:
+            fields["parent"] = target_parent
+            ensure_parent_tag(fields)
+        else:
+            fields.pop("parent", None)
+        new_key = None
+
+    if source_art.get("frontmatter_type"):
+        fields["type"] = target_art.get("frontmatter_type", target_art["type"])
+
+    if old_key and old_key != new_key:
+        if source_prefix in SELF_TAG_PREFIXES:
+            replacement = new_key if new_key and target_prefix in SELF_TAG_PREFIXES else None
+            _replace_exact_tag(fields, old_key, replacement)
+        _apply_reference_mutation(vault_root, router, old_key, new_key, skip_paths={path})
+    elif new_key:
+        ensure_self_tag(fields, target_prefix, target_key)
+
+    rendered_fields = dict(fields)
+    reconcile_fields_for_render(
+        rendered_fields, target_art, abs_source, os.path.basename(path)
+    )
+    target_folder = resolve_folder(
+        target_art,
+        parent=normalize_artefact_key(rendered_fields.get("parent")),
+        fields=rendered_fields,
+        router=router,
+    )
+    target_basename = render_filename_or_default(
+        target_art.get("naming"), title, rendered_fields
+    )
+    new_path = os.path.join(target_folder, target_basename)
+    if new_path != path:
+        stem, ext = os.path.splitext(os.path.basename(new_path))
+        folder = os.path.dirname(new_path)
+        target_abs_folder = os.path.join(vault_root, folder)
+        unique_name = unique_filename(target_abs_folder, stem, ext or ".md")
+        new_path = os.path.join(folder, unique_name)
+    check_write_allowed(new_path)
+    _preflight_destination(vault_root, path, new_path)
+
+    safe_write(
+        abs_source,
+        serialize_frontmatter(rendered_fields, body=body),
+        bounds=vault_root,
+    )
+    links_updated = 0
+    if new_path != path:
+        links_updated = rename_and_update_links(vault_root, path, new_path)
 
     return {
         "old_path": path,

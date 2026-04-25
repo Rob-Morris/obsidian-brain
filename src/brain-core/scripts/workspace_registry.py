@@ -21,7 +21,7 @@ import json
 import os
 import sys
 
-from _common import find_vault_root, is_system_dir, parse_frontmatter, safe_write_json, slug_to_title
+from _common import find_vault_root, is_system_dir, is_valid_key, read_frontmatter, safe_write_json, slug_to_title
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -102,7 +102,9 @@ def _scan_embedded(vault_root):
 def _scan_hub_metadata(vault_root):
     """Read workspace hub artefacts from Workspaces/ for metadata enrichment.
 
-    Returns a dict of slug → {title, status, workspace_mode, tags}.
+    Keys the result dict by the canonical frontmatter ``key:`` when present,
+    falling back to the filename stem for pre-0.31 hubs that have not yet
+    been migrated. Returns a dict of slug → {title, status, workspace_mode, tags}.
     """
     hub_dir = os.path.join(vault_root, HUB_DIR)
     if not os.path.isdir(hub_dir):
@@ -113,14 +115,15 @@ def _scan_hub_metadata(vault_root):
             continue
         fpath = os.path.join(hub_dir, fname)
         try:
-            with open(fpath, "r", encoding="utf-8") as f:
-                text = f.read()
+            fields = read_frontmatter(fpath)
         except OSError:
             continue
-        fields, _ = parse_frontmatter(text)
-        slug = os.path.splitext(fname)[0]
+        stem = os.path.splitext(fname)[0]
+        fm_slug = fields.get("key")
+        slug = fm_slug if is_valid_key(fm_slug) else stem
+        title = fields.get("title") or stem
         result[slug] = {
-            "title": slug_to_title(slug),
+            "title": title,
             "status": fields.get("status", ""),
             "workspace_mode": fields.get("workspace_mode", ""),
             "tags": fields.get("tags", []),

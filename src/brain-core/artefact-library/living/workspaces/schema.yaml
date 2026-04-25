@@ -1,9 +1,12 @@
 required:
   type:
     const: "living/workspace"
+  key:
+    type: string
+    pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
   tags:
     type: array
-    contains: "workspace/{slug}"
+    contains: "workspace/{key}"
 optional:
   status:
     enum: [active, parked, completed]

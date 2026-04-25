@@ -12,7 +12,7 @@ Presentations bridge the gap between working knowledge and communicable form. Th
 
 - **Link to the source.** Every presentation should reference the artefact(s) it presents. Follow [[.brain-core/standards/provenance]].
 - **Sparse slides.** One idea per slide. Use headings, bullet points, and whitespace. Don't cram.
-- **Generated output lives under `_Assets/Generated/Presentations/`.** The normal output is `_Assets/Generated/Presentations/{stem}.pdf`. If one presentation workflow produces multiple linked files, add `hub-slug` to the owning artefact if missing and use `_Assets/Generated/Presentations/{OwnerType}~{hub-slug}/`.
+- **Generated output lives under `_Assets/Generated/Presentations/`.** The normal output is `_Assets/Generated/Presentations/{stem}.pdf`. If one presentation workflow produces multiple linked files, use the owning artefact's canonical key and use `_Assets/Generated/Presentations/{OwnerType}~{owner-key}/`.
 - **Use the theme.** The Brain theme provides title slides, callout classes, risk colours, and card layouts. See the skill reference for available CSS classes.
 - **Regenerate PDF after edits.** The markdown is the source of truth. Always regenerate the PDF when slides change.
 

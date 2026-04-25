@@ -95,7 +95,7 @@ def vault(tmp_path):
     tax_living.mkdir(parents=True)
     (tax_living / "wiki.md").write_text(
         "# Wiki\n\n"
-        "## Naming\n\n`{slug}.md` in `Wiki/`.\n\n"
+        "## Naming\n\n`{Title}.md` in `Wiki/`.\n\n"
         "## Frontmatter\n\n```yaml\n---\ntype: living/wiki\ntags:\n  - topic-tag\n---\n```\n\n"
         "## Template\n\n[[_Config/Templates/Living/Wiki]]\n"
     )
@@ -104,7 +104,7 @@ def vault(tmp_path):
     tax_temporal.mkdir(parents=True)
     (tax_temporal / "logs.md").write_text(
         "# Logs\n\n"
-        "## Naming\n\n`log-{slug}.md` in `_Temporal/Logs/yyyy-mm/`.\n\n"
+        "## Naming\n\n`log-{Title}.md` in `_Temporal/Logs/yyyy-mm/`.\n\n"
         "## Frontmatter\n\n```yaml\n---\ntype: temporal/logs\ntags:\n  - session\n---\n```\n\n"
         "## Trigger\n\nAfter meaningful work, write a log entry.\n"
     )
@@ -126,7 +126,7 @@ def vault(tmp_path):
     # Taxonomy: Ideas
     (tax_living / "ideas.md").write_text(
         "# Ideas\n\n"
-        "## Naming\n\n`{slug}.md` in `Ideas/`.\n\n"
+        "## Naming\n\n`{Title}.md` in `Ideas/`.\n\n"
         "## Frontmatter\n\n```yaml\n---\ntype: living/ideas\ntags:\n  - idea-tag\nstatus: shaping\n---\n```\n\n"
         "## Template\n\n[[_Config/Templates/Living/Ideas]]\n"
     )
@@ -255,6 +255,53 @@ class TestStaleness:
         router_md = vault / "_Config" / "router.md"
         router_md.write_text(router_md.read_text() + "\n- New rule.\n")
         stale, _ = server._check_router(str(vault))
+        assert stale is True
+
+    def test_router_not_stale_after_keyed_living_body_change(self, vault):
+        artefact = vault / "Wiki" / "Body.md"
+        artefact.write_text(
+            "---\n"
+            "type: living/wiki\n"
+            "key: body\n"
+            "---\n\n"
+            "# Body\n\n"
+            "First body.\n"
+        )
+        server._compile_and_save(str(vault))
+        artefact.write_text(
+            "---\n"
+            "type: living/wiki\n"
+            "key: body\n"
+            "---\n\n"
+            "# Body\n\n"
+            "Second body.\n"
+        )
+
+        stale, data = server._check_router(str(vault))
+
+        assert stale is False
+        assert data is not None
+
+    def test_router_stale_after_keyed_living_key_change(self, vault):
+        artefact = vault / "Wiki" / "Slug.md"
+        artefact.write_text(
+            "---\n"
+            "type: living/wiki\n"
+            "key: before\n"
+            "---\n\n"
+            "# Slug\n"
+        )
+        server._compile_and_save(str(vault))
+        artefact.write_text(
+            "---\n"
+            "type: living/wiki\n"
+            "key: after\n"
+            "---\n\n"
+            "# Slug\n"
+        )
+
+        stale, _ = server._check_router(str(vault))
+
         assert stale is True
 
     def test_index_stale_when_missing(self, vault):
@@ -1031,7 +1078,7 @@ class TestAutoRecompile:
         tax_living = initialized / "_Config" / "Taxonomy" / "Living"
         (tax_living / "glossary.md").write_text(
             "# Glossary\n\n"
-            "## Naming\n\n`{slug}.md` in `Glossary/`.\n\n"
+            "## Naming\n\n`{Title}.md` in `Glossary/`.\n\n"
             "## Frontmatter\n\n```yaml\n---\ntype: living/glossary\ntags:\n  - term\n---\n```\n"
         )
         (initialized / "Glossary").mkdir()
@@ -1111,6 +1158,23 @@ class TestAutoRecompile:
         server._ensure_router_fresh()
         assert server._router["meta"]["compiled_at"] != compiled_at
 
+    def test_new_keyed_living_file_triggers_recompile(self, initialized):
+        """Adding a new keyed living file should invalidate the router."""
+        compiled_at = server._router["meta"]["compiled_at"]
+        artefact = initialized / "Wiki" / "Fresh.md"
+        artefact.write_text(
+            "---\n"
+            "type: living/wiki\n"
+            "key: fresh\n"
+            "---\n\n"
+            "# Fresh\n"
+        )
+
+        server._ensure_router_fresh()
+
+        assert server._router["meta"]["compiled_at"] != compiled_at
+        assert "wiki/fresh" in server._router["artefact_index"]
+
 
 # ---------------------------------------------------------------------------
 # brain_create tests
@@ -1178,6 +1242,29 @@ class TestBrainCreate:
         from _common import parse_frontmatter
         fields, _ = parse_frontmatter(content)
         assert fields["status"] == "shaping"
+
+    def test_create_living_with_explicit_key(self, initialized):
+        result = server.brain_create(type="wiki", title="Slugged Page", key="slugged-page")
+        path = _extract_create_path(result)
+        with open(os.path.join(str(initialized), path)) as f:
+            content = f.read()
+        from _common import parse_frontmatter
+        fields, _ = parse_frontmatter(content)
+        assert fields["key"] == "slugged-page"
+
+    def test_create_with_canonical_parent(self, initialized):
+        parent_result = server.brain_create(type="wiki", title="Parent Page", key="parent-page")
+        assert parent_result.startswith("**Created** living/wiki: ")
+        child_result = server.brain_create(
+            type="ideas", title="Child Idea", parent="wiki/parent-page"
+        )
+        child_path = _extract_create_path(child_result)
+        assert child_path.startswith("Ideas/wiki~parent-page/")
+        with open(os.path.join(str(initialized), child_path)) as f:
+            content = f.read()
+        from _common import parse_frontmatter
+        fields, _ = parse_frontmatter(content)
+        assert fields["parent"] == "wiki/parent-page"
 
     def test_create_skill_resource(self, initialized):
         result = server.brain_create(
@@ -2733,7 +2820,7 @@ class TestBrainProcess:
             f.write(
                 "# Ideas\n\n"
                 "A concept that needs iterative refinement.\n\n"
-                "## Naming\n\n`{slug}.md` in `Ideas/`.\n\n"
+                "## Naming\n\n`{Title}.md` in `Ideas/`.\n\n"
                 "## Frontmatter\n\n```yaml\n---\ntype: living/ideas\n---\n```\n\n"
                 "## Purpose\n\nCapture concepts that need development.\n\n"
                 "## When To Use\n\nWhen developing a concept that needs iterative refinement.\n\n"
@@ -2903,7 +2990,7 @@ class TestBrainActionSyncDefinitions:
             "    target: _Config/Taxonomy/Living/wiki.md\n"
         )
         (lib_dir / "taxonomy.md").write_text(
-            "# Wiki\n\n## Naming\n\n`{slug}.md` in `Wiki/`.\n\n"
+            "# Wiki\n\n## Naming\n\n`{Title}.md` in `Wiki/`.\n\n"
             "## Frontmatter\n\n```yaml\n---\ntype: living/wiki\ntags: []\n---\n```\n"
         )
 
@@ -3438,6 +3525,15 @@ class TestBrainList:
         resp = server.brain_list(type="living/nonexistent")
         text = _list_text(resp)
         assert "0 results" in text
+
+    def test_list_by_parent(self, initialized):
+        server.brain_create(type="wiki", title="Owner", key="owner")
+        server.brain_create(type="ideas", title="Owned Idea", parent="wiki/owner")
+        resp = server.brain_list(parent="wiki/owner")
+        lines = _list_result_lines(resp)
+        assert len(lines) == 1
+        assert "Ideas/wiki~owner/" in lines[0]
+        assert "parent=wiki/owner" in lines[0]
 
     def test_list_result_shape(self, initialized):
         """Each result line is tab-separated: date, title, path, type[, status]."""

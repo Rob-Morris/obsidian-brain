@@ -24,12 +24,18 @@ from pathlib import Path
 from _common import (
     PLACEHOLDER_TOKEN_RE,
     TEMPORAL_DIR,
+    artefact_type_prefix,
     find_vault_root,
     is_system_dir,
+    iter_artefact_paths,
+    make_artefact_key,
+    normalize_artefact_key,
+    read_frontmatter,
     read_version,
     safe_write,
     scan_living_types,
     scan_temporal_types,
+    is_valid_key,
 )
 from _common._artefacts import pattern_has_date_tokens
 import session
@@ -48,6 +54,14 @@ def hash_file(path):
         for chunk in iter(lambda: f.read(8192), b""):
             h.update(chunk)
     return "sha256:" + h.hexdigest()
+
+
+def hash_json_payload(payload):
+    """Return a stable sha256 hex digest for a JSON-serialisable payload."""
+    encoded = json.dumps(
+        payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    return "sha256:" + hashlib.sha256(encoded).hexdigest()
 
 
 def compute_source_hash(sources):
@@ -761,6 +775,89 @@ def detect_environment(vault_root):
     }
 
 
+
+def _hash_index_payload(fields):
+    """Hash only the frontmatter fields that affect the artefact index."""
+    payload = {
+        "type": fields.get("type"),
+        "key": fields.get("key"),
+        "parent": normalize_artefact_key(fields.get("parent")),
+    }
+    return hash_json_payload(payload)
+
+
+def hash_living_artefact_source(abs_path):
+    """Hash index-affecting frontmatter from a file on disk."""
+    fields = read_frontmatter(abs_path)
+    return _hash_index_payload(fields)
+
+
+def count_living_artefact_index_entries(vault_root, artefacts):
+    """Return the number of living markdown files with a valid artefact key."""
+    count = 0
+    for artefact in artefacts:
+        if artefact.get("classification") != "living":
+            continue
+        for rel_path in iter_artefact_paths(vault_root, artefact):
+            abs_path = os.path.join(vault_root, rel_path)
+            try:
+                fields = read_frontmatter(abs_path)
+            except (OSError, UnicodeDecodeError):
+                continue
+            if is_valid_key(fields.get("key")):
+                count += 1
+    return count
+
+
+def build_living_artefact_index(vault_root, artefacts, *, return_sources=False):
+    """Build the compiled living-artefact key index."""
+    index = {}
+    source_signatures = {}
+    living_artefacts = [a for a in artefacts if a.get("classification") == "living"]
+
+    for artefact in living_artefacts:
+        type_prefix = artefact_type_prefix(artefact)
+        for rel_path in iter_artefact_paths(vault_root, artefact):
+            abs_path = os.path.join(vault_root, rel_path)
+            try:
+                fields = read_frontmatter(abs_path)
+            except (OSError, UnicodeDecodeError):
+                continue
+
+            key_val = fields.get("key")
+            if not is_valid_key(key_val):
+                continue
+
+            source_signatures[rel_path] = _hash_index_payload(fields)
+
+            artefact_key = make_artefact_key(type_prefix, key_val)
+            if artefact_key in index:
+                raise ValueError(
+                    f"Duplicate artefact key '{artefact_key}' for {index[artefact_key]['path']} and {rel_path}"
+                )
+
+            index[artefact_key] = {
+                "path": rel_path,
+                "type": artefact["frontmatter_type"],
+                "type_key": artefact["key"],
+                "type_prefix": type_prefix,
+                "key": key_val,
+                "parent": normalize_artefact_key(fields.get("parent")),
+                "children_count": 0,
+            }
+
+    for entry in index.values():
+        parent_key = entry.get("parent")
+        if parent_key and parent_key in index:
+            index[parent_key]["children_count"] += 1
+
+    sorted_index = dict(sorted(index.items()))
+    sorted_sources = dict(sorted(source_signatures.items()))
+    if return_sources:
+        return sorted_index, sorted_sources
+    return sorted_index
+
+
 # ---------------------------------------------------------------------------
 # Main compilation
 # ---------------------------------------------------------------------------
@@ -889,6 +986,13 @@ def compile(vault_root):
         track(m["memory_doc"])
 
     # Build output
+    artefact_index, artefact_index_sources = build_living_artefact_index(
+        vault_root, artefacts, return_sources=True
+    )
+    # Artefact-index freshness depends on living slug/parent/type metadata, not
+    # note body text. Store keyed living inputs using a frontmatter fingerprint
+    # so ordinary content edits do not churn the router cache.
+    sources.update(artefact_index_sources)
     source_hash = compute_source_hash(sources)
 
     compiled = {
@@ -897,10 +1001,13 @@ def compile(vault_root):
             "compiled_at": datetime.now(timezone.utc).astimezone().isoformat(),
             "source_hash": source_hash,
             "sources": sources,
+            "artefact_index_sources": list(artefact_index_sources.keys()),
+            "artefact_index_source_count": len(artefact_index_sources),
         },
         "environment": detect_environment(vault_root),
         "always_rules": always_rules,
         "artefacts": artefacts,
+        "artefact_index": artefact_index,
         "triggers": triggers,
         "skills": skills,
         "plugins": plugins,

@@ -1,9 +1,12 @@
 required:
   type:
     const: "living/journal"
+  key:
+    type: string
+    pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
   tags:
     type: array
-    contains: "journal/{slug}"
+    contains: "journal/{key}"
 optional:
   status:
     enum: [active, parked]

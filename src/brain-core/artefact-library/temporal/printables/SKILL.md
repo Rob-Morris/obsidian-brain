@@ -40,7 +40,7 @@ python3 .brain-core/scripts/shape_printable.py --source "Wiki/topic.md" --slug "
 ## Conventions
 
 - **Markdown is the artefact.** The `.md` file in `_Temporal/Printables/` is what gets tracked, linked, and searched. The PDF is output.
-- **Generated output lives under `_Assets/Generated/Printables/`.** Use `{stem}.pdf` for the normal single-file output. If one printable workflow produces multiple linked files, add `hub-slug` to the owning artefact if missing and nest those files under `_Assets/Generated/Printables/{OwnerType}~{hub-slug}/`.
+- **Generated output lives under `_Assets/Generated/Printables/`.** Use `{stem}.pdf` for the normal single-file output. If one printable workflow produces multiple linked files, use the owning artefact's canonical key and nest those files under `_Assets/Generated/Printables/{OwnerType}~{owner-key}/`.
 - **Tool resolution is explicit-path first.** `shape-printable` checks machine-local overrides from `.brain/local/config.yaml` and `BRAIN_*` env vars before falling back to the host `PATH`.
 - **Link provenance.** Every printable should reference its source artefact(s) via `**Origin:**` links.
 - **Write for pages.** Paragraphs and short sections are expected. This is not slide content.

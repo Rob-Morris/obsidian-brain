@@ -4,7 +4,7 @@
     {
       "id": 0,
       "prompt": "Add a wiki page about Rust ownership semantics",
-      "expected_output": "Creates a wiki page in Wiki/ with correct slug naming, type and tags frontmatter, appends a timestamped log entry, and asks clarifying questions before acting",
+      "expected_output": "Creates a wiki page in Wiki/ with correct key naming, type and tags frontmatter, appends a timestamped log entry, and asks clarifying questions before acting",
       "files": []
     },
     {

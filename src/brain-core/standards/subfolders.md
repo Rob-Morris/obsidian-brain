@@ -1,38 +1,46 @@
 # Subfolders Within Living Artefact Folders
 
-Artefacts start as flat files in their type folder. Structure is not planned upfront — it emerges when a single logical work grows to span multiple files.
+Artefacts start as flat files in their type folder. Structure is not planned upfront — it emerges when a single logical work grows to span multiple files. When subfolders appear, they are a projection of canonical ownership, not an informal folder label.
 
 ## Organic growth
 
 When a project, book, or other complex work outgrows a single file, a subfolder appears naturally:
 
-- One file in the subfolder acts as the **index** (`index.md` or the project slug, e.g. `my-book.md`)
-- The subfolder inherits the parent artefact type — no separate taxonomy or CSS needed
-- CSS prefix selectors (e.g. `[data-path^="Writing/"]`) handle nested content automatically
+- One living artefact becomes the owner
+- Living children persist `parent: {type}/{key}` (see [[keys]])
+- Same-type child folders use `{key}/`
+- Cross-type child folders use `{parent-type}~{key}/`
+- The subfolder inherits the child artefact type — no separate taxonomy or CSS needed
 
 Common evolution patterns (e.g. "a book might grow chapters in a subfolder") can be documented in individual artefact taxonomy files as cues, without being prescriptive.
 
 ## Master/sub-artefact convention
 
-When a master artefact accumulates enough related sub-artefacts that the type folder gets crowded, the sub-artefacts move into a named subfolder. The master stays in the type root as the entry point; the subfolder groups its children.
+When a living artefact accumulates enough related sub-artefacts that the type folder gets crowded, the sub-artefacts move into an owner-derived subfolder. The owner stays in the type root as the entry point; the subfolder groups its children.
 
 ```
 Designs/
-  Brain Master Design.md          <- master stays in root
-  Brain/                          <- sub-artefacts cluster here
+  Brain Master Design.md          <- owner stays in root
+  brain/                          <- same-type children owned by design/brain
     Brain Inbox.md
     Brain Mcp Server.md
     ...
 ```
 
-This is a general convention for any living artefact type — designs, ideas, wiki pages, etc.
+Cross-type ownership uses the owner type prefix:
+
+```
+Releases/
+  project~brain/
+    v0.31.0 - Ownership Contract.md
+```
 
 **Rules:**
 
-- The master artefact stays in the type root. It is the entry point for the project.
-- Sub-artefacts live in `{Type}/{Project}/` where `{Project}` is the subfolder name.
-- Sub-artefacts inherit the parent artefact type — no separate taxonomy needed.
-- The subfolder name is a short project label (e.g. `Brain`, `Pistols`), not the full master title.
-- `brain_create` accepts an optional `parent` parameter to place new artefacts directly into a project subfolder.
+- The owner artefact stays in its normal location. It is the entry point for that work.
+- Same-type children live in `{Type}/{key}/`.
+- Cross-type children live in `{Type}/{parent-type}~{key}/`.
+- The subfolder name is derived from the canonical owner key, not guessed from the title.
+- `brain_create` accepts `parent` as a canonical artefact key, unique name or basename, or relative path. It always persists the canonical `{type}/{key}` value.
 
-**Archiving sub-artefacts:** See the [archiving standard](archiving.md) for how archiving works within project subfolders.
+**Archiving sub-artefacts:** See the [archiving standard](archiving.md) for how archiving works within ownership-derived subfolders.

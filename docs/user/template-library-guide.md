@@ -26,7 +26,7 @@ Loose thoughts and concepts articulated to clarity through iterative refinement.
 
 ### Journals
 
-Named journal streams that group personal journal entries via nested tags. One file per journal stream — the hub for all entries in that stream. Use this type when you want to maintain distinct, named journals (e.g., a personal journal, a work journal) rather than a single undifferentiated stream.
+Named journal streams that relate personal journal entries via a `journal/{key}` relationship tag. One file per journal stream — the hub for all entries in that stream. Use this type when you want to maintain distinct, named journals (e.g., a personal journal, a work journal) rather than a single undifferentiated stream.
 
 ### Notes
 
@@ -38,11 +38,11 @@ Person index files — one per person, serving as the living source of truth for
 
 ### Projects
 
-Project index files linking to all related artefacts — designs, research, plans, releases, transcripts. Use a project file as the hub for any body of work. All related vault artefacts use a nested project tag so everything connected to a project is findable from one place.
+Project index files linking to all related artefacts — designs, research, plans, releases, transcripts. Use a project file as the hub for any body of work. Owned child artefacts can use `parent: project/{key}`; living children also move into owner-derived folders, while temporal children stay date-filed. Related artefacts can still use a `project/{key}` relationship tag so everything connected to a project is findable from one place.
 
 ### Releases
 
-Version-scoped shipment records for a project. Use a release artefact when a project has a named version or milestone worth planning, tracking, or recording separately from the project hub. Each release captures the goal, ship gates, human-readable changelog, and sources for one version, and lives under a project-specific folder in `Releases/`.
+Version-scoped shipment records for a project. Use a release artefact when a project has a named version or milestone worth planning, tracking, or recording separately from the project hub. Each release captures the goal, ship gates, human-readable changelog, and sources for one version, and when owned by a project lives under `Releases/project~{key}/`.
 
 ### Tasks
 

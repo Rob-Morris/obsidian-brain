@@ -8,6 +8,7 @@ from unittest.mock import patch
 import pytest
 
 import build_index as bi
+from _common import is_system_dir, iter_artefact_paths, parse_frontmatter
 
 
 # ---------------------------------------------------------------------------
@@ -82,13 +83,13 @@ def empty_vault(tmp_path):
 
 class TestVaultDiscovery:
     def test_is_system_dir_underscore(self):
-        assert bi.is_system_dir("_Config") is True
+        assert is_system_dir("_Config") is True
 
     def test_is_system_dir_dot(self):
-        assert bi.is_system_dir(".obsidian") is True
+        assert is_system_dir(".obsidian") is True
 
     def test_is_system_dir_normal(self):
-        assert bi.is_system_dir("Wiki") is False
+        assert is_system_dir("Wiki") is False
 
     def test_scan_living_types(self, vault):
         types = bi.scan_living_types(vault)
@@ -116,29 +117,28 @@ class TestVaultDiscovery:
 class TestFileDiscovery:
     def test_find_md_files_living(self, vault):
         type_info = {"path": "Wiki"}
-        files = bi.find_md_files(vault, type_info)
+        files = list(iter_artefact_paths(vault, type_info, include_status_folders=True))
         assert len(files) == 2
         assert all(f.endswith(".md") for f in files)
 
     def test_find_md_files_temporal_recurses(self, vault):
         type_info = {"path": os.path.join("_Temporal", "Logs")}
-        files = bi.find_md_files(vault, type_info)
+        files = list(iter_artefact_paths(vault, type_info, include_status_folders=True))
         assert len(files) == 1
         assert "2026-03" in files[0]
 
     def test_find_md_files_skips_system_subdirs(self, vault):
-        # Add a .obsidian subdir with an .md file
         obs = vault / "Wiki" / ".obsidian"
         obs.mkdir()
         (obs / "hidden.md").write_text("# Hidden\n")
 
         type_info = {"path": "Wiki"}
-        files = bi.find_md_files(vault, type_info)
+        files = list(iter_artefact_paths(vault, type_info, include_status_folders=True))
         assert not any(".obsidian" in f for f in files)
 
     def test_find_md_files_missing_dir(self, vault):
         type_info = {"path": "Nonexistent"}
-        files = bi.find_md_files(vault, type_info)
+        files = list(iter_artefact_paths(vault, type_info, include_status_folders=True))
         assert files == []
 
 
@@ -149,30 +149,30 @@ class TestFileDiscovery:
 class TestFrontmatter:
     def test_parse_basic_frontmatter(self):
         text = "---\ntype: living/wiki\nstatus: active\n---\n\n# Title\n\nBody text."
-        fields, body = bi.parse_frontmatter(text)
+        fields, body = parse_frontmatter(text)
         assert fields["type"] == "living/wiki"
         assert fields["status"] == "active"
         assert "# Title" in body
 
     def test_parse_inline_tags(self):
         text = "---\ntags: [python, rust]\n---\n\nBody."
-        fields, body = bi.parse_frontmatter(text)
+        fields, body = parse_frontmatter(text)
         assert fields["tags"] == ["python", "rust"]
 
     def test_parse_multiline_tags(self):
         text = "---\ntags:\n  - alpha\n  - beta\n---\n\nBody."
-        fields, body = bi.parse_frontmatter(text)
+        fields, body = parse_frontmatter(text)
         assert fields["tags"] == ["alpha", "beta"]
 
     def test_parse_no_frontmatter(self):
         text = "# Just a title\n\nSome body text."
-        fields, body = bi.parse_frontmatter(text)
+        fields, body = parse_frontmatter(text)
         assert fields == {}
         assert body == text
 
     def test_parse_quoted_values(self):
         text = "---\ncreated: '2026-01-01T00:00:00.000Z'\n---\n\nBody."
-        fields, body = bi.parse_frontmatter(text)
+        fields, body = parse_frontmatter(text)
         assert fields["created"] == "2026-01-01T00:00:00.000Z"
 
     def test_extract_title_uses_filename_stem(self):

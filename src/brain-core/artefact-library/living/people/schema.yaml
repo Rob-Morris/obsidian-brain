@@ -1,9 +1,12 @@
 required:
   type:
     const: "living/person"
+  key:
+    type: string
+    pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
   tags:
     type: array
-    contains: "person/{slug}"
+    contains: "person/{key}"
 optional:
   status:
     enum: [active, shaping, parked]

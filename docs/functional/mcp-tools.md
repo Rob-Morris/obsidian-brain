@@ -59,7 +59,7 @@ Safe, no side effects, auto-approvable. Reads a specific resource by name. Deleg
 - **Singletons** (`environment`, `router`, `compliance`) — no `name` required
 - **Aliases** (`template`, `file`) — work as before; `file` is a smart resolver that delegates to the correct handler
 - **`file`** — can also read `.brain-core/` docs by vault-relative path, e.g. `brain_read(resource="file", name=".brain-core/standards/provenance.md")`
-- **`artefact`** — reads by relative path or basename. Full relative paths read directly; bare basenames resolve via wikilink-style lookup (case-insensitive, `.md`-optional) validated against the compiled router. For temporal artefacts, the display name works too — e.g. `name="Colour Theory"` resolves `20260404-research~Colour Theory.md`. Archive paths are rejected with a helpful error.
+- **`artefact`** — reads by canonical artefact key (e.g. `name="design/brain"`), relative path, or basename/display name. Canonical keys resolve via the compiled artefact index; full relative paths read directly; bare names resolve via wikilink-style lookup (case-insensitive, `.md`-optional) validated against the compiled router — for living artefacts the filename is the display name, and for temporal artefacts the display name works too (e.g. `name="Colour Theory"` resolves `20260404-research~Colour Theory.md`). Archive paths are rejected with a helpful error.
 - **`compliance`** — runs `check.py` checks; `name` filters by severity (`error`/`warning`/`info`)
 - **`environment`** — enriched server-side with `obsidian_cli_available`
 - **`workspace`** — resolves a specific slug to its data folder path (handled by server, not router state)
@@ -121,11 +121,12 @@ Additive, safe to auto-approve. Creates a new vault resource. Write-guarded: rej
 - `body` (optional; required for non-artefact resources)
 - `body_file` (optional) — absolute path to a file containing body content; must be inside the vault or system temp directory; temp files deleted after reading, vault files left in place; mutually exclusive with `body`; use for large content to keep MCP call displays compact; to stage content, run `mktemp /tmp/brain-body-XXXXXX` to get a safe temp path, write content there, then pass that path here
 - `frontmatter` (optional overrides) — for memories, use `{"triggers": ["keyword1", "keyword2"]}`
-- `parent` (optional) — project subfolder name for living types (e.g. `"Brain"`); ignored for temporal types and non-artefact resources
+- `parent` (optional) — parent artefact reference for child artefacts. Accepts canonical artefact key form (`"project/brain"`), or a resolvable name/path; persisted canonically as `{type}/{key}` for artefacts. Living children use it for owner-derived folder placement; temporal children keep their normal `yyyy-mm/` folder layout. Ignored for non-artefact resources
+- `key` (optional) — explicit key override for living artefacts; must be lowercase ASCII alnum plus single hyphens
 - `fix_links` (optional, default `false`) — when `true`, resolvable broken wikilinks in the written artefact are auto-rewritten to their canonical target immediately after creation; remaining unresolvable or ambiguous links are still reported as warnings
 
 **Behaviour:**
-- For artefacts: resolves type from compiled router, reads template, generates filename from naming pattern, writes file with merged frontmatter; naming patterns can also consume matching frontmatter/template values such as `{Version}`; unresolved placeholders return an error instead of writing a broken filename; auto-injects `created` and `modified` ISO 8601 timestamps (respects overrides); auto-disambiguates basename collisions by appending `(type)`
+- For artefacts: resolves type from compiled router, reads template, generates filename from naming pattern, writes file with merged frontmatter; naming patterns can also consume matching frontmatter/template values such as `{Version}`; unresolved placeholders return an error instead of writing a broken filename; auto-injects `created` and `modified` ISO 8601 timestamps (respects overrides); living artefacts also get a platform-owned `key`; any resolved `parent` is persisted canonically and stamped into tags, with owner-derived folder placement for living children only; temporal children keep date-based filing; auto-disambiguates basename collisions by appending `(type)`
 - For non-artefact resources: creates in the appropriate `_Config/` subfolder — skills at `_Config/Skills/{name}/SKILL.md`, memories at `_Config/Memories/{name}.md`, styles at `_Config/Styles/{name}.md`, templates at `_Config/Templates/{classification}/{Type}.md`
 - Every artefact write runs a per-file wikilink check; broken, resolvable, and ambiguous links are appended to the response as `⚠` warning lines (and auto-applied fixes as a `✔` block when `fix_links=true`)
 
@@ -140,7 +141,7 @@ Single-file mutation. Write-guarded: same folder restrictions as `brain_create`.
 **Parameters:**
 - `resource` (default `"artefact"`) — also accepts `skill`, `memory`, `style`, `template`
 - `operation` (required) — `"edit"`, `"append"`, `"prepend"`, or `"delete_section"`
-- `path` (required when `resource="artefact"`) — relative path or basename; resolves like wikilinks
+- `path` (required when `resource="artefact"`) — canonical artefact key (e.g. `"design/brain"`), relative path, or basename/display name; resolves via artefact index, wikilink lookup, or direct path
 - `name` (required when resource is `skill`, `memory`, `style`, or `template`) — for templates, name is the artefact type key
 - `body` — omit for frontmatter-only changes; ignored for `delete_section`
 - `body_file` (optional) — same semantics as `brain_create`'s `body_file`
@@ -182,7 +183,7 @@ Vault-wide and destructive operations, gated by explicit approval.
 - **`build_index`** — rebuild the BM25 search index
 - **`rename`** — delegates to `rename.py`'s `rename_and_update_links()`, with Obsidian CLI override when available. Wikilink updates match full-path (`[[Wiki/topic-a]]`), filename-only (`[[topic-a]]`), heading anchors, block references, embeds, and aliases — preserving the original format; filename-only matching skipped when basename is ambiguous
 - **`delete`** — removes a file and replaces wikilinks with strikethrough (same matching as rename)
-- **`convert`** — changes artefact type, moves file, reconciles frontmatter, and updates wikilinks vault-wide
+- **`convert`** — changes artefact type, moves file, reconciles frontmatter, and updates wikilinks vault-wide. Crossing the living/temporal boundary reconciles the key contract: temporal→living generates a canonical `key:`; living→temporal drops the key and heals descendants by removing their `parent:` field plus the owner-tag and relocating them out of the owner-derived folder
 - **`shape-printable`** — creates a printable artefact and renders `_Assets/Generated/Printables/{stem}.pdf` via pandoc. `params: {source, slug}` with optional `{render, keep_heading_with_next, pdf_engine}`
 - **`shape-presentation`** — creates a Marp presentation artefact, renders `_Assets/Generated/Presentations/{stem}.pdf`, and optionally launches live preview (`params: {source, slug}`, optional `{render, preview}`)
 - **`archive`** — moves a terminal-status artefact to `_Archive/{Type}/{Project}/` with date-prefix rename, sets `archiveddate`, and updates vault-wide wikilinks (`params: {path}`)

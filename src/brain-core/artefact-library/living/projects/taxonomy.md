@@ -21,16 +21,19 @@ Example: `Projects/pistols-at-dawn.md`
 ```yaml
 ---
 type: living/project
+key: {key}
 tags:
-  - project/{slug}
+  - project/{key}
 ---
 ```
 
-Every file related to a project should use the nested project tag, e.g. `project/pistols-at-dawn`.
+`key` is the canonical identifier (see [[.brain-core/standards/keys]]). The platform generates it at create time; edit it manually only when a memorable key is genuinely needed.
+
+Files related to a project can use the relationship tag `project/pistols-at-dawn`. Child artefacts that are structurally owned by the project should also set `parent: project/pistols-at-dawn`. Living children use owner-derived folders; temporal children stay in their date folders.
 
 ## Releases
 
-Projects track releases through a hub pattern. The project hub keeps the release index; each release lives as its own artefact under `Releases/{Project}/`.
+Projects track releases through the ownership pattern. The project hub keeps the release index; each owned release lives as its own artefact under `Releases/project~{key}/`.
 
 A complete release section in the hub should include:
 
@@ -39,11 +42,11 @@ A complete release section in the hub should include:
 - **Shipped releases** — wikilinks to `shipped` release artefacts, newest first
 - **Backlog** — planned future versions or named release ideas not yet active
 
-Release artefacts should share the project's `project/{slug}` tag so they remain queryable alongside designs, plans, and decision logs.
+Release artefacts should share the project's `project/{key}` tag so they remain queryable alongside designs, plans, and decision logs.
 
 ## Temporal Handshake
 
-Research, decisions, plans, and logs tagged `project/{slug}` feed this hub. When a temporal artefact changes the project's current picture — a decision that alters scope, research that shifts direction, a plan that's been superseded — distil the change into the hub body. Temporals preserve what happened and when; the project hub reflects where things stand now.
+Research, decisions, plans, and logs tagged `project/{key}` feed this hub. When a temporal artefact changes the project's current picture — a decision that alters scope, research that shifts direction, a plan that's been superseded — distil the change into the hub body. Temporals preserve what happened and when; the project hub reflects where things stand now.
 
 ## Ingestion
 
@@ -58,10 +61,10 @@ If the user gives you a project name and a sentence, create the hub immediately 
 If the user dumps a brief with lots of detail, decompose:
 
 - **Goals, scope, current status** → the project hub body
-- **Research findings** → research artefacts, tagged `project/{slug}`
-- **Decisions made** → decision logs, tagged `project/{slug}`
-- **Plans and next steps** → plans, tagged `project/{slug}`
-- **Ideas surfaced** → idea logs, tagged `project/{slug}`
+- **Research findings** → research artefacts, tagged `project/{key}`
+- **Decisions made** → decision logs, tagged `project/{key}`
+- **Plans and next steps** → plans, tagged `project/{key}`
+- **Ideas surfaced** → idea logs, tagged `project/{key}`
 - **Timeline of what happened** → log entry
 
 ### Writing the hub

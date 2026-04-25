@@ -58,7 +58,7 @@ Terminal designs remain searchable and indexed in their `+Status` folder. No ren
 Follow [[.brain-core/standards/provenance]], including transcript linking for Q&A sessions:
 
 ```markdown
-**Origin:** [[idea-slug|Source idea]]
+**Origin:** [[idea-key|Source idea]]
 **Transcripts:** [[transcript-1|Session 1]], [[transcript-2|Session 2]]
 ```
 
@@ -76,7 +76,7 @@ See [[.brain-core/standards/shaping]] for the shaping process.
 - **List transcripts.** Reference Q&A sessions that shaped the design.
 - **Track decisions.** Use a decisions table for open and resolved choices.
 - **Maintain an Open questions section** for unresolved choices. When a question is resolved, move its entry to the decisions table.
-- **Tag the project.** Use a nested project tag (e.g. `project/my-project`).
+- **Relate or own deliberately.** Use a `project/{key}` tag when the design is related to a project. If the design is structurally owned by a project, also set `parent: project/{key}`.
 
 ## Naming
 

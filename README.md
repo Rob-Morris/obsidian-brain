@@ -1,6 +1,6 @@
 # Obsidian Brain
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.30.2-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.10-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.31.0-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.10-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
 
 A self-evolving knowledge base for agents and humans working together on what matters.
 

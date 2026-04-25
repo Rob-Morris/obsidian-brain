@@ -3,6 +3,7 @@
 import json
 import os
 
+from ._artefacts import normalize_artefact_key, resolve_artefact_key_entry
 from ._wikilinks import resolve_artefact_path
 
 
@@ -44,6 +45,14 @@ def validate_artefact_folder(vault_root, router, path):
 
 def resolve_and_validate_folder(vault_root, router, path):
     """Validate path belongs to a known artefact folder, falling back to basename resolution."""
+    key = normalize_artefact_key(path)
+    if key:
+        entry = resolve_artefact_key_entry(router, key)
+        if not entry:
+            raise ValueError(f"No artefact matching key '{path}'")
+        art = validate_artefact_folder(vault_root, router, entry["path"])
+        return entry["path"], art
+
     if not path.endswith(".md"):
         path += ".md"
     try:

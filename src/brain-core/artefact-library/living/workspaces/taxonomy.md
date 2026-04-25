@@ -23,12 +23,15 @@ Example: `Workspaces/yearly-taxes-2026.md`
 ```yaml
 ---
 type: living/workspace
+key: {key}
 tags:
-  - workspace/{slug}
+  - workspace/{key}
 status: active
 workspace_mode: embedded
 ---
 ```
+
+`key` is the canonical identifier (see [[.brain-core/standards/keys]]). The platform generates it at create time.
 
 Every file related to a workspace should use the nested workspace tag, e.g. `workspace/yearly-taxes-2026`.
 
@@ -44,11 +47,11 @@ Every file related to a workspace should use the nested workspace tag, e.g. `wor
 
 ## Terminal Status
 
-When a workspace reaches `completed` status → move to `Workspaces/+Completed/`. If an embedded data folder exists at `_Workspaces/{slug}/`, move it to `_Workspaces/+Completed/{slug}/`. No rename, no `archiveddate` — the file stays searchable and indexed in its terminal status folder.
+When a workspace reaches `completed` status → move to `Workspaces/+Completed/`. If an embedded data folder exists at `_Workspaces/{key}/`, move it to `_Workspaces/+Completed/{key}/`. No rename, no `archiveddate` — the file stays searchable and indexed in its terminal status folder.
 
 ## Data Folder
 
-The `_Workspaces/{slug}/` folder (for embedded mode) is a freeform data bucket. Any file type is welcome — markdown, CSVs, JSON, scripts, images. These files are **not** brain artefacts: no frontmatter obligations, no naming conventions, no taxonomy rules. The brain does not index or enforce conventions inside `_Workspaces/`.
+The `_Workspaces/{key}/` folder (for embedded mode) is a freeform data bucket. Any file type is welcome — markdown, CSVs, JSON, scripts, images. These files are **not** brain artefacts: no frontmatter obligations, no naming conventions, no taxonomy rules. The brain does not index or enforce conventions inside `_Workspaces/`.
 
 If a user needs a full artefact taxonomy for a body of work, the answer is to create a separate brain (an independent vault with its own `.brain-core/`).
 

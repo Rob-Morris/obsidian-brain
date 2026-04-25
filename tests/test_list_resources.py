@@ -44,14 +44,14 @@ def vault(tmp_path):
     tax_living = config / "Taxonomy" / "Living"
     tax_living.mkdir(parents=True)
     (tax_living / "wiki.md").write_text(
-        "# Wiki\n\n## Naming\n\n`{slug}.md` in `Wiki/`.\n\n"
+        "# Wiki\n\n## Naming\n\n`{Title}.md` in `Wiki/`.\n\n"
         "## Frontmatter\n\n```yaml\n---\ntype: living/wiki\ntags:\n  - topic-tag\n---\n```\n\n"
         "## Template\n\n[[_Config/Templates/Living/Wiki]]\n"
     )
 
     tax_temporal = config / "Taxonomy" / "Temporal"
     tax_temporal.mkdir(parents=True)
-    (tax_temporal / "logs.md").write_text("# Logs\n\n## Naming\n\n`log-{slug}.md`.\n")
+    (tax_temporal / "logs.md").write_text("# Logs\n\n## Naming\n\n`log-{Title}.md`.\n")
 
     # Skills
     skills_dir = config / "Skills" / "Test Skill"

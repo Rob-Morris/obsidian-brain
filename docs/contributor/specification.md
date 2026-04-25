@@ -51,23 +51,25 @@ Documented in `.brain-core/standards/extending/README.md`:
 
 ### Hub Pattern
 
-Some living artefact types act as hubs — containers that group related artefacts (temporal or living) via nested tags. The hub file carries a nested tag (e.g. `person/{slug}`, `project/{slug}`, `journal/{slug}`), and all related artefacts share that tag. The hub is the index; the tag is the query mechanism.
+Some living artefact types act as hubs because other artefacts gather around them. A hub is an ordinary living artefact with a stable key (for example `project/{key}` or `person/{key}`), not a separate structural type.
 
-This pattern is useful when a single living artefact organises a stream of related work or content across the vault. Current examples: People (groups observations and other artefacts related to a person via `person/{slug}`), Projects (groups plans, research, designs, releases, and logs via `project/{slug}`), Journals (groups journal entries via `journal/{slug}`), Workspaces (groups brain artefacts related to a bounded data container via `workspace/{slug}`).
+Ownership for child artefacts is persisted via `parent: {type}/{key}`. Living children also reflect that ownership in owner-derived subfolders; temporal children remain filed by date. Tags remain relationships only: they can connect temporal or living artefacts to a hub, but they are not an ownership fallback once the canonical parent model exists.
+
+This pattern is useful when a single living artefact organises a stream of related work or content across the vault. Current examples: People, Projects, Journals, and Workspaces.
 
 ### Master/Sub-Artefact Convention
 
-When a master artefact accumulates enough related sub-artefacts to crowd the type folder, sub-artefacts move into a named subfolder. The master stays in the type root as the entry point; the subfolder groups its children. Sub-artefacts inherit the parent type — no separate taxonomy or CSS needed.
+When a living artefact accumulates enough related sub-artefacts to crowd the type folder, sub-artefacts move into an ownership-derived subfolder. The owner stays in the type root as the entry point; the subfolder groups its children. Sub-artefacts inherit the child type — no separate taxonomy or CSS needed.
 
 ```
 Designs/
-  Brain Master Design.md          ← master stays in root
-  Brain/                          ← sub-artefacts cluster here
+  Brain Master Design.md          ← owner stays in root
+  brain/                          ← same-type children owned by design/brain
     Brain Inbox.md
     Brain Mcp Server.md
 ```
 
-Archiving uses `brain_action("archive")` which moves artefacts to a top-level `_Archive/` directory at the vault root, preserving type/project structure inside (e.g. `_Archive/Designs/Brain/20260405-old.md`). Archived files are excluded from the vault file index, search, and all normal operations. Projects archive as-is — no flattening.
+Cross-type child folders use `{parent-type}~{key}/` (for example `Releases/project~brain/`). Archiving uses `brain_action("archive")` which moves artefacts to a top-level `_Archive/` directory at the vault root, preserving type and owner-derived structure inside. Archived files are excluded from the vault file index, search, and all normal operations.
 
 ## Documentation
 

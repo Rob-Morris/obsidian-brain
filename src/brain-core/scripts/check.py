@@ -24,14 +24,25 @@ from datetime import datetime, timezone
 from _common import (
     BOOTSTRAP_VARIANTS,
     LOCAL_OVERRIDE_VARIANTS,
+    STATUS_FOLDER_PREFIX,
+    artefact_type_prefix,
     find_vault_root,
+    is_archived_path,
     is_system_dir,
-    parse_frontmatter,
+    is_valid_key,
+    make_artefact_key,
+    normalize_artefact_key,
+    read_frontmatter,
     build_vault_file_index,
     check_wikilinks_in_file,
     discover_temporal_prefixes,
     INDEX_SKIP_DIRS,
+    iter_artefact_markdown_files,
+    iter_artefact_paths,
+    iter_living_markdown_files,
     load_compiled_router,
+    resolve_artefact_key_entry,
+    resolve_folder,
     select_rule,
     validate_artefact_folder,
     validate_filename,
@@ -57,6 +68,42 @@ ROOT_ALLOW_OTHER = {
 
 
 # ---------------------------------------------------------------------------
+# Per-run cache
+# ---------------------------------------------------------------------------
+
+class CheckContext:
+    """Per-run cache shared across checks in a single ``run_checks`` invocation.
+
+    Deduplicates frontmatter reads (every check walks the vault; without the
+    cache the same artefact is re-parsed once per check that visits it) and
+    lazy-builds the wikilink file index. Scope is one process call — the
+    object is discarded at exit, so there is no staleness concern.
+    """
+
+    __slots__ = ("vault_root", "router", "_fm_cache", "_file_index")
+
+    def __init__(self, vault_root, router):
+        self.vault_root = vault_root
+        self.router = router
+        self._fm_cache = {}
+        self._file_index = None
+
+    def read_frontmatter(self, path):
+        cache = self._fm_cache
+        if path in cache:
+            return cache[path]
+        fields = read_frontmatter(path)
+        cache[path] = fields
+        return fields
+
+    @property
+    def file_index(self):
+        if self._file_index is None:
+            self._file_index = build_vault_file_index(self.vault_root)
+        return self._file_index
+
+
+# ---------------------------------------------------------------------------
 # Router loading
 # ---------------------------------------------------------------------------
 
@@ -66,34 +113,10 @@ def load_router(vault_root):
 
 
 # ---------------------------------------------------------------------------
-# File discovery
-# ---------------------------------------------------------------------------
-
-def find_type_files(vault_root, artefact_path, skip_archive=True):
-    """Find .md files in an artefact type folder. Returns list of relative paths."""
-    type_dir = os.path.join(vault_root, artefact_path)
-    if not os.path.isdir(type_dir):
-        return []
-
-    files = []
-    for dirpath, dirnames, filenames in os.walk(type_dir, followlinks=True):
-        if skip_archive:
-            dirnames[:] = [d for d in dirnames if d != "_Archive" and not d.startswith(".")]
-        else:
-            dirnames[:] = [d for d in dirnames if not d.startswith(".")]
-        for fname in filenames:
-            if fname.endswith(".md"):
-                abs_path = os.path.join(dirpath, fname)
-                rel_path = os.path.relpath(abs_path, vault_root)
-                files.append(rel_path)
-    return files
-
-
-# ---------------------------------------------------------------------------
 # Check implementations
 # ---------------------------------------------------------------------------
 
-def check_root_files(vault_root, router):
+def check_root_files(vault_root, router, *, ctx=None):
     """Check for content files in vault root."""
     findings = []
     # Build set of known artefact folders from router
@@ -117,7 +140,6 @@ def check_root_files(vault_root, router):
             # it'll be caught by unconfigured_type if it's a folder
             continue
 
-        # It's a file in root that isn't in ROOT_ALLOW and doesn't start with . or _
         findings.append({
             "check": "root_files",
             "severity": "error",
@@ -129,24 +151,21 @@ def check_root_files(vault_root, router):
     return findings
 
 
-def check_naming(vault_root, router):
+def check_naming(vault_root, router, *, ctx=None):
     """Check file naming against the rule selected for each file's frontmatter state."""
     findings = []
+    read_fm = ctx.read_frontmatter if ctx is not None else read_frontmatter
     for art in router.get("artefacts", []):
         if not art.get("configured") or not art.get("naming"):
             continue
         naming = art["naming"]
 
-        files = find_type_files(vault_root, art["path"], skip_archive=True)
-        for rel_path in files:
+        for rel_path in iter_artefact_paths(vault_root, art):
             abs_path = os.path.join(vault_root, rel_path)
             try:
-                with open(abs_path, "r", encoding="utf-8") as f:
-                    text = f.read()
+                fields = read_fm(abs_path)
             except (OSError, UnicodeDecodeError):
                 continue
-
-            fields, _ = parse_frontmatter(text)
             filename = os.path.basename(rel_path)
 
             rule = select_rule(naming, fields or {})
@@ -173,9 +192,10 @@ def check_naming(vault_root, router):
     return findings
 
 
-def check_frontmatter_type(vault_root, router):
+def check_frontmatter_type(vault_root, router, *, ctx=None):
     """Check that frontmatter type field matches expected type."""
     findings = []
+    read_fm = ctx.read_frontmatter if ctx is not None else read_frontmatter
     for art in router.get("artefacts", []):
         if not art.get("configured") or not art.get("frontmatter"):
             continue
@@ -183,16 +203,12 @@ def check_frontmatter_type(vault_root, router):
         if not expected_type:
             continue
 
-        files = find_type_files(vault_root, art["path"], skip_archive=True)
-        for rel_path in files:
+        for rel_path in iter_artefact_paths(vault_root, art):
             abs_path = os.path.join(vault_root, rel_path)
             try:
-                with open(abs_path, "r", encoding="utf-8") as f:
-                    text = f.read()
+                fields = read_fm(abs_path)
             except (OSError, UnicodeDecodeError):
                 continue
-
-            fields, _ = parse_frontmatter(text)
             if not fields:
                 continue  # no frontmatter — skip silently
             actual_type = fields.get("type")
@@ -208,9 +224,10 @@ def check_frontmatter_type(vault_root, router):
     return findings
 
 
-def check_frontmatter_required(vault_root, router):
+def check_frontmatter_required(vault_root, router, *, ctx=None):
     """Check that required frontmatter fields are present."""
     findings = []
+    read_fm = ctx.read_frontmatter if ctx is not None else read_frontmatter
     for art in router.get("artefacts", []):
         if not art.get("configured") or not art.get("frontmatter"):
             continue
@@ -218,16 +235,12 @@ def check_frontmatter_required(vault_root, router):
         if not required:
             continue
 
-        files = find_type_files(vault_root, art["path"], skip_archive=True)
-        for rel_path in files:
+        for rel_path in iter_artefact_paths(vault_root, art):
             abs_path = os.path.join(vault_root, rel_path)
             try:
-                with open(abs_path, "r", encoding="utf-8") as f:
-                    text = f.read()
+                fields = read_fm(abs_path)
             except (OSError, UnicodeDecodeError):
                 continue
-
-            fields, _ = parse_frontmatter(text)
             if not fields:
                 continue  # no frontmatter — skip silently
 
@@ -244,20 +257,19 @@ def check_frontmatter_required(vault_root, router):
     return findings
 
 
-def check_missing_timestamps(vault_root, router):
+def check_missing_timestamps(vault_root, router, *, ctx=None):
     """Flag artefacts missing `created` or `modified` in frontmatter."""
     findings = []
+    read_fm = ctx.read_frontmatter if ctx is not None else read_frontmatter
     for art in router.get("artefacts", []):
         if not art.get("configured"):
             continue
-        for rel_path in find_type_files(vault_root, art["path"], skip_archive=True):
+        for rel_path in iter_artefact_paths(vault_root, art):
             abs_path = os.path.join(vault_root, rel_path)
             try:
-                with open(abs_path, "r", encoding="utf-8") as f:
-                    text = f.read()
+                fields = read_fm(abs_path)
             except (OSError, UnicodeDecodeError):
                 continue
-            fields, _ = parse_frontmatter(text)
             if not fields:
                 continue
             missing = [k for k in ("created", "modified") if not fields.get(k)]
@@ -272,7 +284,141 @@ def check_missing_timestamps(vault_root, router):
     return findings
 
 
-def check_month_folders(vault_root, router):
+def check_living_key_fields(vault_root, router, *, ctx=None):
+    """Flag living artefacts missing a valid canonical key as errors.
+
+    Every v0.31.0+ upgrade runs the `migrate_to_0_31_0.py` backfill via the
+    bundled upgrade chain, so a missing key on a live vault means manual
+    authoring bypassed the tooling — a hard contract violation.
+    """
+    findings = []
+    read_fm = ctx.read_frontmatter if ctx is not None else read_frontmatter
+    for rel_path in iter_living_markdown_files(vault_root, router):
+        abs_path = os.path.join(vault_root, rel_path)
+        try:
+            fields = read_fm(abs_path)
+        except (OSError, UnicodeDecodeError):
+            continue
+        key = fields.get("key")
+        if is_valid_key(key):
+            continue
+        findings.append({
+            "check": "living_key_fields",
+            "severity": "error",
+            "file": rel_path,
+            "message": "Living artefact missing a valid key field",
+            "fix": "Run `migrate_to_0_31_0.py` (or backfill a canonical key by hand) and recompile the router",
+        })
+    return findings
+
+
+def check_parent_contract(vault_root, router, *, ctx=None):
+    """Validate canonical parent references and owner-folder placement."""
+    findings = []
+    read_fm = ctx.read_frontmatter if ctx is not None else read_frontmatter
+    for rel_path in iter_artefact_markdown_files(
+        vault_root,
+        router,
+        classifications={"living", "temporal"},
+        include_status_folders=True,
+    ):
+        if is_archived_path(rel_path):
+            continue
+        abs_path = os.path.join(vault_root, rel_path)
+        try:
+            fields = read_fm(abs_path)
+        except (OSError, UnicodeDecodeError):
+            continue
+
+        try:
+            _resolved, art = resolve_and_validate_folder(vault_root, router, rel_path)
+        except ValueError:
+            continue
+
+        current_folder = os.path.dirname(rel_path)
+        base_folder = (
+            os.path.dirname(current_folder)
+            if os.path.basename(current_folder).startswith(STATUS_FOLDER_PREFIX)
+            else current_folder
+        )
+        parent_key = normalize_artefact_key(fields.get("parent"))
+        classification = art.get("classification")
+
+        if parent_key:
+            parent_entry = resolve_artefact_key_entry(router, parent_key)
+            if not parent_entry:
+                findings.append({
+                    "check": "parent_contract",
+                    "severity": "warning",
+                    "file": rel_path,
+                    "message": f"Broken parent reference: {parent_key}",
+                    "fix": "Point parent to an existing living artefact or clear it",
+                })
+                continue
+
+            expected_folder = resolve_folder(
+                art,
+                parent=parent_key,
+                fields=fields,
+                router=router,
+            )
+            if base_folder != expected_folder:
+                findings.append({
+                    "check": "parent_contract",
+                    "severity": "warning",
+                    "file": rel_path,
+                    "message": (
+                        f"Parent-folder drift: stored under '{base_folder}', "
+                        f"expected '{expected_folder}'"
+                    ),
+                    "fix": f"Move to {expected_folder}/ or update parent",
+                })
+            continue
+
+        if classification != "living":
+            continue
+
+        if base_folder == art["path"]:
+            continue
+
+        subfolder_name = os.path.basename(base_folder)
+        resolved_parent = None
+
+        if "~" in subfolder_name:
+            type_part, _, slug_part = subfolder_name.partition("~")
+            cross_key = f"{type_part}/{slug_part}"
+            if resolve_artefact_key_entry(router, cross_key):
+                resolved_parent = cross_key
+
+        if resolved_parent is None and is_valid_key(subfolder_name):
+            same_key = make_artefact_key(artefact_type_prefix(art), subfolder_name)
+            if resolve_artefact_key_entry(router, same_key):
+                resolved_parent = same_key
+
+        if resolved_parent:
+            findings.append({
+                "check": "parent_contract",
+                "severity": "warning",
+                "file": rel_path,
+                "message": f"Child artefact missing canonical parent field (folder implies `{resolved_parent}`).",
+                "fix": f"Set `parent: {resolved_parent}` to match the owning artefact.",
+            })
+        else:
+            findings.append({
+                "check": "parent_contract",
+                "severity": "warning",
+                "file": rel_path,
+                "message": (
+                    f"Orphan artefact: no resolvable parent, and subfolder "
+                    f"`{subfolder_name}` does not match any living artefact."
+                ),
+                "fix": "Move the file to the type's base folder, or create the intended owning artefact.",
+            })
+
+    return findings
+
+
+def check_month_folders(vault_root, router, *, ctx=None):
     """Check temporal files are in yyyy-mm/ subfolders."""
     findings = []
     month_re = re.compile(r"\d{4}-\d{2}")
@@ -285,7 +431,6 @@ def check_month_folders(vault_root, router):
         if not os.path.isdir(type_dir):
             continue
 
-        # Check for .md files directly in the type folder (not in subfolders)
         for entry in os.listdir(type_dir):
             if entry.endswith(".md"):
                 rel_path = os.path.join(art["path"], entry)
@@ -295,6 +440,52 @@ def check_month_folders(vault_root, router):
                     "file": rel_path,
                     "message": "Temporal file not in a yyyy-mm/ subfolder",
                     "fix": f"Move to {art['path']}/yyyy-mm/",
+                })
+
+    return findings
+
+
+def check_status_folders(vault_root, router, *, ctx=None):
+    """Warn when living artefacts drift into or out of terminal-status folders."""
+    findings = []
+    read_fm = ctx.read_frontmatter if ctx is not None else read_frontmatter
+    for art in router.get("artefacts", []):
+        if art.get("classification") != "living":
+            continue
+        terminal = ((art.get("frontmatter") or {}).get("terminal_statuses")) or []
+        if not terminal:
+            continue
+
+        for rel_path in iter_artefact_paths(vault_root, art, include_status_folders=True):
+            abs_path = os.path.join(vault_root, rel_path)
+            try:
+                fields = read_fm(abs_path)
+            except (OSError, UnicodeDecodeError):
+                continue
+
+            current_folder = os.path.dirname(rel_path)
+            folder_name = os.path.basename(current_folder)
+            in_status_folder = folder_name.startswith(STATUS_FOLDER_PREFIX)
+            expected_folder = None
+            status = fields.get("status")
+            if status in terminal:
+                expected_folder = f"{STATUS_FOLDER_PREFIX}{status.capitalize()}"
+
+            if expected_folder and folder_name != expected_folder:
+                findings.append({
+                    "check": "status_folders",
+                    "severity": "warning",
+                    "file": rel_path,
+                    "message": f"Terminal-status drift: status '{status}' expects folder '{expected_folder}'",
+                    "fix": f"Move into {expected_folder}/",
+                })
+            elif not expected_folder and in_status_folder:
+                findings.append({
+                    "check": "status_folders",
+                    "severity": "warning",
+                    "file": rel_path,
+                    "message": f"Non-terminal artefact stored in status folder '{folder_name}'",
+                    "fix": "Move out of the +Status folder or set a matching terminal status",
                 })
 
     return findings
@@ -342,13 +533,14 @@ def _find_archive_dirs(vault_root, art_path):
     return dirs
 
 
-def check_archive_metadata(vault_root, router):
+def check_archive_metadata(vault_root, router, *, ctx=None):
     """Check _Archive/ files have archiveddate, yyyymmdd- prefix, and terminal status.
 
     Checks both type-root archives ({Type}/_Archive/) and project-subfolder
     archives ({Type}/{Project}/_Archive/).
     """
     findings = []
+    read_fm = ctx.read_frontmatter if ctx is not None else read_frontmatter
     date_prefix_re = re.compile(r"\d{8}-")
 
     for art in router.get("artefacts", []):
@@ -366,7 +558,6 @@ def check_archive_metadata(vault_root, router):
                 rel_path = os.path.join(rel_prefix, fname)
                 abs_path = os.path.join(archive_dir, fname)
 
-                # Sub-check 1: filename prefix
                 if not date_prefix_re.match(fname):
                     findings.append({
                         "check": "archive_metadata",
@@ -378,14 +569,10 @@ def check_archive_metadata(vault_root, router):
 
                 # Read frontmatter for remaining checks
                 try:
-                    with open(abs_path, "r", encoding="utf-8") as f:
-                        text = f.read()
+                    fields = read_fm(abs_path)
                 except (OSError, UnicodeDecodeError):
                     continue
 
-                fields, _ = parse_frontmatter(text)
-
-                # Sub-check 2: archiveddate field
                 if "archiveddate" not in fields:
                     findings.append({
                         "check": "archive_metadata",
@@ -395,7 +582,6 @@ def check_archive_metadata(vault_root, router):
                         "fix": "Add 'archiveddate: YYYY-MM-DD' to frontmatter",
                     })
 
-                # Sub-check 3: terminal status (only if type defines terminal_statuses)
                 if terminal and fields:
                     status = fields.get("status")
                     if status and status not in terminal:
@@ -410,9 +596,10 @@ def check_archive_metadata(vault_root, router):
     return findings
 
 
-def check_status_values(vault_root, router):
+def check_status_values(vault_root, router, *, ctx=None):
     """Check status field values match status_enum from compiled router."""
     findings = []
+    read_fm = ctx.read_frontmatter if ctx is not None else read_frontmatter
     for art in router.get("artefacts", []):
         if not art.get("configured") or not art.get("frontmatter"):
             continue
@@ -421,16 +608,12 @@ def check_status_values(vault_root, router):
             continue
 
         # Check non-archived files only
-        files = find_type_files(vault_root, art["path"], skip_archive=True)
-        for rel_path in files:
+        for rel_path in iter_artefact_paths(vault_root, art, include_status_folders=True):
             abs_path = os.path.join(vault_root, rel_path)
             try:
-                with open(abs_path, "r", encoding="utf-8") as f:
-                    text = f.read()
+                fields = read_fm(abs_path)
             except (OSError, UnicodeDecodeError):
                 continue
-
-            fields, _ = parse_frontmatter(text)
             if not fields:
                 continue
             status = fields.get("status")
@@ -448,7 +631,7 @@ def check_status_values(vault_root, router):
     return findings
 
 
-def check_unconfigured_type(vault_root, router):
+def check_unconfigured_type(vault_root, router, *, ctx=None):
     """Emit info for artefact types with no taxonomy file."""
     findings = []
     for art in router.get("artefacts", []):
@@ -463,7 +646,7 @@ def check_unconfigured_type(vault_root, router):
     return findings
 
 
-def check_taxonomy_type_consistency(vault_root, router):
+def check_taxonomy_type_consistency(vault_root, router, *, ctx=None):
     """Flag configured artefacts where frontmatter_type equals the folder-derived type.
 
     When taxonomy defines a singular type (living/idea vs living/ideas), frontmatter_type
@@ -494,7 +677,7 @@ def check_taxonomy_type_consistency(vault_root, router):
 # Broken and ambiguous wikilinks
 # ---------------------------------------------------------------------------
 
-def check_broken_wikilinks(vault_root, router, file_index=None):
+def check_broken_wikilinks(vault_root, router, file_index=None, *, ctx=None):
     """Check for wikilinks that target non-existent or ambiguous files.
 
     Infrastructure folders (``_Config``) are excluded from the walk because
@@ -504,7 +687,7 @@ def check_broken_wikilinks(vault_root, router, file_index=None):
     """
     findings = []
     if file_index is None:
-        file_index = build_vault_file_index(vault_root)
+        file_index = ctx.file_index if ctx is not None else build_vault_file_index(vault_root)
     temporal_prefixes = discover_temporal_prefixes(file_index["md_basenames"])
 
     for dirpath, dirnames, filenames in os.walk(vault_root):
@@ -566,7 +749,10 @@ ALL_CHECKS = [
     check_frontmatter_type,
     check_frontmatter_required,
     check_missing_timestamps,
+    check_living_key_fields,
+    check_parent_contract,
     check_month_folders,
+    check_status_folders,
     check_archive_metadata,
     check_status_values,
     check_broken_wikilinks,
@@ -597,9 +783,10 @@ def run_checks(vault_root, router=None):
         }
 
     version = router.get("meta", {}).get("brain_core_version")
+    ctx = CheckContext(vault_root, router)
     findings = []
     for check_fn in ALL_CHECKS:
-        findings.extend(check_fn(vault_root, router))
+        findings.extend(check_fn(vault_root, router, ctx=ctx))
 
     summary = {
         "errors": sum(1 for f in findings if f["severity"] == "error"),

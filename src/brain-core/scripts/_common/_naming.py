@@ -29,7 +29,7 @@ A compiled naming contract has this shape::
 import re
 
 from ._artefacts import PLACEHOLDER_TOKEN_RE, resolve_naming_pattern
-from ._slugs import title_to_slug
+from ._slugs import title_to_filename
 
 
 _STRUCTURAL_PLACEHOLDERS = [
@@ -42,7 +42,7 @@ _STRUCTURAL_PLACEHOLDERS = [
     ("{sourcedoctype}", r"[a-z]+(?:-[a-z]+)*"),
 ]
 
-_TITLE_PLACEHOLDERS = ("{Title}", "{title}", "{name}", "{slug}")
+_TITLE_PLACEHOLDERS = ("{Title}", "{title}", "{name}")
 
 
 def _rules_of(naming):
@@ -136,15 +136,15 @@ def render_filename(naming, title, fields):
 
 
 def render_filename_or_default(naming, title, fields):
-    """Render via the naming contract when present, else fall back to ``{slug}.md``.
+    """Render via the naming contract when present, else fall back to ``{Title}.md``.
 
     Centralises the "no naming contract declared" policy so every caller that
     produces a filename for a new or renamed artefact treats the fallback
-    identically.
+    identically. Filenames are the human-readable title; slugs are frontmatter.
     """
     if naming:
         return render_filename(naming, title, fields)
-    return title_to_slug(title) + ".md"
+    return title_to_filename(title) + ".md"
 
 
 def _build_pattern_regex(pattern, placeholders_by_name, capture_title=False):

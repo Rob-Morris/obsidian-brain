@@ -74,6 +74,7 @@ def handle_brain_create(
     body_file: str,
     frontmatter: dict | None,
     parent: str | None,
+    key: str | None,
     resource: str,
     name: str,
     runtime: ServerRuntime,
@@ -105,8 +106,10 @@ def handle_brain_create(
             body=body,
             frontmatter_overrides=frontmatter,
             parent=parent,
+            key=key,
             fix_links=fix_links,
         )
+        runtime.mark_router_dirty()
         runtime.mark_index_pending(result["path"], type_hint=result["type"])
         label = f"**Created** {result['type']}: {result['path']}"
     else:
@@ -177,6 +180,8 @@ def handle_brain_edit(
         target=target,
         fix_links=fix_links,
     )
+    if resource == "artefact":
+        runtime.mark_router_dirty()
 
     moved = result["path"] != result["resolved_path"]
     if moved:

@@ -60,7 +60,7 @@ Pick the artefact type that fits, create the file in the right folder with the r
 | Note | `Notes/` | `yyyymmdd - {Title}.md` |
 | Person | `People/` | `{Title}.md` |
 | Project | `Projects/` | `{Title}.md` |
-| Release | `Releases/{Project}/` | `{Version} - {Title}.md` |
+| Release | `Releases/{owner-folder}/` | `{Version} - {Title}.md` |
 | Task | `Tasks/` | `{Title}.md` |
 | Workspace | `Workspaces/` | `{Title}.md` |
 | Writing | `Writing/` | `{Title}.md` |
@@ -84,11 +84,12 @@ Pick the artefact type that fits, create the file in the right folder with the r
 
 Additional types available from the artefact library: Wiki, Journals, Zettelkasten (living); Idea Logs, Journal Entries, Printables (temporal).
 
-Every file needs frontmatter with at least `type` and `tags`:
+Every file needs frontmatter. Temporal artefacts need at least `type` and `tags`; living artefacts also need a `key` (see [[.brain-core/standards/keys]] for the key contract):
 
 ```yaml
 ---
 type: living/note
+key: auth-redesign
 tags:
   - topic-tag
 ---

@@ -42,7 +42,7 @@ For environments without live preview (remote, mobile, headless):
 ## Conventions
 
 - **Markdown is the artefact.** The `.md` file in `_Temporal/Presentations/` is what gets tracked, linked, and searched. The PDF is output.
-- **Generated output lives under `_Assets/Generated/Presentations/`.** Use `{stem}.pdf` for the normal single-file output. If one presentation workflow produces multiple linked files, add `hub-slug` to the owning artefact if missing and nest those files under `_Assets/Generated/Presentations/{OwnerType}~{hub-slug}/`.
+- **Generated output lives under `_Assets/Generated/Presentations/`.** Use `{stem}.pdf` for the normal single-file output. If one presentation workflow produces multiple linked files, use the owning artefact's canonical key and nest those files under `_Assets/Generated/Presentations/{OwnerType}~{owner-key}/`.
 - **Link provenance.** Every presentation should reference its source artefact(s) via `**Origin:**` links.
 - **Sparse slides.** One idea per slide. Headings, bullets, whitespace. Don't cram.
 - **Regenerate PDF after edits.** If you change the markdown, regenerate the PDF. The markdown is the source of truth.

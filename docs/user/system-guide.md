@@ -37,7 +37,7 @@ Brain classifies every file as either **living** or **temporal**.
 | `living/note` | `Notes/` | none | Low-friction knowledge capture. |
 | `living/person` | `People/` | `active` → `shaping` → `parked` | Living hub for what you know about a person. |
 | `living/project` | `Projects/` | none | Living hub for project state, related artefacts, and release tracking. |
-| `living/release` | `Releases/{Project}/` | `planned` → `active` → `shipped`/`cancelled` | Version-scoped shipment record for one planned or shipped release. |
+| `living/release` | `Releases/{owner-folder}/` | `planned` → `active` → `shipped`/`cancelled` | Version-scoped shipment record for one planned or shipped release. |
 | `living/task` | `Tasks/` | `open` → `shaping` → `in-progress` → `done`/`blocked` | Persistent unit of work linked to the artefacts it serves. |
 | `living/workspace` | `Workspaces/` | `active` → `parked` → `completed` | Hub linking brain artefacts to a bounded data container. |
 | `living/writing` | `Writing/` | `draft` → `editing` → `review` → `published`/`parked` | Long-form written work crafted for an audience. |
@@ -125,16 +125,22 @@ Added only when archiving:
 archiveddate: 2026-03-15
 ```
 
-### Project Tags
+### Relationship Tags
 
-Use nested tags to connect artefacts to a project:
+Use nested tags to connect artefacts to a project or other hub when you mean “related to”, not “owned by”:
 
 ```yaml
 tags:
   - project/my-project
 ```
 
-All artefacts related to that project share the tag, making them findable together.
+All artefacts related to that project share the tag, making them findable together. Ownership is separate:
+
+```yaml
+parent: project/my-project
+```
+
+`parent` is the only ownership field. Tags must never be used to infer ownership.
 
 ### The Body Rule
 
@@ -154,7 +160,7 @@ Why? Obsidian's backlinks and graph view resolve body wikilinks. Body text is vi
 - Freeform naming for most types: `{Title}.md` (spaces and mixed case allowed)
 - Some types use date prefixes — see the type's taxonomy file for the exact pattern
 - Start flat; subfolders emerge organically when a single work outgrows one file
-- One file acts as the index in a subfolder (`index.md` or `project-slug.md`)
+- When a living artefact owns children, same-type child folders use `{key}/` and cross-type child folders use `{parent-type}~{key}/`
 
 ### Temporal Artefacts
 
@@ -191,13 +197,13 @@ Ideas progress through increasing levels of structure:
 2. **Idea** (`Ideas/`) — fleshed out, explored, status: `new`
 3. **Design** (`Designs/`) — shaped proposal with decisions, status: `shaping`
 
-At each transition, use provenance links (origin on child, callout on parent). Carry forward relevant tags, especially project tags.
+At each transition, use provenance links (origin on child, callout on parent). Carry forward relevant relationship tags where they still mean something.
 
 ### Hub Pattern
 
-Hub artefacts (a living type like People, Projects, or Workspaces) are living summaries that group related artefacts via nested tags. See `.brain-core/standards/hub-pattern` for the full standard.
+Hub artefacts (a living type like People, Projects, or Workspaces) are living summaries that other artefacts gather around. Child artefacts use canonical `parent` when they are structurally owned; living children also move into owner-derived folders, while temporal children stay in their date folders. Additional temporal or thematic relationships still use tags and prose links. See `.brain-core/standards/hub-pattern` for the full standard.
 
-**Temporal handshake:** Tagged temporal artefacts feed their hub. When a temporal changes the current picture, distil the change into the hub. Temporals preserve *when*; the hub reflects *now*.
+**Temporal handshake:** Related temporal artefacts feed their hub. When a temporal changes the current picture, distil the change into the hub. Temporals preserve *when*; the hub reflects *now*.
 
 **Contextual linking:** Weave links into prose — don't list them as changelog entries. Link text should read naturally: `Scope narrowed after the [[decision-log|March review]]` not `- See [[20260320-decision~Review]]`.
 

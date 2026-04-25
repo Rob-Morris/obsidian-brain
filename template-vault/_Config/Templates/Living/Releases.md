@@ -2,7 +2,6 @@
 type: living/release
 tags:
   - release
-  - project/PROJECT-SLUG
 status: planned
 version:
 tag:

@@ -23,14 +23,14 @@ from datetime import datetime, timezone
 
 from _common import (
     find_vault_root,
+    iter_artefact_paths,
     load_compiled_router,
-    parse_frontmatter,
+    read_frontmatter,
     reconcile_fields_for_render,
     render_filename,
     slug_to_title,
     validate_filename,
 )
-from check import find_type_files
 from rename import rename_and_update_links
 
 
@@ -138,16 +138,11 @@ def migrate_vault(vault_root, router=None, dry_run=False):
         if not art.get("configured"):
             continue
 
-        # Find all files for this type
-        files = find_type_files(vault_root, art["path"], skip_archive=True)
-
-        for rel_path in files:
+        for rel_path in iter_artefact_paths(vault_root, art):
             filename = os.path.basename(rel_path)
             abs_path = os.path.join(vault_root, rel_path)
             try:
-                with open(abs_path, "r", encoding="utf-8") as f:
-                    text = f.read()
-                fields, _ = parse_frontmatter(text)
+                fields = read_frontmatter(abs_path)
             except (OSError, UnicodeDecodeError):
                 fields = {}
 

@@ -14,11 +14,11 @@ The template vault ships with a curated set of defaults (marked below). This lib
 | [Designs](living/designs/) | `designs` | Design documents, wireframes, and specs. **Template vault default.** |
 | [Documentation](living/documentation/) | `documentation` | Guides, standards, and reference material. **Template vault default.** |
 | [Ideas](living/ideas/) | `ideas` | Concepts articulated and shaped to clarity through iterative refinement. **Template vault default.** |
-| [Journals](living/journals/) | `journals` | Named journal streams grouping personal journal entries via nested tags. |
+| [Journals](living/journals/) | `journals` | Named journal streams relating personal journal entries via `journal/{key}` tags. |
 | [Notes](living/notes/) | `notes` | Flat knowledge base of date-prefixed interconnected notes. **Template vault default.** |
 | [People](living/people/) | `people` | Person index files — living hub for everything you know about someone. **Template vault default.** |
-| [Projects](living/projects/) | `projects` | Project index files linking to related artefacts via project tags. **Template vault default.** |
-| [Releases](living/releases/) | `releases` | Version-scoped shipment records grouped under per-project release folders. **Template vault default.** |
+| [Projects](living/projects/) | `projects` | Project index files that can own child artefacts and relate wider work via project tags. **Template vault default.** |
+| [Releases](living/releases/) | `releases` | Version-scoped shipment records grouped under owner-derived release folders. **Template vault default.** |
 | [Tasks](living/tasks/) | `tasks` | Persistent units of work — tracked, prioritised, and linked to artefacts. **Template vault default.** |
 | [Wiki](living/wiki/) | `wiki` | Interconnected knowledge base. One page per concept. |
 | [Workspaces](living/workspaces/) | `workspaces` | Workspace hub files linking brain artefacts to bounded data containers (`_Workspaces/`). **Template vault default.** |
@@ -91,6 +91,16 @@ Frontmatter fields should be **queryable metadata** — fields agents and Datavi
 - **Search indexing:** Body text is tokenised by BM25. Frontmatter is parsed for structured fields only — wikilink text in frontmatter is not searchable.
 
 **Exception:** a type may declare wikilink-bearing frontmatter when the field is machine-maintained graph metadata rather than user-authored navigation. `living/zettelkasten` is the current example: `sources`, `related`, and `follows` are maintenance-owned graph edges, not prose navigation.
+
+### Template placeholders
+
+Templates may use a small set of placeholders that the tooling expands at create time:
+
+- `{{date:FORMAT}}` — replaced with the current date/time using tokens (`YYYY`, `MM`, `DD`, `ddd`, `YYYY-MM-DD`, `YYYYMMDD`).
+- Custom `SOURCE_*` string vars supplied by specific workflows (shaping transcripts, printables, presentations).
+- `{{agent: ...}}` — **authoring-time hints** for an agent populating the template on the naive path (no `brain_create`). Tooling strips these tokens at create time; they never reach the final artefact. Use them to explain what frontmatter or body content a naive agent must supply that tooling would otherwise inject automatically (e.g. `key:` and hub tags on living artefacts). Keep the instruction self-contained and concrete — cross-reference `.brain-core/standards/` rather than re-explain the whole contract.
+
+Frontmatter does not undergo placeholder substitution; `{{agent:...}}` hints belong in the body.
 
 ### Status fields
 

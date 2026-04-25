@@ -21,15 +21,15 @@ When a project has a specific version, milestone, or named release worth plannin
 
 ## Terminal Status
 
-When a release reaches `shipped` status, move it to `Releases/{Project}/+Shipped/`.
+When a release reaches `shipped` status, move it to `Releases/{parent-type}~{parent-key}/+Shipped/`.
 
-When a release reaches `cancelled` status, move it to `Releases/{Project}/+Cancelled/`.
+When a release reaches `cancelled` status, move it to `Releases/{parent-type}~{parent-key}/+Cancelled/`.
 
 Shipped and cancelled releases remain searchable and indexed in their terminal folders. No rename, no `archiveddate`.
 
 ## Naming
 
-Primary folder: `Releases/{Project}/`.
+Primary folder: `Releases/{parent-type}~{parent-key}/` (e.g. `Releases/project~brain/`). Releases are owned by their parent (typically a project); the cross-type subfolder convention keeps the owner visible in the path.
 
 Before ship a release is identified by its human title. Once `status` is `shipped` the filename leads with the shipped version so the canonical record on disk is version-led.
 
@@ -48,8 +48,8 @@ Before ship a release is identified by its human title. Once `status` is `shippe
 
 Examples:
 
-- Planned: `Releases/Brain/Experimental Cut.md`
-- Shipped: `Releases/Brain/+Shipped/v0.28.6 - Release Artefact Type.md`
+- Planned: `Releases/project~brain/Experimental Cut.md`
+- Shipped: `Releases/project~brain/+Shipped/v0.28.6 - Release Artefact Type.md`
 
 ## Frontmatter
 
@@ -58,7 +58,6 @@ Examples:
 type: living/release
 tags:
   - release
-  - project/PROJECT-SLUG
 status: planned
 version:
 tag:
@@ -66,6 +65,8 @@ commit:
 shipped:
 ---
 ```
+
+When a release belongs to a project, tooling injects the canonical `parent: project/{key}` field and matching project relationship tag during creation or migration. Do not leave literal project placeholders in the template.
 
 ## Template
 

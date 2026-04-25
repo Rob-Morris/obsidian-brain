@@ -57,7 +57,7 @@ Root-level folders without a `_` or `.` prefix are living artefact types (e.g. `
 
 ### `_Archive/` — terminal artefacts
 
-Artefacts whose status reaches a terminal value (e.g. `implemented`, `adopted`) are moved here by type and project subfolder. Read-accessible but write-protected by the path security model.
+Artefacts whose status reaches a terminal value (e.g. `implemented`, `adopted`) are moved here by type and owner-derived subfolder. Read-accessible but write-protected by the path security model.
 
 ---
 

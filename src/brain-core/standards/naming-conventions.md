@@ -13,7 +13,7 @@ Obsidian displays the filename as the note title everywhere — sidebar, tabs, g
 
 The `title_to_filename()` function in `_common/_slugs.py` implements this.
 
-**Hub tags** (e.g. `project/{slug}`, `workspace/{slug}`) still use the aggressive lowercase-hyphenated format via `title_to_slug()`. These are machine identifiers, not display names.
+**Hub tags** (e.g. `project/{key}`, `workspace/{key}`) use the canonical key format: lowercase alphanumeric with single hyphens. Key values are platform-generated at create time. See [[keys]] for the full contract.
 
 ## Temporal Artefacts
 
@@ -93,7 +93,7 @@ This section owns the **platform contract** for naming that depends on frontmatt
 
 Most types declare a single naming pattern as a one-line `## Naming` entry (e.g. `` `{Title}.md` in `Wiki/` ``). Types whose filename depends on frontmatter state use the canonical **advanced `## Naming`** form — a `### Rules` table keyed on a frontmatter field, plus a `### Placeholders` table declaring any non-built-in placeholder.
 
-**Built-in placeholders** (always available, need no declaration): `{Title}`, `{title}`, `{name}`, `{slug}`, `yyyymmdd`, `yyyy-mm-dd`, `yyyy`, `mm`, `dd`, `ddd`, `{sourcedoctype}`.
+**Built-in placeholders** (always available, need no declaration): `{Title}`, `{title}`, `{name}`, `yyyymmdd`, `yyyy-mm-dd`, `yyyy`, `mm`, `dd`, `ddd`, `{sourcedoctype}`. Filenames never use the key — `key` is a frontmatter-only machine identifier; see [[keys]].
 
 Any other placeholder must be declared with a backing frontmatter field. Using an undeclared non-built-in placeholder is a type-definition error caught at compile time.
 
@@ -102,7 +102,7 @@ Any other placeholder must be declared with a backing frontmatter field. Using a
 ```md
 ## Naming
 
-Primary folder: `Releases/{Project}/`.
+Primary folder: `Releases/{owner-folder}/`.
 
 ### Rules
 

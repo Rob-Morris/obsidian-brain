@@ -48,7 +48,7 @@ def vault(tmp_path):
     (tax_living / "wiki.md").write_text(
         "# Wiki\n\n"
         "## Naming\n\n"
-        "`{slug}.md` in `Wiki/`.\n\n"
+        "`{Title}.md` in `Wiki/`.\n\n"
         "## Frontmatter\n\n"
         "```yaml\n---\ntype: living/wiki\ntags:\n  - topic-tag\n---\n```\n\n"
         "## Template\n\n"
@@ -221,13 +221,13 @@ class TestParseTaxonomyFile:
     def test_parses_wiki_taxonomy(self, vault):
         path = str(vault / "_Config" / "Taxonomy" / "Living" / "wiki.md")
         result = cr.parse_taxonomy_file(path)
-        assert result["naming"]["pattern"] == "{slug}.md"
+        assert result["naming"]["pattern"] == "{Title}.md"
         assert result["naming"]["folder"] == "Wiki/"
         assert result["naming"]["rules"] == [
             {
                 "match_field": None,
                 "match_values": None,
-                "pattern": "{slug}.md",
+                "pattern": "{Title}.md",
                 "date_source": None,
             }
         ]
@@ -314,7 +314,7 @@ class TestAdvancedNaming:
             "| Match field | Match values | Pattern |\n"
             "|---|---|---|\n"
             "| `status` | `done` | `{slug}-done.md` |\n"
-            "| `status` | `*` | `{slug}.md` |\n"
+            "| `status` | `*` | `{Title}.md` |\n"
         )
         result = cr.parse_taxonomy_file(str(f))
         rules = result["naming"]["rules"]
@@ -634,7 +634,7 @@ class TestParseTaxonomyStatusIntegration:
         tax = vault / "_Config" / "Taxonomy" / "Living"
         (tax / "designs.md").write_text(
             "# Designs\n\n"
-            "## Naming\n\n`{slug}.md` in `Designs/`.\n\n"
+            "## Naming\n\n`{Title}.md` in `Designs/`.\n\n"
             "## Frontmatter\n\n"
             "```yaml\n---\ntype: living/design\n"
             "status: shaping  # shaping | ready | active | implemented | parked\n"
@@ -789,7 +789,7 @@ class TestCompile:
         (vault / "Recipes").mkdir()
         tax = vault / "_Config" / "Taxonomy" / "Living"
         (tax / "Recipes.md").write_text(
-            "# Recipes\n\n## Naming\n\n`{slug}.md` in `Recipes/`.\n"
+            "# Recipes\n\n## Naming\n\n`{Title}.md` in `Recipes/`.\n"
         )
         result = cr.compile(vault)
         recipes = [a for a in result["artefacts"] if a["folder"] == "Recipes"]
@@ -951,7 +951,7 @@ class TestTemplateVault:
         parsed = cr.parse_taxonomy_file(path)
         # Advanced table form: no simple one-line pattern.
         assert parsed["naming"]["pattern"] is None
-        assert parsed["naming"]["folder"] == "Releases/{Project}/"
+        assert parsed["naming"]["folder"] == "Releases/{parent-type}~{parent-key}/"
         rules = parsed["naming"]["rules"]
         assert len(rules) == 2
         assert rules[0]["match_field"] == "status"
@@ -994,6 +994,30 @@ class TestHashing:
         router.write_text(router.read_text() + "\n- New rule added.\n")
         result2 = cr.compile(vault)
         assert result1["meta"]["source_hash"] != result2["meta"]["source_hash"]
+
+    def test_hash_stable_when_keyed_living_body_changes(self, vault):
+        artefact = vault / "Wiki" / "Stable.md"
+        artefact.write_text(
+            "---\n"
+            "type: living/wiki\n"
+            "key: stable\n"
+            "---\n\n"
+            "# Stable\n\n"
+            "First body.\n"
+        )
+
+        result1 = cr.compile(vault)
+        artefact.write_text(
+            "---\n"
+            "type: living/wiki\n"
+            "key: stable\n"
+            "---\n\n"
+            "# Stable\n\n"
+            "Second body.\n"
+        )
+        result2 = cr.compile(vault)
+
+        assert result1["meta"]["source_hash"] == result2["meta"]["source_hash"]
 
     def test_hash_stable_without_changes(self, vault):
         result1 = cr.compile(vault)
@@ -1086,3 +1110,82 @@ class TestFrontmatterType:
         recipes = next(a for a in result["artefacts"] if a["folder"] == "Recipes")
         assert recipes["configured"] is True
         assert recipes["frontmatter_type"] == "living/recipes"
+
+
+class TestArtefactIndex:
+    def test_compile_builds_living_artefact_index(self, vault):
+        (vault / "Projects").mkdir()
+        (vault / "_Temporal" / "Reports" / "2026-04").mkdir(parents=True, exist_ok=True)
+        tax = vault / "_Config" / "Taxonomy" / "Living"
+        (tax / "projects.md").write_text(
+            "# Projects\n\n"
+            "## Naming\n\n`{Title}.md` in `Projects/`.\n\n"
+            "## Frontmatter\n\n```yaml\n---\ntype: living/project\ntags:\n  - project\nkey:\n---\n```\n"
+        )
+        (vault / "Projects" / "Brain.md").write_text(
+            "---\n"
+            "type: living/project\n"
+            "tags:\n"
+            "  - project/brain\n"
+            "key: brain\n"
+            "---\n\n"
+            "# Brain\n"
+        )
+        (vault / "Wiki" / "Child.md").write_text(
+            "---\n"
+            "type: living/wiki\n"
+            "tags:\n"
+            "  - project/brain\n"
+            "key: child\n"
+            "parent: project/brain\n"
+            "---\n\n"
+            "# Child\n"
+        )
+        (vault / "_Temporal" / "Reports" / "2026-04" / "20260401-report~Audit.md").write_text(
+            "---\n"
+            "type: temporal/report\n"
+            "tags:\n"
+            "  - project/brain\n"
+            "parent: project/brain\n"
+            "created: 2026-04-01T09:00:00+10:00\n"
+            "---\n\n"
+            "# Audit\n"
+        )
+
+        result = cr.compile(vault)
+        assert "artefact_index" in result
+        assert result["artefact_index"]["project/brain"]["path"] == "Projects/Brain.md"
+        assert result["artefact_index"]["project/brain"]["children_count"] == 1
+        assert result["artefact_index"]["wiki/child"]["parent"] == "project/brain"
+
+    def test_compile_tracks_artefact_index_sources(self, vault):
+        (vault / "Wiki" / "Tracked.md").write_text(
+            "---\n"
+            "type: living/wiki\n"
+            "key: tracked\n"
+            "---\n\n"
+            "# Tracked\n"
+        )
+
+        result = cr.compile(vault)
+
+        assert result["meta"]["artefact_index_sources"] == ["Wiki/Tracked.md"]
+        assert result["meta"]["artefact_index_source_count"] == 1
+        assert result["meta"]["sources"]["Wiki/Tracked.md"].startswith("sha256:")
+
+    def test_duplicate_artefact_key_fails_compile(self, vault):
+        (vault / "Projects").mkdir()
+        tax = vault / "_Config" / "Taxonomy" / "Living"
+        (tax / "projects.md").write_text(
+            "# Projects\n\n"
+            "## Naming\n\n`{Title}.md` in `Projects/`.\n\n"
+            "## Frontmatter\n\n```yaml\n---\ntype: living/project\ntags:\n  - project\nkey:\n---\n```\n"
+        )
+        (vault / "Wiki" / "First.md").write_text(
+            "---\ntype: living/wiki\ntags: []\nkey: shared\n---\n\n# First\n"
+        )
+        (vault / "Wiki" / "Second.md").write_text(
+            "---\ntype: living/wiki\ntags: []\nkey: shared\n---\n\n# Second\n"
+        )
+        with pytest.raises(ValueError, match="Duplicate artefact key"):
+            cr.compile(vault)

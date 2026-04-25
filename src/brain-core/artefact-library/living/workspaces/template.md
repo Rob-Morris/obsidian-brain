@@ -1,15 +1,15 @@
 ---
 type: living/workspace
-tags:
-  - workspace/SLUG
 status: active
 workspace_mode: embedded
 ---
+
+{{agent: If you are authoring this artefact without tooling (no brain_create), also set `key:` (canonical format: lowercase alphanumeric with hyphens; see .brain-core/standards/keys) and add the hub tag `workspace/{key}` under `tags:`. Tooling injects these automatically.}}
 
 ## Purpose
 
 ## Data Folder
 
-`_Workspaces/SLUG/`
+Workspace data lives under `_Workspaces/` in a folder keyed to this workspace's key.
 
 ## Related Artefacts

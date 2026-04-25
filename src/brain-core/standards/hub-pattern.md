@@ -1,30 +1,36 @@
 # Hub Pattern
 
-Some living artefact types act as hubs — containers that group related artefacts via nested tags. The pattern:
+Some living artefact types become hubs because other artefacts gather around them. The hub is not a separate type. It is an ordinary living artefact with a stable artefact key that other artefacts can own or relate to.
 
-1. The hub file is a living artefact with a nested tag: `{type}/{slug}` (e.g. `project/my-app`, `journal/personal`)
-2. All related artefacts (temporal or living) carry the same nested tag
-3. The hub is the index; the tag is the query mechanism
+The pattern:
 
-This is useful when a stream of related work or content needs a single living touchpoint. The hub file describes the stream and links to key artefacts; the tag makes everything findable.
+1. The hub file is a living artefact with a canonical key: `{type}/{key}` (e.g. `project/my-app`, `person/alex`, `workspace/client-data`). See [[keys]] for the key contract.
+2. Child artefacts persist ownership via `parent: {type}/{key}`. Living children also reflect it in owner-derived folders; temporal children stay in their date folders
+3. Tags remain relationship signals only; they can connect temporal or living artefacts to the hub, but tooling must never infer ownership from tags alone
+
+This is useful when a stream of related work or content needs a single living touchpoint. The hub file describes the stream and links to key artefacts. Ownership keeps living children structurally grouped; relationship tags and links keep the wider network findable.
 
 **Current examples:**
-- **People** — `person/{slug}` groups observations and other artefacts related to a person
-- **Projects** — `project/{slug}` groups plans, research, designs, logs, and other artefacts related to a project
-- **Journals** — `journal/{slug}` groups journal entries belonging to a named journal stream
-- **Workspaces** — `workspace/{slug}` groups brain artefacts related to a bounded working container (`_Workspaces/`). The workspace hub connects brain content to a freeform data folder of non-artefact files
+- **People** — `person/{key}` can own living or temporal child artefacts and relate observations or other artefacts to a person
+- **Projects** — `project/{key}` can own releases, designs, wiki pages, research, and other child artefacts; temporal children keep their normal date filing
+- **Journals** — `journal/{key}` remains the named anchor for a journal stream; journal entries still use the `journal/{key}` relationship tag and may also persist canonical `parent` without changing their date-based filing
+- **Workspaces** — `workspace/{key}` can own living or temporal child artefacts and connect brain content to a bounded working container (`_Workspaces/`)
 
-**When to use:** When you need a living artefact that organises a collection of other artefacts (especially temporal ones) rather than containing content itself. If the living artefact is primarily content (like a wiki page or design doc), tags alone suffice — the hub pattern adds an explicit index file.
+**When to use:** Some types are hubs by design — `project`, `person`, `workspace`, `journal` exist specifically to anchor other artefacts. For those, the hub role is the point; create the hub first, let children accrue.
+
+But hub behaviour isn't restricted to the designed ones. Any living artefact becomes a hub the moment another artefact names it as `parent`. Content-heavy types (designs, wiki pages, releases) can anchor children just as readily as organisational ones — the hub body's shape differs by type (a project hub reads like an index, a design hub reads like a document), but the ownership contract is identical. You don't need to redeclare a type as "hub-capable" to let this happen; it's available by default.
+
+Tags are not a substitute. Tags signal relationship (this touches that); `parent` signals ownership (this belongs to that). Use both, for different reasons.
 
 ## Granularity
 
 The hub is an interpreted summary — the current picture, distilled. Temporal artefacts are the evidence trail — what happened, when, in detail. Don't collapse both into one file.
 
-When content arrives, spin it out into the right artefacts. A conversation about a project produces a transcript, observations, maybe a decision log — each in its own temporal file, each tagged with the hub's nested tag. The hub then reflects the current state, linking contextually to the evidence.
+When content arrives, spin it out into the right artefacts. A conversation about a project produces a transcript, observations, maybe a decision log — each in its own temporal file, typically tagged to relate it to the hub. The hub then reflects the current state, linking contextually to the evidence.
 
 ## Temporal Handshake
 
-Tagged temporal artefacts feed their hub. When a temporal artefact changes the current picture — a new decision, a shifted preference, a corrected fact — distil the change into the hub body. The temporal preserves *when* you learned it; the hub reflects what's true *now*.
+Related temporal artefacts feed their hub. When a temporal artefact changes the current picture — a new decision, a shifted preference, a corrected fact — distil the change into the hub body. The temporal preserves *when* you learned it; the hub reflects what's true *now*.
 
 Not every temporal triggers an update. A routine log entry doesn't change the project summary. But a decision that alters scope does. Use judgement.
 

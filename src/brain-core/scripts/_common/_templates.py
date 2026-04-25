@@ -13,6 +13,8 @@ def now_iso():
 
 
 _DATE_PLACEHOLDER_RE = re.compile(r"\{\{date:([^}]+)\}\}")
+_AGENT_INSTRUCTION_RE = re.compile(r"\{\{agent:.*?\}\}", re.DOTALL)
+_EXCESS_BLANK_LINES_RE = re.compile(r"\n{3,}")
 
 # Mapping from template date tokens to strftime codes.  Longest tokens
 # first so ``YYYYMMDD`` is matched before ``YYYY``.
@@ -29,7 +31,7 @@ _DATE_TOKEN_MAP = [
 def substitute_template_vars(content, template_vars=None, _now=None):
     """Replace template placeholders in *content*.
 
-    Two kinds of substitution:
+    Three kinds of substitution:
 
     1. **Date placeholders** — ``{{date:FORMAT}}`` where *FORMAT* uses
        tokens like ``YYYY``, ``MM``, ``DD``, ``ddd``.  Replaced with the
@@ -37,6 +39,10 @@ def substitute_template_vars(content, template_vars=None, _now=None):
     2. **Custom variables** — arbitrary string → string pairs supplied via
        *template_vars*.  Applied longest-key-first to avoid partial matches
        (e.g. ``SOURCE_DOC_PATH|SOURCE_DOC_TITLE`` before ``SOURCE_DOC_PATH``).
+    3. **Agent instructions** — ``{{agent:...}}`` tokens are authoring-time
+       hints for the agent populating the template (naive-agent path).
+       They are stripped at create time so they never reach the final
+       artefact. Runs of blank lines left behind are collapsed.
 
     Pass *_now* to pin the datetime for deterministic tests.
     """
@@ -56,6 +62,10 @@ def substitute_template_vars(content, template_vars=None, _now=None):
     if template_vars:
         for key in sorted(template_vars, key=len, reverse=True):
             content = content.replace(key, template_vars[key])
+
+    if "{{agent:" in content:
+        content = _AGENT_INSTRUCTION_RE.sub("", content)
+        content = _EXCESS_BLANK_LINES_RE.sub("\n\n", content)
 
     return content
 

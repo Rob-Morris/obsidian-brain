@@ -35,7 +35,7 @@ def vault(tmp_path):
     wiki = tmp_path / "Wiki"
     wiki.mkdir()
     (wiki / "test-page.md").write_text(
-        "---\ntype: living/wiki\ntags: [test]\n---\n\n# Test Page\n"
+        "---\ntype: living/wiki\ntags: [test]\nkey: test-page\n---\n\n# Test Page\n"
     )
 
     # Temporal type: Logs
@@ -48,7 +48,7 @@ def vault(tmp_path):
     tax_living = config / "Taxonomy" / "Living"
     tax_living.mkdir(parents=True)
     (tax_living / "wiki.md").write_text(
-        "# Wiki\n\n## Naming\n\n`{slug}.md` in `Wiki/`.\n\n"
+        "# Wiki\n\n## Naming\n\n`{Title}.md` in `Wiki/`.\n\n"
         "## Frontmatter\n\n```yaml\n---\ntype: living/wiki\ntags:\n  - topic-tag\n---\n```\n\n"
         "## Template\n\n[[_Config/Templates/Living/Wiki]]\n"
     )
@@ -56,7 +56,7 @@ def vault(tmp_path):
     tax_temporal = config / "Taxonomy" / "Temporal"
     tax_temporal.mkdir(parents=True)
     (tax_temporal / "logs.md").write_text(
-        "# Logs\n\n## Naming\n\n`log-{slug}.md`.\n\n"
+        "# Logs\n\n## Naming\n\n`log-{Title}.md`.\n\n"
         "## Trigger\n\nAfter meaningful work, write a log entry.\n"
     )
 
@@ -271,6 +271,11 @@ class TestReadArtefact:
         result = read.read_resource(router, str(tmp_path), "artefact", name="Wiki/test-page")
         assert "# Test Page" in result
 
+    def test_reads_file_by_canonical_key(self, vault):
+        tmp_path, router = vault
+        result = read.read_resource(router, str(tmp_path), "artefact", name="wiki/test-page")
+        assert "# Test Page" in result
+
     def test_requires_name(self, vault):
         _, router = vault
         result = read.read_resource(router, "", "artefact")
@@ -377,6 +382,12 @@ class TestReadFile:
     def test_reads_artefact_by_path(self, vault):
         tmp_path, router = vault
         result = read.read_resource(router, str(tmp_path), "file", name="Wiki/test-page.md")
+        assert isinstance(result, str)
+        assert "# Test Page" in result
+
+    def test_reads_artefact_by_canonical_key(self, vault):
+        tmp_path, router = vault
+        result = read.read_resource(router, str(tmp_path), "file", name="wiki/test-page")
         assert isinstance(result, str)
         assert "# Test Page" in result
 

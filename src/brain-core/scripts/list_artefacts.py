@@ -11,11 +11,17 @@ the compiled router's small collections with optional text filtering.
 
 import os
 
-from _common import match_artefact, parse_frontmatter, temporal_display_name
+from _common import (
+    match_artefact,
+    normalize_artefact_key,
+    parse_frontmatter,
+    resolve_artefact_key_entry,
+    temporal_display_name,
+)
 
 
 def list_artefacts(index, router, type_filter=None, since=None, until=None,
-                   tag=None, top_k=500, sort="date_desc"):
+                   tag=None, parent=None, top_k=500, sort="date_desc"):
     """Return all vault artefacts matching the given filters, sorted and capped.
 
     Args:
@@ -26,6 +32,7 @@ def list_artefacts(index, router, type_filter=None, since=None, until=None,
         since:       optional ISO date string (e.g. "2026-03-20"); inclusive lower bound
         until:       optional ISO date string (e.g. "2026-04-04"); inclusive upper bound
         tag:         optional tag string; only docs containing this tag are returned
+        parent:      optional canonical parent artefact key; only owned children are returned
         top_k:       maximum results to return (default 500)
         sort:        "date_desc" (default), "date_asc", or "title"
 
@@ -41,11 +48,25 @@ def list_artefacts(index, router, type_filter=None, since=None, until=None,
             # Unknown type — return empty list (not an error)
             return []
 
+    resolved_parent = None
+    if parent:
+        resolved_parent = normalize_artefact_key(parent)
+        if not resolved_parent:
+            raise ValueError(
+                "parent filter must use canonical artefact key form {type-prefix}/{key}"
+            )
+        if router and not resolve_artefact_key_entry(router, resolved_parent):
+            raise ValueError(f"No artefact matching parent '{parent}'")
+
     docs = index.get("documents", [])
     results = []
+    artefact_index = router.get("artefact_index") or {}
+    by_path = {entry["path"]: entry for entry in artefact_index.values()}
 
     for doc in docs:
         if resolved_type is not None and doc.get("type") != resolved_type:
+            continue
+        if resolved_parent and doc.get("parent") != resolved_parent:
             continue
 
         # ISO date prefix — lexicographic comparison is valid for YYYY-MM-DD
@@ -61,14 +82,24 @@ def list_artefacts(index, router, type_filter=None, since=None, until=None,
         stem = doc.get("title", "")
         display = temporal_display_name(stem)
         title = display if display is not None else stem
+        artefact_meta = by_path.get(doc.get("path", ""))
 
-        results.append({
+        result = {
             "path": doc.get("path", ""),
             "title": title,
             "type": doc.get("type", ""),
             "date": doc_date,
             "status": doc.get("status", ""),
-        })
+        }
+        slug = doc.get("key") or (artefact_meta or {}).get("key")
+        if slug:
+            result["key"] = slug
+        parent_key = doc.get("parent") or (artefact_meta or {}).get("parent")
+        if parent_key:
+            result["parent"] = parent_key
+        if artefact_meta is not None:
+            result["children_count"] = artefact_meta.get("children_count", 0)
+        results.append(result)
 
     if sort == "date_asc":
         results.sort(key=lambda r: r["date"])

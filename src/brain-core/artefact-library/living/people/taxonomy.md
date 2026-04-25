@@ -21,11 +21,14 @@ Example: `People/Alice Smith.md`
 ```yaml
 ---
 type: living/person
+key: {key}
 tags:
-  - person/{slug}
+  - person/{key}
 status: active
 ---
 ```
+
+`key` is the canonical identifier (see [[.brain-core/standards/keys]]). The platform generates it at create time.
 
 Every file related to a person should use the nested person tag, e.g. `person/alice-smith`.
 
@@ -51,7 +54,7 @@ When drafting or reviewing communications that mention or are addressed to a kno
 
 ## Observation Handshake
 
-Observations tagged `person/{slug}` feed this card. When an observation changes the current picture — a preference shifted, a fact corrected, something new learned — distil it into the body. The observation preserves *when* you learned it; the person card reflects what's true *now*.
+Observations tagged `person/{key}` feed this card. When an observation changes the current picture — a preference shifted, a fact corrected, something new learned — distil it into the body. The observation preserves *when* you learned it; the person card reflects what's true *now*.
 
 ## Ingestion
 
@@ -66,8 +69,8 @@ If the user gives you basic info about a person, create the card immediately wit
 If the user dumps a narrative brief with lots of detail, decompose:
 
 - **Durable facts** (identity, relationships, traits) → the person card body
-- **Discrete things learned** (terminology, quotes, preferences) → observations, tagged `person/{slug}`
-- **Actionable sparks** (ideas triggered by the interaction) → idea logs, tagged `person/{slug}`
+- **Discrete things learned** (terminology, quotes, preferences) → observations, tagged `person/{key}`
+- **Actionable sparks** (ideas triggered by the interaction) → idea logs, tagged `person/{key}`
 - **Timeline** → log entry
 
 ### Writing the card

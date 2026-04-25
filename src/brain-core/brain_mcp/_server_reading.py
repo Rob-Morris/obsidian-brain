@@ -106,7 +106,17 @@ def _fmt_list(results, type_filter=None):
     lines = []
     for r in results:
         status_part = f"\t{r['status']}" if r.get("status") else ""
-        lines.append(f"{r['date']}\t{r['title']}\t{r['path']}\t{r['type']}{status_part}")
+        extras = []
+        if r.get("key"):
+            extras.append(f"key={r['key']}")
+        if r.get("parent"):
+            extras.append(f"parent={r['parent']}")
+        if "children_count" in r:
+            extras.append(f"children={r['children_count']}")
+        extras_part = f"\t{', '.join(extras)}" if extras else ""
+        lines.append(
+            f"{r['date']}\t{r['title']}\t{r['path']}\t{r['type']}{status_part}{extras_part}"
+        )
     return [
         TextContent(type="text", text=meta),
         TextContent(type="text", text="\n".join(lines)),
@@ -268,6 +278,7 @@ def handle_brain_list(
     ],
     query: str | None,
     type: str | None,
+    parent: str | None,
     since: str | None,
     until: str | None,
     tag: str | None,
@@ -306,6 +317,7 @@ def handle_brain_list(
         resource=resource,
         query=query,
         type_filter=type,
+        parent=parent,
         since=since,
         until=until,
         tag=tag,

@@ -4,8 +4,21 @@ import os
 import re
 from datetime import datetime, timezone
 
-from ._slugs import title_to_filename, title_to_slug
+from ._frontmatter import parse_frontmatter
+from ._slugs import is_valid_key, title_to_filename, title_to_slug, validate_key
 from ._vault import match_artefact
+
+
+ARTEFACT_KEY_RE = re.compile(
+    r"^([a-z0-9]+(?:-[a-z0-9]+)*)[\/~]([a-z0-9]+(?:-[a-z0-9]+)*)$"
+)
+
+# Prefix used for terminal-status subfolders (e.g. "+Adopted", "+Completed").
+STATUS_FOLDER_PREFIX = "+"
+
+# Living types whose ownership tag should be stamped on the artefact itself
+# (e.g. a project named ``brain`` carries ``project/brain`` in its own tags).
+SELF_TAG_PREFIXES = {"project", "person", "workspace", "journal"}
 
 
 def read_file_content(vault_root, rel_path):
@@ -21,6 +34,297 @@ def read_file_content(vault_root, rel_path):
         return f"Error: file not found: {rel_path}"
     with open(abs_path, "r", encoding="utf-8") as f:
         return f.read()
+
+
+def artefact_type_prefix(artefact_or_type):
+    """Return the canonical singular type prefix used in artefact keys."""
+    if isinstance(artefact_or_type, dict):
+        value = (
+            artefact_or_type.get("frontmatter_type")
+            or artefact_or_type.get("type")
+            or artefact_or_type.get("key")
+            or ""
+        )
+    else:
+        value = str(artefact_or_type or "")
+    if "/" in value:
+        return value.rsplit("/", 1)[-1]
+    return value
+
+
+def make_artefact_key(type_prefix, key):
+    """Return canonical ``{type-prefix}/{key}`` form."""
+    return f"{type_prefix}/{validate_key(key)}"
+
+
+def parse_artefact_key(value):
+    """Parse ``{type-prefix}/{key}`` or ``{type-prefix}~{key}`` form."""
+    if not isinstance(value, str):
+        return None
+    match = ARTEFACT_KEY_RE.fullmatch(value.strip())
+    if not match:
+        return None
+    prefix, key = match.groups()
+    if not is_valid_key(key):
+        return None
+    return prefix, key
+
+
+def normalize_artefact_key(value):
+    """Normalise folder-form or slash-form artefact keys to slash form."""
+    parsed = parse_artefact_key(value)
+    if not parsed:
+        return None
+    prefix, slug = parsed
+    return f"{prefix}/{slug}"
+
+
+def resolve_artefact_definition_for_prefix(router, prefix):
+    """Resolve a configured artefact definition by canonical type prefix."""
+    for artefact in router.get("artefacts", []):
+        if artefact_type_prefix(artefact) == prefix:
+            return artefact
+    return None
+
+
+def resolve_artefact_key_entry(router, value):
+    """Resolve an artefact key against the compiled living-artefact index."""
+    key = normalize_artefact_key(value)
+    if not key:
+        return None
+    return (router.get("artefact_index") or {}).get(key)
+
+
+def iter_markdown_under(type_dir, *, include_status_folders=True):
+    """Yield markdown file paths relative to *type_dir*.
+
+    Skips directories whose names begin with ``.`` or ``_``.  When
+    *include_status_folders* is ``False``, also skips directories whose names
+    begin with ``+`` (terminal-status folders such as ``+Adopted``).
+
+    Emits paths relative to *type_dir*, not to the vault root — stitching the
+    artefact base path back on is the caller's responsibility.
+    """
+    if not os.path.isdir(type_dir):
+        return
+    for dirpath, dirnames, filenames in os.walk(type_dir):
+        dirnames[:] = [
+            d
+            for d in dirnames
+            if not d.startswith(".")
+            and not d.startswith("_")
+            and (include_status_folders or not d.startswith(STATUS_FOLDER_PREFIX))
+        ]
+        for fname in filenames:
+            if not fname.endswith(".md"):
+                continue
+            yield os.path.relpath(os.path.join(dirpath, fname), type_dir)
+
+
+def iter_artefact_paths(vault_root, artefact, *, include_status_folders=True):
+    """Yield vault-relative paths for one artefact's markdown files."""
+    type_dir = os.path.join(str(vault_root), artefact["path"])
+    for sub_rel in iter_markdown_under(type_dir, include_status_folders=include_status_folders):
+        yield os.path.join(artefact["path"], sub_rel)
+
+
+def iter_artefact_markdown_files(
+    vault_root, router, *, classifications=None, include_status_folders=False
+):
+    """Yield relative paths for artefact markdown files in configured folders.
+
+    ``include_status_folders`` gates ``+*`` terminal-status subfolders (e.g.
+    ``+Adopted``, ``+Shipped``). It has no effect on non-living classifications,
+    which always include status folders.
+    """
+    allowed = set(classifications or [])
+    for artefact in router.get("artefacts", []):
+        classification = artefact.get("classification")
+        if allowed and classification not in allowed:
+            continue
+        include = include_status_folders or classification != "living"
+        yield from iter_artefact_paths(vault_root, artefact, include_status_folders=include)
+
+
+def iter_living_markdown_files(vault_root, router, *, include_status_folders=False):
+    """Yield relative paths for living artefact markdown files."""
+    yield from iter_artefact_markdown_files(
+        vault_root,
+        router,
+        classifications={"living"},
+        include_status_folders=include_status_folders,
+    )
+
+
+def ensure_tags_list(fields):
+    """Normalise ``fields['tags']`` to a mutable list and return it."""
+    tags = fields.get("tags")
+    if tags is None:
+        tags = []
+    elif not isinstance(tags, list):
+        tags = [tags]
+    fields["tags"] = tags
+    return tags
+
+
+def ensure_self_tag(fields, type_prefix, key):
+    """Stamp ``{type-prefix}/{key}`` into ``tags`` for self-tagging types."""
+    if type_prefix not in SELF_TAG_PREFIXES:
+        return False
+    scoped_tag = make_artefact_key(type_prefix, key)
+    tags = ensure_tags_list(fields)
+    if scoped_tag in tags:
+        return False
+    tags.append(scoped_tag)
+    return True
+
+
+def ensure_parent_tag(fields):
+    """Ensure the canonical parent key is present in ``tags`` when set."""
+    parent_key = normalize_artefact_key(fields.get("parent"))
+    if not parent_key:
+        return False
+    tags = ensure_tags_list(fields)
+    if parent_key in tags:
+        return False
+    tags.append(parent_key)
+    return True
+
+
+def living_key_set(vault_root, router, artefact, *, exclude_path=None):
+    """Return the set of known keys for a living artefact type.
+
+    Consults the compiled artefact index when present; otherwise falls back to
+    a filesystem walk (degraded path used before the router is compiled).
+    """
+    from ._router import resolve_and_validate_folder
+
+    type_prefix = artefact_type_prefix(artefact)
+    artefact_index = router.get("artefact_index")
+    if artefact_index is not None:
+        return {
+            entry["key"]
+            for entry in artefact_index.values()
+            if entry.get("type_prefix") == type_prefix
+            and entry.get("path") != exclude_path
+        }
+
+    keys = set()
+    for rel_path in iter_living_markdown_files(vault_root, router):
+        if rel_path == exclude_path:
+            continue
+        try:
+            _resolved, art = resolve_and_validate_folder(vault_root, router, rel_path)
+        except ValueError:
+            continue
+        if artefact_type_prefix(art) != type_prefix:
+            continue
+        content = read_file_content(vault_root, rel_path)
+        if content.startswith("Error:"):
+            continue
+        fields, _ = parse_frontmatter(content)
+        key = fields.get("key")
+        if is_valid_key(key):
+            keys.add(key)
+    return keys
+
+
+def replace_artefact_key_references(fields, old_key, new_key):
+    """Replace exact canonical artefact-key references in frontmatter."""
+    changed = False
+
+    if normalize_artefact_key(fields.get("parent")) == old_key:
+        if new_key is None:
+            fields.pop("parent", None)
+        else:
+            fields["parent"] = new_key
+        changed = True
+
+    tags = fields.get("tags")
+    if isinstance(tags, list):
+        updated = []
+        for tag in tags:
+            if normalize_artefact_key(tag) == old_key:
+                if new_key is not None:
+                    updated.append(new_key)
+                changed = True
+            else:
+                updated.append(tag)
+        fields["tags"] = updated
+
+    return changed
+
+
+def scan_artefact_key_references(vault_root, router, key):
+    """Return artefacts whose frontmatter references ``key``."""
+    normalized = normalize_artefact_key(key)
+    if not normalized:
+        return []
+
+    findings = []
+    for rel_path in iter_artefact_markdown_files(
+        vault_root, router, classifications={"living", "temporal"}, include_status_folders=True
+    ):
+        content = read_file_content(vault_root, rel_path)
+        if content.startswith("Error:"):
+            continue
+        fields, _ = parse_frontmatter(content)
+        parent_matches = normalize_artefact_key(fields.get("parent")) == normalized
+        tag_matches = [
+            tag
+            for tag in fields.get("tags", [])
+            if normalize_artefact_key(tag) == normalized
+        ]
+        if not parent_matches and not tag_matches:
+            continue
+        findings.append(
+            {
+                "path": rel_path,
+                "fields": fields,
+                "parent": parent_matches,
+                "tags": tag_matches,
+            }
+        )
+    return findings
+
+
+def resolve_parent_reference(vault_root, router, parent):
+    """Resolve a parent artefact reference to canonical key + metadata."""
+    from ._router import resolve_and_validate_folder
+
+    index_available = "artefact_index" in router
+    key = normalize_artefact_key(parent)
+    if key:
+        if not index_available:
+            raise ValueError(
+                "Compiled artefact index missing; canonical parent lookup is unavailable"
+            )
+        entry = resolve_artefact_key_entry(router, key)
+        if not entry:
+            raise ValueError(f"INVALID_PARENT: no artefact matching '{parent}'")
+        return key, entry
+
+    resolved_path, parent_art = resolve_and_validate_folder(vault_root, router, parent)
+    if parent_art.get("classification") != "living":
+        raise ValueError("parent must resolve to a living artefact")
+    content = read_file_content(vault_root, resolved_path)
+    fields, _ = parse_frontmatter(content)
+    slug = fields.get("key")
+    if not is_valid_key(slug):
+        raise ValueError(
+            f"INVALID_PARENT: '{resolved_path}' has no valid key in frontmatter"
+        )
+    key = make_artefact_key(artefact_type_prefix(parent_art), slug)
+    entry = resolve_artefact_key_entry(router, key)
+    if entry is None:
+        # The file exists and parses, but the compiled index doesn't know it.
+        # Prefer a loud failure over a fabricated entry with a wrong children_count;
+        # a missing entry after a path/name resolve means the router is stale.
+        raise ValueError(
+            f"INDEX_STALE: '{resolved_path}' resolved but is missing from the "
+            "compiled artefact index; recompile the router and retry"
+        )
+    return key, entry
 
 
 PLACEHOLDER_TOKEN_RE = re.compile(r"\{([A-Za-z][A-Za-z0-9_-]*)\}")
@@ -77,8 +381,8 @@ def resolve_naming_pattern(pattern, title, variables=None, date_source=None):
     reconcile the backing field before calling; a pattern with date tokens
     and no parseable ``date_source`` value raises ``ValueError``.
 
-    Non-date placeholders (``{Title}``, ``{slug}``, ``{Version}`` etc.) are
-    substituted from ``variables`` or the ``title`` as usual.
+    Non-date placeholders (``{Title}``, ``{Version}`` etc.) are substituted
+    from ``variables`` or the ``title`` as usual.
     """
     variables = variables or {}
     safe_title = title_to_filename(title)
@@ -109,7 +413,7 @@ def resolve_naming_pattern(pattern, title, variables=None, date_source=None):
         for placeholder, value in replacements:
             result = result.replace(placeholder, value)
 
-    for placeholder in ("{slug}", "{name}", "{Title}", "{title}"):
+    for placeholder in ("{name}", "{Title}", "{title}"):
         result = result.replace(placeholder, safe_title)
 
     for key, raw_value in variables.items():
@@ -152,7 +456,7 @@ def resolve_type(router, type_key):
     return match
 
 
-def resolve_folder(artefact, parent=None, fields=None):
+def resolve_folder(artefact, parent=None, fields=None, router=None):
     """Resolve the target folder for a new artefact.
 
     Temporal artefacts go into ``{base}/yyyy-mm/`` where ``yyyy-mm`` is
@@ -185,6 +489,12 @@ def resolve_folder(artefact, parent=None, fields=None):
             )
         month_folder = dt.strftime("%Y-%m")
         return os.path.join(base_path, month_folder)
+    if parent and router:
+        entry = resolve_artefact_key_entry(router, parent)
+        if entry:
+            if entry["type_prefix"] == artefact_type_prefix(artefact):
+                return os.path.join(base_path, entry["key"])
+            return os.path.join(base_path, f"{entry['type_prefix']}~{entry['key']}")
     if parent:
         return os.path.join(base_path, parent)
     return base_path

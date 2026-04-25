@@ -1,6 +1,6 @@
 # Journals
 
-Named journal streams. One file per journal, grouping journal entries via nested tags.
+Named journal streams. One file per journal, relating journal entries via a `journal/{key}` relationship tag.
 
 ## Install
 
@@ -16,4 +16,4 @@ Journals/                                ← create folder
 - When the user wants to journal or reflect on their life → [[_Config/Taxonomy/Temporal/journal-entries]]
 ```
 
-Note: the router trigger points to the journal entries taxonomy (the temporal type), since that's where the creation workflows live. The journal (living) file is created once as a container and rarely needs a trigger.
+Note: the router trigger points to the journal entries taxonomy (the temporal type), since that's where the creation workflows live. The journal (living) file is created once as an anchor and rarely needs a trigger.

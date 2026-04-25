@@ -463,7 +463,7 @@ else
     REPO_DIR="$(mktemp -d)"
     CLEANUP_REPO=true
     printf '\n' >&2
-    spin "Downloading obsidian-brain" git clone --depth 1 --quiet "$REPO_URL" "$REPO_DIR"
+    spin "Downloading obsidian-brain" git clone --branch main --depth 1 --quiet "$REPO_URL" "$REPO_DIR"
     SOURCE_VERSION=$(cat "$REPO_DIR/src/brain-core/VERSION" 2>/dev/null || echo "unknown")
     printf '    \033[1mVersion:\033[0m v%s\n' "$SOURCE_VERSION" >&2
 fi

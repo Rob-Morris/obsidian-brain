@@ -5,30 +5,20 @@ import re
 FM_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n?", re.DOTALL)
 
 
-def parse_frontmatter(text):
-    """Extract frontmatter fields from markdown text. Returns (fields, body)."""
-    m = FM_RE.match(text)
-    if not m:
-        return {}, text
-
-    fm_text = m.group(1)
-    body = text[m.end():]
+def _parse_yaml_lines(fm_text):
+    """Parse the YAML-ish body between the `---` delimiters into a fields dict."""
     fields = {}
-    # Simple YAML parser for flat fields and list fields
-    fm_lines = fm_text.split("\n")
     pending_list_key = None
 
-    for line in fm_lines:
+    for line in fm_text.split("\n"):
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
             continue
 
-        # List item under a pending key
         if stripped.startswith("- ") and pending_list_key:
             fields[pending_list_key].append(stripped[2:].strip().strip("'\""))
             continue
 
-        # Non-list-item ends any pending list collection
         if pending_list_key:
             pending_list_key = None
 
@@ -39,26 +29,60 @@ def parse_frontmatter(text):
         key = stripped[:colon_idx].strip()
         value = stripped[colon_idx + 1:].strip()
 
-        # Handle inline list: [item1, item2]
         if value.startswith("["):
             inner = value.strip("[]")
             fields[key] = [t.strip().strip("'\"") for t in inner.split(",") if t.strip()]
             continue
 
         if not value:
-            # Empty value after colon — could be a multi-line list; collect on next lines
             fields[key] = []
             pending_list_key = key
             continue
 
-        # Strip quotes
         if (value.startswith("'") and value.endswith("'")) or \
            (value.startswith('"') and value.endswith('"')):
             value = value[1:-1]
 
         fields[key] = value
 
-    return fields, body
+    return fields
+
+
+def parse_frontmatter(text):
+    """Extract frontmatter fields from markdown text. Returns (fields, body)."""
+    m = FM_RE.match(text)
+    if not m:
+        return {}, text
+    return _parse_yaml_lines(m.group(1)), text[m.end():]
+
+
+def read_frontmatter(path):
+    """Read frontmatter from a markdown file, stopping at the closing ``---``.
+
+    Returns a fields dict, or ``{}`` when frontmatter is absent or unterminated.
+    Use :func:`read_artefact` when the body is also needed.
+    """
+    with open(path, "r", encoding="utf-8") as f:
+        first = f.readline()
+        if first.strip() != "---":
+            return {}
+        lines = []
+        for line in f:
+            if line.rstrip("\n").strip() == "---":
+                return _parse_yaml_lines("\n".join(lines))
+            lines.append(line.rstrip("\n"))
+    return {}
+
+
+def read_artefact(path):
+    """Read a markdown file and return ``(fields, body)``.
+
+    Whole-file read. Use when the caller needs the body; use
+    :func:`read_frontmatter` when only the fields are needed.
+    """
+    with open(path, "r", encoding="utf-8") as f:
+        text = f.read()
+    return parse_frontmatter(text)
 
 
 def serialize_frontmatter(fields, body=""):

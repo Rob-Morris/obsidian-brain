@@ -20,8 +20,9 @@ from pathlib import Path
 
 from _common import (
     find_vault_root,
-    is_system_dir,
-    parse_frontmatter,
+    iter_artefact_paths,
+    normalize_artefact_key,
+    read_artefact,
     read_version,
     safe_write,
     safe_write_via,
@@ -38,29 +39,6 @@ try:
     _HAS_EMBEDDINGS = True
 except ImportError:
     _HAS_EMBEDDINGS = False
-
-
-# ---------------------------------------------------------------------------
-# Markdown file discovery
-# ---------------------------------------------------------------------------
-
-def find_md_files(vault_root, type_info):
-    """Recursively find all .md files within a type folder."""
-    vault_str = str(vault_root)
-    type_dir = os.path.join(vault_str, type_info["path"])
-    if not os.path.isdir(type_dir):
-        return []
-
-    files = []
-    for dirpath, dirnames, filenames in os.walk(type_dir):
-        # Skip system subdirectories
-        dirnames[:] = [d for d in dirnames if not is_system_dir(d)]
-        for fname in filenames:
-            if fname.endswith(".md"):
-                abs_path = os.path.join(dirpath, fname)
-                rel_path = os.path.relpath(abs_path, vault_str)
-                files.append(rel_path)
-    return files
 
 
 def extract_title(body, filename):
@@ -188,9 +166,7 @@ def build_embeddings(vault_root, router, documents):
     for i, doc in enumerate(documents):
         abs_path = os.path.join(vault_str, doc["path"])
         try:
-            with open(abs_path, "r", encoding="utf-8") as f:
-                text = f.read()
-            _, body = parse_frontmatter(text)
+            _, body = read_artefact(abs_path)
         except (OSError, UnicodeDecodeError):
             body = ""
         doc_texts.append(f"{doc['title']} {body[:500]}")
@@ -239,12 +215,10 @@ def parse_doc(vault_root, rel_path, type_hint=None):
     vault_str = str(vault_root)
     abs_path = os.path.join(vault_str, rel_path)
     try:
-        with open(abs_path, "r", encoding="utf-8") as f:
-            text = f.read()
+        fields, body = read_artefact(abs_path)
     except (OSError, UnicodeDecodeError):
         return None
 
-    fields, body = parse_frontmatter(text)
     title = extract_title(body, rel_path)
 
     try:
@@ -269,6 +243,8 @@ def parse_doc(vault_root, rel_path, type_hint=None):
         "title": title,
         "type": doc_type,
         "tags": fields.get("tags", []),
+        "key": fields.get("key"),
+        "parent": normalize_artefact_key(fields.get("parent")),
         "status": fields.get("status"),
         "modified": modified,
         "doc_length": len(tokens),
@@ -319,8 +295,7 @@ def build_index(vault_root):
     # Collect all .md files with their type info
     documents = []
     for type_info in all_types:
-        md_files = find_md_files(vault_root, type_info)
-        for rel_path in md_files:
+        for rel_path in iter_artefact_paths(vault_root, type_info):
             doc = parse_doc(vault_root, rel_path, type_hint=type_info["type"])
             if doc is not None:
                 documents.append(doc)

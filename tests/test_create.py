@@ -41,6 +41,9 @@ def vault(tmp_path):
     # Living type: Releases
     (tmp_path / "Releases").mkdir()
 
+    # Living type: Projects
+    (tmp_path / "Projects").mkdir()
+
     # Temporal type: Logs
     temporal = tmp_path / "_Temporal"
     temporal.mkdir()
@@ -82,6 +85,14 @@ def vault(tmp_path):
         "## Template\n\n[[_Config/Templates/Living/Releases]]\n"
     )
 
+    # Taxonomy: Projects
+    (tax_living / "projects.md").write_text(
+        "# Projects\n\n"
+        "## Naming\n\n`{Title}.md` in `Projects/`.\n\n"
+        "## Frontmatter\n\n```yaml\n---\ntype: living/project\ntags:\n  - project\nkey:\n---\n```\n\n"
+        "## Template\n\n[[_Config/Templates/Living/Projects]]\n"
+    )
+
     # Taxonomy: Logs
     tax_temporal = config / "Taxonomy" / "Temporal"
     tax_temporal.mkdir(parents=True)
@@ -106,11 +117,24 @@ def vault(tmp_path):
         "## Goal\n\n## Gates\n\n| Gate | Status | Implicated Designs |\n|---|---|---|\n|  | pending |  |\n\n"
         "## Changelog\n\n### Added\n\n### Changed\n\n### Fixed\n\n### Removed\n\n## Sources\n\n- \n"
     )
+    (templates_living / "Projects.md").write_text(
+        "---\ntype: living/project\ntags: []\nkey:\n---\n\n# {{title}}\n\n"
+    )
 
     templates_temporal = config / "Templates" / "Temporal"
     templates_temporal.mkdir(parents=True)
     (templates_temporal / "Logs.md").write_text(
         "---\ntype: temporal/logs\ntags:\n  - session\n---\n\n# Log\n\n"
+    )
+
+    (tmp_path / "Projects" / "Brain.md").write_text(
+        "---\n"
+        "type: living/project\n"
+        "tags:\n"
+        "  - project/brain\n"
+        "key: brain\n"
+        "---\n\n"
+        "# Brain\n"
     )
 
     return tmp_path
@@ -181,18 +205,20 @@ class TestCreateArtefact:
             "release",
             "Search Hardening",
             frontmatter_overrides={"version": "v0.28.6"},
-            parent="Brain",
+            parent="project/brain",
         )
         assert result["type"] == "living/releases"
         assert result["path"] == os.path.join(
             "Releases",
-            "Brain",
+            "project~brain",
             "v0.28.6 - Search Hardening.md",
         )
         content = open(os.path.join(str(vault), result["path"])).read()
         fields, body = parse_frontmatter(content)
         assert fields["type"] == "living/release"
         assert fields["version"] == "v0.28.6"
+        assert fields["parent"] == "project/brain"
+        assert "project/brain" in fields["tags"]
         assert "## Changelog" in body
 
     def test_create_release_type_requires_version_for_filename(self, vault, router):
@@ -202,7 +228,7 @@ class TestCreateArtefact:
                 router,
                 "release",
                 "Missing Version",
-                parent="Brain",
+                parent="project/brain",
             )
 
     def test_frontmatter_overrides(self, vault, router):
@@ -265,22 +291,34 @@ class TestCreateArtefact:
         assert len(suffix) == 3
 
     def test_create_with_parent_subfolder(self, vault, router):
-        """Parent parameter places living artefact in a project subfolder."""
-        result = create.create_artefact(str(vault), router, "ideas", "Sub Idea", parent="Brain")
-        assert result["path"] == os.path.join("Ideas", "Brain", "Sub Idea.md")
+        """Parent parameter places living artefacts under canonical owner folders."""
+        result = create.create_artefact(
+            str(vault), router, "ideas", "Sub Idea", parent="project/brain"
+        )
+        assert result["path"] == os.path.join("Ideas", "project~brain", "Sub Idea.md")
+        assert result["parent"] == "project/brain"
         abs_path = os.path.join(str(vault), result["path"])
         assert os.path.isfile(abs_path)
 
     def test_parent_creates_directory(self, vault, router):
-        """Parent subfolder is created automatically if it doesn't exist."""
-        result = create.create_artefact(str(vault), router, "wiki", "New Sub", parent="Project")
-        assert os.path.isdir(os.path.join(str(vault), "Wiki", "Project"))
+        """Cross-type owner folders are created automatically when needed."""
+        create.create_artefact(
+            str(vault), router, "wiki", "New Sub", parent="project/brain"
+        )
+        assert os.path.isdir(os.path.join(str(vault), "Wiki", "project~brain"))
 
-    def test_parent_ignored_for_temporal(self, vault, router):
-        """Temporal types always use yyyy-mm/ regardless of parent."""
-        result = create.create_artefact(str(vault), router, "logs", "Session", parent="Brain")
+    def test_temporal_parent_persists_without_parent_subfolder(self, vault, router):
+        """Temporal children persist parent metadata but stay in yyyy-mm/ folders."""
+        result = create.create_artefact(
+            str(vault), router, "logs", "Session", parent="project/brain"
+        )
+        assert result["parent"] == "project/brain"
         assert "_Temporal/Logs/" in result["path"]
-        assert "Brain" not in result["path"]
+        assert "project~brain" not in result["path"]
+        content = open(os.path.join(str(vault), result["path"])).read()
+        fields, _ = parse_frontmatter(content)
+        assert fields["parent"] == "project/brain"
+        assert "project/brain" in fields["tags"]
 
     def test_temporal_folder_matches_frontmatter_timestamp(self, vault, router):
         """The yyyy-mm folder and the created timestamp must agree."""
@@ -323,11 +361,27 @@ class TestCreateArtefact:
         content = open(os.path.join(str(vault), result["path"])).read()
         assert "SOURCE_NAME stays." in content
 
+    def test_create_same_type_child_uses_key_folder(self, vault, router):
+        parent = vault / "Wiki" / "Brain.md"
+        parent.write_text(
+            "---\n"
+            "type: living/wiki\n"
+            "tags:\n"
+            "  - topic\n"
+            "key: brain\n"
+            "---\n\n"
+            "# Brain\n"
+        )
+        import compile_router
+        router = compile_router.compile(str(vault))
+        result = create.create_artefact(
+            str(vault), router, "wiki", "Child Page", parent="wiki/brain"
+        )
+        assert result["path"] == os.path.join("Wiki", "brain", "Child Page.md")
+        assert result["parent"] == "wiki/brain"
+
 
 class TestResolveNamingPattern:
-    def test_slug_pattern(self):
-        assert resolve_naming_pattern("{slug}.md", "My Title") == "My Title.md"
-
     def test_name_pattern(self):
         assert resolve_naming_pattern("{name}.md", "My Title") == "My Title.md"
 
@@ -352,7 +406,7 @@ class TestResolveNamingPattern:
 
     def test_date_pattern_uses_date_source(self):
         result = resolve_naming_pattern(
-            "yyyymmdd-log~{slug}.md",
+            "yyyymmdd-log~{Title}.md",
             "My Entry",
             variables={"created": "2026-01-15T00:00:00+11:00"},
             date_source="created",
@@ -361,7 +415,7 @@ class TestResolveNamingPattern:
 
     def test_mmdd_pattern_uses_date_source(self):
         result = resolve_naming_pattern(
-            "yyyy-mm-dd~{slug}.md",
+            "yyyy-mm-dd~{Title}.md",
             "Entry",
             variables={"created": "2026-03-07T00:00:00+11:00"},
             date_source="created",
@@ -370,12 +424,12 @@ class TestResolveNamingPattern:
 
     def test_date_pattern_without_date_source_raises(self):
         with pytest.raises(ValueError, match="date_source"):
-            resolve_naming_pattern("yyyymmdd-log~{slug}.md", "My Entry")
+            resolve_naming_pattern("yyyymmdd-log~{Title}.md", "My Entry")
 
     def test_date_pattern_with_missing_field_raises(self):
         with pytest.raises(ValueError, match="parseable 'created'"):
             resolve_naming_pattern(
-                "yyyymmdd-log~{slug}.md",
+                "yyyymmdd-log~{Title}.md",
                 "My Entry",
                 variables={},
                 date_source="created",

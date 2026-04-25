@@ -79,6 +79,7 @@ from _common import (
     collect_headings,
     find_section,
     is_archived_path,
+    iter_artefact_paths,
     parse_frontmatter,
     resolve_body_file,
     safe_write_json,
@@ -151,6 +152,7 @@ _STARTUP_OP_TIMEOUT = 30   # seconds — guard against iCloud I/O hangs during s
 _MIRROR_DRAIN_TIMEOUT = 2.0  # seconds — atexit drain cap; filesystem stalls terminate normally
 _router_checked_at: float = 0.0
 _index_checked_at: float = 0.0
+_router_dirty: bool = False  # set True by MCP writes; next _ensure_router_fresh recompiles
 
 # Session-mirror worker: one long-lived daemon thread drains a coalescing
 # queue (maxsize=1 so rapid-fire refreshes collapse to the latest intent).
@@ -543,8 +545,9 @@ def _check_router(vault_root: str) -> tuple[bool, dict | None]:
     if not isinstance(data, dict):
         return True, None
 
-    compiled_at = data.get("meta", {}).get("compiled_at")
-    sources = data.get("meta", {}).get("sources", {})
+    meta = data.get("meta", {})
+    compiled_at = meta.get("compiled_at")
+    sources = meta.get("sources", {})
     if not compiled_at or not sources:
         return True, None
 
@@ -553,8 +556,34 @@ def _check_router(vault_root: str) -> tuple[bool, dict | None]:
     except (ValueError, TypeError):
         return True, None
 
-    for rel_path in sources:
+    all_types = data.get("artefacts", [])
+    artefact_index = data.get("artefact_index", {})
+    artefact_index_sources = meta.get("artefact_index_sources")
+    if artefact_index and artefact_index_sources is None:
+        return True, None
+    if artefact_index_sources is not None and not isinstance(artefact_index_sources, list):
+        return True, None
+    artefact_index_source_paths = set(artefact_index_sources or [])
+
+    expected_index_source_count = meta.get("artefact_index_source_count")
+    if expected_index_source_count is not None:
+        current_index_source_count = compile_router.count_living_artefact_index_entries(
+            vault_root, all_types
+        )
+        if current_index_source_count != expected_index_source_count:
+            return True, None
+
+    for rel_path, expected_hash in sources.items():
         abs_path = os.path.join(vault_root, rel_path)
+        if rel_path in artefact_index_source_paths:
+            try:
+                current_hash = compile_router.hash_living_artefact_source(abs_path)
+            except (OSError, UnicodeDecodeError):
+                return True, None
+            if current_hash != expected_hash:
+                return True, None
+            continue
+
         try:
             if os.path.getmtime(abs_path) > compiled_ts:
                 return True, None
@@ -602,7 +631,7 @@ def _check_index_files(vault_root: str, expected_count: int, threshold: float) -
     all_types = compile_router.scan_living_types(vault_root) + compile_router.scan_temporal_types(vault_root)
     count = 0
     for type_info in all_types:
-        for rel_path in build_index.find_md_files(vault_root, type_info):
+        for rel_path in iter_artefact_paths(vault_root, type_info):
             count += 1
             if count > expected_count:
                 return True  # new files — short-circuit
@@ -624,6 +653,14 @@ def _check_router_resource_counts(vault_root: str, router: dict) -> bool:
     for key, fs_count in compile_router.resource_counts(vault_root).items():
         if fs_count != len(router.get(key, [])):
             return True
+    try:
+        current_index_source_count = compile_router.count_living_artefact_index_entries(
+            vault_root, router.get("artefacts", [])
+        )
+    except Exception:
+        return True
+    if current_index_source_count != len(router.get("artefact_index", {})):
+        return True
     return False
 
 
@@ -632,10 +669,22 @@ def _ensure_router_fresh() -> None:
 
     Filesystem staleness checks are throttled by _STALENESS_CHECK_TTL to
     avoid per-call I/O overhead. External changes are still detected within
-    a few seconds.
+    a few seconds. MCP writes that mark the router dirty bypass the TTL
+    so the next read sees their effects immediately.
     """
-    global _router, _router_checked_at
+    global _router, _router_checked_at, _router_dirty
     if _vault_root is None or _router is None:
+        return
+    if _router_dirty:
+        try:
+            _router = _compile_and_save(_vault_root)
+        except Exception as e:
+            if _logger:
+                _logger.error("router recompile failed: %s", e, exc_info=True)
+            _router_dirty = False  # prevent tight retry loop; staleness TTL will re-detect
+            _router_checked_at = time.monotonic()
+            return
+        _refresh_session_mirror_best_effort()
         return
     now = time.monotonic()
     if now - _router_checked_at < _ROUTER_CHECK_TTL:
@@ -667,6 +716,12 @@ def _mark_index_dirty() -> None:
     """Flag the index for a full rebuild (e.g. version drift, unknown scope of change)."""
     global _index_dirty
     _index_dirty = True
+
+
+def _mark_router_dirty() -> None:
+    """Flag the router for recompile on the next _ensure_router_fresh call."""
+    global _router_dirty
+    _router_dirty = True
 
 
 def _mark_embeddings_dirty() -> None:
@@ -766,17 +821,18 @@ def _save_json(data: dict, vault_root: str, rel_path: str) -> None:
 def _compile_and_save(vault_root: str) -> dict:
     """Compile router and colours, write to disk, return compiled data.
 
-    Resets the router staleness-check TTL so callers don't need to. Does
-    not refresh the session mirror — that belongs to the caller so the
-    operation is logged against the right scope (startup phase vs.
-    mid-session recompile).
+    Always clears _router_dirty and resets the staleness-check TTL so that
+    callers don't need to remember to do it themselves. Does not refresh
+    the session mirror — that belongs to the caller so the operation is
+    logged against the right scope (startup phase vs. mid-session recompile).
     """
-    global _router_checked_at
+    global _router_checked_at, _router_dirty
     compiled = compile_router.compile(vault_root)
     _save_json(compiled, vault_root, _router_rel())
     compile_colours.generate(vault_root, compiled)
     _set_router(compiled)
     _router_checked_at = time.monotonic()
+    _router_dirty = False
     return compiled
 
 
@@ -981,6 +1037,7 @@ def _runtime() -> ServerRuntime:
         mark_index_dirty=_mark_index_dirty,
         mark_embeddings_dirty=_mark_embeddings_dirty,
         mark_index_pending=_mark_index_pending,
+        mark_router_dirty=_mark_router_dirty,
         compile_and_save=_compile_and_save,
         build_index_and_save=_build_index_and_save,
         refresh_session_mirror_best_effort=_refresh_session_mirror_best_effort,
@@ -1310,14 +1367,16 @@ def brain_list(resource: Literal[
                    "memory", "template", "type", "workspace", "archive",
                ] = "artefact",
                query: str | None = None,
-               type: str | None = None, since: str | None = None,
+               type: str | None = None, parent: str | None = None,
+               since: str | None = None,
                until: str | None = None, tag: str | None = None,
                top_k: int = 500,
                sort: Literal["date_desc", "date_asc", "title"] = "date_desc"):
     """List vault artefacts by type, date range, or tag. Exhaustive — not relevance-ranked.
 
     Unlike brain_search, returns all matching artefacts up to top_k (default 500).
-    Optional filters: type (e.g. 'temporal/research'), since/until (ISO dates e.g.
+    Optional filters: type (e.g. 'temporal/research'), parent (canonical artefact key),
+    since/until (ISO dates e.g.
     '2026-03-20'), tag, top_k, sort ('date_desc', 'date_asc', 'title').
 
     Use resource to list non-artefact collections (e.g. resource='skill' lists all skills).
@@ -1330,6 +1389,7 @@ def brain_list(resource: Literal[
                 resource=resource,
                 query=query,
                 type=type,
+                parent=parent,
                 since=since,
                 until=until,
                 tag=tag,
@@ -1350,7 +1410,7 @@ def brain_list(resource: Literal[
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def brain_create(type: str = "", title: str = "", body: str = "", body_file: str = "", frontmatter: dict | None = None, parent: str | None = None, resource: str = "artefact", name: str = "", fix_links: bool = False):
+def brain_create(type: str = "", title: str = "", body: str = "", body_file: str = "", frontmatter: dict | None = None, parent: str | None = None, key: str | None = None, resource: str = "artefact", name: str = "", fix_links: bool = False):
     """Create a new vault resource. Additive — creates a file, cannot destroy existing work.
 
     For bodies over ~1 KB, prefer body_file over body to save tokens in the tool call.
@@ -1374,8 +1434,12 @@ def brain_create(type: str = "", title: str = "", body: str = "", body_file: str
                    safe temp path, write content there, then pass that path here.
       frontmatter — optional frontmatter field overrides (e.g. {"status": "shaping"}).
                    For memories, use {"triggers": ["keyword1", "keyword2"]}.
-      parent     — optional project name to group artefacts under (e.g. "Brain").
-                   Living types only; ignored for temporal types and non-artefact resources.
+      parent     — optional parent artefact reference for child artefacts.
+                   Accepts canonical artefact keys like "design/brain", unique
+                   artefact names, or relative paths. Living children use
+                   owner-derived folders; temporal children keep date-based
+                   filing.
+      key        — optional explicit key override for living artefacts.
       fix_links  — optional boolean (default false). When true, resolvable broken
                    wikilinks in the created file are auto-rewritten to their
                    target immediately after creation. Remaining unresolvable or
@@ -1393,6 +1457,7 @@ def brain_create(type: str = "", title: str = "", body: str = "", body_file: str
                     body_file=body_file,
                     frontmatter=frontmatter,
                     parent=parent,
+                    key=key,
                     resource=resource,
                     name=name,
                     runtime=_runtime(),

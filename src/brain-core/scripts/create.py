@@ -22,24 +22,36 @@ import sys
 from datetime import datetime, timezone
 
 from _common import (
+    artefact_type_prefix,
     check_write_allowed,
     config_resource_rel_path,
+    ensure_parent_tag,
+    ensure_self_tag,
+    ensure_tags_list,
     find_duplicate_basenames,
     find_vault_root,
+    generate_contextual_slug,
+    living_key_set,
     load_compiled_router,
     make_temp_path,
+    make_artefact_key,
+    normalize_artefact_key,
     parse_frontmatter,
     read_file_content,
     reconcile_fields_for_render,
     render_filename_or_default,
+    resolve_and_validate_folder,
+    resolve_artefact_key_entry,
     resolve_body_file,
     resolve_folder,
+    resolve_parent_reference,
     resolve_type,
     safe_write,
     serialize_frontmatter,
     substitute_template_vars,
     title_to_slug,
     unique_filename,
+    validate_key,
 )
 import fix_links as _fix_links
 
@@ -48,7 +60,70 @@ import fix_links as _fix_links
 # Core logic
 # ---------------------------------------------------------------------------
 
-def create_artefact(vault_root, router, type_key, title, body="", frontmatter_overrides=None, parent=None, template_vars=None, fix_links=False):
+def _generate_key(vault_root, router, artefact, title, explicit=None):
+    """Generate or validate a key value for a living artefact."""
+    existing = living_key_set(vault_root, router, artefact)
+    if explicit is not None:
+        explicit = validate_key(explicit)
+        if explicit in existing:
+            raise ValueError(f"KEY_TAKEN: key '{explicit}' is already used")
+        return explicit
+
+    while True:
+        candidate = generate_contextual_slug(title)
+        if candidate not in existing:
+            return candidate
+
+
+def _build_parent_context(router, artefact, fields, parent_key, parent_entry):
+    """Build the advisory ``parent_context`` payload for create responses."""
+    if "artefact_index" not in router:
+        return None
+
+    artefact_index = router.get("artefact_index") or {}
+    if parent_key and parent_entry:
+        related = [
+            entry["path"]
+            for entry in artefact_index.values()
+            if entry.get("parent") == parent_key
+        ][:3]
+        return {
+            "placed_under": parent_key,
+            "parent_path": parent_entry["path"],
+            "related": related,
+            "hint": "Consider updating the parent artefact and any roadmap or child index it maintains.",
+        }
+
+    tagged = []
+    for tag in ensure_tags_list(fields):
+        normalized = normalize_artefact_key(tag)
+        if normalized and normalized in artefact_index:
+            tagged.append(
+                {"key": normalized, "path": artefact_index[normalized]["path"]}
+            )
+    if tagged:
+        return {
+            "placed_under": None,
+            "tagged_artefacts": tagged,
+            "hint": "Tags reference other artefacts. If this artefact is owned by one, recreate or move it with parent set.",
+        }
+
+    candidate_count = sum(
+        1
+        for entry in artefact_index.values()
+        if entry.get("type") == artefact["frontmatter_type"]
+        and entry.get("children_count", 0) > 0
+    )
+    if candidate_count:
+        return {
+            "placed_under": None,
+            "candidate_count": candidate_count,
+            "hint": "This type has existing parent artefacts. If this artefact is owned by one, pass parent using canonical artefact-key form.",
+        }
+    return None
+
+
+def create_artefact(vault_root, router, type_key, title, body="", frontmatter_overrides=None, parent=None, key=None, template_vars=None, fix_links=False):
     """Create a new artefact. Returns {"path": relative_path, "type": ..., "title": ...}.
 
     Args:
@@ -58,8 +133,10 @@ def create_artefact(vault_root, router, type_key, title, body="", frontmatter_ov
         title: Human-readable title, used for filename generation.
         body: Markdown body content (optional, template body used if empty).
         frontmatter_overrides: Optional dict of frontmatter field overrides.
-        parent: Optional project subfolder name for living types (e.g. "Brain").
-                Places the artefact in {Type}/{parent}/ instead of {Type}/.
+        parent: Optional parent artefact reference for child artefacts.
+                Accepts canonical key form (e.g. "project/brain"), or a
+                resolvable name/path; persists as canonical `{type}/{key}`.
+                Temporal artefacts keep their normal date-based folders.
         template_vars: Optional dict of placeholder→value substitutions applied
                 to the template body (e.g. {"SOURCE_TYPE": "designs"}).
                 ``{{date:FORMAT}}`` placeholders are always substituted when the
@@ -73,6 +150,10 @@ def create_artefact(vault_root, router, type_key, title, body="", frontmatter_ov
     """
     vault_root = str(vault_root)
 
+    overrides = dict(frontmatter_overrides or {})
+    if key is None and "key" in overrides:
+        key = overrides.pop("key")
+
     artefact = resolve_type(router, type_key)
     template_fields, template_body = _read_template(vault_root, artefact)
 
@@ -85,8 +166,8 @@ def create_artefact(vault_root, router, type_key, title, body="", frontmatter_ov
     # date tokens resolve from the reconciled ``created`` / ``date_source``
     # field rather than the wallclock.
     fields = dict(template_fields)
-    if frontmatter_overrides:
-        fields.update(frontmatter_overrides)
+    if overrides:
+        fields.update(overrides)
 
     if artefact.get("frontmatter") and artefact["frontmatter"].get("type"):
         fields["type"] = artefact["frontmatter"]["type"]
@@ -95,9 +176,32 @@ def create_artefact(vault_root, router, type_key, title, body="", frontmatter_ov
     if "modified" not in fields:
         fields["modified"] = now_iso
 
+    resolved_parent = None
+    parent_entry = None
+    if parent:
+        resolved_parent, parent_entry = resolve_parent_reference(
+            vault_root, router, parent
+        )
+
+    if artefact.get("classification") == "living":
+        generated_key = _generate_key(vault_root, router, artefact, title, explicit=key)
+        fields["key"] = generated_key
+        ensure_self_tag(fields, artefact_type_prefix(artefact), generated_key)
+    elif key is not None:
+        raise ValueError("key override only applies to living artefacts")
+
+    if resolved_parent:
+        fields["parent"] = resolved_parent
+        ensure_parent_tag(fields)
+
     reconcile_fields_for_render(fields, artefact)
     filename = render_filename_or_default(artefact.get("naming"), title, fields)
-    folder = resolve_folder(artefact, parent=parent, fields=fields)
+    folder = resolve_folder(
+        artefact,
+        parent=resolved_parent or parent,
+        fields=fields,
+        router=router,
+    )
 
     final_body = body if body else template_body
     if not body and final_body:
@@ -123,7 +227,20 @@ def create_artefact(vault_root, router, type_key, title, body="", frontmatter_ov
     content = serialize_frontmatter(fields, body=final_body)
     safe_write(abs_path, content, bounds=vault_root, exclusive=True)
 
-    result = {"path": rel_path, "type": artefact["type"], "title": title}
+    result = {
+        "path": rel_path,
+        "type": artefact["type"],
+        "title": title,
+    }
+    if fields.get("key"):
+        result["key"] = fields["key"]
+    if resolved_parent:
+        result["parent"] = resolved_parent
+    parent_context = _build_parent_context(
+        router, artefact, fields, resolved_parent, parent_entry
+    )
+    if parent_context:
+        result["parent_context"] = parent_context
     _fix_links.attach_wikilink_warnings(vault_root, result, apply_fixes=fix_links)
     return result
 

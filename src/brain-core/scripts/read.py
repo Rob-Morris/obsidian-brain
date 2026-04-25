@@ -34,7 +34,9 @@ from _common import (
     is_archived_path,
     load_compiled_router as _load_compiled_router,
     match_artefact,
+    normalize_artefact_key,
     read_file_content,
+    resolve_artefact_key_entry,
     resolve_and_check_bounds,
     resolve_and_validate_folder,
     resolve_artefact_path,
@@ -167,6 +169,13 @@ def read_artefact(router, vault_root, name=None):
     if not name:
         return {"error": "artefact resource requires a name parameter (relative path or basename)"}
 
+    key = normalize_artefact_key(name)
+    if key:
+        entry = resolve_artefact_key_entry(router, key)
+        if not entry:
+            return {"error": f"No artefact matching '{name}'"}
+        return read_file_content(vault_root, entry["path"])
+
     if "/" in name:
         if is_archived_path(name):
             return {
@@ -220,6 +229,13 @@ def read_file(router, vault_root, name=None):
     """
     if not name:
         return {"error": "file resource requires a name parameter"}
+
+    key = normalize_artefact_key(name)
+    if key:
+        entry = resolve_artefact_key_entry(router, key)
+        if not entry:
+            return {"error": f"No artefact matching '{name}'"}
+        return read_file_content(vault_root, entry["path"])
 
     if "/" in name:
         if is_archived_path(name):

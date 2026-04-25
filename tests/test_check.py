@@ -25,7 +25,7 @@ def vault(tmp_path):
     (bc / "VERSION").write_text("0.9.11\n")
     (bc / "session-core.md").write_text("# Session Core\n")
 
-    # Wiki — living, configured, {slug}.md
+    # Wiki — living, configured, {Title}.md
     wiki_art = {
         "folder": "Wiki", "type": "living/wiki", "key": "wiki",
         "classification": "living", "configured": True,
@@ -167,6 +167,44 @@ def vault(tmp_path):
                  plans_art, shaping_art, cookies_art, projects_art]
 
     router = make_router(artefacts)
+    router["artefact_index"] = {
+        "wiki/rust-lifetimes": {
+            "path": "Wiki/rust-lifetimes.md",
+            "type": "living/wiki",
+            "type_key": "wiki",
+            "type_prefix": "wiki",
+            "key": "rust-lifetimes",
+            "parent": None,
+            "children_count": 0,
+        },
+        "design/auth-redesign": {
+            "path": "Designs/auth-redesign.md",
+            "type": "living/design",
+            "type_key": "designs",
+            "type_prefix": "design",
+            "key": "auth-redesign",
+            "parent": None,
+            "children_count": 0,
+        },
+        "note/rust-lifetimes": {
+            "path": "Notes/20260315 - Rust Lifetimes.md",
+            "type": "living/note",
+            "type_key": "notes",
+            "type_prefix": "note",
+            "key": "rust-lifetimes",
+            "parent": None,
+            "children_count": 0,
+        },
+        "daily-note/2026-03-15-sat": {
+            "path": "Daily Notes/2026-03-15 Sat.md",
+            "type": "living/daily-note",
+            "type_key": "daily-notes",
+            "type_prefix": "daily-note",
+            "key": "2026-03-15-sat",
+            "parent": None,
+            "children_count": 0,
+        },
+    }
 
     # Write compiled router
     brain_local = tmp_path / ".brain" / "local"
@@ -188,14 +226,14 @@ def vault(tmp_path):
 
     # --- Good files ---
     write_md(tmp_path / "Wiki" / "rust-lifetimes.md",
-             {"type": "living/wiki", "tags": ["rust"]}, "# Rust Lifetimes")
+             {"type": "living/wiki", "tags": ["rust"], "key": "rust-lifetimes"}, "# Rust Lifetimes")
     write_md(tmp_path / "Designs" / "auth-redesign.md",
-             {"type": "living/design", "tags": ["design"], "status": "shaping"},
+             {"type": "living/design", "tags": ["design"], "status": "shaping", "key": "auth-redesign"},
              "# Auth Redesign")
     write_md(tmp_path / "Notes" / "20260315 - Rust Lifetimes.md",
-             {"type": "living/note", "tags": ["rust"]}, "# Rust Lifetimes")
+             {"type": "living/note", "tags": ["rust"], "key": "rust-lifetimes"}, "# Rust Lifetimes")
     write_md(tmp_path / "Daily Notes" / "2026-03-15 Sat.md",
-             {"type": "living/daily-note", "tags": ["daily-note"]}, "# Saturday")
+             {"type": "living/daily-note", "tags": ["daily-note"], "key": "2026-03-15-sat"}, "# Saturday")
     write_md(tmp_path / "_Temporal" / "Logs" / "2026-03" / "20260315-log.md",
              {"type": "temporal/log", "tags": ["log"]}, "09:00 Started work.")
     write_md(tmp_path / "_Temporal" / "Shaping Transcripts" / "2026-03" /
@@ -278,7 +316,7 @@ class TestCheckRootFiles:
 # ---------------------------------------------------------------------------
 
 class TestCheckNaming:
-    def test_good_slug_passes(self, vault):
+    def test_good_key_passes(self, vault):
         tmp_path, router = vault
         findings = check.check_naming(str(tmp_path), router)
         wiki_findings = [f for f in findings if "Wiki" in f.get("file", "")]
@@ -468,6 +506,157 @@ class TestCheckMissingTimestamps:
         (tmp_path / "Wiki" / "plain.md").write_text("# No frontmatter\n")
         findings = check.check_missing_timestamps(str(tmp_path), router)
         assert not any("plain" in f.get("file", "") for f in findings)
+
+
+# ---------------------------------------------------------------------------
+# TestOwnershipChecks
+# ---------------------------------------------------------------------------
+
+class TestOwnershipChecks:
+    def test_missing_key_flagged(self, vault):
+        tmp_path, router = vault
+        write_md(tmp_path / "Wiki" / "no-key.md",
+                 {"type": "living/wiki", "tags": ["wiki"]}, "# Missing Key")
+        findings = check.check_living_key_fields(str(tmp_path), router)
+        hits = [f for f in findings if f.get("file") == "Wiki/no-key.md"]
+        assert len(hits) == 1
+        assert "key" in hits[0]["message"].lower()
+        assert hits[0]["severity"] == "error"
+
+    def test_broken_parent_reference_flagged(self, vault):
+        tmp_path, router = vault
+        child_dir = tmp_path / "Wiki" / "design~auth-redesign"
+        child_dir.mkdir(parents=True)
+        write_md(child_dir / "child.md",
+                 {"type": "living/wiki", "tags": ["design/missing"], "key": "child", "parent": "design/missing"},
+                 "# Child")
+        findings = check.check_parent_contract(str(tmp_path), router)
+        assert any("Broken parent reference" in f["message"] for f in findings)
+
+    def test_parent_folder_drift_flagged(self, vault):
+        tmp_path, router = vault
+        write_md(tmp_path / "Wiki" / "child.md",
+                 {"type": "living/wiki", "tags": ["design/auth-redesign"], "key": "child", "parent": "design/auth-redesign"},
+                 "# Child")
+        findings = check.check_parent_contract(str(tmp_path), router)
+        assert any("Parent-folder drift" in f["message"] for f in findings)
+
+    def test_subfolder_without_parent_flagged(self, vault):
+        """A file in a hub subfolder whose name resolves emits a missing-parent warning
+        naming the inferred parent.
+        """
+        tmp_path, router = vault
+        child_dir = tmp_path / "Wiki" / "design~auth-redesign"
+        child_dir.mkdir(parents=True)
+        write_md(child_dir / "tag-only.md",
+                 {"type": "living/wiki", "tags": ["design/auth-redesign"], "key": "tag-only"},
+                 "# Tag Only")
+        findings = check.check_parent_contract(str(tmp_path), router)
+        hits = [f for f in findings if f.get("file") == "Wiki/design~auth-redesign/tag-only.md"]
+        assert len(hits) == 1
+        assert hits[0]["severity"] == "warning"
+        assert "folder implies `design/auth-redesign`" in hits[0]["message"]
+        assert "Set `parent: design/auth-redesign`" in hits[0]["fix"]
+
+    def test_subfolder_with_invalid_key_name_flagged_as_orphan(self, vault):
+        """A subfolder whose name isn't a valid key (spaces, mixed case) must not
+        crash make_artefact_key — it falls through to the orphan branch.
+        """
+        tmp_path, router = vault
+        child_dir = tmp_path / "Wiki" / "Claude Code"
+        child_dir.mkdir(parents=True)
+        write_md(child_dir / "note.md",
+                 {"type": "living/wiki", "tags": [], "key": "note"},
+                 "# Note")
+        findings = check.check_parent_contract(str(tmp_path), router)
+        hits = [f for f in findings if f.get("file") == "Wiki/Claude Code/note.md"]
+        assert len(hits) == 1
+        assert "Orphan artefact" in hits[0]["message"]
+
+    def test_orphan_subfolder_flagged(self, vault):
+        """A file in a subfolder whose name matches no living artefact is flagged as orphan,
+        with a fix hint that doesn't pretend setting parent would work.
+        """
+        tmp_path, router = vault
+        child_dir = tmp_path / "Wiki" / "no-such-owner"
+        child_dir.mkdir(parents=True)
+        write_md(child_dir / "stray.md",
+                 {"type": "living/wiki", "tags": [], "key": "stray"},
+                 "# Stray")
+        findings = check.check_parent_contract(str(tmp_path), router)
+        hits = [f for f in findings if f.get("file") == "Wiki/no-such-owner/stray.md"]
+        assert len(hits) == 1
+        assert hits[0]["severity"] == "warning"
+        assert "Orphan artefact" in hits[0]["message"]
+        assert "no-such-owner" in hits[0]["message"]
+        assert "Move the file" in hits[0]["fix"]
+
+    def test_base_folder_without_parent_no_finding(self, vault):
+        """A file in the type's base folder (not a subfolder) with no parent: is clean.
+
+        Parents are optional for non-children; only subfolder placement implies ownership.
+        """
+        tmp_path, router = vault
+        write_md(tmp_path / "Wiki" / "orphan-base.md",
+                 {"type": "living/wiki", "tags": ["wiki"], "key": "orphan-base"},
+                 "# Orphan Base")
+        findings = check.check_parent_contract(str(tmp_path), router)
+        hits = [f for f in findings if f.get("file") == "Wiki/orphan-base.md"]
+        assert hits == []
+
+    def test_temporal_child_parent_is_valid_without_folder_drift(self, vault):
+        tmp_path, router = vault
+        month_dir = tmp_path / "_Temporal" / "Logs" / "2026-03"
+        month_dir.mkdir(parents=True, exist_ok=True)
+        write_md(
+            month_dir / "20260315-log.md",
+            {
+                "type": "temporal/log",
+                "tags": ["log", "design/auth-redesign"],
+                "parent": "design/auth-redesign",
+                "created": "2026-03-15T09:00:00+10:00",
+            },
+            "# Log",
+        )
+        findings = check.check_parent_contract(str(tmp_path), router)
+        assert not any(f.get("file") == "_Temporal/Logs/2026-03/20260315-log.md" for f in findings)
+
+    def test_temporal_child_broken_parent_reference_flagged(self, vault):
+        tmp_path, router = vault
+        month_dir = tmp_path / "_Temporal" / "Logs" / "2026-03"
+        month_dir.mkdir(parents=True, exist_ok=True)
+        write_md(
+            month_dir / "20260315-log.md",
+            {
+                "type": "temporal/log",
+                "tags": ["log", "design/missing"],
+                "parent": "design/missing",
+                "created": "2026-03-15T09:00:00+10:00",
+            },
+            "# Log",
+        )
+        findings = check.check_parent_contract(str(tmp_path), router)
+        hits = [f for f in findings if f.get("file") == "_Temporal/Logs/2026-03/20260315-log.md"]
+        assert len(hits) == 1
+        assert "Broken parent reference" in hits[0]["message"]
+
+    def test_terminal_status_folder_drift_flagged(self, vault):
+        tmp_path, router = vault
+        write_md(tmp_path / "Designs" / "implemented.md",
+                 {"type": "living/design", "tags": ["design"], "status": "implemented", "key": "implemented"},
+                 "# Implemented")
+        findings = check.check_status_folders(str(tmp_path), router)
+        assert any("Terminal-status drift" in f["message"] for f in findings)
+
+    def test_non_terminal_in_status_folder_flagged(self, vault):
+        tmp_path, router = vault
+        status_dir = tmp_path / "Designs" / "+Implemented"
+        status_dir.mkdir()
+        write_md(status_dir / "still-shaping.md",
+                 {"type": "living/design", "tags": ["design"], "status": "shaping", "key": "still-shaping"},
+                 "# Still shaping")
+        findings = check.check_status_folders(str(tmp_path), router)
+        assert any("Non-terminal artefact stored in status folder" in f["message"] for f in findings)
 
 
 # ---------------------------------------------------------------------------
@@ -686,6 +875,75 @@ class TestRunChecks:
         # Pass router directly — should not need to load from file
         result = check.run_checks(str(tmp_path), router)
         assert result["brain_core_version"] == "0.9.11"
+
+
+# ---------------------------------------------------------------------------
+# TestCheckContext — per-run frontmatter cache
+# ---------------------------------------------------------------------------
+
+class TestCheckContext:
+    def test_read_frontmatter_memoized(self, tmp_path, monkeypatch):
+        f = tmp_path / "a.md"
+        f.write_text("---\ntype: living/wiki\nstatus: active\n---\nBody\n")
+        ctx = check.CheckContext(str(tmp_path), router={})
+
+        calls = {"n": 0}
+        real = check.read_frontmatter
+
+        def counting(path):
+            calls["n"] += 1
+            return real(path)
+
+        monkeypatch.setattr(check, "read_frontmatter", counting)
+        first = ctx.read_frontmatter(str(f))
+        second = ctx.read_frontmatter(str(f))
+        assert first == second == {"type": "living/wiki", "status": "active"}
+        assert calls["n"] == 1
+
+    def test_file_index_lazy_and_memoized(self, tmp_path):
+        (tmp_path / "Wiki").mkdir()
+        (tmp_path / "Wiki" / "page.md").write_text(
+            "---\ntype: living/wiki\n---\nBody\n"
+        )
+        ctx = check.CheckContext(str(tmp_path), router={})
+        first = ctx.file_index
+        second = ctx.file_index
+        assert first is second
+        assert "md_basenames" in first
+
+    def test_run_checks_dedupes_frontmatter_reads(self, vault, monkeypatch):
+        """With the cache, a full compliance run reads each file at most once.
+        Without the cache (ctx=None per check), the same files are re-parsed
+        once per check that visits them — so the cached count must be strictly
+        smaller given ≥2 checks touch the same files.
+        """
+        tmp_path, router = vault
+        calls = {"n": 0}
+        seen = set()
+        real = check.read_frontmatter
+
+        def counting(path):
+            calls["n"] += 1
+            seen.add(path)
+            return real(path)
+
+        monkeypatch.setattr(check, "read_frontmatter", counting)
+
+        # Cached path: run_checks threads one ctx through every check
+        check.run_checks(str(tmp_path), router)
+        cached_reads = calls["n"]
+        cached_unique = len(seen)
+
+        # Uncached baseline: invoke each check with ctx=None
+        calls["n"] = 0
+        seen.clear()
+        for check_fn in check.ALL_CHECKS:
+            check_fn(str(tmp_path), router, ctx=None)
+        uncached_reads = calls["n"]
+
+        # One real read per unique file, strictly fewer than the uncached total
+        assert cached_reads == cached_unique
+        assert cached_reads < uncached_reads
 
 
 # ---------------------------------------------------------------------------

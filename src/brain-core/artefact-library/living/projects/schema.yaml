@@ -1,6 +1,9 @@
 required:
   type:
     const: "living/project"
+  key:
+    type: string
+    pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
   tags:
     type: array
-    contains: "project/{slug}"
+    contains: "project/{key}"

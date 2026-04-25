@@ -64,6 +64,39 @@ class TestCombined:
         assert result == "## 2026-04-04\n\nTranscript for My Design."
 
 
+class TestAgentInstructions:
+    def test_single_line_stripped(self):
+        content = "before\n{{agent: do the thing}}\nafter"
+        assert substitute_template_vars(content) == "before\n\nafter"
+
+    def test_multiline_stripped(self):
+        content = "head\n\n{{agent: multi\nline\ninstruction}}\n\ntail"
+        assert substitute_template_vars(content) == "head\n\ntail"
+
+    def test_multiple_instructions(self):
+        content = "{{agent: one}}\n\n## Section\n\n{{agent: two}}\n\nbody"
+        assert substitute_template_vars(content) == "\n\n## Section\n\nbody"
+
+    def test_inline_instruction(self):
+        content = "Prefix {{agent: inline hint}} suffix"
+        assert substitute_template_vars(content) == "Prefix  suffix"
+
+    def test_excess_blank_lines_collapsed(self):
+        content = "a\n\n\n\n{{agent: x}}\n\n\n\nb"
+        assert substitute_template_vars(content) == "a\n\nb"
+
+    def test_no_agent_token_is_noop(self):
+        assert substitute_template_vars("no tokens here") == "no tokens here"
+
+    def test_empty_instruction(self):
+        assert substitute_template_vars("a {{agent:}} b") == "a  b"
+
+    def test_runs_after_date_and_custom_vars(self):
+        content = "{{date:YYYY-MM-DD}}\n\n{{agent: set SLUG to foo}}\n\nbody"
+        result = substitute_template_vars(content, _now=FIXED)
+        assert result == "2026-04-04\n\nbody"
+
+
 class TestEdgeCases:
     def test_empty_string(self):
         assert substitute_template_vars("") == ""

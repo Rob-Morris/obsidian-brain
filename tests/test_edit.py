@@ -50,6 +50,18 @@ def vault(tmp_path):
     releases = tmp_path / "Releases"
     releases.mkdir()
 
+    projects = tmp_path / "Projects"
+    projects.mkdir()
+    (projects / "Brain.md").write_text(
+        "---\n"
+        "type: living/project\n"
+        "tags:\n"
+        "  - project/brain\n"
+        "key: brain\n"
+        "---\n\n"
+        "# Brain\n"
+    )
+
     # Temporal type: Logs
     temporal = tmp_path / "_Temporal"
     temporal.mkdir()
@@ -61,7 +73,7 @@ def vault(tmp_path):
     tax_living.mkdir(parents=True)
     (tax_living / "wiki.md").write_text(
         "# Wiki\n\n"
-        "## Naming\n\n`{slug}.md` in `Wiki/`.\n\n"
+        "## Naming\n\n`{Title}.md` in `Wiki/`.\n\n"
         "## Frontmatter\n\n```yaml\n---\ntype: living/wiki\ntags:\n  - topic-tag\n---\n```\n\n"
         "## Template\n\n[[_Config/Templates/Living/Wiki]]\n"
     )
@@ -69,7 +81,7 @@ def vault(tmp_path):
     # Taxonomy: Designs (with multiple terminal statuses)
     (tax_living / "designs.md").write_text(
         "# Designs\n\n"
-        "## Naming\n\n`{slug}.md` in `Designs/`.\n\n"
+        "## Naming\n\n`{Title}.md` in `Designs/`.\n\n"
         "## Lifecycle\n\n"
         "| Status | Meaning |\n|---|---|\n"
         "| `shaping` | Being explored. |\n"
@@ -88,7 +100,7 @@ def vault(tmp_path):
     # Taxonomy: Ideas (with terminal status)
     (tax_living / "ideas.md").write_text(
         "# Ideas\n\n"
-        "## Naming\n\n`{slug}.md` in `Ideas/`.\n\n"
+        "## Naming\n\n`{Title}.md` in `Ideas/`.\n\n"
         "## Frontmatter\n\n```yaml\n---\ntype: living/ideas\ntags: []\nstatus: seed\n---\n```\n\n"
         "Status values: `seed`, `shaping`, `adopted`.\n\n"
         "## Terminal Status\n\nWhen an idea reaches `adopted` status, it moves to `+Adopted/`.\n\n"
@@ -125,12 +137,19 @@ def vault(tmp_path):
         "## Template\n\n[[_Config/Templates/Living/Releases]]\n"
     )
 
+    (tax_living / "projects.md").write_text(
+        "# Projects\n\n"
+        "## Naming\n\n`{Title}.md` in `Projects/`.\n\n"
+        "## Frontmatter\n\n```yaml\n---\ntype: living/project\ntags:\n  - project\nkey:\n---\n```\n\n"
+        "## Template\n\n[[_Config/Templates/Living/Projects]]\n"
+    )
+
     # Taxonomy: Logs
     tax_temporal = config / "Taxonomy" / "Temporal"
     tax_temporal.mkdir(parents=True)
     (tax_temporal / "logs.md").write_text(
         "# Logs\n\n"
-        "## Naming\n\n`log-{slug}.md` in `_Temporal/Logs/yyyy-mm/`.\n\n"
+        "## Naming\n\n`log-{Title}.md` in `_Temporal/Logs/yyyy-mm/`.\n\n"
         "## Frontmatter\n\n```yaml\n---\ntype: temporal/logs\ntags:\n  - session\n---\n```\n"
     )
     (tax_temporal / "reports.md").write_text(
@@ -166,6 +185,9 @@ def vault(tmp_path):
     )
     (templates_living / "Releases.md").write_text(
         "---\ntype: living/release\ntags:\n  - release\nstatus: planned\nversion:\ntag:\ncommit:\nshipped:\n---\n\n"
+    )
+    (templates_living / "Projects.md").write_text(
+        "---\ntype: living/project\ntags: []\nkey:\n---\n\n# {{title}}\n\n"
     )
 
     return tmp_path
@@ -508,37 +530,159 @@ class TestConvertArtefact:
             edit.convert_artefact(str(vault), router, "Wiki/gone.md", "designs")
 
     def test_convert_preserves_parent_subfolder(self, vault, router):
-        """Source in Ideas/Brain/ should produce Designs/Brain/ after convert."""
-        hub_dir = vault / "Ideas" / "Brain"
+        """Canonical parent ownership survives convert across living types."""
+        hub_dir = vault / "Ideas" / "project~brain"
         hub_dir.mkdir(parents=True)
         (hub_dir / "my-idea.md").write_text(
-            "---\ntype: living/ideas\ntags: []\n---\n\n# My Idea\n\nBody.\n"
+            "---\n"
+            "type: living/ideas\n"
+            "tags:\n"
+            "  - project/brain\n"
+            "key: my-idea\n"
+            "parent: project/brain\n"
+            "---\n\n"
+            "# My Idea\n\nBody.\n"
         )
-        result = edit.convert_artefact(str(vault), router, "Ideas/Brain/my-idea.md", "designs")
-        assert result["new_path"].startswith("Designs/Brain/")
+        result = edit.convert_artefact(
+            str(vault), router, "Ideas/project~brain/my-idea.md", "designs"
+        )
+        assert result["new_path"].startswith("Designs/project~brain/")
         assert not (hub_dir / "my-idea.md").exists()
         assert os.path.isfile(os.path.join(str(vault), result["new_path"]))
+        fields, _ = parse_frontmatter((vault / result["new_path"]).read_text())
+        assert fields["parent"] == "project/brain"
+        assert fields["key"] == "my-idea"
 
     def test_convert_flat_source_no_parent(self, vault, router):
         """Source directly in Ideas/ (no subfolder) should produce Designs/ with no subfolder."""
         (vault / "Ideas" / "flat-idea.md").write_text(
-            "---\ntype: living/ideas\ntags: []\n---\n\n# Flat Idea\n\nBody.\n"
+            "---\ntype: living/ideas\ntags: []\nkey: flat-idea\n---\n\n# Flat Idea\n\nBody.\n"
         )
         result = edit.convert_artefact(str(vault), router, "Ideas/flat-idea.md", "designs")
         assert result["new_path"].startswith("Designs/")
         assert "/" not in result["new_path"][len("Designs/"):]
+        fields, _ = parse_frontmatter((vault / result["new_path"]).read_text())
+        assert fields["key"] == "flat-idea"
+        assert "parent" not in fields
 
     def test_convert_explicit_parent_override(self, vault, router):
-        """Explicit parent kwarg takes precedence over auto-detected subfolder."""
-        hub_dir = vault / "Ideas" / "Brain"
+        """Explicit canonical parent takes precedence over the source parent."""
+        (vault / "Projects" / "Custom.md").write_text(
+            "---\n"
+            "type: living/project\n"
+            "tags:\n"
+            "  - project/custom\n"
+            "key: custom\n"
+            "---\n\n"
+            "# Custom\n"
+        )
+        import compile_router
+        router = compile_router.compile(str(vault))
+        hub_dir = vault / "Ideas" / "project~brain"
         hub_dir.mkdir(parents=True)
         (hub_dir / "overridden.md").write_text(
-            "---\ntype: living/ideas\ntags: []\n---\n\n# Overridden\n\nBody.\n"
+            "---\n"
+            "type: living/ideas\n"
+            "tags:\n"
+            "  - project/brain\n"
+            "key: overridden\n"
+            "parent: project/brain\n"
+            "---\n\n"
+            "# Overridden\n\nBody.\n"
         )
         result = edit.convert_artefact(
-            str(vault), router, "Ideas/Brain/overridden.md", "designs", parent="Custom"
+            str(vault), router, "Ideas/project~brain/overridden.md", "designs", parent="project/custom"
         )
-        assert result["new_path"].startswith("Designs/Custom/")
+        assert result["new_path"].startswith("Designs/project~custom/")
+        fields, _ = parse_frontmatter((vault / result["new_path"]).read_text())
+        assert fields["parent"] == "project/custom"
+
+    def test_convert_rejects_target_type_key_collision(self, vault, router):
+        (vault / "Ideas" / "collision.md").write_text(
+            "---\ntype: living/ideas\ntags: []\nkey: shared\n---\n\n# Shared Idea\n"
+        )
+        (vault / "Designs" / "shared.md").write_text(
+            "---\ntype: living/designs\ntags: []\nkey: shared\nstatus: shaping\n---\n\n# Existing Design\n"
+        )
+        import compile_router
+        router = compile_router.compile(str(vault))
+        with pytest.raises(ValueError, match="KEY_TAKEN"):
+            edit.convert_artefact(str(vault), router, "Ideas/collision.md", "designs")
+
+    def test_convert_living_child_to_temporal_preserves_parent_metadata(self, vault, router):
+        child_dir = vault / "Ideas" / "project~brain"
+        child_dir.mkdir(parents=True, exist_ok=True)
+        (child_dir / "child-idea.md").write_text(
+            "---\n"
+            "type: living/ideas\n"
+            "tags:\n"
+            "  - project/brain\n"
+            "key: child-idea\n"
+            "parent: project/brain\n"
+            "status: shaping\n"
+            "---\n\n"
+            "# Child Idea\n\nBody.\n"
+        )
+
+        result = edit.convert_artefact(
+            str(vault), router, "Ideas/project~brain/child-idea.md", "reports"
+        )
+
+        assert result["new_path"].startswith("_Temporal/Reports/")
+        assert "project~brain" not in result["new_path"]
+        fields, _ = parse_frontmatter((vault / result["new_path"]).read_text())
+        assert fields["parent"] == "project/brain"
+        assert "project/brain" in fields["tags"]
+
+    def test_convert_owner_to_temporal_removes_child_owner_reference_cleanly(self, vault, router):
+        child_dir = vault / "Ideas" / "project~brain"
+        child_dir.mkdir(parents=True, exist_ok=True)
+        (child_dir / "child-idea.md").write_text(
+            "---\n"
+            "type: living/ideas\n"
+            "tags:\n"
+            "  - project/brain\n"
+            "key: child-idea\n"
+            "parent: project/brain\n"
+            "status: shaping\n"
+            "---\n\n"
+            "# Child Idea\n\nBody.\n"
+        )
+        import compile_router
+        router = compile_router.compile(str(vault))
+
+        result = edit.convert_artefact(
+            str(vault), router, "Projects/Brain.md", "reports"
+        )
+
+        assert result["new_path"].startswith("_Temporal/Reports/")
+        relocated = vault / "Ideas" / "child-idea.md"
+        assert relocated.is_file()
+        fields, _ = parse_frontmatter(relocated.read_text())
+        assert "parent" not in fields
+        assert fields["tags"] == []
+
+    def test_convert_owner_to_temporal_keeps_tag_only_reference_in_place(self, vault, router):
+        (vault / "Wiki" / "tagged.md").write_text(
+            "---\n"
+            "type: living/wiki\n"
+            "tags:\n"
+            "  - note\n"
+            "  - project/brain\n"
+            "key: tagged\n"
+            "---\n\n"
+            "# Tagged\n\nBody.\n"
+        )
+        import compile_router
+        router = compile_router.compile(str(vault))
+
+        edit.convert_artefact(str(vault), router, "Projects/Brain.md", "reports")
+
+        tagged = vault / "Wiki" / "tagged.md"
+        assert tagged.is_file()
+        fields, _ = parse_frontmatter(tagged.read_text())
+        assert "parent" not in fields
+        assert fields["tags"] == ["note"]
 
     def test_convert_temporal_to_temporal_strips_old_prefix(self, vault, router):
         """Converting research → reports must not nest the old prefix in the new filename.
@@ -1426,6 +1570,143 @@ class TestFrontmatterMerge:
         fields, body = parse_frontmatter(content)
         assert fields["status"] == "archived"
         assert body == original_body  # body unchanged
+
+
+# ---------------------------------------------------------------------------
+# Ownership path regression tests
+# ---------------------------------------------------------------------------
+
+class TestOwnershipEditPaths:
+    def test_temporal_parent_edit_persists_without_rehoming(self, vault, router):
+        month = vault / "_Temporal" / "Research" / "2026-04"
+        month.mkdir(parents=True, exist_ok=True)
+        path = month / "20260413-research~Sample Title.md"
+        path.write_text(
+            "---\n"
+            "type: temporal/research\n"
+            "tags:\n"
+            "  - research\n"
+            "created: 2026-04-13T09:00:00+10:00\n"
+            "---\n\n"
+            "Body.\n"
+        )
+
+        result = edit.edit_artefact(
+            str(vault),
+            router,
+            "_Temporal/Research/2026-04/20260413-research~Sample Title.md",
+            "",
+            frontmatter_changes={"parent": "project/brain"},
+        )
+
+        assert result["path"] == "_Temporal/Research/2026-04/20260413-research~Sample Title.md"
+        fields, _ = parse_frontmatter(path.read_text())
+        assert fields["parent"] == "project/brain"
+        assert "project/brain" in fields["tags"]
+
+    def test_parent_key_change_rehomes_children_using_canonical_owner_folder(self, vault, router):
+        child_dir = vault / "Ideas" / "project~brain"
+        child_dir.mkdir(parents=True, exist_ok=True)
+        (child_dir / "child-idea.md").write_text(
+            "---\n"
+            "type: living/ideas\n"
+            "tags:\n"
+            "  - project/brain\n"
+            "key: child-idea\n"
+            "parent: project/brain\n"
+            "status: shaping\n"
+            "---\n\n"
+            "# Child Idea\n\nBody.\n"
+        )
+
+        result = edit.edit_artefact(
+            str(vault),
+            router,
+            "Projects/Brain.md",
+            "",
+            frontmatter_changes={"key": "brain2"},
+        )
+
+        assert result["path"] == "Projects/Brain.md"
+        relocated = vault / "Ideas" / "project~brain2" / "child-idea.md"
+        assert relocated.is_file()
+        assert not (vault / "Ideas" / "project" / "brain2" / "child-idea.md").exists()
+        fields, _ = parse_frontmatter(relocated.read_text())
+        assert fields["parent"] == "project/brain2"
+        assert "project/brain2" in fields["tags"]
+
+    def test_parent_key_change_updates_temporal_children_without_rehoming(self, vault, router):
+        month = vault / "_Temporal" / "Research" / "2026-04"
+        month.mkdir(parents=True, exist_ok=True)
+        path = month / "20260413-research~Sample Title.md"
+        path.write_text(
+            "---\n"
+            "type: temporal/research\n"
+            "tags:\n"
+            "  - research\n"
+            "  - project/brain\n"
+            "parent: project/brain\n"
+            "created: 2026-04-13T09:00:00+10:00\n"
+            "---\n\n"
+            "Body.\n"
+        )
+
+        result = edit.edit_artefact(
+            str(vault),
+            router,
+            "Projects/Brain.md",
+            "",
+            frontmatter_changes={"key": "brain2"},
+        )
+
+        assert result["path"] == "Projects/Brain.md"
+        assert path.is_file()
+        fields, _ = parse_frontmatter(path.read_text())
+        assert fields["parent"] == "project/brain2"
+        assert "project/brain2" in fields["tags"]
+        assert "project/brain" not in fields["tags"]
+
+    def test_parent_edit_keeps_existing_terminal_status_folder(self, vault, router):
+        (vault / "Projects" / "Custom.md").write_text(
+            "---\n"
+            "type: living/project\n"
+            "tags:\n"
+            "  - project/custom\n"
+            "key: custom\n"
+            "---\n\n"
+            "# Custom\n"
+        )
+        import compile_router
+        router = compile_router.compile(str(vault))
+
+        adopted_dir = vault / "Ideas" / "project~brain" / "+Adopted"
+        adopted_dir.mkdir(parents=True, exist_ok=True)
+        (adopted_dir / "adopted-idea.md").write_text(
+            "---\n"
+            "type: living/ideas\n"
+            "tags:\n"
+            "  - project/brain\n"
+            "key: adopted-idea\n"
+            "parent: project/brain\n"
+            "status: adopted\n"
+            "---\n\n"
+            "# Adopted Idea\n\nBody.\n"
+        )
+
+        result = edit.edit_artefact(
+            str(vault),
+            router,
+            "Ideas/project~brain/+Adopted/adopted-idea.md",
+            "",
+            frontmatter_changes={"parent": "project/custom"},
+        )
+
+        assert result["path"] == "Ideas/project~custom/+Adopted/adopted-idea.md"
+        relocated = vault / "Ideas" / "project~custom" / "+Adopted" / "adopted-idea.md"
+        assert relocated.is_file()
+        assert not (vault / "Ideas" / "project~custom" / "adopted-idea.md").exists()
+        fields, _ = parse_frontmatter(relocated.read_text())
+        assert fields["parent"] == "project/custom"
 
 
 # ---------------------------------------------------------------------------

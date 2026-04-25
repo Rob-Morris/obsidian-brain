@@ -12,7 +12,7 @@ Mockups bridge the gap between abstract design documents and real implementation
 
 - **Link to the design.** Every mockup should reference the design or project it's exploring. Follow [[.brain-core/standards/provenance]].
 - **Record the prompt.** If the mockup was AI-generated, include the prompt that produced it. This makes the mockup reproducible and helps refine the generation process.
-- **Put generated files under `_Assets/Generated/Mockups/`.** A single HTML file, image, or screenshot can live directly under that folder. If one mockup direction produces multiple linked files, add `hub-slug` to the owning artefact if missing and nest the outputs under `_Assets/Generated/Mockups/{OwnerType}~{hub-slug}/` such as `_Assets/Generated/Mockups/Design~brain-app-desktop/`.
+- **Put generated files under `_Assets/Generated/Mockups/`.** A single HTML file, image, or screenshot can live directly under that folder. If one mockup direction produces multiple linked files, use the owning artefact's canonical key and nest the outputs under `_Assets/Generated/Mockups/{OwnerType}~{owner-key}/` such as `_Assets/Generated/Mockups/Design~brain-app-desktop/`.
 - **Note the verdict.** Was this a keeper? What needs iteration? What design decisions does it validate or invalidate?
 - **One direction per file.** If you're exploring multiple alternatives, give each its own file. Comparing mockups is easier when they're separate artefacts.
 

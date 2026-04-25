@@ -42,6 +42,7 @@ from _common import (
     find_vault_root,
     is_archived_path,
     load_compiled_router,
+    iter_artefact_paths,
     parse_frontmatter,
     reconcile_date_source,
     reconcile_timestamps,
@@ -51,7 +52,6 @@ from _common import (
     select_rule,
     serialize_frontmatter,
 )
-from check import find_type_files
 from rename import rename_and_update_links
 import migrate_naming
 import sync_definitions
@@ -607,7 +607,7 @@ def backfill_vault(vault_root: str, *, router: dict | None = None, dry_run: bool
     for art in router.get("artefacts", []):
         if not art.get("configured"):
             continue
-        for rel_path in find_type_files(vault_root, art["path"], skip_archive=True):
+        for rel_path in iter_artefact_paths(vault_root, art):
             if is_archived_path(rel_path):
                 continue
             plan = _plan_artefact(vault_root, art, rel_path)

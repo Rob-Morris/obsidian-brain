@@ -104,10 +104,10 @@ Boundary rule:
 | `_reconcile.py` | §5 reconciliation cascade for `created`/`modified` and type-specific `date_source` fields | 2 |
 | `_router.py` | Compiled router loading, naming-pattern matching, artefact path validation | 6 |
 | `_filesystem.py` | Safe writes, bounds checking, body file resolution | 7 |
-| `_frontmatter.py` | Frontmatter parsing and serialisation | 2 |
+| `_frontmatter.py` | Frontmatter parsing, serialisation, streaming `read_frontmatter`, and whole-file `read_artefact` | 4 |
 | `_wikilinks.py` | Wikilink extraction, file index, broken link resolution, region-aware text mutation | 15 |
 | `_markdown.py` | Heading/callout parsing, section finding, typed literal-text regions (fenced code, inline code, HTML comments, `$$` math, raw HTML) | 17 |
-| `_slugs.py` | Slug generation, title-to-filename conversion | 3 |
+| `_slugs.py` | Slug generation, validation, title/filename/slug conversions | 8 |
 | `_search.py` | BM25 tokenisation | 1 |
 | `_templates.py` | Timestamp utilities, template variable substitution | 3 |
 | `_coerce.py` | Type coercion helpers for MCP boundary | 1 |

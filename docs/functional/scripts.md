@@ -108,6 +108,11 @@ python3 compile_router.py --json    # output JSON to stdout
 | `ambiguous_wikilinks` | info | Basename-only wikilink matches multiple files. Same region-aware scanning scope as `broken_wikilinks`. |
 | `unconfigured_type` | info | Folder has no taxonomy file |
 | `missing_timestamps` | warning | Artefact frontmatter missing `created` or `modified` (naming-contract source of truth) |
+| `living_key_fields` | error | Living artefact missing a valid canonical `key:` — v0.31.0+ upgrade chain backfills these, so a miss means manual authoring bypassed the tooling |
+| `parent_contract` | warning | Child artefact has a broken or drifting `parent:` reference, or sits in a folder that contradicts its declared parent |
+| `status_folders` | warning | Terminal-status artefact in the wrong `+{Status}/` subfolder, or a non-terminal artefact stored inside one |
+| `taxonomy_type_consistency` | info | Taxonomy `frontmatter_type` equals folder-derived type for a plural key (likely a missing singular in the taxonomy) |
+| `router` | error | Compiled router failed to load (missing, invalid JSON, or reported an `error` payload) |
 
 **Constraints:** Python 3.8+ stdlib only, self-locating, stateless, idempotent, stdout-only.
 
@@ -160,7 +165,7 @@ bash install.sh --uninstall --non-interactive /path/to/brain
 
 ### Requirements
 
-- **git** — required (for cloning the repo when not running from a local clone)
+- **git** — required (for cloning the repo when not running from a local clone). The installer pins `--branch main` explicitly, so the installer contract is independent of the repo's default-branch setting.
 - **python3** — required (any version, for basic preflight)
 - **Python 3.10+** — recommended. The script searches for `python3.13` down to `python3.10`, then falls back to `python3`. If no 3.10+ is found, the vault is still created but `.venv` and MCP server setup are skipped. The script prints guidance for installing Python later and running `init.py` manually.
 - **Package index access for MCP setup** — fresh installs and upgrade-time dependency sync install `.brain-core/brain_mcp/requirements.txt` into the vault-local `.venv`. If that step fails, the installer keeps the vault/upgrade intact, skips MCP registration, and prints manual retry commands instead of aborting the whole run.

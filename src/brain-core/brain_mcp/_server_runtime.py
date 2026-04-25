@@ -37,6 +37,7 @@ class ServerRuntime:
     mark_index_dirty: Callable[[], None]
     mark_embeddings_dirty: Callable[[], None]
     mark_index_pending: Callable[[str, str | None], None]
+    mark_router_dirty: Callable[[], None]
     compile_and_save: Callable[[str], dict]
     build_index_and_save: Callable[[str], dict]
     refresh_session_mirror_best_effort: Callable[[], None]

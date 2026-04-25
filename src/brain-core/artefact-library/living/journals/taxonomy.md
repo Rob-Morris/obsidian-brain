@@ -6,7 +6,7 @@ Living artefact. Named journal streams.
 
 A journal is a living summary of a personal stream — its themes, patterns, and the current arc. One file per journal. The journal hub evolves as entries accumulate, reflecting what the stream is about *now*, not just what it started as. Journal entries are the moments; the hub is the interpreted picture of the whole.
 
-Follows the same hub pattern as Projects and People: a living summary that groups temporal artefacts via `journal/{slug}` nested tags.
+Follows the same hub pattern as Projects and People. Journal entries remain temporal artefacts: they always use the `journal/{key}` relationship tag, and an explicitly owned entry may also persist `parent: journal/{key}` without leaving its date folder.
 
 ## When To Use
 
@@ -30,13 +30,16 @@ Example: `Journals/Personal.md`
 ```yaml
 ---
 type: living/journal
+key: {key}
 tags:
-  - journal/{slug}
+  - journal/{key}
 status: active
 ---
 ```
 
-The nested tag (e.g. `journal/personal`) is what connects journal entries to this journal.
+`key` is the canonical identifier (see [[.brain-core/standards/keys]]). The platform generates it at create time.
+
+The `journal/{key}` tag (e.g. `journal/personal`) is the relationship tag that connects journal entries to this journal.
 
 ## Lifecycle
 
@@ -47,7 +50,7 @@ The nested tag (e.g. `journal/personal`) is what connects journal entries to thi
 
 ## Temporal Handshake
 
-Journal entries tagged `journal/{slug}` feed this hub. As entries accumulate, the hub evolves to reflect emerging themes, shifts in focus, recurring topics. Entries preserve the moments; the hub reflects the arc.
+Journal entries tagged `journal/{key}` feed this hub. As entries accumulate, the hub evolves to reflect emerging themes, shifts in focus, recurring topics. Entries preserve the moments; the hub reflects the arc.
 
 Not every entry triggers a hub update. But when entries reveal a shift — a new theme emerging, a concern resolving, a focus changing — distil it into the hub.
 
@@ -63,7 +66,7 @@ If the user wants to start a journal stream, create the hub with a name and a li
 
 If the user dumps a mix of reflections and observations, decompose:
 
-- **Personal reflections and recollections** → journal entries, tagged `journal/{slug}`
+- **Personal reflections and recollections** → journal entries, tagged `journal/{key}`
 - **Discrete facts learned** → observations, tagged with relevant hubs
 - **Ideas surfaced** → idea logs
 - **Timeline** → log entry
