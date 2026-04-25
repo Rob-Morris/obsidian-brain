@@ -116,7 +116,7 @@ If your vault runs the Brain MCP server (`.brain-core/brain_mcp/server.py`), eig
 - Optional `resource` parameter (default `"artefact"`) — also accepts `skill`, `trigger`, `style`, `memory`, `plugin` for searching non-artefact collections via text matching
 - Artefact-specific filters: `type` (key, full type, or singular form), `tag`, `status`
 - Returns ranked results with paths, titles, scores, and text snippets
-- Uses Obsidian CLI when available, falls back to BM25 index; non-artefact resources use text matching
+- Uses Obsidian CLI when available, falls back to BM25 index; `resource="artefact"` stays scoped to artefacts, while non-artefact resources use text matching
 
 **brain_list** (safe, no side effects)
 - List vault artefacts exhaustively — not relevance-ranked
@@ -136,6 +136,7 @@ If your vault runs the Brain MCP server (`.brain-core/brain_mcp/server.py`), eig
 - `append` — add content to end of existing body
 - `prepend` — insert content before existing body or before a target section's heading
 - Optional `frontmatter` parameter — `edit` overwrites fields; `append`/`prepend` extend list fields (with dedup) and overwrite scalars. Set a field to `null` to delete it. All operations support frontmatter-only mutations (omit body)
+- Memory trigger edits refresh `brain_read(resource="memory", ...)` immediately; editing `_Config/` resources does not make them appear in `brain_search(resource="artefact")`
 - `target` identifies the structural node:
   - `":body"` for the full markdown body after frontmatter
   - a heading target such as `"### Notes"`

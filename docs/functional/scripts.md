@@ -388,7 +388,7 @@ python3 search_index.py "query" --json  # structured output
 
 **Build trigger:**
 
-- **MCP server** (implemented v0.7.0) — rebuilds on startup if stale (compares index timestamp against file mtimes), exposes `build_index` as a `brain_action` for mid-session refresh. Same pattern as compiled router auto-compile. Incremental updates (v0.15.10): `brain_create`/`brain_edit` queue single-file upserts via `index_update()` instead of triggering full rebuilds; destructive actions (rename/delete/convert) set a dirty flag for full rebuild on next search. Filesystem staleness checks for both router and index are throttled by a 5-second TTL to reduce per-call I/O.
+- **MCP server** (implemented v0.7.0) — rebuilds on startup if stale (compares index timestamp against file mtimes), exposes `build_index` as a `brain_action` for mid-session refresh. Same pattern as compiled router auto-compile. Incremental updates (v0.15.10): artefact `brain_create` / `brain_edit` calls queue single-file upserts via `index_update()` instead of triggering full rebuilds; memory edits dirty the router so `router["memories"]` refreshes on the next call, but they do not touch the artefact retrieval index; destructive actions (rename/delete/convert) set a dirty flag for full rebuild on next search. Filesystem staleness checks for both router and index are throttled by a 5-second TTL to reduce per-call I/O.
 - **Obsidian plugin** (planned) — watch for `.md` file changes and trigger rebuild so the index stays fresh for non-agent use cases (in-Obsidian search UI, etc.). Vault files can be modified by agents, by Obsidian, or directly via the filesystem — all three paths need to result in a fresh index.
 - **Manual** — `python3 build_index.py` from the vault root.
 

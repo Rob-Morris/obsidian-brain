@@ -81,7 +81,7 @@ Safe, no side effects, auto-approvable. Relevance-ranked search — not exhausti
 - `top_k` (default 10)
 
 **Behaviour:**
-- For artefacts: CLI-first with BM25 fallback
+- For artefacts: CLI-first with BM25 fallback over the artefact retrieval index only; editable `_Config/` resources are excluded from `resource="artefact"` search results
 - For non-artefact resources: text matching on name and file content
 
 **Response format:** Multi-block: bold past-tense metadata block (`**Searched:** N results (source)`) + results as a readable text list (one result per line: title, path, type, score). Includes `source` field (`"obsidian_cli"`, `"bm25"`, or `"text"`).
@@ -167,7 +167,7 @@ Single-file mutation. Write-guarded: same folder restrictions as `brain_create`.
 
 **Behaviour:**
 - For artefacts: path validated against compiled router — wrong folder or naming rejected with helpful error; auto-updates `modified` frontmatter field on every write; auto-sets `statusdate` (YYYY-MM-DD) whenever `status` actually changes; terminal status auto-moves to `+Status/` subfolder with vault-wide wikilink updates, reverts on non-terminal
-- For non-artefact resources: resolves via `_Config/` conventions; no terminal status auto-move or `modified` injection
+- For non-artefact resources: resolves via `_Config/` conventions; no terminal status auto-move or `modified` injection. Memory edits dirty the in-memory router immediately so trigger lookups reflect the write on the next call; non-artefact `_Config/` edits do not queue artefact-index updates
 - Body mutations are explicit: omitted `target` no longer means "whole body". Use `target=":body"` plus `scope`.
 - Heading structure defines intro/section boundaries. Callouts are individually targetable, but they do not terminate `target=":body", scope="intro"`.
 - Ambiguous structural matches hard-error with candidate context. Use `selector.occurrence` or `selector.within` to disambiguate.

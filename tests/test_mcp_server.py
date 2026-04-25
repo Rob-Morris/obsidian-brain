@@ -2114,6 +2114,50 @@ class TestBrainEdit:
         )
         assert "**Appended:**" in result
 
+    def test_edit_memory_trigger_is_immediately_readable(self, initialized):
+        mem_dir = initialized / "_Config" / "Memories"
+        mem_dir.mkdir(parents=True, exist_ok=True)
+        (mem_dir / "test-memory.md").write_text(
+            "---\ntriggers:\n  - kw1\n---\n\nOriginal.\n"
+        )
+        server.brain_action("compile")
+
+        result = server.brain_edit(
+            resource="memory",
+            operation="append",
+            name="test-memory",
+            frontmatter={"triggers": ["new-trigger"]},
+        )
+
+        assert "**Appended:**" in result
+        read_result = server.brain_read("memory", name="new-trigger")
+        assert "Original." in read_result
+
+    def test_edit_memory_does_not_pollute_artefact_search(self, initialized):
+        mem_dir = initialized / "_Config" / "Memories"
+        mem_dir.mkdir(parents=True, exist_ok=True)
+        (mem_dir / "test-memory.md").write_text(
+            "---\ntriggers:\n  - kw1\n---\n\nOriginal.\n"
+        )
+        server.brain_action("compile")
+
+        baseline = _search_text(server.brain_search("xenocrypticmemorytoken"))
+        assert "0 results" in baseline
+
+        result = server.brain_edit(
+            resource="memory",
+            operation="append",
+            name="test-memory",
+            body="\nContains xenocrypticmemorytoken.\n",
+            target=":body",
+            scope="section",
+        )
+
+        assert "**Appended:**" in result
+        search_result = _search_text(server.brain_search("xenocrypticmemorytoken"))
+        assert "0 results" in search_result
+        assert "_Config/Memories/test-memory.md" not in search_result
+
     def test_edit_resource_not_editable(self, initialized):
         result = server.brain_edit(
             resource="workspace", operation="edit", name="ws",

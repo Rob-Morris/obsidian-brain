@@ -2,6 +2,14 @@
 
 Follows a pre-1.0 [semver](https://semver.org/) policy: backward-compatible changes are patch; breaking Brain changes are minor; only fundamental model changes are major. Breaking Brain changes include vault-structure changes and breaking tool/script/MCP contract changes. Fundamental model changes are changes to the artefact model, router contract, or agent bootstrap/entry flow.
 
+## v0.32.1 — 2026-04-25
+
+**Fix `brain_edit` MCP consistency for memories and other editable `_Config/` resources, and restore clean test bootstraps.** Editing a memory now refreshes the in-memory router immediately so trigger lookups work in the next call, non-artefact `_Config/` edits no longer leak into the artefact BM25 index, and the repo's local test bootstrap once again installs the YAML dependency required by `config.py`.
+
+- Scope `brain_edit` post-write invalidation by resource in `brain_mcp/_server_artefacts.py`: artefact edits still dirty the router and artefact index, memory edits dirty the router only, and other editable `_Config/` resources no longer queue `_Config/...` paths into the artefact search index.
+- Add MCP regressions covering immediate `brain_read(resource="memory")` after a trigger edit and confirming that edited memories do not appear in `brain_search(resource="artefact")`.
+- Add `pyyaml>=6.0` to the project/runtime dependency declarations used by local `make install`, so a fresh repo venv can collect and run the MCP server tests without a manual extra install step.
+
 ## v0.32.0 — 2026-04-25
 
 **Roll out the breaking `brain_edit` structural contract and stabilise the new target/scope model.** `brain_edit` and `edit.py` now use one explicit `target + selector + scope` contract across artefacts and editable `_Config/` resources, so older target spellings and implicit whole-body mutations are no longer accepted.

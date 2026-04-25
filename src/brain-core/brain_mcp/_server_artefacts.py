@@ -184,14 +184,15 @@ def handle_brain_edit(
         scope=scope,
         fix_links=fix_links,
     )
+    moved = result["path"] != result["resolved_path"]
     if resource == "artefact":
         runtime.mark_router_dirty()
-
-    moved = result["path"] != result["resolved_path"]
-    if moved:
-        runtime.mark_index_dirty()
-    else:
-        runtime.mark_index_pending(result["path"])
+        if moved:
+            runtime.mark_index_dirty()
+        else:
+            runtime.mark_index_pending(result["path"])
+    elif resource == "memory":
+        runtime.mark_router_dirty()
     if cleanup_path:
         try:
             os.remove(cleanup_path)
