@@ -1494,9 +1494,10 @@ def brain_edit(
       operation  — "edit" (replace a resolved structural range), "append" (add after),
                    "prepend" (insert before), or "delete_section" (remove a resolved
                    heading-owned section or callout block; requires target)
-      path       — canonical artefact key (e.g. "design/brain"), relative path,
-                   or basename/display name for artefacts. Resolves via artefact
-                   index, direct path, or wikilink-style lookup.
+      path       — canonical artefact key (e.g. "design/brain"), vault-relative
+                   path, or filename basename. For temporal artefacts, the
+                   display-name portion of the dated filename also resolves
+                   (e.g. "Colour Theory" -> "20260404-research~Colour Theory.md").
                    Required when resource="artefact".
       name       — resource name for non-artefact resources (e.g. "my-skill").
                    Required when resource is skill, memory, style, or template.

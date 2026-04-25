@@ -9,10 +9,14 @@ import pytest
 
 from _common._markdown import (
     collect_headings,
-    find_body_preamble,
     find_section,
     resolve_structural_target,
 )
+
+
+def _body_intro(body):
+    """Convenience wrapper used by intro-range tests."""
+    return resolve_structural_target(body, ":body")["ranges"]["intro"]
 
 
 class TestCollectHeadings:
@@ -68,35 +72,35 @@ class TestFindSection:
             find_section(body, "## Target")
 
 
-class TestFindBodyPreamble:
+class TestBodyIntroRange:
     def test_preamble_stops_at_first_real_heading(self):
         body = "intro\nparagraph\n# Alpha\nafter\n"
-        start, end = find_body_preamble(body)
+        start, end = _body_intro(body)
         assert body[start:end] == "intro\nparagraph\n"
 
     def test_comment_heading_does_not_end_preamble(self):
         body = "intro\n<!-- # not-real -->\nmore intro\n# Real\ntail\n"
-        start, end = find_body_preamble(body)
+        start, end = _body_intro(body)
         assert body[start:end] == "intro\n<!-- # not-real -->\nmore intro\n"
 
     def test_fence_heading_does_not_end_preamble(self):
         body = "intro\n```\n# not-real\n```\nmore intro\n# Real\n"
-        start, end = find_body_preamble(body)
+        start, end = _body_intro(body)
         assert body[start:end] == "intro\n```\n# not-real\n```\nmore intro\n"
 
     def test_raw_html_heading_does_not_end_preamble(self):
         body = "intro\n<pre>\n# not-real\n</pre>\nmore intro\n# Real\n"
-        start, end = find_body_preamble(body)
+        start, end = _body_intro(body)
         assert body[start:end] == "intro\n<pre>\n# not-real\n</pre>\nmore intro\n"
 
     def test_no_headings_returns_full_body(self):
         body = "just paragraphs\nno headings here\n"
-        start, end = find_body_preamble(body)
+        start, end = _body_intro(body)
         assert body[start:end] == body
 
     def test_empty_preamble_when_heading_first(self):
         body = "# Right Away\ncontent\n"
-        start, end = find_body_preamble(body)
+        start, end = _body_intro(body)
         assert start == 0
         assert end == 0
 
@@ -108,7 +112,7 @@ class TestFindBodyPreamble:
             "# Real\n"
             "tail\n"
         )
-        start, end = find_body_preamble(body)
+        start, end = _body_intro(body)
         assert body[start:end] == "intro\n> [!note] Status\n> Content.\n"
 
 

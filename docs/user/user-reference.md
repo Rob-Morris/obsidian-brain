@@ -156,7 +156,7 @@ If your vault runs the Brain MCP server (`.brain-core/brain_mcp/server.py`), eig
   - `:body_preamble` / `:body_before_first_heading` → `target=":body", scope="intro"`
   - `:section:...` → the real heading/callout target with `scope="section"`
 - Structural edit confirmations include the resolved range in the response, for example `(body section)`, `(body intro)`, `(heading body: ## Notes)`, or `(callout header: [!note] Status)`.
-- For artefacts: `path` accepts canonical artefact key (for example `"design/brain"`), relative path, or basename/display name; validated against the compiled router
+- For artefacts: `path` accepts canonical artefact key (for example `"design/brain"`), vault-relative path, or filename basename; for temporal artefacts the display-name portion of the dated filename also resolves (e.g. `"Colour Theory"` → `20260404-research~Colour Theory.md`); validated against the compiled router
 - For non-artefact resources: `name` identifies the resource (e.g. `"my-skill"`); for templates, name is the artefact type key (e.g. `"wiki"`). No terminal status auto-move or `modified` injection
 
 **brain_action** (vault-wide/destructive, requires approval)

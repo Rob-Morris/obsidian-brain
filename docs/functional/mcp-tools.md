@@ -141,7 +141,7 @@ Single-file mutation. Write-guarded: same folder restrictions as `brain_create`.
 **Parameters:**
 - `resource` (default `"artefact"`) — also accepts `skill`, `memory`, `style`, `template`
 - `operation` (required) — `"edit"`, `"append"`, `"prepend"`, or `"delete_section"`
-- `path` (required when `resource="artefact"`) — canonical artefact key (e.g. `"design/brain"`), relative path, or basename/display name; resolves via artefact index, wikilink lookup, or direct path
+- `path` (required when `resource="artefact"`) — canonical artefact key (e.g. `"design/brain"`), vault-relative path, or filename basename. For temporal artefacts the display-name portion of the dated filename also resolves (e.g. `"Colour Theory"` → `20260404-research~Colour Theory.md`)
 - `name` (required when resource is `skill`, `memory`, `style`, or `template`) — for templates, name is the artefact type key
 - `body` — omit for frontmatter-only changes; ignored for `delete_section`
 - `body_file` (optional) — same semantics as `brain_create`'s `body_file`

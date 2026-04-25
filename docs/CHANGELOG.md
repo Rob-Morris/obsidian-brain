@@ -2,6 +2,14 @@
 
 Follows a pre-1.0 [semver](https://semver.org/) policy: backward-compatible changes are patch; breaking Brain changes are minor; only fundamental model changes are major. Breaking Brain changes include vault-structure changes and breaking tool/script/MCP contract changes. Fundamental model changes are changes to the artefact model, router contract, or agent bootstrap/entry flow.
 
+## v0.32.2 — 2026-04-26
+
+**Tighten `brain_edit` after a simplify pass.** Internal cleanup with one user-visible correction: the documented `path` resolution surface for `brain_edit` no longer overstates display-name support, so clients only see resolution paths the resolver actually implements.
+
+- Narrow the `brain_edit` `path` description in the MCP tool docstring, `docs/functional/mcp-tools.md`, and `docs/user/user-reference.md` so it advertises canonical key, vault-relative path, filename basename, and the temporal-only display-name fallback. Previous "basename/display name" wording wrongly implied generic title-aware lookup for living artefacts.
+- Consolidate the legacy-target migration set into `legacy_target_migration_error()` in `_common/_markdown.py` so the contract validator in `edit.py` and the structural resolver share one source of truth for `:entire_body` / `:body_preamble` / `:body_before_first_heading` / `:section:...` rejection.
+- Remove the dead `find_body_preamble` helper (no callers in `src/`) and migrate its literal-region intro tests onto `resolve_structural_target(body, ":body")["ranges"]["intro"]`.
+
 ## v0.32.1 — 2026-04-25
 
 **Fix `brain_edit` MCP consistency for memories and other editable `_Config/` resources, and restore clean test bootstraps.** Editing a memory now refreshes the in-memory router immediately so trigger lookups work in the next call, non-artefact `_Config/` edits no longer leak into the artefact BM25 index, and the repo's local test bootstrap once again installs the YAML dependency required by `config.py`.

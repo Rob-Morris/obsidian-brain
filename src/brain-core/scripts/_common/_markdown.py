@@ -448,16 +448,45 @@ def _select_match(matches, target, occurrence, context):
     )
 
 
+def legacy_target_migration_error(target):
+    """Return a ValueError for retired target spellings, else None.
+
+    Single source of truth for the legacy set so the contract validator in
+    ``edit.py`` and the structural resolver here cannot drift.
+    """
+    stripped = (target or "").strip()
+    if stripped == ":entire_body":
+        return ValueError(
+            "target=':entire_body' is no longer valid. "
+            "Use target=':body' with scope='section'."
+        )
+    if stripped in {":body_preamble", ":body_before_first_heading"}:
+        return ValueError(
+            f"target='{stripped}' is no longer valid. "
+            "Use target=':body' with scope='intro'."
+        )
+    if stripped.startswith(":section:"):
+        resolved = stripped[len(":section:"):].strip()
+        if not resolved:
+            return ValueError(
+                "target=':section:' is no longer valid. "
+                "Use a real heading or callout target with scope='section'."
+            )
+        return ValueError(
+            f"target='{stripped}' is no longer valid. "
+            f"Use target='{resolved}' with scope='section'."
+        )
+    return None
+
+
 def resolve_structural_target(body, target, selector=None):
     """Resolve ``target`` and ``selector`` into a structural node + ranges."""
     stripped = (target or "").strip()
     if not stripped:
         raise ValueError("target is required for structural resolution")
-    if (
-        stripped in {":entire_body", ":body_preamble", ":body_before_first_heading"}
-        or stripped.startswith(":section:")
-    ):
-        raise ValueError(f"Legacy target '{stripped}' must be handled before resolution")
+    legacy_error = legacy_target_migration_error(stripped)
+    if legacy_error is not None:
+        raise legacy_error
 
     selector = _normalize_selector(selector)
     if stripped == ":body" and (selector["within"] or selector["occurrence"] is not None):
@@ -608,9 +637,3 @@ def _find_callout_section(body, target, include_heading=False):
     raise ValueError(f"Section '{target}' not found")
 
 
-def find_body_preamble(body):
-    """Return the leading body range before the first heading-defined section."""
-    headings = collect_headings(body)
-    if not headings:
-        return 0, len(body)
-    return 0, headings[0][0]

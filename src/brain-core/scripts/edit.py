@@ -32,6 +32,7 @@ from _common import (
     is_valid_key,
     iter_living_markdown_files,
     living_key_set,
+    legacy_target_migration_error,
     load_compiled_router,
     make_artefact_key,
     make_wikilink_replacer,
@@ -78,9 +79,6 @@ OPERATION_LABELS = {
 }
 
 BODY_TARGET = ":body"
-ENTIRE_BODY_TARGET = ":entire_body"
-BODY_PREAMBLE_TARGET = ":body_preamble"
-BODY_BEFORE_FIRST_HEADING_TARGET = ":body_before_first_heading"
 
 _VALID_SCOPES = {
     "body": {
@@ -159,39 +157,12 @@ def _valid_scopes_for(kind, operation):
     return sorted(_VALID_SCOPES.get(kind, {}).get(operation, set()))
 
 
-def _legacy_target_error(target):
-    """Raise the migration error if ``target`` is a legacy reserved spelling.
-
-    No-op for current spellings — single source of truth for the legacy set so
-    the contract validator and the structural resolver don't drift.
-    """
-    if target == ENTIRE_BODY_TARGET:
-        raise ValueError(
-            "target=':entire_body' is no longer valid. "
-            "Use target=':body' with scope='section'."
-        )
-    if target in {BODY_PREAMBLE_TARGET, BODY_BEFORE_FIRST_HEADING_TARGET}:
-        raise ValueError(
-            f"target='{target}' is no longer valid. "
-            "Use target=':body' with scope='intro'."
-        )
-    if target and target.startswith(":section:"):
-        resolved = target[len(":section:"):].strip()
-        if not resolved:
-            raise ValueError(
-                "target=':section:' is no longer valid. "
-                "Use a real heading or callout target with scope='section'."
-            )
-        raise ValueError(
-            f"target='{target}' is no longer valid. "
-            f"Use target='{resolved}' with scope='section'."
-        )
-
-
 def _validate_request_contract(operation, body, frontmatter_changes=None,
                                target=None, selector=None, scope=None):
     """Validate the explicit target + selector + scope contract."""
-    _legacy_target_error(target)
+    legacy_error = legacy_target_migration_error(target)
+    if legacy_error is not None:
+        raise legacy_error
 
     if operation == "delete_section":
         if scope is not None:
