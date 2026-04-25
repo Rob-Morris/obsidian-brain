@@ -154,6 +154,8 @@ _router_checked_at: float = 0.0
 _index_checked_at: float = 0.0
 _router_dirty: bool = False  # set True by MCP writes; next _ensure_router_fresh recompiles
 
+_resource_mtime_cache: tuple[tuple[str, float | None], ...] | None = None
+
 # Session-mirror worker: one long-lived daemon thread drains a coalescing
 # queue (maxsize=1 so rapid-fire refreshes collapse to the latest intent).
 # This replaces the old per-refresh "spawn thread + abandon on timeout"
@@ -643,13 +645,79 @@ def _check_index_files(vault_root: str, expected_count: int, threshold: float) -
     return count != expected_count  # catches deletions
 
 
+def _resource_mtime_signature(
+    vault_root: str,
+) -> tuple[tuple[str, float | None], ...]:
+    """Hashable signature governing router staleness.
+
+    Shallow dirs are stat'd. Tree dirs are enumerated via ``os.scandir``,
+    skipping ``_``/``.``-prefixed children to match ``iter_markdown_under``
+    — we deliberately do not stat the tree root itself, because its mtime
+    advances when a filtered child (e.g. ``_Archive/``) appears, which would
+    force a full walk on every archive operation despite no counted state
+    having changed.
+
+    Missing dirs encode as None so absence is distinguishable from mtime 0.0.
+    """
+    out: list[tuple[str, float | None]] = []
+    for rel, descend in compile_router.resource_source_dirs(vault_root):
+        abs_root = os.path.join(vault_root, rel) if rel else vault_root
+        if descend:
+            _append_filtered_tree(abs_root, rel, vault_root, out)
+        else:
+            try:
+                out.append((rel, os.path.getmtime(abs_root)))
+            except OSError:
+                out.append((rel, None))
+    return tuple(out)
+
+
+def _append_filtered_tree(
+    abs_root: str,
+    rel_root: str,
+    vault_root: str,
+    out: list[tuple[str, float | None]],
+) -> None:
+    """Recursively append entries for non-hidden children under *abs_root*.
+
+    Dirs contribute ``(rel, mtime)``; files contribute ``(rel, None)`` for
+    presence-only tracking (content edits are caught by ``_check_router``'s
+    source-mtime path). Missing root encodes as a single ``(rel_root, None)``.
+    """
+    try:
+        entries = sorted(os.scandir(abs_root), key=lambda e: e.name)
+    except OSError:
+        out.append((rel_root, None))
+        return
+    for entry in entries:
+        if entry.name.startswith(".") or entry.name.startswith("_"):
+            continue
+        try:
+            is_dir = entry.is_dir(follow_symlinks=False)
+            mtime = entry.stat(follow_symlinks=False).st_mtime if is_dir else None
+        except OSError:
+            continue
+        child_rel = os.path.relpath(entry.path, vault_root)
+        out.append((child_rel, mtime))
+        if is_dir:
+            _append_filtered_tree(entry.path, child_rel, vault_root, out)
+
+
 def _check_router_resource_counts(vault_root: str, router: dict) -> bool:
     """Return True if any resource count on disk differs from the cached router.
 
     Complements ``_check_router`` (mtime-based): mtime checks detect edits to
     *existing* sources, while count checks detect *new or deleted* resources
     that were never in the manifest.
+
+    Fast path: if no resource-holding directory has moved since the last full
+    walk, the on-disk counts cannot have diverged, so we skip the walk.
     """
+    global _resource_mtime_cache
+    signature = _resource_mtime_signature(vault_root)
+    if _resource_mtime_cache is not None and signature == _resource_mtime_cache:
+        return False
+
     for key, fs_count in compile_router.resource_counts(vault_root).items():
         if fs_count != len(router.get(key, [])):
             return True
@@ -661,6 +729,7 @@ def _check_router_resource_counts(vault_root: str, router: dict) -> bool:
         return True
     if current_index_source_count != len(router.get("artefact_index", {})):
         return True
+    _resource_mtime_cache = signature
     return False
 
 

@@ -42,6 +42,12 @@ import session
 
 OUTPUT_PATH = os.path.join(".brain", "local", "compiled-router.json")
 
+SKILLS_DIR = os.path.join("_Config", "Skills")
+CORE_SKILLS_DIR = os.path.join(".brain-core", "skills")
+PLUGINS_DIR = "_Plugins"
+STYLES_DIR = os.path.join("_Config", "Styles")
+MEMORIES_DIR = os.path.join("_Config", "Memories")
+
 
 # ---------------------------------------------------------------------------
 # File hashing
@@ -621,7 +627,7 @@ def merge_triggers(conditionals, artefacts):
 
 def discover_skills(vault_root):
     """Find skills at _Config/Skills/*/SKILL.md."""
-    skills_dir = os.path.join(vault_root, "_Config", "Skills")
+    skills_dir = os.path.join(vault_root, SKILLS_DIR)
     if not os.path.isdir(skills_dir):
         return []
     skills = []
@@ -635,7 +641,7 @@ def discover_skills(vault_root):
 
 def discover_core_skills(vault_root):
     """Find core skills at .brain-core/skills/*/SKILL.md."""
-    skills_dir = os.path.join(vault_root, ".brain-core", "skills")
+    skills_dir = os.path.join(vault_root, CORE_SKILLS_DIR)
     if not os.path.isdir(skills_dir):
         return []
     skills = []
@@ -649,7 +655,7 @@ def discover_core_skills(vault_root):
 
 def discover_plugins(vault_root):
     """Find plugins at _Plugins/*/SKILL.md."""
-    plugins_dir = os.path.join(vault_root, "_Plugins")
+    plugins_dir = os.path.join(vault_root, PLUGINS_DIR)
     if not os.path.isdir(plugins_dir):
         return []
     plugins = []
@@ -663,7 +669,7 @@ def discover_plugins(vault_root):
 
 def discover_styles(vault_root):
     """Find styles at _Config/Styles/*.md."""
-    styles_dir = os.path.join(vault_root, "_Config", "Styles")
+    styles_dir = os.path.join(vault_root, STYLES_DIR)
     if not os.path.isdir(styles_dir):
         return []
     styles = []
@@ -714,7 +720,7 @@ def _parse_memory_triggers(path):
 
 def discover_memories(vault_root):
     """Find memories at _Config/Memories/*.md, excluding README.md."""
-    memories_dir = os.path.join(vault_root, "_Config", "Memories")
+    memories_dir = os.path.join(vault_root, MEMORIES_DIR)
     if not os.path.isdir(memories_dir):
         return []
     memories = []
@@ -734,7 +740,7 @@ def count_memories(vault_root):
 
     Lighter than ``discover_memories`` — skips file reads (no trigger parsing).
     """
-    memories_dir = os.path.join(vault_root, "_Config", "Memories")
+    memories_dir = os.path.join(vault_root, MEMORIES_DIR)
     if not os.path.isdir(memories_dir):
         return 0
     return sum(
@@ -759,6 +765,34 @@ def resource_counts(vault_root):
         "styles": len(discover_styles(vault_root)),
         "plugins": len(discover_plugins(vault_root)),
     }
+
+
+def resource_source_dirs(vault_root):
+    """Yield ``(rel_path, descend)`` pairs whose directory mtimes govern
+    ``resource_counts`` and ``count_living_artefact_index_entries`` staleness.
+
+    ``descend=False`` means stat only that dir — the parent's mtime catches
+    add/remove of its *immediate* children. ``descend=True`` means
+    additionally stat every directory under it, which matters for
+    Living/temporal type folders whose artefacts can nest to arbitrary depth.
+
+    Vault root and ``_Temporal/`` are ``descend=False`` because their only
+    staleness role is detecting a new top-level type folder appearing
+    *before* ``scan_living_types`` / ``scan_temporal_types`` picks it up on
+    the next call — file-adds directly in the vault root or in ``_Temporal/``
+    itself are convention violations and not tracked as artefacts.
+    """
+    yield "", False
+    yield TEMPORAL_DIR, False
+    yield STYLES_DIR, False
+    yield MEMORIES_DIR, False
+    yield SKILLS_DIR, True
+    yield CORE_SKILLS_DIR, True
+    yield PLUGINS_DIR, True
+    for t in scan_living_types(vault_root):
+        yield t["path"], True
+    for t in scan_temporal_types(vault_root):
+        yield t["path"], True
 
 
 # ---------------------------------------------------------------------------

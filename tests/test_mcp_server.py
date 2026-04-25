@@ -13,6 +13,7 @@ from mcp.types import CallToolResult
 
 from brain_mcp import server
 import build_index
+import compile_router
 import obsidian_cli
 import workspace_registry
 import config as config_mod
@@ -1174,6 +1175,143 @@ class TestAutoRecompile:
 
         assert server._router["meta"]["compiled_at"] != compiled_at
         assert "wiki/fresh" in server._router["artefact_index"]
+
+
+# ---------------------------------------------------------------------------
+# Resource-mtime cache (β₃ short-circuit for resource_counts walks)
+# ---------------------------------------------------------------------------
+
+class TestResourceMtimeCache:
+    @pytest.fixture(autouse=True)
+    def _reset_cache(self):
+        server._resource_mtime_cache = None
+        yield
+        server._resource_mtime_cache = None
+
+    @pytest.fixture
+    def resource_counts_calls(self, monkeypatch):
+        """Monkeypatch compile_router.resource_counts to count invocations."""
+        calls = {"n": 0}
+        real = compile_router.resource_counts
+
+        def counting(vault_root):
+            calls["n"] += 1
+            return real(vault_root)
+
+        monkeypatch.setattr(compile_router, "resource_counts", counting)
+        return calls
+
+    def test_signature_stable_across_noop_calls(self, initialized):
+        sig1 = server._resource_mtime_signature(str(initialized))
+        sig2 = server._resource_mtime_signature(str(initialized))
+        assert sig1 == sig2
+        assert len(sig1) > 0
+
+    def test_first_call_walks_then_caches(self, initialized, resource_counts_calls):
+        server._check_router_resource_counts(str(initialized), server._router)
+        assert resource_counts_calls["n"] == 1
+        assert server._resource_mtime_cache is not None
+
+        server._check_router_resource_counts(str(initialized), server._router)
+        assert resource_counts_calls["n"] == 1
+
+    def test_new_artefact_file_invalidates_cache(self, initialized, resource_counts_calls):
+        server._check_router_resource_counts(str(initialized), server._router)
+        assert resource_counts_calls["n"] == 1
+
+        time.sleep(0.05)
+        (initialized / "Ideas" / "new-idea-abc123.md").write_text(
+            "---\ntype: living/ideas\nslug: new-idea-abc123\n---\n# New Idea\n"
+        )
+
+        server._check_router_resource_counts(str(initialized), server._router)
+        assert resource_counts_calls["n"] == 2
+
+    def test_new_nested_artefact_file_invalidates_cache(
+        self, initialized, resource_counts_calls
+    ):
+        server._check_router_resource_counts(str(initialized), server._router)
+        assert resource_counts_calls["n"] == 1
+
+        time.sleep(0.05)
+        nested = initialized / "Ideas" / "2026-04" / "nested-idea-xyz789.md"
+        nested.parent.mkdir(parents=True, exist_ok=True)
+        nested.write_text(
+            "---\ntype: living/ideas\nslug: nested-idea-xyz789\n---\n# Nested\n"
+        )
+
+        server._check_router_resource_counts(str(initialized), server._router)
+        assert resource_counts_calls["n"] == 2
+
+    def test_new_living_type_folder_invalidates_cache(
+        self, initialized, resource_counts_calls
+    ):
+        server._check_router_resource_counts(str(initialized), server._router)
+        assert resource_counts_calls["n"] == 1
+
+        time.sleep(0.05)
+        (initialized / "Projects").mkdir()
+
+        server._check_router_resource_counts(str(initialized), server._router)
+        assert resource_counts_calls["n"] == 2
+
+    def test_archive_write_does_not_invalidate_cache(
+        self, initialized, resource_counts_calls
+    ):
+        server._check_router_resource_counts(str(initialized), server._router)
+        assert resource_counts_calls["n"] == 1
+
+        time.sleep(0.05)
+        archive = initialized / "Ideas" / "_Archive" / "2026-04"
+        archive.mkdir(parents=True, exist_ok=True)
+        (archive / "old-idea-abc123.md").write_text(
+            "---\ntype: living/ideas\nslug: old-idea-abc123\n---\n# Old\n"
+        )
+
+        server._check_router_resource_counts(str(initialized), server._router)
+        assert resource_counts_calls["n"] == 1
+
+    def test_skill_md_delete_inside_subdir_invalidates_cache(self, initialized):
+        skill_dir = initialized / "_Config" / "Skills" / "demo-for-mtime"
+        skill_dir.mkdir(parents=True, exist_ok=True)
+        skill_md = skill_dir / "SKILL.md"
+        skill_md.write_text("# Demo\n")
+
+        sig_before = server._resource_mtime_signature(str(initialized))
+        time.sleep(0.05)
+        skill_md.unlink()
+        sig_after = server._resource_mtime_signature(str(initialized))
+
+        assert sig_before != sig_after
+
+    def test_missing_resource_dirs_encode_as_none(self, tmp_path):
+        sig = server._resource_mtime_signature(str(tmp_path))
+        by_key = dict(sig)
+        assert by_key[""] is not None
+        for rel in ("_Temporal", "_Config/Styles", "_Config/Memories",
+                    "_Config/Skills", ".brain-core/skills", "_Plugins"):
+            assert by_key[rel] is None
+
+    def test_index_count_failure_leaves_cache_untouched(self, initialized, monkeypatch):
+        server._check_router_resource_counts(str(initialized), server._router)
+        cached_before = server._resource_mtime_cache
+        assert cached_before is not None
+
+        time.sleep(0.05)
+        (initialized / "Ideas" / "trigger-abc123.md").write_text(
+            "---\ntype: living/ideas\nslug: trigger-abc123\n---\n# t\n"
+        )
+
+        def boom(vault_root, artefacts):
+            raise RuntimeError("index count blew up")
+
+        monkeypatch.setattr(
+            compile_router, "count_living_artefact_index_entries", boom
+        )
+        assert server._check_router_resource_counts(
+            str(initialized), server._router
+        ) is True
+        assert server._resource_mtime_cache == cached_before
 
 
 # ---------------------------------------------------------------------------
