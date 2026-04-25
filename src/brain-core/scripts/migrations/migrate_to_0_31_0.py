@@ -455,7 +455,7 @@ def plan_workspace_reconciliation(vault_root, router):
 
     key_to_stem = {}
 
-    for rel_path in iter_living_markdown_files(vault_root, router, include_status_folders=False):
+    for rel_path in iter_living_markdown_files(vault_root, router, include_status_folders=True):
         try:
             _resolved, art = resolve_and_validate_folder(vault_root, router, rel_path)
         except ValueError:

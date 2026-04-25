@@ -387,6 +387,24 @@ class TestPhase3Workspaces:
         assert "foo-bar" in registry
         assert "Foo Bar" not in registry
 
+    def test_data_folder_renamed_for_completed_workspace(self, vault, router):
+        completed_dir = vault / "Workspaces" / "+Completed"
+        completed_dir.mkdir(parents=True)
+        _write(completed_dir / "Foo Bar.md",
+               {"type": "living/workspace", "tags": ["workspace/foo-bar"],
+                "key": "foo-bar", "status": "completed"})
+        (vault / "_Workspaces" / "Foo Bar").mkdir()
+        (vault / "_Workspaces" / "Foo Bar" / "placeholder.md").write_text("x\n")
+
+        router = compile_router.compile(str(vault))
+        result = migrate_to_0_31_0.migrate_vault(str(vault), apply=True, router=router)
+
+        renames = result["phase3"]["folder_renames"]
+        assert any(r["key"] == "foo-bar" for r in renames), renames
+        assert (vault / "_Workspaces" / "foo-bar").is_dir()
+        assert not (vault / "_Workspaces" / "Foo Bar").exists()
+        assert not (vault / "_Workspaces" / "+Completed").exists()
+
     def test_workspace_with_matching_key_folder_untouched(self, vault, router):
         _write(vault / "Workspaces" / "Foo Bar.md",
                {"type": "living/workspace", "tags": ["workspace/foo-bar"],

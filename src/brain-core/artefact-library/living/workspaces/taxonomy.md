@@ -47,7 +47,9 @@ Every file related to a workspace should use the nested workspace tag, e.g. `wor
 
 ## Terminal Status
 
-When a workspace reaches `completed` status → move to `Workspaces/+Completed/`. If an embedded data folder exists at `_Workspaces/{key}/`, move it to `_Workspaces/+Completed/{key}/`. No rename, no `archiveddate` — the file stays searchable and indexed in its terminal status folder.
+When a workspace reaches `completed` status → move the hub file to `Workspaces/+Completed/`. No rename, no `archiveddate` — the file stays searchable and indexed in its terminal status folder.
+
+The embedded data folder at `_Workspaces/{key}/` does **not** move. The data bucket sits outside the artefact taxonomy (see [[#Data Folder]]), so its layout is independent of hub status.
 
 ## Data Folder
 

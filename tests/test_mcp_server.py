@@ -2667,6 +2667,12 @@ class TestBrainSession:
 class TestWorkspaceRegistryScript:
     """Tests for workspace_registry.py script functions."""
 
+    @pytest.fixture(autouse=True)
+    def _reset_hub_metadata_cache(self):
+        workspace_registry._hub_metadata_cache.clear()
+        yield
+        workspace_registry._hub_metadata_cache.clear()
+
     def test_load_empty_registry(self, vault):
         """No .brain/ directory → empty registry."""
         result = workspace_registry.load_registry(str(vault))
@@ -2788,6 +2794,107 @@ class TestWorkspaceRegistryScript:
         ws = result[0]
         assert ws["status"] == "active"
         assert ws["hub_path"] == "Workspaces/taxes.md"
+
+    def test_list_enriched_with_completed_hub_metadata(self, vault):
+        """Hubs in Workspaces/+Completed/ also enrich the listing."""
+        (vault / "_Workspaces" / "old-project").mkdir(parents=True)
+        completed_dir = vault / "Workspaces" / "+Completed"
+        completed_dir.mkdir(parents=True)
+        (completed_dir / "old-project.md").write_text(
+            "---\ntype: living/workspace\nslug: old-project\nstatus: completed\n"
+            "workspace_mode: embedded\ntags:\n  - workspace/old-project\n---\n\n# Old\n"
+        )
+        result = workspace_registry.list_workspaces(str(vault))
+        assert len(result) == 1
+        ws = result[0]
+        assert ws["slug"] == "old-project"
+        assert ws["status"] == "completed"
+        assert ws["hub_path"] == os.path.join("Workspaces", "+Completed", "old-project.md")
+        assert "workspace/old-project" in ws["tags"]
+
+    def test_hub_metadata_cache_skips_unchanged(self, vault, monkeypatch):
+        """Unchanged hub mtime → frontmatter not re-read on subsequent scans."""
+        (vault / "_Workspaces" / "alpha").mkdir(parents=True)
+        hub_dir = vault / "Workspaces"
+        hub_dir.mkdir(parents=True)
+        (hub_dir / "alpha.md").write_text(
+            "---\ntype: living/workspace\nslug: alpha\nstatus: active\n---\n\n# A\n"
+        )
+
+        calls = {"n": 0}
+        real = workspace_registry.read_frontmatter
+
+        def counting(path):
+            calls["n"] += 1
+            return real(path)
+
+        monkeypatch.setattr(workspace_registry, "read_frontmatter", counting)
+        workspace_registry.list_workspaces(str(vault))
+        assert calls["n"] == 1
+        workspace_registry.list_workspaces(str(vault))
+        assert calls["n"] == 1
+
+    def test_hub_metadata_cache_invalidates_on_mtime_change(self, vault, monkeypatch):
+        """Hub mtime change → frontmatter re-read."""
+        (vault / "_Workspaces" / "alpha").mkdir(parents=True)
+        hub_dir = vault / "Workspaces"
+        hub_dir.mkdir(parents=True)
+        hub_file = hub_dir / "alpha.md"
+        hub_file.write_text(
+            "---\ntype: living/workspace\nslug: alpha\nstatus: active\n---\n\n# A\n"
+        )
+
+        calls = {"n": 0}
+        real = workspace_registry.read_frontmatter
+
+        def counting(path):
+            calls["n"] += 1
+            return real(path)
+
+        monkeypatch.setattr(workspace_registry, "read_frontmatter", counting)
+        workspace_registry.list_workspaces(str(vault))
+        assert calls["n"] == 1
+
+        time.sleep(0.05)
+        hub_file.write_text(
+            "---\ntype: living/workspace\nslug: alpha\nstatus: parked\n---\n\n# A\n"
+        )
+        result = workspace_registry.list_workspaces(str(vault))
+        assert calls["n"] == 2
+        assert result[0]["status"] == "parked"
+
+    def test_hub_metadata_cache_isolates_callers_from_mutation(self, vault):
+        """Mutating a returned entry's tags must not corrupt the cache."""
+        (vault / "_Workspaces" / "alpha").mkdir(parents=True)
+        hub_dir = vault / "Workspaces"
+        hub_dir.mkdir(parents=True)
+        (hub_dir / "alpha.md").write_text(
+            "---\ntype: living/workspace\nslug: alpha\nstatus: active\n"
+            "tags:\n  - workspace/alpha\n---\n\n# A\n"
+        )
+
+        first = workspace_registry._scan_hub_metadata(str(vault))
+        first["alpha"]["tags"].append("poisoned")
+
+        second = workspace_registry._scan_hub_metadata(str(vault))
+        assert "poisoned" not in second["alpha"]["tags"]
+
+    def test_hub_metadata_cache_evicts_deleted_hubs(self, vault):
+        """Deleted hubs drop out of the cache."""
+        (vault / "_Workspaces" / "ghost").mkdir(parents=True)
+        hub_dir = vault / "Workspaces"
+        hub_dir.mkdir(parents=True)
+        hub_file = hub_dir / "ghost.md"
+        hub_file.write_text(
+            "---\ntype: living/workspace\nslug: ghost\nstatus: active\n---\n\n# G\n"
+        )
+
+        workspace_registry.list_workspaces(str(vault))
+        assert any("ghost.md" in p for p in workspace_registry._hub_metadata_cache)
+
+        hub_file.unlink()
+        workspace_registry.list_workspaces(str(vault))
+        assert not any("ghost.md" in p for p in workspace_registry._hub_metadata_cache)
 
     def test_register_creates_entry(self, vault, tmp_path):
         """register_workspace adds to .brain/local/workspaces.json."""

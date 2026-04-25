@@ -118,7 +118,7 @@
       "installed_at": "2026-04-25T00:00:00+00:00",
       "files": {
         "taxonomy": {
-          "source_hash": "sha256:b07ebf7a6b6e107cf439c654f8522f4406ebb6e68906f6bc648bbd494c138bcf",
+          "source_hash": "sha256:bdcf034d7a6b294877896ab51796fa2d8449b0162a9d7f80decd2322913a86b3",
           "target": "_Config/Taxonomy/Living/workspaces.md"
         },
         "template": {

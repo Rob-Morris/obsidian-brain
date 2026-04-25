@@ -21,7 +21,15 @@ import json
 import os
 import sys
 
-from _common import find_vault_root, is_system_dir, is_valid_key, read_frontmatter, safe_write_json, slug_to_title
+from _common import (
+    find_vault_root,
+    is_system_dir,
+    is_valid_key,
+    iter_markdown_under,
+    read_frontmatter,
+    safe_write_json,
+    slug_to_title,
+)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -99,36 +107,59 @@ def _scan_embedded(vault_root):
     return result
 
 
+# Per-hub frontmatter cache keyed by absolute path → (mtime, slug, metadata).
+# Skips the read on unchanged hubs; matters as completed workspaces accumulate
+# in +Completed/ over the lifetime of the brain (terminal status, never deleted).
+_hub_metadata_cache: dict[str, tuple[float, str, dict]] = {}
+
+
 def _scan_hub_metadata(vault_root):
     """Read workspace hub artefacts from Workspaces/ for metadata enrichment.
 
+    Walks the hub dir including ``+*`` terminal-status folders, so completed
+    workspace hubs (which move to ``Workspaces/+Completed/`` per the
+    artefact lifecycle) are picked up alongside active ones.
+
     Keys the result dict by the canonical frontmatter ``key:`` when present,
     falling back to the filename stem for pre-0.31 hubs that have not yet
-    been migrated. Returns a dict of slug → {title, status, workspace_mode, tags}.
+    been migrated. Returns a dict of key → {title, status, workspace_mode, tags}.
     """
     hub_dir = os.path.join(vault_root, HUB_DIR)
     if not os.path.isdir(hub_dir):
         return {}
+    seen = set()
     result = {}
-    for fname in sorted(os.listdir(hub_dir)):
-        if not fname.endswith(".md"):
-            continue
-        fpath = os.path.join(hub_dir, fname)
+    for sub_rel in iter_markdown_under(hub_dir, include_status_folders=True):
+        fpath = os.path.join(hub_dir, sub_rel)
+        seen.add(fpath)
         try:
-            fields = read_frontmatter(fpath)
+            mtime = os.path.getmtime(fpath)
         except OSError:
             continue
-        stem = os.path.splitext(fname)[0]
-        fm_slug = fields.get("key")
-        slug = fm_slug if is_valid_key(fm_slug) else stem
-        title = fields.get("title") or stem
-        result[slug] = {
-            "title": title,
-            "status": fields.get("status", ""),
-            "workspace_mode": fields.get("workspace_mode", ""),
-            "tags": fields.get("tags", []),
-            "hub_path": os.path.join(HUB_DIR, fname),
-        }
+        cached = _hub_metadata_cache.get(fpath)
+        if cached is not None and cached[0] == mtime:
+            key, entry = cached[1], cached[2]
+        else:
+            try:
+                fields = read_frontmatter(fpath)
+            except OSError:
+                continue
+            stem = os.path.splitext(os.path.basename(sub_rel))[0]
+            fm_key = fields.get("key")
+            key = fm_key if is_valid_key(fm_key) else stem
+            entry = {
+                "title": fields.get("title") or stem,
+                "status": fields.get("status", ""),
+                "workspace_mode": fields.get("workspace_mode", ""),
+                "tags": fields.get("tags", []),
+                "hub_path": os.path.join(HUB_DIR, sub_rel),
+            }
+            _hub_metadata_cache[fpath] = (mtime, key, entry)
+        # Shallow-copy on emit so callers can't mutate the cached entry
+        # (tags is the only list field, but copy it explicitly).
+        result[key] = {**entry, "tags": list(entry["tags"])}
+    for stale in set(_hub_metadata_cache) - seen:
+        del _hub_metadata_cache[stale]
     return result
 
 

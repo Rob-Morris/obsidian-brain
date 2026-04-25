@@ -2,6 +2,15 @@
 
 Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
 
+## v0.31.2 — 2026-04-25
+
+**Workspace `+Completed` consistency.** Resolve a doc/runtime/migration drift around terminal-status workspaces: the hub file moves to `Workspaces/+Completed/` on completion, but the embedded data folder at `_Workspaces/{slug}/` stays put because it sits outside the artefact taxonomy.
+
+- Clarify the workspace terminal-status convention in `taxonomy.md` (brain-core and template-vault): drop the previous "move embedded data to `_Workspaces/+Completed/{slug}/`" guidance, add an explicit "data folder does not move" note cross-referencing the Data Folder section.
+- Update `migrate_to_0_31_0.py` Phase 3 to walk completed workspace hubs (`include_status_folders=True`) so their data folders still get the stem→slug rename. Phase 3's data-folder target remains `_Workspaces/{slug}/` regardless of hub status.
+- Fix `workspace_registry._scan_hub_metadata` to walk `Workspaces/` via `iter_markdown_under(..., include_status_folders=True)` so completed hubs are picked up. Previously `list_workspaces()` returned completed embedded workspaces with empty `title`/`status`/`tags`/`hub_path` fields because the metadata scan used a flat `os.listdir` on `Workspaces/`.
+- Add a per-hub mtime cache so unchanged hubs aren't re-parsed on every `list_workspaces()` call — completed workspaces accumulate in `+Completed/` over the lifetime of a brain, and the previous behaviour re-read every one on every session refresh. The cache is keyed by absolute path → `(mtime, slug, entry)` with end-of-scan eviction; entries are shallow-copied on emit so callers can't mutate the cached state.
+
 ## v0.31.1 — 2026-04-25
 
 **MCP router staleness short-circuit.** Skip the resource-count walk on stable vaults via a stat-based directory-mtime signature, dropping per-TTL cost from ~19ms to ~0.2ms.
