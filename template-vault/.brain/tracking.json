@@ -16,8 +16,8 @@
       }
     },
     "living/designs": {
-      "brain_core_version": "0.31.0",
-      "installed_at": "2026-04-25T00:00:00+00:00",
+      "brain_core_version": "0.30.2",
+      "installed_at": "2026-04-21T06:27:30.221354+00:00",
       "files": {
         "taxonomy": {
           "source_hash": "sha256:48659fe67e2e5b88c98664221594e42d0045d737f3ae57dae4e77c419dbb39d5",
@@ -73,7 +73,7 @@
     },
     "living/people": {
       "brain_core_version": "0.31.0",
-      "installed_at": "2026-04-25T00:00:00+00:00",
+      "installed_at": "2026-04-23T00:00:00+00:00",
       "files": {
         "taxonomy": {
           "source_hash": "sha256:2044b6687c4dc667058c83c770ec162e4b37d248bffd64c96e96aadc5b6d6758",
@@ -87,7 +87,7 @@
     },
     "living/projects": {
       "brain_core_version": "0.31.0",
-      "installed_at": "2026-04-25T00:00:00+00:00",
+      "installed_at": "2026-04-23T00:00:00+00:00",
       "files": {
         "taxonomy": {
           "source_hash": "sha256:59d3036824d49781334d80ccfaf1e663229206d35e2a5aeb2e5e4e5ca1442624",
@@ -115,7 +115,7 @@
     },
     "living/workspaces": {
       "brain_core_version": "0.31.0",
-      "installed_at": "2026-04-25T00:00:00+00:00",
+      "installed_at": "2026-04-24T22:34:59.188310+00:00",
       "files": {
         "taxonomy": {
           "source_hash": "sha256:bdcf034d7a6b294877896ab51796fa2d8449b0162a9d7f80decd2322913a86b3",
@@ -244,8 +244,8 @@
       }
     },
     "temporal/mockups": {
-      "brain_core_version": "0.31.0",
-      "installed_at": "2026-04-25T00:00:00+00:00",
+      "brain_core_version": "0.30.2",
+      "installed_at": "2026-04-21T06:27:30.221354+00:00",
       "files": {
         "taxonomy": {
           "source_hash": "sha256:8b859090533072ebee0db5ed41c904a83dcf4d79e0926bbab0895f94c3cd1931",
@@ -286,8 +286,8 @@
       }
     },
     "temporal/presentations": {
-      "brain_core_version": "0.31.0",
-      "installed_at": "2026-04-25T00:00:00+00:00",
+      "brain_core_version": "0.30.2",
+      "installed_at": "2026-04-21T06:27:30.221354+00:00",
       "files": {
         "taxonomy": {
           "source_hash": "sha256:774de6fd0562589142bbc5d91dcfc438c3a88f374d13d74731370be89f46e39c",
@@ -393,7 +393,7 @@
     },
     "living/releases": {
       "brain_core_version": "0.31.0",
-      "installed_at": "2026-04-25T00:00:00+00:00",
+      "installed_at": "2026-04-23T08:47:22.096095+00:00",
       "files": {
         "taxonomy": {
           "source_hash": "sha256:9e2571de7bdac80c4dc055c806c7822888d93416848b44f7017e51aba12d8805",

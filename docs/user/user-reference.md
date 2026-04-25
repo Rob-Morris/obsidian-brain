@@ -108,7 +108,7 @@ If your vault runs the Brain MCP server (`.brain-core/brain_mcp/server.py`), eig
 
 **brain_read** (safe, no side effects)
 - Look up artefacts, triggers, styles, templates, skills, plugins, memories, workspaces, environment info, the compiled router, structural compliance results, or read artefact files by path
-- Optional name filter to narrow results (for workspace, resolves a slug; for compliance, filters by severity; for file, a relative path or basename — resolves like wikilinks). For temporal artefacts, the display name works without the dated prefix — e.g. "Colour Theory" finds `20260404-research~Colour Theory.md`
+- Optional name filter to narrow results (for workspace, resolves a key; for compliance, filters by severity; for file, a relative path or basename — resolves like wikilinks). For temporal artefacts, the display name works without the dated prefix — e.g. "Colour Theory" finds `20260404-research~Colour Theory.md`
 - `resource="file"` can also read `.brain-core/` docs by vault-relative path when the agent is operating over MCP, e.g. `brain_read(resource="file", name=".brain-core/standards/provenance.md")`
 
 **brain_search** (safe, no side effects)
@@ -183,7 +183,7 @@ Available in `.brain-core/scripts/`. Scripts are the source of truth for all vau
 | `edit.py` | Edit, append to, or convert an existing artefact |
 | `rename.py` | Rename a file with automatic wikilink updates; refuses existing-destination collisions before touching links |
 | `upgrade.py` | Upgrade brain-core in-place from a source directory, including versioned pre-compile compatibility patches, binary-safe rollback snapshots for `.brain/` / `_Config/`, post-compile migration rollback of touched artefact roots, applied-migration tracking in `.brain/local/`, and self-contained atomic writes (CLI-only, not shipped to vaults) |
-| `workspace_registry.py` | Workspace slug→path resolution and registration |
+| `workspace_registry.py` | Workspace key→path resolution and registration |
 | `init.py` | Set up Claude Code and/or Codex to use this vault's MCP server; folder-scoped installs also scaffold `.brain/local/workspace.yaml` (migrates legacy `.brain/workspace.yaml` automatically), and direct config writes stay atomic with unique sibling temp files. Project scope outranks user scope once the client activates the project entry: approve via `/mcp` in Claude, or trust/enable the project-scoped server in Codex. |
 | `check.py` | Structural compliance checker — validates naming, frontmatter, month folders, archives, status values |
 | `migrate_naming.py` | Migrate vault filenames from old aggressive slugs to generous naming conventions |

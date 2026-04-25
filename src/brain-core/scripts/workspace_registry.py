@@ -122,7 +122,7 @@ def _scan_hub_metadata(vault_root):
 
     Keys the result dict by the canonical frontmatter ``key:`` when present,
     falling back to the filename stem for pre-0.31 hubs that have not yet
-    been migrated. Returns a dict of key → {title, status, workspace_mode, tags}.
+    been migrated. Returns a dict of slug → {title, status, workspace_mode, tags}.
     """
     hub_dir = os.path.join(vault_root, HUB_DIR)
     if not os.path.isdir(hub_dir):
@@ -138,15 +138,15 @@ def _scan_hub_metadata(vault_root):
             continue
         cached = _hub_metadata_cache.get(fpath)
         if cached is not None and cached[0] == mtime:
-            key, entry = cached[1], cached[2]
+            slug, entry = cached[1], cached[2]
         else:
             try:
                 fields = read_frontmatter(fpath)
             except OSError:
                 continue
             stem = os.path.splitext(os.path.basename(sub_rel))[0]
-            fm_key = fields.get("key")
-            key = fm_key if is_valid_key(fm_key) else stem
+            fm_slug = fields.get("key")
+            slug = fm_slug if is_valid_key(fm_slug) else stem
             entry = {
                 "title": fields.get("title") or stem,
                 "status": fields.get("status", ""),
@@ -154,10 +154,10 @@ def _scan_hub_metadata(vault_root):
                 "tags": fields.get("tags", []),
                 "hub_path": os.path.join(HUB_DIR, sub_rel),
             }
-            _hub_metadata_cache[fpath] = (mtime, key, entry)
+            _hub_metadata_cache[fpath] = (mtime, slug, entry)
         # Shallow-copy on emit so callers can't mutate the cached entry
         # (tags is the only list field, but copy it explicitly).
-        result[key] = {**entry, "tags": list(entry["tags"])}
+        result[slug] = {**entry, "tags": list(entry["tags"])}
     for stale in set(_hub_metadata_cache) - seen:
         del _hub_metadata_cache[stale]
     return result

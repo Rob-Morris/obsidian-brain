@@ -31,7 +31,7 @@ Generated, gitignored. The compiled outputs that tooling reads at runtime:
 | `.brain/local/init-state.json` | Recorded MCP registrations owned by this vault for safe scoped removal |
 | `.brain/config.yaml` | Vault-level configuration (layer 2 of 3) |
 | `.brain/local/config.yaml` | Machine-local overrides (layer 3 of 3; gitignored) |
-| `.brain/local/workspaces.json` | Workspace slug-to-path registry |
+| `.brain/local/workspaces.json` | Workspace key-to-path registry |
 | `.brain/local/mcp-server.log` | Rotating server log (2 MB max, 1 backup) with explicit startup phase markers |
 
 ### `_Config/` — user-customisable definitions
@@ -88,7 +88,7 @@ Artefact types are discovered by scanning vault folders, not by reading a regist
 
 ### Compiled router as contract
 
-The compiled router (`.brain/local/compiled-router.json`) is the interface between human-readable config and all tooling. Source files — `session-core.md`, `router.md`, taxonomy files, skills, styles, memories, plugins, and `VERSION` — are the single source of truth. The compiler combines them into a hash-invalidated cache: SHA-256 of every source file is stored in `meta.sources`, and the cache is considered stale the moment any source changes. The router is environment-specific (includes platform, runtime availability, absolute vault root) and is never committed to version control. The MCP server auto-compiles it at startup and auto-recompiles mid-session when new taxonomy files appear.
+The compiled router (`.brain/local/compiled-router.json`) is the interface between human-readable config and all tooling. Source files — `session-core.md`, `router.md`, taxonomy files, skills, styles, memories, plugins, and `VERSION` — are the single source of truth. The compiler combines them into a hash-invalidated cache: SHA-256 of every source file is stored in `meta.sources`, and the cache is considered stale the moment any source changes. The router is environment-specific (includes platform, runtime availability, absolute vault root) and is never committed to version control. The MCP server auto-compiles it at startup and auto-recompiles mid-session when sources change or new resources appear; staleness is checked on a 5-second TTL via SHA-256 hashes for edits and a directory-mtime signature for additions/deletions, so the check itself stays cheap on stable vaults (DD-042).
 
 ### Scripts as single source of truth
 

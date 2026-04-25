@@ -687,19 +687,19 @@ def _apply_reference_mutation(vault_root, router, old_key, new_key, *, skip_path
 
 def _maybe_restructure_living_ownership(vault_root, router, path, art, old_fields, new_fields):
     """Rewrite canonical key references and move artefacts when ownership changes."""
-    old_slug = old_fields.get("key")
-    new_slug = new_fields.get("key")
+    old_key_value = old_fields.get("key")
+    new_key_value = new_fields.get("key")
     old_parent = normalize_artefact_key(old_fields.get("parent"))
     new_parent = normalize_artefact_key(new_fields.get("parent"))
     type_prefix = artefact_type_prefix(art)
     old_key = (
-        make_artefact_key(type_prefix, old_slug)
-        if is_valid_key(old_slug)
+        make_artefact_key(type_prefix, old_key_value)
+        if is_valid_key(old_key_value)
         else None
     )
     new_key = (
-        make_artefact_key(type_prefix, new_slug)
-        if is_valid_key(new_slug)
+        make_artefact_key(type_prefix, new_key_value)
+        if is_valid_key(new_key_value)
         else None
     )
 
@@ -711,11 +711,11 @@ def _maybe_restructure_living_ownership(vault_root, router, path, art, old_field
         replacement = new_key if type_prefix in SELF_TAG_PREFIXES else None
         _replace_exact_tag(new_fields, old_key, replacement)
     elif new_key:
-        ensure_self_tag(new_fields, type_prefix, new_slug)
+        ensure_self_tag(new_fields, type_prefix, new_key_value)
 
     if new_key:
         _ensure_free_artefact_key(
-            vault_root, router, art, new_slug, exclude_path=path
+            vault_root, router, art, new_key_value, exclude_path=path
         )
 
     new_path, rendered_fields = _render_existing_artefact_path(
@@ -736,7 +736,7 @@ def _maybe_restructure_living_ownership(vault_root, router, path, art, old_field
                 "type": art.get("frontmatter_type", art.get("type")),
                 "type_key": art.get("key"),
                 "type_prefix": type_prefix,
-                "key": new_slug,
+                "key": new_key_value,
                 "parent": new_parent,
             }
         )
@@ -1150,10 +1150,10 @@ def convert_artefact(vault_root, router, path, target_type, parent=None):
 
     source_prefix = artefact_type_prefix(source_art)
     target_prefix = artefact_type_prefix(target_art)
-    source_slug = fields.get("key")
+    source_key_value = fields.get("key")
     old_key = (
-        make_artefact_key(source_prefix, source_slug)
-        if source_art.get("classification") == "living" and is_valid_key(source_slug)
+        make_artefact_key(source_prefix, source_key_value)
+        if source_art.get("classification") == "living" and is_valid_key(source_key_value)
         else None
     )
     old_parent = normalize_artefact_key(fields.get("parent"))
@@ -1164,7 +1164,7 @@ def convert_artefact(vault_root, router, path, target_type, parent=None):
             router,
             target_art,
             title,
-            key=source_slug if is_valid_key(source_slug) else None,
+            key=source_key_value if is_valid_key(source_key_value) else None,
             exclude_path=path,
         )
         target_parent = None

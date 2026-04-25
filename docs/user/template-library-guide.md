@@ -164,4 +164,4 @@ Some types are easily confused. Here is guidance on the common decision points.
 
 **Transcripts vs Shaping Transcripts** — A transcript is a general conversation record. A shaping transcript is specifically a Q&A refinement session tied to a named source artefact. Use shaping transcripts for the structured Q&A that refines an idea, design, or plan; use transcripts for everything else.
 
-**Projects vs Workspaces** — Projects are hubs for vault artefacts connected by a project tag. Workspaces are hubs for working files that fall outside the vault's artefact taxonomy — code, spreadsheets, images. A project can have a workspace; they serve different purposes.
+**Projects vs Workspaces** — Projects are hubs for vault artefacts: child artefacts persist `parent: project/{key}` for canonical ownership and carry the `project/{key}` tag for relationship discovery. Workspaces are hubs for working files that fall outside the vault's artefact taxonomy — code, spreadsheets, images. A project can have a workspace; they serve different purposes.

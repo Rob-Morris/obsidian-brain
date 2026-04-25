@@ -1,6 +1,7 @@
 # DD-014: MCP Server Auto-Compiles Router on Startup
 
 **Status:** Implemented (v0.7.0)
+**Extended by:** DD-042
 
 ## Context
 

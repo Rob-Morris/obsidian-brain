@@ -198,9 +198,9 @@ def plan_key_backfill(vault_root, router):
             _resolved, art = resolve_and_validate_folder(vault_root, router, rel_path)
         except ValueError:
             continue
-        slug = fields.get("key")
-        if is_valid_key(slug):
-            taken_by_type.setdefault(artefact_type_prefix(art), set()).add(slug)
+        existing_key = fields.get("key")
+        if is_valid_key(existing_key):
+            taken_by_type.setdefault(artefact_type_prefix(art), set()).add(existing_key)
 
     # Pass 2: derive keys (and record every living artefact for the
     # subsequent parent-backfill pass).
@@ -340,9 +340,9 @@ def plan_folder_relocations(vault_root, router):
         trailing = os.path.relpath(current_folder, base_folder) if base_folder else ""
 
         own_key = None
-        own_slug = fields.get("key")
-        if is_valid_key(own_slug):
-            own_key = make_artefact_key(artefact_type_prefix(art), own_slug)
+        own_key_value = fields.get("key")
+        if is_valid_key(own_key_value):
+            own_key = make_artefact_key(artefact_type_prefix(art), own_key_value)
 
         parent_key = normalize_artefact_key(fields.get("parent"))
         if parent_key == own_key:
@@ -467,31 +467,31 @@ def plan_workspace_reconciliation(vault_root, router):
             fields = read_frontmatter(abs_path)
         except (OSError, UnicodeDecodeError):
             continue
-        slug = fields.get("key")
-        if not is_valid_key(slug):
+        ws_key = fields.get("key")
+        if not is_valid_key(ws_key):
             continue
         stem = os.path.splitext(os.path.basename(rel_path))[0]
-        key_to_stem[slug] = stem
+        key_to_stem[ws_key] = stem
 
-        if slug in existing_dirs:
+        if ws_key in existing_dirs:
             continue
         if stem in existing_dirs:
             folder_renames.append({
                 "from": os.path.join(EMBEDDED_DATA_DIR, stem),
-                "to": os.path.join(EMBEDDED_DATA_DIR, slug),
-                "key": slug,
+                "to": os.path.join(EMBEDDED_DATA_DIR, ws_key),
+                "key": ws_key,
             })
 
-    stem_to_key = {stem: slug for slug, stem in key_to_stem.items() if stem != slug}
+    stem_to_key = {stem: k for k, stem in key_to_stem.items() if stem != k}
     registry = load_registry(vault_root)
     for key in list(registry.keys()):
         if key in key_to_stem:
             continue
-        target_slug = stem_to_key.get(key)
-        if target_slug:
+        target_key = stem_to_key.get(key)
+        if target_key:
             registry_remaps.append({
                 "from": key,
-                "to": target_slug,
+                "to": target_key,
                 "path": registry[key].get("path"),
             })
 

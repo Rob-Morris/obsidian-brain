@@ -21,6 +21,7 @@ Operational reference for scripts in `.brain-core/scripts/`. Each script exposes
 | `workspace_registry.py` | Workspace slug-path resolution | `python3 workspace_registry.py [--register SLUG PATH] [--unregister SLUG] [--resolve SLUG] [--json]` |
 | `migrate_naming.py` | Migrate filenames to generous conventions | `python3 migrate_naming.py [--vault V] [--dry-run] [--json]` |
 | `migrations/migrate_to_0_29_0.py` | v0.29.0 migration bundle: `pre_compile_patch` remediates blocking missing-`date_source` taxonomies, then `post_compile` backfills `created`/`modified`/`date_source` across the vault | `python3 migrations/migrate_to_0_29_0.py [--vault V] [--dry-run] [--json]` |
+| `migrations/migrate_to_0_31_0.py` | v0.31.0 migration: three-phase upgrade-runner pass that backfills missing living-artefact `key:`/`parent:` fields, relocates child folders to canonical owner-derived paths, and reconciles `_Workspaces/` data folders + `.brain/local/workspaces.json` keys to canonical keys | `python3 migrations/migrate_to_0_31_0.py [--vault V] [--dry-run] [--json]` |
 | `fix_links.py` | Auto-repair broken wikilinks | `python3 fix_links.py [--fix] [--json] [--vault V]` |
 | `sync_definitions.py` | Install / sync artefact library definitions and classify vault state | `python3 sync_definitions.py [--vault V] [--dry-run] [--force] [--types t1,t2] [--status] [--json]` |
 | `config.py` | Vault configuration loader (three-layer merge) | `python3 config.py` |
@@ -68,10 +69,13 @@ The MCP server is a thin wrapper that imports functions from scripts and holds t
 | `environment` | Platform/runtime detection |
 | `always_rules` | Merged rules from session-core.md (system) + router.md (vault) |
 | `artefacts` | Discovered types with naming patterns, frontmatter requirements, status enums, terminal statuses, triggers, template paths |
+| `artefact_index` | Living-only index keyed by canonical `{type}/{key}`. Each entry records the artefact's path, parent, and `children_count` for emergent-hub detection. Built at compile time from the `key:` and `parent:` frontmatter fields introduced in v0.31.0. |
 | `triggers` | Merged conditional triggers from router.md and taxonomy files |
 | `skills`, `plugins`, `styles`, `memories` | Discovered enrichment documents |
 
-**Hash invalidation:** The `meta.source_hash` is a composite SHA-256 over all tracked source files. The MCP server compares this hash on startup and at a 5-second TTL to detect stale routers and recompile automatically.
+**Staleness checks:** The MCP server runs two complementary checks on a 5-second TTL. (1) `_check_router` compares the composite `meta.source_hash` (SHA-256 over all tracked source files) to detect edits to existing sources. (2) `_check_router_resource_counts` detects new or deleted resources that aren't in the manifest — but it short-circuits via a stat-only directory-mtime signature (`resource_source_dirs(vault_root)` is the canonical list of dirs that govern resource counts). On stable vaults the signature matches and the resource walk is skipped; cost drops from ~19ms to ~0.2ms. The full walk only fires when a resource directory's mtime advances. See DD-042 for the rationale.
+
+**Importable API** (used by the MCP server to drive its staleness checks): `resource_counts(vault_root)` returns `{key: count}` for the discoverable resource categories. `resource_source_dirs(vault_root)` yields `(rel_path, descend)` pairs identifying every directory whose mtime governs the resource-count answer.
 
 **Post-step generation:** `compile_colours.py` runs as a post-step, reading the compiled router to generate `.obsidian/snippets/brain-folder-colours.css` and `.obsidian/graph.json` colour groups. After a successful compile, `session.py` also refreshes `.brain/local/session.md` so the markdown bootstrap mirror stays aligned with the current canonical session model. Both are called automatically — no separate invocation needed.
 

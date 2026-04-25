@@ -1023,7 +1023,7 @@ def compile(vault_root):
     artefact_index, artefact_index_sources = build_living_artefact_index(
         vault_root, artefacts, return_sources=True
     )
-    # Artefact-index freshness depends on living slug/parent/type metadata, not
+    # Artefact-index freshness depends on living key/parent/type metadata, not
     # note body text. Store keyed living inputs using a frontmatter fingerprint
     # so ordinary content edits do not churn the router cache.
     sources.update(artefact_index_sources)

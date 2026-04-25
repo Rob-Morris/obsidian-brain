@@ -41,7 +41,7 @@ The migration `migrations/migrate_to_0_31_0.py` backfills `key:` for existing va
 - Subfolder layout becomes a function of canonical keys, not folder discovery. Same-type children live under `{Type}/{key}/`; cross-type children live under `{Type}/{parent-type}~{key}/`. See [[subfolders]] for the full layout rules.
 - The compiler validates uniqueness at startup. Duplicate keys within a type are a hard error, not a silent collision; `artefact_index` is the authoritative resolver and it refuses ambiguity.
 - The slug helpers (`title_to_slug`, `slug_to_title`, `slugify`, `generate_contextual_slug`, `extract_slug_keyword`, the `SLUG_*` shape constants, and `_common/_slugs.py`) keep their names. They genuinely produce slug-shaped strings from input; they are unrelated to the field-naming choice.
-- Field-level validators are renamed to `is_valid_key` / `validate_key` and the error code is `KEY_TAKEN` / `INVALID_KEY`. The old `is_valid_slug` / `validate_slug` / `SLUG_TAKEN` / `INVALID_SLUG` names are gone — there is no backwards-compat shim because nothing has shipped using them.
+- Field-level validators live under `is_valid_key` / `validate_key`; collisions raise `KEY_TAKEN` and shape violations raise `INVALID_KEY`. There is no `slug`-named alias because the field has only ever shipped as `key`.
 - Generated keys collide stochastically. Selection retries until the candidate is free; explicit keys raise `KEY_TAKEN` so callers can react.
 - Migration is one-way and idempotent. Running it twice is a no-op once every artefact has a valid `key:` field.
 

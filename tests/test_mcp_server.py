@@ -2726,7 +2726,7 @@ class TestWorkspaceRegistryScript:
         assert result["mode"] == "embedded"
 
     def test_resolve_unknown_raises(self, vault):
-        """Unknown slug raises ValueError."""
+        """Unknown key raises ValueError."""
         with pytest.raises(ValueError, match="Unknown workspace"):
             workspace_registry.resolve_workspace(str(vault), "nonexistent")
 
@@ -2747,9 +2747,9 @@ class TestWorkspaceRegistryScript:
         (vault / "_Workspaces" / "alpha").mkdir(parents=True)
         (vault / "_Workspaces" / "beta").mkdir(parents=True)
         result = workspace_registry.list_workspaces(str(vault))
-        slugs = [w["slug"] for w in result]
-        assert "alpha" in slugs
-        assert "beta" in slugs
+        keys = [w["slug"] for w in result]
+        assert "alpha" in keys
+        assert "beta" in keys
         assert all(w["mode"] == "embedded" for w in result)
 
     def test_list_linked_only(self, vault, tmp_path):
@@ -2765,9 +2765,9 @@ class TestWorkspaceRegistryScript:
         (vault / "_Workspaces" / "local").mkdir(parents=True)
         registry = {"remote": {"path": str(tmp_path / "remote")}}
         result = workspace_registry.list_workspaces(str(vault), registry=registry)
-        slugs = [w["slug"] for w in result]
-        assert "local" in slugs
-        assert "remote" in slugs
+        keys = [w["slug"] for w in result]
+        assert "local" in keys
+        assert "remote" in keys
 
     def test_list_skips_system_dirs(self, vault):
         """System dirs (_Archive, .hidden) in _Workspaces/ are excluded."""
@@ -2777,8 +2777,8 @@ class TestWorkspaceRegistryScript:
         (ws / ".hidden").mkdir()
         (ws / "real-workspace").mkdir()
         result = workspace_registry.list_workspaces(str(vault))
-        slugs = [w["slug"] for w in result]
-        assert slugs == ["real-workspace"]
+        keys = [w["slug"] for w in result]
+        assert keys == ["real-workspace"]
 
     def test_list_enriched_with_hub_metadata(self, vault):
         """Hub artefact metadata enriches the workspace listing."""
@@ -2801,7 +2801,7 @@ class TestWorkspaceRegistryScript:
         completed_dir = vault / "Workspaces" / "+Completed"
         completed_dir.mkdir(parents=True)
         (completed_dir / "old-project.md").write_text(
-            "---\ntype: living/workspace\nslug: old-project\nstatus: completed\n"
+            "---\ntype: living/workspace\nkey: old-project\nstatus: completed\n"
             "workspace_mode: embedded\ntags:\n  - workspace/old-project\n---\n\n# Old\n"
         )
         result = workspace_registry.list_workspaces(str(vault))
@@ -2818,7 +2818,7 @@ class TestWorkspaceRegistryScript:
         hub_dir = vault / "Workspaces"
         hub_dir.mkdir(parents=True)
         (hub_dir / "alpha.md").write_text(
-            "---\ntype: living/workspace\nslug: alpha\nstatus: active\n---\n\n# A\n"
+            "---\ntype: living/workspace\nkey: alpha\nstatus: active\n---\n\n# A\n"
         )
 
         calls = {"n": 0}
@@ -2841,7 +2841,7 @@ class TestWorkspaceRegistryScript:
         hub_dir.mkdir(parents=True)
         hub_file = hub_dir / "alpha.md"
         hub_file.write_text(
-            "---\ntype: living/workspace\nslug: alpha\nstatus: active\n---\n\n# A\n"
+            "---\ntype: living/workspace\nkey: alpha\nstatus: active\n---\n\n# A\n"
         )
 
         calls = {"n": 0}
@@ -2857,7 +2857,7 @@ class TestWorkspaceRegistryScript:
 
         time.sleep(0.05)
         hub_file.write_text(
-            "---\ntype: living/workspace\nslug: alpha\nstatus: parked\n---\n\n# A\n"
+            "---\ntype: living/workspace\nkey: alpha\nstatus: parked\n---\n\n# A\n"
         )
         result = workspace_registry.list_workspaces(str(vault))
         assert calls["n"] == 2
@@ -2869,7 +2869,7 @@ class TestWorkspaceRegistryScript:
         hub_dir = vault / "Workspaces"
         hub_dir.mkdir(parents=True)
         (hub_dir / "alpha.md").write_text(
-            "---\ntype: living/workspace\nslug: alpha\nstatus: active\n"
+            "---\ntype: living/workspace\nkey: alpha\nstatus: active\n"
             "tags:\n  - workspace/alpha\n---\n\n# A\n"
         )
 
@@ -2886,7 +2886,7 @@ class TestWorkspaceRegistryScript:
         hub_dir.mkdir(parents=True)
         hub_file = hub_dir / "ghost.md"
         hub_file.write_text(
-            "---\ntype: living/workspace\nslug: ghost\nstatus: active\n---\n\n# G\n"
+            "---\ntype: living/workspace\nkey: ghost\nstatus: active\n---\n\n# G\n"
         )
 
         workspace_registry.list_workspaces(str(vault))

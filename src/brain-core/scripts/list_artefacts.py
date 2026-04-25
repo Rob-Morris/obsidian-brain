@@ -91,9 +91,9 @@ def list_artefacts(index, router, type_filter=None, since=None, until=None,
             "date": doc_date,
             "status": doc.get("status", ""),
         }
-        slug = doc.get("key") or (artefact_meta or {}).get("key")
-        if slug:
-            result["key"] = slug
+        key = doc.get("key") or (artefact_meta or {}).get("key")
+        if key:
+            result["key"] = key
         parent_key = doc.get("parent") or (artefact_meta or {}).get("parent")
         if parent_key:
             result["parent"] = parent_key
