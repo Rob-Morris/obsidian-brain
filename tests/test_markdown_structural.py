@@ -9,7 +9,6 @@ import pytest
 
 from _common._markdown import (
     collect_headings,
-    find_section,
     resolve_structural_target,
 )
 
@@ -49,27 +48,27 @@ class TestCollectHeadings:
         assert [h[2] for h in headings] == ["Real"]
 
 
-class TestFindSection:
+class TestResolverLiteralRegionSkipping:
     def test_finds_real_heading_when_comment_has_fake_one(self):
         """A heading-shaped line inside an HTML comment shouldn't shadow the real heading."""
         body = "<!-- ## Target -->\nstart\n## Target\nreal body\n"
-        start, end = find_section(body, "## Target")
-        assert body[start:end] == "real body\n"
+        resolved = resolve_structural_target(body, "## Target")
+        assert body[slice(*resolved["ranges"]["body"])] == "real body\n"
 
     def test_raises_when_only_match_is_in_comment(self):
         body = "<!-- ## Target -->\nsome body\n"
         with pytest.raises(ValueError, match="not found"):
-            find_section(body, "## Target")
+            resolve_structural_target(body, "## Target")
 
     def test_raises_when_only_match_is_in_fence(self):
         body = "```\n## Target\n```\n"
         with pytest.raises(ValueError, match="not found"):
-            find_section(body, "## Target")
+            resolve_structural_target(body, "## Target")
 
     def test_raises_when_only_match_is_in_raw_html(self):
         body = "<pre>\n## Target\n</pre>\n"
         with pytest.raises(ValueError, match="not found"):
-            find_section(body, "## Target")
+            resolve_structural_target(body, "## Target")
 
 
 class TestBodyIntroRange:

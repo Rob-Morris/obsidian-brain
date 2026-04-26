@@ -18,7 +18,12 @@ import os
 import re
 import sys
 
-from _common import find_section, find_vault_root, parse_frontmatter, safe_write
+from _common import (
+    find_vault_root,
+    parse_frontmatter,
+    resolve_structural_target,
+    safe_write,
+)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -82,20 +87,24 @@ def _strip_always_section(text):
 
 
 def _extract_markdown_section(text, heading):
-    """Return the body of a markdown H2 section, or ``""`` when absent."""
-    try:
-        start, end = find_section(text, f"## {heading}")
-    except ValueError:
-        return ""
+    """Return the body of a required H2 section in session-core.
+
+    Raises ValueError if the section is missing or duplicated — both indicate
+    a malformed core install rather than a runtime data condition.
+    """
+    resolved = resolve_structural_target(text, f"## {heading}")
+    start, end = resolved["ranges"]["body"]
     return text[start:end].strip()
 
 
 def _strip_markdown_section(text, heading):
-    """Remove a markdown H2 section from text."""
-    try:
-        start, end = find_section(text, f"## {heading}", include_heading=True)
-    except ValueError:
-        return text
+    """Remove a required H2 section from session-core.
+
+    Raises ValueError if the section is missing or duplicated — both indicate
+    a malformed core install rather than a runtime data condition.
+    """
+    resolved = resolve_structural_target(text, f"## {heading}")
+    start, end = resolved["ranges"]["section"]
     stripped = text[:start] + text[end:]
     return re.sub(r"\n{3,}", "\n\n", stripped).strip()
 

@@ -8,6 +8,9 @@ import pytest
 import session
 
 
+MINIMAL_SESSION_CORE = "# Session Core\n\n## Core Docs\n\n## Standards\n"
+
+
 def _minimal_router(vault_root):
     return {
         "meta": {
@@ -176,7 +179,8 @@ class TestSessionCli:
             "## Principles\n\n"
             "Keep instruction files lean.\n\n"
             "## Core Docs\n\n"
-            "- [Extend the vault](standards/extending/README.md)\n"
+            "- [Extend the vault](standards/extending/README.md)\n\n"
+            "## Standards\n"
         )
 
         local = tmp_path / ".brain" / "local"
@@ -206,7 +210,7 @@ class TestSessionCli:
     def test_main_includes_workspace_metadata_when_provided(self, tmp_path, monkeypatch, capsys):
         bc = tmp_path / ".brain-core"
         bc.mkdir()
-        (bc / "session-core.md").write_text("# Session Core\n")
+        (bc / "session-core.md").write_text(MINIMAL_SESSION_CORE)
 
         local = tmp_path / ".brain" / "local"
         local.mkdir(parents=True)
@@ -246,7 +250,7 @@ class TestSessionCli:
     ):
         bc = tmp_path / ".brain-core"
         bc.mkdir()
-        (bc / "session-core.md").write_text("# Session Core\n")
+        (bc / "session-core.md").write_text(MINIMAL_SESSION_CORE)
 
         local = tmp_path / ".brain" / "local"
         local.mkdir(parents=True)
@@ -288,7 +292,7 @@ class TestSessionCli:
     def test_main_errors_when_compiled_router_missing(self, tmp_path, monkeypatch, capsys):
         bc = tmp_path / ".brain-core"
         bc.mkdir()
-        (bc / "session-core.md").write_text("# Session Core\n")
+        (bc / "session-core.md").write_text(MINIMAL_SESSION_CORE)
 
         monkeypatch.setattr(
             sys,

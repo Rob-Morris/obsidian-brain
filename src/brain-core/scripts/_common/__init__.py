@@ -114,7 +114,6 @@ from ._markdown import (
     REGION_RAW_HTML,
     collect_headings,
     fenced_ranges,
-    find_section,
     legacy_target_migration_error,
     html_comment_ranges,
     inline_code_ranges,

@@ -2,6 +2,14 @@
 
 Follows a pre-1.0 [semver](https://semver.org/) policy: backward-compatible changes are patch; breaking Brain changes are minor; only fundamental model changes are major. Breaking Brain changes include vault-structure changes and breaking tool/script/MCP contract changes. Fundamental model changes are changes to the artefact model, router contract, or agent bootstrap/entry flow.
 
+## v0.32.3 — 2026-04-26
+
+**Retire legacy `find_section` helpers and tighten the `session-core.md` contract.** Internal cleanup: `session.py` now drives core-bootstrap parsing through the same `resolve_structural_target` resolver `brain_edit` uses, so duplicate or missing `## Core Docs` / `## Standards` sections in `session-core.md` surface loudly during `brain_session` instead of being silently swallowed.
+
+- Migrate `session.py` off the legacy `find_section` helper to `resolve_structural_target`, drop the broad `try/except ValueError` swallows around `_extract_markdown_section` and `_strip_markdown_section`, and let the resolver's "not found" / "ambiguous" errors propagate to the bootstrap caller.
+- Delete `find_section` and `_find_callout_section` from `_common/_markdown.py` (~80 lines) along with the redundant `TestFindSection` / `TestFindSectionIncludeHeading` blocks in `tests/test_edit.py` (~210 lines); literal-region coverage moves onto the resolver in `tests/test_markdown_structural.py`.
+- Add `tests/test_session_core.py` as a CI guard that asserts `## Core Docs` and `## Standards` appear exactly once in the authored `src/brain-core/session-core.md` and resolve unambiguously via `resolve_structural_target`.
+
 ## v0.32.2 — 2026-04-26
 
 **Tighten `brain_edit` after a simplify pass.** Internal cleanup with one user-visible correction: the documented `path` resolution surface for `brain_edit` no longer overstates display-name support, so clients only see resolution paths the resolver actually implements.
