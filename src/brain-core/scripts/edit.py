@@ -513,24 +513,13 @@ def edit_resource(vault_root, router, resource="artefact", operation="edit",
     if resource == "artefact":
         if not path:
             raise ValueError("path is required when resource='artefact'")
-        if operation == "edit":
-            result = edit_artefact(vault_root, router, path, body,
-                                frontmatter_changes=frontmatter_changes,
-                                target=target, selector=selector, scope=scope)
-        elif operation == "append":
-            result = append_to_artefact(vault_root, router, path, body,
-                                     frontmatter_changes=frontmatter_changes,
-                                     target=target, selector=selector, scope=scope)
-        elif operation == "prepend":
-            result = prepend_to_artefact(vault_root, router, path, body,
-                                      frontmatter_changes=frontmatter_changes,
-                                      target=target, selector=selector, scope=scope)
-        elif operation == "delete_section":
-            result = delete_section_artefact(vault_root, router, path,
-                                          target=target, selector=selector,
-                                          frontmatter_changes=frontmatter_changes)
-        else:
+        if operation not in {"edit", "append", "prepend", "delete_section"}:
             raise ValueError(f"Unknown operation '{operation}'")
+        result = apply_to_artefact(
+            operation, vault_root, router, path, body,
+            frontmatter_changes=frontmatter_changes,
+            target=target, selector=selector, scope=scope,
+        )
         _fix_links.attach_wikilink_warnings(vault_root, result, apply_fixes=fix_links)
         return result
 
@@ -777,7 +766,7 @@ def _apply_reference_mutation(vault_root, router, old_key, new_key, *, skip_path
     return operations
 
 
-def _maybe_restructure_living_ownership(vault_root, router, path, art, old_fields, new_fields):
+def _maybe_restructure_living_ownership(vault_root, router, path, art, old_fields, new_fields, new_body):
     """Rewrite canonical key references and move artefacts when ownership changes."""
     old_key_value = old_fields.get("key")
     new_key_value = new_fields.get("key")
@@ -840,20 +829,12 @@ def _maybe_restructure_living_ownership(vault_root, router, path, art, old_field
         )
 
     _preflight_destination(vault_root, path, new_path)
-    abs_path = os.path.join(vault_root, path)
     _commit_with_possible_rename(
-        vault_root, path, new_path, rendered_fields, _read_body(abs_path)
+        vault_root, path, new_path, rendered_fields, new_body
     )
     if new_path != path:
         return new_path, True
     return path, True
-
-
-def _read_body(abs_path):
-    """Return the markdown body from an artefact file on disk."""
-    with open(abs_path, "r", encoding="utf-8") as f:
-        _fields, body = parse_frontmatter(f.read())
-    return body
 
 
 def _maybe_status_move(vault_root, path, terminal_statuses, frontmatter_changes):
@@ -1004,7 +985,7 @@ def _finish_artefact(vault_root, router, abs_path, fields, old_body, new_body, p
     ownership_handled = False
     if art.get("classification") == "living" and old_fields is not None:
         path, ownership_handled = _maybe_restructure_living_ownership(
-            vault_root, router, path, art, old_fields, fields
+            vault_root, router, path, art, old_fields, fields, new_body
         )
         abs_path = os.path.join(vault_root, path)
     if old_fields is not None and not ownership_handled:
@@ -1029,47 +1010,38 @@ def _finish_artefact(vault_root, router, abs_path, fields, old_body, new_body, p
 # Core operations
 # ---------------------------------------------------------------------------
 
-def edit_artefact(vault_root, router, path, body="", frontmatter_changes=None,
-                  target=None, selector=None, scope=None):
-    """Replace body of existing artefact. Merges frontmatter_changes into existing FM.
+def apply_to_artefact(operation, vault_root, router, path, body="",
+                      frontmatter_changes=None, target=None, selector=None,
+                      scope=None):
+    """Apply an edit/append/prepend/delete_section to an artefact.
 
-    Args:
-        vault_root: Absolute path to the vault root.
-        router: Compiled router dict.
-        path: Relative path from vault root.
-        body: New body content. Empty string with no frontmatter changes and no
-              target is a no-op error. With frontmatter-only changes, the
-              existing body is preserved.
-        frontmatter_changes: Optional dict of frontmatter field changes (overwrites fields).
-        target: Optional ":body", heading, or callout target.
-        selector: Optional structural selector object for duplicate disambiguation.
-        scope: Optional mutable range within the selected target.
-
-    Returns:
-        Dict with path and operation.
-
-    Raises:
-        ValueError: If path validation fails or target not found.
-        FileNotFoundError: If the file does not exist.
+    Single shared implementation for all four artefact mutations. The public
+    ``edit_artefact``/``append_to_artefact``/``prepend_to_artefact``/
+    ``delete_section_artefact`` functions are thin wrappers around this.
     """
+    if operation == "delete_section":
+        body = ""
+        scope = None
     _validate_request_contract(
-        "edit", body, frontmatter_changes, target, selector, scope
+        operation, body, frontmatter_changes, target, selector, scope
     )
     path, abs_path, fields, existing_body, art = _open_artefact(vault_root, router, path)
     old_fields = dict(fields)
     frontmatter_changes = _normalise_ownership_changes(
         vault_root, router, art, frontmatter_changes
     )
-    _merge_frontmatter(fields, frontmatter_changes, "edit")
+    fm_mode = "edit" if operation == "delete_section" else operation
+    _merge_frontmatter(fields, frontmatter_changes, fm_mode)
     ensure_parent_tag(fields)
     new_body, resolved = _apply_body_operation(
         existing_body,
-        "edit",
+        operation,
         body,
         target=target,
         selector=selector,
         scope=scope,
     )
+    result_scope = "section" if operation == "delete_section" else scope
     return _finish_artefact(
         vault_root,
         router,
@@ -1080,178 +1052,50 @@ def edit_artefact(vault_root, router, path, body="", frontmatter_changes=None,
         path,
         art,
         frontmatter_changes,
-        "edit",
+        operation,
         old_fields=old_fields,
         resolved=resolved,
-        scope=scope,
+        scope=result_scope,
     )
 
 
-def delete_section_artefact(vault_root, router, path, target, selector=None,
+def edit_artefact(vault_root, router, path, body="", frontmatter_changes=None,
+                  target=None, selector=None, scope=None):
+    """Replace a structural range in an artefact's body."""
+    return apply_to_artefact(
+        "edit", vault_root, router, path, body,
+        frontmatter_changes=frontmatter_changes,
+        target=target, selector=selector, scope=scope,
+    )
+
+
+def delete_section_artefact(vault_root, router, path, target=None, selector=None,
                             frontmatter_changes=None):
-    """Delete a section (heading + all its content) from an existing artefact.
-
-    Args:
-        vault_root: Absolute path to the vault root.
-        router: Compiled router dict.
-        path: Relative path from vault root.
-        target: Heading or callout title to delete (required).
-                Include # markers to disambiguate (e.g. "## Notes").
-        frontmatter_changes: Optional dict of frontmatter field changes.
-
-    Returns:
-        Dict with path and operation.
-
-    Raises:
-        ValueError: If path validation fails or target not found.
-        FileNotFoundError: If the file does not exist.
-    """
-    _validate_request_contract(
-        "delete_section", "", frontmatter_changes, target, selector, None
-    )
-    path, abs_path, fields, existing_body, art = _open_artefact(vault_root, router, path)
-    old_fields = dict(fields)
-    frontmatter_changes = _normalise_ownership_changes(
-        vault_root, router, art, frontmatter_changes
-    )
-    _merge_frontmatter(fields, frontmatter_changes, "edit")
-    ensure_parent_tag(fields)
-    new_body, resolved = _apply_body_operation(
-        existing_body,
-        "delete_section",
-        "",
-        target=target,
-        selector=selector,
-        scope=None,
-    )
-    return _finish_artefact(
-        vault_root,
-        router,
-        abs_path,
-        fields,
-        existing_body,
-        new_body,
-        path,
-        art,
-        frontmatter_changes,
-        "delete_section",
-        old_fields=old_fields,
-        resolved=resolved,
-        scope="section",
+    """Delete a heading-owned section or callout block from an artefact."""
+    return apply_to_artefact(
+        "delete_section", vault_root, router, path, "",
+        frontmatter_changes=frontmatter_changes,
+        target=target, selector=selector, scope=None,
     )
 
 
 def append_to_artefact(vault_root, router, path, content="", frontmatter_changes=None,
                        target=None, selector=None, scope=None):
-    """Append content to existing artefact body.
-
-    Args:
-        vault_root: Absolute path to the vault root.
-        router: Compiled router dict.
-        path: Relative path from vault root.
-        content: Content to append. Empty string for frontmatter-only changes.
-        frontmatter_changes: Optional dict of frontmatter field changes
-                             (extends list fields with dedup, overwrites scalars).
-        target: Optional ":body", heading, or callout target.
-        selector: Optional structural selector object for duplicate disambiguation.
-        scope: Optional mutable range within the selected target.
-
-    Returns:
-        Dict with path and operation.
-
-    Raises:
-        ValueError: If path validation fails or target not found.
-        FileNotFoundError: If the file does not exist.
-    """
-    _validate_request_contract(
-        "append", content, frontmatter_changes, target, selector, scope
-    )
-    path, abs_path, fields, body, art = _open_artefact(vault_root, router, path)
-    old_fields = dict(fields)
-    frontmatter_changes = _normalise_ownership_changes(
-        vault_root, router, art, frontmatter_changes
-    )
-    _merge_frontmatter(fields, frontmatter_changes, "append")
-    ensure_parent_tag(fields)
-    new_body, resolved = _apply_body_operation(
-        body,
-        "append",
-        content,
-        target=target,
-        selector=selector,
-        scope=scope,
-    )
-    return _finish_artefact(
-        vault_root,
-        router,
-        abs_path,
-        fields,
-        body,
-        new_body,
-        path,
-        art,
-        frontmatter_changes,
-        "append",
-        old_fields=old_fields,
-        resolved=resolved,
-        scope=scope,
+    """Append content into a structural range of an artefact."""
+    return apply_to_artefact(
+        "append", vault_root, router, path, content,
+        frontmatter_changes=frontmatter_changes,
+        target=target, selector=selector, scope=scope,
     )
 
 
 def prepend_to_artefact(vault_root, router, path, content="", frontmatter_changes=None,
                         target=None, selector=None, scope=None):
-    """Prepend content to existing artefact body.
-
-    Args:
-        vault_root: Absolute path to the vault root.
-        router: Compiled router dict.
-        path: Relative path from vault root.
-        content: Content to prepend. Empty string for frontmatter-only changes.
-        frontmatter_changes: Optional dict of frontmatter field changes
-                             (extends list fields with dedup, overwrites scalars).
-        target: Optional ":body", heading, or callout target.
-        selector: Optional structural selector object for duplicate disambiguation.
-        scope: Optional mutable range within the selected target.
-
-    Returns:
-        Dict with path and operation.
-
-    Raises:
-        ValueError: If path validation fails or target not found.
-        FileNotFoundError: If the file does not exist.
-    """
-    _validate_request_contract(
-        "prepend", content, frontmatter_changes, target, selector, scope
-    )
-    path, abs_path, fields, body, art = _open_artefact(vault_root, router, path)
-    old_fields = dict(fields)
-    frontmatter_changes = _normalise_ownership_changes(
-        vault_root, router, art, frontmatter_changes
-    )
-    _merge_frontmatter(fields, frontmatter_changes, "prepend")
-    ensure_parent_tag(fields)
-    new_body, resolved = _apply_body_operation(
-        body,
-        "prepend",
-        content,
-        target=target,
-        selector=selector,
-        scope=scope,
-    )
-    return _finish_artefact(
-        vault_root,
-        router,
-        abs_path,
-        fields,
-        body,
-        new_body,
-        path,
-        art,
-        frontmatter_changes,
-        "prepend",
-        old_fields=old_fields,
-        resolved=resolved,
-        scope=scope,
+    """Prepend content into a structural range of an artefact."""
+    return apply_to_artefact(
+        "prepend", vault_root, router, path, content,
+        frontmatter_changes=frontmatter_changes,
+        target=target, selector=selector, scope=scope,
     )
 
 
@@ -1621,30 +1465,11 @@ def main():
             selector["occurrence"] = occurrence
 
     try:
-        if operation == "edit":
-            result = edit_artefact(
-                vault_root, router, path, body,
-                frontmatter_changes=fm_changes,
-                target=target, selector=selector, scope=scope,
-            )
-        elif operation == "append":
-            result = append_to_artefact(
-                vault_root, router, path, body,
-                frontmatter_changes=fm_changes,
-                target=target, selector=selector, scope=scope,
-            )
-        elif operation == "prepend":
-            result = prepend_to_artefact(
-                vault_root, router, path, body,
-                frontmatter_changes=fm_changes,
-                target=target, selector=selector, scope=scope,
-            )
-        else:
-            result = delete_section_artefact(
-                vault_root, router, path,
-                target=target, selector=selector,
-                frontmatter_changes=fm_changes,
-            )
+        result = apply_to_artefact(
+            operation, vault_root, router, path, body,
+            frontmatter_changes=fm_changes,
+            target=target, selector=selector, scope=scope,
+        )
     except (ValueError, FileNotFoundError) as e:
         if json_mode:
             print(json.dumps({"error": str(e)}))

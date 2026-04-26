@@ -2,6 +2,14 @@
 
 Follows a pre-1.0 [semver](https://semver.org/) policy: backward-compatible changes are patch; breaking Brain changes are minor; only fundamental model changes are major. Breaking Brain changes include vault-structure changes and breaking tool/script/MCP contract changes. Fundamental model changes are changes to the artefact model, router contract, or agent bootstrap/entry flow.
 
+## v0.32.4 — 2026-04-26
+
+**Collapse the four artefact mutation entry points and harmonise `delete_section_artefact`.** Internal refactor with one signature change: `delete_section_artefact`'s `target` parameter is now an optional kwarg so its public surface matches `edit_artefact` / `append_to_artefact` / `prepend_to_artefact`. All existing call sites already used `target=` as a kwarg, so no caller changes are needed; missing-target callers continue to hit the same contract validator error.
+
+- Introduce `apply_to_artefact(operation, ...)` in `edit.py` as the single shared implementation of artefact body mutations. The four public wrappers reduce to one-line aliases that forward to it; the `delete_section` specials (body/scope nulling, frontmatter merge mode, synthesised result `scope="section"`) are centralised inside the shared function so both `edit_resource` and the CLI dispatcher pass `body` and `scope` through unconditionally.
+- Replace the operation cascades in `edit_resource` and the direct CLI dispatcher with a single `apply_to_artefact(operation, ...)` call each.
+- Thread `new_body` through `_maybe_restructure_living_ownership` to `_commit_with_possible_rename` and delete the now-unused `_read_body` helper, removing one disk round-trip on the ownership-change path and closing the small window where a foreign writer could leak content into the rename commit.
+
 ## v0.32.3 — 2026-04-26
 
 **Retire legacy `find_section` helpers and tighten the `session-core.md` contract.** Internal cleanup: `session.py` now drives core-bootstrap parsing through the same `resolve_structural_target` resolver `brain_edit` uses, so duplicate or missing `## Core Docs` / `## Standards` sections in `session-core.md` surface loudly during `brain_session` instead of being silently swallowed.
