@@ -14,7 +14,8 @@ Operational reference for scripts in `.brain-core/scripts/`. Each script exposes
 | `create.py` | Create new artefact | `python3 create.py --type T --title "Title" [--body B] [--body-file PATH] [--temp-path [SUFFIX]] [--json]` |
 | `edit.py` | Edit artefacts via CLI; importable helpers also back `brain_edit` for editable `_Config/` resources | `python3 edit.py edit\|append\|prepend\|delete_section --path P [--body B\|--body-file PATH] [--frontmatter JSON] [--target T] [--scope S] [--occurrence N] [--within T --within-occurrence N]... [--vault V] [--json]` |
 | `rename.py` | Rename/delete file + update wikilinks (full-path and filename-only), refusing existing-destination collisions | `python3 rename.py "source" "dest" [--json]` |
-| `check.py` | Structural compliance checks | `python3 check.py [--json] [--severity S]` |
+| `check.py` | Structural compliance checks, including exact repair commands for repairable infrastructure drift | `python3 check.py [--json] [--actionable] [--severity S] [--vault V]` |
+| `repair.py` | Explicit infrastructure repair entry point with bootstrap-to-managed-runtime handoff | `python3 repair.py {mcp,router,index,registry} [--vault V] [--dry-run] [--json]` |
 | `shape_printable.py` | Create printable + render PDF | `python3 shape_printable.py --source P --slug S [--no-render] [--pdf-engine E]` |
 | `shape_presentation.py` | Create presentation + render PDF + launch preview | `python3 shape_presentation.py --source P --slug S [--no-render] [--no-preview]` |
 | `upgrade.py` | In-place brain-core upgrade with local migration ledger; direct bootstrap writes stay self-contained and atomic | `python3 upgrade.py --source P [--vault V] [--dry-run] [--force] [--sync\|--no-sync] [--sync-deps\|--no-sync-deps] [--json]` |
@@ -117,10 +118,50 @@ python3 compile_router.py --json    # output JSON to stdout
 | `status_folders` | warning | Terminal-status artefact in the wrong `+{Status}/` subfolder, or a non-terminal artefact stored inside one |
 | `taxonomy_type_consistency` | info | Taxonomy `frontmatter_type` equals folder-derived type for a plural key (likely a missing singular in the taxonomy) |
 | `router` | error | Compiled router failed to load (missing, invalid JSON, or reported an `error` payload) |
+| `workspace_registry` | warning | Current-vault local workspace registry (`.brain/local/workspaces.json`) is malformed or needs normalisation |
+| `mcp_registration` | warning | Current-vault project MCP state is drifted or incomplete |
 
 **Constraints:** Python 3.8+ stdlib only, self-locating, stateless, idempotent, stdout-only.
 
+When `check.py` detects repairable router, MCP, or local workspace-registry drift, normal human output now prints the exact `repair.py` command to run. Structured JSON/compliance output includes a `repair` object with `scope`, `description`, and `command` so agents can surface the same remediation path without scraping prose.
+
 **Relationship with `compliance_check.py`:** The vault-maintenance skill ships a separate `compliance_check.py` for **session hygiene** — quick checks like "did you log today? any transcripts? backups fresh?" It runs after each work block as a sanity check. `check.py` (this design) is **structural compliance** — "do all files have correct frontmatter? naming? month folders?" Deep scan, runs on demand or during maintenance. These are complementary tools, not competing ones.
+
+## repair.py
+
+Explicit infrastructure repair entry point at `.brain-core/scripts/repair.py`. First-cut public scopes are:
+
+- `mcp` — repair the vault-local managed runtime and current-vault project MCP registration state
+- `router` — rebuild `.brain/local/compiled-router.json`
+- `index` — rebuild `.brain/local/retrieval-index.json`
+- `registry` — repair or normalise current-vault `.brain/local/workspaces.json`
+
+**CLI:**
+
+```bash
+python3 repair.py mcp
+python3 repair.py router --dry-run
+python3 repair.py index --json
+python3 repair.py registry --vault /path/to/vault
+```
+
+**Flags:** `--vault <path>` (repair a specific vault), `--dry-run` (preview the planned mutations for one named scope), `--json` (machine-readable result).
+
+**Runtime model:**
+
+- The bootstrap path is dependency-light and may be launched from any compatible Python 3.12+ interpreter.
+- Packageful repair converges execution into the vault-local `.venv`.
+- Dependency installation targets that `.venv`, not the user's wider Python environment.
+- Each scope declares its own runtime requirements. The `mcp` scope syncs `.brain-core/brain_mcp/requirements.txt`; `router`, `index`, and `registry` use only stdlib + Brain scripts, so they require a compatible managed-runtime interpreter but skip the package sync — they stay usable offline or in restricted environments.
+- `repair.py` is the explicit recovery surface. Other scripts should detect, explain, and point to `repair.py` rather than silently broadening their own repair semantics.
+
+**Scope semantics:**
+
+- `mcp` is the proving slice and owns the managed-runtime recovery path. It repairs or creates `.venv`, syncs `.brain-core/brain_mcp/requirements.txt`, then repairs current-vault `.mcp.json`, `.codex/config.toml`, `CLAUDE.md`, `.claude/settings.local.json`, and `.brain/local/init-state.json`. It does not touch user-scope Claude/Codex config.
+- `router` and `index` use internal freshness checks and are no-ops when their generated caches are already healthy.
+- `registry` is intentionally narrow in the first cut: it only mutates the current vault's `.brain/local/workspaces.json`. It does not prune or rewrite `~/.config/brain/vaults`, and it does not touch user-scope MCP config.
+
+If you do not know what is broken, start with `check.py`. Compliance findings now point to the exact `repair.py` command when a shaped repair scope applies.
 
 ## edit.py
 
@@ -210,7 +251,7 @@ bash install.sh --uninstall --non-interactive /path/to/brain
 
 - **git** — required (for cloning the repo when not running from a local clone). The installer pins `--branch main` explicitly, so the installer contract is independent of the repo's default-branch setting.
 - **python3** — required (any version, for basic preflight)
-- **Python 3.12+** — recommended for all user-facing entry points (`install.sh`, `init.py`, `upgrade.py`, MCP server runtime). The installer searches for `python3.13`, `python3.12`, then `python3`. If no 3.12+ interpreter is found, the vault can still be scaffolded, but upgrade handoff plus `.venv` / MCP setup are skipped. The script prints guidance for installing Python later and running `init.py` manually.
+- **Python 3.12+** — required for the Python lifecycle entry points (`init.py`, `upgrade.py`, `repair.py`) and the MCP server runtime. `install.sh` itself is a Bash bootstrapper: it searches for `python3.13`, `python3.12`, then `python3`, and if no 3.12+ interpreter is found the vault can still be scaffolded, but upgrade handoff plus `.venv` / MCP setup are skipped. The script prints guidance for installing Python later and running `init.py` manually.
 - **Package index access for MCP setup** — fresh installs and existing-vault installs may install `.brain-core/brain_mcp/requirements.txt` into the vault-local `.venv`. If that step fails, the installer keeps the vault intact, skips MCP registration, and prints manual retry commands instead of aborting the whole run. Upgrade-specific dependency guidance comes from `upgrade.py`.
 
 ### Safety guards
@@ -266,6 +307,8 @@ Registration strategy:
 - **Claude** — prefers `claude mcp add-json` when CLI available, falls back to direct JSON file editing
 - **Codex** — direct TOML file editing of native Codex config surfaces
 - **Removal** — `--remove` deletes only recorded Brain-managed entries from the requested client/scope; user-scope cleanup is explicit-only; project uninstall uses the same recorded removal path
+
+`init.py` remains the MCP registration owner, not the generic repair owner. For current-vault repair of the managed runtime or project MCP state, the explicit recovery entry point is `repair.py mcp`.
 
 Claude project-scope installs still require Claude Code's own trust step for `.mcp.json`. `init.py` does not auto-approve that trust boundary. After a project install, open Claude Code in the target directory and run `/mcp` to approve `brain` if prompted. This matters most when `~/.claude.json` already contains a user-scoped `brain`: until the project entry is approved, Claude may route `mcp__brain__*` calls to the user-scoped server instead. `claude mcp list` is only a health check; it does not prove project approval.
 

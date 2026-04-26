@@ -82,6 +82,7 @@ Each DD captures the reasoning behind an architectural decision at the time it w
 | DD-040 | Workspace architecture — hub, registry, manifest, session wiring | Implemented (v0.27.5) | [dd-040](dd-040-workspace-architecture.md) |
 | DD-041 | Canonical living-artefact key convention — `key:` field, `{type}/{key}` lookup, explicit `parent:` ownership | Implemented (v0.31.0) | [dd-041](dd-041-canonical-key-convention.md) |
 | DD-042 | Mtime-signature staleness fast-path — stat directories before walking | Implemented (v0.31.1) | [dd-042](dd-042-mtime-signature-staleness-fast-path.md) |
+| DD-043 | Bootstrap launchers and managed runtimes | Implemented (v0.32.6) | [dd-043](dd-043-bootstrap-launchers-and-managed-runtimes.md) |
 
 ---
 
@@ -90,9 +91,9 @@ Each DD captures the reasoning behind an architectural decision at the time it w
 Related decisions grouped by domain. Arrows show supersede/extend chains.
 
 - **MCP tool surface:** DD-010, DD-011 → DD-020 → DD-025, DD-026, DD-027, DD-028
-- **Config & install:** DD-015, DD-023 → DD-039, DD-032, DD-033
+- **Config & install:** DD-015, DD-023 → DD-039 → DD-043, DD-032, DD-033
 - **Router & bootstrap:** DD-008, DD-009, DD-012, DD-013, DD-014, DD-017, DD-019, DD-038, DD-042
-- **Security & integrity:** DD-031, DD-036
+- **Security & integrity:** DD-031, DD-036, DD-043
 - **Plugins & platforms:** DD-004, DD-005, DD-006, DD-007, DD-021, DD-022
 - **Agent methodology:** DD-024, DD-035
 - **Workspaces:** DD-040 (extends DD-038, DD-023)

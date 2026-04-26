@@ -7,8 +7,10 @@ Scripts are the **source of truth** for all vault operations. The MCP server (`b
 | Script | Purpose | CLI usage |
 |---|---|---|
 | `_common/` | Shared utilities package: vault discovery, frontmatter parsing, serialisation, BM25 tokenisation | (library only) |
+| `_repair_common.py` | Launcher-safe repair metadata, scope definitions, and exact command builders | (library only) |
+| `_repair_runtime.py` | Managed-runtime repair scope implementations plus additive compliance repair detectors | (library only) |
 | `build_index.py` | Build BM25 retrieval index | `python3 build_index.py [--json]` |
-| `check.py` | Router-driven structural compliance checks | `python3 check.py [--json] [--severity S]` |
+| `check.py` | Router-driven structural compliance checks; human output now prints exact `repair.py` commands for repairable router/MCP/local-registry drift and structured results include `repair` metadata | `python3 check.py [--json] [--actionable] [--severity S] [--vault V]` |
 | `compile_colours.py` | Generate folder colour CSS | (called by compile_router) |
 | `compile_router.py` | Compile router from source files and refresh session markdown | `python3 compile_router.py [--json]` |
 | `config.py` | Vault configuration loader (three-layer merge) | `python3 config.py` |
@@ -21,6 +23,7 @@ Scripts are the **source of truth** for all vault operations. The MCP server (`b
 | `migrate_naming.py` | Migrate filenames to generous naming conventions | `python3 migrate_naming.py [--vault V] [--dry-run] [--json]` |
 | `obsidian_cli.py` | IPC client for native Obsidian CLI | (library module, used by MCP server) |
 | `process.py` | Content classification, duplicate resolution, ingestion | (library module, used by MCP server) |
+| `repair.py` | Explicit infrastructure repair entry point; bootstraps from a compatible Python 3.12+ launcher, converges into the vault-local `.venv`, then runs one named repair scope | `python3 repair.py {mcp,router,index,registry} [--vault V] [--dry-run] [--json]` |
 | `read.py` | Query compiled router resources | `python3 read.py RESOURCE [--name N]` |
 | `rename.py` | Rename/delete file + update wikilinks, refusing existing-destination collisions | `python3 rename.py "source" "dest" [--json]` |
 | `search_index.py` | BM25 keyword search | `python3 search_index.py "query" [--type T] [--json]` |
@@ -44,7 +47,7 @@ The script layer is organised into 8 bounded contexts. This is an architectural 
 | Compliance | `check.py` |
 | Content Intelligence | `search_index.py`, `list_artefacts.py`, `process.py` |
 | Session & Configuration | `session.py`, `config.py`, `workspace_registry.py`, `generate_key.py` |
-| Lifecycle Management | `init.py`, `upgrade.py`, `vault_registry.py`, `migrate_naming.py`, `migrations/` |
+| Lifecycle Management | `init.py`, `repair.py`, `upgrade.py`, `vault_registry.py`, `migrate_naming.py`, `migrations/` |
 | MCP Integration | `brain_mcp/server.py`, `brain_mcp/proxy.py` |
 | Platform Integration | `obsidian_cli.py` |
 
@@ -67,11 +70,11 @@ These scripts import from `_common/` for vault discovery, frontmatter parsing, a
 - `create.py`
 - `edit.py`
 - `fix_links.py`
-- `init.py`
 - `list_artefacts.py`
 - `migrate_naming.py`
 - `process.py`
 - `read.py`
+- `_repair_runtime.py`
 - `rename.py`
 - `search_index.py`
 - `session.py`
@@ -84,7 +87,10 @@ These scripts import from `_common/` for vault discovery, frontmatter parsing, a
 ### Standalone (no `_common` dependency)
 
 - `generate_key.py` — stdlib only
+- `init.py` — stdlib only; self-contained because it may run before the managed runtime is available
 - `obsidian_cli.py` — stdlib only; IPC socket client
+- `_repair_common.py` — stdlib only; shared repair metadata and command builders
+- `repair.py` — bootstrap-safe launcher that repairs or creates the vault-local managed runtime before handing off into it
 - `upgrade.py` — deliberately self-contained (it may replace `_common` during execution); duplicates only `find_vault_root()`, runs versioned `pre_compile_patch` handlers before compile validation, snapshots `.brain/` and `_Config/` for rollback using raw-byte restore so binary local-state files are safe, snapshots post-compile artefact roots before running migrations, records target-aware migration history in `.brain/local/` so reinstalls do not replay migrations unless forced, and prints caller-independent follow-up commands after upgrade-time dependency handling
 
 ## `_common/` Package Structure

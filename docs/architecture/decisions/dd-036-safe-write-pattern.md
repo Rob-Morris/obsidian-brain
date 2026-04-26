@@ -1,6 +1,7 @@
 # DD-036: Safe write pattern
 
 **Status:** Implemented
+**Extended by:** DD-043
 
 ## Context
 

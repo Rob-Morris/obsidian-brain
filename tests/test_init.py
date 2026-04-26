@@ -268,7 +268,7 @@ class TestClaudeProjectApproval:
             },
         }))
 
-        notes = init._claude_project_followup_notes(project)
+        notes = init.claude_project_followup_notes(project)
 
         assert any("has not approved project-scoped" in note for note in notes)
         assert any("/mcp" in note for note in notes)
@@ -286,7 +286,7 @@ class TestClaudeProjectApproval:
             }
         }))
 
-        notes = init._claude_project_followup_notes(project)
+        notes = init.claude_project_followup_notes(project)
 
         assert any("disabled" in note for note in notes)
         assert any("re-enable" in note for note in notes)
@@ -301,7 +301,7 @@ class TestClaudeProjectApproval:
             }
         }))
 
-        assert init._claude_project_followup_notes(project) == []
+        assert init.claude_project_followup_notes(project) == []
 
 
 class TestClientScopeWarnings:
@@ -332,8 +332,8 @@ class TestStateBookkeeping:
         record_b = dict(record_a)
         record_b["server_config"] = config_b
 
-        init._record_init_target(vault, record_a)
-        init._record_init_target(vault, record_b)
+        init.record_init_target(vault, record_a)
+        init.record_init_target(vault, record_b)
 
         state = init._load_init_state(vault)
         assert len(state["records"]) == 1

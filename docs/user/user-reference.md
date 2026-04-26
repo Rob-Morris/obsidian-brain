@@ -195,10 +195,11 @@ Available in `.brain-core/scripts/`. Scripts are the source of truth for all vau
 | `create.py` | Create a new artefact with template/naming resolution |
 | `edit.py` | Edit artefacts via explicit `target + selector + scope`; the importable helpers also back editable `_Config/` resources |
 | `rename.py` | Rename a file with automatic wikilink updates; refuses existing-destination collisions before touching links |
+| `repair.py` | Explicit infrastructure repair entry point. Bootstraps from any compatible Python 3.12+ launcher, converges into the vault-local `.venv`, and then repairs one named scope: `mcp`, `router`, `index`, or `registry`. |
 | `upgrade.py` | Canonical brain-core upgrade entry point from a source directory, including versioned pre-compile compatibility patches, binary-safe rollback snapshots for `.brain/` / `_Config/`, post-compile migration rollback of touched artefact roots, applied-migration tracking in `.brain/local/`, self-contained atomic writes, and best-effort vault-local MCP dependency sync when requirements change |
 | `workspace_registry.py` | Workspace key→path resolution and registration |
 | `init.py` | Set up Claude Code and/or Codex to use this vault's MCP server; requires a Python 3.12+ runtime with the `mcp` package, folder-scoped installs also scaffold `.brain/local/workspace.yaml` (migrates legacy `.brain/workspace.yaml` automatically), and direct config writes stay atomic with unique sibling temp files. Project scope outranks user scope once the client activates the project entry: approve via `/mcp` in Claude, or trust/enable the project-scoped server in Codex. |
-| `check.py` | Structural compliance checker — validates naming, frontmatter, month folders, archives, status values |
+| `check.py` | Structural compliance checker — validates naming, frontmatter, month folders, archives, status values, and now prints exact `repair.py` commands when it detects repairable router/MCP/local-registry drift |
 | `migrate_naming.py` | Migrate vault filenames from old aggressive slugs to generous naming conventions |
 | `fix_links.py` | Auto-repair broken wikilinks using naming convention heuristics |
 | `sync_definitions.py` | Sync artefact library definitions to vault `_Config/` using three-way hash comparison |
@@ -209,13 +210,25 @@ Available in `.brain-core/scripts/`. Scripts are the source of truth for all vau
 
 Two complementary tools:
 
-**`check.py`** (structural compliance) — deep scan that validates all files against the compiled router: naming patterns, frontmatter type and required fields, month folders for temporal files, archive metadata, status values, and broken or ambiguous wikilinks (including YAML frontmatter property-links like `parent: "[[foo]]"`; wikilinks inside code, HTML comments, `$$` math, and raw HTML blocks are treated as literal text). Run on demand or during maintenance. Flags: `--json` (structured output), `--actionable` (fix suggestions), `--severity <level>` (filter). Also available via MCP: `brain_read(resource="compliance")`.
+**`check.py`** (structural compliance) — deep scan that validates all files against the compiled router: naming patterns, frontmatter type and required fields, month folders for temporal files, archive metadata, status values, and broken or ambiguous wikilinks (including YAML frontmatter property-links like `parent: "[[foo]]"`; wikilinks inside code, HTML comments, `$$` math, and raw HTML blocks are treated as literal text). When router, MCP, or local workspace-registry drift is detected, normal output prints the exact `repair.py` command to run and JSON/compliance output includes structured `repair` metadata. Run on demand or during maintenance. Flags: `--json` (structured output), `--actionable` (fix suggestions), `--severity <level>` (filter). Also available via MCP: `brain_read(resource="compliance")`.
 
 ```bash
 python3 .brain-core/scripts/check.py                    # human-readable
 python3 .brain-core/scripts/check.py --json --actionable # structured with fixes
 python3 .brain-core/scripts/check.py --vault /path/to/vault  # check a specific vault
 ```
+
+**`repair.py`** (infrastructure recovery) — explicit repair surface for current-vault operational drift. It bootstraps from any compatible Python 3.12+ launcher, repairs the vault-local managed runtime when needed, then hands off into that `.venv` for packageful work. First-cut scopes are `mcp`, `router`, `index`, and `registry`.
+
+```bash
+python3.12 .brain-core/scripts/repair.py mcp
+python3.12 .brain-core/scripts/repair.py router --dry-run
+python3.12 .brain-core/scripts/repair.py index
+python3.12 .brain-core/scripts/repair.py registry
+```
+
+If you are unsure which scope applies, run `check.py` first. For most broken
+tooling cases, `repair.py mcp` is the right recovery path.
 
 **`compliance_check.py`** (session hygiene) — quick checks like "did you log today?" and "are backups fresh?" Run after each work block.
 

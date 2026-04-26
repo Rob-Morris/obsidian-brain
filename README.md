@@ -1,7 +1,6 @@
 # Obsidian Brain
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.32.5-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.10-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.32.5-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.12-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.32.6-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.12-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
 
 A self-evolving knowledge base for agents and humans working together on what matters.
 
@@ -32,7 +31,7 @@ The [Getting Started guide](docs/user/getting-started.md) walks through all of t
 
 ## Quick Start
 
-**You need:** git, Python 3.12+, and an MCP-capable agent such as [Claude Code](https://docs.anthropic.com/en/docs/claude-code) or Codex. [Obsidian](https://obsidian.md) is strongly recommended — the brain is designed for it — but you can use any markdown editor or just talk to your agent directly.
+**You need:** git and an MCP-capable agent such as [Claude Code](https://docs.anthropic.com/en/docs/claude-code) or Codex. Python 3.12+ is the supported user-facing runtime for MCP and Python lifecycle commands; `install.sh` can still scaffold the vault without it and print the follow-up steps. [Obsidian](https://obsidian.md) is strongly recommended — the brain is designed for it — but you can use any markdown editor or just talk to your agent directly.
 
 **Create your vault:**
 
@@ -51,7 +50,7 @@ This downloads the repo, creates the vault in the current directory, and then at
 The canonical upgrade path is `upgrade.py` from a clone of this repo:
 
 ```bash
-python3 src/brain-core/scripts/upgrade.py --source src/brain-core --vault /path/to/brain
+python3.12 src/brain-core/scripts/upgrade.py --source src/brain-core --vault /path/to/brain
 ```
 
 If you want a convenience wrapper that fetches the repo or prompts for confirmation, `install.sh` can delegate to `upgrade.py` for an already-installed vault:
@@ -61,6 +60,30 @@ bash install.sh /path/to/brain
 ```
 
 The wrapper detects the existing installation, shows the version change, and then runs `upgrade.py`. When `.brain-core/brain_mcp/requirements.txt` changes and the vault already has a local `.venv`, the upgrader syncs that environment directly; project MCP registration is left in place and is not re-run. Same-version re-apply, downgrade, and migration rerun flows remain explicit `upgrade.py --force` operations.
+
+#### Repair
+
+If the local Brain runtime or generated state drifts, use the explicit repair entry point:
+
+```bash
+python3.12 .brain-core/scripts/repair.py mcp
+python3.12 .brain-core/scripts/repair.py router
+python3.12 .brain-core/scripts/repair.py index
+python3.12 .brain-core/scripts/repair.py registry
+```
+
+For most users, `repair.py mcp` is the main recovery path. Use it when the
+vault-local `.venv`, MCP dependencies, or current-vault MCP registration have
+drifted. The other scopes repair generated router/index state or the local
+workspace registry.
+
+If you do not know what is broken, start with:
+
+```bash
+python3 .brain-core/scripts/check.py
+```
+
+When `check.py` detects router, MCP, or local workspace-registry drift, it now prints the exact `repair.py` command to run. `repair.py` may be launched from any compatible Python 3.12+ interpreter, but packageful repair converges into the vault-local `.venv`; it does not install packages into your wider Python environment.
 
 #### Existing vault
 
@@ -98,8 +121,8 @@ If you prefer to do it yourself:
 1. Clone this repo: `git clone https://github.com/rob-morris/obsidian-brain.git`
 2. Copy `template-vault/` to your preferred location: `cp -R template-vault /path/to/brain`
 3. Copy brain-core into the vault: `cp -R src/brain-core /path/to/brain/.brain-core`
-4. Create a venv and install dependencies: `cd /path/to/brain && python3 -m venv .venv && .venv/bin/pip install "mcp>=1.0.0"`
-5. Register the MCP server: `python3 .brain-core/scripts/init.py --client all` (or `--user --client all` for all projects)
+4. Create a vault-local venv and install Brain MCP dependencies: `cd /path/to/brain && python3.12 -m venv .venv && .venv/bin/python -m pip install -r .brain-core/brain_mcp/requirements.txt`
+5. Register the MCP server: `.venv/bin/python .brain-core/scripts/init.py --client all` (or `--user --client all` for all projects)
    For project scope, the file write is not the whole story: Claude still needs `/mcp` approval for `brain`, and Codex still needs the project trusted with `brain` enabled.
 6. Open the folder as an Obsidian vault
 7. Enable the CSS snippet in **Settings > Appearance > CSS Snippets** (`brain-folder-colours`)
@@ -108,17 +131,17 @@ If you prefer to do it yourself:
 
 ### Connecting from Other Projects
 
-When MCP setup is enabled, the install script registers the server for the vault directory at project scope for Claude Code and Codex. To use the brain from other directories, run one of these from inside the vault:
+When MCP setup is enabled, the install script registers the server for the vault directory at project scope for Claude Code and Codex. To use the brain from other directories, run one of these from inside the vault with the vault-local managed runtime:
 
 ```bash
 # Make the brain available to all projects for both clients
-python3 .brain-core/scripts/init.py --user --client all
+.venv/bin/python .brain-core/scripts/init.py --user --client all
 
 # Or link a specific project for both clients
-python3 .brain-core/scripts/init.py --project /path/to/project --client all
+.venv/bin/python .brain-core/scripts/init.py --project /path/to/project --client all
 
 # Claude-only local scope (gitignored; Codex has no local scope)
-python3 .brain-core/scripts/init.py --client claude --local
+.venv/bin/python .brain-core/scripts/init.py --client claude --local
 ```
 
 Use `--user` if you want the brain everywhere. Use `--project` to connect a single project without affecting others. Use `--client claude --local` when you want Claude-only local config in `.claude/settings.local.json` without committing it. For project scope, the project-scoped MCP still outranks the user-scoped one once it is active, but registration alone is not enough: in Claude, approve `brain` via `/mcp`; in Codex, trust the project and ensure `brain` is enabled. Until then, either client may keep using the user-scoped `brain`.

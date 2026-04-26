@@ -2,6 +2,16 @@
 
 Follows a pre-1.0 [semver](https://semver.org/) policy: backward-compatible changes are patch; breaking Brain changes are minor; only fundamental model changes are major. Breaking Brain changes include vault-structure changes and breaking tool/script/MCP contract changes. Fundamental model changes are changes to the artefact model, router contract, or agent bootstrap/entry flow.
 
+## v0.32.6 — 2026-04-26
+
+**Add `repair.py` as the explicit infrastructure recovery entry point and formalise the managed-runtime contract.** Brain now has a named repair surface for current-vault MCP/runtime recovery, router/index rebuilds, and local workspace-registry normalisation. `repair.py` bootstraps from any compatible Python 3.12+ launcher, repairs the vault-local `.venv` when needed, then hands off into that managed runtime for packageful work. `check.py` now emits exact repair commands in human output and structured `repair` hints in JSON/compliance results when it detects router, MCP, or local-registry drift.
+
+- Add `.brain-core/scripts/repair.py` with first-cut scopes `mcp`, `router`, `index`, and `registry`, plus a bootstrap-safe/runtime split (`_repair_common.py`, `_repair_runtime.py`).
+- `mcp` repair now converges into the vault-local `.venv`, syncs `.brain-core/brain_mcp/requirements.txt`, and repairs current-vault project MCP config/bootstrap/init-state without touching user-scope config.
+- Add current-vault-only `registry` repair for `.brain/local/workspaces.json`, including normalisation/backup of malformed state; `router` and `index` repairs rebuild their compiled caches with explicit no-op/dry-run behaviour.
+- Extend `check.py` and `brain_read(resource="compliance")` with additive repair guidance: exact commands in normal human output and structured `repair` objects in JSON/compliance results for router, MCP, and local-registry drift.
+- Ship DD-043 to formalise the bootstrap-launcher vs managed-runtime boundary, and refresh script, user, and architecture docs around the new repair surface.
+
 ## v0.32.5 — 2026-04-26
 
 **Add shortest-clearest-unique slug derivation and apply it in the unreleased v0.31.0 migration.** Slug helpers now produce a multi-token pair when the title supplies one, falling through to a single distinctive keyword and finally a random suffix. Living-artefact keys derived during the v0.31.0 key-backfill aim for ≤20 characters with a meaningful 1- or 2-word identifier instead of the previous 64-char title slugs, and the previously-fatal `design/brain` collision on shared hub tags is now adjudicated cleanly.

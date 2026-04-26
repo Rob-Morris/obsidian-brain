@@ -27,7 +27,7 @@ import sys
 import tempfile
 import unicodedata
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, NoReturn, Optional, Tuple
 
 
 # ---------------------------------------------------------------------------
@@ -229,11 +229,11 @@ def _codex_config_path(scope: str, target_dir: Optional[Path]) -> Path:
     return (target_dir or Path.cwd()) / CODEX_CONFIG_REL
 
 
-def _bootstrap_line_for_target(target_dir: Path) -> str:
+def bootstrap_line_for_target(target_dir: Path) -> str:
     return CLAUDE_MD_BOOTSTRAP_VAULT if _is_vault_root(target_dir) else CLAUDE_MD_BOOTSTRAP_PROJECT
 
 
-def _build_session_hook_command(vault_root: Path, target_dir: Path) -> str:
+def build_session_hook_command(vault_root: Path, target_dir: Path) -> str:
     session_script = str(vault_root / ".brain-core" / "scripts" / "session.py")
     return (
         "echo 'brain_session called:' "
@@ -449,7 +449,7 @@ def _claude_project_approval_state(target_dir: Path) -> Dict[str, Any]:
     }
 
 
-def _claude_project_followup_notes(target_dir: Path) -> List[str]:
+def claude_project_followup_notes(target_dir: Path) -> List[str]:
     """Return user-facing follow-up notes for Claude project-scope installs."""
     state = _claude_project_approval_state(target_dir)
     if state["approved"]:
@@ -725,7 +725,7 @@ def _remove_codex_server(config_path: Path, server_config: Dict[str, Any]) -> bo
 
 def ensure_claude_md(target_dir: Path, local: bool = False) -> Path:
     """Ensure CLAUDE.md (or .claude/CLAUDE.local.md) has the brain bootstrap line."""
-    bootstrap = _bootstrap_line_for_target(target_dir)
+    bootstrap = bootstrap_line_for_target(target_dir)
     rel_path = CLAUDE_LOCAL_MD_FILE if local else CLAUDE_MD_FILE
     claude_md = target_dir / rel_path
 
@@ -821,7 +821,7 @@ def ensure_session_start_hook(target_dir: Path, vault_root: Path) -> Path:
     if "hooks" not in settings or not isinstance(settings["hooks"], dict):
         settings["hooks"] = {}
 
-    hook_command = _build_session_hook_command(vault_root, target_dir)
+    hook_command = build_session_hook_command(vault_root, target_dir)
     for entry in settings["hooks"].get("SessionStart", []):
         if not isinstance(entry, dict):
             continue
@@ -850,7 +850,7 @@ def _remove_session_start_hook(settings_path: Path, vault_root: Path, target_dir
     if not isinstance(hooks, dict):
         return
 
-    hook_command = _build_session_hook_command(vault_root, target_dir)
+    hook_command = build_session_hook_command(vault_root, target_dir)
     changed = False
     session_entries = hooks.get("SessionStart", [])
     kept_entries = []
@@ -934,7 +934,7 @@ def _record_identity(record: Dict[str, Any]) -> Tuple[Any, ...]:
     )
 
 
-def _record_init_target(vault_root: Path, record: Dict[str, Any]) -> None:
+def record_init_target(vault_root: Path, record: Dict[str, Any]) -> None:
     state = _load_init_state(vault_root)
     records = []
     record_id = _record_identity(record)
@@ -959,7 +959,7 @@ def _remove_init_records(vault_root: Path, removed_records: List[Dict[str, Any]]
     _save_init_state(vault_root, state)
 
 
-def _matching_records(
+def matching_records(
     vault_root: Path,
     clients: List[str],
     scope: str,
@@ -1051,9 +1051,9 @@ def register_claude(
         bootstrap_path = ensure_claude_md(target_dir, local=scope == "local")
         hook_path = ensure_session_start_hook(target_dir, vault_root)
         record["bootstrap_path"] = str(bootstrap_path)
-        record["bootstrap_line"] = _bootstrap_line_for_target(target_dir)
+        record["bootstrap_line"] = bootstrap_line_for_target(target_dir)
         record["hook_path"] = str(hook_path)
-        record["hook_command"] = _build_session_hook_command(vault_root, target_dir)
+        record["hook_command"] = build_session_hook_command(vault_root, target_dir)
 
     record["method"] = method
     return record
@@ -1091,7 +1091,7 @@ def _remove_record(vault_root: Path, record: Dict[str, Any]) -> bool:
             target_dir = Path(target_path)
             _remove_bootstrap_line(
                 Path(record.get("bootstrap_path", target_dir / CLAUDE_MD_FILE)),
-                record.get("bootstrap_line", _bootstrap_line_for_target(target_dir)),
+                record.get("bootstrap_line", bootstrap_line_for_target(target_dir)),
             )
             _remove_session_start_hook(
                 Path(record.get("hook_path", target_dir / CLAUDE_LOCAL_SETTINGS_FILE)),
@@ -1126,7 +1126,7 @@ def info(msg: str) -> None:
     print(f"  {msg}", file=sys.stderr)
 
 
-def fatal(msg: str) -> None:
+def fatal(msg: str) -> NoReturn:
     print(f"Error: {msg}", file=sys.stderr)
     sys.exit(1)
 
@@ -1214,7 +1214,7 @@ def main() -> None:
             _confirm_removal(scope_label, clients)
 
         header("Removing MCP registrations")
-        matching = _matching_records(vault_root, clients, scope, target_dir)
+        matching = matching_records(vault_root, clients, scope, target_dir)
         if not matching:
             info("No recorded Brain-managed entries matched this request.")
             print(file=sys.stderr)
@@ -1248,7 +1248,7 @@ def main() -> None:
             record = register_claude(vault_root, server_config, scope, target_dir)
         else:
             record = register_codex(server_config, scope, target_dir)
-        _record_init_target(vault_root, record)
+        record_init_target(vault_root, record)
         results.append(record)
 
     if target_dir and not _is_vault_root(target_dir):
@@ -1269,7 +1269,7 @@ def main() -> None:
     project_scope = scope == "project" and target_dir is not None
 
     if project_scope and has_claude:
-        notes = _claude_project_followup_notes(target_dir)
+        notes = claude_project_followup_notes(target_dir)
         if notes:
             header("Claude project approval")
             for note in notes:

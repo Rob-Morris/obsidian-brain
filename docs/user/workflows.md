@@ -267,6 +267,8 @@ The router (`_Config/router.md`) defines workflow triggers — things that shoul
 
 The Brain includes a structural compliance checker (`check.py`) that validates every file against its type's rules — naming patterns, frontmatter fields, month folders, archive metadata, status values. Run it on demand or let agents use it via `brain_read(resource="compliance")` to catch drift before it accumulates.
 
+When compliance detects shaped infrastructure drift — for example a stale router, broken current-vault MCP state, or malformed local workspace registry — it now points at the exact `repair.py` command to run. That keeps diagnosis (`check.py`) separate from mutation (`repair.py <scope>`), while still giving both humans and agents one obvious recovery path.
+
 ### Agents Read Your Preferences
 
 Your standing instructions and gotchas travel with the vault. Every agent session starts by reading them. Your preferences persist even when the conversation doesn't.

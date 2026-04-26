@@ -80,6 +80,7 @@ The distinction from Brain config:
 - `.brain/local/workspaces.json` is machine-local binding state for linked workspaces
 
 Tooling such as `init.py` may scaffold `.brain/local/workspace.yaml`, but the file remains human-editable and is expected to evolve over time.
+`repair.py registry` is intentionally narrower: it repairs or normalises `.brain/local/workspaces.json` only, not the human-owned workspace manifest.
 
 ---
 

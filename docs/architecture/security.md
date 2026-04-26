@@ -169,6 +169,12 @@ bootstrap scripts (`init.py`, `upgrade.py`) and the historical migrations so
 those paths stay atomic without depending on `_common` during early install or
 upgrade flows.
 
+The new `repair.py` bootstrap path is deliberately narrower: it repairs or
+creates the vault-local `.venv` and then hands off into that managed runtime
+for packageful work. Current-vault repair scopes such as `registry` are scoped
+to machine-local files under the vault (`.brain/local/...`) and do not broaden
+into user-home config or cross-vault registries by default.
+
 **Exclusive mode:** `safe_write(exclusive=True)` (used by `brain_create`) checks file
 existence before writing, providing a lightweight create-or-fail guarantee.
 

@@ -48,6 +48,8 @@ from _common import (
     validate_filename,
     resolve_and_validate_folder,
 )
+from _repair_common import attach_repair_guidance
+from _repair_runtime import collect_check_findings
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -769,17 +771,19 @@ def run_checks(vault_root, router=None):
     if router is None:
         router = load_router(vault_root)
     if "error" in router:
+        finding = {
+            "check": "router",
+            "severity": "error",
+            "file": None,
+            "message": router["error"],
+        }
+        attach_repair_guidance(finding, vault_root, "router")
         return {
             "vault_root": vault_root,
             "brain_core_version": None,
             "checked_at": datetime.now(timezone.utc).astimezone().isoformat(),
             "summary": {"errors": 1, "warnings": 0, "info": 0},
-            "findings": [{
-                "check": "router",
-                "severity": "error",
-                "file": None,
-                "message": router["error"],
-            }],
+            "findings": [finding],
         }
 
     version = router.get("meta", {}).get("brain_core_version")
@@ -787,6 +791,7 @@ def run_checks(vault_root, router=None):
     findings = []
     for check_fn in ALL_CHECKS:
         findings.extend(check_fn(vault_root, router, ctx=ctx))
+    findings.extend(collect_check_findings(vault_root))
 
     summary = {
         "errors": sum(1 for f in findings if f["severity"] == "error"),
@@ -854,6 +859,8 @@ def main():
             line = f"  {prefix}  {file_str}: {f['message']}"
             if actionable and "fix" in f:
                 line += f" → {f['fix']}"
+            elif "repair" in f:
+                line += f" → Run `{f['repair']['command']}`"
             print(line)
 
         s = result["summary"]

@@ -1,6 +1,7 @@
 # DD-039: Multi-client MCP install keeps native client scopes
 
 **Status:** Accepted
+**Extended by:** DD-043
 
 ## Context
 

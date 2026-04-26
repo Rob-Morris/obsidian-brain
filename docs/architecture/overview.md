@@ -10,7 +10,7 @@ brain-core is a self-extending system for organising Obsidian vaults, for agents
 
 ### `.brain-core/` — the engine
 
-Copied into the vault during setup and upgrade (not symlinked — vaults are self-contained and portable). `init.py` then binds the vault into native client config surfaces: Claude project/local/user config and Codex project/user config. Contains:
+Copied into the vault during setup and upgrade (not symlinked — vaults are self-contained and portable). `init.py` then binds the vault into native client config surfaces: Claude project/local/user config and Codex project/user config. `repair.py` is the explicit current-vault recovery entry point and bootstraps packageful repair back into the vault-local managed runtime when needed. Contains:
 
 - `scripts/` — all vault operation logic as importable Python modules with CLI entry points
 - `brain_mcp/server.py` + `brain_mcp/_server_*.py` — MCP composition root and sibling tool handlers; holds router and index in memory
