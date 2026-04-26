@@ -66,6 +66,17 @@ def filesystem_is_case_sensitive(tmp_path):
     return not (tmp_path / "caseprobe.txt").exists()
 
 
+def write_executable(path, content):
+    """Write *content* to *path* and chmod +x. Used by install/upgrade integration tests."""
+    import stat
+    from pathlib import Path
+
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content)
+    path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+
 def copy_install_source(dest):
     """Copy the repo's install entry points into *dest* for install.sh integration tests.
 

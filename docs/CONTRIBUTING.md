@@ -69,13 +69,13 @@ Link policy for shipped docs:
 
 ## Versioning
 
-Bump `src/brain-core/VERSION` for any change to files under `src/brain-core/`, including doc-only edits. If it ships in `.brain-core/`, it gets a version bump — no exceptions. Follows [semver](https://semver.org/):
+Bump `src/brain-core/VERSION` for any change to files under `src/brain-core/`, including doc-only edits. If it ships in `.brain-core/`, it gets a version bump — no exceptions. Also bump it for end-user install or upgrade contract changes (`install.sh`, installer docs, upgrade entry-point guidance) even when those files live outside `src/brain-core/`, because they change the released product surface. This repo uses a pre-1.0 [semver](https://semver.org/) policy:
 
 | Bump | When |
 |---|---|
-| **Patch** | Bug fixes, doc clarifications, additive changes (new types, new colours) |
-| **Minor** | Breaking vault structure changes (renamed/removed core files, changed folder conventions) |
-| **Major** | Fundamental model changes (artefact model, router contract, agent entry flow) |
+| **Patch** | Bug fixes, doc clarifications, and other additive, backward-compatible changes, including end-user install/upgrade contract changes |
+| **Minor** | Breaking Brain changes that preserve the core model, including renamed/removed core files, breaking vault-structure or folder-convention changes, or breaking tool/script/MCP contract changes |
+| **Major** | Fundamental model changes to the artefact model, router contract, or agent bootstrap/entry flow |
 
 ## Changelog
 

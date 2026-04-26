@@ -17,7 +17,7 @@ Operational reference for scripts in `.brain-core/scripts/`. Each script exposes
 | `check.py` | Structural compliance checks | `python3 check.py [--json] [--severity S]` |
 | `shape_printable.py` | Create printable + render PDF | `python3 shape_printable.py --source P --slug S [--no-render] [--pdf-engine E]` |
 | `shape_presentation.py` | Create presentation + render PDF + launch preview | `python3 shape_presentation.py --source P --slug S [--no-render] [--no-preview]` |
-| `upgrade.py` | In-place brain-core upgrade with local migration ledger; direct bootstrap writes stay self-contained and atomic | `python3 upgrade.py --source P [--vault V] [--dry-run] [--force] [--json]` |
+| `upgrade.py` | In-place brain-core upgrade with local migration ledger; direct bootstrap writes stay self-contained and atomic | `python3 upgrade.py --source P [--vault V] [--dry-run] [--force] [--sync\|--no-sync] [--sync-deps\|--no-sync-deps] [--json]` |
 | `workspace_registry.py` | Workspace slug-path resolution | `python3 workspace_registry.py [--register SLUG PATH] [--unregister SLUG] [--resolve SLUG] [--json]` |
 | `migrate_naming.py` | Migrate filenames to generous conventions | `python3 migrate_naming.py [--vault V] [--dry-run] [--json]` |
 | `migrations/migrate_to_0_29_0.py` | v0.29.0 migration bundle: `pre_compile_patch` remediates blocking missing-`date_source` taxonomies, then `post_compile` backfills `created`/`modified`/`date_source` across the vault | `python3 migrations/migrate_to_0_29_0.py [--vault V] [--dry-run] [--json]` |
@@ -124,7 +124,7 @@ python3 compile_router.py --json    # output JSON to stdout
 
 ## install.sh
 
-Top-level script for installing, upgrading, and uninstalling the brain. Handles four modes depending on what it finds at the target path.
+Top-level script for installing and uninstalling the brain, plus a thin upgrade wrapper for already-installed vaults. Handles four modes depending on what it finds at the target path.
 
 ### Usage
 
@@ -156,14 +156,14 @@ bash install.sh --uninstall --non-interactive /path/to/brain
 | Mode | Trigger | What happens |
 |---|---|---|
 | **Fresh install** | Target is empty or doesn't exist | Copies template vault + brain-core, creates `.venv`, registers project-scope MCP for Claude and Codex (unless skipped or deferred after a dependency failure) |
-| **Upgrade** | Target contains `.brain-core/` | Shows installed vs source version, confirms, runs `upgrade.py`, syncs Python dependencies when possible |
+| **Upgrade** | Target contains `.brain-core/` | Shows installed vs source version, confirms, then delegates to `upgrade.py`; does not own upgrade policy or re-run MCP setup |
 | **Existing vault** | Target is non-empty but has no `.brain-core/` | Installs brain-core + config scaffolding only — existing files are never overwritten |
 | **Uninstall** | `--uninstall` flag | Removes brain system files; optionally deletes the entire vault |
 
 ### Flags
 
-- `--non-interactive` — skip all interactive prompts. On install/upgrade: accepts defaults and auto-attempts MCP setup unless you also pass `--skip-mcp`. On uninstall: removes system files without prompting and skips the vault-deletion offer entirely. Also bypasses the stdin pipe detection error. `install.sh` does not expose upgrade override semantics; use `upgrade.py --force` directly for same-version re-apply, downgrade, or migration rerun flows.
-- `--skip-mcp` / `--no-mcp` — skip `.venv` creation, dependency installation, MCP registration, and upgrade-time dependency sync. Useful for network-restricted or vault-only installs.
+- `--non-interactive` — skip all interactive prompts. On fresh install or existing-vault install: accepts defaults and auto-attempts MCP setup unless you also pass `--skip-mcp`. On uninstall: removes system files without prompting and skips the vault-deletion offer entirely. Also bypasses the stdin pipe detection error. On upgrade, it auto-confirms the handoff to `upgrade.py`. `install.sh` does not expose upgrade override semantics; use `upgrade.py --force` directly for same-version re-apply, downgrade, or migration rerun flows.
+- `--skip-mcp` / `--no-mcp` — skip `.venv` creation, dependency installation, and MCP registration on install flows. Useful for network-restricted or vault-only installs. On upgrade flows it passes `--no-sync-deps` through to `upgrade.py`, so the canonical upgrader still owns the behavior while the wrapper preserves the opt-out.
 - `--uninstall` — enter uninstall mode. Must be the first argument.
 - **Path** (positional, optional) — target directory. Defaults to current directory (prompted interactively, or `pwd` with `--non-interactive`).
 
@@ -171,8 +171,8 @@ bash install.sh --uninstall --non-interactive /path/to/brain
 
 - **git** — required (for cloning the repo when not running from a local clone). The installer pins `--branch main` explicitly, so the installer contract is independent of the repo's default-branch setting.
 - **python3** — required (any version, for basic preflight)
-- **Python 3.10+** — recommended. The script searches for `python3.13` down to `python3.10`, then falls back to `python3`. If no 3.10+ is found, the vault is still created but `.venv` and MCP server setup are skipped. The script prints guidance for installing Python later and running `init.py` manually.
-- **Package index access for MCP setup** — fresh installs and upgrade-time dependency sync install `.brain-core/brain_mcp/requirements.txt` into the vault-local `.venv`. If that step fails, the installer keeps the vault/upgrade intact, skips MCP registration, and prints manual retry commands instead of aborting the whole run.
+- **Python 3.12+** — recommended for all user-facing entry points (`install.sh`, `init.py`, `upgrade.py`, MCP server runtime). The installer searches for `python3.13`, `python3.12`, then `python3`. If no 3.12+ interpreter is found, the vault can still be scaffolded, but upgrade handoff plus `.venv` / MCP setup are skipped. The script prints guidance for installing Python later and running `init.py` manually.
+- **Package index access for MCP setup** — fresh installs and existing-vault installs may install `.brain-core/brain_mcp/requirements.txt` into the vault-local `.venv`. If that step fails, the installer keeps the vault intact, skips MCP registration, and prints manual retry commands instead of aborting the whole run. Upgrade-specific dependency guidance comes from `upgrade.py`.
 
 ### Safety guards
 
@@ -263,14 +263,14 @@ python3 session.py --context slug # include context stub in the JSON output
 
 ## upgrade.py
 
-CLI-only upgrade script at `src/brain-core/scripts/upgrade.py` (runs from the repo, not shipped to vaults). Copies a source brain-core directory into a vault's `.brain-core/`, removing obsolete files, with version awareness. Self-contained (no `_common` imports) because it replaces `_common/` during execution.
+Canonical upgrade script at `src/brain-core/scripts/upgrade.py`. It is shipped inside `.brain-core/scripts/` for vault-local use, but the documented upgrade entry point is still "run it from a clone of this repo with an explicit `--source`". Copies a source brain-core directory into a vault's `.brain-core/`, removing obsolete files, with version awareness. Self-contained (no `_common` imports) because it replaces `_common/` during execution.
 
 **Design decisions:**
 - Source path is required (`--source`), not auto-detected — explicit is safer for an operation that overwrites system files
 - **Backup + pre-compile patch target + compile validation + rollback** — before modifying anything, `.brain-core/` is backed up to `/tmp/`. After copying files, any versioned `pre_compile_patch` handlers run first so narrowly-scoped compatibility repairs can unblock the new compiler. `compile_router.py` then runs as the validation gate. If copy, patching, compile, or a later post-compile migration fails, both the vault snapshots and `.brain-core/` are restored. The pre-compile rollback snapshots `.brain/` and `_Config/` in raw bytes, so binary or non-UTF-8 files under those roots no longer break rollback; post-compile migrations also snapshot affected artefact roots so half-applied renames do not survive a failed migration. Result is logged to `.brain/local/last-upgrade.json` for diagnostics
 - **Per-migration ledger** — each migration recorded as successful or skipped is written to `.brain/local/migrations.json`, and a coarse `.brain/local/.migrated-version` fast-path marker is refreshed once all `post_compile` migrations up to the installed version are accounted for. Target-specific entries are keyed as `VERSION@TARGET` (for example `0.29.0@pre_compile_patch`). This prevents historical migrations from replaying just because `.brain-core/` was deleted and reinstalled. `--force` bypasses the ledger and re-runs migrations up to the target version
 - **Standard migration targets** — `post_compile` is the default versioned migration stage; `pre_compile_patch` is the standard patch stage for compatibility fixes that must land before the compile gate. Migrations declare non-default targets via `TARGET_HANDLERS`
-- **Dependency management** — MCP server dependencies are declared in `.brain-core/brain_mcp/requirements.txt`. When this file changes during an upgrade, the CLI prints a reminder to run `pip install -r`. `install.sh` handles this automatically for both fresh installs and upgrades. For manual upgrades, re-run: `.venv/bin/python -m pip install -r .brain-core/brain_mcp/requirements.txt`
+- **Dependency management** — MCP server dependencies are declared in `.brain-core/brain_mcp/requirements.txt`. When this file changes during an upgrade, the CLI best-effort syncs the vault-local `.venv` itself if one exists. `--no-sync-deps` skips that step and prints the exact absolute retry command instead. The `install.sh` wrapper delegates this behavior to `upgrade.py`, and `install.sh --skip-mcp` passes through the opt-out.
 - **Not exposed via MCP** — self-upgrading MCP servers are an anti-pattern (a prompt-injected agent could point upgrade at a crafted directory). The MCP server detects version drift and exits cleanly; the client restarts it with the new code
 - **Post-upgrade definition sync** — after a successful upgrade, `sync_definitions` runs automatically. Safe updates (upstream changed, no local changes) always apply. Conflicts (both upstream and local changed) are returned as warnings for the caller to present. If `artefact_sync` is `"skip"` in `.brain/preferences.json`, no sync runs. CLI flags `--sync` / `--no-sync` override the preference. Sync failures are captured in the result — they never crash the upgrade
 
@@ -282,6 +282,7 @@ python3 upgrade.py --source src/brain-core --force                  # re-apply o
 python3 upgrade.py --source src/brain-core --json                   # structured output
 python3 upgrade.py --source src/brain-core --sync      # upgrade + sync definitions
 python3 upgrade.py --source src/brain-core --no-sync    # upgrade without sync
+python3 upgrade.py --source src/brain-core --no-sync-deps  # skip upgrade-time MCP dep sync
 ```
 
 ## sync_definitions.py

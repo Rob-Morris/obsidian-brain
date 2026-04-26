@@ -44,6 +44,7 @@ When editing docs that ship in `.brain-core/`:
 |---|---|
 | New MCP tool or change to tool behaviour | `functional/mcp-tools.md` |
 | New script or change to script arguments | `functional/scripts.md` |
+| End-user install or upgrade contract change | `README.md`, `user/getting-started.md`, `functional/scripts.md`; also bump `src/brain-core/VERSION` using the repo's pre-1.0 semver rules (backward-compatible = patch, breaking = minor) |
 | Config, profiles, or merge rules | `functional/config.md` |
 | New artefact type, lifecycle, or frontmatter convention | `user/system-guide.md` |
 | Template vault defaults change | `user/template-library-guide.md` |

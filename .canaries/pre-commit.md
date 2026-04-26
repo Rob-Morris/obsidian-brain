@@ -6,7 +6,7 @@ Follow before every commit.
 
 [1] **Tests pass.** Run `make test`. All tests must pass.
 
-[2] **Version bumped.** Bump `src/brain-core/VERSION` for any change to files under `src/brain-core/`, including doc-only edits. If it ships in `.brain-core/`, it gets a version bump. Patch = doc clarifications, additive changes; minor = breaking vault structure; major = fundamental model changes.
+[2] **Version bumped.** Bump `src/brain-core/VERSION` for any change to files under `src/brain-core/`, including doc-only edits. If it ships in `.brain-core/`, it gets a version bump. Also bump it for end-user install or upgrade contract changes (`install.sh`, installer docs, upgrade entry-point guidance) even when those files live outside `src/brain-core/`. Use the repo's pre-1.0 semver policy: patch = bug fixes, doc clarifications, additive, backward-compatible changes, including backward-compatible install/upgrade contract changes; minor = breaking Brain changes that preserve the core model, including vault-structure or tool/script/MCP contract changes; major = fundamental model changes to the artefact model, router contract, or agent bootstrap/entry flow.
 
 [3] **Changelog updated.** New entry at the top of `docs/CHANGELOG.md`. Format: `## v{x.y.z} — YYYY-MM-DD`. Bold lead for significant changes. Never edit past entries.
 

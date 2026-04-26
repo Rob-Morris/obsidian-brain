@@ -1,6 +1,6 @@
 # Obsidian Brain
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.31.2-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.10-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.31.3-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.12-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
 
 A self-evolving knowledge base for agents and humans working together on what matters.
 
@@ -31,7 +31,7 @@ The [Getting Started guide](docs/user/getting-started.md) walks through all of t
 
 ## Quick Start
 
-**You need:** git, Python 3.10+, and an MCP-capable agent such as [Claude Code](https://docs.anthropic.com/en/docs/claude-code) or Codex. [Obsidian](https://obsidian.md) is strongly recommended — the brain is designed for it — but you can use any markdown editor or just talk to your agent directly.
+**You need:** git, Python 3.12+, and an MCP-capable agent such as [Claude Code](https://docs.anthropic.com/en/docs/claude-code) or Codex. [Obsidian](https://obsidian.md) is strongly recommended — the brain is designed for it — but you can use any markdown editor or just talk to your agent directly.
 
 **Create your vault:**
 
@@ -47,13 +47,19 @@ This downloads the repo, creates the vault in the current directory, and then at
 
 #### Upgrade
 
-Re-run the install script on an existing vault to upgrade brain-core:
+The canonical upgrade path is `upgrade.py` from a clone of this repo:
+
+```bash
+python3 src/brain-core/scripts/upgrade.py --source src/brain-core --vault /path/to/brain
+```
+
+If you want a convenience wrapper that fetches the repo or prompts for confirmation, `install.sh` can delegate to `upgrade.py` for an already-installed vault:
 
 ```bash
 bash install.sh /path/to/brain
 ```
 
-The script detects the existing installation, shows the version change, and asks to confirm.
+The wrapper detects the existing installation, shows the version change, and then runs `upgrade.py`. When `.brain-core/brain_mcp/requirements.txt` changes and the vault already has a local `.venv`, the upgrader syncs that environment directly; project MCP registration is left in place and is not re-run. Same-version re-apply, downgrade, and migration rerun flows remain explicit `upgrade.py --force` operations.
 
 #### Existing vault
 
@@ -79,7 +85,7 @@ bash install.sh --non-interactive --skip-mcp /path/to/brain
 bash install.sh --uninstall --non-interactive /path/to/brain
 ```
 
-Skips all prompts. Useful for scripted or agent-driven installs. Add `--skip-mcp` to scaffold the vault without creating `.venv` or registering Claude/Codex MCP — useful in network-restricted agent sandboxes. If MCP dependency install or registration fails, the installer now leaves the vault in place and prints manual retry steps instead of aborting the whole install. On uninstall, `--non-interactive` removes system files without prompting and skips the vault-deletion offer entirely. If you need same-version re-apply, downgrade, or migration rerun behaviour, call `upgrade.py --force` directly.
+Skips all prompts. Useful for scripted or agent-driven installs. Add `--skip-mcp` to scaffold the vault without creating `.venv` or registering Claude/Codex MCP — useful in network-restricted agent sandboxes. If MCP dependency install or registration fails, the installer now leaves the vault in place and prints manual retry steps instead of aborting the whole install. On uninstall, `--non-interactive` removes system files without prompting and skips the vault-deletion offer entirely. On upgrade, `install.sh` just delegates to `upgrade.py`; it does not own upgrade override semantics or re-run MCP setup. If you need same-version re-apply, downgrade, or migration rerun behaviour, call `upgrade.py --force` directly.
 
 > **Full reference:** [Scripts — install.sh](docs/functional/scripts.md#installsh) covers all flags, safety guards, and edge-case behaviour.
 

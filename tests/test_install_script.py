@@ -2,19 +2,17 @@
 
 import os
 from pathlib import Path
-import stat
 import subprocess
+import sys
 
-from conftest import copy_install_source as _copy_source_checkout
+from conftest import (
+    copy_install_source as _copy_source_checkout,
+    write_executable as _write_executable,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-
-
-def _write_executable(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content)
-    path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+REAL_PYTHON = sys.executable
 
 
 def test_install_ignores_machine_local_template_state(tmp_path):
@@ -88,8 +86,7 @@ def test_install_ignores_machine_local_template_state(tmp_path):
         "  chmod +x \"$venv_dir/bin/python\"\n"
         "  exit 0\n"
         "fi\n"
-        "printf 'unexpected fake python args: %s\\n' \"$*\" >&2\n"
-        "exit 1\n",
+        f"exec {REAL_PYTHON} \"$@\"\n",
     )
 
     target = tmp_path / "vault"
@@ -167,8 +164,7 @@ def test_install_continues_when_mcp_dependency_install_fails(tmp_path):
         "  chmod +x \"$venv_dir/bin/python\"\n"
         "  exit 0\n"
         "fi\n"
-        "printf 'unexpected fake python args: %s\\n' \"$*\" >&2\n"
-        "exit 1\n",
+        f"exec {REAL_PYTHON} \"$@\"\n",
     )
 
     target = tmp_path / "vault"
@@ -210,8 +206,7 @@ def test_install_can_skip_mcp_setup(tmp_path):
         "  printf '3.12\\n'\n"
         "  exit 0\n"
         "fi\n"
-        "printf 'unexpected fake python args: %s\\n' \"$*\" >&2\n"
-        "exit 1\n",
+        f"exec {REAL_PYTHON} \"$@\"\n",
     )
 
     target = tmp_path / "vault"
@@ -281,3 +276,131 @@ def test_upgrade_non_interactive_does_not_pass_force_to_upgrade_script(tmp_path)
 
     assert result.returncode == 0, result.stderr
     assert "--force" not in (target / "upgrade-args.txt").read_text()
+    assert "--no-sync-deps" in (target / "upgrade-args.txt").read_text()
+
+
+def test_upgrade_wrapper_uses_resolved_managed_python(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    _copy_source_checkout(source)
+
+    (source / "src" / "brain-core" / "VERSION").write_text("1.0.1\n")
+
+    target = tmp_path / "vault"
+    (target / ".brain-core").mkdir(parents=True)
+    (target / ".brain-core" / "VERSION").write_text("1.0.0\n")
+
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    _write_executable(
+        fake_bin / "python3",
+        "#!/bin/sh\n"
+        "if [ \"$1\" = \"-c\" ]; then\n"
+        "  printf '3.11\\n'\n"
+        "  exit 0\n"
+        "fi\n"
+        "printf 'unexpected python3 invocation: %s\\n' \"$*\" >&2\n"
+        "exit 1\n",
+    )
+    _write_executable(
+        fake_bin / "python3.12",
+        "#!/bin/sh\n"
+        "if [ \"$1\" = \"-c\" ]; then\n"
+        "  printf '3.12\\n'\n"
+        "  exit 0\n"
+        "fi\n"
+        "script=\"$1\"\n"
+        "shift\n"
+        "vault=''\n"
+        "args=''\n"
+        "while [ \"$#\" -gt 0 ]; do\n"
+        "  if [ \"$1\" = \"--vault\" ]; then\n"
+        "    vault=\"$2\"\n"
+        "  fi\n"
+        "  args=\"$args $1\"\n"
+        "  shift\n"
+        "done\n"
+        "printf '%s\\n' \"$0\" > \"$vault/upgrade-python.txt\"\n"
+        "printf '%s%s\\n' \"$script\" \"$args\" > \"$vault/upgrade-args.txt\"\n"
+        "exit 0\n",
+    )
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}:{env['PATH']}"
+
+    result = subprocess.run(
+        ["bash", "install.sh", "--non-interactive", "--skip-mcp", str(target)],
+        cwd=source,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (target / "upgrade-python.txt").read_text().strip().endswith("python3.12")
+    assert "unexpected python3 invocation" not in result.stderr
+
+
+def test_upgrade_wrapper_does_not_rerun_mcp_setup(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    _copy_source_checkout(source)
+
+    (source / "src" / "brain-core" / "VERSION").write_text("1.0.1\n")
+    (source / "src" / "brain-core" / "scripts" / "upgrade.py").write_text(
+        "import sys\n"
+        "from pathlib import Path\n"
+        "\n"
+        "args = sys.argv[1:]\n"
+        "vault = Path(args[args.index('--vault') + 1])\n"
+        "(vault / 'upgrade-ran.txt').write_text('ok\\n')\n"
+        "print('upgrade.py owns the upgrade flow', file=sys.stderr)\n"
+    )
+    (source / "src" / "brain-core" / "scripts" / "init.py").write_text(
+        "import sys\n"
+        "from pathlib import Path\n"
+        "\n"
+        "vault = Path(sys.argv[sys.argv.index('--vault') + 1])\n"
+        "(vault / 'init-ran.txt').write_text('called\\n')\n"
+    )
+
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    _write_executable(
+        fake_bin / "python3.12",
+        "#!/bin/sh\n"
+        "if [ \"$1\" = \"-c\" ]; then\n"
+        "  printf '3.12\\n'\n"
+        "  exit 0\n"
+        "fi\n"
+        "if [ \"$1\" = \"-m\" ] && [ \"$2\" = \"venv\" ]; then\n"
+        "  venv_dir=\"$3\"\n"
+        "  mkdir -p \"$venv_dir\"\n"
+        "  printf 'unexpected venv creation\\n' > \"$venv_dir/should-not-exist.txt\"\n"
+        "  exit 0\n"
+        "fi\n"
+        f"exec {REAL_PYTHON} \"$@\"\n",
+    )
+
+    target = tmp_path / "vault"
+    (target / ".brain-core").mkdir(parents=True)
+    (target / ".brain-core" / "VERSION").write_text("1.0.0\n")
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}:{env['PATH']}"
+
+    result = subprocess.run(
+        ["bash", "install.sh", "--non-interactive", str(target)],
+        cwd=source,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (target / "upgrade-ran.txt").is_file()
+    assert not (target / "init-ran.txt").exists()
+    assert not (target / ".venv" / "should-not-exist.txt").exists()
+    assert "upgrade.py owns the upgrade flow" in result.stderr

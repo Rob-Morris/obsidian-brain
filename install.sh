@@ -21,7 +21,7 @@
 #   4. Installs Python dependencies into a vault-local .venv (unless skipped)
 #   5. Registers the Brain MCP server for Claude Code and Codex (unless skipped)
 #
-# Requirements: git, python3 (3.10+ for MCP server, 3.9+ otherwise)
+# Requirements: git, python3 (basic preflight), python3.12+ for upgrade + MCP setup
 # Safe to re-run with a new path.
 
 set -euo pipefail
@@ -144,11 +144,36 @@ print_mcp_retry_hint() {
     local vault_path="$1"
     info "Retry later with network access:"
     info "  \"$vault_path/.venv/bin/python\" -m pip install -r \"$vault_path/.brain-core/brain_mcp/requirements.txt\""
-    info "  python3 \"$vault_path/.brain-core/scripts/init.py\" --vault \"$vault_path\" --project \"$vault_path\" --client all"
+    info "  \"$vault_path/.venv/bin/python\" \"$vault_path/.brain-core/scripts/init.py\" --vault \"$vault_path\" --project \"$vault_path\" --client all"
     info "  In Claude Code for that directory: run /mcp and approve brain if prompted"
     info "  In Codex for that directory: trust the project and ensure the project-scoped brain MCP is enabled"
     info "  Verify in either client: call brain_session and confirm environment.vault_root"
     info "  Codex health check: codex mcp list"
+}
+
+print_init_retry_hint() {
+    local vault_path="$1"
+    local python_cmd="$2"
+    info "  \"$python_cmd\" \"$vault_path/.brain-core/scripts/init.py\" --vault \"$vault_path\" --project \"$vault_path\" --client all"
+}
+
+# Locate Python 3.12+ on PATH. On success sets _PY312_PATH and _PY312_VERSION.
+find_python_312() {
+    _PY312_PATH=""
+    _PY312_VERSION=""
+    local candidate path ver major minor
+    for candidate in python3.13 python3.12 python3; do
+        path=$(command -v "$candidate" 2>/dev/null) || continue
+        ver=$("$path" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null) || continue
+        major=$(echo "$ver" | cut -d. -f1)
+        minor=$(echo "$ver" | cut -d. -f2)
+        if [ "$major" -gt 3 ] || { [ "$major" -eq 3 ] && [ "$minor" -ge 12 ]; }; then
+            _PY312_PATH="$path"
+            _PY312_VERSION="$ver"
+            return 0
+        fi
+    done
+    return 1
 }
 
 spin() {
@@ -280,15 +305,17 @@ if [ "${1:-}" = "--uninstall" ]; then
     fi
 
     printf '\n' >&2
-    if command -v python3 >/dev/null 2>&1 && [ -f "$VAULT_PATH/.brain-core/scripts/init.py" ]; then
-        if ! spin "Removing recorded project MCP entries" python3 "$VAULT_PATH/.brain-core/scripts/init.py" --vault "$VAULT_PATH" --project "$VAULT_PATH" --client all --remove --force; then
+    find_python_312 || true
+    MCP_CLEANUP_PYTHON="$_PY312_PATH"
+    if [ -n "$MCP_CLEANUP_PYTHON" ] && [ -f "$VAULT_PATH/.brain-core/scripts/init.py" ]; then
+        if ! spin "Removing recorded project MCP entries" "$MCP_CLEANUP_PYTHON" "$VAULT_PATH/.brain-core/scripts/init.py" --vault "$VAULT_PATH" --project "$VAULT_PATH" --client all --remove --force; then
             warn "Could not remove recorded project MCP entries automatically."
             info "Retry later with:"
-            info "  python3 \"$VAULT_PATH/.brain-core/scripts/init.py\" --vault \"$VAULT_PATH\" --project \"$VAULT_PATH\" --client all --remove"
+            info "  \"$MCP_CLEANUP_PYTHON\" \"$VAULT_PATH/.brain-core/scripts/init.py\" --vault \"$VAULT_PATH\" --project \"$VAULT_PATH\" --client all --remove"
         fi
         printf '\n' >&2
     else
-        warn "Skipping recorded MCP cleanup (python3 or init.py unavailable)."
+        warn "Skipping recorded MCP cleanup (Python 3.12+ or init.py unavailable)."
     fi
 
     registry_update --unregister "$VAULT_PATH" "$VAULT_PATH/.brain-core/scripts/vault_registry.py"
@@ -352,26 +379,17 @@ step "Checking prerequisites"
 command -v git >/dev/null 2>&1 || err "git is required. Install it and try again."
 command -v python3 >/dev/null 2>&1 || err "python3 is required. Install it and try again."
 
-# Find Python 3.10+ for the MCP server venv (optional — vault works without it)
-PYTHON=""
-for candidate in python3.13 python3.12 python3.11 python3.10 python3; do
-    path=$(command -v "$candidate" 2>/dev/null) || continue
-    ver=$("$path" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null) || continue
-    major=$(echo "$ver" | cut -d. -f1)
-    minor=$(echo "$ver" | cut -d. -f2)
-    if [ "$major" -ge 3 ] && [ "$minor" -ge 10 ]; then
-        PYTHON="$path"
-        py_version="$ver"
-        break
-    fi
-done
+# Find Python 3.12+ for installer-managed upgrade + MCP setup
+find_python_312 || true
+PYTHON="$_PY312_PATH"
+py_version="$_PY312_VERSION"
 
 if [ -n "$PYTHON" ]; then
     printf '  \033[1mgit\033[0m ✓  \033[1mpython %s\033[0m ✓  \033[1mfrontal lobe\033[0m (recommended but not required) ✓\n' "$py_version" >&2
 else
     py_version=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || echo "?")
     printf '  \033[1mgit\033[0m ✓  \033[1mpython %s\033[0m ✓  \033[1mfrontal lobe\033[0m (recommended but not required) ✓\n' "$py_version" >&2
-    printf '  \033[33mNote: Python 3.10+ not found. Vault will be created but MCP server setup will be skipped.\033[0m\n' >&2
+    printf '  \033[33mNote: Python 3.12+ not found. Vault can still be scaffolded, but upgrade handoff and MCP setup will be unavailable.\033[0m\n' >&2
     info "Install later with: brew install python@3.12"
 fi
 
@@ -473,6 +491,8 @@ fi
 # ---------------------------------------------------------------------------
 
 if [ -n "$EXISTING_VERSION" ]; then
+    registry_update --backfill "$VAULT_PATH"
+
     if is_semver "$EXISTING_VERSION" && is_semver "$SOURCE_VERSION"; then
         if compare_versions "$EXISTING_VERSION" "$SOURCE_VERSION"; then
             version_cmp=0
@@ -489,7 +509,7 @@ if [ -n "$EXISTING_VERSION" ]; then
             warn "Installed brain is newer than this source copy (v$EXISTING_VERSION > v$SOURCE_VERSION)."
             info "install.sh does not perform downgrades."
             info "If you really want to downgrade or re-apply, run:"
-            info "  python3 \"$REPO_DIR/src/brain-core/scripts/upgrade.py\" --source \"$REPO_DIR/src/brain-core\" --vault \"$VAULT_PATH\" --force"
+            info "  \"${PYTHON:-python3.12}\" \"$REPO_DIR/src/brain-core/scripts/upgrade.py\" --source \"$REPO_DIR/src/brain-core\" --vault \"$VAULT_PATH\" --force"
             exit 0
         fi
     fi
@@ -515,18 +535,20 @@ fi
 
 printf '\n' >&2
 if [ "$UPGRADE_MODE" = true ]; then
-    spin "Upgrading brain-core" python3 "$REPO_DIR/src/brain-core/scripts/upgrade.py" --source "$REPO_DIR/src/brain-core" --vault "$VAULT_PATH"
+    [ -n "$PYTHON" ] || err "Python 3.12+ is required for upgrade. Install it and rerun, or call upgrade.py with a compatible interpreter."
+    step "Upgrading brain-core"
+    upgrade_cmd=(
+        "$PYTHON"
+        "$REPO_DIR/src/brain-core/scripts/upgrade.py"
+        --source "$REPO_DIR/src/brain-core"
+        --vault "$VAULT_PATH"
+    )
+    if [ "$SKIP_MCP" = true ]; then
+        upgrade_cmd+=(--no-sync-deps)
+    fi
+    "${upgrade_cmd[@]}"
     NEW_VERSION=$(cat "$VAULT_PATH/.brain-core/VERSION" 2>/dev/null || echo "unknown")
     printf '    \033[1mUpgraded to:\033[0m v%s\n' "$NEW_VERSION" >&2
-    if [ "$SKIP_MCP" = true ]; then
-        info "MCP dependency sync skipped (--skip-mcp)."
-    elif [ -f "$VAULT_PATH/.venv/bin/python" ]; then
-        if ! spin "Syncing Python dependencies" "$VAULT_PATH/.venv/bin/python" -m pip install --quiet -r "$VAULT_PATH/.brain-core/brain_mcp/requirements.txt"; then
-            printf '\n' >&2
-            warn "Upgraded brain-core, but MCP dependency sync failed."
-            print_mcp_retry_hint "$VAULT_PATH"
-        fi
-    fi
 elif [ "$EXISTING_VAULT" = true ]; then
     spin "Installing brain into existing vault" bash -c '
         vault="$1"; repo="$2"; tmpl="$2/template-vault"
@@ -580,9 +602,7 @@ else
     ' _ "$VAULT_PATH" "$REPO_DIR"
 fi
 
-if [ "$UPGRADE_MODE" = true ]; then
-    registry_update --backfill "$VAULT_PATH"
-else
+if [ "$UPGRADE_MODE" != true ]; then
     registry_update --register "$VAULT_PATH"
 fi
 
@@ -591,27 +611,37 @@ fi
 # ---------------------------------------------------------------------------
 
 printf '\n' >&2
-if [ "$SKIP_MCP" = true ]; then
+if [ "$UPGRADE_MODE" = true ]; then
+    info "Upgrade mode uses upgrade.py directly and does not re-run MCP setup."
+    info "Dependency sync and follow-up guidance now come from upgrade.py."
+elif [ "$SKIP_MCP" = true ]; then
     REGISTER_MCP=n
     info "MCP server setup skipped (--skip-mcp)."
-    info "Register later with: python3 .brain-core/scripts/init.py --client all"
+    if [ -n "$PYTHON" ]; then
+        info "Register later with:"
+        print_init_retry_hint "$VAULT_PATH" "$PYTHON"
+    else
+        info "Install Python 3.12+, then run:"
+        print_init_retry_hint "$VAULT_PATH" "python3.12"
+    fi
 elif [ -z "$PYTHON" ]; then
-    info "MCP server setup skipped (requires Python 3.10+)."
-    info "Install Python 3.10+, then run: cd \"$VAULT_PATH\" && python3 .brain-core/scripts/init.py --client all"
+    info "MCP server setup skipped (requires Python 3.12+)."
+    info "Install Python 3.12+, then run:"
+    print_init_retry_hint "$VAULT_PATH" "python3.12"
 elif [ "$NON_INTERACTIVE" = true ]; then
     REGISTER_MCP=y
 else
     printf '  \033[1mRegister the Brain MCP server for Claude and Codex? (recommended)\033[0m [Y/n]: ' >&2
     read -r REGISTER_MCP
 fi
-if [ "$SKIP_MCP" = false ] && [ -n "$PYTHON" ] && { [ -z "${REGISTER_MCP:-}" ] || [ "${REGISTER_MCP:-}" = "y" ] || [ "${REGISTER_MCP:-}" = "Y" ]; }; then
+if [ "$UPGRADE_MODE" != true ] && [ "$SKIP_MCP" = false ] && [ -n "$PYTHON" ] && { [ -z "${REGISTER_MCP:-}" ] || [ "${REGISTER_MCP:-}" = "y" ] || [ "${REGISTER_MCP:-}" = "Y" ]; }; then
     printf '\n' >&2
     if spin "Setting up Python virtual environment" bash -c '
         "$1" -m venv "$2/.venv"
         "$2/.venv/bin/python" -m pip install --quiet --upgrade pip -r "$2/.brain-core/brain_mcp/requirements.txt"
     ' _ "$PYTHON" "$VAULT_PATH"; then
         printf '\n' >&2
-        if spin "Registering Brain MCP server" python3 "$VAULT_PATH/.brain-core/scripts/init.py" --vault "$VAULT_PATH" --project "$VAULT_PATH" --client all; then
+        if spin "Registering Brain MCP server" "$PYTHON" "$VAULT_PATH/.brain-core/scripts/init.py" --vault "$VAULT_PATH" --project "$VAULT_PATH" --client all; then
             printf '    \033[1mScope:\033[0m project (this vault only)\n' >&2
             printf '    \033[1mClaude:\033[0m open Claude Code in this directory and use /mcp to approve brain if prompted\n' >&2
             printf '    \033[1mCodex:\033[0m trust this project and ensure the project-scoped brain MCP is enabled if prompted\n' >&2
@@ -621,16 +651,17 @@ if [ "$SKIP_MCP" = false ] && [ -n "$PYTHON" ] && { [ -z "${REGISTER_MCP:-}" ] |
             printf '\n' >&2
             warn "Vault created, but MCP registration failed."
             info "Retry later with:"
-            info "  python3 \"$VAULT_PATH/.brain-core/scripts/init.py\" --vault \"$VAULT_PATH\" --project \"$VAULT_PATH\" --client all"
+            print_init_retry_hint "$VAULT_PATH" "$PYTHON"
         fi
     else
         printf '\n' >&2
         warn "Vault created, but MCP dependency installation failed."
         print_mcp_retry_hint "$VAULT_PATH"
     fi
-elif [ -n "$PYTHON" ]; then
+elif [ "$UPGRADE_MODE" != true ] && [ -n "$PYTHON" ]; then
     printf '\n' >&2
-    info "MCP skipped. You can register later with: python3 .brain-core/scripts/init.py --client all"
+    info "MCP skipped. You can register later with:"
+    print_init_retry_hint "$VAULT_PATH" "$PYTHON"
 fi
 
 # ---------------------------------------------------------------------------

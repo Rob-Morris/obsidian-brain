@@ -109,7 +109,7 @@ def find_vault_root(vault_arg: Optional[str] = None) -> Path:
 # ---------------------------------------------------------------------------
 
 def find_python(vault_root: Path) -> str:
-    """Find a Python with the mcp package available."""
+    """Find a Python 3.12+ interpreter with the mcp package available."""
     venv_python = vault_root / VENV_PYTHON_REL
     if venv_python.is_file() and _python_has_mcp(str(venv_python)):
         return str(venv_python)
@@ -117,23 +117,30 @@ def find_python(vault_root: Path) -> str:
     if _python_has_mcp(sys.executable):
         return sys.executable
 
-    for candidate in ["python3.13", "python3.12", "python3.11", "python3.10", "python3"]:
+    for candidate in ["python3.13", "python3.12", "python3"]:
         path = shutil.which(candidate)
         if path and _python_has_mcp(path):
             return path
 
     fatal(
-        "No Python with the 'mcp' package found.\n"
+        "No Python 3.12+ with the 'mcp' package found.\n"
         f"Run: cd {vault_root} && make install\n"
         "Or:  pip install 'mcp>=1.0.0' --break-system-packages"
     )
 
 
 def _python_has_mcp(python_path: str) -> bool:
-    """Check if a Python interpreter has the mcp package."""
+    """Check if a Python 3.12+ interpreter has the mcp package."""
     try:
         result = subprocess.run(
-            [python_path, "-c", "import mcp; print('ok')"],
+            [
+                python_path,
+                "-c",
+                (
+                    "import sys, mcp; "
+                    "print('ok' if sys.version_info >= (3, 12) else 'too-old')"
+                ),
+            ],
             capture_output=True,
             text=True,
             timeout=10,

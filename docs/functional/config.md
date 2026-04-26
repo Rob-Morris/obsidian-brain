@@ -154,7 +154,7 @@ The following items are accepted but not yet fully shaped. Listed here for contr
 
 ### Prerequisites
 
-- Python 3.10+ (scripts target 3.8+ stdlib for portability, but the `mcp` SDK and modern type syntax require ≥3.10)
+- Python 3.12+ (the user-facing install/init/upgrade + MCP runtime contract; contributor tooling also uses 3.12)
 - `make` (standard on macOS/Linux)
 
 ### Setup

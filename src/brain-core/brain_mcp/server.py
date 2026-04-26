@@ -37,7 +37,7 @@ shutdown, and MCP registration stay here. Tool implementation logic now
 delegates to sibling modules that align with the bounded-context map while
 preserving the stable `server.py` module surface used by tests and the proxy.
 
-Requires Python >=3.10 and the `mcp` SDK (see requirements.txt).
+Requires Python >=3.12 and the `mcp` SDK (see requirements.txt).
 """
 
 import atexit

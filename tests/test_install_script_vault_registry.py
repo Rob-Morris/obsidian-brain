@@ -83,6 +83,22 @@ def test_upgrade_does_not_duplicate_entry(tmp_path, install_source):
     assert len(_entries(fake_home / ".config" / "brain" / "vaults")) == 1
 
 
+def test_same_version_rerun_backfills_registry(tmp_path, install_source):
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    vault = tmp_path / "brain"
+
+    _run_install(install_source, vault, fake_home)
+
+    registry = fake_home / ".config" / "brain" / "vaults"
+    registry.unlink()
+
+    _run_install(install_source, vault, fake_home)
+
+    assert registry.exists()
+    assert len(_entries(registry)) == 1
+
+
 def test_uninstall_removes_entry(tmp_path, install_source):
     fake_home = tmp_path / "home"
     fake_home.mkdir()

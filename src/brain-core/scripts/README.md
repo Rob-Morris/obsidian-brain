@@ -16,7 +16,7 @@ Scripts are the **source of truth** for all vault operations. The MCP server (`b
 | `edit.py` | Edit/append/prepend to artefact or resource | `python3 edit.py edit\|append --path P --body B [--body-file PATH] [--temp-path [SUFFIX]] [--target H] [--json]` |
 | `fix_links.py` | Auto-repair broken wikilinks | `python3 fix_links.py [--fix] [--json] [--vault V]` |
 | `generate_key.py` | Generate operator key + hash for config.yaml | `python3 generate_key.py [--count N]` |
-| `init.py` | Claude/Codex MCP server registration + recorded removal; scaffolds `.brain/local/workspace.yaml` for folder-scoped installs (migrates legacy `.brain/workspace.yaml` automatically) and writes config atomically with unique sibling temp files. Project-scoped MCP still needs client-side activation before it outranks user scope: approve via `/mcp` in Claude, or trust/enable the project-scoped server in Codex. | `python3 init.py [--client {claude,codex,all}] [--user] [--local] [--project PATH] [--remove] [--force]` |
+| `init.py` | Claude/Codex MCP server registration + recorded removal; requires a Python 3.12+ runtime with the `mcp` package, scaffolds `.brain/local/workspace.yaml` for folder-scoped installs (migrates legacy `.brain/workspace.yaml` automatically), and writes config atomically with unique sibling temp files. Project-scoped MCP still needs client-side activation before it outranks user scope: approve via `/mcp` in Claude, or trust/enable the project-scoped server in Codex. | `python3 init.py [--client {claude,codex,all}] [--user] [--local] [--project PATH] [--remove] [--force]` |
 | `list_artefacts.py` | Enumerate vault artefacts and resources (unranked, no cap) | (library module, used by MCP server) |
 | `migrate_naming.py` | Migrate filenames to generous naming conventions | `python3 migrate_naming.py [--vault V] [--dry-run] [--json]` |
 | `obsidian_cli.py` | IPC client for native Obsidian CLI | (library module, used by MCP server) |
@@ -29,7 +29,7 @@ Scripts are the **source of truth** for all vault operations. The MCP server (`b
 | `shape_presentation.py` | Create presentation + render PDF + launch Marp preview | (via MCP: `brain_action("shape-presentation", ...)`) |
 | `start_shaping.py` | Bootstrap a shaping session for an existing artefact | (via MCP: `brain_action("start-shaping", ...)`) |
 | `sync_definitions.py` | Sync artefact library definitions to vault `_Config/` | `python3 sync_definitions.py [--vault V] [--dry-run] [--types t1,t2] [--status] [--json]` |
-| `upgrade.py` | In-place brain-core upgrade with pre-compile compatibility patches, a target-aware local migration ledger, binary-safe rollback snapshots, and self-contained atomic writes | `python3 upgrade.py --source P [--vault V] [--dry-run] [--force] [--json]` |
+| `upgrade.py` | Canonical brain-core upgrade entry point with pre-compile compatibility patches, a target-aware local migration ledger, binary-safe rollback snapshots, self-contained atomic writes, and best-effort vault-local MCP dependency sync when requirements change | `python3 upgrade.py --source P [--vault V] [--dry-run] [--force] [--sync\|--no-sync] [--sync-deps\|--no-sync-deps] [--json]` |
 | `vault_registry.py` | User-home registry of installed brain vaults (`$XDG_CONFIG_HOME/brain/vaults`, default `~/.config/brain/vaults`) | `python3 vault_registry.py [--register PATH\|--backfill PATH\|--unregister PATH\|--list [--json]\|--prune\|--resolve ALIAS]` |
 | `workspace_registry.py` | Workspace slug→path resolution | `python3 workspace_registry.py [--register SLUG PATH] [--unregister SLUG] [--resolve SLUG] [--json]` |
 
@@ -85,7 +85,7 @@ These scripts import from `_common/` for vault discovery, frontmatter parsing, a
 
 - `generate_key.py` — stdlib only
 - `obsidian_cli.py` — stdlib only; IPC socket client
-- `upgrade.py` — deliberately self-contained (it may replace `_common` during execution); duplicates only `find_vault_root()`, runs versioned `pre_compile_patch` handlers before compile validation, snapshots `.brain/` and `_Config/` for rollback using raw-byte restore so binary local-state files are safe, snapshots post-compile artefact roots before running migrations, and records target-aware migration history in `.brain/local/` so reinstalls do not replay migrations unless forced
+- `upgrade.py` — deliberately self-contained (it may replace `_common` during execution); duplicates only `find_vault_root()`, runs versioned `pre_compile_patch` handlers before compile validation, snapshots `.brain/` and `_Config/` for rollback using raw-byte restore so binary local-state files are safe, snapshots post-compile artefact roots before running migrations, records target-aware migration history in `.brain/local/` so reinstalls do not replay migrations unless forced, and prints caller-independent follow-up commands after upgrade-time dependency handling
 
 ## `_common/` Package Structure
 

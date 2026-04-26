@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 """
-upgrade.py — In-place brain-core upgrade.
+upgrade.py — Canonical in-place brain-core upgrade entry point.
 
-Copies source brain-core files into a vault's .brain-core/ directory,
-reports what changed, and optionally runs as a dry-run.
+Applies source brain-core files into a vault's .brain-core/ directory,
+validates the compile step, runs versioned migrations, syncs artefact
+definitions, and optionally syncs vault-local MCP dependencies when the
+requirements file changes. Follow-up commands are printed as absolute,
+caller-independent commands so the script can be run from any working
+directory.
 
 Self-contained — no imports from _common (this script replaces _common
 during execution). Duplicates only find_vault_root().
 
 Usage:
   python3 upgrade.py --source /path/to/src/brain-core [--vault /path] [--dry-run] [--force] [--json]
-
-The script does copy + diff only. Post-upgrade steps (recompile router,
-rebuild index) are the caller's responsibility. The CLI prints a reminder;
-the MCP server wrapper handles them automatically.
 """
 
 import argparse
@@ -24,6 +24,7 @@ import importlib.util
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -73,6 +74,9 @@ BRAIN_CORE_MARKER = os.path.join(".brain-core", "VERSION")
 BRAIN_CORE_DIR = ".brain-core"
 IGNORE_DIRS = {"__pycache__"}
 IGNORE_FILES = {".DS_Store", "upgrade.py"}
+REQ_FILE_REL = os.path.join("brain_mcp", "requirements.txt")
+VENV_PYTHON_REL = os.path.join(".venv", "bin", "python")
+DEPENDENCY_SYNC_TIMEOUT = 300
 
 
 # ---------------------------------------------------------------------------
@@ -930,6 +934,63 @@ def _post_upgrade_sync(vault_root: str, *, sync: Optional[bool]) -> Optional[dic
         return {"sync_error": f"Definition sync failed: {e}"}
 
 
+def _maybe_sync_mcp_dependencies(
+    vault_root: Path,
+    *,
+    requirements_changed: bool,
+    sync_deps: Optional[bool],
+) -> Optional[dict]:
+    """Best-effort MCP dependency sync for CLI-driven upgrades.
+
+    Auto mode (sync_deps=None) only runs when requirements changed.
+    sync_deps=True forces a sync whenever a vault-local `.venv` exists.
+    sync_deps=False explicitly opts out. Errors are informational and do not
+    fail the upgrade.
+    """
+    if not requirements_changed and sync_deps is not True:
+        return None
+
+    requirements_path = vault_root / ".brain-core" / "brain_mcp" / "requirements.txt"
+    venv_python = vault_root / VENV_PYTHON_REL
+    command = [
+        str(venv_python),
+        "-m",
+        "pip",
+        "install",
+        "--quiet",
+        "-r",
+        str(requirements_path),
+    ]
+    summary = {
+        "requirements_changed": requirements_changed,
+        "command": command,
+    }
+
+    if sync_deps is False:
+        return {**summary, "outcome": "skipped_disabled"}
+
+    if not venv_python.is_file():
+        return {**summary, "outcome": "skipped_no_venv"}
+
+    try:
+        proc = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=DEPENDENCY_SYNC_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        return {**summary, "outcome": "error", "message": f"timed out after {DEPENDENCY_SYNC_TIMEOUT}s"}
+    except OSError as e:
+        return {**summary, "outcome": "error", "message": str(e)}
+
+    if proc.returncode != 0:
+        message = proc.stderr.strip() or proc.stdout.strip() or f"pip exited {proc.returncode}"
+        return {**summary, "outcome": "error", "message": message}
+
+    return {**summary, "outcome": "ok"}
+
+
 # ---------------------------------------------------------------------------
 # Core upgrade function
 # ---------------------------------------------------------------------------
@@ -1172,6 +1233,15 @@ def main() -> None:
         "--no-sync", action="store_const", const=False, dest="sync",
         help="Skip definition sync after upgrade (overrides preference)",
     )
+    deps_group = parser.add_mutually_exclusive_group()
+    deps_group.add_argument(
+        "--sync-deps", action="store_const", const=True, default=None, dest="sync_deps",
+        help="Force vault-local MCP dependency sync after upgrade",
+    )
+    deps_group.add_argument(
+        "--no-sync-deps", action="store_const", const=False, dest="sync_deps",
+        help="Skip vault-local MCP dependency sync after upgrade",
+    )
     args = parser.parse_args()
 
     try:
@@ -1181,6 +1251,17 @@ def main() -> None:
 
     source = str(Path(args.source).resolve())
     result = upgrade(str(vault_root), source, force=args.force, dry_run=args.dry_run, sync=args.sync)
+    if result["status"] == "ok" and not args.dry_run:
+        requirements_changed = REQ_FILE_REL in (
+            result.get("files_added", []) + result.get("files_modified", [])
+        )
+        dep_sync = _maybe_sync_mcp_dependencies(
+            vault_root,
+            requirements_changed=requirements_changed,
+            sync_deps=args.sync_deps,
+        )
+        if dep_sync is not None:
+            result["dependency_sync"] = dep_sync
 
     if args.json_output:
         print(json.dumps(result, indent=2))
@@ -1212,15 +1293,29 @@ def main() -> None:
     if not args.dry_run:
         print(file=sys.stderr)
 
-        # Check if requirements changed — prompt for dependency sync
-        req_file = "brain_mcp/requirements.txt"
-        if req_file in result.get("files_added", []) + result.get("files_modified", []):
-            info("Dependencies changed — sync your vault's Python environment:")
-            info("  .venv/bin/python -m pip install -r .brain-core/brain_mcp/requirements.txt")
+        dep_sync = result.get("dependency_sync")
+        if dep_sync is not None:
+            command = shlex.join(dep_sync["command"])
+            outcome = dep_sync["outcome"]
+            requirements_changed = dep_sync["requirements_changed"]
+            if outcome == "ok":
+                info("MCP dependencies synced in the vault-local .venv.")
+            elif outcome == "skipped_disabled":
+                info("Dependencies changed — vault-local MCP dependency sync skipped (--no-sync-deps).")
+                info(f"  {command}")
+            elif outcome == "skipped_no_venv":
+                if requirements_changed:
+                    info("Dependencies changed, but no vault-local .venv was found. Skipping MCP dependency sync.")
+                else:
+                    info("Vault-local MCP dependency sync was requested, but no vault-local .venv was found. Skipping.")
+            elif outcome == "error":
+                prefix = "Dependencies changed" if requirements_changed else "Vault-local MCP dependency sync was requested"
+                info(f"{prefix}, but vault-local MCP dependency sync failed: {dep_sync['message']}")
+                info(f"  {command}")
             print(file=sys.stderr)
 
         info("Post-upgrade: rebuild the search index.")
-        info("  python3 .brain-core/scripts/build_index.py")
+        info(f"  {shlex.quote(sys.executable)} {shlex.quote(str(vault_root / '.brain-core' / 'scripts' / 'build_index.py'))}")
         info("  (or use brain_action('build_index') via MCP)")
 
         # Sync results

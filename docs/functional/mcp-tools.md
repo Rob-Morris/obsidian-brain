@@ -326,7 +326,7 @@ When MCP is unavailable, scripts provide full functionality (read, search, renam
 
 ## Dependencies
 
-- **Python** >=3.10
+- **Python** >=3.12
 - **`mcp` SDK** — MCP transport
 - **`pyyaml`** — config loader
 - **`obsidian-cli`** (optional) — dsebastien/obsidian-cli-rest running on localhost:27124; used for CLI-first search and rename when available

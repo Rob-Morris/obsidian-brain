@@ -32,9 +32,9 @@ For non-interactive agent installs in restricted environments, scaffold the vaul
 bash install.sh --non-interactive --skip-mcp /path/to/brain
 ```
 
-The installer creates the vault from the template, copies `.brain-core/` into it, and then attempts project-scope Python / MCP setup for Claude Code and Codex. It also handles upgrades (re-run on an existing vault) and installing into an existing Obsidian vault. In network-restricted environments you can pass `--skip-mcp` to scaffold the vault without the `.venv` / MCP setup, or rerun the printed retry steps later if dependency installation fails. Use `--non-interactive` when you want installer automation without prompts. Same-version re-apply, downgrade, or explicit migration rerun flows remain explicit `upgrade.py --force` operations. Project scope still outranks user scope for both clients once the project-scoped MCP is active: in Claude, approve `brain` via `/mcp`; in Codex, trust the project and ensure `brain` is enabled for that project. See [install.sh](../functional/scripts.md#installsh) for full details, modes, and flags.
+The installer creates the vault from the template, copies `.brain-core/` into it, and then attempts project-scope Python / MCP setup for Claude Code and Codex. It can also install brain-core into an existing Obsidian vault. For already-installed Brain vaults, the canonical upgrade path is `upgrade.py`; `install.sh` is only a convenience wrapper that can detect the vault and delegate to the upgrader. In network-restricted environments you can pass `--skip-mcp` to scaffold the vault without the `.venv` / MCP setup, or rerun the printed retry steps later if dependency installation fails. Use `--non-interactive` when you want installer automation without prompts. When upgrade changes `.brain-core/brain_mcp/requirements.txt` and the vault already has a local `.venv`, `upgrade.py` syncs that environment itself; `install.sh --skip-mcp` passes through the opt-out. Same-version re-apply, downgrade, or explicit migration rerun flows remain explicit `upgrade.py --force` operations. Project scope still outranks user scope for both clients once the project-scoped MCP is active: in Claude, approve `brain` via `/mcp`; in Codex, trust the project and ensure `brain` is enabled for that project. See [install.sh](../functional/scripts.md#installsh) for full details, modes, and flags.
 
-**Requirements:** git and python3. Python 3.10+ is recommended for MCP server support — without it the vault is still created but agent tools won't be available until you install Python and run `init.py --client all` manually.
+**Requirements:** git and python3. Python 3.12+ is the supported user-facing runtime for install, init, upgrade, and MCP server support — without it the vault can still be scaffolded, but agent tools won't be available until you install Python and run `init.py --client all` manually.
 
 ---
 
@@ -168,8 +168,8 @@ These are freeform. Write whatever helps.
 
 To upgrade brain-core to a new version:
 
-- **Re-run install.sh**: `bash install.sh /path/to/brain` — detects the existing install and offers to upgrade
-- **CLI**: `python3 upgrade.py --source /path/to/src/brain-core` (from the repo, not the vault; add `--force` for same-version re-apply, downgrade, or migration rerun)
+- **CLI**: `python3 upgrade.py --source /path/to/src/brain-core --vault /path/to/brain` (canonical path from a clone of this repo; add `--force` for same-version re-apply, downgrade, or migration rerun)
+- **install.sh wrapper**: `bash install.sh /path/to/brain` — detects the existing install and delegates to `upgrade.py`
 - **Manual**: replace `.brain-core/` with the new version from `src/brain-core/`
 
 ---

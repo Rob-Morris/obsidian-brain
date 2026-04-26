@@ -1,6 +1,18 @@
 # Changelog
 
-Follows [semver](https://semver.org/). Changes to vault structure (renamed/removed core files, changed folder conventions) are breaking and bump the minor version. Artefact library definitions (taxonomy, templates, schemas) are patch; features that change how artefacts are processed are structural.
+Follows a pre-1.0 [semver](https://semver.org/) policy: backward-compatible changes are patch; breaking Brain changes are minor; only fundamental model changes are major. Breaking Brain changes include vault-structure changes and breaking tool/script/MCP contract changes. Fundamental model changes are changes to the artefact model, router contract, or agent bootstrap/entry flow.
+
+## v0.31.3 — 2026-04-26
+
+**Canonical upgrade ownership and a consistent Python 3.12 tooling contract.** Upgrade/install/init now present one coherent user-facing lifecycle: `install.sh` is the convenience wrapper, `upgrade.py` owns upgrade behaviour, and `init.py` remains the MCP registration entry point.
+
+- Make `upgrade.py` the explicit upgrade owner. `install.sh` still detects existing vaults, fetches the repo, prompts when needed, and delegates, but it no longer acts like a second owner of upgrade semantics.
+- Align the user-facing runtime contract on Python 3.12+ across `install.sh`, `upgrade.py`, `init.py`, and the MCP server path, while still allowing vault scaffolding to proceed when no compatible interpreter is available.
+- Move upgrade-time MCP dependency handling into `upgrade.py`. When `.brain-core/brain_mcp/requirements.txt` changes and a vault-local `.venv` exists, the upgrader now best-effort syncs it directly; `--no-sync-deps` remains the explicit opt-out and `install.sh --skip-mcp` passes that through on upgrade.
+- Stop the installer wrapper from re-running MCP registration during upgrade mode. Existing project-scoped client config remains in place; upgrade updates the vault and its local runtime without silently broadening side effects.
+- Make upgrade follow-up commands caller-independent by printing absolute retry/rebuild commands, so recovery steps work no matter which directory the user ran them from.
+- Backfill the vault registry on same-version and skipped installer reruns so `install.sh` still repairs discovery metadata even when no actual upgrade is applied.
+- Rewrite the README, getting-started guide, script reference, user tooling reference, and contributor/versioning guidance to reflect the new lifecycle ownership and the pre-1.0 semver policy for install/upgrade contract changes.
 
 ## v0.31.2 — 2026-04-25
 

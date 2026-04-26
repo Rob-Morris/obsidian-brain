@@ -2,11 +2,15 @@
 
 import json
 import os
+from pathlib import Path
 import shutil
+import subprocess
+import sys
 
 import pytest
 
 import upgrade
+from conftest import write_executable as _write_executable
 
 
 # ---------------------------------------------------------------------------
@@ -486,3 +490,68 @@ class TestPostUpgradeSyncOverrides:
         assert "sync_error" in result
         assert "sync_result" not in result
         assert "sync_preview" not in result
+
+
+class TestUpgradeCliDependencySync:
+    def test_cli_syncs_vault_local_dependencies_and_prints_absolute_follow_up(self, tmp_path):
+        source = _make_real_compile_source(tmp_path)
+        brain_mcp = source / "brain_mcp"
+        brain_mcp.mkdir()
+        (brain_mcp / "requirements.txt").write_text("mcp==2.0.0\n")
+
+        vault = _make_minimal_upgrade_vault(tmp_path)
+        old_requirements = vault / ".brain-core" / "brain_mcp"
+        old_requirements.mkdir(parents=True)
+        (old_requirements / "requirements.txt").write_text("mcp==1.0.0\n")
+
+        _write_executable(
+            vault / ".venv" / "bin" / "python",
+            "#!/bin/sh\n"
+            "if [ \"$1\" = \"-m\" ] && [ \"$2\" = \"pip\" ]; then\n"
+            "  shift 2\n"
+            "  venv_dir=$(cd \"$(dirname \"$0\")/..\" && pwd)\n"
+            "  printf '%s\\n' \"$*\" > \"$venv_dir/pip-args.txt\"\n"
+            "  exit 0\n"
+            "fi\n"
+            "printf 'unexpected venv python args: %s\\n' \"$*\" >&2\n"
+            "exit 1\n",
+        )
+
+        script = Path(__file__).resolve().parents[1] / "src" / "brain-core" / "scripts" / "upgrade.py"
+        result = subprocess.run(
+            [sys.executable, str(script), "--source", str(source), "--vault", str(vault)],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert (vault / ".venv" / "pip-args.txt").read_text().startswith(
+            f"install --quiet -r {vault / '.brain-core' / 'brain_mcp' / 'requirements.txt'}"
+        )
+        assert "MCP dependencies synced in the vault-local .venv." in result.stderr
+        assert str(vault / ".brain-core" / "scripts" / "build_index.py") in result.stderr
+        assert "python3 .brain-core/scripts/build_index.py" not in result.stderr
+
+    def test_cli_forced_sync_deps_without_requirements_diff_uses_neutral_message(self, tmp_path):
+        source = _make_real_compile_source(tmp_path)
+        brain_mcp = source / "brain_mcp"
+        brain_mcp.mkdir()
+        (brain_mcp / "requirements.txt").write_text("mcp==1.0.0\n")
+
+        vault = _make_minimal_upgrade_vault(tmp_path)
+        old_requirements = vault / ".brain-core" / "brain_mcp"
+        old_requirements.mkdir(parents=True)
+        (old_requirements / "requirements.txt").write_text("mcp==1.0.0\n")
+
+        script = Path(__file__).resolve().parents[1] / "src" / "brain-core" / "scripts" / "upgrade.py"
+        result = subprocess.run(
+            [sys.executable, str(script), "--source", str(source), "--vault", str(vault), "--sync-deps"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert "Vault-local MCP dependency sync was requested, but no vault-local .venv was found. Skipping." in result.stderr
+        assert "Dependencies changed, but no vault-local .venv was found." not in result.stderr

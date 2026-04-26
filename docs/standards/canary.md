@@ -24,7 +24,7 @@ The pattern is self-enforcing. When you add a new bracket ID to the canary brief
 
 Canary logs are transient by design. They're gate files, not permanent records. Gitignore them. They exist to prove the work was done, then they disappear. You could also modify the canary approach to save logs somewhere as an audit trail, with or without automated testing.
 
-Use this pattern to verify whether any kind of subjective steps were followed: doc updates, cross-referencing, style checks, migration steps, whatever you need. The pattern scales by adding canary files, not by modifying hooks. Each canary is self-contained. A standard hook should be able to test any canary file.
+Use this pattern to verify whether any kind of subjective steps were followed: doc updates, cross-referencing, style checks, migration steps, versioning/release hygiene, shared-fact cross-checks, whatever you need. The pattern scales by adding canary files, not by modifying hooks. Each canary is self-contained. A standard hook should be able to test any canary file.
 
 # The Canary Brief
 
