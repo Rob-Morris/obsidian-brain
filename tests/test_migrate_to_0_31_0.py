@@ -130,6 +130,36 @@ class TestPhase1KeyDerivation:
         assert plan["key"] == "brain"
         assert plan["source"] == "self_tag"
 
+    def test_reserved_legacy_key_blocks_relationship_tag_claim(self, vault, router):
+        """A legacy hub-slug reserve beats a later relationship tag for the same key."""
+        _write(vault / "Projects" / "Brain Master.md",
+               {"type": "living/project", "tags": [], "hub-slug": "brain"})
+        _write(vault / "Projects" / "Brain Remote Admin.md",
+               {"type": "living/project", "tags": ["project/brain"]})
+
+        result = migrate_to_0_31_0.migrate_vault(str(vault), apply=True, router=router)
+        plans = {plan["path"]: plan for plan in result["phase1"]["plans"]}
+
+        assert plans["Projects/Brain Master.md"]["key"] == "brain"
+        assert plans["Projects/Brain Master.md"]["source"] == "hub-slug"
+        assert plans["Projects/Brain Remote Admin.md"]["key"] == "brain-remote-admin"
+        assert plans["Projects/Brain Remote Admin.md"]["source"] == "title"
+
+    def test_ambiguous_same_type_tag_claims_fall_back_to_title(self, vault, router):
+        """Order-dependent same-type tag claims should not silently steal a key."""
+        _write(vault / "Projects" / "Obsidian Brain.md",
+               {"type": "living/project", "tags": ["project/brain"]})
+        _write(vault / "Projects" / "Brain Operations.md",
+               {"type": "living/project", "tags": ["project/brain"]})
+
+        result = migrate_to_0_31_0.migrate_vault(str(vault), apply=True, router=router)
+        plans = {plan["path"]: plan for plan in result["phase1"]["plans"]}
+
+        assert plans["Projects/Obsidian Brain.md"]["key"] == "obsidian-brain"
+        assert plans["Projects/Obsidian Brain.md"]["source"] == "title"
+        assert plans["Projects/Brain Operations.md"]["key"] == "brain-operations"
+        assert plans["Projects/Brain Operations.md"]["source"] == "title"
+
     def test_self_tag_ignored_for_other_type(self, vault, router):
         """A tag like `project/foo` on a wiki page must not become the wiki's key."""
         _write(vault / "Wiki" / "About Project Foo.md",

@@ -6,6 +6,8 @@ import unicodedata
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 _VALID_SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+_HAS_ALPHA_RE = re.compile(r"[a-z]")
+_CLEAN_CHARS_RE = re.compile(r"[^a-z0-9\s]+")
 
 # Characters unsafe in filenames across macOS, Windows, and Linux
 _UNSAFE_FILENAME_RE = re.compile(r'[/\\:*?"<>|]')
@@ -13,7 +15,9 @@ _MULTI_SPACE_RE = re.compile(r"  +")
 
 SLUG_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"
 SLUG_SUFFIX_LENGTH = 3
-SLUG_KEYWORD_MAX = 12
+SLUG_SUFFIX_MAX_RETRIES = 100
+SLUG_KEYWORD_BUDGET = 20
+SLUG_TITLE_KEY_LIMIT = 20
 SLUG_SENTINEL = "husk"
 SLUG_STOPWORDS = frozenset(
     {
@@ -30,6 +34,12 @@ SLUG_STOPWORDS = frozenset(
 )
 
 
+def _to_ascii_lower(text):
+    """Transliterate unicode to lowercase ASCII (e.g. é → e)."""
+    normalised = unicodedata.normalize("NFKD", text or "")
+    return normalised.encode("ascii", "ignore").decode("ascii").lower()
+
+
 def title_to_slug(title):
     """Convert a human-readable title to a machine slug for hub tags.
 
@@ -37,14 +47,7 @@ def title_to_slug(title):
     Used for hub tags (project/{slug}, workspace/{slug}), not filenames.
     Output matches: [a-z0-9]+(?:-[a-z0-9]+)*
     """
-    # Transliterate unicode to ASCII approximations (e.g. é → e)
-    normalised = unicodedata.normalize("NFKD", title)
-    ascii_only = normalised.encode("ascii", "ignore").decode("ascii")
-    slug = _SLUG_RE.sub("-", ascii_only.lower()).strip("-")
-    # Collapse any remaining double hyphens
-    while "--" in slug:
-        slug = slug.replace("--", "-")
-    return slug
+    return _SLUG_RE.sub("-", _to_ascii_lower(title)).strip("-")
 
 
 def is_valid_key(key):
@@ -53,7 +56,9 @@ def is_valid_key(key):
         return False
     if not (1 <= len(key) <= 64):
         return False
-    return bool(_VALID_SLUG_RE.fullmatch(key))
+    if not _VALID_SLUG_RE.fullmatch(key):
+        return False
+    return bool(_HAS_ALPHA_RE.search(key))
 
 
 def validate_key(key):
@@ -61,23 +66,29 @@ def validate_key(key):
     if is_valid_key(key):
         return key
     raise ValueError(
-        "INVALID_KEY: key must match ^[a-z0-9]+(-[a-z0-9]+)*$ and be 1–64 characters long"
+        "INVALID_KEY: key must match ^[a-z0-9]+(-[a-z0-9]+)*$, contain at least one letter, and be 1–64 characters long"
     )
 
 
-def extract_slug_keyword(title):
-    """Extract the deterministic keyword prefix for a contextual slug."""
-    normalised = unicodedata.normalize("NFKD", title or "")
-    ascii_only = normalised.encode("ascii", "ignore").decode("ascii").lower()
-    cleaned = re.sub(r"[^a-z0-9\s]+", " ", ascii_only)
+def extract_slug_keywords(title, max_words=2, budget=SLUG_KEYWORD_BUDGET):
+    """Pick up to ``max_words`` distinctive keywords joined by ``-``, fitting ``budget``."""
+    cleaned = _CLEAN_CHARS_RE.sub(" ", _to_ascii_lower(title))
     tokens = [tok for tok in cleaned.split() if tok]
     if not tokens:
         return SLUG_SENTINEL
 
     non_stopwords = [tok for tok in tokens if tok not in SLUG_STOPWORDS]
     candidates = non_stopwords or tokens
-    keyword = max(candidates, key=len)[:SLUG_KEYWORD_MAX]
-    return keyword or SLUG_SENTINEL
+
+    ranked = sorted(enumerate(candidates), key=lambda p: (p[1].isdigit(), -len(p[1]), p[0]))
+    if max_words >= 2 and len(ranked) >= 2:
+        (idx_a, word_a), (idx_b, word_b) = ranked[0], ranked[1]
+        if len(word_a) + 1 + len(word_b) <= budget:
+            first, second = ((word_a, word_b) if idx_a < idx_b else (word_b, word_a))
+            return f"{first}-{second}"
+
+    longest = ranked[0][1][:budget]
+    return longest or SLUG_SENTINEL
 
 
 def generate_slug_suffix(length=SLUG_SUFFIX_LENGTH, alphabet=SLUG_ALPHABET):
@@ -86,8 +97,33 @@ def generate_slug_suffix(length=SLUG_SUFFIX_LENGTH, alphabet=SLUG_ALPHABET):
 
 
 def generate_contextual_slug(title):
-    """Generate a contextual ``{keyword}-{suffix}`` slug candidate."""
-    return f"{extract_slug_keyword(title)}-{generate_slug_suffix()}"
+    """Generate a contextual ``{keywords}-{suffix}`` slug candidate."""
+    return f"{extract_slug_keywords(title)}-{generate_slug_suffix()}"
+
+
+def derive_distinctive_slug(title, taken):
+    """Pick the clearest unique slug for a title.
+
+    A multi-token pair wins by shape; otherwise the longest single
+    keyword. The random-suffix slug is reserved for collision resolution.
+    """
+    pair = extract_slug_keywords(title, max_words=2, budget=64)
+    if "-" in pair and is_valid_key(pair) and pair not in taken:
+        return pair
+
+    single = extract_slug_keywords(title, max_words=1)
+    if is_valid_key(single) and single not in taken:
+        return single
+
+    keywords = extract_slug_keywords(title)
+    for _ in range(SLUG_SUFFIX_MAX_RETRIES):
+        candidate = f"{keywords}-{generate_slug_suffix()}"
+        if candidate not in taken:
+            return candidate
+    raise RuntimeError(
+        f"derive_distinctive_slug: could not find a free suffix for {title!r} "
+        f"after {SLUG_SUFFIX_MAX_RETRIES} attempts"
+    )
 
 
 def title_to_filename(title):

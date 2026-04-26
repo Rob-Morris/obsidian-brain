@@ -16,7 +16,7 @@ The repeated pattern was: a derived value (the tag) treated as a primary identif
 
 Every living artefact carries an explicit `key:` field in frontmatter. The composite `{type}/{key}` is the canonical artefact key — used by `parent:` for ownership, by hub-relationship tags for discovery, and by subfolder layouts for filesystem ownership.
 
-- The `key:` value is slug-shaped (lowercase ASCII, hyphens, regex `^[a-z0-9]+(-[a-z0-9]+)*$`, length 1–64) so it is always URL-safe and filesystem-safe, but it is *curated*, not derived from a title at lookup time.
+- The `key:` value is slug-shaped (lowercase ASCII, hyphens, regex `^[a-z0-9]+(-[a-z0-9]+)*$` with at least one `[a-z]`, length 1–64) so it is always URL-safe and filesystem-safe, but it is *curated*, not derived from a title at lookup time.
 - Living artefacts only. Temporal artefacts have no `key:` because nothing references them as a hub; they record their owner via `parent:` alone.
 - Filenames remain the human-readable title. The key is a separate machine identifier stored in frontmatter, never the filename.
 - Tags persist for relationship discovery (`project/{key}` etc.) and mirror the `parent:` value for relationship-scan tooling, but ownership is carried by `key` and `parent`, not by tags.

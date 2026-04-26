@@ -6,10 +6,10 @@ Three phases:
 
 1. **Key backfill** — stamp every living artefact with a valid canonical
    ``key:`` field. Priority: existing valid key → promote legacy
-   ``hub-slug`` / ``hub_slug`` → self-referencing type tag → title-derived
-   key with numeric collision suffix → generated fallback. When ownership
-   is proved by folder residency, ``parent: {type}/{key}`` and the
-   corresponding self/owner tags are backfilled in the same pass.
+   ``hub-slug`` / ``hub_slug`` → unambiguous self-referencing type tag →
+   title-derived key with numeric collision suffix → generated fallback.
+   When ownership is proved by folder residency, ``parent: {type}/{key}``
+   and the corresponding self/owner tags are backfilled in the same pass.
 2. **Child folder relocations** — move living artefacts so their folder
    matches the canonical form implied by their ``parent:`` (or a single
    resolvable hub-tag fallback). Wikilinks are rewritten atomically per
@@ -19,6 +19,15 @@ Three phases:
 
 The migration is idempotent. Rollback is handled by the upgrade runner's
 snapshot context — this script does not manage its own backup.
+
+This file replaces an earlier draft of the v0.31.0 migration that was never
+shipped through the runner — it would have aborted on real vaults with a
+``design/brain`` collision and stamped 64-char title slugs as canonical keys.
+A vault that ran the older draft directly (i.e. bypassed the upgrade runner)
+is still safe to upgrade: any pre-existing valid ``key:`` field is preserved
+under ``source=existing`` and never re-derived, so the worst case is a subset
+of artefacts ending up with the older draft's uglier keys while everything
+else gets the new shorter, distinctive form.
 """
 
 from __future__ import annotations
@@ -31,18 +40,20 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from _common import (
+    SLUG_TITLE_KEY_LIMIT,
     STATUS_FOLDER_PREFIX,
     artefact_type_prefix,
+    derive_distinctive_slug,
     ensure_parent_tag,
     ensure_self_tag,
     find_vault_root,
-    generate_contextual_slug,
     is_archived_path,
     is_valid_key,
     iter_living_markdown_files,
     load_compiled_router,
     make_artefact_key,
     normalize_artefact_key,
+    parse_artefact_key,
     read_artefact,
     read_frontmatter,
     resolve_and_validate_folder,
@@ -103,37 +114,27 @@ def _set_parent_field(fields, parent_key):
 # Phase 1 — Slug backfill (with folder-residency parent + self-tag backfill)
 # ---------------------------------------------------------------------------
 
-def _derive_key(fields, stem, type_prefix, taken):
-    """Apply priority order to derive a key value.
-
-    Returns (slug, source). ``source`` ∈ {existing, hub-slug, hub_slug,
-    self_tag, title, generated}. Caller adds the returned slug to ``taken``.
-    """
-    existing = fields.get("key")
-    if is_valid_key(existing):
-        return existing, "existing"
-
-    for legacy_key in LEGACY_SLUG_KEYS:
-        legacy = fields.get(legacy_key)
-        if is_valid_key(legacy):
-            return legacy, legacy_key
-
+def _same_type_tag_candidates(fields, type_prefix):
+    """Return unique same-type tag candidates that could be self-tags."""
     tags = fields.get("tags") or []
-    if isinstance(tags, list):
-        for tag in tags:
-            if not isinstance(tag, str):
-                continue
-            canonical = normalize_artefact_key(tag)
-            if not canonical:
-                continue
-            prefix, candidate = canonical.split("/", 1)
-            if prefix == type_prefix and is_valid_key(candidate):
-                return candidate, "self_tag"
+    if not isinstance(tags, list):
+        return []
+    candidates = []
+    for tag in tags:
+        parsed = parse_artefact_key(tag) if isinstance(tag, str) else None
+        if not parsed:
+            continue
+        prefix, candidate = parsed
+        if prefix == type_prefix and candidate not in candidates:
+            candidates.append(candidate)
+    return candidates
 
+
+def _derive_title_or_generated_key(fields, stem, taken):
     title = fields.get("title")
     source_text = title.strip() if isinstance(title, str) and title.strip() else stem
     base = title_to_slug(source_text)
-    if is_valid_key(base):
+    if is_valid_key(base) and len(base) <= SLUG_TITLE_KEY_LIMIT:
         candidate = base
         counter = 2
         while candidate in taken:
@@ -141,10 +142,7 @@ def _derive_key(fields, stem, type_prefix, taken):
             counter += 1
         return candidate, "title"
 
-    candidate = generate_contextual_slug(source_text)
-    while candidate in taken:
-        candidate = generate_contextual_slug(source_text)
-    return candidate, "generated"
+    return derive_distinctive_slug(source_text, taken), "generated"
 
 
 def _resolve_folder_parent(art, rel_path, type_prefix, own_key, entry_by_key):
@@ -184,26 +182,10 @@ def plan_key_backfill(vault_root, router):
     files = list(iter_living_markdown_files(vault_root, router, include_status_folders=True))
 
     records = []
-    taken_by_type: dict[str, set[str]] = {}
+    reserved_by_type: dict[str, set[str]] = {}
 
-    # Pass 1: preseed taken keys with any already-valid values so derivation
-    # in pass 2 doesn't collide with them.
-    for rel_path in files:
-        abs_path = os.path.join(vault_root, rel_path)
-        try:
-            fields = read_frontmatter(abs_path)
-        except (OSError, UnicodeDecodeError):
-            continue
-        try:
-            _resolved, art = resolve_and_validate_folder(vault_root, router, rel_path)
-        except ValueError:
-            continue
-        existing_key = fields.get("key")
-        if is_valid_key(existing_key):
-            taken_by_type.setdefault(artefact_type_prefix(art), set()).add(existing_key)
-
-    # Pass 2: derive keys (and record every living artefact for the
-    # subsequent parent-backfill pass).
+    # Pass 1: explicit + legacy keys are reserved up front so later derivation
+    # cannot steal them.
     for rel_path in files:
         abs_path = os.path.join(vault_root, rel_path)
         try:
@@ -216,9 +198,16 @@ def plan_key_backfill(vault_root, router):
             continue
         type_prefix = artefact_type_prefix(art)
         stem = os.path.splitext(os.path.basename(rel_path))[0]
-        taken = taken_by_type.setdefault(type_prefix, set())
-        new_key, source = _derive_key(fields, stem, type_prefix, taken)
-        taken.add(new_key)
+        parent_token = _parent_token_for_path(art, rel_path)
+        existing_key = fields.get("key")
+        if is_valid_key(existing_key):
+            reserved_by_type.setdefault(type_prefix, set()).add(existing_key)
+        legacy_sources = []
+        for legacy_key in LEGACY_SLUG_KEYS:
+            legacy_value = fields.get(legacy_key)
+            if is_valid_key(legacy_value):
+                reserved_by_type.setdefault(type_prefix, set()).add(legacy_value)
+                legacy_sources.append(legacy_key)
 
         records.append({
             "rel_path": rel_path,
@@ -226,10 +215,52 @@ def plan_key_backfill(vault_root, router):
             "body": body,
             "art": art,
             "type_prefix": type_prefix,
-            "new_key": new_key,
-            "source": source,
-            "legacy_keys": [k for k in LEGACY_SLUG_KEYS if k in fields],
+            "stem": stem,
+            "parent_token": parent_token,
+            "same_type_tag_candidates": _same_type_tag_candidates(fields, type_prefix),
+            "legacy_keys": legacy_sources,
         })
+
+    # Pass 2: ambiguous self-tag claims must lose to title-derivation, else
+    # which artefact wins the key would depend on iteration order.
+    approved_self_tags = {}
+    self_tag_claimants: dict[tuple[str, str], list[int]] = {}
+    for index, record in enumerate(records):
+        if is_valid_key(record["fields"].get("key")) or record["legacy_keys"] or record["parent_token"]:
+            continue
+        candidates = record["same_type_tag_candidates"]
+        if len(candidates) != 1:
+            continue
+        candidate = candidates[0]
+        self_tag_claimants.setdefault((record["type_prefix"], candidate), []).append(index)
+
+    for (type_prefix, candidate), claimants in self_tag_claimants.items():
+        if candidate in reserved_by_type.get(type_prefix, set()):
+            continue
+        if len(claimants) == 1:
+            approved_self_tags[claimants[0]] = candidate
+            reserved_by_type.setdefault(type_prefix, set()).add(candidate)
+
+    taken_by_type = {type_prefix: set(keys) for type_prefix, keys in reserved_by_type.items()}
+    for index, record in enumerate(records):
+        fields = record["fields"]
+        type_prefix = record["type_prefix"]
+        taken = taken_by_type.setdefault(type_prefix, set())
+
+        existing = fields.get("key")
+        if is_valid_key(existing):
+            new_key, source = existing, "existing"
+        elif record["legacy_keys"]:
+            legacy_key = record["legacy_keys"][0]
+            new_key, source = fields[legacy_key], legacy_key
+        elif index in approved_self_tags:
+            new_key, source = approved_self_tags[index], "self_tag"
+        else:
+            new_key, source = _derive_title_or_generated_key(fields, record["stem"], taken)
+
+        taken.add(new_key)
+        record["new_key"] = new_key
+        record["source"] = source
 
     entry_by_key = {
         make_artefact_key(r["type_prefix"], r["new_key"]): r["rel_path"]

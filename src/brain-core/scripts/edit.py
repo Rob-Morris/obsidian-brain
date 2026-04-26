@@ -24,7 +24,6 @@ from _common import (
     ensure_parent_tag,
     ensure_self_tag,
     ensure_tags_list,
-    extract_slug_keyword,
     extract_title,
     find_vault_root,
     generate_contextual_slug,

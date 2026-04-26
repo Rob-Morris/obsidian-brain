@@ -13,7 +13,7 @@ Obsidian displays the filename as the note title everywhere — sidebar, tabs, g
 
 The `title_to_filename()` function in `_common/_slugs.py` implements this.
 
-**Hub tags** (e.g. `project/{key}`, `workspace/{key}`) use the canonical key format: lowercase alphanumeric with single hyphens. Key values are platform-generated at create time. See [[keys]] for the full contract.
+**Hub tags** (e.g. `project/{key}`, `workspace/{key}`) use the canonical key format: lowercase alphanumeric with single hyphens, containing at least one letter. Key values are platform-generated at create time. See [[keys]] for the full contract.
 
 ## Temporal Artefacts
 

@@ -25,6 +25,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import unicodedata
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -771,7 +772,8 @@ def _remove_bootstrap_line(path: Path, bootstrap: str) -> None:
 
 def _workspace_slug(name: str) -> str:
     """Return a stable slug for a workspace directory name."""
-    slug = re.sub(r"[^A-Za-z0-9]+", "-", name.strip().lower()).strip("-")
+    ascii_name = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode("ascii")
+    slug = re.sub(r"[^A-Za-z0-9]+", "-", ascii_name.strip().lower()).strip("-")
     return slug or "workspace"
 
 

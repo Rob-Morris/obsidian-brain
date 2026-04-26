@@ -32,11 +32,11 @@ The tag mirrors the `parent:` value for relationship-scan tooling; ownership is 
 
 ## Format
 
-- Lowercase ASCII letters and digits, separated by single hyphens.
-- Regex: `^[a-z0-9]+(-[a-z0-9]+)*$`
+- Lowercase ASCII letters and digits, separated by single hyphens. At least one letter is required.
+- Regex: `^[a-z0-9]+(-[a-z0-9]+)*$`, with the additional constraint that the key must contain at least one `[a-z]` character.
 - Length: 1–64 characters.
 
-Uppercase letters, spaces, underscores, consecutive hyphens, and leading or trailing hyphens are invalid. Violations raise `INVALID_KEY` at the API boundary.
+Uppercase letters, spaces, underscores, consecutive hyphens, leading or trailing hyphens, and purely numeric values are invalid. Violations raise `INVALID_KEY` at the API boundary.
 
 ## Selection
 

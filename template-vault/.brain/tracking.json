@@ -72,29 +72,29 @@
       }
     },
     "living/people": {
-      "brain_core_version": "0.31.0",
-      "installed_at": "2026-04-23T00:00:00+00:00",
+      "brain_core_version": "0.32.5",
+      "installed_at": "2026-04-26T11:04:53.009887+00:00",
       "files": {
         "taxonomy": {
           "source_hash": "sha256:2044b6687c4dc667058c83c770ec162e4b37d248bffd64c96e96aadc5b6d6758",
           "target": "_Config/Taxonomy/Living/people.md"
         },
         "template": {
-          "source_hash": "sha256:b78c8ab332396d5346209de2d101799ab2533f01529a43dae1e9f20f2e28b16a",
+          "source_hash": "sha256:e9e63b352436d7949bba2711d8ecd242368423e9adbe9aca124799250a68dc43",
           "target": "_Config/Templates/Living/People.md"
         }
       }
     },
     "living/projects": {
-      "brain_core_version": "0.31.0",
-      "installed_at": "2026-04-23T00:00:00+00:00",
+      "brain_core_version": "0.32.5",
+      "installed_at": "2026-04-26T11:04:53.009887+00:00",
       "files": {
         "taxonomy": {
           "source_hash": "sha256:59d3036824d49781334d80ccfaf1e663229206d35e2a5aeb2e5e4e5ca1442624",
           "target": "_Config/Taxonomy/Living/projects.md"
         },
         "template": {
-          "source_hash": "sha256:4c0a388a6d82dd2ba54e62093cd94d90a6410fea9c28c5af46149a0987bbd2e8",
+          "source_hash": "sha256:1d9ae6bac292289390be9ee89bed1eb1407380950d182b48f20e6a33b37b6e06",
           "target": "_Config/Templates/Living/Projects.md"
         }
       }
@@ -114,15 +114,15 @@
       }
     },
     "living/workspaces": {
-      "brain_core_version": "0.31.0",
-      "installed_at": "2026-04-24T22:34:59.188310+00:00",
+      "brain_core_version": "0.32.5",
+      "installed_at": "2026-04-26T11:04:53.009887+00:00",
       "files": {
         "taxonomy": {
           "source_hash": "sha256:bdcf034d7a6b294877896ab51796fa2d8449b0162a9d7f80decd2322913a86b3",
           "target": "_Config/Taxonomy/Living/workspaces.md"
         },
         "template": {
-          "source_hash": "sha256:eafa5a16ef0cf8784d6d08e91d1f2bb23858c185a4c9607d0bde56bdd4cc2a93",
+          "source_hash": "sha256:1d6e3da14f8b435788bbaef10a15f8593d7def10326b124f368eb8546db19a09",
           "target": "_Config/Templates/Living/Workspaces.md"
         }
       }
