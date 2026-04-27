@@ -13,6 +13,7 @@ import json
 import os
 import sys
 import textwrap
+import threading
 import time
 
 import pytest
@@ -210,6 +211,16 @@ def _find_notification(messages: list[dict], method: str) -> dict | None:
     return None
 
 
+def _wait_for(predicate, *, timeout: float = 2.0, interval: float = 0.01) -> bool:
+    """Poll until predicate() is truthy or timeout elapses."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(interval)
+    return bool(predicate())
+
+
 def _exhaust_backoff(proc, *, crash_count: int = 6, probe_id: int = 99) -> list[dict]:
     """Send ``crash_count`` requests to exhaust the backoff schedule, then
     probe once to confirm give-up.  Returns all collected messages.
@@ -246,15 +257,33 @@ class _FakeStdin:
         self.buffer = _FakeBuffer(lines)
 
 
+class _BlockingBuffer:
+    def __init__(self, lines: list[bytes], eof_event: threading.Event):
+        self._lines = list(lines)
+        self._eof_event = eof_event
+
+    def readline(self) -> bytes:
+        if self._lines:
+            return self._lines.pop(0)
+        self._eof_event.wait()
+        return b""
+
+
+class _BlockingFakeStdin:
+    def __init__(self, lines: list[bytes], eof_event: threading.Event):
+        self.buffer = _BlockingBuffer(lines, eof_event)
+
+
 class _NoOpThread:
     def __init__(self, target=None, daemon=None, name=None):
         self._target = target
+        self._started = False
 
     def start(self) -> None:
-        return None
+        self._started = True
 
     def is_alive(self) -> bool:
-        return False
+        return self._started
 
     def join(self, timeout=None) -> None:
         return None
@@ -306,6 +335,23 @@ def _make_inprocess_proxy(tmp_path, monkeypatch, stdin_lines: list[bytes]) -> tu
 
     monkeypatch.setattr(proxy_mod.threading, "Thread", _NoOpThread)
     monkeypatch.setattr(proxy_mod.sys, "stdin", _FakeStdin(stdin_lines))
+    monkeypatch.setattr(proxy, "_send_to_client", lambda obj: sent_to_client.append(obj))
+
+    return proxy, sent_to_client
+
+
+def _make_inprocess_proxy_with_real_threads(
+    tmp_path, monkeypatch, stdin=None,
+) -> tuple[proxy_mod.Proxy, list[dict]]:
+    """In-process Proxy with real background threads. For tests that need
+    the recovery thread to actually run (e.g. concurrent-signal coverage)."""
+    _write_vault(tmp_path)
+    monkeypatch.setattr(proxy_mod, "_logger", proxy_mod._setup_logging(str(tmp_path)))
+    proxy = proxy_mod.Proxy(PYTHON, "fake-server", str(tmp_path))
+    sent_to_client: list[dict] = []
+
+    if stdin is not None:
+        monkeypatch.setattr(proxy_mod.sys, "stdin", stdin)
     monkeypatch.setattr(proxy, "_send_to_client", lambda obj: sent_to_client.append(obj))
 
     return proxy, sent_to_client
@@ -610,9 +656,9 @@ class TestMessageForwarding:
 
 
 class TestMainLoopRecoveryPaths:
-    """Main-loop dead-child paths trigger real recovery instead of soft-loop limbo."""
+    """Main-loop dead-child paths fail fast instead of blocking on recovery."""
 
-    def test_initialize_during_recovery_is_forwarded_once(self, tmp_path, monkeypatch):
+    def test_initialize_during_recovery_returns_soft_error(self, tmp_path, monkeypatch):
         proxy, sent_to_client = _make_inprocess_proxy(
             tmp_path,
             monkeypatch,
@@ -628,87 +674,67 @@ class TestMainLoopRecoveryPaths:
             ],
         )
         dead_child = _FakeChild(poll_values=[1])
-        replacement = _FakeChild()
 
         with proxy._child_lock:
             proxy._child = dead_child
 
-        monkeypatch.setattr(proxy_mod, "ChildProcess", lambda *args: replacement)
-
         proxy.run()
 
-        assert replacement.started is True
-        assert [msg.get("method") for msg in replacement.sent] == ["initialize"]
-        assert not sent_to_client, (
-            "bootstrap recovery should not emit list_changed or an error before initialize completes"
-        )
+        assert len(sent_to_client) == 1
+        assert sent_to_client[0]["id"] == 1
+        assert "error" in sent_to_client[0]
+        assert sent_to_client[0]["error"]["message"] == "server restarting, please retry"
+        assert proxy._restart_in_progress is True
+        assert proxy._get_child() is None
 
-    def test_dead_child_before_send_recovers_and_forwards_request(self, tmp_path, monkeypatch):
+    def test_dead_child_before_send_signals_recovery_and_errors_request(self, tmp_path, monkeypatch):
         proxy, sent_to_client = _make_inprocess_proxy(
             tmp_path,
             monkeypatch,
             [_make_jsonrpc("tools/call", id=2, params={"name": "ping"}).encode("utf-8")],
         )
         dead_child = _FakeChild(poll_values=[1])
-        replacement = _FakeChild()
-        restart_attempts: list[int] = []
 
         with proxy._child_lock:
             proxy._child = dead_child
 
-        def fake_start_child() -> bool:
-            restart_attempts.append(1)
-            with proxy._child_lock:
-                proxy._child = replacement
-            proxy._child_ready.set()
-            return True
-
-        monkeypatch.setattr(proxy, "_start_child", fake_start_child)
-
         proxy.run()
 
-        assert restart_attempts == [1]
-        assert replacement.sent and replacement.sent[0]["id"] == 2
-        assert not sent_to_client, f"Expected request forwarding after recovery, got: {sent_to_client}"
+        assert len(sent_to_client) == 1
+        assert sent_to_client[0]["id"] == 2
+        assert "error" in sent_to_client[0]
+        assert sent_to_client[0]["error"]["message"] == "server restarting, please retry"
+        assert proxy._restart_in_progress is True
+        assert proxy._get_child() is None
 
-    def test_broken_pipe_during_send_recovers_and_errors_orphaned_request(self, tmp_path, monkeypatch):
+    def test_broken_pipe_during_send_signals_recovery_and_errors_orphaned_request(
+        self, tmp_path, monkeypatch
+    ):
         proxy, sent_to_client = _make_inprocess_proxy(
             tmp_path,
             monkeypatch,
             [_make_jsonrpc("tools/call", id=2, params={"name": "ping"}).encode("utf-8")],
         )
         broken_child = _FakeChild(poll_values=[None, None, 1], send_exception=BrokenPipeError)
-        replacement = _FakeChild()
-        restart_attempts: list[int] = []
 
         with proxy._child_lock:
             proxy._child = broken_child
 
-        def fake_start_child() -> bool:
-            restart_attempts.append(1)
-            with proxy._child_lock:
-                proxy._child = replacement
-            proxy._child_ready.set()
-            return True
-
-        monkeypatch.setattr(proxy, "_start_child", fake_start_child)
-
         proxy.run()
 
-        assert restart_attempts == [1]
         assert len(sent_to_client) == 1
         assert sent_to_client[0]["id"] == 2
         assert "error" in sent_to_client[0]
-        assert "restarting" in sent_to_client[0]["error"]["message"].lower()
+        assert "mid-request" in sent_to_client[0]["error"]["message"]
+        assert proxy._restart_in_progress is True
+        assert proxy._get_child() is None
 
 
 class TestInitialStartRecovery:
     """Initial child-start failures enter the same restart coordinator."""
 
     def test_initial_child_start_failure_retries_until_success(self, tmp_path, monkeypatch):
-        _write_vault(tmp_path)
-        monkeypatch.setattr(proxy_mod, "_logger", proxy_mod._setup_logging(str(tmp_path)))
-        proxy = proxy_mod.Proxy(PYTHON, "fake-server", str(tmp_path))
+        proxy, _ = _make_inprocess_proxy_with_real_threads(tmp_path, monkeypatch)
         proxy._backoff_schedule = [0, 0, 0]
         replacement = _FakeChild()
         attempts: list[int] = []
@@ -723,19 +749,24 @@ class TestInitialStartRecovery:
             return True
 
         monkeypatch.setattr(proxy, "_start_child", fake_start_child)
+        proxy._start_recovery_loop()
 
-        assert proxy._start_child() is False
-
-        proxy._recover_missing_child()
-
-        assert len(attempts) == 3
-        assert proxy._get_child() is replacement
-        assert proxy._gave_up is False
+        try:
+            assert proxy._signal_recovery(1)
+            assert _wait_for(lambda: proxy._get_child() is replacement, timeout=2.0)
+            assert len(attempts) == 3
+            assert proxy._gave_up is False
+        finally:
+            proxy._initiate_shutdown()
+            recovery = proxy._recovery_thread_handle
+            if recovery is not None and recovery.is_alive():
+                recovery.join(timeout=2.0)
 
     def test_subprocess_initial_start_transient_failure_recovers(self, tmp_path):
         """End-to-end: initial ChildProcess.start() fails twice, then succeeds.
-        Proxy should boot through backoff, accept initialize, and forward exactly
-        one init response with no duplicate replay or premature list_changed."""
+        Requests sent during the failure window should get the soft restart
+        error immediately, then a later initialize should succeed once recovery
+        finishes."""
         _write_vault(tmp_path)
         server_script = _echo_server_script(tmp_path)
         fail_counter = str(tmp_path / "init_fail_counter.txt")
@@ -743,6 +774,8 @@ class TestInitialStartRecovery:
             f.write("2")
 
         patch_body = textwrap.dedent(f"""\
+            import time
+
             _real_start = proxy_mod.ChildProcess.start
             def _flaky_start(self):
                 try:
@@ -753,6 +786,7 @@ class TestInitialStartRecovery:
                 if remaining > 0:
                     with open({fail_counter!r}, "w") as f:
                         f.write(str(remaining - 1))
+                    time.sleep(0.2)
                     raise OSError("simulated initial start failure")
                 return _real_start(self)
             proxy_mod.ChildProcess.start = _flaky_start
@@ -760,28 +794,47 @@ class TestInitialStartRecovery:
 
         proc = _run_proxy_wrapper(tmp_path, server_script, patch_body)
         try:
+            start = time.monotonic()
             proc.stdin.write(_make_jsonrpc("initialize", id=1,
                                            params={"protocolVersion": "2024-11-05",
                                                    "clientInfo": {"name": "test", "version": "0"}}))
             proc.stdin.flush()
 
-            all_msgs = _read_until_id(proc, 1, timeout=10.0)
-            init_resp = _find_by_id(all_msgs, 1)
-            assert init_resp is not None, f"Expected initialize response, got: {all_msgs}"
+            early_msgs = _read_until_id(proc, 1, timeout=2.0)
+            early_resp = _find_by_id(early_msgs, 1)
+            assert early_resp is not None, f"Expected immediate soft error, got: {early_msgs}"
+            assert "error" in early_resp, f"Expected soft restart error, got: {early_resp}"
+            assert early_resp["error"]["message"] == "server restarting, please retry"
+            assert time.monotonic() - start < 0.35, (
+                "initialize should fail fast during initial-start recovery"
+            )
+
+            time.sleep(0.6)
+            proc.stdin.write(_make_jsonrpc("initialize", id=2,
+                                           params={"protocolVersion": "2024-11-05",
+                                                   "clientInfo": {"name": "test", "version": "0"}}))
+            proc.stdin.flush()
+
+            later_msgs = _read_until_id(proc, 2, timeout=10.0)
+            init_resp = _find_by_id(later_msgs, 2)
+            assert init_resp is not None, f"Expected initialize response, got: {later_msgs}"
             assert "result" in init_resp, f"Expected success result, got: {init_resp}"
 
             # No list_changed should be sent during bootstrap recovery — the
             # live initialize handshake is the first one the child has seen.
-            list_changed = [m for m in all_msgs
+            list_changed = [m for m in early_msgs + later_msgs
                             if m.get("method") == "notifications/tools/list_changed"]
             assert not list_changed, (
                 f"Expected no list_changed during bootstrap, got: {list_changed}"
             )
 
-            # Exactly one response for id=1 (no duplicate replay).
-            id1_responses = [m for m in all_msgs if m.get("id") == 1]
+            id1_responses = [m for m in early_msgs if m.get("id") == 1]
             assert len(id1_responses) == 1, (
-                f"Expected exactly one initialize response, got: {id1_responses}"
+                f"Expected exactly one soft error for id=1, got: {id1_responses}"
+            )
+            id2_responses = [m for m in later_msgs if m.get("id") == 2]
+            assert len(id2_responses) == 1, (
+                f"Expected exactly one initialize success for id=2, got: {id2_responses}"
             )
 
             with open(fail_counter, "r") as f:
@@ -791,9 +844,8 @@ class TestInitialStartRecovery:
             proc.wait(timeout=5)
 
     def test_subprocess_initial_start_permanent_failure_returns_give_up(self, tmp_path):
-        """End-to-end: ChildProcess.start() always fails. After backoff is
-        exhausted, the first client tools/call gets the explicit give-up error
-        with /mcp guidance instead of a soft 'restarting' loop."""
+        """End-to-end: ChildProcess.start() always fails. Requests soft-fail
+        during recovery, then hard-fail with /mcp guidance after give-up."""
         _write_vault(tmp_path)
         server_script = _echo_server_script(tmp_path)
 
@@ -808,11 +860,24 @@ class TestInitialStartRecovery:
             proc.stdin.write(_make_jsonrpc("tools/call", id=1, params={"name": "ping"}))
             proc.stdin.flush()
 
-            all_msgs = _read_until_id(proc, 1, timeout=10.0)
-            resp = _find_by_id(all_msgs, 1)
-            assert resp is not None, f"Expected error response for id=1, got: {all_msgs}"
+            early_msgs = _read_until_id(proc, 1, timeout=5.0)
+            early_resp = _find_by_id(early_msgs, 1)
+            assert early_resp is not None, f"Expected early error response for id=1, got: {early_msgs}"
+            assert "error" in early_resp, f"Expected error, got: {early_resp}"
+            assert early_resp["error"]["message"] == "server restarting, please retry"
+
+            time.sleep(0.2)
+            proc.stdin.write(_make_jsonrpc("tools/call", id=2, params={"name": "ping"}))
+            proc.stdin.flush()
+
+            all_msgs = _read_until_id(proc, 2, timeout=5.0)
+            resp = _find_by_id(all_msgs, 2)
+            assert resp is not None, f"Expected give-up error response for id=2, got: {all_msgs}"
             assert "error" in resp, f"Expected error, got: {resp}"
             error_msg = resp["error"]["message"]
+            assert "MCP unrecoverable" in error_msg, (
+                f"Expected unrecoverable prefix. Got: {error_msg!r}"
+            )
             assert _GIVE_UP_MSG_FRAGMENT in error_msg.lower(), (
                 f"Expected explicit give-up message. Got: {error_msg!r}"
             )
@@ -822,6 +887,221 @@ class TestInitialStartRecovery:
         finally:
             proc.terminate()
             proc.wait(timeout=5)
+
+
+class TestAsyncRecoveryThread:
+    """Dedicated recovery-thread behaviours: non-blocking, single-owner, and wake-up semantics."""
+
+    def test_requests_during_recovery_return_immediately_while_restart_runs(
+        self, tmp_path, monkeypatch
+    ):
+        eof_event = threading.Event()
+        stdin_lines = [
+            _make_jsonrpc("tools/call", id=req_id, params={"name": "ping"}).encode("utf-8")
+            for req_id in range(1, 6)
+        ]
+        proxy, sent_to_client = _make_inprocess_proxy_with_real_threads(
+            tmp_path, monkeypatch, stdin=_BlockingFakeStdin(stdin_lines, eof_event),
+        )
+        proxy._backoff_schedule = [0]
+
+        start_entered = threading.Event()
+        release_start = threading.Event()
+
+        def slow_start_child() -> bool:
+            start_entered.set()
+            release_start.wait(timeout=5.0)
+            return False
+
+        monkeypatch.setattr(proxy, "_start_child", slow_start_child)
+        assert proxy._signal_recovery(1)
+
+        run_thread = threading.Thread(target=proxy.run, daemon=True)
+        run_thread.start()
+        try:
+            assert start_entered.wait(timeout=1.0), "recovery thread never entered _start_child"
+            assert _wait_for(lambda: len(sent_to_client) == 5, timeout=0.5), (
+                f"Expected 5 immediate errors during recovery, got: {sent_to_client}"
+            )
+            assert all(
+                msg["error"]["message"] == "server restarting, please retry"
+                for msg in sent_to_client
+            )
+        finally:
+            eof_event.set()
+            release_start.set()
+            run_thread.join(timeout=2.0)
+            assert not run_thread.is_alive(), "proxy.run() did not exit cleanly"
+
+    def test_simultaneous_recovery_signals_only_restart_once(self, tmp_path, monkeypatch):
+        proxy, sent_to_client = _make_inprocess_proxy_with_real_threads(tmp_path, monkeypatch)
+        proxy._backoff_schedule = [0]
+
+        child = _FakeChild()
+        replacement = _FakeChild()
+        with proxy._child_lock:
+            proxy._child = child
+        with proxy._inflight_lock:
+            proxy._inflight_requests[2] = json.loads(
+                _make_jsonrpc("tools/call", id=2, params={"name": "ping"})
+            )
+
+        start_calls: list[int] = []
+
+        def fake_start_child() -> bool:
+            start_calls.append(1)
+            with proxy._child_lock:
+                proxy._child = replacement
+            proxy._child_ready.set()
+            return True
+
+        monkeypatch.setattr(proxy, "_start_child", fake_start_child)
+        proxy._start_recovery_loop()
+
+        results: list[bool] = []
+        try:
+            def _signal() -> None:
+                results.append(proxy._signal_recovery(1, child=child))
+
+            t1 = threading.Thread(target=_signal, daemon=True)
+            t2 = threading.Thread(target=_signal, daemon=True)
+            t1.start()
+            t2.start()
+            t1.join(timeout=1.0)
+            t2.join(timeout=1.0)
+
+            assert _wait_for(lambda: proxy._get_child() is replacement, timeout=1.0)
+            assert sum(1 for owned in results if owned) == 1
+            assert start_calls == [1]
+            assert len(sent_to_client) == 1
+            assert sent_to_client[0]["id"] == 2
+            assert "mid-request" in sent_to_client[0]["error"]["message"]
+        finally:
+            proxy._initiate_shutdown()
+            recovery = proxy._recovery_thread_handle
+            if recovery is not None and recovery.is_alive():
+                recovery.join(timeout=2.0)
+
+    def test_stdin_eof_during_backoff_stops_recovery_promptly(self, tmp_path, monkeypatch):
+        proxy, _ = _make_inprocess_proxy_with_real_threads(
+            tmp_path, monkeypatch, stdin=_FakeStdin([]),
+        )
+        proxy._backoff_schedule = [30]
+
+        proxy._start_recovery_loop()
+        assert proxy._signal_recovery(1)
+        time.sleep(0.1)
+
+        started = time.monotonic()
+        proxy.run()
+        elapsed = time.monotonic() - started
+
+        assert elapsed < 1.0, f"stdin EOF should wake recovery wait promptly, took {elapsed:.2f}s"
+        recovery = proxy._recovery_thread_handle
+        assert recovery is not None
+        assert not recovery.is_alive()
+
+    def test_dead_recovery_thread_returns_unrecoverable_error(self, tmp_path, monkeypatch):
+        proxy, sent_to_client = _make_inprocess_proxy_with_real_threads(
+            tmp_path,
+            monkeypatch,
+            stdin=_FakeStdin([_make_jsonrpc("tools/call", id=7, params={"name": "ping"}).encode("utf-8")]),
+        )
+
+        def crash_recovery() -> None:
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(proxy, "_recovery_thread", crash_recovery)
+        proxy._start_recovery_loop()
+
+        assert _wait_for(lambda: proxy._recovery_thread_failed, timeout=1.0), (
+            "recovery thread did not crash as expected"
+        )
+
+        proxy.run()
+
+        assert len(sent_to_client) == 1
+        error_msg = sent_to_client[0]["error"]["message"]
+        assert "MCP unrecoverable" in error_msg
+        assert "/mcp" in error_msg
+
+    def test_crash_signal_after_recovery_crash_returns_unrecoverable(
+        self, tmp_path, monkeypatch
+    ):
+        """Recovery thread crashes while child is alive; later non-drift child
+        loss must surface the unrecoverable error to orphaned in-flight
+        requests, not the transient 'server exited mid-request, restarting'."""
+        proxy, sent_to_client = _make_inprocess_proxy_with_real_threads(
+            tmp_path, monkeypatch,
+        )
+
+        def crash_recovery() -> None:
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(proxy, "_recovery_thread", crash_recovery)
+        proxy._start_recovery_loop()
+        assert _wait_for(lambda: proxy._recovery_thread_failed, timeout=1.0)
+
+        child = _FakeChild()
+        with proxy._child_lock:
+            proxy._child = child
+        with proxy._inflight_lock:
+            proxy._inflight_requests[42] = json.loads(
+                _make_jsonrpc("tools/call", id=42, params={"name": "ping"})
+            )
+
+        # Non-drift exit (crash with code 1) — replay path does not apply.
+        assert proxy._signal_recovery(1, child=child)
+
+        assert len(sent_to_client) == 1
+        assert sent_to_client[0]["id"] == 42
+        error_msg = sent_to_client[0]["error"]["message"]
+        assert "MCP unrecoverable" in error_msg, (
+            f"Expected unrecoverable error since recovery is dead, got: {error_msg!r}"
+        )
+        assert "/mcp" in error_msg
+
+    def test_drift_signal_after_recovery_crash_does_not_strand_inflight(
+        self, tmp_path, monkeypatch
+    ):
+        """Recovery thread crashes while child is alive; later drift exit must not
+        leave the in-flight request stranded in _pending_replay forever."""
+        proxy, sent_to_client = _make_inprocess_proxy_with_real_threads(
+            tmp_path, monkeypatch,
+        )
+
+        def crash_recovery() -> None:
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(proxy, "_recovery_thread", crash_recovery)
+        proxy._start_recovery_loop()
+
+        assert _wait_for(lambda: proxy._recovery_thread_failed, timeout=1.0), (
+            "recovery thread did not crash as expected"
+        )
+
+        # Stage a still-alive child with an in-flight request.
+        child = _FakeChild()
+        with proxy._child_lock:
+            proxy._child = child
+        with proxy._inflight_lock:
+            proxy._inflight_requests[42] = json.loads(
+                _make_jsonrpc("tools/call", id=42, params={"name": "ping"})
+            )
+
+        # Simulate a drift exit (code 10) signaled by a detection path.
+        assert proxy._signal_recovery(10, child=child)
+
+        # The in-flight request must receive an error — not stay stranded in
+        # _pending_replay waiting for a recovery thread that will never run.
+        assert len(sent_to_client) == 1, (
+            f"Expected one error response for the stranded request, got: {sent_to_client}"
+        )
+        assert sent_to_client[0]["id"] == 42
+        error_msg = sent_to_client[0]["error"]["message"]
+        assert "MCP unrecoverable" in error_msg
+        assert "/mcp" in error_msg
+        assert proxy._pending_replay == []
 
 
 class TestVersionDriftRestart:
@@ -908,6 +1188,9 @@ class TestCrashBackoff:
             assert "error" in error_resp, f"Expected error, got: {error_resp}"
 
             error_msg = error_resp["error"]["message"]
+            assert "MCP unrecoverable" in error_msg, (
+                f"Expected unrecoverable prefix in error message. Got: {error_msg!r}"
+            )
             assert _GIVE_UP_MSG_FRAGMENT in error_msg.lower(), (
                 f"Expected explicit recovery exhaustion in error message. Got: {error_msg!r}"
             )
@@ -924,7 +1207,7 @@ class TestVersionResetAfterGiveUp:
     """After give-up, changing VERSION on disk resets backoff on next tools/call."""
 
     def test_version_change_resets_backoff(self, tmp_path):
-        """After give-up, update VERSION file; next tools/call triggers restart and succeeds."""
+        """After give-up, update VERSION file; next tools/call soft-fails, then recovery succeeds."""
         _write_vault(tmp_path, version="1.0.0")
         # Need 6 crash-causing runs (run_no 0-5) to exhaust all 5 backoff slots:
         # - Crashes 1-5 each consume a slot (0-4) and trigger a restart.
@@ -954,22 +1237,35 @@ class TestVersionResetAfterGiveUp:
             version_path = tmp_path / ".brain-core" / "VERSION"
             version_path.write_text("2.0.0")
 
-            # Send a tools/call which triggers _try_version_reset (rate limit
-            # disabled via VERSION_CHECK_INTERVAL=0).  The proxy resets backoff,
-            # starts child run_no=6+ (which echoes), sends list_changed, and then
-            # the request is forwarded and answered.
+            # Send a tools/call which triggers the async version-reset signal
+            # (rate limit disabled via VERSION_CHECK_INTERVAL=0). The triggering
+            # request still gets the give-up error immediately.
             time.sleep(0.2)
             proc.stdin.write(_make_jsonrpc("tools/call", id=100, params={"name": "anything"}))
             proc.stdin.flush()
 
-            # Keep reading until the id=100 response arrives (or timeout).
-            # Child restart + init can introduce a long gap after the
-            # list_changed notification under heavy load, so don't stop on idle.
-            all_post = _read_until_id(proc, 100, timeout=15.0)
+            first_post = _read_until_id(proc, 100, timeout=5.0)
+            first_resp = _find_by_id(first_post, 100)
+            assert first_resp is not None and "error" in first_resp, (
+                f"Expected immediate give-up error for id=100. Got: {first_post}"
+            )
+            assert "MCP unrecoverable" in first_resp["error"]["message"]
 
-            resp = _find_by_id(all_post, 100)
+            post_reset_msgs = _read_all_responses(proc, timeout=5.0, idle=0.5, max_count=10)
+            notif = _find_notification(post_reset_msgs, "notifications/tools/list_changed")
+            assert notif is not None, (
+                f"Expected list_changed after async version reset. Got: {post_reset_msgs}"
+            )
+
+            proc.stdin.write(_make_jsonrpc("tools/call", id=101, params={"name": "anything"}))
+            proc.stdin.flush()
+
+            # Keep reading until the post-reset success arrives.
+            all_post = _read_until_id(proc, 101, timeout=15.0)
+
+            resp = _find_by_id(all_post, 101)
             assert resp is not None, (
-                f"No response with id=100 after version reset. Got: {all_post}"
+                f"No response with id=101 after version reset. Got: {all_post}"
             )
             assert "result" in resp, (
                 f"Expected success after version reset restart, got error: {resp}"
@@ -986,8 +1282,6 @@ class TestProxyDrift:
 
     def test_drift_note_injected(self, tmp_path):
         """On-disk proxy_version file shows '99.0.0'; after restart, responses contain upgrade note."""
-        import shutil
-
         _write_vault(tmp_path)
 
         # Create an "on-disk" version file that shows a newer PROXY_VERSION.
@@ -1026,9 +1320,13 @@ class TestProxyDrift:
                 # Override proxy_script to point at our on-disk file with 99.0.0
                 p.proxy_script = {on_disk_path!r}
 
+                p._start_writer_loop()
+                p._start_recovery_loop()
+                p._start_reader_loop()
+
                 success = p._start_child()
                 if not success:
-                    p._recover_missing_child()
+                    p._signal_recovery(exit_code=1)
 
                 p.run()
 
@@ -1219,10 +1517,9 @@ class TestHangDetection:
             proc.stdin.write(_make_jsonrpc("tools/call", id=2, params={"name": "anything"}))
             proc.stdin.flush()
 
-            # Wait for 3 consecutive timeouts (1s each) + kill + drain + restart attempts.
-            # The drain sends the error for id=2, then _handle_child_exit tries to
-            # restart.  Use idle > READ_TIMEOUT so we don't bail before the proxy
-            # finishes the hang-detection cycle.
+            # Wait for 3 consecutive timeouts (1s each) + kill + drain + async
+            # restart attempts. Use idle > READ_TIMEOUT so we don't bail before
+            # the proxy finishes the hang-detection cycle.
             all_msgs = _read_all_responses(proc, timeout=20.0, idle=10.0, max_count=10)
 
             # Should get an error response for id=2 (orphaned after kill)
@@ -1289,6 +1586,9 @@ class TestStartupTimeout:
                 f"Expected error in response for id=3, got: {error_resp}"
             )
             error_msg = error_resp["error"]["message"]
+            assert "MCP unrecoverable" in error_msg, (
+                f"Expected unrecoverable prefix. Got: {error_msg!r}"
+            )
             assert _GIVE_UP_MSG_FRAGMENT in error_msg.lower(), (
                 f"Expected explicit give-up message. Got: {error_msg!r}"
             )

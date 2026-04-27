@@ -315,7 +315,7 @@ If `.brain-core/` is upgraded while the server is running, the server detects th
 
 The proxy also detects its own code drift (file hash comparison) after child restarts and injects a note into responses advising an MCP restart. All child-loss detection paths — reader-thread EOF, pre-send `poll()!=None`, `BrokenPipeError` while writing to child stdin, and initial startup failure — feed the same restart coordinator. If every backoff attempt fails, the proxy flips into an explicit recovery-exhausted state with `/mcp` guidance instead of returning a soft "server restarting, please retry" forever.
 
-**Known limitation — synchronous backoff.** The backoff loop runs on whichever thread drove recovery (reader, main loop, or `main()` pre-`run()`). While it sleeps, that thread does no other work, so client requests arriving during a sleep window queue in the kernel pipe buffer until the sleep ends. The most visible case is initial-start failure with the default schedule (~60s worst case), since `main()` runs the recovery synchronously before `run()` begins reading stdin.
+The backoff loop now runs on a dedicated recovery thread rather than on the reader thread, main loop, or `main()` itself. While that thread sleeps or retries, the proxy keeps reading stdin and rejects incoming requests immediately with `server restarting, please retry`. That restores the wrapper's intended "no blocking, no queuing" behaviour even during initial-start failure. If the recovery thread itself crashes, dead-child requests fail hard with `MCP unrecoverable — ...` plus `/mcp` guidance.
 
 ### Shutdown Lifecycle
 

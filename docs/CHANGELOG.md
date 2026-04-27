@@ -2,6 +2,14 @@
 
 Follows a pre-1.0 [semver](https://semver.org/) policy: backward-compatible changes are patch; breaking Brain changes are minor; only fundamental model changes are major. Breaking Brain changes include vault-structure changes and breaking tool/script/MCP contract changes. Fundamental model changes are changes to the artefact model, router contract, or agent bootstrap/entry flow.
 
+## v0.32.8 — 2026-04-27
+
+**Restore the MCP proxy's "no blocking, no queuing" restart contract.** Restart/backoff now runs on a dedicated recovery thread, so the proxy keeps reading stdin while the child is recovering. Requests that arrive during backoff or initial-start failure now fail fast with soft retry errors instead of stalling silently in the pipe for up to the full backoff window.
+
+- `brain_mcp.proxy` now starts a dedicated recovery thread, moves every restart sleep and attempt onto it, turns dead-child detection paths into non-blocking signals, wakes recovery waits promptly on shutdown, and surfaces a hard `MCP unrecoverable — ...` error if the recovery thread itself dies.
+- Version-reset after give-up is now asynchronous: the triggering `tools/call` still receives the explicit `/mcp` guidance immediately, while the recovery thread re-checks `.brain-core/VERSION`, clears give-up on change, and restarts in parallel.
+- Expand `tests/test_mcp_proxy.py` with non-blocking recovery coverage, concurrent-signal race coverage, shutdown wake-up coverage, recovery-thread crash surfacing, and the initial-start soft-error contract. Bump the packaged proxy version from `0.3.2` to `0.4.0`.
+
 ## v0.32.7 — 2026-04-27
 
 **Close the MCP proxy's stranded no-child state and make failure transitions explicit.** All dead-child detection paths now funnel through one restart coordinator, initial child start failures enter the same backoff loop, and persistent restart failure now converges to the hard `/mcp` guidance instead of looping forever on soft "server restarting" errors.
