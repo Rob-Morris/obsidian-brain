@@ -64,6 +64,18 @@ class TestBuildMcpConfig:
         assert config["env"]["BRAIN_WORKSPACE_DIR"] == str(project)
 
 
+class TestVaultMatching:
+    def test_extracts_configured_vault_root(self, vault):
+        config = init.build_mcp_config("/usr/bin/python3", vault)
+        assert init.configured_vault_root(config) == vault.resolve()
+        assert init.config_targets_vault(config, vault)
+
+    def test_missing_or_invalid_root_does_not_match(self, vault):
+        assert init.configured_vault_root({}) is None
+        assert not init.config_targets_vault({}, vault)
+        assert not init.config_targets_vault({"env": {"BRAIN_VAULT_ROOT": ""}}, vault)
+
+
 class TestClaudeJsonWriters:
     def test_project_json_merges_existing(self, vault, project):
         mcp_path = project / ".mcp.json"
@@ -357,6 +369,52 @@ class TestRemoval:
         assert not (project / ".mcp.json").exists()
         assert not (project / "CLAUDE.md").exists()
         assert not (project / ".claude").exists()
+
+    def test_remove_claude_project_registration_preserves_user_claude_md_content(self, vault, project, monkeypatch):
+        monkeypatch.setattr(init, "_has_claude_cli", lambda: False)
+        (project / "CLAUDE.md").write_text("# My Project\n\nExisting content.\n")
+        config = init.build_mcp_config("/usr/bin/python3", vault)
+
+        record = init.register_claude(vault, config, "project", project)
+
+        removed = init._remove_record(vault, record)
+
+        assert removed is True
+        assert not (project / ".mcp.json").exists()
+        assert (project / "CLAUDE.md").read_text() == "# My Project\n\nExisting content.\n"
+        assert not (project / ".claude").exists()
+
+    def test_remove_claude_local_registration_cleans_local_bootstrap_and_hook(self, vault, project, monkeypatch):
+        monkeypatch.setattr(init, "_has_claude_cli", lambda: False)
+        config = init.build_mcp_config("/usr/bin/python3", vault)
+
+        record = init.register_claude(vault, config, "local", project)
+
+        removed = init._remove_record(vault, record)
+
+        assert removed is True
+        assert not (project / ".claude").exists()
+
+    def test_remove_claude_project_uses_recorded_bootstrap_line(self, vault, project, monkeypatch):
+        monkeypatch.setattr(init, "_has_claude_cli", lambda: False)
+        config = init.build_mcp_config("/usr/bin/python3", vault)
+        record = init.register_claude(vault, config, "project", project)
+
+        recorded_line = record["bootstrap_line"]
+        assert recorded_line in (project / "CLAUDE.md").read_text()
+
+        monkeypatch.setattr(
+            init,
+            "bootstrap_line_for_target",
+            lambda _target: "@.brain-core/index.md (newer-format-bootstrap)",
+        )
+
+        removed = init._remove_record(vault, record)
+
+        assert removed is True
+        claude_md = project / "CLAUDE.md"
+        if claude_md.exists():
+            assert recorded_line not in claude_md.read_text()
 
     def test_remove_codex_skips_mismatched_entry(self, vault, project):
         expected = init.build_mcp_config("/usr/bin/python3", vault)

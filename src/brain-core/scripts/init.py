@@ -187,6 +187,30 @@ def _scope_from_args(args: argparse.Namespace) -> Tuple[str, Optional[Path], str
     return scope, target_dir, f"{scope} ({target_dir})"
 
 
+def configured_vault_root(server_config: Any) -> Optional[Path]:
+    """Return the configured vault root from a Brain server config, if present."""
+    if not isinstance(server_config, dict):
+        return None
+    env = server_config.get("env")
+    if not isinstance(env, dict):
+        return None
+    vault_root = env.get("BRAIN_VAULT_ROOT")
+    if not isinstance(vault_root, str) or not vault_root:
+        return None
+    try:
+        return Path(vault_root).resolve()
+    except OSError:
+        return None
+
+
+def config_targets_vault(server_config: Any, vault_root: Path) -> bool:
+    """Return whether a Brain server config belongs to the given vault."""
+    configured_root = configured_vault_root(server_config)
+    if configured_root is None:
+        return False
+    return configured_root == vault_root.resolve()
+
+
 def _resolve_clients(client_arg: str, scope: str) -> Tuple[List[str], List[str]]:
     warnings: List[str] = []
 
@@ -434,12 +458,9 @@ def _claude_project_approval_state(target_dir: Path) -> Dict[str, Any]:
     user_server = user_servers.get(BRAIN_SERVER_NAME) if isinstance(user_servers, dict) else None
 
     user_scope_vault_root = None
-    if isinstance(user_server, dict):
-        env = user_server.get("env")
-        if isinstance(env, dict):
-            vault_root = env.get("BRAIN_VAULT_ROOT")
-            if isinstance(vault_root, str) and vault_root:
-                user_scope_vault_root = vault_root
+    resolved_user_root = configured_vault_root(user_server)
+    if resolved_user_root is not None:
+        user_scope_vault_root = str(resolved_user_root)
 
     return {
         "approved": BRAIN_SERVER_NAME in enabled,
@@ -770,6 +791,18 @@ def _remove_bootstrap_line(path: Path, bootstrap: str) -> None:
     else:
         _delete_file_if_exists(path)
 
+
+def cleanup_claude_bootstrap(
+    target_dir: Path,
+    *,
+    local: bool = False,
+    bootstrap_line: Optional[str] = None,
+) -> None:
+    rel_path = CLAUDE_LOCAL_MD_FILE if local else CLAUDE_MD_FILE
+    line = bootstrap_line if bootstrap_line is not None else bootstrap_line_for_target(target_dir)
+    _remove_bootstrap_line(target_dir / rel_path, line)
+
+
 def _workspace_slug(name: str) -> str:
     """Return a stable slug for a workspace directory name."""
     ascii_name = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode("ascii")
@@ -1089,9 +1122,10 @@ def _remove_record(vault_root: Path, record: Dict[str, Any]) -> bool:
         target_path = record.get("target_path")
         if removed and target_path:
             target_dir = Path(target_path)
-            _remove_bootstrap_line(
-                Path(record.get("bootstrap_path", target_dir / CLAUDE_MD_FILE)),
-                record.get("bootstrap_line", bootstrap_line_for_target(target_dir)),
+            cleanup_claude_bootstrap(
+                target_dir,
+                local=scope == "local",
+                bootstrap_line=record.get("bootstrap_line"),
             )
             _remove_session_start_hook(
                 Path(record.get("hook_path", target_dir / CLAUDE_LOCAL_SETTINGS_FILE)),
@@ -1193,6 +1227,11 @@ def main() -> None:
         action="store_true",
         help="Skip the confirmation prompt for --remove",
     )
+    parser.add_argument(
+        "--cleanup-bootstrap",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )
     args = parser.parse_args()
 
     if args.user and (args.local or args.project):
@@ -1208,6 +1247,16 @@ def main() -> None:
 
     for warning in warnings:
         info(f"Warning: {warning}")
+
+    if args.cleanup_bootstrap:
+        if target_dir is None:
+            fatal("--cleanup-bootstrap requires a target directory")
+        header("Cleaning Claude bootstrap")
+        cleanup_claude_bootstrap(target_dir, local=scope == "local")
+        header("Done")
+        info(f"Target:   {target_dir}")
+        print(file=sys.stderr)
+        return
 
     if args.remove:
         if not args.force:

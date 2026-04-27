@@ -284,8 +284,9 @@ if [ "${1:-}" = "--uninstall" ]; then
     info "  - .brain-core/  (brain engine)"
     info "  - .brain/       (compiled data, caches)"
     info "  - .venv/        (Python virtual environment)"
-    info "  - CLAUDE.md     (agent bootstrap file)"
+    info "  - Brain bootstrap line in CLAUDE.md (deletes the file only if it becomes empty)"
     info "  - recorded Brain-managed project MCP entries in .mcp.json / .codex/config.toml"
+    info "  - recorded Brain-managed Claude local MCP state in .claude/"
     printf '\n'
     info "User-scope Claude/Codex cleanup is explicit and is not run automatically."
     info "If this vault owns a user-scope registration, remove it before uninstalling:"
@@ -313,9 +314,19 @@ if [ "${1:-}" = "--uninstall" ]; then
             info "Retry later with:"
             info "  \"$MCP_CLEANUP_PYTHON\" \"$VAULT_PATH/.brain-core/scripts/init.py\" --vault \"$VAULT_PATH\" --project \"$VAULT_PATH\" --client all --remove"
         fi
+        if ! spin "Removing recorded Claude local MCP entries" "$MCP_CLEANUP_PYTHON" "$VAULT_PATH/.brain-core/scripts/init.py" --vault "$VAULT_PATH" --project "$VAULT_PATH" --client claude --local --remove --force; then
+            warn "Could not remove recorded Claude local MCP entries automatically."
+            info "Retry later with:"
+            info "  \"$MCP_CLEANUP_PYTHON\" \"$VAULT_PATH/.brain-core/scripts/init.py\" --vault \"$VAULT_PATH\" --project \"$VAULT_PATH\" --client claude --local --remove"
+        fi
+        if ! spin "Cleaning CLAUDE.md bootstrap" "$MCP_CLEANUP_PYTHON" "$VAULT_PATH/.brain-core/scripts/init.py" --vault "$VAULT_PATH" --project "$VAULT_PATH" --client claude --cleanup-bootstrap; then
+            warn "Could not clean the Brain bootstrap line from CLAUDE.md automatically."
+            info "Retry later with:"
+            info "  \"$MCP_CLEANUP_PYTHON\" \"$VAULT_PATH/.brain-core/scripts/init.py\" --vault \"$VAULT_PATH\" --project \"$VAULT_PATH\" --client claude --cleanup-bootstrap"
+        fi
         printf '\n' >&2
     else
-        warn "Skipping recorded MCP cleanup (Python 3.12+ or init.py unavailable)."
+        warn "Skipping recorded MCP and bootstrap cleanup (Python 3.12+ or init.py unavailable)."
     fi
 
     registry_update --unregister "$VAULT_PATH" "$VAULT_PATH/.brain-core/scripts/vault_registry.py"
@@ -324,7 +335,6 @@ if [ "${1:-}" = "--uninstall" ]; then
         rm -rf "$1/.brain-core"
         rm -rf "$1/.brain"
         rm -rf "$1/.venv"
-        rm -f  "$1/CLAUDE.md"
     ' _ "$VAULT_PATH"
 
     if [ "$NON_INTERACTIVE" = false ]; then

@@ -196,9 +196,10 @@ python3.12 .brain-core/scripts/repair.py registry
 
 For most broken-tooling cases, `repair.py mcp` is the important one. It
 repairs or creates the vault-local `.venv`, syncs Brain MCP dependencies there,
-and then repairs current-vault MCP registration state. `router`, `index`, and
-`registry` are narrower generated-state repairs and are usually best run when
-`check.py` tells you to.
+and then repairs installed current-vault project MCP registration state.
+It does not act as a first-time installer or add a second client to the vault.
+`router`, `index`, and `registry` are narrower generated-state repairs and are
+usually best run when `check.py` tells you to.
 
 `repair.py` may be launched from any compatible Python 3.12+ interpreter, but
 packageful repair always converges back into the vault-local `.venv`. It does

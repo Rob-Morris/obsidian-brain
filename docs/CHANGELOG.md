@@ -2,6 +2,15 @@
 
 Follows a pre-1.0 [semver](https://semver.org/) policy: backward-compatible changes are patch; breaking Brain changes are minor; only fundamental model changes are major. Breaking Brain changes include vault-structure changes and breaking tool/script/MCP contract changes. Fundamental model changes are changes to the artefact model, router contract, or agent bootstrap/entry flow.
 
+## v0.32.9 — 2026-04-27
+
+**Tighten current-vault MCP repair ownership and make uninstall preserve non-Brain Claude bootstrap content.** `repair.py mcp` now repairs only the project-scoped Brain clients that are already installed for the current vault, while uninstall cleans recorded vault-root Claude local state and strips Brain's bootstrap line from `CLAUDE.md` without deleting user content.
+
+- `check.py` / `_repair_runtime.py` now ignore bootstrap-only `CLAUDE.md` and unrelated `.claude/settings.local.json` state when deciding whether current-vault project MCP drift exists, so scaffold-only vaults and valid single-client installs no longer report false `mcp_registration` drift.
+- `repair.py mcp` no longer invents first-time project registrations on a bare scaffold and no longer adds a second client that is not already installed for the current vault.
+- `install.sh --uninstall` now removes recorded Brain-managed Claude local state at the vault root, uses `init.py` to strip Brain's bootstrap line from `CLAUDE.md`, and only deletes that file when it becomes empty.
+- Add regressions for single-client project health, no-op-on-scaffold MCP repair, vault-root local Claude uninstall cleanup, and preserving user-authored `CLAUDE.md` content during uninstall.
+
 ## v0.32.8 — 2026-04-27
 
 **Restore the MCP proxy's "no blocking, no queuing" restart contract.** Restart/backoff now runs on a dedicated recovery thread, so the proxy keeps reading stdin while the child is recovering. Requests that arrive during backoff or initial-start failure now fail fast with soft retry errors instead of stalling silently in the pipe for up to the full backoff window.

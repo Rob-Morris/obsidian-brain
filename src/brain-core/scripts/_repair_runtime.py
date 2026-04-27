@@ -293,6 +293,28 @@ def _has_hook_entry(settings: dict, command: str) -> bool:
     return False
 
 
+def _current_vault_project_records(vault_root: Path) -> list[dict]:
+    return init.matching_records(
+        vault_root,
+        ["claude", "codex"],
+        "project",
+        vault_root,
+    )
+
+
+def _has_project_record(records: list[dict], client: str) -> bool:
+    return any(record.get("client") == client for record in records)
+
+
+def _read_claude_project_server(config_path: Path) -> dict | None:
+    payload, _ = _read_json_safe(config_path)
+    servers = payload.get("mcpServers", {}) if isinstance(payload, dict) else {}
+    if not isinstance(servers, dict):
+        return None
+    server = servers.get(init.BRAIN_SERVER_NAME)
+    return server if isinstance(server, dict) else None
+
+
 def inspect_mcp(vault_root: Path) -> dict:
     """Inspect current-vault project MCP state without mutating user scope."""
     server_config = _expected_project_server_config(vault_root)
@@ -303,13 +325,10 @@ def inspect_mcp(vault_root: Path) -> dict:
     expected_hook = init.build_session_hook_command(vault_root, vault_root)
     expected_bootstrap = init.bootstrap_line_for_target(vault_root)
 
-    claude_payload, _ = _read_json_safe(claude_config_path)
-    claude_servers = claude_payload.get("mcpServers", {}) if isinstance(claude_payload, dict) else {}
-    claude_config_ok = (
-        isinstance(claude_servers, dict)
-        and claude_servers.get(init.BRAIN_SERVER_NAME) == server_config
-    )
-    codex_config_ok = init.read_codex_server_config(codex_config_path) == server_config
+    claude_server = _read_claude_project_server(claude_config_path)
+    codex_server = init.read_codex_server_config(codex_config_path)
+    claude_config_ok = claude_server == server_config
+    codex_config_ok = codex_server == server_config
 
     try:
         claude_md_text = claude_md_path.read_text(encoding="utf-8")
@@ -320,12 +339,7 @@ def inspect_mcp(vault_root: Path) -> dict:
     settings, _ = _read_json_safe(claude_settings_path)
     hook_ok = _has_hook_entry(settings or {}, expected_hook)
 
-    records = init.matching_records(
-        vault_root,
-        ["claude", "codex"],
-        "project",
-        vault_root,
-    )
+    records = _current_vault_project_records(vault_root)
     claude_record_ok = any(
         _record_matches(record, client="claude", config_path=claude_config_path, server_config=server_config)
         for record in records
@@ -334,23 +348,14 @@ def inspect_mcp(vault_root: Path) -> dict:
         _record_matches(record, client="codex", config_path=codex_config_path, server_config=server_config)
         for record in records
     )
-
-    local_state_present = any(
-        path.exists()
-        for path in (
-            claude_config_path,
-            codex_config_path,
-            claude_settings_path,
-            claude_md_path,
-            vault_root / init.INIT_STATE_REL,
-        )
-    )
+    claude_present = claude_server is not None or _has_project_record(records, "claude")
+    codex_present = codex_server is not None or _has_project_record(records, "codex")
 
     return {
-        "present": local_state_present,
         "server_config": server_config,
         "claude": {
             "config_path": claude_config_path,
+            "present": claude_present,
             "healthy": claude_config_ok and bootstrap_ok and hook_ok and claude_record_ok,
             "config_ok": claude_config_ok,
             "bootstrap_ok": bootstrap_ok,
@@ -359,6 +364,7 @@ def inspect_mcp(vault_root: Path) -> dict:
         },
         "codex": {
             "config_path": codex_config_path,
+            "present": codex_present,
             "healthy": codex_config_ok and codex_record_ok,
             "config_ok": codex_config_ok,
             "record_ok": codex_record_ok,
@@ -388,6 +394,8 @@ def _record_claude_direct(vault_root: Path, server_config: dict) -> None:
 
 
 def _repair_claude(vault_root: Path, server_config: dict, claude_state: dict, dry_run: bool) -> dict:
+    if not claude_state["present"]:
+        return _step("claude_project", "noop", "Claude project MCP is not installed for this vault.")
     if claude_state["healthy"]:
         return _step("claude_project", "noop", "Claude project MCP state is already healthy.")
     if dry_run:
@@ -397,6 +405,8 @@ def _repair_claude(vault_root: Path, server_config: dict, claude_state: dict, dr
 
 
 def _repair_codex(vault_root: Path, server_config: dict, codex_state: dict, dry_run: bool) -> dict:
+    if not codex_state["present"]:
+        return _step("codex_project", "noop", "Codex project MCP is not installed for this vault.")
     if codex_state["healthy"]:
         return _step("codex_project", "noop", "Codex project MCP state is already healthy.")
     if dry_run:
@@ -420,7 +430,7 @@ def repair_mcp(vault_root: Path, dry_run: bool, bootstrap_steps: list[dict] | No
     except Exception as exc:
         steps.append(_step("codex_project", "error", str(exc)))
 
-    notes = init.claude_project_followup_notes(vault_root)
+    notes = init.claude_project_followup_notes(vault_root) if state["claude"]["present"] else []
     return _finalise_result("mcp", vault_root, dry_run, steps, notes=notes)
 
 
@@ -528,8 +538,6 @@ def _local_mcp_state_present(vault_root: Path) -> bool:
         for rel in (
             init.CLAUDE_PROJECT_CONFIG_FILE,
             init.CODEX_CONFIG_REL,
-            init.CLAUDE_LOCAL_SETTINGS_FILE,
-            init.CLAUDE_MD_FILE,
             init.INIT_STATE_REL,
         )
     )
@@ -552,7 +560,12 @@ def collect_check_findings(vault_root: str | Path) -> list[dict]:
 
     if _local_mcp_state_present(vault_root):
         mcp = inspect_mcp(vault_root)
-        if not mcp["claude"]["healthy"] or not mcp["codex"]["healthy"]:
+        unhealthy = [
+            client
+            for client in ("claude", "codex")
+            if mcp[client]["present"] and not mcp[client]["healthy"]
+        ]
+        if unhealthy:
             finding = {
                 "check": "mcp_registration",
                 "severity": "warning",

@@ -61,6 +61,21 @@ def _wiki_router():
     return make_router([artefact], meta={"brain_core_version": "0.32.5"})
 
 
+def _register_project_client(vault: Path, client: str) -> dict:
+    server_config = repair_runtime._expected_project_server_config(vault)
+    if client == "claude":
+        has_claude_cli = repair_runtime.init._has_claude_cli
+        repair_runtime.init._has_claude_cli = lambda: False
+        try:
+            record = repair_runtime.init.register_claude(vault, server_config, "project", vault)
+        finally:
+            repair_runtime.init._has_claude_cli = has_claude_cli
+    else:
+        record = repair_runtime.init.register_codex(server_config, "project", vault)
+    repair_runtime.init.record_init_target(vault, record)
+    return server_config
+
+
 class TestBootstrapSummary:
     def test_plans_runtime_and_dependency_repair_when_managed_runtime_missing(self, repair_vault):
         launcher = sys.executable
@@ -121,29 +136,42 @@ class TestBootstrapSummary:
 
 
 class TestRepairScopes:
-    def test_mcp_repair_writes_project_configs_and_init_state(self, repair_vault, monkeypatch):
+    def test_mcp_repair_is_noop_when_no_project_state_is_present(self, repair_vault, monkeypatch):
         monkeypatch.setattr(repair_runtime.init, "claude_project_followup_notes", lambda _target: [])
 
         result = repair_runtime.repair_mcp(repair_vault, dry_run=False)
 
-        assert result["status"] == "ok"
-        assert (repair_vault / ".mcp.json").is_file()
-        assert (repair_vault / ".codex" / "config.toml").is_file()
-        assert (repair_vault / "CLAUDE.md").is_file()
-        assert (repair_vault / ".claude" / "settings.local.json").is_file()
-        state = json.loads((repair_vault / ".brain" / "local" / "init-state.json").read_text())
-        assert len(state["records"]) == 2
-        project_config = json.loads((repair_vault / ".mcp.json").read_text())
-        assert "brain" in project_config["mcpServers"]
+        assert result["status"] == "noop"
+        assert not (repair_vault / ".mcp.json").exists()
+        assert not (repair_vault / ".codex" / "config.toml").exists()
+        assert not (repair_vault / "CLAUDE.md").exists()
+        assert not (repair_vault / ".claude" / "settings.local.json").exists()
+        assert not (repair_vault / ".brain" / "local" / "init-state.json").exists()
 
-    def test_mcp_repair_is_noop_once_project_state_is_healthy(self, repair_vault, monkeypatch):
+    @pytest.mark.parametrize("client", ["claude", "codex"])
+    def test_mcp_repair_is_noop_for_healthy_single_client_install(self, repair_vault, monkeypatch, client):
         monkeypatch.setattr(repair_runtime.init, "claude_project_followup_notes", lambda _target: [])
-        repair_runtime.repair_mcp(repair_vault, dry_run=False)
+        _register_project_client(repair_vault, client)
 
         result = repair_runtime.repair_mcp(repair_vault, dry_run=False)
 
         assert result["status"] == "noop"
         assert all(step["status"] == "noop" for step in result["steps"])
+
+    def test_mcp_repair_repairs_only_recorded_claude_project_state(self, repair_vault, monkeypatch):
+        monkeypatch.setattr(repair_runtime.init, "claude_project_followup_notes", lambda _target: [])
+        _register_project_client(repair_vault, "claude")
+        (repair_vault / ".mcp.json").unlink()
+
+        result = repair_runtime.repair_mcp(repair_vault, dry_run=False)
+
+        assert result["status"] == "ok"
+        assert (repair_vault / ".mcp.json").is_file()
+        assert (repair_vault / "CLAUDE.md").is_file()
+        assert (repair_vault / ".claude" / "settings.local.json").is_file()
+        assert not (repair_vault / ".codex" / "config.toml").exists()
+        state = json.loads((repair_vault / ".brain" / "local" / "init-state.json").read_text())
+        assert [record["client"] for record in state["records"]] == ["claude"]
 
     def test_router_repair_builds_compiled_router(self, repair_vault):
         result = repair_runtime.repair_router(repair_vault, dry_run=False)
@@ -239,7 +267,8 @@ class TestCheckRepairHints:
         assert "repair.py registry" in hit["repair"]["command"]
 
     def test_mcp_drift_adds_mcp_repair_guidance(self, repair_vault):
-        (repair_vault / ".mcp.json").write_text(json.dumps({"mcpServers": {}}))
+        _register_project_client(repair_vault, "claude")
+        (repair_vault / ".mcp.json").unlink()
 
         result = check.run_checks(str(repair_vault), _wiki_router())
 
@@ -247,9 +276,52 @@ class TestCheckRepairHints:
         assert hit["repair"]["scope"] == "mcp"
         assert "repair.py mcp" in hit["repair"]["command"]
 
+    @pytest.mark.parametrize("client", ["claude", "codex"])
+    def test_valid_single_client_project_install_does_not_report_mcp_drift(self, repair_vault, client):
+        _register_project_client(repair_vault, client)
+
+        result = check.run_checks(str(repair_vault), _wiki_router())
+
+        assert not any(f["check"] == "mcp_registration" for f in result["findings"])
+
+    def test_bootstrap_only_scaffold_does_not_report_mcp_drift(self, repair_vault):
+        (repair_vault / "CLAUDE.md").write_text(f"{repair_runtime.init.CLAUDE_MD_BOOTSTRAP_VAULT}\n")
+
+        result = check.run_checks(str(repair_vault), _wiki_router())
+
+        assert not any(f["check"] == "mcp_registration" for f in result["findings"])
+
+    def test_unrelated_claude_local_settings_do_not_report_mcp_drift(self, repair_vault):
+        settings_path = repair_vault / ".claude" / "settings.local.json"
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        settings_path.write_text(json.dumps({
+            "hooks": {
+                "PostToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "echo hi"}]}]
+            }
+        }))
+
+        result = check.run_checks(str(repair_vault), _wiki_router())
+
+        assert not any(f["check"] == "mcp_registration" for f in result["findings"])
+
     def test_no_mcp_state_skips_mcp_inspection(self, repair_vault, monkeypatch):
         def explode(_vault):
             raise AssertionError("inspect_mcp must not run when no MCP state is present")
+
+        monkeypatch.setattr(repair_runtime, "inspect_mcp", explode)
+
+        result = check.run_checks(str(repair_vault), _wiki_router())
+
+        assert not any(f["check"] == "mcp_registration" for f in result["findings"])
+
+    def test_bootstrap_only_state_still_skips_mcp_inspection(self, repair_vault, monkeypatch):
+        (repair_vault / "CLAUDE.md").write_text(f"{repair_runtime.init.CLAUDE_MD_BOOTSTRAP_VAULT}\n")
+        settings_path = repair_vault / ".claude" / "settings.local.json"
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        settings_path.write_text(json.dumps({"theme": "dark"}))
+
+        def explode(_vault):
+            raise AssertionError("inspect_mcp must not run for bootstrap-only state")
 
         monkeypatch.setattr(repair_runtime, "inspect_mcp", explode)
 

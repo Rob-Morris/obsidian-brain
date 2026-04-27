@@ -1,6 +1,6 @@
 # Obsidian Brain
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.32.8-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.12-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.32.9-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.12-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
 
 A self-evolving knowledge base for agents and humans working together on what matters.
 
@@ -73,9 +73,10 @@ python3.12 .brain-core/scripts/repair.py registry
 ```
 
 For most users, `repair.py mcp` is the main recovery path. Use it when the
-vault-local `.venv`, MCP dependencies, or current-vault MCP registration have
-drifted. The other scopes repair generated router/index state or the local
-workspace registry.
+vault-local `.venv`, MCP dependencies, or installed current-vault project MCP
+registration have drifted. It repairs the clients that are already installed
+for the vault; it does not act as a first-time installer. The other scopes
+repair generated router/index state or the local workspace registry.
 
 If you do not know what is broken, start with:
 
@@ -99,7 +100,7 @@ bash install.sh ~/my-existing-vault
 bash install.sh --uninstall /path/to/brain
 ```
 
-Removes brain system files (`.brain-core/`, `.brain/`, `.venv/`, `CLAUDE.md`) and removes only recorded Brain-managed project MCP entries from `.mcp.json` / `.codex/config.toml`. Your notes are not affected. User-scope MCP cleanup stays explicit. Optionally offers to delete the entire vault with a multi-stage confirmation.
+Removes brain system files (`.brain-core/`, `.brain/`, `.venv/`), removes the Brain bootstrap line from `CLAUDE.md` (deleting the file only if it becomes empty), removes only recorded Brain-managed project MCP entries from `.mcp.json` / `.codex/config.toml`, and removes recorded Brain-managed Claude local state in `.claude/`. Your notes are not affected. User-scope MCP cleanup stays explicit. Optionally offers to delete the entire vault with a multi-stage confirmation.
 
 #### Non-interactive mode
 

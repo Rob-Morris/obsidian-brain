@@ -119,7 +119,7 @@ python3 compile_router.py --json    # output JSON to stdout
 | `taxonomy_type_consistency` | info | Taxonomy `frontmatter_type` equals folder-derived type for a plural key (likely a missing singular in the taxonomy) |
 | `router` | error | Compiled router failed to load (missing, invalid JSON, or reported an `error` payload) |
 | `workspace_registry` | warning | Current-vault local workspace registry (`.brain/local/workspaces.json`) is malformed or needs normalisation |
-| `mcp_registration` | warning | Current-vault project MCP state is drifted or incomplete |
+| `mcp_registration` | warning | Installed current-vault project MCP state is drifted or incomplete |
 
 **Constraints:** Python 3.8+ stdlib only, self-locating, stateless, idempotent, stdout-only.
 
@@ -157,7 +157,7 @@ python3 repair.py registry --vault /path/to/vault
 
 **Scope semantics:**
 
-- `mcp` is the proving slice and owns the managed-runtime recovery path. It repairs or creates `.venv`, syncs `.brain-core/brain_mcp/requirements.txt`, then repairs current-vault `.mcp.json`, `.codex/config.toml`, `CLAUDE.md`, `.claude/settings.local.json`, and `.brain/local/init-state.json`. It does not touch user-scope Claude/Codex config.
+- `mcp` is the proving slice and owns the managed-runtime recovery path. It repairs or creates `.venv`, syncs `.brain-core/brain_mcp/requirements.txt`, then repairs installed current-vault project MCP state in `.mcp.json`, `.codex/config.toml`, `CLAUDE.md`, `.claude/settings.local.json`, and `.brain/local/init-state.json`. It does not touch user-scope Claude/Codex config, it does not create first-time project registrations on a bare scaffold, and it does not add a second client that is not already installed for the vault.
 - `router` and `index` use internal freshness checks and are no-ops when their generated caches are already healthy.
 - `registry` is intentionally narrow in the first cut: it only mutates the current vault's `.brain/local/workspaces.json`. It does not prune or rewrite `~/.config/brain/vaults`, and it does not touch user-scope MCP config.
 
@@ -280,7 +280,7 @@ Existing files and directories are never touched. The script detects `.obsidian/
 
 Two-stage confirmation protects against accidental data loss (interactive mode only — `--non-interactive` skips both stages):
 
-1. **System files** — confirms removal of `.brain-core/`, `.brain/`, `.venv/`, `CLAUDE.md`, plus recorded Brain-managed project MCP entries from `.mcp.json` / `.codex/config.toml`. Your notes and vault structure are untouched. With `--non-interactive`, this stage is skipped (auto-confirmed) and the script exits after removal.
+1. **System files** — confirms removal of `.brain-core/`, `.brain/`, `.venv/`, the Brain bootstrap line in `CLAUDE.md` (deleting the file only if it becomes empty), recorded Brain-managed project MCP entries from `.mcp.json` / `.codex/config.toml`, and recorded Brain-managed Claude local state in `.claude/`. Your notes and vault structure are untouched. With `--non-interactive`, this stage is skipped (auto-confirmed) and the script exits after removal.
 2. **Full vault deletion** — optionally offers to delete the entire directory. Counts and displays the number of artefacts that would be lost. Requires typing `"farewell, cruel world"` to confirm. Not available with `--non-interactive`.
 
 User-scope cleanup remains explicit. The uninstall flow reminds you to run `init.py --remove --user` before deleting the vault when that scope is in use.

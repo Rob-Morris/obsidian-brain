@@ -1,9 +1,13 @@
 """Regression tests for install.sh."""
 
+import json
 import os
 from pathlib import Path
 import subprocess
 import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src", "brain-core", "scripts"))
+import init
 
 from conftest import (
     copy_install_source as _copy_source_checkout,
@@ -228,6 +232,114 @@ def test_install_can_skip_mcp_setup(tmp_path):
     assert not (target / ".mcp.json").exists()
     assert not (target / ".codex" / "config.toml").exists()
     assert "MCP server setup skipped (--skip-mcp)." in result.stderr
+
+
+def test_uninstall_preserves_user_claude_md_content_and_cleans_vault_local_claude_state(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    _copy_source_checkout(source)
+
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    _write_executable(
+        fake_bin / "python3.12",
+        "#!/bin/sh\n"
+        "if [ \"$1\" = \"-c\" ]; then\n"
+        "  printf '3.12\\n'\n"
+        "  exit 0\n"
+        "fi\n"
+        f"exec {REAL_PYTHON} \"$@\"\n",
+    )
+
+    target = tmp_path / "vault"
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}:{env['PATH']}"
+
+    install_result = subprocess.run(
+        ["bash", "install.sh", "--non-interactive", "--skip-mcp", str(target)],
+        cwd=source,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert install_result.returncode == 0, install_result.stderr
+
+    target.joinpath("CLAUDE.md").write_text(
+        "# My Vault\n\n"
+        f"{init.CLAUDE_MD_BOOTSTRAP_VAULT}\n",
+        encoding="utf-8",
+    )
+
+    server_config = init.build_mcp_config("python", target, workspace_dir=target)
+    settings_path = target / ".claude" / "settings.local.json"
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text(
+        json.dumps(
+            {
+                "mcpServers": {"brain": server_config},
+                "hooks": {
+                    "SessionStart": [
+                        {
+                            "hooks": [
+                                {
+                                    "type": "command",
+                                    "command": init.build_session_hook_command(target, target),
+                                }
+                            ]
+                        }
+                    ]
+                },
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    local_bootstrap = target / ".claude" / "CLAUDE.local.md"
+    local_bootstrap.write_text(f"{init.CLAUDE_MD_BOOTSTRAP_VAULT}\n", encoding="utf-8")
+    init_state = target / ".brain" / "local" / "init-state.json"
+    init_state.parent.mkdir(parents=True, exist_ok=True)
+    init_state.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "records": [
+                    {
+                        "client": "claude",
+                        "scope": "local",
+                        "target_path": str(target),
+                        "config_path": str(settings_path),
+                        "server_name": "brain",
+                        "server_config": server_config,
+                        "bootstrap_path": str(local_bootstrap),
+                        "bootstrap_line": init.CLAUDE_MD_BOOTSTRAP_VAULT,
+                        "hook_path": str(settings_path),
+                        "hook_command": init.build_session_hook_command(target, target),
+                        "method": "test",
+                    }
+                ],
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    uninstall_result = subprocess.run(
+        ["bash", "install.sh", "--uninstall", "--non-interactive", str(target)],
+        cwd=source,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+    assert uninstall_result.returncode == 0, uninstall_result.stderr
+    assert target.joinpath("CLAUDE.md").read_text(encoding="utf-8") == "# My Vault\n"
+    assert not target.joinpath(".claude", "CLAUDE.local.md").exists()
+    assert not target.joinpath(".claude", "settings.local.json").exists()
+    assert not target.joinpath(".claude").exists()
 
 
 def test_install_rejects_legacy_force_flag(tmp_path):

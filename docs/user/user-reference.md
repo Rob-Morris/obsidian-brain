@@ -228,7 +228,9 @@ python3.12 .brain-core/scripts/repair.py registry
 ```
 
 If you are unsure which scope applies, run `check.py` first. For most broken
-tooling cases, `repair.py mcp` is the right recovery path.
+tooling cases, `repair.py mcp` is the right recovery path. It repairs installed
+current-vault project MCP state for the clients already present; it does not
+create a first-time project registration.
 
 **`compliance_check.py`** (session hygiene) — quick checks like "did you log today?" and "are backups fresh?" Run after each work block.
 
