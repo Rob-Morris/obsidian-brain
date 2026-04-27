@@ -2,6 +2,14 @@
 
 Follows a pre-1.0 [semver](https://semver.org/) policy: backward-compatible changes are patch; breaking Brain changes are minor; only fundamental model changes are major. Breaking Brain changes include vault-structure changes and breaking tool/script/MCP contract changes. Fundamental model changes are changes to the artefact model, router contract, or agent bootstrap/entry flow.
 
+## v0.32.7 — 2026-04-27
+
+**Close the MCP proxy's stranded no-child state and make failure transitions explicit.** All dead-child detection paths now funnel through one restart coordinator, initial child start failures enter the same backoff loop, and persistent restart failure now converges to the hard `/mcp` guidance instead of looping forever on soft "server restarting" errors.
+
+- `brain_mcp.proxy` now catches child launch failures, routes EOF / pre-send `poll()` / `BrokenPipeError` / missing-child recovery through one shared restart path, and keeps retrying across the full backoff schedule before marking the session as given up.
+- Add proxy regressions for dead child detected before send, `BrokenPipeError` during send, initial child-start failure recovery, and explicit give-up after repeated init-timeout restarts.
+- Bump the packaged proxy version from `0.3.1` to `0.3.2` so proxy drift notes report the transport change cleanly.
+
 ## v0.32.6 — 2026-04-26
 
 **Add `repair.py` as the explicit infrastructure recovery entry point and formalise the managed-runtime contract.** Brain now has a named repair surface for current-vault MCP/runtime recovery, router/index rebuilds, and local workspace-registry normalisation. `repair.py` bootstraps from any compatible Python 3.12+ launcher, repairs the vault-local `.venv` when needed, then hands off into that managed runtime for packageful work. `check.py` now emits exact repair commands in human output and structured `repair` hints in JSON/compliance results when it detects router, MCP, or local-registry drift.

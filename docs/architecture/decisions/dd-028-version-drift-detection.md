@@ -18,13 +18,13 @@ On every MCP tool call, `_check_version_drift()` reads `.brain-core/VERSION` fro
 
 This assumes `.brain-core/` is a version-bound unit: upgrades replace the engine as one atomic surface. The system does not attempt to support mixed-version execution where some files come from the old release and others from the new one.
 
-The proxy (`proxy.py`) distinguishes exit code 10 from crashes: it restarts immediately with no backoff, then sends a `notifications/tools/list_changed` notification to the MCP client so the client fetches the fresh tool list. Crashes use exponential backoff (0s, 4s, 8s, 16s, 32s). If the immediate restart fails, the proxy falls through to the backoff retry loop rather than entering a limbo state.
+The proxy (`proxy.py`) distinguishes exit code 10 from crashes: it restarts immediately with no backoff, then sends a `notifications/tools/list_changed` notification to the MCP client so the client fetches the fresh tool list. Crashes use exponential backoff (0s, 4s, 8s, 16s, 32s). Every child-loss path — reader-thread EOF, main-loop pre-send dead-child detection, `BrokenPipeError` while writing to child stdin, and initial startup failure — funnels into the same restart coordinator. If the immediate restart fails, the proxy falls through to the backoff retry loop rather than entering a limbo state.
 
 `os._exit()` is used rather than `sys.exit()` because `SystemExit` raised inside an MCP tool handler gets wrapped in `BaseExceptionGroup` by anyio task groups, losing the exit code. The MCP SDK's async shutdown then treats it as a normal exit (code 0), causing the proxy to shut down instead of restarting. `os._exit()` bypasses the async stack entirely, ensuring the exit code reaches the proxy.
 
 The proxy tracks in-flight requests (full request objects, not just IDs) and handles them on child exit: for version drift, saved requests are replayed to the new child so the client gets a success response; for crashes, error responses are sent to the client. Replay is safe because `_check_version_drift()` runs before any side effects. Replay depth is capped at 1 to prevent loops.
 
-The proxy also detects its own code drift via file-hash comparison (SHA-256) after child restarts, and injects upgrade notes into responses when drift is detected. The reader thread uses `select()` with a configurable timeout (default 30s) to detect children that hang without exiting — after 3 consecutive timeouts with in-flight requests, the proxy kills and restarts the child.
+The proxy also detects its own code drift via file-hash comparison (SHA-256) after child restarts, and injects upgrade notes into responses when drift is detected. The reader thread uses `select()` with a configurable timeout (default 30s) to detect children that hang without exiting — after 3 consecutive timeouts with in-flight requests, the proxy kills the child and routes that loss through the same restart coordinator. If every restart attempt fails, the proxy marks the session as given up and returns explicit `/mcp` restart guidance rather than a permanent soft-restarting loop.
 
 ## Consequences
 
@@ -33,3 +33,4 @@ The proxy also detects its own code drift via file-hash comparison (SHA-256) aft
 - Every tool call pays a cheap disk read for the VERSION file. This is negligible compared to index or vault I/O.
 - Version drift is logged as a warning with old and new version strings for auditability.
 - Hung children are detected and killed rather than causing permanent silent hangs.
+- Persistent restart failure is explicit: once backoff is exhausted, the proxy stops claiming it is still restarting and instead returns a hard failure with `/mcp` guidance.

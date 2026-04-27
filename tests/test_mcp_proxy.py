@@ -29,6 +29,13 @@ PROXY_SCRIPT = os.path.abspath(
 PROXY_MODULE = "brain_mcp.proxy"
 PYTHON = sys.executable
 
+if PROXY_SCRIPT not in sys.path:
+    sys.path.insert(0, PROXY_SCRIPT)
+
+from brain_mcp import proxy as proxy_mod
+
+_GIVE_UP_MSG_FRAGMENT = "recovery attempts"
+
 
 def _make_jsonrpc(method: str, id: int | str | None = None, params: dict | None = None) -> str:
     """Build a JSON-RPC request as an NDJSON line (no trailing newline)."""
@@ -222,6 +229,117 @@ def _exhaust_backoff(proc, *, crash_count: int = 6, probe_id: int = 99) -> list[
     proc.stdin.flush()
     all_msgs.extend(_read_all_responses(proc, timeout=5.0, max_count=5))
     return all_msgs
+
+
+class _FakeBuffer:
+    def __init__(self, lines: list[bytes]):
+        self._lines = list(lines)
+
+    def readline(self) -> bytes:
+        if self._lines:
+            return self._lines.pop(0)
+        return b""
+
+
+class _FakeStdin:
+    def __init__(self, lines: list[bytes]):
+        self.buffer = _FakeBuffer(lines)
+
+
+class _NoOpThread:
+    def __init__(self, target=None, daemon=None, name=None):
+        self._target = target
+
+    def start(self) -> None:
+        return None
+
+    def is_alive(self) -> bool:
+        return False
+
+    def join(self, timeout=None) -> None:
+        return None
+
+
+class _FakeChild:
+    def __init__(
+        self,
+        *,
+        poll_values: list[int | None] | None = None,
+        send_exception: type[BaseException] | None = None,
+    ):
+        self._poll_values = list(poll_values or [None])
+        self._poll_index = 0
+        self._send_exception = send_exception
+        self.sent: list[dict] = []
+        self.started = False
+        self.killed = False
+        self.pid = 12345
+        self.stdout_fd = None
+
+    def start(self) -> None:
+        self.started = True
+
+    def send(self, obj: dict) -> None:
+        if self._send_exception is not None:
+            raise self._send_exception()
+        self.sent.append(obj)
+
+    def poll(self) -> int | None:
+        if self._poll_index < len(self._poll_values):
+            value = self._poll_values[self._poll_index]
+            self._poll_index += 1
+            return value
+        return self._poll_values[-1]
+
+    def wait(self) -> int | None:
+        return self.poll()
+
+    def kill(self) -> None:
+        self.killed = True
+
+
+def _make_inprocess_proxy(tmp_path, monkeypatch, stdin_lines: list[bytes]) -> tuple[proxy_mod.Proxy, list[dict]]:
+    _write_vault(tmp_path)
+    monkeypatch.setattr(proxy_mod, "_logger", proxy_mod._setup_logging(str(tmp_path)))
+    proxy = proxy_mod.Proxy(PYTHON, "fake-server", str(tmp_path))
+    sent_to_client: list[dict] = []
+
+    monkeypatch.setattr(proxy_mod.threading, "Thread", _NoOpThread)
+    monkeypatch.setattr(proxy_mod.sys, "stdin", _FakeStdin(stdin_lines))
+    monkeypatch.setattr(proxy, "_send_to_client", lambda obj: sent_to_client.append(obj))
+
+    return proxy, sent_to_client
+
+
+def _run_proxy_wrapper(tmp_path, server_script, patch_body: str, *, backoff: str = "0,0,0,0,0"):
+    """Spawn the proxy as a subprocess via a wrapper script that monkeypatches
+    proxy_mod before calling main(). patch_body is appended verbatim between
+    the import boilerplate and the main() call. Caller owns terminate/wait."""
+    import subprocess
+
+    header = textwrap.dedent(f"""\
+        import sys
+        import os
+
+        sys.path.insert(0, {PROXY_SCRIPT!r})
+        from brain_mcp import proxy as proxy_mod
+        """)
+    wrapper_path = str(tmp_path / "proxy_wrapper.py")
+    with open(wrapper_path, "w") as f:
+        f.write(header + patch_body + "\nproxy_mod.main()\n")
+
+    env = os.environ.copy()
+    env["BRAIN_VAULT_ROOT"] = str(tmp_path)
+    env["BRAIN_PROXY_BACKOFF"] = backoff
+
+    return subprocess.Popen(
+        [PYTHON, wrapper_path, PYTHON, server_script],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=env,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -491,6 +609,221 @@ class TestMessageForwarding:
             proc.wait(timeout=5)
 
 
+class TestMainLoopRecoveryPaths:
+    """Main-loop dead-child paths trigger real recovery instead of soft-loop limbo."""
+
+    def test_initialize_during_recovery_is_forwarded_once(self, tmp_path, monkeypatch):
+        proxy, sent_to_client = _make_inprocess_proxy(
+            tmp_path,
+            monkeypatch,
+            [
+                _make_jsonrpc(
+                    "initialize",
+                    id=1,
+                    params={
+                        "protocolVersion": "2024-11-05",
+                        "clientInfo": {"name": "test", "version": "0"},
+                    },
+                ).encode("utf-8")
+            ],
+        )
+        dead_child = _FakeChild(poll_values=[1])
+        replacement = _FakeChild()
+
+        with proxy._child_lock:
+            proxy._child = dead_child
+
+        monkeypatch.setattr(proxy_mod, "ChildProcess", lambda *args: replacement)
+
+        proxy.run()
+
+        assert replacement.started is True
+        assert [msg.get("method") for msg in replacement.sent] == ["initialize"]
+        assert not sent_to_client, (
+            "bootstrap recovery should not emit list_changed or an error before initialize completes"
+        )
+
+    def test_dead_child_before_send_recovers_and_forwards_request(self, tmp_path, monkeypatch):
+        proxy, sent_to_client = _make_inprocess_proxy(
+            tmp_path,
+            monkeypatch,
+            [_make_jsonrpc("tools/call", id=2, params={"name": "ping"}).encode("utf-8")],
+        )
+        dead_child = _FakeChild(poll_values=[1])
+        replacement = _FakeChild()
+        restart_attempts: list[int] = []
+
+        with proxy._child_lock:
+            proxy._child = dead_child
+
+        def fake_start_child() -> bool:
+            restart_attempts.append(1)
+            with proxy._child_lock:
+                proxy._child = replacement
+            proxy._child_ready.set()
+            return True
+
+        monkeypatch.setattr(proxy, "_start_child", fake_start_child)
+
+        proxy.run()
+
+        assert restart_attempts == [1]
+        assert replacement.sent and replacement.sent[0]["id"] == 2
+        assert not sent_to_client, f"Expected request forwarding after recovery, got: {sent_to_client}"
+
+    def test_broken_pipe_during_send_recovers_and_errors_orphaned_request(self, tmp_path, monkeypatch):
+        proxy, sent_to_client = _make_inprocess_proxy(
+            tmp_path,
+            monkeypatch,
+            [_make_jsonrpc("tools/call", id=2, params={"name": "ping"}).encode("utf-8")],
+        )
+        broken_child = _FakeChild(poll_values=[None, None, 1], send_exception=BrokenPipeError)
+        replacement = _FakeChild()
+        restart_attempts: list[int] = []
+
+        with proxy._child_lock:
+            proxy._child = broken_child
+
+        def fake_start_child() -> bool:
+            restart_attempts.append(1)
+            with proxy._child_lock:
+                proxy._child = replacement
+            proxy._child_ready.set()
+            return True
+
+        monkeypatch.setattr(proxy, "_start_child", fake_start_child)
+
+        proxy.run()
+
+        assert restart_attempts == [1]
+        assert len(sent_to_client) == 1
+        assert sent_to_client[0]["id"] == 2
+        assert "error" in sent_to_client[0]
+        assert "restarting" in sent_to_client[0]["error"]["message"].lower()
+
+
+class TestInitialStartRecovery:
+    """Initial child-start failures enter the same restart coordinator."""
+
+    def test_initial_child_start_failure_retries_until_success(self, tmp_path, monkeypatch):
+        _write_vault(tmp_path)
+        monkeypatch.setattr(proxy_mod, "_logger", proxy_mod._setup_logging(str(tmp_path)))
+        proxy = proxy_mod.Proxy(PYTHON, "fake-server", str(tmp_path))
+        proxy._backoff_schedule = [0, 0, 0]
+        replacement = _FakeChild()
+        attempts: list[int] = []
+
+        def fake_start_child() -> bool:
+            attempts.append(1)
+            if len(attempts) < 3:
+                return False
+            with proxy._child_lock:
+                proxy._child = replacement
+            proxy._child_ready.set()
+            return True
+
+        monkeypatch.setattr(proxy, "_start_child", fake_start_child)
+
+        assert proxy._start_child() is False
+
+        proxy._recover_missing_child()
+
+        assert len(attempts) == 3
+        assert proxy._get_child() is replacement
+        assert proxy._gave_up is False
+
+    def test_subprocess_initial_start_transient_failure_recovers(self, tmp_path):
+        """End-to-end: initial ChildProcess.start() fails twice, then succeeds.
+        Proxy should boot through backoff, accept initialize, and forward exactly
+        one init response with no duplicate replay or premature list_changed."""
+        _write_vault(tmp_path)
+        server_script = _echo_server_script(tmp_path)
+        fail_counter = str(tmp_path / "init_fail_counter.txt")
+        with open(fail_counter, "w") as f:
+            f.write("2")
+
+        patch_body = textwrap.dedent(f"""\
+            _real_start = proxy_mod.ChildProcess.start
+            def _flaky_start(self):
+                try:
+                    with open({fail_counter!r}, "r") as f:
+                        remaining = int(f.read().strip())
+                except (FileNotFoundError, ValueError):
+                    remaining = 0
+                if remaining > 0:
+                    with open({fail_counter!r}, "w") as f:
+                        f.write(str(remaining - 1))
+                    raise OSError("simulated initial start failure")
+                return _real_start(self)
+            proxy_mod.ChildProcess.start = _flaky_start
+            """)
+
+        proc = _run_proxy_wrapper(tmp_path, server_script, patch_body)
+        try:
+            proc.stdin.write(_make_jsonrpc("initialize", id=1,
+                                           params={"protocolVersion": "2024-11-05",
+                                                   "clientInfo": {"name": "test", "version": "0"}}))
+            proc.stdin.flush()
+
+            all_msgs = _read_until_id(proc, 1, timeout=10.0)
+            init_resp = _find_by_id(all_msgs, 1)
+            assert init_resp is not None, f"Expected initialize response, got: {all_msgs}"
+            assert "result" in init_resp, f"Expected success result, got: {init_resp}"
+
+            # No list_changed should be sent during bootstrap recovery — the
+            # live initialize handshake is the first one the child has seen.
+            list_changed = [m for m in all_msgs
+                            if m.get("method") == "notifications/tools/list_changed"]
+            assert not list_changed, (
+                f"Expected no list_changed during bootstrap, got: {list_changed}"
+            )
+
+            # Exactly one response for id=1 (no duplicate replay).
+            id1_responses = [m for m in all_msgs if m.get("id") == 1]
+            assert len(id1_responses) == 1, (
+                f"Expected exactly one initialize response, got: {id1_responses}"
+            )
+
+            with open(fail_counter, "r") as f:
+                assert f.read().strip() == "0"
+        finally:
+            proc.terminate()
+            proc.wait(timeout=5)
+
+    def test_subprocess_initial_start_permanent_failure_returns_give_up(self, tmp_path):
+        """End-to-end: ChildProcess.start() always fails. After backoff is
+        exhausted, the first client tools/call gets the explicit give-up error
+        with /mcp guidance instead of a soft 'restarting' loop."""
+        _write_vault(tmp_path)
+        server_script = _echo_server_script(tmp_path)
+
+        patch_body = textwrap.dedent("""\
+            def _always_fail(self):
+                raise OSError("simulated permanent start failure")
+            proxy_mod.ChildProcess.start = _always_fail
+            """)
+
+        proc = _run_proxy_wrapper(tmp_path, server_script, patch_body, backoff="0,0,0")
+        try:
+            proc.stdin.write(_make_jsonrpc("tools/call", id=1, params={"name": "ping"}))
+            proc.stdin.flush()
+
+            all_msgs = _read_until_id(proc, 1, timeout=10.0)
+            resp = _find_by_id(all_msgs, 1)
+            assert resp is not None, f"Expected error response for id=1, got: {all_msgs}"
+            assert "error" in resp, f"Expected error, got: {resp}"
+            error_msg = resp["error"]["message"]
+            assert _GIVE_UP_MSG_FRAGMENT in error_msg.lower(), (
+                f"Expected explicit give-up message. Got: {error_msg!r}"
+            )
+            assert "/mcp" in error_msg, (
+                f"Expected restart guidance. Got: {error_msg!r}"
+            )
+        finally:
+            proc.terminate()
+            proc.wait(timeout=5)
+
+
 class TestVersionDriftRestart:
     """Proxy restarts the child on exit code 10 (version drift)."""
 
@@ -544,7 +877,7 @@ class TestCrashBackoff:
     """Proxy gives up after exhausting the backoff schedule."""
 
     def test_gives_up_after_max_retries(self, tmp_path):
-        """Child always crashes on real requests; proxy returns '5 attempts' error."""
+        """Child always crashes on real requests; proxy returns a hard recovery-failed error."""
         _write_vault(tmp_path)
         server_script = _crash_server_script(tmp_path)
         # Use BRAIN_PROXY_BACKOFF=0,0,0,0,0 to skip all delays (5 slots = 5 backoff entries)
@@ -575,8 +908,8 @@ class TestCrashBackoff:
             assert "error" in error_resp, f"Expected error, got: {error_resp}"
 
             error_msg = error_resp["error"]["message"]
-            assert "5 attempts" in error_msg or "attempt" in error_msg.lower(), (
-                f"Expected '5 attempts' in error message. Got: {error_msg!r}"
+            assert _GIVE_UP_MSG_FRAGMENT in error_msg.lower(), (
+                f"Expected explicit recovery exhaustion in error message. Got: {error_msg!r}"
             )
             assert "Restart MCP via /mcp" in error_msg or "/mcp" in error_msg, (
                 f"Expected restart instruction in error message. Got: {error_msg!r}"
@@ -695,7 +1028,7 @@ class TestProxyDrift:
 
                 success = p._start_child()
                 if not success:
-                    p._backoff_slot = 1
+                    p._recover_missing_child()
 
                 p.run()
 
@@ -795,8 +1128,9 @@ class TestVersionDriftReplay:
             proc.stdin.write(_make_jsonrpc("tools/call", id=2, params={"name": "anything"}))
             proc.stdin.flush()
 
-            # Read all messages — should include list_changed + success for id=2
-            all_msgs = _read_all_responses(proc, timeout=10.0, max_count=10)
+            # Read until the replayed response arrives. A restart can leave a
+            # noticeable gap after list_changed before the success response.
+            all_msgs = _read_until_id(proc, 2, timeout=15.0)
 
             # The triggering request (id=2) should get a SUCCESS response via replay
             resp = _find_by_id(all_msgs, 2)
@@ -932,9 +1266,8 @@ class TestStartupTimeout:
 
             # 2. Send a real request — first child crashes, triggering restart.
             #    On restart the proxy replays init to the new child (which now hangs).
-            #    The init timeout (1s) fires; _start_child returns False.
-            #    The proxy calls _advance_backoff and retries up to 5 times.
-            #    Each retry = 1s timeout → ~5s total for 5 retries.
+            #    The init timeout (1s) fires; the proxy retries until the
+            #    backoff schedule is exhausted, then moves into explicit give-up.
             proc.stdin.write(_make_jsonrpc("tools/call", id=2, params={"name": "ping"}))
             proc.stdin.flush()
 
@@ -956,11 +1289,12 @@ class TestStartupTimeout:
                 f"Expected error in response for id=3, got: {error_resp}"
             )
             error_msg = error_resp["error"]["message"]
-            assert (
-                "attempt" in error_msg.lower()
-                or "restart" in error_msg.lower()
-                or "start" in error_msg.lower()
-            ), f"Expected restart/attempt related error. Got: {error_msg!r}"
+            assert _GIVE_UP_MSG_FRAGMENT in error_msg.lower(), (
+                f"Expected explicit give-up message. Got: {error_msg!r}"
+            )
+            assert "/mcp" in error_msg, (
+                f"Expected explicit restart guidance. Got: {error_msg!r}"
+            )
 
         finally:
             proc.terminate()

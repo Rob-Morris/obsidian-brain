@@ -35,7 +35,7 @@ import time
 # Constants
 # ---------------------------------------------------------------------------
 
-PROXY_VERSION = "0.3.1"
+PROXY_VERSION = "0.3.2"
 
 _LOG_REL = os.path.join(".brain", "local", "mcp-proxy.log")
 _LOG_MAX_BYTES = 2 * 1024 * 1024  # 2 MB
@@ -352,6 +352,8 @@ class Proxy:
 
         # Synchronization
         self._child_ready = threading.Event()  # set when child is assigned
+        self._restart_lock = threading.Lock()
+        self._restart_in_progress = False
         self._last_version_check: float = 0.0  # monotonic timestamp for cooldown
 
         # Outbound message queue — all writes to sys.stdout.buffer go through here.
@@ -372,15 +374,21 @@ class Proxy:
         Returns True on success, False on failure (timeout or crash).
         """
         child = ChildProcess(self.python_path, self.server_target)
-        child.start()
+        try:
+            child.start()
+        except Exception as e:
+            _log().error("failed to start child process: %s", e)
+            return False
         self._child_start_time = time.monotonic()
         self._last_launched_version = _read_brain_version_from_disk(self.vault_root)
 
         # Check for proxy drift
         self._check_proxy_drift()
 
-        # If we have a stored initialize request, replay it
-        if self._init_request is not None:
+        # Replay initialize only after the first session has completed it
+        # (init_response captured) — otherwise the bootstrap request would be
+        # sent twice: once here and again by the main loop.
+        if self._init_request is not None and self._init_response is not None:
             try:
                 child.send(self._init_request)
             except Exception as e:
@@ -533,6 +541,92 @@ class Proxy:
             and time.monotonic() - self._child_start_time >= _CHILD_ALIVE_RESET_SECS
         )
 
+    def _begin_restart(self) -> bool:
+        """Claim the restart coordinator. Returns False if another restart owns it."""
+        with self._restart_lock:
+            if self._shutdown or self._restart_in_progress:
+                return False
+            self._restart_in_progress = True
+            return True
+
+    def _finish_restart(self) -> None:
+        """Release the restart coordinator."""
+        with self._restart_lock:
+            self._restart_in_progress = False
+
+    def _claim_child_loss(self, child: ChildProcess) -> bool:
+        """
+        Claim responsibility for a dead child.
+
+        Returns False if another thread already detached or replaced it.
+        """
+        with self._child_lock:
+            if self._child is not child:
+                return False
+            self._child = None
+        self._child_ready.clear()
+        return True
+
+    def _recover_from_exit(self, exit_code: int | None) -> None:
+        """
+        Shared dead-child recovery path.
+
+        Applies drift checks, drains or replays in-flight requests, then runs
+        the restart/backoff state machine.
+        """
+        if exit_code is None:
+            exit_code = 1
+
+        # Check proxy drift before any responses go out so the flag is set
+        # when _drain_inflight decorates error responses. Skip if already
+        # detected — avoids a redundant disk read + hash.
+        if not self._proxy_drift:
+            self._check_proxy_drift()
+
+        is_drift = exit_code == _EXIT_CODE_VERSION_DRIFT
+        can_replay = is_drift and self._replay_depth < _MAX_REPLAY_DEPTH
+        saved_requests = self._drain_inflight(replay=can_replay)
+
+        if can_replay:
+            self._replay_depth += 1
+
+        self._handle_child_exit(exit_code)
+
+        if can_replay and saved_requests and not self._shutdown:
+            self._replay_requests(saved_requests)
+        elif can_replay and saved_requests:
+            self._send_client_errors(saved_requests, "server shutting down")
+
+    def _recover_child_loss(self, child: ChildProcess, exit_code: int | None) -> bool:
+        """Recover after a specific child dies. Returns True if this call owned recovery."""
+        if not self._claim_child_loss(child):
+            return False
+        if not self._begin_restart():
+            return False
+        try:
+            self._recover_from_exit(exit_code)
+            return True
+        finally:
+            self._finish_restart()
+
+    def _recover_missing_child(self) -> bool:
+        """
+        Recover when the proxy has no current child.
+
+        Used for initial startup failure and as a fallback when the main loop
+        notices that the child has already disappeared.
+        """
+        if self._get_child() is not None:
+            return False
+        self._child_ready.clear()
+        if not self._begin_restart():
+            return False
+        try:
+            self._recover_from_exit(1)
+            return True
+        finally:
+            self._finish_restart()
+
     def _handle_child_exit(self, exit_code: int) -> None:
         """
         Called when child exits. Decides whether to restart, apply backoff, or give up.
@@ -556,6 +650,7 @@ class Proxy:
             # Restart immediately (no backoff delay for planned restarts)
             success = self._start_child()
             if success:
+                self._gave_up = False
                 return
             # First attempt failed — fall through to backoff retry loop so the
             # proxy keeps trying instead of entering limbo (child=None, not
@@ -566,30 +661,28 @@ class Proxy:
             self._gave_up = False
 
         # Crash or failed drift restart — apply backoff
-        if self._backoff_slot >= len(self._backoff_schedule):
-            _log().error("backoff exhausted after %d attempts — giving up", self._backoff_slot)
-            self._gave_up = True
-            return
-
-        delay = self._backoff_schedule[self._backoff_slot]
-        _log().warning(
-            "child restart — backoff slot %d/%d, waiting %ds",
-            self._backoff_slot, len(self._backoff_schedule) - 1, delay,
-        )
-        if delay > 0:
-            time.sleep(delay)
-        self._backoff_slot += 1
-        success = self._start_child()
-        if not success:
+        while not self._shutdown:
             if self._backoff_slot >= len(self._backoff_schedule):
-                _log().error("giving up after failed restart")
+                _log().error("backoff exhausted after %d attempts — giving up", self._backoff_slot)
                 self._gave_up = True
+                return
 
-    def _advance_backoff(self) -> None:
-        self._backoff_slot += 1
-        if self._backoff_slot >= len(self._backoff_schedule):
-            _log().error("giving up after failed restart")
-            self._gave_up = True
+            delay = self._backoff_schedule[self._backoff_slot]
+            _log().warning(
+                "child restart — backoff slot %d/%d, waiting %ds",
+                self._backoff_slot, len(self._backoff_schedule) - 1, delay,
+            )
+            if delay > 0:
+                time.sleep(delay)
+            self._backoff_slot += 1
+            success = self._start_child()
+            if success:
+                self._gave_up = False
+                return
+            _log().warning(
+                "child restart attempt %d failed",
+                self._backoff_slot,
+            )
 
     def _try_version_reset(self) -> bool:
         """
@@ -608,12 +701,18 @@ class Proxy:
                 "brain-core VERSION changed (%s → %s) — resetting backoff",
                 self._last_launched_version, current_version,
             )
-            self._gave_up = False
-            self._backoff_slot = 0
-            success = self._start_child()
-            if success:
-                return True
-            self._advance_backoff()
+            if not self._begin_restart():
+                return False
+            try:
+                self._gave_up = False
+                self._backoff_slot = 0
+                success = self._start_child()
+                if success:
+                    return True
+                self._recover_from_exit(1)
+                return self._get_child() is not None
+            finally:
+                self._finish_restart()
         return False
 
     # ------------------------------------------------------------------
@@ -733,34 +832,8 @@ class Proxy:
                 # Child stdout closed — wait for exit code
                 exit_code = child.wait()
                 _log().info("child stdout EOF, exit code=%s", exit_code)
-                with self._child_lock:
-                    self._child = None
-                self._child_ready.clear()
                 hang_counter = 0
-
-                if exit_code is None:
-                    exit_code = 1  # treat as crash
-
-                # Check proxy drift before any responses go out so the flag is
-                # set when _drain_inflight decorates error responses. Skip if
-                # already detected — avoids a redundant disk read + hash.
-                if not self._proxy_drift:
-                    self._check_proxy_drift()
-
-                # Version drift: save requests for replay instead of erroring
-                is_drift = exit_code == _EXIT_CODE_VERSION_DRIFT
-                can_replay = is_drift and self._replay_depth < _MAX_REPLAY_DEPTH
-                saved_requests = self._drain_inflight(replay=can_replay)
-
-                if can_replay:
-                    self._replay_depth += 1
-
-                self._handle_child_exit(exit_code)
-
-                if can_replay and saved_requests and not self._shutdown:
-                    self._replay_requests(saved_requests)
-                elif can_replay and saved_requests:
-                    self._send_client_errors(saved_requests, "server shutting down")
+                self._recover_child_loss(child, exit_code)
                 continue
 
             # Parse and forward to client
@@ -803,7 +876,7 @@ class Proxy:
     def _error_response_for_dead_child(self, msg_id: int | str | None) -> dict:
         if self._gave_up:
             message = (
-                f"server failed to start after {len(self._backoff_schedule)} attempts. "
+                f"server restart failed after {len(self._backoff_schedule)} recovery attempts. "
                 "Restart MCP via /mcp."
             )
         else:
@@ -862,23 +935,27 @@ class Proxy:
 
             child = self._get_child()
 
-            # If child is dead
-            if child is None or child.poll() is not None:
-                with self._child_lock:
-                    self._child = None
-
-                # For tool calls after give-up, check if VERSION changed
+            if child is None:
                 if self._gave_up and method == "tools/call":
                     self._try_version_reset()
+                elif not self._gave_up:
+                    self._recover_missing_child()
+                child = self._get_child()
+            else:
+                exit_code = child.poll()
+                if exit_code is not None:
+                    self._recover_child_loss(child, exit_code)
+                    if self._gave_up and method == "tools/call":
+                        self._try_version_reset()
                     child = self._get_child()
 
-                if child is None or (child.poll() is not None):
-                    # Still dead — return error for requests, drop notifications
-                    if is_request:
-                        self._send_to_client(self._error_response_for_dead_child(msg_id))
-                    elif is_notification:
-                        _log().debug("dropping notification (child dead): method=%s", method)
-                    continue
+            if child is None or child.poll() is not None:
+                # Still dead — return error for requests, drop notifications
+                if is_request:
+                    self._send_to_client(self._error_response_for_dead_child(msg_id))
+                elif is_notification:
+                    _log().debug("dropping notification (child dead): method=%s", method)
+                continue
 
             # Forward to child
             if is_request:
@@ -888,18 +965,25 @@ class Proxy:
                 child.send(obj)
             except BrokenPipeError:
                 _log().warning("child stdin broken pipe — child likely died")
-                with self._child_lock:
-                    if self._child is child:
-                        self._child = None
-                if is_request:
-                    # Remove from in-flight tracking before sending error.
-                    # If _drain_inflight() already claimed this ID, skip the
-                    # error to avoid sending a duplicate response to the client.
+                # poll() can return None if reaping hasn't completed; wait()
+                # gives the real exit code so a drift exit (10) isn't
+                # misclassified as a crash and silently loses replay.
+                exit_code = child.poll()
+                if exit_code is None:
+                    try:
+                        exit_code = child.wait()
+                    except Exception:
+                        exit_code = 1
+                owned_recovery = self._recover_child_loss(child, exit_code)
+                if not owned_recovery and is_request:
+                    # Reader thread already drove recovery; if its drain ran
+                    # before our inflight insert, our id is still tracked and
+                    # the client is owed a response.
                     with self._inflight_lock:
-                        was_tracked = msg_id in self._inflight_requests
-                        self._inflight_requests.pop(msg_id, None)
+                        was_tracked = self._inflight_requests.pop(msg_id, None) is not None
                     if was_tracked:
                         self._send_to_client(self._error_response_for_dead_child(msg_id))
+                continue
             except Exception as e:
                 _log().error("error sending to child: %s", e)
 
@@ -950,11 +1034,8 @@ def main() -> None:
     _log().info("spawning initial child process")
     success = proxy._start_child()
     if not success:
-        _log().error("initial child start failed — applying backoff")
-        # backoff_slot starts at 0; attempt was just made with slot 0 delay (0s)
-        proxy._backoff_slot = 1
-        # Reader thread will handle restarts once running
-        # But we need reader running to notice exits — start it first
+        _log().error("initial child start failed — entering restart backoff")
+        proxy._recover_missing_child()
 
     proxy.run()
 
