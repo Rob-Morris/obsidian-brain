@@ -134,7 +134,9 @@ Core skills teach agents how to use brain-core's own tools. They ship in `.brain
 
 ### Current core skills
 
-No core skills ship as of v0.24.0. The `brain-remote` skill was retired — its workflow is now handled by `brain_session` and the SessionStart hook.
+- `shaping` — parent router plus `assess`, `brainstorm`, `discover`, and `refine` sub-skills for artefact shaping workflows
+- `swarm-test` — parent router plus `review` and `evaluate` sub-skills for multi-agent test workflows
+- `code-review` — parent router plus `investigate` and `fix` sub-skills for review-only and review-with-fixes workflows
 
 ---
 

@@ -2,6 +2,13 @@
 
 Follows a pre-1.0 [semver](https://semver.org/) policy: backward-compatible changes are patch; breaking Brain changes are minor; only fundamental model changes are major. Breaking Brain changes include vault-structure changes and breaking tool/script/MCP contract changes. Fundamental model changes are changes to the artefact model, router contract, or agent bootstrap/entry flow.
 
+## v0.32.10 — 2026-04-28
+
+**Add a `code-review` core skill family for triaged reviews and guided fixups.** `code-review:investigate` dispatches reuse, quality, and efficiency reviewers in parallel and returns raw findings; `code-review` triages those findings for the user; `code-review:fix` applies the approved subset.
+
+- Add three shipped core skill docs under `src/brain-core/skills/code-review/` covering investigation, triage-only review, and review-plus-fix flows.
+- Refresh `docs/functional/config.md` so the “Current core skills” section reflects the shipped skill families.
+
 ## v0.32.9 — 2026-04-27
 
 **Tighten current-vault MCP repair ownership and make uninstall preserve non-Brain Claude bootstrap content.** `repair.py mcp` now repairs only the project-scoped Brain clients that are already installed for the current vault, while uninstall cleans recorded vault-root Claude local state and strips Brain's bootstrap line from `CLAUDE.md` without deleting user content.
