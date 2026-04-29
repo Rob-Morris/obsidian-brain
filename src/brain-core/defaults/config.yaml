@@ -25,7 +25,8 @@ vault:
 defaults:
   default_profile: operator
 
-  flags: {}
+  flags:
+    brain_process: false
 
   tool_paths: {}
 

@@ -23,7 +23,7 @@ See dd-036 for the full contract.
 | `brain_create` | Additive — safe to auto-approve | Create a new vault artefact or config resource |
 | `brain_edit` | Single-file mutation | Edit, append, prepend, or delete a section from one file |
 | `brain_action` | Vault-wide / destructive — require explicit approval | Compile, rename, delete, convert, archive, and other multi-file ops |
-| `brain_process` | Classify/resolve: read-only; ingest: creates/updates files | Content classification, duplicate resolution, ingestion |
+| `brain_process` | Classify/resolve: read-only; ingest: creates/updates files | Experimental content classification, duplicate resolution, and ingestion; disabled by default behind `defaults.flags.brain_process` |
 
 Mutating MCP calls are serialized within one server process. This applies to
 `brain_create`, `brain_edit`, `brain_action`, and `brain_process` when
@@ -207,7 +207,10 @@ Vault-wide and destructive operations, gated by explicit approval.
 
 ### brain_process
 
-Content processing operations.
+Experimental content processing operations. The tool remains registered for MCP
+discovery, but it is disabled by default. Set
+`defaults.flags.brain_process: true` to enable it. Optional embeddings follow
+the same feature flag.
 
 **Parameters:**
 - `operation` (required) — `classify`, `resolve`, or `ingest`
@@ -230,7 +233,7 @@ Recommended auto-approve settings:
 - **`brain_session`**, **`brain_read`**, **`brain_search`**, **`brain_list`** — safe to auto-approve always
 - **`brain_create`** — additive-only (creates files, never destroys) — safe to auto-approve for most workflows
 - **`brain_edit`** — mutates a single validated file — approve-once or auto-approve depending on trust level
-- **`brain_process`** with `classify`/`resolve` — read-only; `ingest` can create/update files — treat like `brain_create`/`brain_edit` combined
+- **`brain_process`** — experimental and disabled by default; when enabled, `classify`/`resolve` are read-only and `ingest` can create/update files, so treat it like `brain_create`/`brain_edit` combined
 - **`brain_action`** — affects multiple files or system state — require explicit approval per call
 
 ## Response Format Conventions

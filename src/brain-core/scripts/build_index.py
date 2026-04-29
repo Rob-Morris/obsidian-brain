@@ -4,10 +4,12 @@ build_index.py — Brain-core BM25 retrieval index builder
 
 Walks all .md files in living + temporal type folders, extracts frontmatter
 and body text, computes BM25 corpus stats and per-doc term frequencies,
-and writes .brain/local/retrieval-index.json.
+and writes .brain/local/retrieval-index.json. When the experimental
+brain_process feature is enabled and a compiled router is available, it also
+refreshes the optional embeddings sidecar files.
 
 Usage:
-    python3 build_index.py           # write .brain/local/retrieval-index.json
+    python3 build_index.py           # write index JSON (+ embeddings when enabled)
     python3 build_index.py --json    # output JSON to stdout
 """
 
@@ -21,10 +23,10 @@ from pathlib import Path
 from _common import (
     find_vault_root,
     iter_artefact_paths,
+    load_compiled_router,
     normalize_artefact_key,
     read_artefact,
     read_version,
-    safe_write,
     safe_write_via,
     safe_write_json,
     scan_living_types,
@@ -64,6 +66,66 @@ EMBEDDING_DIM = 384
 INDEX_VERSION = "1.0.0"
 BM25_K1 = 1.5
 BM25_B = 0.75
+PROCESS_FEATURE_FLAG = "brain_process"
+
+
+def embeddings_enabled(vault_root, *, config=None):
+    """Return True when experimental process embeddings are enabled.
+
+    Embeddings are an implementation detail of the experimental
+    brain_process surface, so they follow the same feature flag. This helper
+    is best-effort so BM25 builds remain usable without config-loading deps.
+    """
+    if config is None:
+        try:
+            import config as config_mod
+        except ImportError:
+            return False
+        try:
+            config = config_mod.load_config(str(vault_root))
+        except Exception:
+            return False
+
+    if not process_enabled(vault_root, config=config):
+        return False
+    return True
+
+
+def process_enabled(vault_root, *, config=None):
+    """Return True when the experimental process feature is enabled."""
+    if config is None:
+        try:
+            import config as config_mod
+        except ImportError:
+            return False
+        try:
+            config = config_mod.load_config(str(vault_root))
+        except Exception:
+            return False
+
+    if not isinstance(config, dict):
+        return False
+    defaults = config.get("defaults", {})
+    if not isinstance(defaults, dict):
+        return False
+    flags = defaults.get("flags", {})
+    if not isinstance(flags, dict):
+        return False
+    return bool(flags.get(PROCESS_FEATURE_FLAG, False))
+
+
+def clear_embeddings_outputs(vault_root):
+    """Remove persisted embeddings sidecars if they exist."""
+    vault_str = str(vault_root)
+    removed = []
+    for rel_path in (TYPE_EMBEDDINGS_REL, DOC_EMBEDDINGS_REL, EMBEDDINGS_META_REL):
+        abs_path = os.path.join(vault_str, rel_path)
+        try:
+            os.remove(abs_path)
+            removed.append(rel_path)
+        except FileNotFoundError:
+            continue
+    return removed
 
 
 # ---------------------------------------------------------------------------
@@ -170,7 +232,12 @@ def build_embeddings(vault_root, router, documents):
         except (OSError, UnicodeDecodeError):
             body = ""
         doc_texts.append(f"{doc['title']} {body[:500]}")
-        doc_meta.append({"index": i, "path": doc["path"]})
+        doc_meta.append({
+            "index": i,
+            "path": doc["path"],
+            "type": doc["type"],
+            "title": doc["title"],
+        })
 
     # Encode
     model = SentenceTransformer(EMBEDDING_MODEL)
@@ -324,6 +391,62 @@ def build_index(vault_root):
     return index
 
 
+def persist_retrieval_index(vault_root, index):
+    """Persist the BM25 retrieval index JSON to disk."""
+    output_path = os.path.join(str(vault_root), OUTPUT_PATH)
+    safe_write_json(output_path, index, bounds=str(vault_root))
+
+
+def refresh_embeddings_outputs(
+    vault_root,
+    router,
+    documents,
+    *,
+    enable_embeddings=None,
+    config=None,
+):
+    """Refresh embeddings sidecars, clearing stale files when unavailable."""
+    if enable_embeddings is None:
+        enable_embeddings = embeddings_enabled(vault_root, config=config)
+    if not enable_embeddings or router is None:
+        clear_embeddings_outputs(vault_root)
+        return None
+
+    meta = build_embeddings(vault_root, router, documents)
+    if meta is None:
+        clear_embeddings_outputs(vault_root)
+        return None
+    return meta
+
+
+def persist_retrieval_outputs(
+    vault_root,
+    index,
+    *,
+    router=None,
+    enable_embeddings=None,
+    config=None,
+):
+    """Persist index JSON and refresh embeddings when enabled and available."""
+    persist_retrieval_index(vault_root, index)
+    if enable_embeddings is None:
+        enable_embeddings = embeddings_enabled(vault_root, config=config)
+    if not enable_embeddings:
+        clear_embeddings_outputs(vault_root)
+        return None
+    if router is None:
+        router = load_compiled_router(vault_root)
+        if isinstance(router, dict) and router.get("error"):
+            router = None
+    return refresh_embeddings_outputs(
+        vault_root,
+        router,
+        index["documents"],
+        enable_embeddings=True,
+        config=config,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Incremental index updates
 # ---------------------------------------------------------------------------
@@ -373,14 +496,14 @@ def main():
     if "--json" in sys.argv:
         print(json_output)
     else:
-        output_path = os.path.join(str(vault_root), OUTPUT_PATH)
-        safe_write(output_path, json_output + "\n", bounds=str(vault_root))
+        embeddings_meta = persist_retrieval_outputs(vault_root, index)
 
         doc_count = index["meta"]["document_count"]
         term_count = len(index["corpus_stats"]["df"])
+        embeddings_note = ", embeddings refreshed" if embeddings_meta is not None else ""
         print(
             f"Built retrieval index: {doc_count} documents, "
-            f"{term_count} unique terms → {OUTPUT_PATH}",
+            f"{term_count} unique terms{embeddings_note} → {OUTPUT_PATH}",
             file=sys.stderr,
         )
 

@@ -173,7 +173,7 @@ If your vault runs the Brain MCP server (`.brain-core/brain_mcp/server.py`), eig
 - `fix-links` — scan for broken wikilinks and attempt auto-resolution; optional `{fix: true}` applies unambiguous fixes; returns JSON report
 - `sync_definitions` — sync artefact library definitions to vault `_Config/` using three-way hash comparison (optional `{dry_run, force, types, preference, status}`); returns warnings for conflicts. Pass `types: ["living/<type>"]` to additively install a new library type. Pass `status: true` for a read-only classification (`uninstalled` / `in_sync` / `sync_ready` / `locally_customised` / `conflict`). The `preference` parameter overrides the file-based `artefact_sync` setting for this invocation
 
-**brain_process** (content processing — classify/resolve are read-only, ingest can create/update)
+**brain_process** (experimental content processing — disabled by default; classify/resolve are read-only, ingest can create/update once `defaults.flags.brain_process` is enabled)
 - `classify` — determine the best artefact type for content; returns ranked matches with confidence scores. Modes: `auto` (default), `embedding`, `bm25_only`, `context_assembly`
 - `resolve` — check if content should create a new artefact or update an existing one (requires `type` and `title`); returns create/update/ambiguous decision with candidate paths
 - `ingest` — full pipeline: classify → infer title → resolve → create/update. Optional `type`/`title` hints skip their respective steps
@@ -189,7 +189,7 @@ Available in `.brain-core/scripts/`. Scripts are the source of truth for all vau
 | Script | Purpose |
 |---|---|
 | `compile_router.py` | Compile router, taxonomy, skills, and styles into a single JSON file |
-| `build_index.py` | Build the BM25 retrieval index for search |
+| `build_index.py` | Build the BM25 retrieval index for search and refresh experimental process embeddings when `brain_process` is enabled and router data is available |
 | `search_index.py` | Search the BM25 index from the command line |
 | `read.py` | Query compiled router resources (artefacts, triggers, styles, templates, skills, etc.) |
 | `create.py` | Create a new artefact with template/naming resolution |

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from typing import Literal
 
+import build_index
 import process
 
 from ._server_runtime import ServerRuntime
@@ -79,13 +80,20 @@ def handle_brain_process(
     runtime: ServerRuntime,
 ):
     runtime.check_version_drift()
-    runtime.ensure_router_fresh()
-    runtime.ensure_index_fresh()
-    runtime.ensure_embeddings_fresh()
 
     denied = runtime.enforce_profile("brain_process")
     if denied:
         return denied
+
+    state = runtime.get_state()
+    if not build_index.process_enabled(state.vault_root, config=state.config):
+        return runtime.fmt_error(
+            "brain_process is disabled. Set defaults.flags.brain_process: true to enable it."
+        )
+
+    runtime.ensure_router_fresh()
+    runtime.ensure_index_fresh()
+    runtime.ensure_embeddings_fresh()
 
     state = runtime.get_state()
     if state.router is None or state.vault_root is None:

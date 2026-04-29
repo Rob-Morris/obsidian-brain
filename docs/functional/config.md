@@ -53,6 +53,29 @@ defaults:
 
 These values belong in `.brain/local/config.yaml`, not `.brain/config.yaml`, because they are machine-local installation details. Environment variables can still override them when a specific runtime launch needs a different binary path.
 
+### Feature flags
+
+Feature flags live under `defaults.flags`. They are off by default in the
+shipped template and follow the normal defaults-zone merge rules, so a local
+override can opt in without changing the shared vault config.
+
+Current flag:
+
+```yaml
+defaults:
+  flags:
+    brain_process: true
+```
+
+- `brain_process` enables the experimental content-intelligence surface. When
+  false, the `brain_process` MCP tool returns a disabled error and any optional
+  embeddings sidecars are treated as inactive.
+- When `brain_process` is enabled, `build_index.py` and the MCP server may
+  also refresh the optional `.brain/local/type-embeddings.npy`,
+  `.brain/local/doc-embeddings.npy`, and `.brain/local/embeddings-meta.json`
+  sidecars on demand. When the flag is off, those files are treated as stale
+  and cleared rather than left behind.
+
 ### Startup behaviour
 
 On startup, the MCP server calls `load_config()`, which reads all three layers, runs the merge, validates the result (unknown profile tool names raise warnings), and returns a typed dict. If a layer's YAML is missing or unparseable, it is treated as `{}` with a warning — the server continues with the remaining layers.
@@ -93,7 +116,7 @@ The config system supports three built-in operator profiles with different level
 | Profile | Intended use |
 |---------|-------------|
 | `reader` | Read-only access — `brain_session`, `brain_read`, `brain_search`, `brain_list` |
-| `contributor` | Read + create/edit — adds `brain_create`, `brain_edit`, `brain_process` |
+| `contributor` | Read + create/edit — adds `brain_create`, `brain_edit`; `brain_process` remains feature-gated |
 | `operator` | Full access — all tools including `brain_action` |
 
 Each profile has a per-tool allow-list defined in the vault config. Tools not on the active profile's allow-list return an error `CallToolResult` — no silent failures.

@@ -3261,7 +3261,20 @@ class TestWorkspaceActions:
 # brain_process tool
 # ---------------------------------------------------------------------------
 
+class TestBrainProcessFeatureGate:
+    def test_process_disabled_by_default(self, initialized):
+        result = server.brain_process(
+            operation="classify",
+            content="I have a new idea",
+        )
+        _assert_error(result, "brain_process is disabled")
+
+
 class TestBrainProcess:
+    @pytest.fixture(autouse=True)
+    def enable_process_feature(self, initialized):
+        server._config["defaults"]["flags"]["brain_process"] = True
+
     def test_process_classify_context_assembly(self, initialized):
         result = server.brain_process(
             operation="classify",
@@ -3283,9 +3296,10 @@ class TestBrainProcess:
                 "## Purpose\n\nCapture concepts that need development.\n\n"
                 "## When To Use\n\nWhen developing a concept that needs iterative refinement.\n\n"
                 "## Template\n\n[[_Config/Templates/Living/Ideas]]\n"
-            )
+        )
         # Re-initialize to rebuild index
         server.startup(vault_root=str(initialized))
+        server._config["defaults"]["flags"]["brain_process"] = True
         result = server.brain_process(
             operation="classify",
             content="a new concept idea that needs iterative development and refinement",
@@ -3817,6 +3831,63 @@ class TestIndexStaleness:
         server._runtime().mark_embeddings_dirty()
 
         assert server._embeddings_dirty is True
+
+    def test_mark_index_pending_invalidates_embeddings_sidecars(self, initialized):
+        local_dir = initialized / ".brain" / "local"
+        local_dir.mkdir(parents=True, exist_ok=True)
+        for rel_path in (
+            "type-embeddings.npy",
+            "doc-embeddings.npy",
+            "embeddings-meta.json",
+        ):
+            (local_dir / rel_path).write_bytes(b"stale")
+
+        server._type_embeddings = object()
+        server._doc_embeddings = object()
+        server._embeddings_meta = {"documents": [], "types": []}
+        server._embeddings_dirty = False
+
+        server._mark_index_pending("Wiki/brain-overview-abc123.md", "living/wiki")
+
+        assert server._embeddings_dirty is True
+        assert server._type_embeddings is None
+        assert server._doc_embeddings is None
+        assert server._embeddings_meta is None
+        assert not (local_dir / "type-embeddings.npy").exists()
+        assert not (local_dir / "doc-embeddings.npy").exists()
+        assert not (local_dir / "embeddings-meta.json").exists()
+
+    def test_process_lazily_refreshes_embeddings_when_enabled(self, initialized, monkeypatch):
+        server._config["defaults"]["flags"]["brain_process"] = True
+        server._type_embeddings = None
+        server._doc_embeddings = None
+        server._embeddings_meta = None
+        server._embeddings_dirty = False
+
+        calls = []
+
+        def fake_refresh(vault_root, router, documents, *, enable_embeddings=None, config=None):
+            calls.append((str(vault_root), enable_embeddings, len(documents)))
+            return {"documents": [], "types": []}
+
+        def fake_load(_vault_root):
+            server._type_embeddings = object()
+            server._doc_embeddings = object()
+            server._embeddings_meta = {"documents": [], "types": []}
+
+        monkeypatch.setattr(build_index, "refresh_embeddings_outputs", fake_refresh)
+        monkeypatch.setattr(server, "_load_embeddings", fake_load)
+
+        result = server.brain_process(
+            operation="classify",
+            content="some content",
+            mode="context_assembly",
+        )
+
+        assert "context_assembly" in result
+        assert calls == [(str(initialized), True, len(server._index["documents"]))]
+        assert server._type_embeddings is not None
+        assert server._doc_embeddings is not None
 
     def test_incremental_then_external_file_triggers_rebuild(self, initialized):
         """After incremental update, external files are detected via count mismatch."""

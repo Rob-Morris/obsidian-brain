@@ -1,6 +1,8 @@
 """Tests for process.py — classify, resolve, and ingest operations."""
 
 import os
+import sys
+import types
 
 import pytest
 
@@ -256,6 +258,56 @@ class TestResolve:
             index=None,
         )
         assert result["action"] == "create"
+
+    def test_update_via_embeddings_same_type_only(self, populated_vault, populated_router, monkeypatch):
+        (populated_vault / "Wiki" / "rust-ownership.md").write_text(
+            "---\ntype: living/wiki\ntags: [rust]\n---\n\n# Rust Ownership\n\nOwnership model.\n"
+        )
+
+        class FakeEmbeddings:
+            def __matmul__(self, query_vec):
+                assert query_vec == "query-vector"
+                return [0.96, 0.99]
+
+        class FakeModel:
+            def encode(self, texts, normalize_embeddings=True):
+                assert texts == ["Ownership Primer Rust ownership memory safety"]
+                return ["query-vector"]
+
+        fake_numpy = types.ModuleType("numpy")
+        fake_sentence_transformers = types.ModuleType("sentence_transformers")
+        fake_sentence_transformers.SentenceTransformer = lambda model: FakeModel()
+
+        monkeypatch.setitem(sys.modules, "numpy", fake_numpy)
+        monkeypatch.setitem(sys.modules, "sentence_transformers", fake_sentence_transformers)
+
+        result = process.resolve_content(
+            populated_router,
+            str(populated_vault),
+            "wiki",
+            "Ownership Primer",
+            content="Rust ownership memory safety",
+            index=None,
+            doc_embeddings=FakeEmbeddings(),
+            doc_embeddings_meta={
+                "documents": [
+                    {
+                        "path": "Wiki/rust-ownership.md",
+                        "type": "living/wiki",
+                        "title": "Rust Ownership",
+                    },
+                    {
+                        "path": "Ideas/Solar Powered Keyboards.md",
+                        "type": "living/ideas",
+                        "title": "Solar Powered Keyboards",
+                    },
+                ],
+            },
+        )
+
+        assert result["action"] == "update"
+        assert result["target_path"] == "Wiki/rust-ownership.md"
+        assert result["candidates"] == ["Wiki/rust-ownership.md"]
 
 
 # ---------------------------------------------------------------------------

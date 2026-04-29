@@ -39,6 +39,7 @@ from _common import (
 )
 from _common._artefacts import pattern_has_date_tokens
 import session
+import build_index
 
 OUTPUT_PATH = os.path.join(".brain", "local", "compiled-router.json")
 
@@ -1067,6 +1068,7 @@ def main():
     else:
         output_path = os.path.join(str(vault_root), OUTPUT_PATH)
         safe_write(output_path, json_output + "\n", bounds=str(vault_root))
+        build_index.clear_embeddings_outputs(vault_root)
 
         art_count = len(compiled["artefacts"])
         configured = sum(1 for a in compiled["artefacts"] if a["configured"])

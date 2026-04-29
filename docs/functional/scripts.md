@@ -78,7 +78,7 @@ The MCP server is a thin wrapper that imports functions from scripts and holds t
 
 **Importable API** (used by the MCP server to drive its staleness checks): `resource_counts(vault_root)` returns `{key: count}` for the discoverable resource categories. `resource_source_dirs(vault_root)` yields `(rel_path, descend)` pairs identifying every directory whose mtime governs the resource-count answer.
 
-**Post-step generation:** `compile_colours.py` runs as a post-step, reading the compiled router to generate `.obsidian/snippets/brain-folder-colours.css` and `.obsidian/graph.json` colour groups. After a successful compile, `session.py` also refreshes `.brain/local/session.md` so the markdown bootstrap mirror stays aligned with the current canonical session model. Both are called automatically — no separate invocation needed.
+**Post-step generation:** `compile_colours.py` runs as a post-step, reading the compiled router to generate `.obsidian/snippets/brain-folder-colours.css` and `.obsidian/graph.json` colour groups. After a successful compile, `session.py` also refreshes `.brain/local/session.md` so the markdown bootstrap mirror stays aligned with the current canonical session model. Existing embeddings sidecars are invalidated on router rebuild because type-description vectors depend on the compiled router. All of this happens automatically — no separate invocation needed.
 
 **Flags:** `--json` (output JSON to stdout instead of writing to file).
 
@@ -407,7 +407,7 @@ Plus a separate `not_installable` bucket in `--status` output for library-side e
 BM25 keyword search over all vault markdown files. Built offline like the compiled router, queried at search time from a pre-built index.
 
 **Key properties:**
-- **Zero dependencies** — hand-rolled BM25, Python 3.8+ stdlib only, matching `compile_router.py` constraints
+- **Zero mandatory dependencies for BM25** — the retrieval index build itself is hand-rolled and stdlib-only. Optional experimental `brain_process` embeddings refresh piggybacks on the same command only when `defaults.flags.brain_process` is enabled and `numpy` + `sentence-transformers` are installed
 - **Same folder discovery** — reuses `scan_living_types()` / `scan_temporal_types()` patterns, then recurses each type folder for `.md` files
 - **Whole-document indexing** — each note is one entry (sufficient at vault scale)
 - **Build/search split** — `build_index.py` builds the index, `search_index.py` queries it. Separate scripts, no cross-imports.
@@ -416,9 +416,16 @@ BM25 keyword search over all vault markdown files. Built offline like the compil
 
 **Output:** `.brain/local/retrieval-index.json` — local, gitignored. Contains corpus stats (document frequencies, average document length), per-document term frequencies, and metadata (path, title, type, tags, status, modified).
 
+When `defaults.flags.brain_process: true` and a compiled router is available, `build_index.py` also refreshes the optional `brain_process` embeddings sidecars in `.brain/local/`:
+- `type-embeddings.npy`
+- `doc-embeddings.npy`
+- `embeddings-meta.json`
+
+The BM25 index remains the primary output. If the feature flag is off, the compiled router is missing, or embedding dependencies are unavailable, the sidecars are cleared rather than left stale.
+
 **CLI:**
 ```bash
-python3 build_index.py           # write .brain/local/retrieval-index.json
+python3 build_index.py           # write .brain/local/retrieval-index.json (+ embeddings when enabled)
 python3 build_index.py --json    # output JSON to stdout
 python3 search_index.py "query"  # search and print ranked results
 python3 search_index.py "query" --type living/design --tag brain-core --top-k 5

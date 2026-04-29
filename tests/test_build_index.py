@@ -502,3 +502,160 @@ class TestBuildEmbeddings:
         ]
         assert all(bounds == str(vault) for _path, bounds, _payload in calls)
         assert all(payload.startswith(b"\x93NUMPY") for _path, _bounds, payload in calls)
+
+    def test_document_meta_includes_type_and_title(self, vault, monkeypatch):
+        """Document embedding metadata must preserve type for same-type resolve search."""
+        class FakeNumpy:
+            @staticmethod
+            def zeros(shape):
+                return {"shape": shape}
+
+            @staticmethod
+            def save(handle, array):
+                handle.write(b"\x93NUMPY")
+                handle.write(repr(array).encode("utf-8"))
+
+        class FakeModel:
+            def encode(self, texts, normalize_embeddings=True):
+                return [[0.0] for _ in texts]
+
+        monkeypatch.setattr(bi, "_HAS_EMBEDDINGS", True)
+        monkeypatch.setattr(bi, "np", FakeNumpy(), raising=False)
+        monkeypatch.setattr(bi, "SentenceTransformer", lambda model: FakeModel(), raising=False)
+        monkeypatch.setattr(
+            bi,
+            "safe_write_via",
+            lambda path, writer, **kwargs: writer(io.BytesIO()),
+        )
+
+        index = bi.build_index(vault)
+        result = bi.build_embeddings(vault, {"artefacts": []}, index["documents"])
+
+        assert result is not None
+        by_path = {entry["path"]: entry for entry in result["documents"]}
+        assert by_path["Wiki/python-basics.md"]["type"] == "living/wiki"
+        assert by_path["Wiki/python-basics.md"]["title"] == "python-basics"
+
+
+class TestEmbeddingsOutputs:
+    def test_embeddings_follow_brain_process_flag(self, vault):
+        cfg = {
+            "defaults": {
+                "flags": {
+                    "brain_process": False,
+                }
+            }
+        }
+
+        assert bi.process_enabled(vault, config=cfg) is False
+        assert bi.embeddings_enabled(vault, config=cfg) is False
+
+        cfg["defaults"]["flags"]["brain_process"] = True
+        assert bi.process_enabled(vault, config=cfg) is True
+        assert bi.embeddings_enabled(vault, config=cfg) is True
+
+    def test_persist_outputs_clears_stale_sidecars_when_disabled(self, vault):
+        local_dir = vault / ".brain" / "local"
+        local_dir.mkdir(parents=True, exist_ok=True)
+        for rel_path in (
+            bi.TYPE_EMBEDDINGS_REL,
+            bi.DOC_EMBEDDINGS_REL,
+            bi.EMBEDDINGS_META_REL,
+        ):
+            abs_path = vault / rel_path
+            abs_path.parent.mkdir(parents=True, exist_ok=True)
+            abs_path.write_bytes(b"stale")
+
+        index = bi.build_index(vault)
+        result = bi.persist_retrieval_outputs(
+            vault,
+            index,
+            router={"artefacts": []},
+            enable_embeddings=False,
+        )
+
+        assert result is None
+        for rel_path in (
+            bi.TYPE_EMBEDDINGS_REL,
+            bi.DOC_EMBEDDINGS_REL,
+            bi.EMBEDDINGS_META_REL,
+        ):
+            assert not (vault / rel_path).exists()
+
+    def test_persist_outputs_clears_stale_sidecars_when_process_disabled(self, vault):
+        for rel_path in (
+            bi.TYPE_EMBEDDINGS_REL,
+            bi.DOC_EMBEDDINGS_REL,
+            bi.EMBEDDINGS_META_REL,
+        ):
+            abs_path = vault / rel_path
+            abs_path.parent.mkdir(parents=True, exist_ok=True)
+            abs_path.write_bytes(b"stale")
+
+        cfg = {
+            "defaults": {
+                "flags": {
+                    "brain_process": False,
+                }
+            }
+        }
+        index = bi.build_index(vault)
+        result = bi.persist_retrieval_outputs(
+            vault,
+            index,
+            router={"artefacts": []},
+            config=cfg,
+        )
+
+        assert result is None
+        for rel_path in (
+            bi.TYPE_EMBEDDINGS_REL,
+            bi.DOC_EMBEDDINGS_REL,
+            bi.EMBEDDINGS_META_REL,
+        ):
+            assert not (vault / rel_path).exists()
+
+
+class TestBuildIndexMain:
+    def test_main_refreshes_embeddings_when_router_available(self, vault, monkeypatch, capsys):
+        calls = []
+
+        def fake_build_embeddings(vault_root, router, documents):
+            calls.append((str(vault_root), router, documents))
+            return {"documents": [], "types": []}
+
+        monkeypatch.setattr(bi, "find_vault_root", lambda: vault)
+        monkeypatch.setattr(bi, "embeddings_enabled", lambda *args, **kwargs: True)
+        monkeypatch.setattr(bi, "load_compiled_router", lambda _vault: {"artefacts": []})
+        monkeypatch.setattr(bi, "build_embeddings", fake_build_embeddings)
+        monkeypatch.setattr(bi.sys, "argv", ["build_index.py"])
+
+        bi.main()
+
+        captured = capsys.readouterr()
+        assert (vault / ".brain" / "local" / "retrieval-index.json").is_file()
+        assert len(calls) == 1
+        assert calls[0][0] == str(vault)
+        assert calls[0][1] == {"artefacts": []}
+        assert calls[0][2]
+        assert "embeddings refreshed" in captured.err
+
+    def test_main_skips_embeddings_when_flag_disabled(self, vault, monkeypatch, capsys):
+        calls = []
+
+        monkeypatch.setattr(bi, "find_vault_root", lambda: vault)
+        monkeypatch.setattr(bi, "embeddings_enabled", lambda *args, **kwargs: False)
+        monkeypatch.setattr(bi, "load_compiled_router", lambda _vault: {"artefacts": []})
+        monkeypatch.setattr(
+            bi,
+            "build_embeddings",
+            lambda *args, **kwargs: calls.append(args) or {"documents": [], "types": []},
+        )
+        monkeypatch.setattr(bi.sys, "argv", ["build_index.py"])
+
+        bi.main()
+
+        captured = capsys.readouterr()
+        assert (vault / ".brain" / "local" / "retrieval-index.json").is_file()
+        assert calls == []
+        assert "embeddings refreshed" not in captured.err

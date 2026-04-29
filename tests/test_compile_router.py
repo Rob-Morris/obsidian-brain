@@ -1189,3 +1189,47 @@ class TestArtefactIndex:
         )
         with pytest.raises(ValueError, match="Duplicate artefact key"):
             cr.compile(vault)
+
+
+class TestCompileRouterMain:
+    def test_main_clears_embeddings_sidecars_on_write(self, vault, monkeypatch):
+        monkeypatch.setattr(cr, "find_vault_root", lambda: vault)
+        monkeypatch.setattr(cr.sys, "argv", ["compile_router.py"])
+
+        for rel_path in (
+            ".brain/local/type-embeddings.npy",
+            ".brain/local/doc-embeddings.npy",
+            ".brain/local/embeddings-meta.json",
+        ):
+            path = vault / rel_path
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"stale")
+
+        cr.main()
+
+        assert (vault / ".brain" / "local" / "compiled-router.json").is_file()
+        assert not (vault / ".brain" / "local" / "type-embeddings.npy").exists()
+        assert not (vault / ".brain" / "local" / "doc-embeddings.npy").exists()
+        assert not (vault / ".brain" / "local" / "embeddings-meta.json").exists()
+
+    def test_main_json_mode_keeps_embeddings_sidecars_untouched(self, vault, monkeypatch, capsys):
+        monkeypatch.setattr(cr, "find_vault_root", lambda: vault)
+        monkeypatch.setattr(cr.sys, "argv", ["compile_router.py", "--json"])
+
+        for rel_path in (
+            ".brain/local/type-embeddings.npy",
+            ".brain/local/doc-embeddings.npy",
+            ".brain/local/embeddings-meta.json",
+        ):
+            path = vault / rel_path
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"stale")
+
+        cr.main()
+
+        captured = capsys.readouterr()
+        assert '"artefacts"' in captured.out
+        assert not (vault / ".brain" / "local" / "compiled-router.json").exists()
+        assert (vault / ".brain" / "local" / "type-embeddings.npy").exists()
+        assert (vault / ".brain" / "local" / "doc-embeddings.npy").exists()
+        assert (vault / ".brain" / "local" / "embeddings-meta.json").exists()

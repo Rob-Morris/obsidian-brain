@@ -779,22 +779,62 @@ def _refresh_session_mirror_best_effort() -> None:
     _enqueue_mirror_refresh()
 
 
+def _brain_process_enabled() -> bool:
+    """Return True when the experimental process feature is enabled."""
+    if not isinstance(_config, dict):
+        return False
+    defaults = _config.get("defaults", {})
+    if not isinstance(defaults, dict):
+        return False
+    flags = defaults.get("flags", {})
+    if not isinstance(flags, dict):
+        return False
+    return bool(flags.get(build_index.PROCESS_FEATURE_FLAG, False))
+
+
+def _embeddings_enabled() -> bool:
+    """Return True when the experimental process feature should use embeddings."""
+    return _brain_process_enabled()
+
+
+def _clear_loaded_embeddings() -> None:
+    """Drop in-memory embeddings so callers cannot use stale arrays."""
+    global _type_embeddings, _embeddings_meta, _doc_embeddings
+    _type_embeddings = None
+    _embeddings_meta = None
+    _doc_embeddings = None
+
+
+def _invalidate_embeddings_disk_state() -> None:
+    """Delete persisted embeddings sidecars after router/index-affecting writes."""
+    if _vault_root is None:
+        return
+    build_index.clear_embeddings_outputs(_vault_root)
+
+
 def _mark_index_dirty() -> None:
     """Flag the index for a full rebuild (e.g. version drift, unknown scope of change)."""
-    global _index_dirty
+    global _index_dirty, _embeddings_dirty
     _index_dirty = True
+    _embeddings_dirty = True
+    _clear_loaded_embeddings()
+    _invalidate_embeddings_disk_state()
 
 
 def _mark_router_dirty() -> None:
     """Flag the router for recompile on the next _ensure_router_fresh call."""
-    global _router_dirty
+    global _router_dirty, _embeddings_dirty
     _router_dirty = True
+    _embeddings_dirty = True
+    _clear_loaded_embeddings()
+    _invalidate_embeddings_disk_state()
 
 
 def _mark_embeddings_dirty() -> None:
     """Flag doc embeddings as out of sync with the index."""
     global _embeddings_dirty
     _embeddings_dirty = True
+    _clear_loaded_embeddings()
 
 
 def _ensure_embeddings_fresh() -> None:
@@ -804,13 +844,31 @@ def _ensure_embeddings_fresh() -> None:
     Only rebuilds if deps are available and the router is loaded.
     """
     global _embeddings_dirty, _doc_embeddings, _embeddings_meta
-    if not _embeddings_dirty or _vault_root is None or _index is None:
+    if _vault_root is None:
         return
-    if _router is not None:
-        meta = build_index.build_embeddings(_vault_root, _router, _index["documents"])
-        if meta is not None:
-            _embeddings_meta = meta
-            _load_embeddings(_vault_root)
+    if not _embeddings_enabled():
+        _clear_loaded_embeddings()
+        _invalidate_embeddings_disk_state()
+        _embeddings_dirty = False
+        return
+    if _index is None or _router is None:
+        return
+    needs_build = _embeddings_dirty or any(
+        value is None for value in (_type_embeddings, _embeddings_meta, _doc_embeddings)
+    )
+    if not needs_build:
+        return
+    meta = build_index.refresh_embeddings_outputs(
+        _vault_root,
+        _router,
+        _index["documents"],
+        enable_embeddings=True,
+    )
+    if meta is not None:
+        _embeddings_meta = meta
+        _load_embeddings(_vault_root)
+    else:
+        _clear_loaded_embeddings()
     _embeddings_dirty = False
 
 
@@ -818,6 +876,8 @@ def _mark_index_pending(rel_path: str, type_hint: str | None = None) -> None:
     """Queue a single file for incremental index update on the next search."""
     with _index_pending_lock:
         _index_pending.append((rel_path, type_hint))
+    _mark_embeddings_dirty()
+    _invalidate_embeddings_disk_state()
 
 
 def _ensure_index_fresh() -> None:
@@ -893,13 +953,16 @@ def _compile_and_save(vault_root: str) -> dict:
     the session mirror — that belongs to the caller so the operation is
     logged against the right scope (startup phase vs. mid-session recompile).
     """
-    global _router_checked_at, _router_dirty
+    global _router_checked_at, _router_dirty, _embeddings_dirty
     compiled = compile_router.compile(vault_root)
     _save_json(compiled, vault_root, _router_rel())
     compile_colours.generate(vault_root, compiled)
+    build_index.clear_embeddings_outputs(vault_root)
+    _clear_loaded_embeddings()
     _set_router(compiled)
     _router_checked_at = time.monotonic()
     _router_dirty = False
+    _embeddings_dirty = _embeddings_enabled()
     return compiled
 
 
@@ -911,27 +974,37 @@ def _build_index_and_save(vault_root: str) -> dict:
     """
     global _type_embeddings, _embeddings_meta, _doc_embeddings, _index_dirty, _index_checked_at, _embeddings_dirty
     index = build_index.build_index(vault_root)
-    _save_json(index, vault_root, _index_rel())
+    meta = build_index.persist_retrieval_outputs(
+        vault_root,
+        index,
+        router=_router,
+        enable_embeddings=_embeddings_enabled(),
+        config=_config,
+    )
     _index_dirty = False
     _embeddings_dirty = False
     with _index_pending_lock:
         _index_pending.clear()
     _index_checked_at = time.monotonic()
-    # Build embeddings if deps available and router is loaded
-    if _router is not None:
-        meta = build_index.build_embeddings(vault_root, _router, index["documents"])
-        if meta is not None:
-            _embeddings_meta = meta
-            _load_embeddings(vault_root)
+    if meta is not None:
+        _embeddings_meta = meta
+        _load_embeddings(vault_root)
+    else:
+        _clear_loaded_embeddings()
     return index
 
 
 def _load_embeddings(vault_root: str) -> None:
     """Load pre-built embeddings from disk if available."""
     global _type_embeddings, _embeddings_meta, _doc_embeddings
+    if not _embeddings_enabled():
+        _clear_loaded_embeddings()
+        build_index.clear_embeddings_outputs(vault_root)
+        return
     try:
         import numpy as np
     except ImportError:
+        _clear_loaded_embeddings()
         return
     type_path = os.path.join(vault_root, build_index.TYPE_EMBEDDINGS_REL)
     doc_path = os.path.join(vault_root, build_index.DOC_EMBEDDINGS_REL)
@@ -946,7 +1019,7 @@ def _load_embeddings(vault_root: str) -> None:
         if os.path.isfile(doc_path):
             _doc_embeddings = np.load(doc_path)
     except (OSError, ValueError):
-        pass  # embeddings unavailable — graceful degradation
+        _clear_loaded_embeddings()  # embeddings unavailable — graceful degradation
 
 
 # ---------------------------------------------------------------------------
