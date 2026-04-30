@@ -55,9 +55,9 @@ Working files in type subfolders under `_Temporal/`, each organised into `yyyy-m
 
 Root-level folders without a `_` or `.` prefix are living artefact types (e.g. `Projects/`, `Research/`, `Ideas/`). Discovered by scanning the vault root — no registry required. Each type maps to a folder defined in `_Config/Taxonomy/`.
 
-### `_Archive/` — terminal artefacts
+### `_Archive/` — archived artefacts
 
-Artefacts whose status reaches a terminal value (e.g. `implemented`, `adopted`) are moved here by type and owner-derived subfolder. Read-accessible but write-protected by the path security model.
+`_Archive/` is the deliberate-removal path for taking artefacts out of the active vault namespace. Routine terminal statuses usually move living artefacts into `+Status/` folders within their type namespace; archived artefacts are the separate subset intentionally moved to the top-level `_Archive/` tree by type and owner-derived subfolder. Archived files remain readable but are write-protected by the path security model and excluded from normal artefact operations.
 
 ---
 
@@ -74,7 +74,7 @@ MCP client request
   → returns a structured response to the MCP client
 ```
 
-The server loads the compiled router and retrieval index at startup and holds both in memory for the session lifetime. Startup now emits stable begin/success/failure markers for each major phase into `.brain/local/mcp-server.log`, which makes a stalled config load, router compile, index rebuild, embeddings load, registry load, or session-mirror refresh diagnosable without extra instrumentation. The `session-mirror refresh` phase is an enqueue onto a single long-lived daemon worker (see dd-036), so startup never blocks on that write; router and index phases are still synchronous and fail-loud on timeout because stale router/index data would silently break every subsequent call. Scripts called via MCP pay no disk I/O for router or index reads. Scripts called directly (without MCP) read the same JSON files from disk on each invocation — same logic, higher cold-start cost.
+The server loads the compiled router and retrieval index at startup and holds both in memory for the session lifetime. Startup now emits stable begin/success/failure markers for each major phase into `.brain/local/mcp-server.log`, which makes a stalled config load, router compile, index rebuild, registry load, or session-mirror refresh diagnosable without extra instrumentation. The `session-mirror refresh` phase is an enqueue onto a single long-lived daemon worker (see dd-036), so startup never blocks on that write; router and index phases are still synchronous and fail-loud on timeout because stale router/index data would silently break every subsequent call. Scripts called via MCP pay no disk I/O for router or index reads. Scripts called directly (without MCP) read the same JSON files from disk on each invocation — same logic, higher cold-start cost.
 
 Mid-session, if `.brain-core/` is upgraded the server detects version drift on the next tool call and exits cleanly with code `10`. The MCP proxy interprets that as a planned restart and relaunches the server with the new code. The proxy uses one restart coordinator for every child-loss path (planned restart, crash, broken pipe, or startup failure), but the actual backoff/restart loop now lives on a dedicated recovery thread. The main stdin loop keeps reading while recovery runs, so requests that arrive during backoff or initial-start failure get the transient `server restarting, please retry` error immediately instead of queueing in the pipe. If backoff exhausts, the proxy switches to explicit `/mcp` guidance; if the recovery thread itself dies, the dead-child path surfaces a hard unrecoverable error instead of waiting forever.
 
@@ -110,7 +110,7 @@ Two complementary guards protect the vault from unintended writes:
 
 - **`resolve_and_check_bounds(path, bounds)`** — resolves symlinks and verifies the target is within the vault root. Raises `ValueError` if the resolved path escapes the boundary or is a symlink when symlink-following is disabled. Used on every read that accepts a caller-supplied path.
 - **`check_write_allowed(rel_path)`** — enforces folder-level write restrictions. Dot-prefixed top-level folders (`.brain/`, `.obsidian/`, `.brain-core/`) are always blocked. Underscore-prefixed top-level folders are blocked unless in the explicit allowlist: only `_Temporal/` and `_Config/` are writable. `_Archive/`, `_Plugins/`, `_Workspaces/`, and `_Assets/` are protected.
-- **`safe_write(path, content, bounds=...)` / `safe_write_via(path, writer, bounds=...)`** — shared atomic write primitives (temp file + `os.replace`) that call `resolve_and_check_bounds` before writing. Text/JSON writes go through `safe_write(...)`; callback-driven serializers such as embeddings persistence go through `safe_write_via(...)`.
+- **`safe_write(path, content, bounds=...)` / `safe_write_via(path, writer, bounds=...)`** — shared atomic write primitives (temp file + `os.replace`) that call `resolve_and_check_bounds` before writing. Text/JSON writes go through `safe_write(...)`; callback-driven serializers can use `safe_write_via(...)` for the same atomic replacement path.
 
 ---
 

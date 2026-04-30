@@ -14,7 +14,7 @@ Handles session setup for all shaping sub-skills. Called by the parent `shaping`
 
 1. If the user named a specific artefact: read it via `brain_read(resource="artefact", name="...")`. If it doesn't resolve, ask the user what type to create, then create via `brain_create`.
 2. If the user described an idea with no artefact: ask what artefact type fits, then create via `brain_create`.
-3. Call `brain_action("start-shaping", {target: "{path}", skill_type: "{type}"})` where `skill_type` is the sub-skill that will run (Brainstorm, Refine, or Discover). This creates or appends to the day's transcript.
+3. Call `brain_action("start-shaping", params={"target": "{path}", "skill_type": "{type}"})` where `skill_type` is the sub-skill that will run (Brainstorm, Refine, or Discover). This creates or appends to the day's transcript.
 4. Read the type taxonomy: `brain_read(resource="type", name="{type-key}")`. Find the `## Shaping` section for flavour (convergent or discovery), bar, and completion status.
 5. Check for prior sessions: if the artefact has a `**Transcripts:**` line, this is a resumption. The artefact is the source of truth for current state — read it, not old transcripts. Only consult prior transcripts if you need to understand *why* something was decided.
 6. Report context: "Artefact: `{path}`. Transcript: `{path}`. Type: `{type}`. Shaping flavour: convergent/discovery. Bar: `{bar}`."

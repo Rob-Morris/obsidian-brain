@@ -12,6 +12,38 @@ import edit
 from _common import parse_frontmatter, validate_artefact_folder
 
 
+def test_scope_meanings_cover_valid_scopes():
+    """Every public scope value should have matching help text."""
+    for kind, operations in edit._VALID_SCOPES.items():
+        all_scopes = set().union(*operations.values()) if operations else set()
+        meanings = set(edit._SCOPE_MEANINGS.get(kind, {}).keys())
+        missing = all_scopes - meanings
+        assert not missing, (
+            f"_SCOPE_MEANINGS[{kind!r}] missing entries for {sorted(missing)!r}; "
+            "add the meaning(s) alongside the _VALID_SCOPES update."
+        )
+
+
+def test_scope_required_error_detailed_message_lists_meanings():
+    err = edit.ScopeRequiredError("append", ":body", "body", ["intro", "section"])
+    assert isinstance(err, edit.ScopeValidationError)
+    assert err.detailed_message() == (
+        "append with target=':body' requires scope. Valid scopes for body targets:\n"
+        "  scope='intro' -> the lead paragraph(s) before the first heading\n"
+        "  scope='section' -> the entire markdown body after frontmatter"
+    )
+
+
+def test_invalid_scope_error_detailed_message_lists_meanings():
+    err = edit.InvalidScopeError("append", "header", "callout", ["body", "section"])
+    assert isinstance(err, edit.ScopeValidationError)
+    assert err.detailed_message() == (
+        "scope='header' is not valid for append on callout targets. Valid scopes:\n"
+        "  scope='body' -> the callout body (excludes the header line)\n"
+        "  scope='section' -> the whole callout (header line plus body)"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Vault fixture
 # ---------------------------------------------------------------------------
@@ -2293,7 +2325,7 @@ class TestArchiveGuards:
 
 
 class TestArchiveArtefact:
-    """Tests for brain_action('archive') — archive_artefact()."""
+    """Tests for brain_move(op='archive') — archive_artefact()."""
 
     def _make_idea(self, vault, name="my-idea.md", status="adopted", project=None):
         if project:
@@ -2373,7 +2405,7 @@ class TestArchiveArtefact:
 
 
 class TestUnarchiveArtefact:
-    """Tests for brain_action('unarchive') — unarchive_artefact()."""
+    """Tests for brain_move(op='unarchive') — unarchive_artefact()."""
 
     def _make_archived(self, vault, rel="_Archive/Ideas/20260101-my-idea.md"):
         p = vault / rel

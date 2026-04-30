@@ -11,8 +11,8 @@ and exposes 8 MCP tools:
   brain_list    — exhaustive enumeration by type, date range, or tag (not relevance-ranked)
   brain_create  — create new vault artefacts (additive, safe to auto-approve)
   brain_edit    — modify existing vault artefacts (single-file mutation)
-  brain_action  — vault-wide/destructive ops: compile, build_index, rename, delete, convert
-  brain_process — content processing: classify, resolve duplicates, ingest
+  brain_move    — destructive content-move ops: rename, convert, archive, unarchive
+  brain_action  — workflow/utility bucket: delete, shaping helpers, fix-links
 
 Why this pattern: scripts are the source of truth for all vault operations.
 The MCP server gets in-memory caching for free (router/index loaded once at
@@ -55,10 +55,11 @@ import threading
 import time
 import traceback
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult, TextContent
+from pydantic import BaseModel, ConfigDict, Field
 
 # ---------------------------------------------------------------------------
 # Script imports — add scripts dir to sys.path
@@ -67,39 +68,37 @@ from mcp.types import CallToolResult, TextContent
 SCRIPTS_DIR = os.path.join(os.path.dirname(__file__), "..", "scripts")
 sys.path.insert(0, os.path.abspath(SCRIPTS_DIR))
 
-import _common
 import compile_router
-import compile_colours
 import build_index
-import search_index
-import read as read_mod
-import rename
-import create
 from _common import (
+    SELECTOR_OCCURRENCE_DESCRIPTION,
+    SELECTOR_WITHIN_DESCRIPTION,
+    SELECTOR_WITHIN_OCCURRENCE_DESCRIPTION,
+    SELECTOR_WITHIN_TARGET_DESCRIPTION,
+    cleanup_temp_body_file,
     is_archived_path,
     iter_artefact_paths,
-    parse_frontmatter,
-    resolve_body_file,
     safe_write_json,
+    temp_body_file_cleanup_path,
 )
 import edit
+from _resource_contract import RESOURCE_KINDS
 import obsidian_cli
 import session
-import shape_printable
-import shape_presentation
-import start_shaping
-import migrate_naming
 import workspace_registry
-import process
-import list_artefacts
-import fix_links
-import sync_definitions
 import config as config_mod
 from . import _server_actions
 from . import _server_artefacts
-from . import _server_content
 from . import _server_reading
 from . import _server_session
+from ._server_contracts import (
+    create_contract_hint,
+    edit_contract_hint,
+    list_contract_hint,
+    read_contract_hint,
+    validate_spec,
+)
+from _resource_contract import CREATE_SPECS, EDIT_SPECS, READ_SPECS, LIST_SPECS
 from ._server_runtime import ServerRuntime, ServerState
 
 # Path constants — read from script modules (single source of truth).
@@ -133,10 +132,6 @@ _cli_probed_at: float = 0.0  # monotonic timestamp of last CLI probe
 _vault_name: str | None = None
 _loaded_version: str | None = None
 _workspace_registry: dict | None = None
-_type_embeddings = None    # numpy array or None
-_embeddings_meta = None    # dict with "types" and "documents" keys, or None
-_doc_embeddings = None     # numpy array or None
-_embeddings_dirty: bool = False  # set True when doc embeddings are out of sync with index
 
 
 # Staleness-check TTLs — intentionally different because the checks have
@@ -791,29 +786,6 @@ def _mark_router_dirty() -> None:
     _router_dirty = True
 
 
-def _mark_embeddings_dirty() -> None:
-    """Flag doc embeddings as out of sync with the index."""
-    global _embeddings_dirty
-    _embeddings_dirty = True
-
-
-def _ensure_embeddings_fresh() -> None:
-    """Rebuild doc embeddings if they're out of sync with the index.
-
-    Called lazily before brain_process operations that use embeddings.
-    Only rebuilds if deps are available and the router is loaded.
-    """
-    global _embeddings_dirty, _doc_embeddings, _embeddings_meta
-    if not _embeddings_dirty or _vault_root is None or _index is None:
-        return
-    if _router is not None:
-        meta = build_index.build_embeddings(_vault_root, _router, _index["documents"])
-        if meta is not None:
-            _embeddings_meta = meta
-            _load_embeddings(_vault_root)
-    _embeddings_dirty = False
-
-
 def _mark_index_pending(rel_path: str, type_hint: str | None = None) -> None:
     """Queue a single file for incremental index update on the next search."""
     with _index_pending_lock:
@@ -852,7 +824,6 @@ def _ensure_index_fresh() -> None:
             if saved_built_at:
                 _index["meta"]["built_at"] = saved_built_at  # Don't advance threshold
             _save_json(_index, _vault_root, _index_rel())
-            _mark_embeddings_dirty()
             _index_checked_at = time.monotonic()
         except Exception as e:
             if _logger:
@@ -895,8 +866,7 @@ def _compile_and_save(vault_root: str) -> dict:
     """
     global _router_checked_at, _router_dirty
     compiled = compile_router.compile(vault_root)
-    _save_json(compiled, vault_root, _router_rel())
-    compile_colours.generate(vault_root, compiled)
+    compile_router.persist_compiled_router(vault_root, compiled)
     _set_router(compiled)
     _router_checked_at = time.monotonic()
     _router_dirty = False
@@ -909,44 +879,14 @@ def _build_index_and_save(vault_root: str) -> dict:
     Always clears _index_dirty, _index_pending, and resets the staleness-check
     TTL so that callers don't need to remember to do it themselves.
     """
-    global _type_embeddings, _embeddings_meta, _doc_embeddings, _index_dirty, _index_checked_at, _embeddings_dirty
+    global _index_dirty, _index_checked_at
     index = build_index.build_index(vault_root)
-    _save_json(index, vault_root, _index_rel())
+    build_index.persist_retrieval_index(vault_root, index)
     _index_dirty = False
-    _embeddings_dirty = False
     with _index_pending_lock:
         _index_pending.clear()
     _index_checked_at = time.monotonic()
-    # Build embeddings if deps available and router is loaded
-    if _router is not None:
-        meta = build_index.build_embeddings(vault_root, _router, index["documents"])
-        if meta is not None:
-            _embeddings_meta = meta
-            _load_embeddings(vault_root)
     return index
-
-
-def _load_embeddings(vault_root: str) -> None:
-    """Load pre-built embeddings from disk if available."""
-    global _type_embeddings, _embeddings_meta, _doc_embeddings
-    try:
-        import numpy as np
-    except ImportError:
-        return
-    type_path = os.path.join(vault_root, build_index.TYPE_EMBEDDINGS_REL)
-    doc_path = os.path.join(vault_root, build_index.DOC_EMBEDDINGS_REL)
-    meta_path = os.path.join(vault_root, build_index.EMBEDDINGS_META_REL)
-    try:
-        if os.path.isfile(type_path) and os.path.isfile(meta_path):
-            _type_embeddings = np.load(type_path)
-            with open(meta_path, "r", encoding="utf-8") as f:
-                _embeddings_meta = json.load(f)
-            if not isinstance(_embeddings_meta, dict):
-                _embeddings_meta = None
-        if os.path.isfile(doc_path):
-            _doc_embeddings = np.load(doc_path)
-    except (OSError, ValueError):
-        pass  # embeddings unavailable — graceful degradation
 
 
 # ---------------------------------------------------------------------------
@@ -1021,9 +961,6 @@ def startup(vault_root: str | None = None) -> None:
             return _index
     _run_startup_phase("index_freshness", _load_index)
 
-    # Load pre-built embeddings if available
-    _run_startup_phase("embeddings_load", lambda: _load_embeddings(_vault_root))
-
     # Load workspace registry
     _workspace_registry = _run_startup_phase(
         "workspace_registry_load",
@@ -1060,9 +997,6 @@ def _get_state() -> ServerState:
         cli_available=_cli_available,
         vault_name=_vault_name,
         workspace_registry=_workspace_registry,
-        type_embeddings=_type_embeddings,
-        embeddings_meta=_embeddings_meta,
-        doc_embeddings=_doc_embeddings,
         logger=_logger,
     )
 
@@ -1099,10 +1033,8 @@ def _runtime() -> ServerRuntime:
         refresh_cli_available=_refresh_cli_available,
         ensure_router_fresh=_ensure_router_fresh,
         ensure_index_fresh=_ensure_index_fresh,
-        ensure_embeddings_fresh=_ensure_embeddings_fresh,
         check_version_drift=_check_version_drift,
         mark_index_dirty=_mark_index_dirty,
-        mark_embeddings_dirty=_mark_embeddings_dirty,
         mark_index_pending=_mark_index_pending,
         mark_router_dirty=_mark_router_dirty,
         compile_and_save=_compile_and_save,
@@ -1168,23 +1100,365 @@ _READ_FORMATTERS = {
 
 
 # ---------------------------------------------------------------------------
+# Shared parameter descriptions — used by multiple @mcp.tool() registrations.
+# Kept here (not duplicated at each call site) so the prose doesn't drift.
+# ---------------------------------------------------------------------------
+
+_BODY_FILE_DESCRIPTION = (
+    "Absolute path to a body-content file in the vault or system temp "
+    "directory. Mutually exclusive with body. Temp files are deleted after "
+    "reading; vault files are left in place. To stage content, run "
+    "`mktemp /tmp/brain-body-XXXXXX`, write the content, then pass that path."
+)
+
+_NAME_DESCRIPTION = (
+    "Resource name for skill, memory, style, or template. Required when "
+    "resource is one of those kinds. For templates, use the artefact type key, "
+    "e.g. 'wiki'."
+)
+
+_FIX_LINKS_DESCRIPTION = "Repair resolvable broken wikilinks in this file."
+
+_ARTEFACT_TYPE_FILTER_DESCRIPTION = (
+    "Artefact type filter (e.g. 'living/wiki', 'temporal/research'). "
+    "Applied only when resource='artefact'."
+)
+
+_ARTEFACT_TAG_FILTER_DESCRIPTION = (
+    "Exact tag match in artefact frontmatter. Applied only when resource='artefact'."
+)
+
+class _SelectorWithinStep(BaseModel):
+    """One ancestor step in a structural selector's disambiguation chain."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    target: Annotated[
+        str,
+        Field(description=SELECTOR_WITHIN_TARGET_DESCRIPTION),
+    ]
+    occurrence: Annotated[
+        int | None,
+        Field(description=SELECTOR_WITHIN_OCCURRENCE_DESCRIPTION, ge=1),
+    ] = None
+
+
+class _StructuralSelector(BaseModel):
+    """Disambiguates duplicate structural targets for brain_edit."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    occurrence: Annotated[
+        int | None,
+        Field(description=SELECTOR_OCCURRENCE_DESCRIPTION, ge=1),
+    ] = None
+    within: Annotated[
+        list[_SelectorWithinStep] | None,
+        Field(description=SELECTOR_WITHIN_DESCRIPTION),
+    ] = None
+
+def _dump_model_payload(value):
+    """Convert Pydantic tool arguments back to plain Python data for scripts."""
+    if isinstance(value, BaseModel):
+        return value.model_dump(exclude_none=True)
+    return value
+
+
+def _build_brain_move_params(
+    op: str,
+    *,
+    source: str | None,
+    dest: str | None,
+    path: str | None,
+    target_type: str | None,
+    parent: str | None,
+):
+    """Validate flat brain_move fields and collapse them into handler params."""
+    spec = _server_actions.MOVE_SPECS.get(op)
+    if spec is None:
+        raise ValueError(
+            f"Unknown move op '{op}'. Valid: {', '.join(_server_actions.MOVE_SPECS)}"
+        )
+    payload = {
+        "source": source,
+        "dest": dest,
+        "path": path,
+        "target_type": target_type,
+        "parent": parent,
+    }
+    return validate_spec(
+        spec,
+        payload,
+        label=f"Move op '{op}'",
+        hint=_server_actions.move_contract_hint(op),
+        field_term="top-level field",
+    )
+
+
+def _build_brain_create_params(
+    resource: str,
+    *,
+    type: str | None,
+    title: str | None,
+    body: str | None,
+    body_file: str | None,
+    frontmatter: dict | None,
+    parent: str | None,
+    key: str | None,
+    name: str | None,
+    fix_links: bool | None,
+):
+    """Validate flat brain_create fields and collapse them into handler params."""
+    spec = CREATE_SPECS.get(resource)
+    if spec is None:
+        raise ValueError(
+            f"Resource '{resource}' is not creatable via brain_create. "
+            f"Creatable resources: {', '.join(CREATE_SPECS)}"
+        )
+    payload = {
+        "type": type,
+        "title": title,
+        "body": body,
+        "body_file": body_file,
+        "frontmatter": frontmatter,
+        "parent": parent,
+        "key": key,
+        "name": name,
+        "fix_links": fix_links,
+    }
+    return validate_spec(
+        spec,
+        payload,
+        label=f"Resource '{resource}'",
+        hint=create_contract_hint(resource),
+        field_term="top-level field",
+    )
+
+
+def _build_brain_edit_params(
+    resource: str,
+    operation: str,
+    *,
+    path: str | None,
+    body: str | None,
+    body_file: str | None,
+    frontmatter: dict | None,
+    target: str | None,
+    selector: dict | None,
+    scope: str | None,
+    name: str | None,
+    fix_links: bool | None,
+):
+    """Validate flat brain_edit fields and collapse them into handler params."""
+    key = (resource, operation)
+    spec = EDIT_SPECS.get(key)
+    if spec is None:
+        valid_ops = sorted({op for (_r, op) in EDIT_SPECS if _r == resource})
+        if valid_ops:
+            raise ValueError(
+                f"Operation '{operation}' is not valid for resource='{resource}' "
+                f"via brain_edit. Valid operations: {', '.join(valid_ops)}"
+            )
+        raise ValueError(
+            f"Resource '{resource}' op '{operation}' is not supported by brain_edit. "
+            f"Supported resources: {sorted({r for (r, _o) in EDIT_SPECS})}"
+        )
+    payload = {
+        "path": path,
+        "body": body,
+        "body_file": body_file,
+        "frontmatter": frontmatter,
+        "target": target,
+        "selector": selector,
+        "scope": scope,
+        "name": name,
+        "fix_links": fix_links,
+    }
+    return validate_spec(
+        spec,
+        payload,
+        label=f"Resource '{resource}' op '{operation}'",
+        hint=edit_contract_hint(resource, operation),
+        field_term="top-level field",
+    )
+
+
+def _build_brain_read_params(
+    resource: str,
+    *,
+    name: str | None,
+):
+    """Validate flat brain_read fields and collapse them into handler params."""
+    spec = READ_SPECS.get(resource)
+    if spec is None:
+        raise ValueError(
+            f"Resource '{resource}' is not readable via brain_read. "
+            f"Readable resources: {', '.join(READ_SPECS)}"
+        )
+    payload = {"name": name}
+    return validate_spec(
+        spec,
+        payload,
+        label=f"Resource '{resource}'",
+        hint=read_contract_hint(resource),
+        field_term="top-level field",
+    )
+
+
+def _build_brain_list_params(
+    resource: str,
+    *,
+    query: str | None,
+    type: str | None,
+    parent: str | None,
+    since: str | None,
+    until: str | None,
+    tag: str | None,
+    top_k: int | None,
+    sort: str | None,
+):
+    """Validate flat brain_list fields and collapse them into handler params."""
+    spec = LIST_SPECS.get(resource)
+    if spec is None:
+        raise ValueError(
+            f"Resource '{resource}' is not listable via brain_list. "
+            f"Listable resources: {', '.join(LIST_SPECS)}"
+        )
+    payload = {
+        "query": query,
+        "type": type,
+        "parent": parent,
+        "since": since,
+        "until": until,
+        "tag": tag,
+        "top_k": top_k,
+        "sort": sort,
+    }
+    return validate_spec(
+        spec,
+        payload,
+        label=f"Resource '{resource}'",
+        hint=list_contract_hint(resource),
+        field_term="top-level field",
+    )
+
+
+class _BrainActionDeleteParams(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    path: Annotated[
+        str,
+        Field(description="Vault-relative path to the artefact file to delete."),
+    ]
+
+
+class _BrainActionShapePrintableParams(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source: Annotated[
+        str,
+        Field(description="Source artefact path to shape into a printable."),
+    ]
+    slug: Annotated[
+        str,
+        Field(description="Printable slug used for the artefact and rendered output filenames."),
+    ]
+    render: Annotated[
+        bool | None,
+        Field(description="When true, render the printable output immediately after shaping."),
+    ] = None
+    keep_heading_with_next: Annotated[
+        bool | None,
+        Field(description="When true, keep headings with the following block during pagination."),
+    ] = None
+    pdf_engine: Annotated[
+        str | None,
+        Field(description="Optional Pandoc PDF engine override, e.g. 'xelatex' or 'lualatex'."),
+    ] = None
+
+
+class _BrainActionShapePresentationParams(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source: Annotated[
+        str,
+        Field(description="Source artefact path to shape into a presentation."),
+    ]
+    slug: Annotated[
+        str,
+        Field(description="Presentation slug used for the artefact and rendered output filenames."),
+    ]
+    render: Annotated[
+        bool | None,
+        Field(description="When true, render the presentation output immediately after shaping."),
+    ] = None
+    preview: Annotated[
+        bool | None,
+        Field(description="When true, launch the live preview after shaping."),
+    ] = None
+
+
+class _BrainActionStartShapingParams(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    target: Annotated[
+        str,
+        Field(description="Existing artefact path or resolvable name to shape."),
+    ]
+    title: Annotated[
+        str | None,
+        Field(description="Optional transcript title override."),
+    ] = None
+    skill_type: Annotated[
+        str | None,
+        Field(description="Optional shaping sub-skill label such as Brainstorm, Refine, or Discover."),
+    ] = None
+
+
+class _BrainActionFixLinksParams(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    fix: Annotated[
+        bool | None,
+        Field(description="When true, apply unambiguous fixes instead of returning a dry-run report."),
+    ] = None
+    path: Annotated[
+        str | None,
+        Field(description="Optional file path to scope fix-links to one file instead of the whole vault."),
+    ] = None
+    links: Annotated[
+        list[str] | None,
+        Field(description="Optional list of target link stems to limit which resolvable links are rewritten."),
+    ] = None
+
+
+# ---------------------------------------------------------------------------
 # brain_session — agent bootstrap, one-call session setup
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def brain_session(context: str | None = None, operator_key: str | None = None):
-    """Bootstrap an agent session. Returns everything needed to work with the Brain in one call.
+def brain_session(
+    context: Annotated[
+        str | None,
+        Field(description=(
+            "Context slug for scoped sessions (e.g. 'mcp-spike'). "
+            "Context scoping is not yet implemented — accepted for forward compatibility."
+        )),
+    ] = None,
+    operator_key: Annotated[
+        str | None,
+        Field(description=(
+            "Three-word operator key (e.g. 'timber-compass-violet') authenticating the "
+            "caller against registered operators in config. If omitted, the default "
+            "profile from config is used."
+        )),
+    ] = None,
+):
+    """Bootstrap an agent session in one call.
 
-    Args:
-        context: Optional context slug for scoped sessions (e.g., "mcp-spike").
-                 Context scoping is not yet implemented — parameter accepted for forward compatibility.
-        operator_key: Optional three-word operator key (e.g., "timber-compass-violet").
-                      Authenticates the caller against registered operators in config.
-                      If omitted, the default profile from config is used.
-
-    Returns a compiled JSON payload: always-rules, user preferences, gotchas,
-    triggers, artefact type summaries, environment, memory/skill/plugin/style indexes.
-    Call this once at session start. Use brain_read for individual resources after.
+    Returns a compiled JSON payload: always-rules, user preferences, gotchas, triggers,
+    artefact type summaries, environment, and memory/skill/plugin/style indexes.
+    Call once at session start; use brain_read for individual resources after.
     """
     with _trace_tool("brain_session", context=context, operator_key=operator_key):
         try:
@@ -1205,42 +1479,41 @@ def brain_session(context: str | None = None, operator_key: str | None = None):
 
 @mcp.tool()
 def brain_read(
-    resource: Literal[
-        "type", "trigger", "style", "template", "skill", "plugin",
-        "memory", "workspace", "environment", "router", "compliance",
-        "artefact", "file", "archive",
+    resource: Annotated[
+        Literal[
+            "type", "trigger", "style", "template", "skill", "plugin",
+            "memory", "workspace", "environment", "router", "compliance",
+            "artefact", "file", "archive",
+        ],
+        Field(description=(
+            "Resource kind. Use brain_list(resource=...) to enumerate collections."
+        )),
     ],
-    name: str | None = None,
+    name: Annotated[
+        str | None,
+        Field(description=(
+            "Resource identifier. Use the type key for 'type'/'template'; a "
+            "trigger/name substring for 'memory'; the workspace slug for "
+            "'workspace'; optional severity for 'compliance'; an artefact key, "
+            "path, or basename for 'artefact'; and a vault-relative path for "
+            "'file'/'archive'. Omit for 'environment'/'router'."
+        )),
+    ] = None,
 ):
-    """Read Brain vault resources. Safe, no side effects.
+    """Read a Brain vault resource. Safe, no side effects.
 
-    Resources:
-      type        — read a specific artefact type definition (name = type key)
-      trigger     — read a specific trigger (name required)
-      style       — read a specific style file (name required)
-      template    — read a template file (name = artefact type key)
-      skill       — read a specific skill file (name required)
-      plugin      — read a specific plugin file (name required)
-      memory      — read a specific memory by trigger/name (case-insensitive substring)
-      workspace   — resolve a specific workspace by slug (name = slug)
-      environment — runtime environment info
-      router      — always-rules and metadata
-      compliance  — run structural compliance checks (name = severity filter: error/warning/info)
-      artefact    — read an artefact file (name = relative path or basename; resolves like wikilinks)
-      file        — read any vault file by name (resolves and delegates to the correct resource handler)
-      archive     — read a specific archived file (name = path inside _Archive/)
-
-    To list collections (all skills, all types, etc.), use brain_list(resource=...).
+    Resolves and returns a single resource of the named kind. To list collections
+    (all skills, all types, etc.), use brain_list(resource=...) instead.
     """
     with _trace_tool("brain_read", resource=resource, name=name):
         try:
+            params = _build_brain_read_params(resource, name=name)
             return _server_reading.handle_brain_read(
                 resource=resource,
-                name=name,
+                params=params,
                 runtime=_runtime(),
             )
         except ValueError as e:
-            # Name-required errors from read handlers
             return _fmt_error(str(e))
         except Exception as e:
             if _logger:
@@ -1317,21 +1590,46 @@ def _fmt_list(results, type_filter=None):
 
 
 @mcp.tool()
-def brain_search(query: str,
-                 resource: Literal[
-                     "artefact", "skill", "trigger", "style",
-                     "memory", "plugin",
-                 ] = "artefact",
-                 type: str | None = None, tag: str | None = None,
-                 status: str | None = None, top_k: int = 10):
-    """Search vault content. Uses Obsidian CLI live index when available, BM25 fallback.
+def brain_search(
+    query: Annotated[
+        str,
+        Field(description=(
+            "Matched against artefact body and metadata, or against file name + "
+            "content for non-artefact resources."
+        )),
+    ],
+    resource: Annotated[
+        Literal["artefact", "skill", "trigger", "style", "memory", "plugin"],
+        Field(description=(
+            "Collection to search. Non-artefact resources use text matching; "
+            "type/tag/status apply only to artefacts."
+        )),
+    ] = "artefact",
+    type: Annotated[
+        str | None,
+        Field(description=_ARTEFACT_TYPE_FILTER_DESCRIPTION),
+    ] = None,
+    tag: Annotated[
+        str | None,
+        Field(description=_ARTEFACT_TAG_FILTER_DESCRIPTION),
+    ] = None,
+    status: Annotated[
+        str | None,
+        Field(description=(
+            "Frontmatter status filter (e.g. 'shaping', 'active'). "
+            "Applied only when resource='artefact'."
+        )),
+    ] = None,
+    top_k: Annotated[
+        int,
+        Field(description="Maximum number of results to return."),
+    ] = 10,
+):
+    """Search vault content, relevance-ranked.
 
-    Returns ranked results with path, title, type, status, and source.
-    Optional filters: type (e.g. 'living/wiki'), tag, status (e.g. 'shaping'), top_k (default 10).
-
-    Use resource to search non-artefact collections (e.g. resource='skill').
-    Non-artefact search uses text matching on name + file content.
-    Artefact-specific filters (type, tag, status) only apply when resource='artefact'.
+    Uses the Obsidian CLI live index when available; falls back to BM25 over the
+    pre-built keyword index. For exhaustive enumeration (not relevance-ranked), use
+    brain_list. Returns ranked results with path, title, type, status, and source.
     """
     with _trace_tool("brain_search", query=query, resource=resource, type=type, tag=tag):
         try:
@@ -1357,31 +1655,69 @@ def brain_search(query: str,
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def brain_list(resource: Literal[
-                   "artefact", "skill", "trigger", "style", "plugin",
-                   "memory", "template", "type", "workspace", "archive",
-               ] = "artefact",
-               query: str | None = None,
-               type: str | None = None, parent: str | None = None,
-               since: str | None = None,
-               until: str | None = None, tag: str | None = None,
-               top_k: int = 500,
-               sort: Literal["date_desc", "date_asc", "title"] = "date_desc"):
-    """List vault artefacts by type, date range, or tag. Exhaustive — not relevance-ranked.
+def brain_list(
+    resource: Annotated[
+        Literal[
+            "artefact", "skill", "trigger", "style", "plugin",
+            "memory", "template", "type", "workspace", "archive",
+        ],
+        Field(description=(
+            "Collection to list. query applies to non-artefact names; "
+            "type/parent/since/until/tag/sort apply only to artefacts."
+        )),
+    ] = "artefact",
+    query: Annotated[
+        str | None,
+        Field(description="Substring filter for non-artefact names."),
+    ] = None,
+    type: Annotated[
+        str | None,
+        Field(description=_ARTEFACT_TYPE_FILTER_DESCRIPTION),
+    ] = None,
+    parent: Annotated[
+        str | None,
+        Field(description=(
+            "Return artefacts whose frontmatter parent matches this canonical "
+            "artefact key. Artefact lists only."
+        )),
+    ] = None,
+    since: Annotated[
+        str | None,
+        Field(description=(
+            "Inclusive ISO start date on artefact created date. Artefact lists only."
+        )),
+    ] = None,
+    until: Annotated[
+        str | None,
+        Field(description=(
+            "Inclusive ISO end date on artefact created date. Artefact lists only."
+        )),
+    ] = None,
+    tag: Annotated[
+        str | None,
+        Field(description=_ARTEFACT_TAG_FILTER_DESCRIPTION),
+    ] = None,
+    top_k: Annotated[
+        int | None,
+        Field(description="Hard cap on results returned (the list is exhaustive up to this limit). Artefact lists only; default 500."),
+    ] = None,
+    sort: Annotated[
+        Literal["date_desc", "date_asc", "title"] | None,
+        Field(description=(
+            "Artefact list sort order: newest first, oldest first, or title. Artefact lists only; default date_desc."
+        )),
+    ] = None,
+):
+    """List vault artefacts exhaustively, not relevance-ranked.
 
-    Unlike brain_search, returns all matching artefacts up to top_k (default 500).
-    Optional filters: type (e.g. 'temporal/research'), parent (canonical artefact key),
-    since/until (ISO dates e.g.
-    '2026-03-20'), tag, top_k, sort ('date_desc', 'date_asc', 'title').
-
-    Use resource to list non-artefact collections (e.g. resource='skill' lists all skills).
-    The query parameter filters non-artefact resources by name substring.
-    Artefact-specific filters (type, since, until, tag, sort) only apply when resource='artefact'.
+    Unlike brain_search, returns all matching artefacts up to top_k. Use this when
+    enumerating or filtering by type, date range, tag, or parent. Use resource to
+    list non-artefact collections (e.g. resource='skill').
     """
     with _trace_tool("brain_list", resource=resource, type=type, since=since, tag=tag):
         try:
-            return _server_reading.handle_brain_list(
-                resource=resource,
+            params = _build_brain_list_params(
+                resource,
                 query=query,
                 type=type,
                 parent=parent,
@@ -1390,6 +1726,10 @@ def brain_list(resource: Literal[
                 tag=tag,
                 top_k=top_k,
                 sort=sort,
+            )
+            return _server_reading.handle_brain_list(
+                resource=resource,
+                params=params,
                 runtime=_runtime(),
             )
         except ValueError as e:
@@ -1405,62 +1745,92 @@ def brain_list(resource: Literal[
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def brain_create(type: str = "", title: str = "", body: str = "", body_file: str = "", frontmatter: dict | None = None, parent: str | None = None, key: str | None = None, resource: str = "artefact", name: str = "", fix_links: bool = False):
+def brain_create(
+    type: Annotated[
+        str,
+        Field(description=(
+            "Artefact type key. Required when resource='artefact'."
+        )),
+    ] = "",
+    title: Annotated[
+        str,
+        Field(description=(
+            "Artefact title. Required when resource='artefact'; used to derive "
+            "the filename."
+        )),
+    ] = "",
+    body: Annotated[
+        str,
+        Field(description=(
+            "Markdown body content. Mutually exclusive with body_file. Required "
+            "for non-artefact resources; optional for artefacts. Prefer "
+            "body_file for larger content."
+        )),
+    ] = "",
+    body_file: Annotated[str, Field(description=_BODY_FILE_DESCRIPTION)] = "",
+    frontmatter: Annotated[
+        dict | None,
+        Field(description=(
+            "Frontmatter overrides. For memories, use {'triggers': [...]}."
+        )),
+    ] = None,
+    parent: Annotated[
+        str | None,
+        Field(description=(
+            "Parent artefact reference. Accepts canonical key, resolvable name, "
+            "or relative path. Living children use owner folders; temporal "
+            "children keep date-based filing."
+        )),
+    ] = None,
+    key: Annotated[
+        str | None,
+        Field(description=(
+            "Explicit living-artefact key override."
+        )),
+    ] = None,
+    resource: Annotated[
+        Literal[*RESOURCE_KINDS],
+        Field(description=(
+            "Resource kind to create. Use 'name' instead of 'type'/'title' for "
+            "non-artefact resources."
+        )),
+    ] = "artefact",
+    name: Annotated[str, Field(description=_NAME_DESCRIPTION)] = "",
+    fix_links: Annotated[bool | None, Field(description=_FIX_LINKS_DESCRIPTION)] = None,
+):
     """Create a new vault resource. Additive — creates a file, cannot destroy existing work.
 
-    For bodies over ~1 KB, prefer body_file over body to save tokens in the tool call.
-
-    Parameters:
-      resource   — resource kind (default "artefact"). Creatable: artefact, skill,
-                   memory, style, template.
-      type       — artefact type key (e.g. "ideas"). Required when resource="artefact".
-      title      — human-readable title for artefacts. Required when resource="artefact".
-      name       — resource name for non-artefact resources (e.g. "my-skill").
-                   Required when resource is skill, memory, style, or template.
-                   For templates, name is the artefact type key (e.g. "wiki").
-      body       — markdown body content (optional for artefacts, required for others).
-                   Mutually exclusive with body_file.
-      body_file  — absolute path to a file containing the body content (optional).
-                   Must be inside the vault or the system temp directory.
-                   Temp files are deleted after reading; vault files are left in place.
-                   Use for large content to keep MCP call displays compact.
-                   Mutually exclusive with body.
-                   To stage content: run mktemp /tmp/brain-body-XXXXXX to get a
-                   safe temp path, write content there, then pass that path here.
-      frontmatter — optional frontmatter field overrides (e.g. {"status": "shaping"}).
-                   For memories, use {"triggers": ["keyword1", "keyword2"]}.
-      parent     — optional parent artefact reference for child artefacts.
-                   Accepts canonical artefact keys like "design/brain", unique
-                   artefact names, or relative paths. Living children use
-                   owner-derived folders; temporal children keep date-based
-                   filing.
-      key        — optional explicit key override for living artefacts.
-      fix_links  — optional boolean (default false). When true, resolvable broken
-                   wikilinks in the created file are auto-rewritten to their
-                   target immediately after creation. Remaining unresolvable or
-                   ambiguous links are still reported as warnings.
-
-    Returns: confirmation message with path.
+    For artefacts, requires type + title; the type's naming pattern derives the filename.
+    For non-artefact resources (skill/memory/style/template), requires name + body.
+    Returns the resolved path plus any wikilink warnings.
     """
+    cleanup_path = temp_body_file_cleanup_path(body_file)
     with _trace_tool("brain_create", resource=resource, type=type, title=title, name=name):
         try:
+            params = _build_brain_create_params(
+                resource,
+                type=type or None,
+                title=title or None,
+                body=body or None,
+                body_file=body_file or None,
+                frontmatter=frontmatter,
+                parent=parent,
+                key=key,
+                name=name or None,
+                fix_links=fix_links,
+            )
             with _serialize_mutation(f"brain_create:{resource}:{type or name or title}"):
                 return _server_artefacts.handle_brain_create(
-                    type=type,
-                    title=title,
-                    body=body,
-                    body_file=body_file,
-                    frontmatter=frontmatter,
-                    parent=parent,
-                    key=key,
                     resource=resource,
-                    name=name,
+                    params=params,
+                    cleanup_path=cleanup_path,
                     runtime=_runtime(),
-                    fix_links=fix_links,
                 )
         except (ValueError, FileNotFoundError) as e:
+            cleanup_temp_body_file(cleanup_path)
             return _fmt_error(str(e))
         except Exception as e:
+            cleanup_temp_body_file(cleanup_path)
             if _logger:
                 _logger.error("brain_create: %s", e, exc_info=True)
             return _fmt_error(f"Unexpected error: {e}")
@@ -1472,74 +1842,70 @@ def brain_create(type: str = "", title: str = "", body: str = "", body_file: str
 
 @mcp.tool()
 def brain_edit(
-    operation: Literal["edit", "append", "prepend", "delete_section"],
-    path: str = "",
-    body: str = "",
-    body_file: str = "",
-    frontmatter: dict | None = None,
-    target: str | None = None,
-    selector: dict | None = None,
-    scope: Literal["section", "intro", "body", "heading", "header"] | None = None,
-    resource: Literal["artefact", "skill", "memory", "style", "template"] = "artefact",
-    name: str = "",
-    fix_links: bool = False,
+    operation: Annotated[
+        Literal["edit", "append", "prepend", "delete_section"],
+        Field(description=(
+            "Mutation kind. edit replaces, append/prepend insert, "
+            "delete_section removes a heading/callout section."
+        )),
+    ],
+    path: Annotated[
+        str,
+        Field(description=(
+            "Artefact identifier. Accepts canonical key, relative path, or "
+            "resolvable basename/display name. Required when resource='artefact'."
+        )),
+    ] = "",
+    body: Annotated[
+        str,
+        Field(description=(
+            "Body content for edit/append/prepend. Mutually exclusive with "
+            "body_file. Omit for frontmatter-only changes. Prefer body_file "
+            "for larger content."
+        )),
+    ] = "",
+    body_file: Annotated[str, Field(description=_BODY_FILE_DESCRIPTION)] = "",
+    frontmatter: Annotated[
+        dict | None,
+        Field(description=(
+            "Frontmatter changes. edit overwrites; append/prepend extend lists "
+            "with dedup and overwrite scalars. Use null to delete fields."
+        )),
+    ] = None,
+    target: Annotated[
+        str | None,
+        Field(description=(
+            "Structural target: ':body', a heading like '## Notes', or a "
+            "callout like '[!note] Status'. Required for structural edits and "
+            "delete_section."
+        )),
+    ] = None,
+    selector: Annotated[
+        _StructuralSelector | None,
+        Field(description="Disambiguates duplicate structural matches."),
+    ] = None,
+    scope: Annotated[
+        Literal["section", "intro", "body", "heading", "header"] | None,
+        Field(description=edit.brain_edit_scope_description()),
+    ] = None,
+    resource: Annotated[
+        Literal[*RESOURCE_KINDS],
+        Field(description=(
+            "Resource kind to edit. Use 'name' instead of 'path' for "
+            "skill/memory/style/template."
+        )),
+    ] = "artefact",
+    name: Annotated[str, Field(description=_NAME_DESCRIPTION)] = "",
+    fix_links: Annotated[bool, Field(description=_FIX_LINKS_DESCRIPTION)] = False,
 ):
-    """Modify an existing vault resource. Single-file mutation.
+    """Modify an existing vault resource via single-file mutation.
 
-    For bodies over ~1 KB, prefer body_file over body to save tokens in the tool call.
-
-    Parameters:
-      resource   — resource kind (default "artefact"). Editable: artefact, skill,
-                   memory, style, template.
-      operation  — "edit" (replace a resolved structural range), "append" (add after),
-                   "prepend" (insert before), or "delete_section" (remove a resolved
-                   heading-owned section or callout block; requires target)
-      path       — canonical artefact key (e.g. "design/brain"), vault-relative
-                   path, or filename basename. For temporal artefacts, the
-                   display-name portion of the dated filename also resolves
-                   (e.g. "Colour Theory" -> "20260404-research~Colour Theory.md").
-                   Required when resource="artefact".
-      name       — resource name for non-artefact resources (e.g. "my-skill").
-                   Required when resource is skill, memory, style, or template.
-                   For templates, name is the artefact type key (e.g. "wiki").
-      body       — new body content (edit), content to append (append), or content to prepend (prepend).
-                   Mutually exclusive with body_file.
-                   Omit body for frontmatter-only changes.
-      body_file  — absolute path to a file containing the body content (optional).
-                   Must be inside the vault or the system temp directory.
-                   Temp files are deleted after reading; vault files are left in place.
-                   Use for large content to keep MCP call displays compact.
-                   Mutually exclusive with body.
-                   To stage content: run mktemp /tmp/brain-body-XXXXXX to get a
-                   safe temp path, write content there, then pass that path here.
-      frontmatter — optional frontmatter changes. Merge strategy depends on operation:
-                   edit overwrites fields; append/prepend extend list fields (with dedup)
-                   and overwrite scalars. Set a field to null to delete it.
-                   All operations can be used for frontmatter-only changes by omitting body.
-      target     — optional structural target. Use ":body" for the markdown body
-                   after frontmatter, a heading target such as "## Notes", or a
-                   callout target such as "[!note] Implementation status".
-      selector   — optional target disambiguation object. Supported fields:
-                   "within" (ordered ancestor chain of {target, occurrence?} steps)
-                   and "occurrence" (1-based duplicate selector in the current
-                   search space). ":body" is only valid as the top-level target.
-      scope      — optional mutable range within the resolved target.
-                   Required for structural edit/append/prepend calls.
-                   Valid scopes:
-                   - body target: "section", "intro"
-                   - heading target: "section", "body", "intro", "heading"
-                     ("heading" is edit-only)
-                   - callout target: "section", "body", "header"
-                     ("header" is edit-only)
-                   delete_section does not accept scope.
-      fix_links  — optional boolean (default false). When true, resolvable broken
-                   wikilinks in the edited file are auto-rewritten to their
-                   target after the edit completes. Remaining unresolvable or
-                   ambiguous links are still reported as warnings.
-
-    Artefact paths validated against compiled router — wrong folder or naming rejected with helpful error.
-    Non-artefact resources resolve via _Config/ conventions (no terminal status auto-move).
+    Use for in-place edits to artefacts, skills, memories, styles, or templates.
+    Structural edits (edit/append/prepend with target) require scope; delete_section
+    requires target only. Returns the resolved path plus any wikilink warnings.
     """
+    selector_payload = _dump_model_payload(selector)
+    cleanup_path = temp_body_file_cleanup_path(body_file)
     with _trace_tool(
         "brain_edit",
         resource=resource,
@@ -1547,196 +1913,169 @@ def brain_edit(
         path=path,
         name=name,
         target=target,
-        selector=selector,
+        selector=selector_payload,
         scope=scope,
     ):
         try:
+            params = _build_brain_edit_params(
+                resource,
+                operation,
+                path=path or None,
+                body=body or None,
+                body_file=body_file or None,
+                frontmatter=frontmatter,
+                target=target,
+                selector=selector_payload,
+                scope=scope,
+                name=name or None,
+                fix_links=fix_links or None,
+            )
             with _serialize_mutation(f"brain_edit:{resource}:{path or name}"):
                 return _server_artefacts.handle_brain_edit(
-                    operation=operation,
-                    path=path,
-                    body=body,
-                    body_file=body_file,
-                    frontmatter=frontmatter,
-                    target=target,
-                    selector=selector,
-                    scope=scope,
                     resource=resource,
-                    name=name,
+                    operation=operation,
+                    params=params,
+                    cleanup_path=cleanup_path,
                     runtime=_runtime(),
-                    fix_links=fix_links,
                 )
         except (ValueError, FileNotFoundError) as e:
+            cleanup_temp_body_file(cleanup_path)
             return _fmt_error(str(e))
         except Exception as e:
+            cleanup_temp_body_file(cleanup_path)
             if _logger:
                 _logger.error("brain_edit: %s", e, exc_info=True)
             return _fmt_error(f"Unexpected error: {e}")
 
 
 # ---------------------------------------------------------------------------
-# brain_action — vault-wide/destructive ops, gated by approval
+# brain_move — destructive content-move ops, gated by approval
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def brain_action(
-    action: Literal[
-        "compile", "build_index", "rename", "delete", "convert",
-        "shape-printable", "shape-presentation", "start-shaping", "migrate_naming",
-        "register_workspace", "unregister_workspace", "fix-links",
-        "sync_definitions", "archive", "unarchive",
+def brain_move(
+    op: Annotated[
+        Literal["rename", "convert", "archive", "unarchive"],
+        Field(description=(
+            "Move operation selector. Use 'rename' to move a file, 'convert' to "
+            "change artefact type and location, 'archive' to move a terminal-status "
+            "artefact into _Archive/, or 'unarchive' to restore an archived artefact."
+        )),
     ],
-    params: dict | None = None,
+    source: Annotated[
+        str | None,
+        Field(description="Vault-relative source path used only when op='rename'."),
+    ] = None,
+    dest: Annotated[
+        str | None,
+        Field(description="Vault-relative destination path used only when op='rename'."),
+    ] = None,
+    path: Annotated[
+        str | None,
+        Field(description="Vault-relative artefact path used by convert, archive, and unarchive."),
+    ] = None,
+    target_type: Annotated[
+        str | None,
+        Field(description="Destination artefact type key used only when op='convert'."),
+    ] = None,
+    parent: Annotated[
+        str | None,
+        Field(description="Optional parent artefact reference used only when op='convert'."),
+    ] = None,
 ):
-    """Perform vault-wide actions. Mutations — may modify multiple files.
+    """Perform a destructive content move while preserving artefact semantics.
 
-    Actions:
-      compile              — recompile the router from source files
-      build_index          — rebuild the BM25 retrieval index
-      rename               — rename/move a file (params: {source, dest} as relative paths)
-      delete               — delete a file and clean wikilinks (params: {path})
-      convert              — convert artefact to different type (params: {path, target_type}, optional: {parent})
-      shape-printable      — create printable + render PDF (params: {source, slug}, optional: {render, keep_heading_with_next, pdf_engine})
-      shape-presentation   — create presentation + render PDF + optional live preview (params: {source, slug}, optional: {render, preview})
-      start-shaping        — bootstrap shaping session (params: {target}, optional: {title})
-      migrate_naming       — migrate vault filenames to generous naming conventions (optional: {dry_run})
-      register_workspace   — register a linked workspace (params: {slug, path})
-      unregister_workspace — remove a linked workspace registration (params: {slug})
-      fix-links            — scan/fix broken wikilinks (optional: {fix} to apply;
-                             {path} to scope scan/fix to a single file;
-                             {links} = list of target stems to limit which
-                             resolvable links are fixed when {path} is set)
-      sync_definitions     — sync artefact library definitions to vault (optional: {dry_run, force, types, preference, status}). Set status=true for a read-only classification of every library type (uninstalled, in_sync, sync_ready, locally_customised, conflict) plus a not_installable bucket. Install a new library type with types=["living/X"] — bare sync (no types) never installs, only updates already-installed types.
-      archive              — archive an artefact to _Archive/ (params: {path}). Must have terminal status.
-      unarchive            — restore an archived artefact to its original type folder (params: {path})
+    Uses a flat top-level MCP surface for caller ergonomics, with explicit runtime
+    validation of op-specific field requirements before delegating to the existing
+    rename/convert/archive implementations.
     """
-    with _trace_tool("brain_action", action=action, params=params):
+    trace_payload = {"op": op}
+    for key, value in (
+        ("source", source),
+        ("dest", dest),
+        ("path", path),
+        ("target_type", target_type),
+        ("parent", parent),
+    ):
+        if value is not None:
+            trace_payload[key] = value
+
+    with _trace_tool("brain_move", **trace_payload):
         try:
-            with _serialize_mutation(f"brain_action:{action}"):
-                return _server_actions.handle_brain_action(
-                    action=action,
+            params = _build_brain_move_params(
+                op,
+                source=source,
+                dest=dest,
+                path=path,
+                target_type=target_type,
+                parent=parent,
+            )
+            with _serialize_mutation(f"brain_move:{op}"):
+                return _server_actions.handle_brain_move(
+                    op=op,
                     params=params,
                     runtime=_runtime(),
                 )
-
+        except ValueError as e:
+            return _fmt_error(str(e))
         except Exception as e:
             if _logger:
-                _logger.error("brain_action: %s", e, exc_info=True)
+                _logger.error("brain_move: %s", e, exc_info=True)
             return _fmt_error(f"Unexpected error: {e}")
 
 
 # ---------------------------------------------------------------------------
-# brain_process — content classification, resolution, ingestion
+# brain_action — workflow/utility bucket, gated by approval
 # ---------------------------------------------------------------------------
 
-def _fmt_classify(result):
-    """Format classification result as DD-026 plain text."""
-    if result.get("mode") == "context_assembly":
-        lines = ["**Classify** → context_assembly (no scoring available)\n"]
-        for td in result.get("type_descriptions", []):
-            lines.append(f"**{td['key']}** ({td['type']})")
-            lines.append(td["description"])
-            lines.append("")
-        lines.append(result.get("instruction", ""))
-        return "\n".join(lines)
-
-    alt_lines = []
-    for alt in result.get("alternatives", []):
-        alt_lines.append(f"- {alt['key']} ({alt['type']}) — {alt['confidence']}%")
-
-    parts = [f"**Classified** ({result['mode']}) → {result['key']} ({result['confidence']}%)"]
-    if result.get("reasoning"):
-        parts.append(result["reasoning"])
-    if alt_lines:
-        parts.append("\nAlternatives:")
-        parts.extend(alt_lines)
-    return "\n".join(parts)
-
-
-def _fmt_resolve(result):
-    """Format resolution result as DD-026 plain text."""
-    if result.get("action") == "error":
-        return None  # caller uses _fmt_error
-
-    action = result["action"]
-    if action == "create":
-        return f"**Resolve** → create {result['key']}: {result['title']}\n{result['reasoning']}"
-    elif action == "update":
-        return f"**Resolve** → update {result['target_path']}\n{result['reasoning']}"
-    elif action == "ambiguous":
-        lines = [f"**Resolve** → ambiguous ({len(result.get('candidates', []))} candidates)"]
-        lines.append(result["reasoning"])
-        lines.append("\nCandidates:")
-        for c in result.get("candidates", []):
-            lines.append(f"- {c}")
-        return "\n".join(lines)
-    return json.dumps(result, indent=2)
-
-
-def _fmt_ingest(result):
-    """Format ingestion result as DD-026 plain text."""
-    action = result.get("action_taken")
-    if action == "created":
-        return f"**Ingested** → created {result['type']}: {result['path']}"
-    elif action == "updated":
-        return f"**Ingested** → updated {result['path']}"
-    elif action == "ambiguous":
-        lines = [f"**Ingest paused** — needs decision"]
-        if result.get("resolution", {}).get("candidates"):
-            lines.append("\nCandidates:")
-            for c in result["resolution"]["candidates"]:
-                lines.append(f"- {c}")
-        return "\n".join(lines)
-    elif action == "needs_classification":
-        return _fmt_classify(result.get("classification", {}))
-    elif action == "error":
-        return None  # caller uses _fmt_error
-    return json.dumps(result, indent=2)
-
-
 @mcp.tool()
-def brain_process(
-    operation: Literal["classify", "resolve", "ingest"],
-    content: str,
-    type: str | None = None,
-    title: str | None = None,
-    mode: Literal["auto", "embedding", "bm25_only", "context_assembly"] = "auto",
+def brain_action(
+    action: Annotated[
+        Literal[
+            "delete",
+            "shape-printable",
+            "shape-presentation",
+            "start-shaping",
+            "fix-links",
+        ],
+        Field(description=(
+            "Workflow or utility action selector. The remaining brain_action "
+            "surface covers delete, shaping helpers, and fix-links."
+        )),
+    ],
+    params: Annotated[
+        (
+            _BrainActionDeleteParams
+            | _BrainActionShapePrintableParams
+            | _BrainActionShapePresentationParams
+            | _BrainActionStartShapingParams
+            | _BrainActionFixLinksParams
+            | None
+        ),
+        Field(description=(
+            "Action-specific parameters object. The schema expands into named variants "
+            "for delete, shaping helpers, and fix-links."
+        )),
+    ] = None,
 ):
-    """Process content for vault operations.
+    """Perform a workflow or utility action that may touch multiple files.
 
-    Operations:
-      classify  — Determine the best artefact type for content.
-                  Returns ranked type matches with confidence scores.
-      resolve   — Check if content should create a new artefact or update an existing one.
-                  Requires type and title. Returns create/update/ambiguous decision.
-      ingest    — Full pipeline: classify → resolve → create/update.
-                  Optional type/title hints skip their respective steps.
-
-    Modes (for classify/ingest): "auto", "embedding", "bm25_only", "context_assembly".
+    The smaller residual brain_action surface intentionally uses the simple
+    action-plus-params contract. Mutating actions are serialised and validated
+    by the existing handler and script layers.
     """
-    with _trace_tool("brain_process", operation=operation):
+    params_payload = _dump_model_payload(params)
+    with _trace_tool("brain_action", action=action, params=params_payload):
         try:
-            if operation == "ingest":
-                with _serialize_mutation(f"brain_process:{operation}"):
-                    return _server_content.handle_brain_process(
-                        operation=operation,
-                        content=content,
-                        type=type,
-                        title=title,
-                        mode=mode,
-                        runtime=_runtime(),
-                    )
-            return _server_content.handle_brain_process(
-                operation=operation,
-                content=content,
-                type=type,
-                title=title,
-                mode=mode,
-                runtime=_runtime(),
-            )
+            with _serialize_mutation(f"brain_action:{action}"):
+                return _server_actions.handle_brain_action(
+                    action=action,
+                    params=params_payload,
+                    runtime=_runtime(),
+                )
         except Exception as e:
             if _logger:
-                _logger.error("brain_process: %s", e, exc_info=True)
+                _logger.error("brain_action: %s", e, exc_info=True)
             return _fmt_error(f"Unexpected error: {e}")
 
 

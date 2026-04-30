@@ -19,7 +19,7 @@
 # Skill workspace artefacts (eval outputs, benchmarks)
 _Config/Skills/*-workspace/
 
-# Machine-local generated caches (compiled router, retrieval index, embeddings)
+# Machine-local generated caches (compiled router, retrieval index, session mirror)
 .brain/local/
 
 # MCP config (machine-local absolute paths)

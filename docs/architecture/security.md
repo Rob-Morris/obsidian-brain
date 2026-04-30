@@ -87,8 +87,8 @@ Three built-in profiles define what each agent can do:
 | Profile | Allowed tools |
 |---|---|
 | `reader` | `brain_session`, `brain_read`, `brain_search`, `brain_list` |
-| `contributor` | All reader tools + `brain_create`, `brain_edit`, `brain_process` |
-| `operator` | All contributor tools + `brain_action` |
+| `contributor` | All reader tools + `brain_create`, `brain_edit` |
+| `operator` | All contributor tools + `brain_move`, `brain_action` |
 
 Profiles are defined in `defaults/config.yaml` under `vault.profiles` and can be
 extended or replaced in `.brain/config.yaml`. The default profile when no key is
@@ -179,8 +179,8 @@ into user-home config or cross-vault registries by default.
 existence before writing, providing a lightweight create-or-fail guarantee.
 
 **`safe_write_json()`** is a thin wrapper over the same kernel, and
-callback-driven serializers such as embeddings-local `.npy` writers can use
-`safe_write_via()` without bypassing the atomic replacement path.
+callback-driven serializers can use `safe_write_via()` without bypassing the
+atomic replacement path.
 
 **Guarantees provided:** A crash at any point leaves either the complete old content or
 the complete new content on disk — never a partial write. This is essential because
@@ -223,8 +223,8 @@ process-local lock. This applies to:
 
 - `brain_create`
 - `brain_edit`
+- `brain_move`
 - `brain_action`
-- `brain_process(operation="ingest")`
 
 **Why it exists:** some script paths that look single-file can trigger broader
 vault mutations, such as status-driven moves and vault-wide wikilink rewrites.

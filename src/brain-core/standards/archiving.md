@@ -1,8 +1,8 @@
 # Archiving Living Artefacts
 
-When a living artefact reaches a terminal status (e.g. `implemented` for designs, `adopted` for ideas), it can be archived to remove it from the active vault namespace. Use `brain_action("archive")` — it handles everything automatically.
+When a living artefact reaches a terminal status (e.g. `implemented` for designs, `adopted` for ideas), it can be archived to remove it from the active vault namespace. Use `brain_move(op="archive", path="...")` — it handles everything automatically.
 
-## What `brain_action("archive")` does
+## What `brain_move(op="archive", path="...")` does
 
 1. Validates the artefact has a terminal status
 2. Adds `archiveddate: YYYY-MM-DD` to frontmatter
@@ -14,7 +14,7 @@ When a living artefact reaches a terminal status (e.g. `implemented` for designs
 Ideas/Brain/my-idea.md  →  _Archive/Ideas/Brain/20260405-my-idea.md
 ```
 
-## What `brain_action("unarchive")` does
+## What `brain_move(op="unarchive", path="...")` does
 
 1. Strips the `yyyymmdd-` date prefix from the filename
 2. Moves the file back to its original type folder
@@ -44,7 +44,7 @@ Normal tools (`brain_read`, `brain_edit`, `brain_search`, `brain_list`) do not i
 |-----------|------|
 | **List** | `brain_list(resource="archive")` |
 | **Read** | `brain_read(resource="archive", name="_Archive/...")` |
-| **Restore** | `brain_action("unarchive", {path: "_Archive/..."})` |
+| **Restore** | `brain_move(op="unarchive", path="_Archive/...")` |
 
 No edit, search, or create operations work on archived files.
 

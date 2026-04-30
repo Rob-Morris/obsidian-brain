@@ -71,12 +71,14 @@ from ._naming import (
 from ._filesystem import (
     check_not_in_brain_core,
     check_write_allowed,
+    cleanup_temp_body_file,
     make_temp_path,
     resolve_and_check_bounds,
     resolve_body_file,
     safe_write,
     safe_write_via,
     safe_write_json,
+    temp_body_file_cleanup_path,
 )
 
 from ._frontmatter import (
@@ -122,6 +124,14 @@ from ._markdown import (
     parse_structural_anchor_line,
     resolve_structural_target,
     raw_html_block_ranges,
+)
+
+from ._selector import (
+    SELECTOR_OCCURRENCE_DESCRIPTION,
+    SELECTOR_WITHIN_DESCRIPTION,
+    SELECTOR_WITHIN_OCCURRENCE_DESCRIPTION,
+    SELECTOR_WITHIN_TARGET_DESCRIPTION,
+    normalize_structural_selector,
 )
 
 from ._slugs import (

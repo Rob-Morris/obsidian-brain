@@ -22,15 +22,14 @@ Scripts are the **source of truth** for all vault operations. The MCP server (`b
 | `list_artefacts.py` | Enumerate vault artefacts and resources (unranked, no cap) | (library module, used by MCP server) |
 | `migrate_naming.py` | Migrate filenames to generous naming conventions | `python3 migrate_naming.py [--vault V] [--dry-run] [--json]` |
 | `obsidian_cli.py` | IPC client for native Obsidian CLI | (library module, used by MCP server) |
-| `process.py` | Content classification, duplicate resolution, ingestion | (library module, used by MCP server) |
 | `repair.py` | Explicit infrastructure repair entry point; bootstraps from a compatible Python 3.12+ launcher, converges into the vault-local `.venv`, then runs one named repair scope. `mcp` repairs installed current-vault project MCP state only; it does not create first-time project registrations. | `python3 repair.py {mcp,router,index,registry} [--vault V] [--dry-run] [--json]` |
 | `read.py` | Query compiled router resources | `python3 read.py RESOURCE [--name N]` |
 | `rename.py` | Rename/delete file + update wikilinks, refusing existing-destination collisions | `python3 rename.py "source" "dest" [--json]` |
 | `search_index.py` | BM25 keyword search | `python3 search_index.py "query" [--type T] [--json]` |
 | `session.py` | Build the canonical session model and refresh `.brain/local/session.md` | `python3 session.py [--json] [--workspace-dir PATH]` |
 | `shape_printable.py` | Create printable + render PDF | `python3 shape_printable.py --source P --slug S [--no-render] [--pdf-engine E]` |
-| `shape_presentation.py` | Create presentation + render PDF + launch Marp preview | (via MCP: `brain_action("shape-presentation", ...)`) |
-| `start_shaping.py` | Bootstrap a shaping session for an existing artefact | (via MCP: `brain_action("start-shaping", ...)`) |
+| `shape_presentation.py` | Create presentation + render PDF + launch Marp preview | `python3 shape_presentation.py --source P --slug S [--no-render] [--no-preview]` |
+| `start_shaping.py` | Bootstrap a shaping session for an existing artefact | `python3 start_shaping.py --target P [--title T] [--vault V]` |
 | `sync_definitions.py` | Sync artefact library definitions to vault `_Config/` | `python3 sync_definitions.py [--vault V] [--dry-run] [--types t1,t2] [--status] [--json]` |
 | `upgrade.py` | Canonical brain-core upgrade entry point with pre-compile compatibility patches, a target-aware local migration ledger, binary-safe rollback snapshots, self-contained atomic writes, and best-effort vault-local MCP dependency sync when requirements change | `python3 upgrade.py --source P [--vault V] [--dry-run] [--force] [--sync\|--no-sync] [--sync-deps\|--no-sync-deps] [--json]` |
 | `vault_registry.py` | User-home registry of installed brain vaults (`$XDG_CONFIG_HOME/brain/vaults`, default `~/.config/brain/vaults`) | `python3 vault_registry.py [--register PATH\|--backfill PATH\|--unregister PATH\|--list [--json]\|--prune\|--resolve ALIAS]` |
@@ -45,7 +44,7 @@ The script layer is organised into 8 bounded contexts. This is an architectural 
 | Compilation | `compile_router.py`, `compile_colours.py`, `build_index.py`, `sync_definitions.py` |
 | Artefact Operations | `create.py`, `edit.py`, `read.py`, `rename.py`, `fix_links.py`, `start_shaping.py`, `shape_printable.py`, `shape_presentation.py` |
 | Compliance | `check.py` |
-| Content Intelligence | `search_index.py`, `list_artefacts.py`, `process.py` |
+| Content Intelligence | `search_index.py`, `list_artefacts.py` |
 | Session & Configuration | `session.py`, `config.py`, `workspace_registry.py`, `generate_key.py` |
 | Lifecycle Management | `init.py`, `repair.py`, `upgrade.py`, `vault_registry.py`, `migrate_naming.py`, `migrations/` |
 | MCP Integration | `brain_mcp/server.py`, `brain_mcp/proxy.py` |
@@ -72,7 +71,6 @@ These scripts import from `_common/` for vault discovery, frontmatter parsing, a
 - `fix_links.py`
 - `list_artefacts.py`
 - `migrate_naming.py`
-- `process.py`
 - `read.py`
 - `_repair_runtime.py`
 - `rename.py`

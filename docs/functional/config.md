@@ -93,8 +93,8 @@ The config system supports three built-in operator profiles with different level
 | Profile | Intended use |
 |---------|-------------|
 | `reader` | Read-only access — `brain_session`, `brain_read`, `brain_search`, `brain_list` |
-| `contributor` | Read + create/edit — adds `brain_create`, `brain_edit`, `brain_process` |
-| `operator` | Full access — all tools including `brain_action` |
+| `contributor` | Read + create/edit — adds `brain_create`, `brain_edit` |
+| `operator` | Full access — all tools including `brain_move` and `brain_action` |
 
 Each profile has a per-tool allow-list defined in the vault config. Tools not on the active profile's allow-list return an error `CallToolResult` — no silent failures.
 

@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import subprocess
+import tempfile
 import threading
 import time
 from unittest.mock import patch
@@ -128,6 +129,11 @@ def vault(tmp_path):
     # Taxonomy: Ideas
     (tax_living / "ideas.md").write_text(
         "# Ideas\n\n"
+        "## Lifecycle\n\n"
+        "| `shaping` | Active exploration |\n"
+        "| `adopted` | Terminal |\n\n"
+        "## Archiving\n\n"
+        "Ideas with `status: adopted` can be archived.\n\n"
         "## Naming\n\n`{Title}.md` in `Ideas/`.\n\n"
         "## Frontmatter\n\n```yaml\n---\ntype: living/ideas\ntags:\n  - idea-tag\nstatus: shaping\n---\n```\n\n"
         "## Template\n\n[[_Config/Templates/Living/Ideas]]\n"
@@ -336,7 +342,7 @@ class TestStaleness:
 class TestBrainRead:
     def test_read_type_requires_name(self, initialized):
         result = server.brain_read("type")
-        _assert_error(result, "requires name")
+        _assert_error(result, "requires top-level field 'name'")
 
     def test_read_type_by_name(self, initialized):
         result = json.loads(server.brain_read("type", name="wiki"))
@@ -354,11 +360,11 @@ class TestBrainRead:
 
     def test_read_trigger_requires_name(self, initialized):
         result = server.brain_read("trigger")
-        _assert_error(result, "requires name")
+        _assert_error(result, "requires top-level field 'name'")
 
     def test_read_style_requires_name(self, initialized):
         result = server.brain_read("style")
-        _assert_error(result, "requires name")
+        _assert_error(result, "requires top-level field 'name'")
 
     def test_read_style_content(self, initialized):
         result = server.brain_read("style", name="concise")
@@ -378,7 +384,7 @@ class TestBrainRead:
 
     def test_read_skill_requires_name(self, initialized):
         result = server.brain_read("skill")
-        _assert_error(result, "requires name")
+        _assert_error(result, "requires top-level field 'name'")
 
     def test_read_core_skill_content(self, initialized):
         result = server.brain_read("skill", name="test-skill")
@@ -390,7 +396,7 @@ class TestBrainRead:
 
     def test_read_plugin_requires_name(self, initialized):
         result = server.brain_read("plugin")
-        _assert_error(result, "requires name")
+        _assert_error(result, "requires top-level field 'name'")
 
     def test_read_plugin_content(self, initialized):
         result = server.brain_read("plugin", name="Undertask")
@@ -415,7 +421,93 @@ class TestBrainRead:
 
     def test_read_unknown_resource(self, initialized):
         result = server.brain_read("bogus")
-        _assert_error(result, "Unknown resource")
+        _assert_error(result, "not readable via brain_read")
+
+
+class TestBrainReadSpecValidation:
+    """brain_read strict-extras and required-field validation."""
+
+    def test_read_environment_rejects_name(self, initialized):
+        """brain_read(resource='environment') does not accept name."""
+        result = server.brain_read("environment", name="anything")
+        _assert_error(result, "does not accept top-level field 'name'")
+
+    def test_read_router_rejects_name(self, initialized):
+        """brain_read(resource='router') does not accept name."""
+        result = server.brain_read("router", name="anything")
+        _assert_error(result, "does not accept top-level field 'name'")
+
+    def test_read_compliance_accepts_no_name(self, initialized):
+        """brain_read(resource='compliance') works without a name."""
+        result = server.brain_read("compliance")
+        # Should not be an error — returns compliance report
+        assert result is not None
+        assert not (isinstance(result, list) and result and getattr(result[0], "isError", False))
+
+    def test_read_compliance_accepts_severity_name(self, initialized):
+        """brain_read(resource='compliance', name='error') is valid."""
+        result = server.brain_read("compliance", name="error")
+        assert result is not None
+
+
+class TestBrainListSpecValidation:
+    """brain_list strict-extras and required-field validation."""
+
+    def test_list_skill_rejects_type_filter(self, initialized):
+        """brain_list(resource='skill') does not accept type (artefact-only)."""
+        result = server.brain_list(resource="skill", type="living/wiki")
+        _assert_error(result, "does not accept top-level field 'type'")
+
+    def test_list_skill_rejects_since_filter(self, initialized):
+        """brain_list(resource='skill') does not accept since (artefact-only)."""
+        result = server.brain_list(resource="skill", since="2026-01-01")
+        _assert_error(result, "does not accept top-level field 'since'")
+
+    def test_list_skill_rejects_sort(self, initialized):
+        """brain_list(resource='skill') does not accept sort (artefact-only)."""
+        result = server.brain_list(resource="skill", sort="date_asc")
+        _assert_error(result, "does not accept top-level field 'sort'")
+
+    def test_list_skill_rejects_top_k(self, initialized):
+        """brain_list(resource='skill') does not accept top_k (artefact-only)."""
+        result = server.brain_list(resource="skill", top_k=10)
+        _assert_error(result, "does not accept top-level field 'top_k'")
+
+    def test_list_workspace_rejects_query(self, initialized):
+        """brain_list(resource='workspace') does not accept query."""
+        result = server.brain_list(resource="workspace", query="foo")
+        _assert_error(result, "does not accept top-level field 'query'")
+
+    def test_list_archive_rejects_query(self, initialized):
+        """brain_list(resource='archive') does not accept query."""
+        result = server.brain_list(resource="archive", query="old")
+        _assert_error(result, "does not accept top-level field 'query'")
+
+    def test_list_artefact_accepts_all_filters(self, initialized):
+        """brain_list(resource='artefact') accepts type, since, until, tag, top_k, sort."""
+        result = server.brain_list(
+            resource="artefact",
+            type="living/wiki",
+            since="2020-01-01",
+            until="2099-12-31",
+            tag="brain-core",
+            top_k=10,
+            sort="date_asc",
+        )
+        # Should succeed (no error)
+        assert result is not None
+        text = _list_text(result)
+        assert "Listed:" in text
+
+    def test_list_artefact_rejects_query(self, initialized):
+        """brain_list(resource='artefact') does not accept query (unused for artefacts)."""
+        result = server.brain_list(resource="artefact", query="wiki")
+        _assert_error(result, "does not accept top-level field 'query'")
+
+    def test_list_unknown_resource(self, initialized):
+        """brain_list with an unlisted resource returns a clear error."""
+        result = server.brain_list(resource="bogus")
+        _assert_error(result, "not listable via brain_list")
 
 
 class TestBrainReadMemory:
@@ -434,12 +526,12 @@ class TestBrainReadMemory:
             "---\ntriggers: [python, dev environment]\n---\n\n"
             "# Python Setup\n\nUse Python 3.12.\n"
         )
-        # Recompile to pick up memories
-        server.brain_action("compile")
+        # Restart to recompile and pick up memories
+        server.startup(vault_root=str(initialized))
 
     def test_read_memory_requires_name(self):
         result = server.brain_read("memory")
-        _assert_error(result, "requires name")
+        _assert_error(result, "requires top-level field 'name'")
 
     def test_read_by_trigger(self):
         result = server.brain_read("memory", name="brain core")
@@ -463,9 +555,9 @@ class TestBrainReadMemory:
         result = server.brain_read("memory", name="nonexistent-thing")
         _assert_error(result)
 
-    def test_compile_summary_includes_memories(self):
-        result = server.brain_action("compile")
-        assert "memories" in result
+    def test_brain_session_includes_memories_after_restart(self):
+        result = json.loads(server.brain_session())
+        assert len(result["memories"]) >= 2
 
 
 # ---------------------------------------------------------------------------
@@ -514,7 +606,7 @@ class TestBrainReadArchive:
 
     def test_read_archive_requires_name(self, initialized):
         result = server.brain_read("archive")
-        _assert_error(result, "requires name")
+        _assert_error(result, "requires top-level field 'name'")
 
     def test_read_specific_archive(self, initialized):
         rel = self._make_archived(initialized)
@@ -718,106 +810,142 @@ class TestBrainSearch:
 
 
 # ---------------------------------------------------------------------------
-# brain_action tests
+# brain_move / brain_action wrapper tests
 # ---------------------------------------------------------------------------
 
-class TestBrainAction:
-    def test_action_compile(self, initialized):
-        result = server.brain_action("compile")
-        assert result.startswith("**Compiled:**")
-
-    def test_action_compile_refreshes_session_markdown(self, initialized):
-        session_path = initialized / ".brain" / "local" / "session.md"
-        server._mirror_queue.join()  # drain any pending fixture startup refresh
-        original = session_path.read_text()
-
-        user_dir = initialized / "_Config" / "User"
-        user_dir.mkdir(parents=True, exist_ok=True)
-        (user_dir / "preferences-always.md").write_text(
-            "---\ntype: user-preferences\n---\n\nCompile refreshes the session mirror.\n"
+class TestBrainMove:
+    def _make_idea(self, vault, name="my-idea.md", status="adopted", project=None):
+        if project:
+            folder = vault / "Ideas" / project
+        else:
+            folder = vault / "Ideas"
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / name
+        path.write_text(
+            f"---\ntype: living/ideas\ntags: []\nstatus: {status}\n---\n\nIdea body.\n"
         )
+        if project:
+            return f"Ideas/{project}/{name}"
+        return f"Ideas/{name}"
 
-        result = server.brain_action("compile")
-        server._mirror_queue.join()  # wait for background refresh to land
+    def _make_archived(self, vault, rel="_Archive/Ideas/20260101-my-idea.md"):
+        path = vault / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            "---\ntype: living/ideas\ntags: []\nstatus: adopted\n"
+            "archiveddate: 2026-01-01\n---\n\nOld idea.\n"
+        )
+        return rel
 
-        assert result.startswith("**Compiled:**")
-        updated = session_path.read_text()
-        assert "Compile refreshes the session mirror." in updated
-        assert updated != original
+    def test_unknown_move_op(self, initialized):
+        result = server.brain_move("bogus")
+        _assert_error(result, "Unknown move op")
 
-    def test_action_compile_does_not_emit_startup_session_phase(self, initialized):
-        log_path = initialized / ".brain" / "local" / "mcp-server.log"
-        before = log_path.read_text().count("startup phase begin: session_mirror_refresh")
-
-        result = server.brain_action("compile")
-
-        assert result.startswith("**Compiled:**")
-        after = log_path.read_text().count("startup phase begin: session_mirror_refresh")
-        assert after == before
-
-    def test_action_compile_updates_memory(self, initialized):
-        old_compiled_at = server._router["meta"]["compiled_at"]
-        time.sleep(0.1)
-        server.brain_action("compile")
-        assert server._router["meta"]["compiled_at"] != old_compiled_at
-
-    def test_action_build_index(self, initialized):
-        result = server.brain_action("build_index")
-        assert result.startswith("**Built index:**")
-
-    def test_action_build_index_updates_memory(self, initialized):
-        old_built_at = server._index["meta"]["built_at"]
-        time.sleep(0.1)
-        server.brain_action("build_index")
-        assert server._index["meta"]["built_at"] != old_built_at
-
-    def test_action_unknown(self, initialized):
-        result = server.brain_action("bogus")
-        _assert_error(result, "Unknown action")
-
-    def test_action_rename_without_cli(self, initialized):
+    def test_rename_without_cli(self, initialized):
         """Rename via grep-and-replace when CLI is unavailable."""
         vault = initialized
-        # Create a file that links to the source
         (vault / "Wiki" / "linker-xyz000.md").write_text(
             "---\ntype: living/wiki\ntags: []\n---\n\n"
             "# Linker\n\nSee [[Wiki/brain-overview-abc123]].\n"
         )
-        result = server.brain_action("rename", {
-            "source": "Wiki/brain-overview-abc123.md",
-            "dest": "Wiki/brain-intro-abc123.md",
-        })
+        result = server.brain_move(
+            op="rename",
+            source="Wiki/brain-overview-abc123.md",
+            dest="Wiki/brain-intro-abc123.md",
+        )
         assert "grep_replace" in result
         assert "links updated" in result
-        # Verify file was renamed
         assert not (vault / "Wiki" / "brain-overview-abc123.md").exists()
         assert (vault / "Wiki" / "brain-intro-abc123.md").exists()
-        # Verify wikilink was updated
         content = (vault / "Wiki" / "linker-xyz000.md").read_text()
         assert "[[Wiki/brain-intro-abc123]]" in content
 
-    def test_action_rename_with_mocked_cli(self, initialized, cli_available):
+    def test_rename_with_mocked_cli(self, initialized, cli_available):
         """Rename via CLI when available."""
         with patch.object(obsidian_cli, "move", return_value=True):
-            result = server.brain_action("rename", {
-                "source": "Wiki/old.md",
-                "dest": "Wiki/new.md",
-            })
+            result = server.brain_move(
+                op="rename",
+                source="Wiki/old.md",
+                dest="Wiki/new.md",
+            )
             assert "obsidian_cli" in result
             assert "wikilinks auto-updated" in result
 
-    def test_action_rename_missing_params(self, initialized):
-        result = server.brain_action("rename")
+    def test_rename_forces_router_refresh(self, initialized):
+        with patch.object(server, "_ensure_router_fresh") as mock_ensure:
+            result = server.brain_move(
+                op="rename",
+                source="Wiki/brain-overview-abc123.md",
+                dest="Wiki/brain-intro-abc123.md",
+            )
+        assert "Renamed" in result
+        mock_ensure.assert_called_once_with()
+
+    def test_rename_marks_router_dirty(self, initialized):
+        server._router_dirty = False
+        result = server.brain_move(
+            op="rename",
+            source="Wiki/brain-overview-abc123.md",
+            dest="Wiki/brain-intro-abc123.md",
+        )
+        assert "Renamed" in result
+        assert server._router_dirty is True
+
+    def test_rename_missing_source(self, initialized):
+        result = server.brain_move(op="rename", dest="Wiki/other.md")
+        _assert_error(result, "requires top-level field 'source'")
+
+    def test_rename_source_not_found(self, initialized):
+        result = server.brain_move(
+            op="rename",
+            source="Wiki/nonexistent.md",
+            dest="Wiki/other.md",
+        )
         _assert_error(result)
 
-    def test_action_rename_source_not_found(self, initialized):
-        result = server.brain_action("rename", {
-            "source": "Wiki/nonexistent.md",
-            "dest": "Wiki/other.md",
-        })
-        _assert_error(result)
+    def test_rename_rejects_non_artefact_destination(self, initialized):
+        result = server.brain_move(
+            op="rename",
+            source="Wiki/brain-overview-abc123.md",
+            dest="_Config/router.md",
+        )
+        _assert_error(result, "does not belong to any known artefact folder")
 
-    def test_action_rename_cli_error_falls_back_to_grep(self, initialized, cli_available):
+    def test_rename_rejects_cross_type_move(self, initialized):
+        (initialized / "Ideas").mkdir(exist_ok=True)
+        tax_living = initialized / "_Config" / "Taxonomy" / "Living"
+        (tax_living / "ideas.md").write_text(
+            "# Ideas\n\n"
+            "## Naming\n\n`{Title}.md` in `Ideas/`.\n\n"
+            "## Frontmatter\n\n```yaml\n---\ntype: living/ideas\ntags:\n  - topic-tag\n---\n```\n\n"
+            "## Template\n\n[[_Config/Templates/Living/Ideas]]\n"
+        )
+        server._router = server._compile_and_save(str(initialized))
+        result = server.brain_move(
+            op="rename",
+            source="Wiki/brain-overview-abc123.md",
+            dest="Ideas/brain-overview-abc123.md",
+        )
+        _assert_error(result, "Use brain_move(op='convert'")
+
+    def test_rename_rejects_brain_core_source(self, initialized):
+        result = server.brain_move(
+            op="rename",
+            source=".brain-core/VERSION",
+            dest="Wiki/brain-core-version.md",
+        )
+        _assert_error(result, ".brain-core")
+
+    def test_rename_rejects_convert_only_field(self, initialized):
+        result = server.brain_move(
+            op="rename",
+            source="Wiki/brain-overview-abc123.md",
+            dest="Wiki/brain-intro-abc123.md",
+            target_type="ideas",
+        )
+        _assert_error(result, "does not accept top-level field 'target_type'")
+
+    def test_rename_cli_error_falls_back_to_grep(self, initialized, cli_available):
         """When CLI returns an error (False), fallback to grep-replace."""
         vault = initialized
         (vault / "Wiki" / "linker-fallback.md").write_text(
@@ -825,40 +953,107 @@ class TestBrainAction:
             "# Linker\n\nSee [[Wiki/brain-overview-abc123]].\n"
         )
         with patch.object(obsidian_cli, "move", return_value=False):
-            result = server.brain_action("rename", {
-                "source": "Wiki/brain-overview-abc123.md",
-                "dest": "Wiki/brain-moved-abc123.md",
-            })
+            result = server.brain_move(
+                op="rename",
+                source="Wiki/brain-overview-abc123.md",
+                dest="Wiki/brain-moved-abc123.md",
+            )
             assert "grep_replace" in result
             assert not (vault / "Wiki" / "brain-overview-abc123.md").exists()
             assert (vault / "Wiki" / "brain-moved-abc123.md").exists()
             content = (vault / "Wiki" / "linker-fallback.md").read_text()
             assert "[[Wiki/brain-moved-abc123]]" in content
 
-    def test_action_rename_cross_directory_without_cli(self, initialized):
+    def test_rename_cross_directory_without_cli(self, initialized):
         """Rename across directories creates destination dir (regression test)."""
         vault = initialized
-        result = server.brain_action("rename", {
-            "source": "Wiki/brain-overview-abc123.md",
-            "dest": "Wiki/subdir/brain-overview-abc123.md",
-        })
+        result = server.brain_move(
+            op="rename",
+            source="Wiki/brain-overview-abc123.md",
+            dest="Wiki/subdir/brain-overview-abc123.md",
+        )
         assert "grep_replace" in result
         assert not (vault / "Wiki" / "brain-overview-abc123.md").exists()
         assert (vault / "Wiki" / "subdir" / "brain-overview-abc123.md").exists()
 
-    def test_action_rename_cli_mkdir_before_move(self, initialized, cli_available):
+    def test_rename_cli_mkdir_before_move(self, initialized, cli_available):
         """CLI path creates destination directory before calling obsidian_cli.move."""
         with patch.object(obsidian_cli, "move", return_value=True) as mock_move, \
              patch.object(os, "makedirs") as mock_makedirs:
-            server.brain_action("rename", {
-                "source": "Wiki/old.md",
-                "dest": "Wiki/subdir/new.md",
-            })
+            server.brain_move(
+                op="rename",
+                source="Wiki/old.md",
+                dest="Wiki/subdir/new.md",
+            )
             mock_move.assert_called_once()
             assert any(
                 call.args[0].endswith("Wiki/subdir")
                 for call in mock_makedirs.call_args_list
             )
+
+    def test_archive_moves_terminal_artefact(self, initialized):
+        rel = self._make_idea(initialized)
+        result = server.brain_move(op="archive", path=rel)
+        assert result.startswith("**Archived:**")
+        assert not (initialized / rel).exists()
+        assert (initialized / "_Archive" / "Ideas").exists()
+
+    def test_archive_forces_router_refresh(self, initialized):
+        rel = self._make_idea(initialized)
+        with patch.object(server, "_ensure_router_fresh") as mock_ensure:
+            result = server.brain_move(op="archive", path=rel)
+        assert result.startswith("**Archived:**")
+        mock_ensure.assert_called_once_with()
+
+    def test_archive_marks_router_dirty(self, initialized):
+        rel = self._make_idea(initialized)
+        server._router_dirty = False
+        result = server.brain_move(op="archive", path=rel)
+        assert result.startswith("**Archived:**")
+        assert server._router_dirty is True
+
+    def test_archive_requires_path(self, initialized):
+        result = server.brain_move(op="archive")
+        _assert_error(result, "requires top-level field 'path'")
+
+    def test_archive_rejects_rename_fields(self, initialized):
+        result = server.brain_move(
+            op="archive",
+            path="Ideas/my-idea.md",
+            source="Ideas/my-idea.md",
+        )
+        _assert_error(result, "does not accept top-level field 'source'")
+
+    def test_unarchive_restores_archived_artefact(self, initialized):
+        rel = self._make_archived(initialized)
+        result = server.brain_move(op="unarchive", path=rel)
+        assert result.startswith("**Unarchived:**")
+        assert not (initialized / rel).exists()
+        assert (initialized / "Ideas" / "my-idea.md").exists()
+
+    def test_unarchive_forces_router_refresh(self, initialized):
+        rel = self._make_archived(initialized)
+        with patch.object(server, "_ensure_router_fresh") as mock_ensure:
+            result = server.brain_move(op="unarchive", path=rel)
+        assert result.startswith("**Unarchived:**")
+        mock_ensure.assert_called_once_with()
+
+    def test_unarchive_marks_router_dirty(self, initialized):
+        rel = self._make_archived(initialized)
+        server._router_dirty = False
+        result = server.brain_move(op="unarchive", path=rel)
+        assert result.startswith("**Unarchived:**")
+        assert server._router_dirty is True
+
+    def test_unarchive_requires_path(self, initialized):
+        result = server.brain_move(op="unarchive")
+        _assert_error(result, "requires top-level field 'path'")
+
+
+class TestBrainAction:
+    def test_action_unknown(self, initialized):
+        result = server.brain_action("bogus")
+        _assert_error(result, "Unknown action")
 
 
 # ---------------------------------------------------------------------------
@@ -1448,13 +1643,48 @@ class TestBrainCreate:
         )
         _assert_error(result, "not creatable")
 
+    def test_create_resource_rejects_artefact_field_for_skill(self, initialized):
+        """brain_create rejects artefact-only fields when resource is not artefact."""
+        result = server.brain_create(
+            resource="skill", name="my-skill", body="content", type="wiki",
+        )
+        _assert_error(result, "does not accept top-level field 'type'")
+
+    def test_create_artefact_rejects_non_artefact_field(self, initialized):
+        """brain_create rejects non-artefact fields when resource is artefact."""
+        result = server.brain_create(
+            resource="artefact", type="wiki", title="My Page", name="spurious",
+        )
+        _assert_error(result, "does not accept top-level field 'name'")
+
+    def test_create_skill_requires_body(self, initialized):
+        """brain_create(resource='skill') still errors when body is absent (handler enforcement)."""
+        result = server.brain_create(resource="skill", name="my-skill")
+        _assert_error(result, "requires body")
+
     def test_create_artefact_requires_type(self, initialized):
         result = server.brain_create(title="No Type")
-        _assert_error(result, "type is required")
+        _assert_error(result, "requires top-level field 'type'")
 
     def test_create_artefact_requires_title(self, initialized):
         result = server.brain_create(type="wiki")
-        _assert_error(result, "title is required")
+        _assert_error(result, "requires top-level field 'title'")
+
+    def test_create_error_cleans_up_temp_body_file(self, initialized):
+        with tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8") as f:
+            f.write("temporary body\n")
+            temp_path = f.name
+
+        try:
+            result = server.brain_create(
+                title="No Type",
+                body_file=temp_path,
+            )
+            _assert_error(result, "requires top-level field 'type'")
+            assert not os.path.exists(temp_path), "temp body_file was not cleaned up"
+        finally:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
 
 
 # ---------------------------------------------------------------------------
@@ -1901,6 +2131,69 @@ class TestBrainEdit:
         )
         _assert_error(delete_result, "delete_section requires a heading or callout target")
 
+    def test_invalid_scope_error_lists_meanings(self, initialized):
+        path = initialized / "Wiki" / "brain-overview-abc123.md"
+        path.write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "> [!note] Implementation status\n"
+            "> Old status content.\n"
+        )
+        result = server.brain_edit(
+            operation="append",
+            path="Wiki/brain-overview-abc123.md",
+            target="[!note] Implementation status",
+            scope="header",
+            body="> More status content.\n",
+        )
+        _assert_error(result, "scope='header' is not valid for append on callout targets")
+        _assert_error(result, "scope='body' -> the callout body")
+        _assert_error(result, "scope='section' -> the whole callout")
+
+    def test_invalid_scope_error_cleans_up_temp_body_file(self, initialized):
+        path = initialized / "Wiki" / "brain-overview-abc123.md"
+        path.write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "> [!note] Implementation status\n"
+            "> Old status content.\n"
+        )
+        with tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8") as f:
+            f.write("> More status content.\n")
+            temp_path = f.name
+
+        try:
+            result = server.brain_edit(
+                operation="append",
+                path="Wiki/brain-overview-abc123.md",
+                target="[!note] Implementation status",
+                scope="header",
+                body_file=temp_path,
+            )
+            _assert_error(result, "scope='header' is not valid for append on callout targets")
+            assert not os.path.exists(temp_path), "temp body_file was not cleaned up"
+        finally:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+
+    def test_invalid_scope_error_preflights_before_body_file_read(self, initialized):
+        path = initialized / "Wiki" / "brain-overview-abc123.md"
+        path.write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "> [!note] Implementation status\n"
+            "> Old status content.\n"
+        )
+        with patch(
+            "brain_mcp._server_artefacts.resolve_body_file",
+            side_effect=AssertionError("resolve_body_file should not be called"),
+        ):
+            result = server.brain_edit(
+                operation="append",
+                path="Wiki/brain-overview-abc123.md",
+                target="[!note] Implementation status",
+                scope="header",
+                body_file="/tmp/should-not-be-read.md",
+            )
+        _assert_error(result, "scope='header' is not valid for append on callout targets")
+
     def test_legacy_body_before_first_heading_target_rejected(self, initialized):
         result = server.brain_edit(
             operation="edit",
@@ -2120,7 +2413,7 @@ class TestBrainEdit:
         (mem_dir / "test-memory.md").write_text(
             "---\ntriggers:\n  - kw1\n---\n\nOriginal.\n"
         )
-        server.brain_action("compile")
+        server.startup(vault_root=str(initialized))
 
         result = server.brain_edit(
             resource="memory",
@@ -2139,7 +2432,7 @@ class TestBrainEdit:
         (mem_dir / "test-memory.md").write_text(
             "---\ntriggers:\n  - kw1\n---\n\nOriginal.\n"
         )
-        server.brain_action("compile")
+        server.startup(vault_root=str(initialized))
 
         baseline = _search_text(server.brain_search("xenocrypticmemorytoken"))
         assert "0 results" in baseline
@@ -2163,31 +2456,92 @@ class TestBrainEdit:
             resource="workspace", operation="edit", name="ws",
             body="content",
         )
-        _assert_error(result, "not editable")
+        _assert_error(result, "not supported by brain_edit")
 
     def test_edit_artefact_requires_path(self, initialized):
         result = server.brain_edit(
             operation="edit", body="content",
         )
-        _assert_error(result, "path is required")
+        _assert_error(result, "requires top-level field 'path'")
+
+    def test_edit_artefact_rejects_name_as_extra(self, initialized):
+        """brain_edit rejects artefact-only combo when 'name' (non-artefact field) is passed."""
+        result = server.brain_edit(
+            operation="edit",
+            path="Wiki/brain-overview-abc123.md",
+            name="spurious-name",
+            frontmatter={"status": "active"},
+        )
+        _assert_error(result, "does not accept top-level field 'name'")
+
+    def test_edit_skill_rejects_path_as_extra(self, initialized):
+        """brain_edit rejects skill+op combo when 'path' (artefact-only field) is passed."""
+        result = server.brain_edit(
+            operation="edit",
+            resource="skill",
+            name="my-skill",
+            path="Wiki/some-artefact.md",
+            frontmatter={"status": "active"},
+        )
+        _assert_error(result, "does not accept top-level field 'path'")
+
+    def test_edit_skill_rejects_fix_links_as_extra(self, initialized):
+        """brain_edit rejects fix_links for non-artefact resource."""
+        result = server.brain_edit(
+            operation="edit",
+            resource="skill",
+            name="my-skill",
+            fix_links=True,
+            frontmatter={"status": "active"},
+        )
+        _assert_error(result, "does not accept top-level field 'fix_links'")
+
+    def test_edit_error_cleans_up_temp_body_file(self, initialized):
+        """Spec validation before resolve_body_file still triggers body_file cleanup."""
+        with tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8") as f:
+            f.write("temporary body\n")
+            temp_path = f.name
+
+        try:
+            result = server.brain_edit(
+                operation="edit",
+                body_file=temp_path,
+            )
+            _assert_error(result, "requires top-level field 'path'")
+            assert not os.path.exists(temp_path), "temp body_file was not cleaned up"
+        finally:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
 
 
 # ---------------------------------------------------------------------------
-# brain_action delete/convert tests
+# brain_action delete / brain_move convert tests
 # ---------------------------------------------------------------------------
 
 class TestBrainActionDelete:
     def test_delete_removes_file(self, initialized):
-        result = server.brain_action("delete", {"path": "Wiki/python-guide-def456.md"})
+        result = server.brain_action("delete", params={"path": "Wiki/python-guide-def456.md"})
         assert result.startswith("**Deleted:**")
         assert not (initialized / "Wiki" / "python-guide-def456.md").exists()
+
+    def test_delete_forces_router_refresh(self, initialized):
+        with patch.object(server, "_ensure_router_fresh") as mock_ensure:
+            result = server.brain_action("delete", params={"path": "Wiki/python-guide-def456.md"})
+        assert result.startswith("**Deleted:**")
+        mock_ensure.assert_called_once_with()
+
+    def test_delete_marks_router_dirty(self, initialized):
+        server._router_dirty = False
+        result = server.brain_action("delete", params={"path": "Wiki/python-guide-def456.md"})
+        assert result.startswith("**Deleted:**")
+        assert server._router_dirty is True
 
     def test_delete_cleans_links(self, initialized):
         # Add a link to the target file
         (initialized / "Wiki" / "linker-aaa000.md").write_text(
             "---\ntype: living/wiki\ntags: []\n---\n\nSee [[Wiki/python-guide-def456|Python]].\n"
         )
-        result = server.brain_action("delete", {"path": "Wiki/python-guide-def456.md"})
+        result = server.brain_action("delete", params={"path": "Wiki/python-guide-def456.md"})
         assert "links replaced" in result
         content = (initialized / "Wiki" / "linker-aaa000.md").read_text()
         assert "~~Python~~" in content
@@ -2197,16 +2551,35 @@ class TestBrainActionDelete:
         _assert_error(result)
 
     def test_delete_not_found(self, initialized):
-        result = server.brain_action("delete", {"path": "Wiki/gone.md"})
+        result = server.brain_action("delete", params={"path": "Wiki/gone.md"})
         _assert_error(result)
 
+    def test_delete_rejects_mismatched_shape_params_at_runtime(self, initialized):
+        result = server.brain_action(
+            "delete",
+            params={"source": "Wiki/python-guide-def456.md", "slug": "brief"},
+        )
+        _assert_error(result, "does not accept params field 'source'")
 
-class TestBrainActionConvert:
+    def test_delete_rejects_fix_links_variant_overlap(self, initialized):
+        result = server.brain_action(
+            "delete",
+            params={"path": "Wiki/python-guide-def456.md", "fix": True},
+        )
+        _assert_error(result, "does not accept params field 'fix'")
+
+    def test_delete_rejects_protected_source(self, initialized):
+        result = server.brain_action("delete", params={"path": ".brain-core/VERSION"})
+        _assert_error(result, ".brain-core")
+
+
+class TestBrainMoveConvert:
     def test_convert_changes_type_and_path(self, initialized):
-        result = json.loads(server.brain_action("convert", {
-            "path": "Wiki/brain-overview-abc123.md",
-            "target_type": "ideas",
-        }))
+        result = json.loads(server.brain_move(
+            op="convert",
+            path="Wiki/brain-overview-abc123.md",
+            target_type="ideas",
+        ))
         assert result["status"] == "ok"
         assert result["type"] == "living/ideas"
         assert result["new_path"].startswith("Ideas/")
@@ -2217,24 +2590,46 @@ class TestBrainActionConvert:
         (initialized / "Wiki" / "linker-bbb000.md").write_text(
             "---\ntype: living/wiki\ntags: []\n---\n\nSee [[Wiki/brain-overview-abc123]].\n"
         )
-        result = json.loads(server.brain_action("convert", {
-            "path": "Wiki/brain-overview-abc123.md",
-            "target_type": "ideas",
-        }))
+        result = json.loads(server.brain_move(
+            op="convert",
+            path="Wiki/brain-overview-abc123.md",
+            target_type="ideas",
+        ))
         assert result["links_updated"] >= 1
         content = (initialized / "Wiki" / "linker-bbb000.md").read_text()
         new_stem = result["new_path"][:-3]
         assert f"[[{new_stem}]]" in content
 
+    def test_convert_forces_router_refresh(self, initialized):
+        with patch.object(server, "_ensure_router_fresh") as mock_ensure:
+            result = server.brain_move(
+                op="convert",
+                path="Wiki/brain-overview-abc123.md",
+                target_type="ideas",
+            )
+        assert '"status": "ok"' in result
+        mock_ensure.assert_called_once_with()
+
+    def test_convert_marks_router_dirty(self, initialized):
+        server._router_dirty = False
+        result = server.brain_move(
+            op="convert",
+            path="Wiki/brain-overview-abc123.md",
+            target_type="ideas",
+        )
+        assert '"status": "ok"' in result
+        assert server._router_dirty is True
+
     def test_convert_missing_params(self, initialized):
-        result = server.brain_action("convert")
-        _assert_error(result)
+        result = server.brain_move(op="convert")
+        _assert_error(result, "requires top-level field 'path'")
 
     def test_convert_unknown_target(self, initialized):
-        result = server.brain_action("convert", {
-            "path": "Wiki/brain-overview-abc123.md",
-            "target_type": "nonexistent",
-        })
+        result = server.brain_move(
+            op="convert",
+            path="Wiki/brain-overview-abc123.md",
+            target_type="nonexistent",
+        )
         _assert_error(result)
 
 
@@ -2267,18 +2662,21 @@ class TestBrainActionShapePresentation:
         _assert_error(result)
 
     def test_missing_source_returns_error(self, initialized):
-        result = server.brain_action("shape-presentation", {"slug": "test"})
+        result = server.brain_action("shape-presentation", params={"slug": "test"})
         _assert_error(result)
 
     def test_missing_slug_returns_error(self, initialized):
-        result = server.brain_action("shape-presentation", {"source": "Wiki/brain-overview-abc123.md"})
+        result = server.brain_action(
+            "shape-presentation",
+            params={"source": "Wiki/brain-overview-abc123.md"},
+        )
         _assert_error(result)
 
     def test_source_not_found_returns_error(self, initialized):
-        result = server.brain_action("shape-presentation", {
-            "source": "Wiki/nonexistent.md",
-            "slug": "test",
-        })
+        result = server.brain_action(
+            "shape-presentation",
+            params={"source": "Wiki/nonexistent.md", "slug": "test"},
+        )
         _assert_error(result)
 
     @staticmethod
@@ -2292,12 +2690,13 @@ class TestBrainActionShapePresentation:
     @patch("shape_presentation.subprocess.Popen")
     @patch("shape_presentation.subprocess.run")
     def test_creates_file_and_returns_status(self, mock_run, mock_popen, initialized):
+        server._index_pending.clear()
         mock_run.side_effect = self._fake_marp_run
         mock_popen.return_value.pid = 12345
-        result = json.loads(server.brain_action("shape-presentation", {
-            "source": "Wiki/brain-overview-abc123.md",
-            "slug": "test-deck",
-        }))
+        result = json.loads(server.brain_action(
+            "shape-presentation",
+            params={"source": "Wiki/brain-overview-abc123.md", "slug": "test-deck"},
+        ))
         assert result["status"] == "ok"
         assert "presentation" in result["path"]
         assert "test-deck" in result["path"]
@@ -2310,6 +2709,19 @@ class TestBrainActionShapePresentation:
         pdf_abs = os.path.join(str(initialized), result["pdf_path"])
         assert os.path.isfile(abs_path)
         assert os.path.isfile(pdf_abs)
+        assert ("_Temporal/Presentations/" in result["path"])
+        assert any(rel_path == result["path"] for rel_path, _ in server._index_pending)
+
+    def test_shape_presentation_rejects_printable_only_param(self, initialized):
+        result = server.brain_action(
+            "shape-presentation",
+            params={
+                "source": "Wiki/brain-overview-abc123.md",
+                "slug": "test-deck",
+                "pdf_engine": "xelatex",
+            },
+        )
+        _assert_error(result, "does not accept params field 'pdf_engine'")
 
     @patch("shape_presentation.subprocess.Popen")
     @patch("shape_presentation.subprocess.run")
@@ -2317,26 +2729,26 @@ class TestBrainActionShapePresentation:
         mock_run.side_effect = self._fake_marp_run
         mock_popen.return_value.pid = 12345
         # First call creates
-        result1 = json.loads(server.brain_action("shape-presentation", {
-            "source": "Wiki/brain-overview-abc123.md",
-            "slug": "existing-deck",
-        }))
+        result1 = json.loads(server.brain_action(
+            "shape-presentation",
+            params={"source": "Wiki/brain-overview-abc123.md", "slug": "existing-deck"},
+        ))
         assert result1["created"] is True
         # Second call reuses
-        result2 = json.loads(server.brain_action("shape-presentation", {
-            "source": "Wiki/brain-overview-abc123.md",
-            "slug": "existing-deck",
-        }))
+        result2 = json.loads(server.brain_action(
+            "shape-presentation",
+            params={"source": "Wiki/brain-overview-abc123.md", "slug": "existing-deck"},
+        ))
         assert result2["status"] == "ok"
         assert result2["created"] is False
 
     @patch("shape_presentation.subprocess.run", side_effect=FileNotFoundError)
     def test_works_without_marp_installed(self, mock_run, initialized):
         """Should create markdown but return partial when Marp is unavailable."""
-        result = json.loads(server.brain_action("shape-presentation", {
-            "source": "Wiki/brain-overview-abc123.md",
-            "slug": "no-marp",
-        }))
+        result = json.loads(server.brain_action(
+            "shape-presentation",
+            params={"source": "Wiki/brain-overview-abc123.md", "slug": "no-marp"},
+        ))
         assert result["status"] == "partial"
         assert result["rendered"] is False
         assert "marp" in result["warning"]
@@ -2373,18 +2785,21 @@ class TestBrainActionShapePrintable:
         _assert_error(result)
 
     def test_missing_source_returns_error(self, initialized):
-        result = server.brain_action("shape-printable", {"slug": "brief"})
+        result = server.brain_action("shape-printable", params={"slug": "brief"})
         _assert_error(result)
 
     def test_missing_slug_returns_error(self, initialized):
-        result = server.brain_action("shape-printable", {"source": "Wiki/brain-overview-abc123.md"})
+        result = server.brain_action(
+            "shape-printable",
+            params={"source": "Wiki/brain-overview-abc123.md"},
+        )
         _assert_error(result)
 
     def test_source_not_found_returns_error(self, initialized):
-        result = server.brain_action("shape-printable", {
-            "source": "Wiki/nonexistent.md",
-            "slug": "brief",
-        })
+        result = server.brain_action(
+            "shape-printable",
+            params={"source": "Wiki/nonexistent.md", "slug": "brief"},
+        )
         _assert_error(result)
 
     @staticmethod
@@ -2404,13 +2819,14 @@ class TestBrainActionShapePrintable:
     @patch("shape_printable.subprocess.run")
     @patch("shape_printable.shutil.which")
     def test_creates_file_and_renders_pdf(self, mock_which, mock_run, initialized):
+        server._index_pending.clear()
         mock_which.side_effect = self._fake_which_default
         mock_run.side_effect = self._fake_pandoc_run
 
-        result = json.loads(server.brain_action("shape-printable", {
-            "source": "Wiki/brain-overview-abc123.md",
-            "slug": "board-brief",
-        }))
+        result = json.loads(server.brain_action(
+            "shape-printable",
+            params={"source": "Wiki/brain-overview-abc123.md", "slug": "board-brief"},
+        ))
         assert result["status"] == "ok"
         assert "printable" in result["path"]
         assert "board-brief" in result["path"]
@@ -2421,8 +2837,20 @@ class TestBrainActionShapePrintable:
         pdf_abs = os.path.join(str(initialized), result["pdf_path"])
         assert os.path.isfile(abs_path)
         assert os.path.isfile(pdf_abs)
+        assert any(rel_path == result["path"] for rel_path, _ in server._index_pending)
         cmd = mock_run.call_args[0][0]
         assert any(arg.endswith("keep-headings.tex") for arg in cmd)
+
+    def test_shape_printable_rejects_presentation_only_param(self, initialized):
+        result = server.brain_action(
+            "shape-printable",
+            params={
+                "source": "Wiki/brain-overview-abc123.md",
+                "slug": "board-brief",
+                "preview": True,
+            },
+        )
+        _assert_error(result, "does not accept params field 'preview'")
 
     @patch("shape_printable.subprocess.run")
     @patch("shape_printable.shutil.which")
@@ -2430,11 +2858,14 @@ class TestBrainActionShapePrintable:
         mock_which.side_effect = self._fake_which_default
         mock_run.side_effect = self._fake_pandoc_run
 
-        result = json.loads(server.brain_action("shape-printable", {
-            "source": "Wiki/brain-overview-abc123.md",
-            "slug": "tight-layout",
-            "keep_heading_with_next": False,
-        }))
+        result = json.loads(server.brain_action(
+            "shape-printable",
+            params={
+                "source": "Wiki/brain-overview-abc123.md",
+                "slug": "tight-layout",
+                "keep_heading_with_next": False,
+            },
+        ))
         assert result["status"] == "ok"
         assert result["keep_heading_with_next"] is False
         cmd = mock_run.call_args[0][0]
@@ -2450,10 +2881,10 @@ class TestBrainActionShapePrintable:
             return None
 
         mock_which.side_effect = fake_which
-        result = json.loads(server.brain_action("shape-printable", {
-            "source": "Wiki/brain-overview-abc123.md",
-            "slug": "no-pandoc",
-        }))
+        result = json.loads(server.brain_action(
+            "shape-printable",
+            params={"source": "Wiki/brain-overview-abc123.md", "slug": "no-pandoc"},
+        ))
         assert result["status"] == "partial"
         assert result["rendered"] is False
         assert "pandoc" in result["warning"]
@@ -2478,10 +2909,10 @@ class TestBrainActionShapePrintable:
         mock_which.side_effect = fake_which
         mock_run.side_effect = self._fake_pandoc_run
 
-        result = json.loads(server.brain_action("shape-printable", {
-            "source": "Wiki/brain-overview-abc123.md",
-            "slug": "configured-tools",
-        }))
+        result = json.loads(server.brain_action(
+            "shape-printable",
+            params={"source": "Wiki/brain-overview-abc123.md", "slug": "configured-tools"},
+        ))
         assert result["status"] == "ok"
         cmd = mock_run.call_args[0][0]
         assert cmd[0] == "/opt/brain-tools/pandoc"
@@ -2514,10 +2945,10 @@ class TestBrainActionShapePrintable:
         mock_which.side_effect = fake_which
         mock_run.side_effect = self._fake_pandoc_run
 
-        result = json.loads(server.brain_action("shape-printable", {
-            "source": "Wiki/brain-overview-abc123.md",
-            "slug": "env-tools",
-        }))
+        result = json.loads(server.brain_action(
+            "shape-printable",
+            params={"source": "Wiki/brain-overview-abc123.md", "slug": "env-tools"},
+        ))
         assert result["status"] == "ok"
         cmd = mock_run.call_args[0][0]
         assert cmd[0] == "/env/brain-tools/pandoc"
@@ -2580,27 +3011,27 @@ class TestBrainActionStartShaping:
             "Shaping transcript for [[SOURCE_DOC_PATH|SOURCE_DOC_TITLE]].\n\n"
             "## {{date:YYYY-MM-DD}}\n\nQ.\n> A.\n"
         )
-        # Recompile router to pick up new types
-        server.brain_action("compile")
+        # Force a router rebuild so the new taxonomy is definitely visible.
+        server._router = server._compile_and_save(str(initialized))
 
     def test_missing_params_returns_error(self):
         result = server.brain_action("start-shaping")
         _assert_error(result)
 
     def test_missing_target_returns_error(self):
-        result = server.brain_action("start-shaping", {})
+        result = server.brain_action("start-shaping", params={"title": "Missing target"})
         _assert_error(result)
 
     def test_target_not_found_returns_error(self):
-        result = server.brain_action("start-shaping", {
-            "target": "Nonexistent File",
-        })
+        result = server.brain_action("start-shaping", params={"target": "Nonexistent File"})
         _assert_error(result)
 
     def test_happy_path_creates_transcript(self):
-        result = json.loads(server.brain_action("start-shaping", {
-            "target": "Designs/Test Design.md",
-        }))
+        server._index_pending.clear()
+        result = json.loads(server.brain_action(
+            "start-shaping",
+            params={"target": "Designs/Test Design.md"},
+        ))
         assert result["status"] == "ok"
         assert result["target_path"] == "Designs/Test Design.md"
         assert "shaping-transcript" in result["transcript_path"]
@@ -2608,6 +3039,55 @@ class TestBrainActionStartShaping:
         # Transcript exists on disk
         abs_path = os.path.join(str(self.vault), result["transcript_path"])
         assert os.path.isfile(abs_path)
+        pending_paths = [rel_path for rel_path, _ in server._index_pending]
+        assert result["target_path"] in pending_paths
+        assert result["transcript_path"] in pending_paths
+
+    def test_start_shaping_revives_terminal_folder_path(self):
+        terminal_dir = self.vault / "Designs" / "+Implemented"
+        terminal_dir.mkdir(exist_ok=True)
+        source_path = terminal_dir / "Revived Design.md"
+        source_path.write_text(
+            "---\ntype: living/designs\ntags:\n  - design\nstatus: implemented\n"
+            "created: 2026-03-01T10:00:00+00:00\n"
+            "modified: 2026-03-01T10:00:00+00:00\n---\n\n"
+            "# Revived Design\n\nA terminal design.\n"
+        )
+        tax_living = self.vault / "_Config" / "Taxonomy" / "Living"
+        (tax_living / "designs.md").write_text(
+            "# Designs\n\n"
+            "## Lifecycle\n\n"
+            "| `new` | Newly created |\n"
+            "| `shaping` | Being shaped |\n"
+            "| `ready` | Ready |\n"
+            "| `implemented` | Implemented |\n\n"
+            "## Naming\n\n`{Title}.md` in `Designs/`.\n\n"
+            "## Frontmatter\n\n```yaml\n---\ntype: living/designs\ntags:\n  - design\n"
+            "status: new  # new | shaping | ready | implemented\n---\n```\n\n"
+            "## Template\n\n[[_Config/Templates/Living/Designs]]\n"
+        )
+        server._router = server._compile_and_save(str(self.vault))
+
+        result = json.loads(server.brain_action(
+            "start-shaping",
+            params={"target": "Designs/+Implemented/Revived Design.md"},
+        ))
+
+        assert result["status"] == "ok"
+        assert result["target_path"] == "Designs/Revived Design.md"
+        assert not source_path.exists()
+        revived = self.vault / "Designs" / "Revived Design.md"
+        assert revived.exists()
+        assert "status: shaping" in revived.read_text()
+
+    def test_start_shaping_forces_router_refresh(self):
+        with patch.object(server, "_ensure_router_fresh") as mock_ensure:
+            result = server.brain_action(
+                "start-shaping",
+                params={"target": "Designs/Test Design.md"},
+            )
+        assert '"status": "ok"' in result
+        mock_ensure.assert_called_once_with()
 
 
 # ---------------------------------------------------------------------------
@@ -2695,13 +3175,13 @@ class TestBrainSession:
         assert "obsidian_cli_available" in env
 
     def test_memories_condensed(self, initialized):
-        # Add memories and recompile
+        # Add memories and restart to recompile.
         memories_dir = initialized / "_Config" / "Memories"
         memories_dir.mkdir(parents=True, exist_ok=True)
         (memories_dir / "test-mem.md").write_text(
             "---\ntriggers: [test, memory]\n---\n\n# Test Memory\n"
         )
-        server.brain_action("compile")
+        server.startup(vault_root=str(initialized))
 
         result = json.loads(server.brain_session())
         assert isinstance(result["memories"], list)
@@ -3182,7 +3662,8 @@ class TestWorkspaceRead:
 
     def test_read_workspace_requires_name(self):
         result = server.brain_read("workspace")
-        _assert_error(result, "requires name")
+        _assert_error(result, "requires top-level field 'name'")
+        _assert_error(result, "brain_list(resource='workspace')")
 
     def test_resolve_workspace_by_slug(self):
         result = server.brain_read("workspace", name="analysis")
@@ -3193,163 +3674,30 @@ class TestWorkspaceRead:
         result = server.brain_read("workspace", name="nonexistent")
         _assert_error(result)
 
+    def test_read_workspace_reflects_script_registration_without_restart(self, tmp_path):
+        ext_path = tmp_path / "proj"
+        workspace_registry.register_workspace(str(self.vault), "proj", str(ext_path))
 
-class TestWorkspaceActions:
-    """Tests for brain_action register/unregister workspace."""
+        result = server.brain_read("workspace", name="proj")
 
-    def test_register_linked_workspace(self, initialized, tmp_path):
-        ext_path = str(tmp_path / "my-repo")
-        result = server.brain_action("register_workspace", {
-            "slug": "my-repo", "path": ext_path,
-        })
-        assert "registered" in result
-        assert "my-repo" in result
-        # Verify server state was refreshed
-        assert "my-repo" in server._workspace_registry
-
-    def test_register_missing_params(self, initialized):
-        result = server.brain_action("register_workspace")
-        _assert_error(result)
-
-    def test_register_missing_path(self, initialized):
-        result = server.brain_action("register_workspace", {"slug": "x"})
-        _assert_error(result)
-
-    def test_unregister_workspace(self, initialized, tmp_path):
-        # Register first
-        server.brain_action("register_workspace", {
-            "slug": "temp", "path": str(tmp_path / "temp"),
-        })
-        result = server.brain_action("unregister_workspace", {"slug": "temp"})
-        assert "unregistered" in result
-        assert "temp" not in server._workspace_registry
-
-    def test_unregister_missing_params(self, initialized):
-        result = server.brain_action("unregister_workspace")
-        _assert_error(result)
-
-    def test_unregister_unknown_slug(self, initialized):
-        result = server.brain_action("unregister_workspace", {"slug": "ghost"})
-        _assert_error(result)
-
-    def test_registered_workspace_visible_in_list(self, initialized, tmp_path):
-        """After registering, brain_list(resource='workspace') should show it."""
-        ext_path = str(tmp_path / "visible-proj")
-        server.brain_action("register_workspace", {
-            "slug": "visible-proj", "path": ext_path,
-        })
-        result = server.brain_list(resource="workspace")
-        text = _search_text(result)
-        assert "visible-proj" in text
-
-    def test_registered_workspace_resolvable(self, initialized, tmp_path):
-        """After registering, brain_read workspace name=slug should resolve."""
-        ext_path = str(tmp_path / "resolvable")
-        server.brain_action("register_workspace", {
-            "slug": "resolvable", "path": ext_path,
-        })
-        result = server.brain_read("workspace", name="resolvable")
-        assert "resolvable" in result
+        assert "proj" in result
+        assert str(ext_path) in result
         assert "linked" in result
+        assert server._workspace_registry["proj"]["path"] == str(ext_path)
 
+    def test_list_and_read_workspace_reflect_script_unregistration_without_restart(
+        self, tmp_path,
+    ):
+        ext_path = tmp_path / "proj"
+        workspace_registry.register_workspace(str(self.vault), "proj", str(ext_path))
+        assert "proj" in _search_text(server.brain_list(resource="workspace"))
 
-# ---------------------------------------------------------------------------
-# Startup loads workspace registry
-# ---------------------------------------------------------------------------
+        workspace_registry.unregister_workspace(str(self.vault), "proj")
 
-# ---------------------------------------------------------------------------
-# brain_process tool
-# ---------------------------------------------------------------------------
-
-class TestBrainProcess:
-    def test_process_classify_context_assembly(self, initialized):
-        result = server.brain_process(
-            operation="classify",
-            content="I have a new idea for solar powered keyboards",
-            mode="context_assembly",
-        )
-        assert isinstance(result, str)
-        assert "context_assembly" in result
-
-    def test_process_classify_bm25(self, initialized):
-        # Add Purpose/When To Use to taxonomy for BM25 scoring
-        tax_ideas = os.path.join(str(initialized), "_Config", "Taxonomy", "Living", "ideas.md")
-        with open(tax_ideas, "w") as f:
-            f.write(
-                "# Ideas\n\n"
-                "A concept that needs iterative refinement.\n\n"
-                "## Naming\n\n`{Title}.md` in `Ideas/`.\n\n"
-                "## Frontmatter\n\n```yaml\n---\ntype: living/ideas\n---\n```\n\n"
-                "## Purpose\n\nCapture concepts that need development.\n\n"
-                "## When To Use\n\nWhen developing a concept that needs iterative refinement.\n\n"
-                "## Template\n\n[[_Config/Templates/Living/Ideas]]\n"
-            )
-        # Re-initialize to rebuild index
-        server.startup(vault_root=str(initialized))
-        result = server.brain_process(
-            operation="classify",
-            content="a new concept idea that needs iterative development and refinement",
-            mode="bm25_only",
-        )
-        assert isinstance(result, str)
-        assert "**Classified**" in result
-        assert "bm25_only" in result
-
-    def test_process_resolve_create(self, initialized):
-        result = server.brain_process(
-            operation="resolve",
-            content="Some content about a brand new topic",
-            type="wiki",
-            title="Quantum Computing Primer",
-        )
-        assert isinstance(result, str)
-        assert "**Resolve**" in result
-        assert "create" in result
-
-    def test_process_resolve_update(self, initialized):
-        result = server.brain_process(
-            operation="resolve",
-            content="Updated information",
-            type="wiki",
-            title="brain-overview-abc123",
-        )
-        assert isinstance(result, str)
-        assert "**Resolve**" in result
-        assert "update" in result
-
-    def test_process_resolve_missing_params(self, initialized):
-        result = server.brain_process(
-            operation="resolve",
-            content="Some content",
-        )
-        _assert_error(result, "resolve requires type and title")
-
-    def test_process_ingest_creates_file(self, initialized):
-        result = server.brain_process(
-            operation="ingest",
-            content="# Quantum Coffee\n\nWhat if coffee brewed itself?",
-            type="ideas",
-        )
-        assert isinstance(result, str)
-        assert "**Ingested**" in result
-        assert "created" in result
-
-    def test_process_ingest_needs_classification(self, initialized):
-        # Without embeddings or BM25 type descriptions, falls to context_assembly
-        result = server.brain_process(
-            operation="ingest",
-            content="Random content without hints",
-        )
-        # Should return context_assembly since no scoring available
-        assert isinstance(result, str)
-        assert "context_assembly" in result
-
-    def test_process_unknown_operation(self, initialized):
-        result = server.brain_process(
-            operation="nonexistent",
-            content="test",
-        )
-        _assert_error(result, "Unknown operation")
+        assert "proj" not in _search_text(server.brain_list(resource="workspace"))
+        result = server.brain_read("workspace", name="proj")
+        _assert_error(result, "Unknown workspace")
+        assert "proj" not in server._workspace_registry
 
 
 class TestWorkspaceStartup:
@@ -3410,7 +3758,7 @@ class TestBrainActionFixLinks:
             "---\ntype: living/wiki\ntags: []\n---\n\n"
             "See [[my-target-page]].\n"
         )
-        result = json.loads(server.brain_action("fix-links", {"fix": True}))
+        result = json.loads(server.brain_action("fix-links", params={"fix": True}))
         assert result["mode"] == "fix"
         assert result["summary"]["fixed"] >= 1
         assert result.get("substitutions", 0) >= 1
@@ -3426,213 +3774,8 @@ class TestBrainActionFixLinks:
         (vault / "Wiki" / "linker.md").write_text(
             "---\ntype: living/wiki\ntags: []\n---\n\nSee [[target-title]].\n"
         )
-        server.brain_action("fix-links", {"fix": True})
+        server.brain_action("fix-links", params={"fix": True})
         assert server._index_dirty is True
-
-
-# ---------------------------------------------------------------------------
-# brain_action sync_definitions tests
-# ---------------------------------------------------------------------------
-
-class TestBrainActionSyncDefinitions:
-    @pytest.fixture(autouse=True)
-    def setup_library(self, initialized):
-        """Add an artefact library with one type to the vault fixture."""
-        self.vault = initialized
-        lib_dir = initialized / ".brain-core" / "artefact-library" / "living" / "wiki"
-        lib_dir.mkdir(parents=True, exist_ok=True)
-        (lib_dir / "manifest.yaml").write_text(
-            "files:\n"
-            "  taxonomy:\n"
-            "    source: taxonomy.md\n"
-            "    target: _Config/Taxonomy/Living/wiki.md\n"
-        )
-        (lib_dir / "taxonomy.md").write_text(
-            "# Wiki\n\n## Naming\n\n`{Title}.md` in `Wiki/`.\n\n"
-            "## Frontmatter\n\n```yaml\n---\ntype: living/wiki\ntags: []\n---\n```\n"
-        )
-
-    def test_dry_run_returns_json(self, initialized):
-        """Dry run returns structured JSON without modifying files."""
-        result = json.loads(server.brain_action("sync_definitions", {"dry_run": True}))
-        assert result["dry_run"] is True
-        assert "status" in result
-        assert "updated" in result
-        assert "skipped" in result
-
-    def test_sync_updates_files(self, initialized):
-        """Non-dry-run sync updates outdated definitions."""
-        vault = initialized
-        tracking_path = vault / ".brain" / "tracking.json"
-        if tracking_path.exists():
-            tracking_path.unlink()
-        result = json.loads(server.brain_action("sync_definitions"))
-        assert result["status"] in ("ok", "warnings", "skipped")
-
-    def test_sync_with_type_filter(self, initialized):
-        """Type filter limits sync to specified types."""
-        result = json.loads(server.brain_action("sync_definitions", {
-            "dry_run": True,
-            "types": ["living/wiki"],
-        }))
-        assert result["dry_run"] is True
-        all_types = [u.get("type_key", "") for u in result.get("updated", [])]
-        all_types += [s.get("type_key", "") for s in result.get("skipped", [])]
-        for t in all_types:
-            if t:
-                assert "wiki" in t
-
-    def test_sync_recompiles_router_on_update(self, initialized):
-        """After a real sync with updates, router should be recompiled."""
-        vault = initialized
-        tracking_path = vault / ".brain" / "tracking.json"
-        if tracking_path.exists():
-            tracking_path.unlink()
-        old_compiled_at = server._router["meta"]["compiled_at"]
-        time.sleep(0.1)
-        result = json.loads(server.brain_action("sync_definitions"))
-        if result.get("updated"):
-            assert result.get("post_sync") == "Recompiled router."
-            assert server._router["meta"]["compiled_at"] != old_compiled_at
-
-    def test_force_flag(self, initialized):
-        """Force flag should allow overwrite even if files match."""
-        result = json.loads(server.brain_action("sync_definitions", {
-            "force": True,
-            "dry_run": True,
-        }))
-        assert result["dry_run"] is True
-
-    def test_sync_enqueues_mirror_refresh_on_update(self, initialized, monkeypatch):
-        """Finding 3: sync_definitions with updates triggers a background mirror refresh."""
-        import session as session_mod
-
-        vault = initialized
-        tracking_path = vault / ".brain" / "tracking.json"
-        if tracking_path.exists():
-            tracking_path.unlink()
-
-        calls: list[tuple] = []
-        original_persist = session_mod.persist_session_markdown
-
-        def tracking_persist(model, vault_root):
-            calls.append((time.monotonic(), vault_root))
-            original_persist(model, vault_root)
-
-        monkeypatch.setattr(session_mod, "persist_session_markdown", tracking_persist)
-
-        # Drain any pending work from fixture startup.
-        server._mirror_queue.join()
-        baseline = len(calls)
-
-        result = json.loads(server.brain_action("sync_definitions"))
-        server._mirror_queue.join()
-
-        if result.get("updated"):
-            assert len(calls) > baseline, (
-                "sync_definitions with updates should trigger a mirror refresh "
-                "via refresh_session_mirror_best_effort"
-            )
-
-
-# ---------------------------------------------------------------------------
-# brain_action migrate_naming tests
-# ---------------------------------------------------------------------------
-
-class TestBrainActionMigrateNaming:
-    @pytest.fixture(autouse=True)
-    def setup_plans_type(self, initialized):
-        """Add plans taxonomy and an old-convention file to test migration."""
-        self.vault = initialized
-        tax_temporal = initialized / "_Config" / "Taxonomy" / "Temporal"
-        tax_temporal.mkdir(parents=True, exist_ok=True)
-        (tax_temporal / "plans.md").write_text(
-            "# Plans\n\n## Naming\n\n`yyyymmdd-plan~{Title}.md` in `_Temporal/Plans/yyyy-mm/`.\n\n"
-            "## Frontmatter\n\n```yaml\n---\ntype: temporal/plans\ntags:\n  - plan\n---\n```\n"
-        )
-        month_dir = initialized / "_Temporal" / "Plans" / "2026-03"
-        month_dir.mkdir(parents=True, exist_ok=True)
-        server.brain_action("compile")
-
-    def _create_old_convention_file(self, name="test-migrate", title="Test Migrate"):
-        """Create an old-convention temporal file (double-dash separator)."""
-        month_dir = self.vault / "_Temporal" / "Plans" / "2026-03"
-        path = month_dir / f"20260301-plan--{name}.md"
-        path.write_text(
-            f"---\ntype: temporal/plans\ntags: [plan]\n---\n\n# {title}\n"
-        )
-        return path
-
-    def test_dry_run_returns_json(self, initialized):
-        """Dry run returns structured JSON summary."""
-        result = json.loads(server.brain_action("migrate_naming", {"dry_run": True}))
-        assert "renamed" in result
-        assert "skipped" in result
-
-    def test_dry_run_does_not_rename_files(self, initialized):
-        """Dry run should not move any files."""
-        self._create_old_convention_file()
-        files_before = set(str(p) for p in self.vault.rglob("*.md"))
-        server.brain_action("migrate_naming", {"dry_run": True})
-        files_after = set(str(p) for p in self.vault.rglob("*.md"))
-        assert files_before == files_after
-
-    def test_migrate_renames_old_convention_files(self, initialized):
-        """Actual migration renames double-dash files to tilde convention."""
-        old_path = self._create_old_convention_file()
-        assert old_path.exists()
-
-        result = json.loads(server.brain_action("migrate_naming"))
-        assert not old_path.exists(), "Old-convention file should have been renamed"
-        # Verify the tilde-convention file exists
-        month_dir = self.vault / "_Temporal" / "Plans" / "2026-03"
-        new_files = [f.name for f in month_dir.iterdir() if "~" in f.name]
-        assert len(new_files) >= 1
-
-    def test_migrate_rebuilds_router_and_index_on_rename(self, initialized):
-        """After actual renames, both router and index should be rebuilt."""
-        self._create_old_convention_file(name="needs-rename", title="Needs Rename")
-        old_compiled_at = server._router["meta"]["compiled_at"]
-        old_built_at = server._index["meta"]["built_at"]
-        time.sleep(0.1)
-
-        result = json.loads(server.brain_action("migrate_naming"))
-        renamed_count = result.get("renamed", 0)
-        if isinstance(renamed_count, list):
-            renamed_count = len(renamed_count)
-        if renamed_count > 0:
-            assert server._router["meta"]["compiled_at"] != old_compiled_at
-            assert server._index["meta"]["built_at"] != old_built_at
-
-    def test_migrate_enqueues_mirror_refresh_on_rename(self, initialized, monkeypatch):
-        """Finding 3: migrate_naming with renames triggers a background mirror refresh."""
-        import session as session_mod
-
-        self._create_old_convention_file(name="mirror-refresh", title="Mirror Refresh")
-
-        calls: list[tuple] = []
-        original_persist = session_mod.persist_session_markdown
-
-        def tracking_persist(model, vault_root):
-            calls.append((time.monotonic(), vault_root))
-            original_persist(model, vault_root)
-
-        monkeypatch.setattr(session_mod, "persist_session_markdown", tracking_persist)
-
-        server._mirror_queue.join()
-        baseline = len(calls)
-
-        result = json.loads(server.brain_action("migrate_naming"))
-        server._mirror_queue.join()
-
-        renamed_count = result.get("renamed", 0)
-        if isinstance(renamed_count, list):
-            renamed_count = len(renamed_count)
-        if renamed_count > 0:
-            assert len(calls) > baseline, (
-                "migrate_naming with renames should trigger a mirror refresh "
-                "via refresh_session_mirror_best_effort"
-            )
 
 
 # ---------------------------------------------------------------------------
@@ -3727,12 +3870,75 @@ class TestOperatorProfiles:
         _assert_error(result, "does not allow brain_edit")
 
         # reader cannot call brain_action
-        result = server.brain_action(action="compile")
+        result = server.brain_action(
+            action="delete",
+            params={"path": "Wiki/python-guide-def456.md"},
+        )
         _assert_error(result, "does not allow brain_action")
 
-        # reader cannot call brain_process
-        result = server.brain_process(operation="classify", content="test")
-        _assert_error(result, "does not allow brain_process")
+        # reader cannot call brain_move
+        result = server.brain_move(
+            op="rename",
+            source="Wiki/brain-overview-abc123.md",
+            dest="Wiki/brain-overview-renamed.md",
+        )
+        _assert_error(result, "does not allow brain_move")
+
+    def test_reader_create_does_not_force_router_refresh(self, initialized):
+        key = "timber-compass-violet"
+        server._config["vault"]["operators"] = [
+            {
+                "id": "test-reader",
+                "profile": "reader",
+                "auth": {"type": "key", "hash": config_mod.hash_key(key)},
+            },
+        ]
+        server.brain_session(operator_key=key)
+
+        with patch.object(server, "_ensure_router_fresh") as mock_ensure:
+            result = server.brain_create(type="ideas", title="test")
+
+        _assert_error(result, "does not allow brain_create")
+        mock_ensure.assert_not_called()
+
+    def test_reader_edit_does_not_force_router_refresh(self, initialized):
+        key = "timber-compass-violet"
+        server._config["vault"]["operators"] = [
+            {
+                "id": "test-reader",
+                "profile": "reader",
+                "auth": {"type": "key", "hash": config_mod.hash_key(key)},
+            },
+        ]
+        server.brain_session(operator_key=key)
+
+        with patch.object(server, "_ensure_router_fresh") as mock_ensure:
+            result = server.brain_edit(operation="edit", path="test.md", body="test")
+
+        _assert_error(result, "does not allow brain_edit")
+        mock_ensure.assert_not_called()
+
+    def test_denied_read_search_list_do_not_force_router_refresh(self, initialized):
+        key = "sealed-profile-key"
+        server._config["vault"]["profiles"]["sealed"] = {"allow": ["brain_session"]}
+        server._config["vault"]["operators"] = [
+            {
+                "id": "test-sealed",
+                "profile": "sealed",
+                "auth": {"type": "key", "hash": config_mod.hash_key(key)},
+            },
+        ]
+        server.brain_session(operator_key=key)
+
+        with patch.object(server, "_ensure_router_fresh") as mock_ensure:
+            read_result = server.brain_read("type", name="wiki")
+            search_result = server.brain_search("brain")
+            list_result = server.brain_list()
+
+        _assert_error(read_result, "does not allow brain_read")
+        _assert_error(search_result, "does not allow brain_search")
+        _assert_error(list_result, "does not allow brain_list")
+        mock_ensure.assert_not_called()
 
     def test_enforcement_contributor_allowed(self, initialized):
         """Contributor profile can call brain_create but not brain_action."""
@@ -3752,8 +3958,19 @@ class TestOperatorProfiles:
         assert not isinstance(result, CallToolResult) or not result.isError
 
         # contributor cannot use brain_action
-        result = server.brain_action(action="compile")
+        result = server.brain_action(
+            action="delete",
+            params={"path": "Wiki/python-guide-def456.md"},
+        )
         _assert_error(result, "does not allow brain_action")
+
+        # contributor cannot use brain_move
+        result = server.brain_move(
+            op="rename",
+            source="Wiki/brain-overview-abc123.md",
+            dest="Wiki/brain-overview-renamed.md",
+        )
+        _assert_error(result, "does not allow brain_move")
 
     def test_enforcement_no_config_allows_all(self, initialized):
         """No config loaded → all tools allowed (backward compat)."""
@@ -3809,14 +4026,6 @@ class TestIndexStaleness:
 
         # built_at must not have advanced
         assert server._index["meta"]["built_at"] == original_built_at
-
-    def test_runtime_can_mark_embeddings_dirty(self, initialized):
-        """ServerRuntime should expose the embeddings-dirty flag helper."""
-        server._embeddings_dirty = False
-
-        server._runtime().mark_embeddings_dirty()
-
-        assert server._embeddings_dirty is True
 
     def test_incremental_then_external_file_triggers_rebuild(self, initialized):
         """After incremental update, external files are detected via count mismatch."""
@@ -4143,7 +4352,6 @@ class TestStartupLogging:
         assert "startup phase success: config_load" in content
         assert "startup phase begin: router_freshness" in content
         assert "startup phase begin: index_freshness" in content
-        assert "startup phase begin: embeddings_load" in content
         assert "startup phase begin: workspace_registry_load" in content
         assert "startup phase begin: session_mirror_refresh" in content
         assert "startup complete" in content

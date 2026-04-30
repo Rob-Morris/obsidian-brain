@@ -21,6 +21,7 @@ import os
 import sys
 from datetime import datetime, timezone
 
+from _resource_contract import RESOURCE_KINDS
 from _common import (
     artefact_type_prefix,
     check_write_allowed,
@@ -249,7 +250,7 @@ def create_artefact(vault_root, router, type_key, title, body="", frontmatter_ov
 # Resource-aware creation (Phase 4)
 # ---------------------------------------------------------------------------
 
-_CREATABLE_RESOURCES = {"artefact", "skill", "memory", "style", "template"}
+CREATABLE_RESOURCES = RESOURCE_KINDS
 
 
 def create_resource(vault_root, router, resource="artefact", **kwargs):
@@ -273,10 +274,10 @@ def create_resource(vault_root, router, resource="artefact", **kwargs):
     if resource == "artefact":
         return create_artefact(vault_root, router, **kwargs)
 
-    if resource not in _CREATABLE_RESOURCES:
+    if resource not in CREATABLE_RESOURCES:
         raise ValueError(
             f"Resource '{resource}' is not creatable via brain_create. "
-            f"Creatable resources: {', '.join(sorted(_CREATABLE_RESOURCES))}"
+            f"Creatable resources: {', '.join(CREATABLE_RESOURCES)}"
         )
 
     name = kwargs.get("name")

@@ -13,7 +13,6 @@ Usage:
 
 import json
 import os
-import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -24,21 +23,11 @@ from _common import (
     normalize_artefact_key,
     read_artefact,
     read_version,
-    safe_write,
-    safe_write_via,
     safe_write_json,
     scan_living_types,
     scan_temporal_types,
     tokenise,
 )
-
-# Optional embedding dependencies — graceful degradation when missing
-try:
-    import numpy as np
-    from sentence_transformers import SentenceTransformer
-    _HAS_EMBEDDINGS = True
-except ImportError:
-    _HAS_EMBEDDINGS = False
 
 
 def extract_title(body, filename):
@@ -56,144 +45,9 @@ def extract_title(body, filename):
 # ---------------------------------------------------------------------------
 
 OUTPUT_PATH = os.path.join(".brain", "local", "retrieval-index.json")
-TYPE_EMBEDDINGS_REL = os.path.join(".brain", "local", "type-embeddings.npy")
-DOC_EMBEDDINGS_REL = os.path.join(".brain", "local", "doc-embeddings.npy")
-EMBEDDINGS_META_REL = os.path.join(".brain", "local", "embeddings-meta.json")
-EMBEDDING_MODEL = "all-MiniLM-L6-v2"
-EMBEDDING_DIM = 384
 INDEX_VERSION = "1.0.0"
 BM25_K1 = 1.5
 BM25_B = 0.75
-
-
-# ---------------------------------------------------------------------------
-# Type description extraction (for classification + embeddings)
-# ---------------------------------------------------------------------------
-
-def extract_type_description(vault_root, artefact):
-    """Read taxonomy file and extract one-liner + Purpose + When To Use/Trigger.
-
-    Returns a combined description string suitable for embedding or BM25
-    classification. Returns empty string if taxonomy file missing.
-    """
-    taxonomy_file = artefact.get("taxonomy_file")
-    if not taxonomy_file:
-        return ""
-
-    abs_path = os.path.join(str(vault_root), taxonomy_file)
-    try:
-        with open(abs_path, "r", encoding="utf-8") as f:
-            content = f.read()
-    except (OSError, UnicodeDecodeError):
-        return ""
-
-    parts = []
-
-    # One-liner: first paragraph after H1 (single line, no DOTALL)
-    h1_match = re.search(r"^# .+\n\n(.+)", content, re.MULTILINE)
-    if h1_match:
-        parts.append(h1_match.group(1).strip())
-
-    # Extract named sections
-    for section_name in ("Purpose", "When To Use", "Trigger"):
-        body = _extract_section(content, section_name)
-        if body:
-            parts.append(body)
-
-    return "\n\n".join(parts)
-
-
-_section_cache: dict[str, re.Pattern] = {}
-
-
-def _extract_section(content, heading):
-    """Extract the body of a ## heading section, stopping at the next ## or EOF."""
-    pattern = _section_cache.get(heading)
-    if pattern is None:
-        pattern = re.compile(
-            rf"^## {re.escape(heading)}\s*\n(.*?)(?=^## |\Z)",
-            re.MULTILINE | re.DOTALL,
-        )
-        _section_cache[heading] = pattern
-    match = pattern.search(content)
-    if match:
-        return match.group(1).strip()
-    return ""
-
-
-# ---------------------------------------------------------------------------
-# Embedding building (optional)
-# ---------------------------------------------------------------------------
-
-def _safe_save_npy(path, array, *, bounds=None):
-    """Persist a NumPy array atomically via the shared write primitive."""
-    return safe_write_via(
-        path,
-        lambda handle: np.save(handle, array),
-        bounds=bounds,
-    )
-
-
-def build_embeddings(vault_root, router, documents):
-    """Compute embeddings for type descriptions and documents.
-
-    Returns meta dict on success, None if embedding deps unavailable.
-    """
-    if not _HAS_EMBEDDINGS:
-        return None
-
-    vault_str = str(vault_root)
-    artefacts = [a for a in router.get("artefacts", []) if a.get("configured")]
-
-    # Extract type descriptions
-    type_texts = []
-    type_meta = []
-    for i, artefact in enumerate(artefacts):
-        desc = extract_type_description(vault_root, artefact)
-        if not desc:
-            desc = artefact.get("type", artefact.get("key", ""))
-        type_texts.append(desc)
-        type_meta.append({
-            "index": i,
-            "key": artefact["key"],
-            "type": artefact["type"],
-            "description": desc[:200],
-        })
-
-    # Build document texts (title + body)
-    doc_texts = []
-    doc_meta = []
-    for i, doc in enumerate(documents):
-        abs_path = os.path.join(vault_str, doc["path"])
-        try:
-            _, body = read_artefact(abs_path)
-        except (OSError, UnicodeDecodeError):
-            body = ""
-        doc_texts.append(f"{doc['title']} {body[:500]}")
-        doc_meta.append({"index": i, "path": doc["path"]})
-
-    # Encode
-    model = SentenceTransformer(EMBEDDING_MODEL)
-
-    type_embeddings = model.encode(type_texts, normalize_embeddings=True) if type_texts else np.zeros((0, EMBEDDING_DIM))
-    doc_embeddings = model.encode(doc_texts, normalize_embeddings=True) if doc_texts else np.zeros((0, EMBEDDING_DIM))
-
-    # .brain/local/ may not exist yet (directory changed from _Config/ in v0.16.0)
-    os.makedirs(os.path.join(vault_str, os.path.dirname(TYPE_EMBEDDINGS_REL)), exist_ok=True)
-    _safe_save_npy(os.path.join(vault_str, TYPE_EMBEDDINGS_REL), type_embeddings, bounds=vault_str)
-    _safe_save_npy(os.path.join(vault_str, DOC_EMBEDDINGS_REL), doc_embeddings, bounds=vault_str)
-
-    meta = {
-        "model": EMBEDDING_MODEL,
-        "dim": EMBEDDING_DIM,
-        "built_at": datetime.now(timezone.utc).astimezone().isoformat(),
-        "types": type_meta,
-        "documents": doc_meta,
-    }
-    meta_path = os.path.join(vault_str, EMBEDDINGS_META_REL)
-    safe_write_json(meta_path, meta, bounds=vault_str)
-
-    return meta
 
 
 # ---------------------------------------------------------------------------
@@ -324,6 +178,12 @@ def build_index(vault_root):
     return index
 
 
+def persist_retrieval_index(vault_root, index):
+    """Persist the BM25 retrieval index JSON to disk."""
+    output_path = os.path.join(str(vault_root), OUTPUT_PATH)
+    safe_write_json(output_path, index, bounds=str(vault_root))
+
+
 # ---------------------------------------------------------------------------
 # Incremental index updates
 # ---------------------------------------------------------------------------
@@ -373,8 +233,7 @@ def main():
     if "--json" in sys.argv:
         print(json_output)
     else:
-        output_path = os.path.join(str(vault_root), OUTPUT_PATH)
-        safe_write(output_path, json_output + "\n", bounds=str(vault_root))
+        persist_retrieval_index(vault_root, index)
 
         doc_count = index["meta"]["document_count"]
         term_count = len(index["corpus_stats"]["df"])

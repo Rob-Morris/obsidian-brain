@@ -24,7 +24,7 @@ All content in the vault is an artefact, classified into two types:
 | **Living** | Vault root (e.g. `Wiki/`) | Evolves over time. Current version is the source of truth. |
 | **Temporal** | `_Temporal/` (e.g. `_Temporal/Logs/`) | Bound to a moment. Written once, rarely edited. |
 
-System folders (`_Assets/`, `_Config/`, `_Plugins/`, `.obsidian/`) are infrastructure, not artefacts. Living artefact folders may contain an `_Archive/` subfolder for documents that have reached a terminal status and transferred authority to a successor. Archived files are date-prefixed (`yyyymmdd-Title.md`) and carry `archiveddate: YYYY-MM-DD` in frontmatter. `brain_action("rename")` handles wikilink updates automatically during archiving (Obsidian CLI first, grep-replace fallback). Archived files are excluded from search indexing.
+System folders (`_Assets/`, `_Config/`, `_Plugins/`, `.obsidian/`) are infrastructure, not artefacts. Living artefacts that reach a routine terminal status usually move into a `+Status/` folder within their type namespace and remain searchable. The top-level `_Archive/` directory is a separate deliberate-removal path: archived files are date-prefixed (`yyyymmdd-Title.md`), carry `archiveddate: YYYY-MM-DD` in frontmatter, and are excluded from search indexing. `brain_move(op="archive", path="...")` handles the archive rename and wikilink updates automatically (Obsidian CLI first, grep-replace fallback).
 
 ## Architecture
 
@@ -44,8 +44,8 @@ CSS snippet at `.obsidian/snippets/brain-folder-colours.css` driven by a palette
 
 Documented in `.brain-core/standards/extending/README.md`:
 
-- **New living artefact**: create at root, add taxonomy file, reference standards (provenance/archiving) in taxonomy if applicable, optionally add router trigger, run `brain_action("compile")` — colours are auto-generated
-- **New temporal child**: create under `_Temporal/`, add taxonomy file, reference standards (provenance/archiving) in taxonomy if applicable, optionally add router trigger, run `brain_action("compile")` — rose-blended colours are auto-generated
+- **New living artefact**: create at root, add taxonomy file, reference standards (provenance/archiving) in taxonomy if applicable, optionally add router trigger, run `python3 .brain-core/scripts/compile_router.py` — colours are auto-generated
+- **New temporal child**: create under `_Temporal/`, add taxonomy file, reference standards (provenance/archiving) in taxonomy if applicable, optionally add router trigger, run `python3 .brain-core/scripts/compile_router.py` — rose-blended colours are auto-generated
 - **New config child**: create under `_Config/`, inherits purple styling
 - **New plugin**: create under `_Plugins/`, inherits orchid styling, add skill if it has tools
 
@@ -69,7 +69,7 @@ Designs/
     Brain Mcp Server.md
 ```
 
-Cross-type child folders use `{parent-type}~{key}/` (for example `Releases/project~brain/`). Archiving uses `brain_action("archive")` which moves artefacts to a top-level `_Archive/` directory at the vault root, preserving type and owner-derived structure inside. Archived files are excluded from the vault file index, search, and all normal operations.
+Cross-type child folders use `{parent-type}~{key}/` (for example `Releases/project~brain/`). Archiving uses `brain_move(op="archive", path="...")`, which moves artefacts to a top-level `_Archive/` directory at the vault root while preserving type and owner-derived structure inside. Archived files are excluded from the vault file index, search, and all normal operations.
 
 ## Documentation
 

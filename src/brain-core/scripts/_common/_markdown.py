@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import re
 
+from ._selector import normalize_structural_selector
+
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.*?)[^\S\n]*$", re.MULTILINE)
 _FENCE_RE = re.compile(r"^(`{3,}|~{3,})", re.MULTILINE)
 _CALLOUT_TITLE_RE = re.compile(r"^\s*>\s*(\[\![^\]]+\][^\n]*)\s*$")
@@ -355,47 +357,6 @@ def _matches_target(node, target):
     )
 
 
-def _normalize_selector(selector):
-    """Validate and normalize a structural selector."""
-    if selector is None:
-        return {"within": [], "occurrence": None}
-    if not isinstance(selector, dict):
-        raise ValueError("selector must be an object with optional within/occurrence fields")
-
-    unknown = set(selector) - {"within", "occurrence"}
-    if unknown:
-        bad = ", ".join(sorted(unknown))
-        raise ValueError(f"selector has unsupported fields: {bad}")
-
-    occurrence = selector.get("occurrence")
-    if occurrence is not None:
-        if type(occurrence) is not int or occurrence < 1:
-            raise ValueError("selector.occurrence must be a positive integer")
-
-    within_steps = []
-    for idx, step in enumerate(selector.get("within") or []):
-        if not isinstance(step, dict):
-            raise ValueError(f"selector.within[{idx}] must be an object")
-        unknown = set(step) - {"target", "occurrence"}
-        if unknown:
-            bad = ", ".join(sorted(unknown))
-            raise ValueError(f"selector.within[{idx}] has unsupported fields: {bad}")
-        target = step.get("target")
-        if not isinstance(target, str) or not target.strip():
-            raise ValueError(f"selector.within[{idx}].target is required")
-        if target.strip() == ":body":
-            raise ValueError("selector.within targets cannot use ':body'")
-        step_occurrence = step.get("occurrence")
-        if step_occurrence is not None:
-            if type(step_occurrence) is not int or step_occurrence < 1:
-                raise ValueError(
-                    f"selector.within[{idx}].occurrence must be a positive integer"
-                )
-        within_steps.append({"target": target, "occurrence": step_occurrence})
-
-    return {"within": within_steps, "occurrence": occurrence}
-
-
 def _step_display(raw, occurrence):
     if occurrence and occurrence > 1:
         return f"{raw} [{occurrence}]"
@@ -488,7 +449,7 @@ def resolve_structural_target(body, target, selector=None):
     if legacy_error is not None:
         raise legacy_error
 
-    selector = _normalize_selector(selector)
+    selector = normalize_structural_selector(selector)
     if stripped == ":body" and (selector["within"] or selector["occurrence"] is not None):
         raise ValueError("target=':body' does not support selector.within or selector.occurrence")
 
@@ -549,5 +510,4 @@ def resolve_structural_target(body, target, selector=None):
         "display_path": display,
         "ranges": ranges,
     }
-
 

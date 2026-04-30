@@ -1189,3 +1189,27 @@ class TestArtefactIndex:
         )
         with pytest.raises(ValueError, match="Duplicate artefact key"):
             cr.compile(vault)
+
+
+class TestCompileRouterMain:
+    def test_main_writes_router_and_colour_outputs(self, vault, monkeypatch):
+        monkeypatch.setattr(cr, "find_vault_root", lambda: vault)
+        monkeypatch.setattr(cr.sys, "argv", ["compile_router.py"])
+
+        cr.main()
+
+        assert (vault / ".brain" / "local" / "compiled-router.json").is_file()
+        assert (vault / ".obsidian" / "snippets" / "brain-folder-colours.css").is_file()
+        assert (vault / ".obsidian" / "graph.json").is_file()
+
+    def test_main_json_mode_keeps_compile_side_effect_free(self, vault, monkeypatch, capsys):
+        monkeypatch.setattr(cr, "find_vault_root", lambda: vault)
+        monkeypatch.setattr(cr.sys, "argv", ["compile_router.py", "--json"])
+
+        cr.main()
+
+        captured = capsys.readouterr()
+        assert '"artefacts"' in captured.out
+        assert not (vault / ".brain" / "local" / "compiled-router.json").exists()
+        assert not (vault / ".obsidian" / "snippets" / "brain-folder-colours.css").exists()
+        assert not (vault / ".obsidian" / "graph.json").exists()

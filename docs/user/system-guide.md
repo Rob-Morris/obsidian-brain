@@ -24,7 +24,7 @@ Brain classifies every file as either **living** or **temporal**.
 - Sit in root-level folders
 - Evolve over time — you edit them, they grow, the current version is what matters
 - May have a lifecycle with status values (e.g., `draft` → `published`)
-- Some reach a terminal status and get archived; others are evergreen
+- Some reach a terminal status and move into `+Status/` folders; others are evergreen
 
 #### Default living types
 
@@ -93,7 +93,7 @@ Folders starting with `_` or `.` are infrastructure — excluded from content in
 
 ### Archive
 
-Artefacts with a terminal status (e.g. `adopted`, `published`, `completed`) are archived to a top-level `_Archive/` directory at the vault root, preserving type/project structure inside (e.g. `_Archive/Ideas/Brain/20260101-old-idea.md`). The archive operation requires the artefact to have reached a terminal status — the set of terminal statuses is defined per type in the taxonomy file. Archived files are excluded from the vault file index, search, and all normal artefact operations. Use `brain_action("archive")` and `brain_action("unarchive")` for archive operations; `brain_list(resource="archive")` to list archived files, `brain_read(resource="archive", name="...")` to read a specific one.
+Living artefacts with a terminal status (e.g. `adopted`, `published`, `completed`) stay in their type namespace and move into a `+Status/` folder such as `Ideas/+Adopted/`, `Writing/+Published/`, or `Tasks/+Done/`. They remain searchable and indexed, and `brain_edit` handles the move automatically when `status` changes. `_Archive/` is a separate deliberate-removal path for taking artefacts out of the active vault namespace entirely. Archived files move to a top-level `_Archive/` directory at the vault root, preserve type/project structure inside (for example `_Archive/Ideas/Brain/20260101-old-idea.md`), and are excluded from the vault file index, search, and normal artefact operations. Use `brain_move(op="archive", path="...")` and `brain_move(op="unarchive", path="...")` for archive operations; `brain_list(resource="archive")` to list archived files, `brain_read(resource="archive", name="...")` to read a specific one.
 
 ---
 
@@ -174,7 +174,7 @@ Why? Obsidian's backlinks and graph view resolve body wikilinks. Body text is vi
 - Top-level `_Archive/` at vault root, preserving type/project structure: `_Archive/{Type}/{Project}/`
 - Files renamed to `yyyymmdd-{Title}.md` before moving
 - Excluded from vault file index, search, and all normal artefact operations
-- Use `brain_action("archive")` / `brain_action("unarchive")` for archive operations
+- Use `brain_move(op="archive", path="...")` / `brain_move(op="unarchive", path="...")` for archive operations
 - Use `brain_list(resource="archive")` to list archived files, `brain_read(resource="archive", name="...")` to read a specific one
 
 ---
@@ -234,7 +234,7 @@ When one artefact spins out of another:
 > [[new-design]] — 2026-03-15
 ```
 
-If the source transfers all authority, set its terminal status and archive it. Otherwise the callout alone suffices — the source stays active.
+If the source transfers all authority, set its terminal status so it moves into the matching `+Status/` folder. Archive it only when you deliberately want it removed from the active vault namespace. Otherwise the callout alone suffices — the source stays active.
 
 **Transcript linking:** When an artefact is shaped through Q&A, the shaped artefact lists its transcripts: `**Transcripts:** [[transcript-1|Session 1]], [[transcript-2|Session 2]]`. Applies to any shaped artefact type.
 
@@ -264,7 +264,7 @@ If it's a one-off, consider a subfolder or tag within an existing type instead.
 3. **Create template** at `_Config/Templates/Living/{Type Name}.md`
 4. **Reference standards** — if the type has lineage or archiving, reference `.brain-core/standards/provenance` and/or `.brain-core/standards/archiving` in the taxonomy
 5. **Add router trigger** in `_Config/router.md` (if the type has a trigger condition)
-6. **Run `brain_action("compile")`** — colours are auto-generated
+6. **Run `python3 .brain-core/scripts/compile_router.py`** — colours are auto-generated
 7. **Log the addition**
 
 ### Adding a Temporal Artefact Type
@@ -274,7 +274,7 @@ If it's a one-off, consider a subfolder or tag within an existing type instead.
 3. **Create template** at `_Config/Templates/Temporal/{Type Name}.md`
 4. **Reference standards** — if the type has lineage or archiving, reference `.brain-core/standards/provenance` and/or `.brain-core/standards/archiving` in the taxonomy
 5. **Add router trigger** in `_Config/router.md` (if applicable)
-6. **Run `brain_action("compile")`** — rose-blended colours are auto-generated
+6. **Run `python3 .brain-core/scripts/compile_router.py`** — rose-blended colours are auto-generated
 7. **Log the addition**
 
 ---

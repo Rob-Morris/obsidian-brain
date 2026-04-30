@@ -16,7 +16,7 @@ Create page-based PDF documents from vault content using Pandoc.
 
 ## Shaping Workflow
 
-Use `brain_action("shape-printable", {source, slug})` to create the printable artefact and render its PDF:
+Use `brain_action("shape-printable", params={"source": ..., "slug": ...})` to create the printable artefact and render its PDF:
 
 1. **Call the tool.** `source` is the vault artefact to convert (relative path). `slug` is the printable name.
 2. **The tool creates** the printable markdown file from the template if it does not already exist.

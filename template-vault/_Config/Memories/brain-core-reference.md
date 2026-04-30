@@ -27,4 +27,4 @@ Every file belongs in a typed folder. Types are either **living** (evolve over t
 
 ## Extensions
 
-New artefact types, skills, styles, and memories can be added without modifying brain-core itself. Run `brain_action("compile")` after changes to regenerate the compiled router.
+New artefact types, skills, styles, and memories can be added without modifying brain-core itself. Run `python3 .brain-core/scripts/compile_router.py` after changes to regenerate the compiled router.

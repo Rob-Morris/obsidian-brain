@@ -1,14 +1,15 @@
 from __future__ import annotations
 
-import os
-from typing import Literal
-
-from _common import is_archived_path, resolve_body_file
+from _common import (
+    cleanup_temp_body_file,
+    is_archived_path,
+    resolve_body_file,
+    temp_body_file_cleanup_path,
+)
 import create
 import edit
 
 from ._server_runtime import ServerRuntime
-
 
 def format_wikilink_fixes(fixes):
     """Format applied-fix summary into a markdown block.
@@ -68,150 +69,183 @@ def format_wikilink_warnings(findings):
 
 
 def handle_brain_create(
-    type: str,
-    title: str,
-    body: str,
-    body_file: str,
-    frontmatter: dict | None,
-    parent: str | None,
-    key: str | None,
     resource: str,
-    name: str,
+    params: dict,
+    cleanup_path: str | None,
     runtime: ServerRuntime,
-    fix_links: bool = False,
 ):
+    """Execute a validated brain_create request.
+
+    *params* is the pre-validated dict from _build_brain_create_params — only
+    the fields accepted by the resource's Spec are present.
+    """
     runtime.check_version_drift()
-    runtime.ensure_router_fresh()
 
     denied = runtime.enforce_profile("brain_create")
     if denied:
         return denied
 
+    runtime.ensure_router_fresh()
+
     state = runtime.get_state()
     if state.router is None or state.vault_root is None:
         return runtime.fmt_error("server not initialized")
 
-    body, cleanup_path = resolve_body_file(body, body_file, vault_root=state.vault_root)
+    body = params.get("body") or ""
+    body_file = params.get("body_file") or ""
+    frontmatter = params.get("frontmatter")
 
-    if resource == "artefact":
-        if not type:
-            return runtime.fmt_error("type is required when resource='artefact'")
-        if not title:
-            return runtime.fmt_error("title is required when resource='artefact'")
-        result = create.create_artefact(
-            state.vault_root,
-            state.router,
-            type,
-            title,
-            body=body,
-            frontmatter_overrides=frontmatter,
-            parent=parent,
-            key=key,
-            fix_links=fix_links,
+    cleanup_path = cleanup_path or temp_body_file_cleanup_path(body_file)
+    try:
+        body, cleanup_path = resolve_body_file(
+            body,
+            body_file,
+            vault_root=state.vault_root,
+            cleanup_path=cleanup_path,
         )
-        runtime.mark_router_dirty()
-        runtime.mark_index_pending(result["path"], type_hint=result["type"])
-        label = f"**Created** {result['type']}: {result['path']}"
-    else:
-        result = create.create_resource(
-            state.vault_root,
-            state.router,
-            resource=resource,
-            name=name,
-            body=body,
-            frontmatter=frontmatter,
-        )
-        label = f"**Created** {result['resource']}: {result['path']}"
 
-    if cleanup_path:
-        try:
-            os.remove(cleanup_path)
-        except OSError:
-            pass
-    fixes = format_wikilink_fixes(result.get("wikilink_fixes"))
-    if fixes:
-        label = f"{label}\n{fixes}"
-    warnings = format_wikilink_warnings(result.get("wikilink_warnings"))
-    if warnings:
-        label = f"{label}\n{warnings}"
-    return label
+        if resource == "artefact":
+            result = create.create_artefact(
+                state.vault_root,
+                state.router,
+                params["type"],
+                params["title"],
+                body=body,
+                frontmatter_overrides=frontmatter,
+                parent=params.get("parent"),
+                key=params.get("key"),
+                fix_links=bool(params.get("fix_links")),
+            )
+            runtime.mark_router_dirty()
+            runtime.mark_index_pending(result["path"], type_hint=result["type"])
+            label = f"**Created** {result['type']}: {result['path']}"
+        else:
+            result = create.create_resource(
+                state.vault_root,
+                state.router,
+                resource=resource,
+                name=params["name"],
+                body=body,
+                frontmatter=frontmatter,
+            )
+            label = f"**Created** {result['resource']}: {result['path']}"
+
+        fixes = format_wikilink_fixes(result.get("wikilink_fixes"))
+        if fixes:
+            label = f"{label}\n{fixes}"
+        warnings = format_wikilink_warnings(result.get("wikilink_warnings"))
+        if warnings:
+            label = f"{label}\n{warnings}"
+        return label
+    finally:
+        cleanup_temp_body_file(cleanup_path)
 
 
 def handle_brain_edit(
-    operation: Literal["edit", "append", "prepend", "delete_section"],
-    path: str,
-    body: str,
-    body_file: str,
-    frontmatter: dict | None,
-    target: str | None,
-    selector: dict | None,
-    scope: str | None,
     resource: str,
-    name: str,
+    operation: str,
+    params: dict,
+    cleanup_path: str | None,
     runtime: ServerRuntime,
-    fix_links: bool = False,
 ):
+    """Execute a validated brain_edit request.
+
+    *params* is the pre-validated dict from _build_brain_edit_params — only
+    the fields accepted by the (resource, operation) Spec are present.
+    """
     runtime.check_version_drift()
-    runtime.ensure_router_fresh()
 
     denied = runtime.enforce_profile("brain_edit")
     if denied:
         return denied
 
+    runtime.ensure_router_fresh()
+
     state = runtime.get_state()
     if state.router is None or state.vault_root is None:
         return runtime.fmt_error("server not initialized")
 
-    body, cleanup_path = resolve_body_file(body, body_file, vault_root=state.vault_root)
+    path = params.get("path") or ""
+    body = params.get("body") or ""
+    body_file = params.get("body_file") or ""
+    frontmatter = params.get("frontmatter")
+    target = params.get("target")
+    selector = params.get("selector")
+    scope = params.get("scope")
+    name = params.get("name") or ""
+    fix_links = bool(params.get("fix_links"))
 
-    if resource == "artefact" and path and is_archived_path(path):
-        return runtime.fmt_error(
-            f"'{path}' is archived. "
-            "Use brain_action('unarchive') to restore it first."
-        )
+    cleanup_path = cleanup_path or temp_body_file_cleanup_path(body_file)
+    try:
+        if resource == "artefact" and path and is_archived_path(path):
+            return runtime.fmt_error(
+                f"'{path}' is archived. "
+                "Use brain_move(op='unarchive', path='...') to restore it first."
+            )
 
-    result = edit.edit_resource(
-        state.vault_root,
-        state.router,
-        resource=resource,
-        operation=operation,
-        path=path,
-        name=name,
-        body=body,
-        frontmatter_changes=frontmatter,
-        target=target,
-        selector=selector,
-        scope=scope,
-        fix_links=fix_links,
-    )
-    moved = result["path"] != result["resolved_path"]
-    if resource == "artefact":
-        runtime.mark_router_dirty()
-        if moved:
-            runtime.mark_index_dirty()
-        else:
-            runtime.mark_index_pending(result["path"])
-    elif resource == "memory":
-        runtime.mark_router_dirty()
-    if cleanup_path:
+        # preflight_request_contract is the inter-field rule layer (stays here,
+        # after spec presence validation has already passed).
         try:
-            os.remove(cleanup_path)
-        except OSError:
-            pass
-    past = edit.OPERATION_LABELS[result["operation"]]
-    structural = result.get("structural_target")
-    fixes = format_wikilink_fixes(result.get("wikilink_fixes"))
-    warnings = format_wikilink_warnings(result.get("wikilink_warnings"))
-    msg = f"**{past}:** {result['path']}"
-    if moved:
-        msg += (
-            f"\n**Moved:** {result['resolved_path']} → {result['path']} "
-            "(terminal status)"
+            edit.preflight_request_contract(
+                operation,
+                has_body=bool(body or body_file),
+                frontmatter_changes=frontmatter,
+                target=target,
+                selector=selector,
+                scope=scope,
+            )
+        except edit.ScopeValidationError as e:
+            return runtime.fmt_error(e.detailed_message())
+
+        body, cleanup_path = resolve_body_file(
+            body,
+            body_file,
+            vault_root=state.vault_root,
+            cleanup_path=cleanup_path,
         )
-    if structural:
-        msg += f" ({structural['display']})"
-    if fixes:
-        msg += f"\n{fixes}"
-    if warnings:
-        msg += f"\n{warnings}"
-    return msg
+
+        try:
+            result = edit.edit_resource(
+                state.vault_root,
+                state.router,
+                resource=resource,
+                operation=operation,
+                path=path,
+                name=name,
+                body=body,
+                frontmatter_changes=frontmatter,
+                target=target,
+                selector=selector,
+                scope=scope,
+                fix_links=fix_links,
+            )
+        except edit.ScopeValidationError as e:
+            return runtime.fmt_error(e.detailed_message())
+        moved = result["path"] != result["resolved_path"]
+        if resource == "artefact":
+            runtime.mark_router_dirty()
+            if moved:
+                runtime.mark_index_dirty()
+            else:
+                runtime.mark_index_pending(result["path"])
+        elif resource == "memory":
+            runtime.mark_router_dirty()
+        past = edit.OPERATION_LABELS[result["operation"]]
+        structural = result.get("structural_target")
+        fixes = format_wikilink_fixes(result.get("wikilink_fixes"))
+        warnings = format_wikilink_warnings(result.get("wikilink_warnings"))
+        msg = f"**{past}:** {result['path']}"
+        if moved:
+            msg += (
+                f"\n**Moved:** {result['resolved_path']} → {result['path']} "
+                "(terminal status)"
+            )
+        if structural:
+            msg += f" ({structural['display']})"
+        if fixes:
+            msg += f"\n{fixes}"
+        if warnings:
+            msg += f"\n{warnings}"
+        return msg
+    finally:
+        cleanup_temp_body_file(cleanup_path)

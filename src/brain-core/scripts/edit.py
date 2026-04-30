@@ -17,6 +17,7 @@ import os
 import re
 import sys
 
+from _resource_contract import RESOURCE_KINDS
 from _common import (
     SELF_TAG_PREFIXES,
     check_write_allowed,
@@ -29,12 +30,10 @@ from _common import (
     generate_contextual_slug,
     is_archived_path,
     is_valid_key,
-    iter_living_markdown_files,
     living_key_set,
     legacy_target_migration_error,
     load_compiled_router,
     make_artefact_key,
-    make_wikilink_replacer,
     make_temp_path,
     normalize_artefact_key,
     now_iso,
@@ -44,20 +43,16 @@ from _common import (
     reconcile_fields_for_render,
     render_filename,
     render_filename_or_default,
-    replace_wikilinks_in_vault,
-    resolve_artefact_definition_for_prefix,
     resolve_folder,
     resolve_and_validate_folder,
     resolve_parent_reference,
     resolve_body_file,
     resolve_type,
     resolve_structural_target,
-    resolve_wikilink_stems,
     scan_artefact_key_references,
     safe_write,
     serialize_frontmatter,
     parse_structural_anchor_line,
-    strip_md_ext,
     unique_filename,
     validate_key,
     artefact_type_prefix,
@@ -156,7 +151,122 @@ def _valid_scopes_for(kind, operation):
     return sorted(_VALID_SCOPES.get(kind, {}).get(operation, set()))
 
 
-def _validate_request_contract(operation, body, frontmatter_changes=None,
+# Per-scope semantic meanings, per target kind. Co-located with `_VALID_SCOPES`
+# so additions to either are reviewed together. Callers that render explanatory
+# UX from this table (e.g. the MCP layer's rich error messages) import it here
+# rather than redefining their own copy.
+_SCOPE_MEANINGS = {
+    "body": {
+        "section": "the entire markdown body after frontmatter",
+        "intro": "the lead paragraph(s) before the first heading",
+    },
+    "heading": {
+        "section": "the heading line plus its body (the whole subtree)",
+        "body": "the body under the heading (excludes the heading line)",
+        "intro": "the intro before the heading's first child heading",
+        "heading": "the heading line itself (edit-only)",
+    },
+    "callout": {
+        "section": "the whole callout (header line plus body)",
+        "body": "the callout body (excludes the header line)",
+        "header": "the callout header line (edit-only)",
+    },
+}
+
+
+def _format_scope_help(kind, valid_scopes):
+    """Render `scope='X' -> meaning` lines for one target kind."""
+    meanings = _SCOPE_MEANINGS.get(kind, {})
+    lines = []
+    for scope_name in valid_scopes:
+        meaning = meanings.get(scope_name)
+        if meaning:
+            lines.append(f"  scope='{scope_name}' -> {meaning}")
+        else:
+            lines.append(f"  scope='{scope_name}'")
+    return "\n".join(lines)
+
+
+def brain_edit_scope_description():
+    """Shared MCP-facing description of the public scope contract."""
+    return (
+        "Mutable range inside target. Required for edit/append/prepend; not "
+        "allowed for delete_section. ':body' -> 'section' (whole body) | "
+        "'intro' (before first heading); heading -> 'section' (heading + "
+        "subtree) | 'body' (content under heading) | 'intro' (before first "
+        "child heading) | 'heading' (line-only, edit-only); callout -> "
+        "'section' (whole callout) | 'body' (content under header) | "
+        "'header' (line-only, edit-only)."
+    )
+
+
+class ScopeValidationError(ValueError):
+    """Base class for scope-validation errors with enriched wrapper messaging."""
+
+    def __init__(self, *, operation, kind, valid_scopes):
+        self.operation = operation
+        self.kind = kind
+        self.valid_scopes = valid_scopes
+        super().__init__(self.summary_message())
+
+    def summary_message(self):
+        raise NotImplementedError
+
+    def details_header(self):
+        raise NotImplementedError
+
+    def detailed_message(self):
+        return f"{self.details_header()}\n{_format_scope_help(self.kind, self.valid_scopes)}"
+
+
+class ScopeRequiredError(ScopeValidationError):
+    """Raised when a structural edit/append/prepend is missing the scope parameter.
+
+    Carries the structural fields (operation, target, kind, valid_scopes) so a
+    caller — typically an LLM-facing wrapper such as the MCP layer — can render
+    a richer, schema-truncation-resilient error message. The default str() form
+    is still adequate for direct CLI / Python callers.
+    """
+    def __init__(self, operation, target, kind, valid_scopes):
+        self.target = target
+        super().__init__(operation=operation, kind=kind, valid_scopes=valid_scopes)
+
+    def summary_message(self):
+        return (
+            f"{self.operation} with target='{self.target}' requires scope. "
+            f"Valid scopes for {self.kind} targets: {', '.join(self.valid_scopes)}"
+        )
+
+    def details_header(self):
+        return (
+            f"{self.operation} with target='{self.target}' requires scope. "
+            f"Valid scopes for {self.kind} targets:"
+        )
+
+
+class InvalidScopeError(ScopeValidationError):
+    """Raised when scope is not valid for the resolved operation/target kind.
+
+    Same wrapper-enrichment rationale as ScopeRequiredError.
+    """
+    def __init__(self, operation, scope, kind, valid_scopes):
+        self.scope = scope
+        super().__init__(operation=operation, kind=kind, valid_scopes=valid_scopes)
+
+    def summary_message(self):
+        return (
+            f"scope='{self.scope}' is not valid for {self.operation} on {self.kind} targets. "
+            f"Valid scopes: {', '.join(self.valid_scopes)}"
+        )
+
+    def details_header(self):
+        return (
+            f"scope='{self.scope}' is not valid for {self.operation} on {self.kind} targets. "
+            "Valid scopes:"
+        )
+
+
+def _validate_request_contract(operation, body_present, frontmatter_changes=None,
                                target=None, selector=None, scope=None):
     """Validate the explicit target + selector + scope contract."""
     legacy_error = legacy_target_migration_error(target)
@@ -185,31 +295,29 @@ def _validate_request_contract(operation, body, frontmatter_changes=None,
 
     if target:
         kind = _structural_target_kind(target)
-        if scope is None:
-            valid = ", ".join(_valid_scopes_for(kind, operation))
-            raise ValueError(
-                f"{operation} with target='{target}' requires scope. "
-                f"Valid scopes for {kind} targets: {valid}"
-            )
         valid = _valid_scopes_for(kind, operation)
+        if scope is None:
+            raise ScopeRequiredError(operation, target, kind, valid)
         if scope not in valid:
-            valid_list = ", ".join(valid)
-            raise ValueError(
-                f"scope='{scope}' is not valid for {operation} on {kind} targets. "
-                f"Valid scopes: {valid_list}"
-            )
-        if operation in {"append", "prepend"} and not body and not frontmatter_changes:
+            raise InvalidScopeError(operation, scope, kind, valid)
+        if (
+            operation in {"append", "prepend"}
+            and not body_present
+            and not frontmatter_changes
+        ):
             raise ValueError(
                 f"{operation} with no body and no frontmatter changes is a no-op. "
                 "Pass body content, frontmatter changes, or both."
             )
         return
 
-    if body:
+    if body_present:
         raise ValueError(
-            "Body mutations now require explicit target and scope. "
-            "Use target=':body', scope='section' for the full markdown body or "
-            "target=':body', scope='intro' for the leading body intro."
+            "Body mutations require explicit target and scope. "
+            "For the full markdown body use target=':body', scope='section'. "
+            "For the lead paragraph(s) before the first heading use target=':body', scope='intro'. "
+            "To target a specific heading use target='## Heading' with scope='section' "
+            "(heading + body) or 'body' (under heading)."
         )
 
     if not frontmatter_changes:
@@ -217,6 +325,20 @@ def _validate_request_contract(operation, body, frontmatter_changes=None,
             f"{operation} with no body and no frontmatter changes is a no-op. "
             "Pass body content, frontmatter changes, or both."
         )
+
+
+def preflight_request_contract(operation, *, has_body=False,
+                               frontmatter_changes=None, target=None,
+                               selector=None, scope=None):
+    """Cheap request-contract validation before staged body-file IO."""
+    _validate_request_contract(
+        operation,
+        has_body,
+        frontmatter_changes,
+        target=target,
+        selector=selector,
+        scope=scope,
+    )
 
 
 def _merge_frontmatter(fields, changes, operation):
@@ -478,7 +600,7 @@ def _apply_body_operation(existing_body, operation, body, *, target=None,
 # Resource-aware editing (Phase 5)
 # ---------------------------------------------------------------------------
 
-_EDITABLE_RESOURCES = {"artefact", "skill", "memory", "style", "template"}
+EDITABLE_RESOURCES = RESOURCE_KINDS
 
 
 def edit_resource(vault_root, router, resource="artefact", operation="edit",
@@ -522,10 +644,10 @@ def edit_resource(vault_root, router, resource="artefact", operation="edit",
         _fix_links.attach_wikilink_warnings(vault_root, result, apply_fixes=fix_links)
         return result
 
-    if resource not in _EDITABLE_RESOURCES:
+    if resource not in EDITABLE_RESOURCES:
         raise ValueError(
             f"Resource '{resource}' is not editable via brain_edit. "
-            f"Editable resources: {', '.join(sorted(_EDITABLE_RESOURCES))}"
+            f"Editable resources: {', '.join(EDITABLE_RESOURCES)}"
         )
 
     if not name:
@@ -545,7 +667,12 @@ def edit_resource(vault_root, router, resource="artefact", operation="edit",
     fields, existing_body = parse_frontmatter(content)
 
     _validate_request_contract(
-        operation, body, frontmatter_changes, target, selector, scope
+        operation,
+        bool(body),
+        frontmatter_changes,
+        target,
+        selector,
+        scope,
     )
     fm_mode = "edit" if operation in ("edit", "delete_section") else operation
     _merge_frontmatter(fields, frontmatter_changes, fm_mode)
@@ -1022,7 +1149,12 @@ def apply_to_artefact(operation, vault_root, router, path, body="",
         body = ""
         scope = None
     _validate_request_contract(
-        operation, body, frontmatter_changes, target, selector, scope
+        operation,
+        bool(body),
+        frontmatter_changes,
+        target,
+        selector,
+        scope,
     )
     path, abs_path, fields, existing_body, art = _open_artefact(vault_root, router, path)
     old_fields = dict(fields)
@@ -1300,7 +1432,12 @@ def archive_artefact(vault_root, router, path):
         dest = os.path.join("_Archive", type_folder, rel_from_type, filename)
 
     _save_artefact(abs_path, fields, body, vault_root)
-    links_updated = rename_and_update_links(vault_root, path, dest)
+    links_updated = rename_and_update_links(
+        vault_root,
+        path,
+        dest,
+        allow_archive_paths=True,
+    )
 
     return {
         "old_path": path,
@@ -1344,7 +1481,12 @@ def unarchive_artefact(vault_root, router, path):
 
     fields.pop("archiveddate", None)
     _save_artefact(abs_path, fields, body, vault_root)
-    links_updated = rename_and_update_links(vault_root, path, dest)
+    links_updated = rename_and_update_links(
+        vault_root,
+        path,
+        dest,
+        allow_archive_paths=True,
+    )
 
     return {
         "old_path": path,

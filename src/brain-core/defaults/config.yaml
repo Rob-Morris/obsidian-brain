@@ -16,9 +16,9 @@ vault:
     reader:
       allow: [brain_session, brain_read, brain_search, brain_list]
     contributor:
-      allow: [brain_session, brain_read, brain_search, brain_list, brain_create, brain_edit, brain_process]
+      allow: [brain_session, brain_read, brain_search, brain_list, brain_create, brain_edit]
     operator:
-      allow: [brain_session, brain_read, brain_search, brain_list, brain_create, brain_edit, brain_process, brain_action]
+      allow: [brain_session, brain_read, brain_search, brain_list, brain_create, brain_edit, brain_move, brain_action]
 
   operators: []
 

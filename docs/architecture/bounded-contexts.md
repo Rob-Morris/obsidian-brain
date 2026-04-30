@@ -9,7 +9,7 @@ brain-core is organised around a small set of bounded contexts. These are docume
 | Compilation | Compile runtime artefacts from source definitions; keep generated router, colours, and search index current | `compile_router.py`, `compile_colours.py`, `build_index.py`, `sync_definitions.py` |
 | Artefact Operations | Read and mutate vault content and config resources through the router contract | `create.py`, `edit.py`, `read.py`, `rename.py`, `fix_links.py`, `start_shaping.py`, `shape_printable.py`, `shape_presentation.py` |
 | Compliance | Validate structure, naming, and taxonomy conformance | `check.py` |
-| Content Intelligence | Search, enumerate, classify, resolve, and ingest content | `search_index.py`, `list_artefacts.py`, `process.py` |
+| Content Intelligence | Search and enumerate content for retrieval workflows | `search_index.py`, `list_artefacts.py` |
 | Session & Configuration | Assemble runtime config, bootstrap sessions, manage operator/auth state, resolve registered workspaces | `session.py`, `config.py`, `workspace_registry.py`, `generate_key.py` |
 | Lifecycle Management | Install, upgrade, and migrate the engine and vault naming conventions over time | `init.py`, `upgrade.py`, `migrate_naming.py`, `migrations/` |
 | MCP Integration | Expose script capabilities over MCP transport, enforce tool-level resilience and profile gates | `brain_mcp/server.py`, `brain_mcp/proxy.py`, `brain_mcp/_server_*.py` |
@@ -38,7 +38,7 @@ Dependencies should point inward toward lower-level shared capabilities, not sid
 
 - New user-visible vault operations usually belong in Artefact Operations.
 - New validation rules belong in Compliance, even if they inspect content produced elsewhere.
-- Search, listing, classification, and ingestion features belong in Content Intelligence.
+- Search and listing features belong in Content Intelligence.
 - Config loading, session bootstrap, and operator policy belong in Session & Configuration.
 - Install, upgrade, and migration flows belong in Lifecycle Management.
 - MCP server concerns stay in MCP Integration; do not move domain logic there.

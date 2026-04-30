@@ -118,30 +118,26 @@ Artefact types that have a lifecycle should include a `status` field in frontmat
 
 **Install a specific type into the vault:**
 
-```
-brain_action("sync_definitions", params={"types": ["living/releases"]})
+```bash
+python3 .brain-core/scripts/sync_definitions.py --types living/releases
 ```
 
 or from the CLI:
 
-```
-python3 sync_definitions.py --types living/releases
-```
-
-Installs any type listed in `types` that is not already in the vault, and updates any that are. Install is additive — no `--force` needed. Router recompiles automatically when a type is installed via MCP.
+Installs any type listed in `types` that is not already in the vault, and updates any that are. Install is additive — no `--force` needed.
 
 **Check what's installable or syncable:**
 
-```
-brain_action("sync_definitions", params={"status": true})
+```bash
+python3 .brain-core/scripts/sync_definitions.py --status
 ```
 
 Returns a read-only classification of every library type: `uninstalled`, `in_sync`, `sync_ready`, `locally_customised`, `conflict`, plus a `not_installable` bucket for library-side errors. See the [state taxonomy](../../../docs/functional/scripts.md#sync_definitionspy) for what each state means.
 
 **Sync already-installed types to their latest library versions:**
 
-```
-brain_action("sync_definitions")
+```bash
+python3 .brain-core/scripts/sync_definitions.py
 ```
 
 Bare sync never installs new types — it only updates already-installed ones. After a CLI upgrade (`install.sh` or `upgrade.py`), this runs automatically governed by the `artefact_sync` preference in `.brain/preferences.json`: `auto` applies safe updates, `ask` (default) returns a preview, `skip` does nothing. CLI flags `--sync` / `--no-sync` override. Use `force` for conflicts, or `artefact_sync_exclude` to permanently skip specific files.
@@ -152,6 +148,6 @@ Bare sync never installs new types — it only updates already-installed ones. A
 2. Copy `template.md` to `_Config/Templates/{Living|Temporal}/{Type Name}.md`
 3. Create the storage folder (e.g. `_Temporal/{Type Name}/` or `{Type Name}/`)
 4. Optionally add a conditional trigger to `_Config/router.md`
-5. Run `brain_action("compile")` — colours are auto-generated from the compiled router
+5. Run `python3 .brain-core/scripts/compile_router.py` — colours are auto-generated from the compiled router
 
 Each type's README includes the specific paths and an optional router trigger line.

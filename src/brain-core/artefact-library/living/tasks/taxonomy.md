@@ -15,7 +15,7 @@ Brain-native tasks are deliberately minimal. They don't compete with dedicated t
 | `open` | Default. The task exists but work hasn't started. |
 | `shaping` | The task is being shaped — clarifying scope and requirements before work begins. |
 | `in-progress` | Someone (human or agent) is actively working on this. |
-| `done` | Completed. Terminal — archive. |
+| `done` | Completed. Terminal — move to `+Done/`. |
 | `blocked` | Can't proceed — dependency, question, or external blocker. |
 
 ## Shaping

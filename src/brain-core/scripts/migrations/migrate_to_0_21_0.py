@@ -73,7 +73,10 @@ def migrate(vault_root):
                     continue
 
                 links_updated = rename_and_update_links(
-                    vault_root, rel_source, dest
+                    vault_root,
+                    rel_source,
+                    dest,
+                    allow_archive_paths=True,
                 )
                 actions.append(
                     f"moved {rel_source} → {dest} "

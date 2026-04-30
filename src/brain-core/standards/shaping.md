@@ -32,7 +32,7 @@ Most artefacts lean one way, but a session can blend both — a design might sta
 
 ## Starting a Shaping Session
 
-Use `brain_action("start-shaping", {target, ...})` to commence shaping. This handles the mechanical setup:
+Use `brain_action("start-shaping", params={"target": "...", ...})` to commence shaping. This handles the mechanical setup:
 
 1. **Identifies the artefact** — resolves an existing artefact by name or path
 2. **Creates or appends to today's transcript** — linked to the artefact, with provenance in both directions

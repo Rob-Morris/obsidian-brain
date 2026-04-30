@@ -84,7 +84,7 @@ triggers: [brain core, obsidian-brain, vault system]
 **Creating a memory:**
 1. Create `.md` file in `_Config/Memories/` with `triggers: [...]` in frontmatter
 2. Write reference card body
-3. Run `brain_action("compile")`
+3. Run `python3 .brain-core/scripts/compile_router.py`
 4. Update the README table
 
 ### Skills (`_Config/Skills/`)
@@ -108,7 +108,7 @@ If your vault runs the Brain MCP server (`.brain-core/brain_mcp/server.py`), eig
 
 **brain_read** (safe, no side effects)
 - Look up artefacts, triggers, styles, templates, skills, plugins, memories, workspaces, environment info, the compiled router, structural compliance results, or read artefact files by path
-- Optional name filter to narrow results (for workspace, resolves a key; for compliance, filters by severity; for file, a relative path or basename — resolves like wikilinks). For temporal artefacts, the display name works without the dated prefix — e.g. "Colour Theory" finds `20260404-research~Colour Theory.md`
+- `name` is required for named resources such as `skill`, `memory`, `workspace`, `artefact`, and `file`; optional for `compliance`; rejected for `environment` and `router`. For temporal artefacts, the display name works without the dated prefix — e.g. "Colour Theory" finds `20260404-research~Colour Theory.md`
 - `resource="file"` can also read `.brain-core/` docs by vault-relative path when the agent is operating over MCP, e.g. `brain_read(resource="file", name=".brain-core/standards/provenance.md")`
 
 **brain_search** (safe, no side effects)
@@ -120,14 +120,15 @@ If your vault runs the Brain MCP server (`.brain-core/brain_mcp/server.py`), eig
 
 **brain_list** (safe, no side effects)
 - List vault artefacts exhaustively — not relevance-ranked
-- Filter by `type`, `since`/`until` (ISO dates e.g. `"2026-03-20"`), `tag`; cap with `top_k` (default 500)
-- Sort by `"date_desc"` (default), `"date_asc"`, or `"title"`
+- `resource="artefact"` supports `type`, `parent`, `since`/`until` (ISO dates e.g. `"2026-03-20"`), `tag`, `top_k` (default 500), and sort by `"date_desc"` (default), `"date_asc"`, or `"title"`
+- Non-artefact collections such as `skill`, `memory`, `template`, and `style` support only optional `query`; `workspace` and `archive` accept no filters
 - Use instead of `brain_search` when completeness matters (e.g. "all research from the last 2 weeks")
 
 **brain_create** (additive, safe to auto-approve)
 - Create a new vault resource. Default `resource="artefact"` for artefact creation from type, title, and optional body/frontmatter/parent. Also creates `skill`, `memory`, `style`, and `template` resources in `_Config/` (use `name` instead of `type`/`title`)
 - Artefacts: resolves template and naming pattern from the compiled router
 - Non-artefact resources: `skill` → `_Config/Skills/{name}/SKILL.md`, `memory` → `_Config/Memories/{name}.md`, `style` → `_Config/Styles/{name}.md`, `template` → `_Config/Templates/{classification}/{Type}.md`
+- Resource-specific fields are enforced strictly: artefact creation requires `type` + `title`, non-artefact creation requires `name`, and cross-resource extras are rejected
 - Returns confirmation message with path
 
 **brain_edit** (single-file mutation)
@@ -158,29 +159,26 @@ If your vault runs the Brain MCP server (`.brain-core/brain_mcp/server.py`), eig
 - Structural edit confirmations include the resolved range in the response, for example `(body section)`, `(body intro)`, `(heading body: ## Notes)`, or `(callout header: [!note] Status)`.
 - For artefacts: `path` accepts canonical artefact key (for example `"design/brain"`), vault-relative path, or filename basename; for temporal artefacts the display-name portion of the dated filename also resolves (e.g. `"Colour Theory"` → `20260404-research~Colour Theory.md`); validated against the compiled router
 - For non-artefact resources: `name` identifies the resource (e.g. `"my-skill"`); for templates, name is the artefact type key (e.g. `"wiki"`). No terminal status auto-move or `modified` injection
+- Validation is resource/op-specific: artefacts require `path`, editable `_Config/` resources require `name`, `delete_section` requires `target`, and fields that belong to a different resource are rejected early
+
+**brain_move** (vault-wide/destructive, requires approval)
+- Flat top-level move tool for artefact path/classification transitions
+- `rename` — request shape: `{op: "rename", source, dest}`; artefact-aware same-type move with automatic wikilink updates (uses Obsidian CLI when available)
+- `convert` — request shape: `{op: "convert", path, target_type, parent?}`; changes artefact type, moves the file, reconciles frontmatter, and updates wikilinks
+- `archive` — request shape: `{op: "archive", path}`; archives a terminal-status artefact to `_Archive/` with date-prefix rename and wikilink updates
+- `unarchive` — request shape: `{op: "unarchive", path}`; restores an archived artefact to its original type folder and removes `archiveddate`
 
 **brain_action** (vault-wide/destructive, requires approval)
-- `compile` — rebuild the compiled router from source files
-- `build_index` — rebuild the BM25 search index
-- `rename` — rename a file with automatic wikilink updates (uses Obsidian CLI when available)
-- `delete` — delete a file and replace wikilinks with strikethrough text
-- `convert` — change artefact type, move file, reconcile frontmatter, update wikilinks
-- `shape-printable` — create a printable artefact and render `_Assets/Generated/Printables/{stem}.pdf` via pandoc (params: `{source, slug}`, optional `{render, keep_heading_with_next, pdf_engine}`)
-- `shape-presentation` — create a presentation artefact, render `_Assets/Generated/Presentations/{stem}.pdf`, and optionally launch Marp live preview (params: `{source, slug}`, optional `{render, preview}`)
-- `migrate_naming` — migrate vault filenames from old aggressive slugs to generous naming conventions (optional `{dry_run}`)
-- `register_workspace` — register a linked workspace (params: `{slug, path}`)
-- `unregister_workspace` — remove a linked workspace registration (params: `{slug}`)
-- `fix-links` — scan for broken wikilinks and attempt auto-resolution; optional `{fix: true}` applies unambiguous fixes; returns JSON report
-- `sync_definitions` — sync artefact library definitions to vault `_Config/` using three-way hash comparison (optional `{dry_run, force, types, preference, status}`); returns warnings for conflicts. Pass `types: ["living/<type>"]` to additively install a new library type. Pass `status: true` for a read-only classification (`uninstalled` / `in_sync` / `sync_ready` / `locally_customised` / `conflict`). The `preference` parameter overrides the file-based `artefact_sync` setting for this invocation
-
-**brain_process** (content processing — classify/resolve are read-only, ingest can create/update)
-- `classify` — determine the best artefact type for content; returns ranked matches with confidence scores. Modes: `auto` (default), `embedding`, `bm25_only`, `context_assembly`
-- `resolve` — check if content should create a new artefact or update an existing one (requires `type` and `title`); returns create/update/ambiguous decision with candidate paths
-- `ingest` — full pipeline: classify → infer title → resolve → create/update. Optional `type`/`title` hints skip their respective steps
+- Smaller workflow/utility bucket using `action + params`
+- `delete` — request shape: `{action: "delete", params: {path}}`; deletes an artefact file and replaces wikilinks with strikethrough text
+- `shape-printable` — request shape: `{action: "shape-printable", params: {source, slug, render?, keep_heading_with_next?, pdf_engine?}}`; creates a printable artefact and renders `_Assets/Generated/Printables/{stem}.pdf` via pandoc
+- `shape-presentation` — request shape: `{action: "shape-presentation", params: {source, slug, render?, preview?}}`; creates a presentation artefact, renders `_Assets/Generated/Presentations/{stem}.pdf`, and optionally launches Marp live preview
+- `start-shaping` — request shape: `{action: "start-shaping", params: {target, title?, skill_type?}}`; bootstraps a shaping session for an existing artefact and revives `+Status/` artefacts back into the active folder when shaping resumes
+- `fix-links` — request shape: `{action: "fix-links", params: {fix?, path?, links?}}`; scans for broken wikilinks and attempts auto-resolution
 
 ### Server Logging
 
-The MCP server writes persistent logs to `.brain/local/mcp-server.log` (2 MB max, 1 backup). Startup diagnostics, tool call tracing, and errors are logged at INFO level. Startup now emits explicit begin/success/failure markers for config load, router freshness, index freshness, embeddings load, workspace registry load, and session-mirror refresh, so a stalled startup can be localised from the log alone. To include tool arguments in the log, set the environment variable `BRAIN_LOG_LEVEL=DEBUG`. The log file is local-only (gitignored).
+The MCP server writes persistent logs to `.brain/local/mcp-server.log` (2 MB max, 1 backup). Startup diagnostics, tool call tracing, and errors are logged at INFO level. Startup now emits explicit begin/success/failure markers for config load, router freshness, index freshness, workspace registry load, and session-mirror refresh, so a stalled startup can be localised from the log alone. To include tool arguments in the log, set the environment variable `BRAIN_LOG_LEVEL=DEBUG`. The log file is local-only (gitignored).
 
 ### Scripts
 
@@ -189,14 +187,22 @@ Available in `.brain-core/scripts/`. Scripts are the source of truth for all vau
 | Script | Purpose |
 |---|---|
 | `compile_router.py` | Compile router, taxonomy, skills, and styles into a single JSON file |
+| `compile_colours.py` | Generate folder colour CSS and graph colour groups |
 | `build_index.py` | Build the BM25 retrieval index for search |
+| `list_artefacts.py` | Enumerate vault artefacts and resources (library module used by MCP) |
 | `search_index.py` | Search the BM25 index from the command line |
 | `read.py` | Query compiled router resources (artefacts, triggers, styles, templates, skills, etc.) |
 | `create.py` | Create a new artefact with template/naming resolution |
 | `edit.py` | Edit artefacts via explicit `target + selector + scope`; the importable helpers also back editable `_Config/` resources |
 | `rename.py` | Rename a file with automatic wikilink updates; refuses existing-destination collisions before touching links |
 | `repair.py` | Explicit infrastructure repair entry point. Bootstraps from any compatible Python 3.12+ launcher, converges into the vault-local `.venv`, and then repairs one named scope: `mcp`, `router`, `index`, or `registry`. |
+| `session.py` | Build the canonical session model and refresh `.brain/local/session.md` |
+| `obsidian_cli.py` | IPC client for native Obsidian CLI (library module used by MCP) |
+| `shape_printable.py` | Create printable + render PDF |
+| `shape_presentation.py` | Create presentation + render PDF + launch preview |
+| `start_shaping.py` | Bootstrap a shaping session for an existing artefact |
 | `upgrade.py` | Canonical brain-core upgrade entry point from a source directory, including versioned pre-compile compatibility patches, binary-safe rollback snapshots for `.brain/` / `_Config/`, post-compile migration rollback of touched artefact roots, applied-migration tracking in `.brain/local/`, self-contained atomic writes, and best-effort vault-local MCP dependency sync when requirements change |
+| `vault_registry.py` | User-home registry of installed Brain vaults |
 | `workspace_registry.py` | Workspace key→path resolution and registration |
 | `init.py` | Set up Claude Code and/or Codex to use this vault's MCP server; requires a Python 3.12+ runtime with the `mcp` package, folder-scoped installs also scaffold `.brain/local/workspace.yaml` (migrates legacy `.brain/workspace.yaml` automatically), and direct config writes stay atomic with unique sibling temp files. Project scope outranks user scope once the client activates the project entry: approve via `/mcp` in Claude, or trust/enable the project-scoped server in Codex. |
 | `check.py` | Structural compliance checker — validates naming, frontmatter, month folders, archives, status values, and now prints exact `repair.py` commands when it detects repairable router/MCP/local-registry drift |
@@ -246,7 +252,7 @@ When full tooling isn't available, agents degrade gracefully:
 
 ## Colour System
 
-Brain auto-generates folder colours to visually distinguish types in the Obsidian sidebar. Colours are computed by `compile_colours.py` and regenerated automatically via `brain_action("compile")`.
+Brain auto-generates folder colours to visually distinguish types in the Obsidian sidebar. Colours are computed by `compile_colours.py` and regenerated automatically when you run `python3 .brain-core/scripts/compile_router.py`.
 
 ### How Colours Are Assigned
 
@@ -277,7 +283,7 @@ The `graph.json` merge preserves all existing graph settings (scale, forces, dis
 - **Sidebar colours:** `.obsidian/snippets/brain-folder-colours.css` — auto-generated CSS snippet
 - **Graph colours:** `.obsidian/graph.json` `colorGroups` — auto-generated, other settings preserved
 
-Both files are auto-generated — do not edit colour entries manually. Regenerate with `brain_action("compile")` or `python3 compile_colours.py`. Algorithm details and CSS selector templates are in `.brain-core/colours.md`.
+Both files are auto-generated — do not edit colour entries manually. Regenerate with `python3 .brain-core/scripts/compile_router.py` or `python3 .brain-core/scripts/compile_colours.py`. Algorithm details and CSS selector templates are in `.brain-core/colours.md`.
 
 ---
 

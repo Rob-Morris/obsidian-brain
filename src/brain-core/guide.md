@@ -139,7 +139,7 @@ Not every type has status. Wiki, Notes, and most temporal types are evergreen.
 
 Use **basename-only** wikilinks: `[[My Page]]`, not `[[Wiki/My Page]]`. Basename links survive folder moves and archiving. Path-qualified links break when files move into subfolders.
 
-Only wikilink to targets that already exist. If the artefact doesn't exist yet, write plain text — create the artefact first, then link. `brain_create` and `brain_edit` warn about broken or resolvable wikilinks in every write, and `brain_action("fix-links", ...)` repairs them one file or vault-wide at a time. Full rules are in the [wikilinks standard](standards/wikilinks.md); resolution mechanics are in the [linking standard](standards/linking.md).
+Only wikilink to targets that already exist. If the artefact doesn't exist yet, write plain text — create the artefact first, then link. `brain_create` and `brain_edit` warn about broken or resolvable wikilinks in every write, and `brain_action("fix-links", params={...})` repairs them one file or vault-wide at a time. Full rules are in the [wikilinks standard](standards/wikilinks.md); resolution mechanics are in the [linking standard](standards/linking.md).
 
 `brain_create` auto-disambiguates basename collisions across type folders by appending the type key (e.g. `My Page (idea).md`).
 
@@ -159,22 +159,23 @@ When one artefact spins out of another, link them. Full details are in the [prov
 
 Published writing moves to `Writing/+Published/` with date-prefixed filenames. Full details in the writing taxonomy.
 
-1. Set `status: published` and add `publisheddate: YYYY-MM-DD`
-2. Rename to `yyyymmdd-{Title}.md` via `brain_action("rename")`
-3. Move to `Writing/+Published/`
+1. Set `status: published`
+2. Add `publisheddate: YYYY-MM-DD`
+3. Save via `brain_edit(...)` — the write path handles the date-prefixed rename and move into `Writing/+Published/` automatically
 
 ## Terminal Status and Archiving
 
 Living artefacts that reach a terminal status move to a `+Status/` folder within their type directory. These files remain searchable and indexed — no rename, no `archiveddate`. Every status change (terminal or not) auto-sets `statusdate: YYYY-MM-DD` in frontmatter. Each type defines its own terminal statuses and `+Status` folders:
 
-- **Designs:** `+Implemented/`, `+Rejected/`
+- **Designs:** `+Implemented/`, `+Superseded/`, `+Rejected/`
+- **Documentation:** `+Deprecated/`
 - **Ideas:** `+Adopted/`
 - **Releases:** `+Shipped/`, `+Cancelled/`
 - **Tasks:** `+Done/`
 - **Workspaces:** `+Completed/`
 - **Writing:** `+Published/`
 
-`_Archive/` is reserved for deliberate removal — a "soft delete" that takes files completely out of the active vault namespace (index, search, and all normal operations). Use `brain_action("archive")` to archive and `brain_action("unarchive")` to restore. Use `brain_list(resource="archive")` to list archived files, `brain_read(resource="archive", name="...")` to read a specific one. Full details are in the [archiving standard](standards/archiving.md).
+`_Archive/` is reserved for deliberate removal — a "soft delete" that takes files completely out of the active vault namespace (index, search, and all normal operations). Use `brain_move(op="archive", path="...")` to archive and `brain_move(op="unarchive", path="...")` to restore. Use `brain_list(resource="archive")` to list archived files, `brain_read(resource="archive", name="...")` to read a specific one. Full details are in the [archiving standard](standards/archiving.md).
 
 ## Extending Your Vault
 
@@ -185,9 +186,9 @@ Before adding a type, check:
 - You'll create multiple files of this type (not just one)
 - It needs different naming, frontmatter, or lifecycle rules
 
-To add a living type: create the root folder, create the taxonomy file in `_Config/Taxonomy/Living/`, optionally add a router trigger, then run `brain_action("compile")` — colours are auto-generated.
+To add a living type: create the root folder, create the taxonomy file in `_Config/Taxonomy/Living/`, optionally add a router trigger, then run `python3 .brain-core/scripts/compile_router.py` — colours are auto-generated.
 
-To add a temporal type: create the folder under `_Temporal/`, create taxonomy in `_Config/Taxonomy/Temporal/`, then run `brain_action("compile")` — rose-blended colours are auto-generated.
+To add a temporal type: create the folder under `_Temporal/`, create taxonomy in `_Config/Taxonomy/Temporal/`, then run `python3 .brain-core/scripts/compile_router.py` — rose-blended colours are auto-generated.
 
 Full details in the [Template Library Guide — Extending Your Vault](https://github.com/rob-morris/obsidian-brain/blob/main/docs/user/template-library-guide.md).
 
@@ -234,14 +235,14 @@ If your vault has the Brain MCP server running, you get eight tools:
 - **brain_list** — enumerate resources exhaustively. For artefacts: filter by type, date range, or tag (not relevance-ranked; use when completeness matters). Also lists non-artefact collections: skills, triggers, styles, plugins, memories, templates, types, workspaces, archives (use `resource` parameter).
 - **brain_create** — create a new artefact or _Config/ resource (additive, safe to auto-approve). Use `resource` parameter for skill, memory, style, or template creation.
 - **brain_edit** — edit, append, prepend, or delete_section on an existing artefact or _Config/ resource (by path/basename for artefacts, by name for skill/memory/style/template). The public model is explicit: `target` selects `:body`, a heading, or a callout; optional `selector` disambiguates duplicates via ancestor steps and 1-based `occurrence`; `scope` selects the mutable range (`section` / `intro` on `:body`, `section` / `body` / `intro` / `heading` on headings, `section` / `body` / `header` on callouts). `delete_section` uses the same `target` / `selector` model without `scope`. Body mutations require `target=":body"` plus scope, callouts do not terminate body intro, legacy spellings (`:entire_body`, `:body_preamble`, `:body_before_first_heading`, `:section:...`) now hard-error with migration guidance, and confirmations include the resolved structural range instead of surrounding-heading context. Frontmatter merge strategy follows the operation verb (edit overwrites, append/prepend extend lists, null deletes field); artefacts auto-move to `+Status/` folders on terminal status change and back out on revive; config resources skip auto-move and modified injection
-- **brain_action** — compile the router, build the search index, rename, delete, convert files, fix broken links, sync definitions, register/unregister workspaces, start shaping sessions
-- **brain_process** — classify content against artefact types, resolve duplicates, or run the full ingest pipeline (classify → resolve → create/update)
+- **brain_move** — rename, convert, archive, or unarchive artefacts via a flat top-level move contract
+- **brain_action** — smaller workflow/utility bucket for delete, shaping helpers, and fix-links
 
 The MCP server logs to `.brain/local/mcp-server.log` — startup diagnostics, tool call tracing, and errors. Set `BRAIN_LOG_LEVEL=DEBUG` for tool argument details.
 
 For structural compliance (naming, frontmatter, archives), run `python3 .brain-core/scripts/check.py` or use `brain_read(resource="compliance")` via MCP.
 
-Without MCP, read `.brain-core/index.md` first. It routes to the generated markdown session mirror at `.brain/local/session.md` when available, or to `.brain-core/md-bootstrap.md` for the degraded raw-file fallback. The scripts in `.brain-core/scripts/` remain available directly (`read.py`, `search_index.py`, `create.py`, `edit.py`, `rename.py`, `compile_router.py`, `check.py`, `fix_links.py`, `sync_definitions.py`, `workspace_registry.py`, `migrate_naming.py`, `process.py`, `session.py`, `build_index.py`, `shape_presentation.py`, `start_shaping.py`, `config.py`, `generate_key.py`).
+Without MCP, read `.brain-core/index.md` first. It routes to the generated markdown session mirror at `.brain/local/session.md` when available, or to `.brain-core/md-bootstrap.md` for the degraded raw-file fallback. The scripts in `.brain-core/scripts/` remain available directly (`read.py`, `search_index.py`, `create.py`, `edit.py`, `rename.py`, `compile_router.py`, `compile_colours.py`, `check.py`, `repair.py`, `fix_links.py`, `sync_definitions.py`, `workspace_registry.py`, `vault_registry.py`, `migrate_naming.py`, `session.py`, `build_index.py`, `shape_printable.py`, `shape_presentation.py`, `start_shaping.py`, `init.py`, `upgrade.py`, `config.py`, `generate_key.py`). Library modules such as `list_artefacts.py` and `obsidian_cli.py` also remain available to script callers even though they are not primary CLI entry points.
 
 ## Further Reading
 

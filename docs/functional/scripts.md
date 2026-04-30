@@ -1,6 +1,6 @@
 # Script Reference
 
-Operational reference for scripts in `.brain-core/scripts/`. Each script exposes importable functions and a CLI entry point.
+Operational reference for scripts in `.brain-core/scripts/`. Most scripts expose both importable functions and a CLI entry point; a few are library modules used by other scripts or the MCP server.
 
 ## Script Table
 
@@ -9,6 +9,7 @@ Operational reference for scripts in `.brain-core/scripts/`. Each script exposes
 | `compile_router.py` | Compile router from source files and refresh the session mirror | `python3 compile_router.py [--json]` |
 | `compile_colours.py` | Generate folder colour CSS | (called by compile_router) |
 | `build_index.py` | Build BM25 retrieval index | `python3 build_index.py [--json]` |
+| `list_artefacts.py` | Enumerate vault artefacts and resources (unranked, no cap) | (library module, used by MCP server) |
 | `search_index.py` | BM25 keyword search | `python3 search_index.py "query" [--type T] [--json]` |
 | `read.py` | Query compiled router resources | `python3 read.py RESOURCE [--name N]` |
 | `create.py` | Create new artefact | `python3 create.py --type T --title "Title" [--body B] [--body-file PATH] [--temp-path [SUFFIX]] [--json]` |
@@ -18,7 +19,9 @@ Operational reference for scripts in `.brain-core/scripts/`. Each script exposes
 | `repair.py` | Explicit infrastructure repair entry point with bootstrap-to-managed-runtime handoff | `python3 repair.py {mcp,router,index,registry} [--vault V] [--dry-run] [--json]` |
 | `shape_printable.py` | Create printable + render PDF | `python3 shape_printable.py --source P --slug S [--no-render] [--pdf-engine E]` |
 | `shape_presentation.py` | Create presentation + render PDF + launch preview | `python3 shape_presentation.py --source P --slug S [--no-render] [--no-preview]` |
+| `start_shaping.py` | Bootstrap a shaping session for an existing artefact | `python3 start_shaping.py --target P [--title T] [--vault V]` |
 | `upgrade.py` | In-place brain-core upgrade with local migration ledger; direct bootstrap writes stay self-contained and atomic | `python3 upgrade.py --source P [--vault V] [--dry-run] [--force] [--sync\|--no-sync] [--sync-deps\|--no-sync-deps] [--json]` |
+| `vault_registry.py` | User-home registry of installed Brain vaults | `python3 vault_registry.py [--register PATH\|--backfill PATH\|--unregister PATH\|--list [--json]\|--prune\|--resolve ALIAS]` |
 | `workspace_registry.py` | Workspace slug-path resolution | `python3 workspace_registry.py [--register SLUG PATH] [--unregister SLUG] [--resolve SLUG] [--json]` |
 | `migrate_naming.py` | Migrate filenames to generous conventions | `python3 migrate_naming.py [--vault V] [--dry-run] [--json]` |
 | `migrations/migrate_to_0_29_0.py` | v0.29.0 migration bundle: `pre_compile_patch` remediates blocking missing-`date_source` taxonomies, then `post_compile` backfills `created`/`modified`/`date_source` across the vault | `python3 migrations/migrate_to_0_29_0.py [--vault V] [--dry-run] [--json]` |
@@ -27,8 +30,8 @@ Operational reference for scripts in `.brain-core/scripts/`. Each script exposes
 | `sync_definitions.py` | Install / sync artefact library definitions and classify vault state | `python3 sync_definitions.py [--vault V] [--dry-run] [--force] [--types t1,t2] [--status] [--json]` |
 | `config.py` | Vault configuration loader (three-layer merge) | `python3 config.py` |
 | `session.py` | Build the canonical session model and refresh `.brain/local/session.md` | `python3 session.py [--json] [--workspace-dir PATH]` |
+| `obsidian_cli.py` | IPC client for native Obsidian CLI | (library module, used by MCP server) |
 | `generate_key.py` | Generate operator key + hash for config.yaml | `python3 generate_key.py [--count N]` |
-| `process.py` | Content classification, duplicate resolution, ingestion | (library module, used by MCP server) |
 | `init.py` | Claude/Codex MCP registration + recorded removal; keeps direct file writes atomic with unique sibling temp files | `python3 init.py [--client {claude,codex,all}] [--user] [--local] [--project PATH] [--remove] [--force]` |
 
 ## Architecture
@@ -74,11 +77,11 @@ The MCP server is a thin wrapper that imports functions from scripts and holds t
 | `triggers` | Merged conditional triggers from router.md and taxonomy files |
 | `skills`, `plugins`, `styles`, `memories` | Discovered enrichment documents |
 
-**Staleness checks:** The MCP server runs two complementary checks on a 5-second TTL. (1) `_check_router` compares the composite `meta.source_hash` (SHA-256 over all tracked source files) to detect edits to existing sources. (2) `_check_router_resource_counts` detects new or deleted resources that aren't in the manifest — but it short-circuits via a stat-only directory-mtime signature (`resource_source_dirs(vault_root)` is the canonical list of dirs that govern resource counts). On stable vaults the signature matches and the resource walk is skipped; cost drops from ~19ms to ~0.2ms. The full walk only fires when a resource directory's mtime advances. See DD-042 for the rationale.
+**Staleness checks:** Router freshness is checked on a 5-second TTL. `_check_router` compares the composite `meta.source_hash` (SHA-256 over all tracked source files) to detect edits to existing sources, and `_check_router_resource_counts` detects new or deleted resources that aren't in the manifest — but it short-circuits via a stat-only directory-mtime signature (`resource_source_dirs(vault_root)` is the canonical list of dirs that govern resource counts). On stable vaults the signature matches and the resource walk is skipped; cost drops from ~19ms to ~0.2ms. The full walk only fires when a resource directory's mtime advances. See DD-042 for the rationale. Index freshness uses a separate 30-second TTL.
 
 **Importable API** (used by the MCP server to drive its staleness checks): `resource_counts(vault_root)` returns `{key: count}` for the discoverable resource categories. `resource_source_dirs(vault_root)` yields `(rel_path, descend)` pairs identifying every directory whose mtime governs the resource-count answer.
 
-**Post-step generation:** `compile_colours.py` runs as a post-step, reading the compiled router to generate `.obsidian/snippets/brain-folder-colours.css` and `.obsidian/graph.json` colour groups. After a successful compile, `session.py` also refreshes `.brain/local/session.md` so the markdown bootstrap mirror stays aligned with the current canonical session model. Both are called automatically — no separate invocation needed.
+**Post-step generation:** `compile_colours.py` runs as a post-step, reading the compiled router to generate `.obsidian/snippets/brain-folder-colours.css` and `.obsidian/graph.json` colour groups. After a successful compile, `session.py` also refreshes `.brain/local/session.md` so the markdown bootstrap mirror stays aligned with the current canonical session model. All of this happens automatically — no separate invocation needed.
 
 **Flags:** `--json` (output JSON to stdout instead of writing to file).
 
@@ -400,14 +403,14 @@ The single tool for reconciling vault `_Config/` definitions with the artefact l
 
 Plus a separate `not_installable` bucket in `--status` output for library-side errors (missing manifest sources, etc.) — these cannot be fixed from the vault.
 
-**MCP parity:** exposed via `brain_action("sync_definitions", params={...})`. Pass `status=true` for the read-only classifier. All CLI params (`types`, `force`, `dry_run`) are accepted on the MCP surface too.
+**MCP surface:** no direct MCP wrapper. Use the CLI/script entry point for definition installs, syncs, and status classification.
 
 ## build_index.py / search_index.py
 
 BM25 keyword search over all vault markdown files. Built offline like the compiled router, queried at search time from a pre-built index.
 
 **Key properties:**
-- **Zero dependencies** — hand-rolled BM25, Python 3.8+ stdlib only, matching `compile_router.py` constraints
+- **Zero mandatory dependencies for BM25** — the retrieval index build itself is hand-rolled and stdlib-only
 - **Same folder discovery** — reuses `scan_living_types()` / `scan_temporal_types()` patterns, then recurses each type folder for `.md` files
 - **Whole-document indexing** — each note is one entry (sufficient at vault scale)
 - **Build/search split** — `build_index.py` builds the index, `search_index.py` queries it. Separate scripts, no cross-imports.
@@ -431,7 +434,7 @@ python3 search_index.py "query" --json  # structured output
 
 **Build trigger:**
 
-- **MCP server** (implemented v0.7.0) — rebuilds on startup if stale (compares index timestamp against file mtimes), exposes `build_index` as a `brain_action` for mid-session refresh. Same pattern as compiled router auto-compile. Incremental updates (v0.15.10): artefact `brain_create` / `brain_edit` calls queue single-file upserts via `index_update()` instead of triggering full rebuilds; memory edits dirty the router so `router["memories"]` refreshes on the next call, but they do not touch the artefact retrieval index; destructive actions (rename/delete/convert) set a dirty flag for full rebuild on next search. Filesystem staleness checks for both router and index are throttled by a 5-second TTL to reduce per-call I/O.
+- **MCP server** (implemented v0.7.0) — rebuilds on startup if stale (compares index timestamp against file mtimes); there is no longer a mid-session MCP rebuild action for the index. Same pattern as compiled router auto-compile. Incremental updates (v0.15.10): artefact `brain_create` / `brain_edit` calls queue single-file upserts via `index_update()` instead of triggering full rebuilds; shaping helpers queue incremental updates for the artefacts they create or mutate; memory edits dirty the router so `router["memories"]` refreshes on the next call, but they do not touch the artefact retrieval index; destructive actions (rename/delete/convert/archive/unarchive) set a dirty flag for full rebuild on next search. Filesystem staleness checks are throttled by TTL: 5 seconds for router freshness and 30 seconds for index freshness, reducing per-call I/O while keeping the cache responsive.
 - **Obsidian plugin** (planned) — watch for `.md` file changes and trigger rebuild so the index stays fresh for non-agent use cases (in-Obsidian search UI, etc.). Vault files can be modified by agents, by Obsidian, or directly via the filesystem — all three paths need to result in a fresh index.
 - **Manual** — `python3 build_index.py` from the vault root.
 

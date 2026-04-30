@@ -123,9 +123,9 @@ A new Brain vault ships with a practical starter set: Daily Notes, Designs, Docu
 
 ### Adding Types When You Need Them
 
-When you find yourself creating content that doesn't fit anywhere, that's the signal to add a type. The artefact library (`.brain-core/artefact-library/`) has ready-to-install definitions for types like Wiki, Journals, Zettelkasten, Printables, and more. Each comes with a taxonomy file and template. Folder colours are auto-generated when you run `brain_action("compile")`.
+When you find yourself creating content that doesn't fit anywhere, that's the signal to add a type. The artefact library (`.brain-core/artefact-library/`) has ready-to-install definitions for types like Wiki, Journals, Zettelkasten, Printables, and more. Each comes with a taxonomy file and template. Folder colours are auto-generated when you run `python3 .brain-core/scripts/compile_router.py`.
 
-To install types from the library, use `brain_action("sync_definitions")` (or `python3 sync_definitions.py` from the CLI). You can preview with a dry run, sync specific types, or let it run automatically after upgrades. See [sync_definitions](../functional/scripts.md) and [brain_action](../functional/mcp-tools.md) for full parameters.
+To install types from the library, use `python3 .brain-core/scripts/sync_definitions.py`. You can preview with a dry run, sync specific types, or let it run automatically after upgrades. See [sync_definitions](../functional/scripts.md) for full parameters.
 
 The rule of thumb: add a type when you'll create multiple files of that kind and they need different conventions from what you already have. If it's a one-off, a subfolder or tag within an existing type is simpler.
 
@@ -143,7 +143,7 @@ Designs/
     Brain Mcp Server.md
 ```
 
-This works for any living type — designs, ideas, wiki pages. Sub-artefacts inherit the parent type, so no separate taxonomy or CSS is needed. When a sub-artefact reaches a terminal status, use `brain_action("archive")` to move it to the top-level `_Archive/` (preserving type/project structure). Projects archive as-is.
+This works for any living type — designs, ideas, wiki pages. Sub-artefacts inherit the parent type, so no separate taxonomy or CSS is needed. When a sub-artefact reaches a terminal status, update its `status`; `brain_edit` moves it into the matching `+Status/` folder automatically. Use `_Archive/` only for deliberate removal from the active vault namespace.
 
 ### Giving Agents Context with Memories
 

@@ -8,7 +8,7 @@ a live-preview browser window via `marp --preview` and renders a PDF into
 while the user watches the preview update in real time.
 
 Usage (via MCP):
-    brain_action("shape-presentation", {source: "path/to/source.md", slug: "my-deck"})
+    brain_action("shape-presentation", params={"source": "path/to/source.md", "slug": "my-deck"})
 
 Usage (CLI):
     python3 shape_presentation.py --source "path/to/source.md" --slug "my-deck" --vault /path/to/vault

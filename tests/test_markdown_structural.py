@@ -7,6 +7,7 @@ callout-shaped lines do NOT count as structural landmarks.
 
 import pytest
 
+from _common import normalize_structural_selector
 from _common._markdown import (
     collect_headings,
     resolve_structural_target,
@@ -16,6 +17,13 @@ from _common._markdown import (
 def _body_intro(body):
     """Convenience wrapper used by intro-range tests."""
     return resolve_structural_target(body, ":body")["ranges"]["intro"]
+
+
+def test_normalize_structural_selector_defaults_to_empty_chain():
+    assert normalize_structural_selector(None) == {
+        "within": [],
+        "occurrence": None,
+    }
 
 
 class TestCollectHeadings:

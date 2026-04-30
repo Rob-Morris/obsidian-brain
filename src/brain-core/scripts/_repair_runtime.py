@@ -445,16 +445,10 @@ def repair_router(vault_root: Path, dry_run: bool, bootstrap_steps: list[dict] |
         return _finalise_result("router", vault_root, dry_run, steps)
 
     compiled = compile_router.compile(str(vault_root))
-    output_path = vault_root / compile_router.OUTPUT_PATH
-    compile_router.safe_write(
-        str(output_path),
-        json.dumps(compiled, indent=2, ensure_ascii=False) + "\n",
-        bounds=str(vault_root),
-    )
+    compile_router.persist_compiled_router(str(vault_root), compiled)
     steps.append(_step("router", "changed", f"Rebuilt the compiled router ({reason})."))
     try:
-        model = compile_router.session.build_session_model(compiled, str(vault_root))
-        compile_router.session.persist_session_markdown(model, str(vault_root))
+        compile_router.refresh_session_markdown(str(vault_root), compiled)
     except Exception as exc:
         steps.append(_step(
             "router_session",
@@ -475,12 +469,7 @@ def repair_index(vault_root: Path, dry_run: bool, bootstrap_steps: list[dict] | 
         return _finalise_result("index", vault_root, dry_run, steps)
 
     index = build_index.build_index(str(vault_root))
-    output_path = vault_root / build_index.OUTPUT_PATH
-    build_index.safe_write(
-        str(output_path),
-        json.dumps(index, indent=2, ensure_ascii=False) + "\n",
-        bounds=str(vault_root),
-    )
+    build_index.persist_retrieval_index(str(vault_root), index)
     steps.append(_step("index", "changed", f"Rebuilt the retrieval index ({reason})."))
     return _finalise_result("index", vault_root, dry_run, steps)
 

@@ -31,5 +31,5 @@ Scan the table below. When a trigger matches what the user is referencing, read 
 
 1. Create a `.md` file in `_Config/Memories/` with `triggers: [...]` in YAML frontmatter
 2. Write a factual reference card body — what something is, where to find things, key facts. If you're writing steps to follow, that's a skill, not a memory
-3. Run `brain_action("compile")` to include the memory in the compiled router
+3. Run `python3 .brain-core/scripts/compile_router.py` to include the memory in the compiled router
 4. Update this table so naive agents (no compiler/MCP) can find it too

@@ -7,8 +7,8 @@ has a status field), creates a shaping transcript from the template, and
 links the transcript back to the source artefact.
 
 Usage (via MCP):
-    brain_action("start-shaping", {target: "Designs/My Design.md"})
-    brain_action("start-shaping", {target: "My Design", title: "Custom Title"})
+    brain_action("start-shaping", params={"target": "Designs/My Design.md"})
+    brain_action("start-shaping", params={"target": "My Design", "title": "Custom Title"})
 
 Usage (CLI):
     python3 start_shaping.py --target "Designs/My Design.md" --vault /path/to/vault
@@ -31,6 +31,26 @@ from _common import (
     substitute_template_vars,
     title_to_filename,
 )
+from rename import rename_and_update_links
+
+
+def _revive_from_status_folder(vault_root, rel_path):
+    """Move a revived artefact out of a +Status/ folder if needed."""
+    parent_dir = os.path.dirname(rel_path)
+    parent_name = os.path.basename(parent_dir)
+    if not parent_name.startswith("+"):
+        return rel_path
+
+    revived_path = os.path.join(os.path.dirname(parent_dir), os.path.basename(rel_path))
+    rename_and_update_links(vault_root, rel_path, revived_path)
+
+    abs_old_dir = os.path.join(vault_root, parent_dir)
+    try:
+        os.rmdir(abs_old_dir)
+    except OSError:
+        pass
+
+    return revived_path
 
 
 # ---------------------------------------------------------------------------
@@ -93,6 +113,8 @@ def start_shaping(vault_root, router, params):
                 fields["modified"] = now_iso()
                 updated_content = serialize_frontmatter(fields, body=body)
                 safe_write(abs_path, updated_content, bounds=vault_root)
+                rel_path = _revive_from_status_folder(vault_root, rel_path)
+                abs_path = os.path.join(vault_root, rel_path)
                 set_status = True
 
     skill_type = params.get("skill_type", "Shaping")

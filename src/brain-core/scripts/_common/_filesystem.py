@@ -165,7 +165,33 @@ def make_temp_path(suffix=".md"):
     return path
 
 
-def resolve_body_file(body, body_file, *, vault_root=None):
+def temp_body_file_cleanup_path(body_file):
+    """Return the cleanup path for a staged temp ``body_file``, if any."""
+    if not body_file:
+        return None
+
+    abs_path = os.path.realpath(body_file)
+    tmp_roots = {os.path.realpath(tempfile.gettempdir()), os.path.realpath("/tmp")}
+    for root in tmp_roots:
+        try:
+            resolve_and_check_bounds(abs_path, root)
+            return abs_path
+        except ValueError:
+            pass
+    return None
+
+
+def cleanup_temp_body_file(path):
+    """Best-effort removal for a staged temp ``body_file`` path."""
+    if not path:
+        return
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+
+
+def resolve_body_file(body, body_file, *, vault_root=None, cleanup_path=None):
     """Return body content, reading from body_file if provided.
 
     Raises ValueError if both are specified, the file cannot be read,
@@ -174,7 +200,9 @@ def resolve_body_file(body, body_file, *, vault_root=None):
 
     Returns (body, cleanup_path).  *cleanup_path* is set only when the
     file was read from the system temp directory (caller should delete);
-    it is None for vault files or when body_file was not used.
+    it is None for vault files or when body_file was not used. Callers that
+    already know the staged temp cleanup path may pass it via *cleanup_path*
+    to avoid recomputing temp-body ownership checks.
     """
     if body_file and body:
         raise ValueError("Cannot specify both 'body' and 'body_file'. Use one or the other.")
@@ -183,23 +211,16 @@ def resolve_body_file(body, body_file, *, vault_root=None):
 
     abs_path = os.path.realpath(body_file)
 
-    in_tmp = False
+    cleanup_path = None
     if vault_root is not None:
-        tmp_roots = {os.path.realpath(tempfile.gettempdir()),
-                     os.path.realpath("/tmp")}
-        for root in tmp_roots:
-            try:
-                resolve_and_check_bounds(abs_path, root)
-                in_tmp = True
-                break
-            except ValueError:
-                pass
-        if not in_tmp:
+        if cleanup_path is None:
+            cleanup_path = temp_body_file_cleanup_path(body_file)
+        if cleanup_path is None:
             resolve_and_check_bounds(abs_path, vault_root)
 
     try:
         with open(abs_path, "r", encoding="utf-8") as f:
-            return f.read(), abs_path if in_tmp else None
+            return f.read(), cleanup_path
     except FileNotFoundError:
         raise ValueError(f"body_file not found: {body_file}")
     except Exception as e:

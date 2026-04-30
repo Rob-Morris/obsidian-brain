@@ -15,7 +15,7 @@ Create slide decks from vault content using Marp CLI.
 
 ## Shaping Workflow
 
-Use `brain_action("shape-presentation", {source, slug})` to create the presentation artefact, render its PDF, and launch a live preview:
+Use `brain_action("shape-presentation", params={"source": ..., "slug": ...})` to create the presentation artefact, render its PDF, and launch a live preview:
 
 1. **Call the tool.** `source` is the vault artefact to present (relative path). `slug` is the deck name (lowercase-hyphenated).
 2. **The tool creates** the presentation file from the template if it does not already exist.

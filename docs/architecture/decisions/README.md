@@ -83,6 +83,9 @@ Each DD captures the reasoning behind an architectural decision at the time it w
 | DD-041 | Canonical living-artefact key convention — `key:` field, `{type}/{key}` lookup, explicit `parent:` ownership | Implemented (v0.31.0) | [dd-041](dd-041-canonical-key-convention.md) |
 | DD-042 | Mtime-signature staleness fast-path — stat directories before walking | Implemented (v0.31.1) | [dd-042](dd-042-mtime-signature-staleness-fast-path.md) |
 | DD-043 | Bootstrap launchers and managed runtimes | Implemented (v0.32.6) | [dd-043](dd-043-bootstrap-launchers-and-managed-runtimes.md) |
+| DD-044 | MCP tool metadata contract — living functional doc, DD rationale | Implemented (v0.33.0) | [dd-044](dd-044-mcp-tool-metadata-contract.md) |
+| DD-045 | MCP mutation surface split — `brain_move`, residual `brain_action`, scripts-only admin | Implemented (v0.33.0) | [dd-045](dd-045-mcp-mutation-surface-split.md) |
+| DD-046 | Park unfinished `brain_process` / embeddings work off-main until it is ready to ship | Implemented (v0.33.0) | [dd-046](dd-046-park-brain-process-off-main.md) |
 
 ---
 
@@ -90,7 +93,7 @@ Each DD captures the reasoning behind an architectural decision at the time it w
 
 Related decisions grouped by domain. Arrows show supersede/extend chains.
 
-- **MCP tool surface:** DD-010, DD-011 → DD-020 → DD-025, DD-026, DD-027, DD-028
+- **MCP tool surface:** DD-010 → DD-044, DD-010 → DD-045 → DD-046, DD-011 → DD-020 → DD-025 → DD-045, DD-026, DD-027, DD-028
 - **Config & install:** DD-015, DD-023 → DD-039 → DD-043, DD-032, DD-033
 - **Router & bootstrap:** DD-008, DD-009, DD-012, DD-013, DD-014, DD-017, DD-019, DD-038, DD-042
 - **Security & integrity:** DD-031, DD-036, DD-043

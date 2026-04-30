@@ -1316,7 +1316,6 @@ def main() -> None:
 
         info("Post-upgrade: rebuild the search index.")
         info(f"  {shlex.quote(sys.executable)} {shlex.quote(str(vault_root / '.brain-core' / 'scripts' / 'build_index.py'))}")
-        info("  (or use brain_action('build_index') via MCP)")
 
         # Sync results
         if "sync_error" in result:

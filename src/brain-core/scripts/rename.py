@@ -17,6 +17,7 @@ import os
 import sys
 
 from _common import (
+    check_write_allowed,
     check_not_in_brain_core,
     find_vault_root,
     is_archived_path,
@@ -35,7 +36,37 @@ from _common import (
 # Core logic
 # ---------------------------------------------------------------------------
 
-def rename_and_update_links(vault_root, source, dest, router=None):
+def validate_rename_request(
+    vault_root,
+    source,
+    dest,
+    router=None,
+    *,
+    allow_archive_paths=False,
+):
+    """Validate a rename request and return resolved absolute paths."""
+    abs_source = os.path.join(vault_root, source)
+    abs_dest = os.path.join(vault_root, dest)
+    resolve_and_check_bounds(abs_source, vault_root)
+    resolve_and_check_bounds(abs_dest, vault_root)
+    check_not_in_brain_core(dest, vault_root)
+    if not (allow_archive_paths and is_archived_path(dest)):
+        check_write_allowed(dest)
+
+    if router is not None:
+        _validate_destination_naming(vault_root, router, source, dest, abs_source)
+
+    return abs_source, abs_dest
+
+
+def rename_and_update_links(
+    vault_root,
+    source,
+    dest,
+    router=None,
+    *,
+    allow_archive_paths=False,
+):
     """Rename a file and update wikilinks via grep-and-replace.
 
     Args:
@@ -47,6 +78,9 @@ def rename_and_update_links(vault_root, source, dest, router=None):
                 contract using the source file's current frontmatter state.
                 ``_Archive/`` destinations are exempt (they carry an archival
                 prefix outside the naming contract).
+        allow_archive_paths: Allow internal archive/unarchive flows to move
+                into or out of ``_Archive/`` while keeping the default rename
+                contract stricter for direct callers.
 
     Returns:
         Number of wikilinks updated across all files.
@@ -56,11 +90,13 @@ def rename_and_update_links(vault_root, source, dest, router=None):
         ValueError: If the destination filename violates the target type's
                     naming contract.
     """
-    abs_source = os.path.join(vault_root, source)
-    abs_dest = os.path.join(vault_root, dest)
-    resolve_and_check_bounds(abs_source, vault_root)
-    resolve_and_check_bounds(abs_dest, vault_root)
-    check_not_in_brain_core(dest, vault_root)
+    abs_source, abs_dest = validate_rename_request(
+        vault_root,
+        source,
+        dest,
+        router=router,
+        allow_archive_paths=allow_archive_paths,
+    )
 
     if not os.path.isfile(abs_source):
         raise FileNotFoundError(f"Source file not found: {source}")
@@ -72,9 +108,6 @@ def rename_and_update_links(vault_root, source, dest, router=None):
             same = False
         if not same:
             raise FileExistsError(f"Destination file already exists: {dest}")
-
-    if router is not None:
-        _validate_destination_naming(vault_root, router, source, dest, abs_source)
 
     pattern, stem_map = resolve_wikilink_stems(vault_root, source, dest)
     links_updated = replace_wikilinks_in_vault(
@@ -137,6 +170,12 @@ def delete_and_clean_links(vault_root, path):
     abs_path = os.path.join(vault_root, path)
     resolve_and_check_bounds(abs_path, vault_root)
     check_not_in_brain_core(path, vault_root)
+    check_write_allowed(path)
+    if is_archived_path(path):
+        raise ValueError(
+            "Delete does not operate on _Archive/. "
+            "Use brain_move(op='unarchive') first or remove the file manually."
+        )
     if not os.path.isfile(abs_path):
         raise FileNotFoundError(f"File not found: {path}")
 

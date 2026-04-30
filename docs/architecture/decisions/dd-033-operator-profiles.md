@@ -1,6 +1,7 @@
 # DD-033: Operator profiles
 
 **Status:** Implemented
+**Extended by:** DD-045, DD-046
 
 ## Context
 

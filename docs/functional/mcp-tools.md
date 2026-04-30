@@ -12,6 +12,45 @@ successive refreshes collapse to the latest intent, and an `atexit` drain
 with a bounded cap lets the last in-flight write finish on clean shutdown.
 See dd-036 for the full contract.
 
+## Tool Metadata Contract
+
+This section is the living source of truth for the metadata emitted by every
+`@mcp.tool()` registration in `src/brain-core/brain_mcp/server.py`.
+[DD-044](../architecture/decisions/dd-044-mcp-tool-metadata-contract.md)
+records why this contract exists; this section defines the current
+implementation.
+
+- Tool-level docstrings are summary-only. They explain what the tool does, when
+  to use it, major behavioural invariants, and what it returns. They do not
+  contain `Args:`, `Parameters:`, or `Returns:` sections, parameter tables, or
+  per-parameter prose.
+- Every exposed parameter must carry a non-empty schema description via
+  `Annotated[..., Field(description="...")]` or an equivalent shared constant
+  passed into `Field(description=...)`.
+- When a nested object has a stable shape, encode that shape in the generated
+  schema with named properties and nested descriptions rather than exposing it
+  as a generic `object` plus prose.
+- Prefer flat, first-class top-level parameters for primary tools. When
+  operation-specific cross-field rules would require unsupported schema hacks,
+  keep the schema ergonomic and enforce the contract at runtime with precise
+  validation errors instead.
+- Parameter descriptions carry the semantics the schema cannot: purpose,
+  conditional requirements, mutual exclusion, format notes, per-value meaning,
+  and worked examples where needed.
+- Parameter descriptions do not restate facts the schema already carries, such
+  as default values, nullability, or bare enum membership. Add prose only where
+  it adds meaning.
+- Keep schema descriptions concise on the discovery hot path. When a field
+  starts accumulating examples, migration notes, or long behavioural walkthroughs,
+  keep the load-bearing semantics in the schema and move the rest into this
+  document.
+- Validation errors for load-bearing constraints should name the parameter, the
+  trigger condition, and the valid values or required condition so an MCP
+  client can recover from the error without depending on a long docstring.
+- `tests/test_mcp_tool_contract.py` enforces this generated-metadata contract
+  against the registered tool set. Update this section and the tests together
+  when the contract changes.
+
 ## Tool Overview
 
 | Tool | Safety Level | Purpose |
@@ -22,12 +61,11 @@ See dd-036 for the full contract.
 | `brain_list` | Safe — auto-approvable | Exhaustive enumeration of artefacts or config collections |
 | `brain_create` | Additive — safe to auto-approve | Create a new vault artefact or config resource |
 | `brain_edit` | Single-file mutation | Edit, append, prepend, or delete a section from one file |
-| `brain_action` | Vault-wide / destructive — require explicit approval | Compile, rename, delete, convert, archive, and other multi-file ops |
-| `brain_process` | Classify/resolve: read-only; ingest: creates/updates files | Content classification, duplicate resolution, ingestion |
+| `brain_move` | Vault-wide / destructive — require explicit approval | Rename, convert, archive, or unarchive an artefact with flat top-level fields |
+| `brain_action` | Vault-wide / destructive — require explicit approval | Workflow/utility bucket for delete, shaping helpers, and fix-links |
 
 Mutating MCP calls are serialized within one server process. This applies to
-`brain_create`, `brain_edit`, `brain_action`, and `brain_process` when
-`operation="ingest"`. The lock lives in the MCP wrapper only: scripts remain
+`brain_create`, `brain_edit`, `brain_move`, and `brain_action`. The lock lives in the MCP wrapper only: scripts remain
 the source of truth for mutation behavior, and direct script callers must still
 coordinate their own parallel writes.
 
@@ -53,7 +91,7 @@ Safe, no side effects, auto-approvable. Reads a specific resource by name. Deleg
 
 **Parameters:**
 - `resource` (required) — one of: `type`, `trigger`, `style`, `template`, `skill`, `plugin`, `memory`, `workspace`, `environment`, `router`, `compliance`, `artefact`, `file`, `archive`
-- `name` (required for collection resources) — calling without name on collection resources returns an error directing to `brain_list(resource=...)`
+- `name` — required for `type`, `trigger`, `style`, `template`, `skill`, `plugin`, `memory`, `workspace`, `artefact`, `file`, and `archive`; optional for `compliance`; rejected for `environment` and `router`
 
 **Resource behaviours:**
 - **Singletons** (`environment`, `router`, `compliance`) — no `name` required
@@ -67,6 +105,8 @@ Safe, no side effects, auto-approvable. Reads a specific resource by name. Deleg
 Normal artefact/file resources reject archive paths with a helpful error. If a basename resolves to `_Config/`, the error suggests the correct dedicated resource (e.g. `memory`, `skill`).
 
 **Response format:** Resource-dependent. Artefact/file content returned as plain text. Single-item resources (`type`, `trigger`, `memory`) returned as JSON. Complex resources (`router`, `compliance`) remain JSON where structure aids comprehension. Compliance findings may now carry structured `repair` hints when a shaped repair scope applies. Environment returned as formatted `key=value` pairs.
+
+Resource-specific request validation is strict: missing required fields and resource-incompatible extras fail early with a contract hint. `brain_read(resource="workspace")` without `name`, for example, points callers at `brain_list(resource="workspace")`.
 
 ---
 
@@ -94,10 +134,9 @@ Safe, no side effects, auto-approvable. Exhaustive enumeration — not relevance
 
 **Parameters:**
 - `resource` (default `"artefact"`) — also accepts `skill`, `trigger`, `style`, `plugin`, `memory`, `template`, `type`, `workspace`, `archive`
-- `query` (optional text filter for non-artefact resources)
-- `type`, `since`, `until` (ISO date strings), `tag`, `sort` (artefact filters — only apply when `resource="artefact"`)
-- `top_k` (default 500)
-- `sort` — `"date_desc"` (default), `"date_asc"`, `"title"`
+- `query` (optional text filter for `type`, `template`, `skill`, `trigger`, `style`, `plugin`, and `memory`)
+- `type`, `parent`, `since`, `until` (ISO date strings), `tag`, `top_k` (default 500), `sort` (`"date_desc"` default, `"date_asc"`, `"title"`) — artefact-only filters
+- `workspace` and `archive` accept no extra filters
 
 **Behaviour:**
 - For artefacts: filters the in-memory BM25 index directly — no filesystem walk
@@ -106,6 +145,8 @@ Safe, no side effects, auto-approvable. Exhaustive enumeration — not relevance
 Use `resource` to list non-artefact collections — this replaces the previous `brain_read` listing behaviour.
 
 **Response format:** Multi-block: bold past-tense metadata block (`**Listed:** N results`) + results as a readable text list. For artefacts: date, title, path, type, status. For non-artefact resources: name per line.
+
+Resource-specific request validation is strict here too: passing artefact-only filters such as `type` or `sort` to `resource="skill"` returns a clear error instead of being silently ignored.
 
 ---
 
@@ -129,6 +170,7 @@ Additive, safe to auto-approve. Creates a new vault resource. Write-guarded: rej
 - For artefacts: resolves type from compiled router, reads template, generates filename from naming pattern, writes file with merged frontmatter; naming patterns can also consume matching frontmatter/template values such as `{Version}`; unresolved placeholders return an error instead of writing a broken filename; auto-injects `created` and `modified` ISO 8601 timestamps (respects overrides); living artefacts also get a platform-owned `key`; any resolved `parent` is persisted canonically and stamped into tags, with owner-derived folder placement for living children only; temporal children keep date-based filing; auto-disambiguates basename collisions by appending `(type)`
 - For non-artefact resources: creates in the appropriate `_Config/` subfolder — skills at `_Config/Skills/{name}/SKILL.md`, memories at `_Config/Memories/{name}.md`, styles at `_Config/Styles/{name}.md`, templates at `_Config/Templates/{classification}/{Type}.md`
 - Every artefact write runs a per-file wikilink check; broken, resolvable, and ambiguous links are appended to the response as `⚠` warning lines (and auto-applied fixes as a `✔` block when `fix_links=true`)
+- Resource-specific request validation is strict: artefact-only fields (`type`, `title`, `parent`, `key`, `fix_links`) are rejected for non-artefact resources, and `name` is rejected for artefact creation
 
 **Response format:** Plain text confirmation: `"**Created** {type}: {path}"` for artefacts, `"**Created** {resource}: {path}"` for non-artefact resources.
 
@@ -172,8 +214,32 @@ Single-file mutation. Write-guarded: same folder restrictions as `brain_create`.
 - Heading structure defines intro/section boundaries. Callouts are individually targetable, but they do not terminate `target=":body", scope="intro"`.
 - Ambiguous structural matches hard-error with candidate context. Use `selector.occurrence` or `selector.within` to disambiguate.
 - Every artefact edit runs a per-file wikilink check; broken, resolvable, and ambiguous links are appended to the response as `⚠` warning lines (and auto-applied fixes as a `✔` block when `fix_links=true`)
+- Resource/op-specific request validation is strict before the structural preflight layer runs: artefacts require `path`, editable `_Config/` resources require `name`, `delete_section` requires `target`, and cross-resource extras such as `fix_links` on a skill edit are rejected
 
 **Response format:** Plain text confirmation: `"**Edited:** {path}"`, `"**Appended:** {path}"`, `"**Prepended:** {path}"`, or `"**Deleted section from:** {path}"`. Structural mutations append the resolved range in parentheses, e.g. `(body section)`, `(body intro)`, `(heading body: ## Notes)`, `(heading section: # API [2] > ## Notes)`, or `(callout header: [!note] Status)`.
+
+---
+
+### brain_move
+
+Vault-wide and destructive content-move operations, gated by explicit approval.
+
+**Parameters:**
+- `op` (required) — one of: `rename`, `convert`, `archive`, `unarchive`
+- `source` — used only when `op="rename"`
+- `dest` — used only when `op="rename"`
+- `path` — used by `convert`, `archive`, and `unarchive`
+- `target_type` — used only when `op="convert"`
+- `parent` — optional parent artefact reference used only when `op="convert"`
+
+**Behaviour:**
+- Flat top-level request shape for caller ergonomics, matching the `brain_edit` pattern: field-level schema plus explicit runtime validation of op-specific requirements
+- **`rename`** — request shape: `{op: "rename", source, dest}`. Artefact-aware same-type move only: source and destination must both live in configured artefact folders for the same type, and destination naming is validated against the type contract. Delegates to `rename.py`'s `rename_and_update_links()`, with Obsidian CLI override when available. Wikilink updates match full-path (`[[Wiki/topic-a]]`), filename-only (`[[topic-a]]`), heading anchors, block references, embeds, and aliases while preserving the original format; filename-only matching is skipped when basename is ambiguous
+- **`convert`** — request shape: `{op: "convert", path, target_type, parent?}`. Changes artefact type, moves file, reconciles frontmatter, and updates wikilinks vault-wide. Crossing the living/temporal boundary reconciles the key contract: temporal→living generates a canonical `key:`; living→temporal drops the key and heals descendants by removing their `parent:` field plus the owner-tag and relocating them out of the owner-derived folder
+- **`archive`** — request shape: `{op: "archive", path}`. Moves a terminal-status artefact to `_Archive/{Type}/{Project}/` with date-prefix rename, sets `archiveddate`, and updates vault-wide wikilinks
+- **`unarchive`** — request shape: `{op: "unarchive", path}`. Restores an archived artefact to its original type folder, strips the date prefix, removes `archiveddate`, and updates vault-wide wikilinks
+
+**Response format:** Plain text status lines for rename/archive/unarchive and JSON for convert, where the path and link-update counts are part of the structured payload.
 
 ---
 
@@ -182,46 +248,25 @@ Single-file mutation. Write-guarded: same folder restrictions as `brain_create`.
 Vault-wide and destructive operations, gated by explicit approval.
 
 **Parameters:**
-- `action` (required) — one of: `compile`, `build_index`, `rename`, `delete`, `convert`, `shape-printable`, `shape-presentation`, `migrate_naming`, `register_workspace`, `unregister_workspace`, `fix-links`, `sync_definitions`, `archive`, `unarchive`
-- `params` (optional object)
+- `action` (required) — one of: `delete`, `shape-printable`, `shape-presentation`, `start-shaping`, `fix-links`
+- `params` (optional) — action-specific parameter object. The generated schema publishes five named variants:
+  - `delete={path}`
+  - `shape-printable={source, slug, render?, keep_heading_with_next?, pdf_engine?}`
+  - `shape-presentation={source, slug, render?, preview?}`
+  - `start-shaping={target, title?, skill_type?}`
+  - `fix-links={fix?, path?, links?}`
+  - The schema exposes those nested field sets for discoverability, but it does not structurally discriminate `action -> params` pairings. Mismatched pairings are rejected by runtime validation in the handler layer.
 
 **Actions:**
-- **`compile`** — recompile the router
-- **`build_index`** — rebuild the BM25 search index
-- **`rename`** — delegates to `rename.py`'s `rename_and_update_links()`, with Obsidian CLI override when available. Wikilink updates match full-path (`[[Wiki/topic-a]]`), filename-only (`[[topic-a]]`), heading anchors, block references, embeds, and aliases — preserving the original format; filename-only matching skipped when basename is ambiguous
-- **`delete`** — removes a file and replaces wikilinks with strikethrough (same matching as rename)
-- **`convert`** — changes artefact type, moves file, reconciles frontmatter, and updates wikilinks vault-wide. Crossing the living/temporal boundary reconciles the key contract: temporal→living generates a canonical `key:`; living→temporal drops the key and heals descendants by removing their `parent:` field plus the owner-tag and relocating them out of the owner-derived folder
-- **`shape-printable`** — creates a printable artefact and renders `_Assets/Generated/Printables/{stem}.pdf` via pandoc. `params: {source, slug}` with optional `{render, keep_heading_with_next, pdf_engine}`
-- **`shape-presentation`** — creates a Marp presentation artefact, renders `_Assets/Generated/Presentations/{stem}.pdf`, and optionally launches live preview (`params: {source, slug}`, optional `{render, preview}`)
-- **`archive`** — moves a terminal-status artefact to `_Archive/{Type}/{Project}/` with date-prefix rename, sets `archiveddate`, and updates vault-wide wikilinks (`params: {path}`)
-- **`unarchive`** — restores an archived artefact to its original type folder, strips date prefix, removes `archiveddate` (`params: {path}`)
-- **`migrate_naming`** — migrate filenames to generous naming conventions
-- **`register_workspace`** — registers a linked workspace in `.brain/local/workspaces.json` (`params: {slug, path}`)
-- **`unregister_workspace`** — removes a linked workspace registration (`params: {slug}`)
-- **`fix-links`** — scans for broken wikilinks and attempts auto-resolution using naming convention heuristics (slug→title, double-dash→tilde, temporal prefix matching); `params: {fix: true}` applies unambiguous fixes; `params: {path: "..."}` scopes scan/fix to a single file; `params: {links: [...]}` narrows a single-file fix to specific target stems; returns JSON with fixed/ambiguous/unresolvable breakdown. `brain_create` and `brain_edit` accept a `fix_links: true` convenience flag that runs the single-file fixer on the written artefact
-- **`sync_definitions`** — syncs artefact library definitions to vault `_Config/` using three-way hash comparison (upstream vs installed vs local); optional `params: {dry_run, force, types, status}`. Bare call updates already-installed types only. Pass `types: ["living/<type>"]` to additively install a new library type. Pass `status: true` for a read-only classification of every library type as `uninstalled`, `in_sync`, `sync_ready`, `locally_customised`, or `conflict` (plus a `not_installable` bucket). Safe updates always apply; conflicts return as warnings and `force` overwrites. Per-file exclusions via `defaults.exclude.artefact_sync` in `.brain/config.yaml`. Set `artefact_sync: skip` in preferences to disable post-upgrade sync entirely
+- **`delete`** — request shape: `{action: "delete", params: {path}}`. Removes an artefact file and replaces wikilinks with strikethrough text
+- **`shape-printable`** — request shape: `{action: "shape-printable", params: {source, slug, render?, keep_heading_with_next?, pdf_engine?}}`. Creates a printable artefact, queues it for incremental retrieval-index refresh, and renders `_Assets/Generated/Printables/{stem}.pdf` via pandoc
+- **`shape-presentation`** — request shape: `{action: "shape-presentation", params: {source, slug, render?, preview?}}`. Creates a Marp presentation artefact, queues it for incremental retrieval-index refresh, renders `_Assets/Generated/Presentations/{stem}.pdf`, and optionally launches live preview
+- **`start-shaping`** — request shape: `{action: "start-shaping", params: {target, title?, skill_type?}}`. Bootstraps a shaping session against an existing artefact, creating or appending the transcript, reviving `+Status/` artefacts back into the active folder when it sets `status: shaping`, and queuing the touched artefacts for incremental retrieval-index refresh
+- **`fix-links`** — request shape: `{action: "fix-links", params: {fix?, path?, links?}}`. Scans for broken wikilinks and attempts auto-resolution using naming convention heuristics (slug→title, double-dash→tilde, temporal prefix matching). `fix: true` applies unambiguous fixes; `path: "..."` scopes scan/fix to a single file; `links: [...]` narrows a single-file fix to specific target stems. `brain_create` and `brain_edit` accept a `fix_links: true` convenience flag that runs the single-file fixer on the written artefact
 
-**Response format:** Plain text status line with bold past-tense action for simple actions (e.g. `**Compiled:** N artefacts...`, `**Renamed** (method): ...`). JSON for complex responses (convert with link counts, migrate_naming with rename lists).
+**Response format:** Plain text status lines for delete and JSON for the shaping/fix-links flows where structured payloads add value.
 
 ---
-
-### brain_process
-
-Content processing operations.
-
-**Parameters:**
-- `operation` (required) — `classify`, `resolve`, or `ingest`
-- `content` (required)
-- `type` (optional hint)
-- `title` (optional hint)
-- `mode` (optional, for classify/ingest) — `"auto"` (default), `"embedding"`, `"bm25_only"`, `"context_assembly"`
-
-**Operations:**
-- **`classify`** — determines the best artefact type for content using three-tier fallback (embedding → BM25 → context_assembly); returns ranked type matches with confidence scores. Read-only.
-- **`resolve`** — checks if content should create a new artefact or update an existing one (requires `type` and `title`); matches against generous filenames, legacy slugs, BM25 search, and optional embeddings; returns create/update/ambiguous decision. Read-only.
-- **`ingest`** — runs the full pipeline: classify → infer title → resolve → create/update; optional `type`/`title` hints skip their respective steps. Can create or update files — treat like `brain_create`/`brain_edit` combined.
-
-Index auto-refreshes after successful mutations.
 
 ## Permission Configuration
 
@@ -230,8 +275,8 @@ Recommended auto-approve settings:
 - **`brain_session`**, **`brain_read`**, **`brain_search`**, **`brain_list`** — safe to auto-approve always
 - **`brain_create`** — additive-only (creates files, never destroys) — safe to auto-approve for most workflows
 - **`brain_edit`** — mutates a single validated file — approve-once or auto-approve depending on trust level
-- **`brain_process`** with `classify`/`resolve` — read-only; `ingest` can create/update files — treat like `brain_create`/`brain_edit` combined
-- **`brain_action`** — affects multiple files or system state — require explicit approval per call
+- **`brain_move`** — destructive vault moves — require explicit approval per call
+- **`brain_action`** — delete, shaping, and fix-links utilities — require explicit approval per call
 
 ## Response Format Conventions
 
@@ -239,7 +284,7 @@ MCP tool results are displayed inline in agent UIs (Claude Code, Cursor, etc.). 
 
 **Design rules:**
 
-- **Confirmations → plain text.** `brain_create`, `brain_edit`, simple `brain_action` results. One line, human-scannable.
+- **Confirmations → plain text.** `brain_create`, `brain_edit`, simple `brain_move`, simple `brain_action` results. One line, human-scannable.
 - **Content retrieval → plain text.** `brain_read(resource="artefact")` returns the file content as-is. List resources use one item per line with tab-separated key fields.
 - **Structured data → JSON only when structure adds value.** Router dumps, compliance check arrays, upgrade file manifests. These are genuinely tabular/nested.
 - **Errors → plain text.** `"Error: {message}"` — no JSON wrapper.
@@ -283,15 +328,15 @@ if not isinstance(data, dict):
 
 This catches the case where a cache file contains valid JSON of the wrong type (e.g. after a partial write, encoding error, or manual edit).
 
-**Status:** Codified in v0.18.7. All 8 tools conform.
+**Status:** Codified in v0.33.0. All 8 current tools conform.
 
 ## Server Runtime
 
 ### Startup
 
-Loads vault config via three-layer merge (template → `.brain/config.yaml` → `.brain/local/config.yaml`). Auto-compiles router and auto-builds index if stale (compares timestamps against source file mtimes). Both artefacts loaded into memory for the session lifetime. Loads workspace registry from `.brain/local/workspaces.json` (empty dict if absent). Probes Obsidian CLI availability and derives vault name from config `brain_name`, then `BRAIN_VAULT_NAME` env var, then directory basename.
+Loads vault config via three-layer merge (template → `.brain/config.yaml` → `.brain/local/config.yaml`). Auto-compiles router and auto-builds index if stale (compares timestamps against source file mtimes). Both artefacts loaded into memory for the session lifetime. Loads workspace registry from `.brain/local/workspaces.json` (empty dict if absent). Derives vault name from config `brain_name`, then `BRAIN_VAULT_NAME` env var, then directory basename. Obsidian CLI availability is probed lazily on demand rather than during startup.
 
-Read, search, create, and edit tools also auto-recompile the router when new taxonomy files appear mid-session.
+Router freshness is also enforced mid-session when needed: `brain_session`, `brain_read`, `brain_search`, `brain_list`, `brain_create`, `brain_edit`, all `brain_move` ops, and `brain_action` flows that depend on current router state (`delete`, `start-shaping`).
 
 ### Logging
 

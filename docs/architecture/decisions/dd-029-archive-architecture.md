@@ -1,6 +1,7 @@
 # DD-029: Archive architecture
 
 **Status:** Implemented
+**Extended by:** DD-045
 
 ## Context
 

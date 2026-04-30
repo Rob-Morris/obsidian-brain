@@ -40,6 +40,15 @@ def _read_formatter(resource: str, result):
     return json.dumps(result, indent=2, ensure_ascii=False)
 
 
+def _reload_workspace_registry(runtime: ServerRuntime) -> dict:
+    state = runtime.get_state()
+    if state.vault_root is None:
+        return {}
+    registry = workspace_registry.load_registry(state.vault_root)
+    runtime.set_workspace_registry(registry)
+    return registry
+
+
 def _transform_cli_results(
     cli_results: list[str],
     type_filter: str | None,
@@ -124,47 +133,38 @@ def _fmt_list(results, type_filter=None):
 
 
 def handle_brain_read(
-    resource: Literal[
-        "type",
-        "trigger",
-        "style",
-        "template",
-        "skill",
-        "plugin",
-        "memory",
-        "workspace",
-        "environment",
-        "router",
-        "compliance",
-        "artefact",
-        "file",
-        "archive",
-    ],
-    name: str | None,
+    resource: str,
+    params: dict,
     runtime: ServerRuntime,
 ):
+    """Handle a validated brain_read request.
+
+    Args:
+        resource: The resource discriminator (already validated by _build_brain_read_params).
+        params:   Validated field dict from _build_brain_read_params (absent fields omitted).
+        runtime:  Server runtime instance.
+    """
     runtime.check_version_drift()
-    runtime.ensure_router_fresh()
 
     denied = runtime.enforce_profile("brain_read")
     if denied:
         return denied
 
+    runtime.ensure_router_fresh()
+
     state = runtime.get_state()
     if state.router is None:
         return runtime.fmt_error("server not initialized")
 
+    name = params.get("name")
+
     if resource == "workspace":
-        if not name:
-            return runtime.fmt_error(
-                "brain_read(resource='workspace') requires name. "
-                "To list all workspaces, use brain_list(resource='workspace')."
-            )
         try:
+            registry = _reload_workspace_registry(runtime)
             result = workspace_registry.resolve_workspace(
                 state.vault_root,
                 name,
-                registry=state.workspace_registry,
+                registry=registry,
             )
             return _fmt_workspace_single(result)
         except ValueError as e:
@@ -205,11 +205,12 @@ def handle_brain_search(
     runtime: ServerRuntime,
 ):
     runtime.check_version_drift()
-    runtime.ensure_router_fresh()
 
     denied = runtime.enforce_profile("brain_search")
     if denied:
         return denied
+
+    runtime.ensure_router_fresh()
 
     state = runtime.get_state()
     if state.router is None:
@@ -264,43 +265,43 @@ def handle_brain_search(
 
 
 def handle_brain_list(
-    resource: Literal[
-        "artefact",
-        "skill",
-        "trigger",
-        "style",
-        "plugin",
-        "memory",
-        "template",
-        "type",
-        "workspace",
-        "archive",
-    ],
-    query: str | None,
-    type: str | None,
-    parent: str | None,
-    since: str | None,
-    until: str | None,
-    tag: str | None,
-    top_k: int,
-    sort: Literal["date_desc", "date_asc", "title"],
+    resource: str,
+    params: dict,
     runtime: ServerRuntime,
 ):
+    """Handle a validated brain_list request.
+
+    Args:
+        resource: The resource discriminator (already validated by _build_brain_list_params).
+        params:   Validated field dict from _build_brain_list_params (absent fields omitted).
+        runtime:  Server runtime instance.
+    """
     runtime.check_version_drift()
-    runtime.ensure_router_fresh()
 
     denied = runtime.enforce_profile("brain_list")
     if denied:
         return denied
 
+    runtime.ensure_router_fresh()
+
     state = runtime.get_state()
     if state.router is None:
         return runtime.fmt_error("server not initialized")
 
+    query = params.get("query")
+    type_filter = params.get("type")
+    parent = params.get("parent")
+    since = params.get("since")
+    until = params.get("until")
+    tag = params.get("tag")
+    top_k = params.get("top_k", 500)
+    sort = params.get("sort", "date_desc")
+
     if resource == "workspace":
+        registry = _reload_workspace_registry(runtime)
         results = workspace_registry.list_workspaces(
             state.vault_root,
-            registry=state.workspace_registry,
+            registry=registry,
         )
         return _fmt_workspace_list(results)
 
@@ -316,7 +317,7 @@ def handle_brain_list(
         state.vault_root,
         resource=resource,
         query=query,
-        type_filter=type,
+        type_filter=type_filter,
         parent=parent,
         since=since,
         until=until,
@@ -326,7 +327,7 @@ def handle_brain_list(
     )
 
     if resource == "artefact":
-        return _fmt_list(results, type)
+        return _fmt_list(results, type_filter)
 
     meta = f"**Listed:** {len(results)} {resource}(s)"
     if query:

@@ -2,6 +2,7 @@
 
 **Status:** Implemented (v0.11.0)
 **Supersedes:** DD-011, DD-020
+**Extended by:** DD-045
 
 ## Context
 

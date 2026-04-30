@@ -32,12 +32,13 @@ from _common import (
     normalize_artefact_key,
     read_frontmatter,
     read_version,
-    safe_write,
+    safe_write_json,
     scan_living_types,
     scan_temporal_types,
     is_valid_key,
 )
 from _common._artefacts import pattern_has_date_tokens
+import compile_colours
 import session
 
 OUTPUT_PATH = os.path.join(".brain", "local", "compiled-router.json")
@@ -1052,6 +1053,19 @@ def compile(vault_root):
     return compiled
 
 
+def persist_compiled_router(vault_root, compiled):
+    """Persist the compiled router and derived colour outputs."""
+    output_path = os.path.join(str(vault_root), OUTPUT_PATH)
+    safe_write_json(output_path, compiled, bounds=str(vault_root))
+    compile_colours.generate(vault_root, compiled)
+
+
+def refresh_session_markdown(vault_root, compiled):
+    """Refresh the markdown bootstrap mirror from compiled router data."""
+    model = session.build_session_model(compiled, str(vault_root))
+    session.persist_session_markdown(model, str(vault_root))
+
+
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
@@ -1065,8 +1079,7 @@ def main():
     if "--json" in sys.argv:
         print(json_output)
     else:
-        output_path = os.path.join(str(vault_root), OUTPUT_PATH)
-        safe_write(output_path, json_output + "\n", bounds=str(vault_root))
+        persist_compiled_router(vault_root, compiled)
 
         art_count = len(compiled["artefacts"])
         configured = sum(1 for a in compiled["artefacts"] if a["configured"])
@@ -1074,8 +1087,7 @@ def main():
         skill_count = len(compiled["skills"])
         memory_count = len(compiled["memories"])
         try:
-            model = session.build_session_model(compiled, str(vault_root))
-            session.persist_session_markdown(model, str(vault_root))
+            refresh_session_markdown(vault_root, compiled)
         except Exception as e:
             print(f"Warning: failed to refresh {session.SESSION_MARKDOWN_REL}: {e}",
                   file=sys.stderr)

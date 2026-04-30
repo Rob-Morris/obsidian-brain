@@ -56,7 +56,7 @@ Temporal child folders each get a distinct base hue blended 35% towards rose. Th
 
 ## Auto-Generation
 
-`compile_colours.py` generates `.obsidian/snippets/brain-folder-colours.css` from the compiled router. It runs automatically as part of `brain_action("compile")` — no manual CSS editing needed.
+`compile_colours.py` generates `.obsidian/snippets/brain-folder-colours.css` from the compiled router. A full `python3 .brain-core/scripts/compile_router.py` run regenerates colours automatically — no manual CSS editing needed.
 
 ```bash
 python3 compile_colours.py              # write brain-folder-colours.css
@@ -113,4 +113,4 @@ Obsidian uses last-match-wins for overlapping queries. Entries are ordered:
 
 ## CSS File Location
 
-The active CSS lives at `.obsidian/snippets/brain-folder-colours.css`. Enable via **Settings > Appearance > CSS Snippets** in Obsidian. Regenerate with `brain_action("compile")` or `python3 compile_colours.py`.
+The active CSS lives at `.obsidian/snippets/brain-folder-colours.css`. Enable via **Settings > Appearance > CSS Snippets** in Obsidian. Regenerate with `python3 .brain-core/scripts/compile_router.py` or `python3 .brain-core/scripts/compile_colours.py`.

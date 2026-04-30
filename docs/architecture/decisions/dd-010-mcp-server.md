@@ -1,6 +1,7 @@
 # DD-010: Brain MCP Server in `.brain-core/brain_mcp/`
 
 **Status:** Implemented (v0.8.0)
+**Extended by:** DD-044, DD-045
 
 ## Context
 

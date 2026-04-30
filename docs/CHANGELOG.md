@@ -2,6 +2,20 @@
 
 Follows a pre-1.0 [semver](https://semver.org/) policy: backward-compatible changes are patch; breaking Brain changes are minor; only fundamental model changes are major. Breaking Brain changes include vault-structure changes and breaking tool/script/MCP contract changes. Fundamental model changes are changes to the artefact model, router contract, or agent bootstrap/entry flow.
 
+## v0.33.0 — 2026-04-30
+
+**Reshape the shipped MCP surface around clearer agent-facing contracts, while parking unfinished processing work off-main.** `brain_move` is now the first-class content-move tool, `brain_action` is reduced to a smaller residual workflow bucket, admin flows return to scripts, and the live docs/tests now describe that surface consistently.
+
+- Add `brain_move` for `rename`, `convert`, `archive`, and `unarchive` with a flat top-level contract, explicit runtime validation of op-specific fields, and the existing script implementations behind it.
+- Shrink `brain_action` to the remaining heterogeneous workflow/utility actions: `delete`, `shape-printable`, `shape-presentation`, `start-shaping`, and `fix-links`, keeping the nested `action + params` shape for discoverability while validating action-to-params pairing at runtime.
+- Drop MCP exposure for admin/maintenance operations such as router compile, index rebuild, workspace registration, definition sync, and naming migration. Those flows remain available as scripts.
+- Tighten the generated MCP metadata where it is stable: `brain_edit.selector` now emits a structured nested schema, fixed-choice MCP fields use explicit enums again, and the tool/runtime docs are updated around the actual schema contract.
+- Centralise the per-resource/op request-contract tables for `brain_create`, `brain_edit`, `brain_read`, and `brain_list`, so resource-incompatible top-level fields fail early with consistent hints and the server tests cover those validation edges explicitly.
+- Park the unfinished `brain_process` / embeddings work off-main before shipping `v0.33.0`. Record the decision in DD-046 and preserve the exploratory implementation on feature branch `brain-process-wip` in the sibling development worktree `~/Development/obsidian-brain-brain-process-wip`, explicitly marked as incomplete until the design is ready to return.
+- Restore script/runtime parity and safety around generated state and protected writes: `compile_router.py` now regenerates colours/graph output/session mirror consistently, workspace registry reads reload script-side changes without restart, denied MCP calls no longer trigger router-side writes, staged `body_file` temps now clean up through a single staged-temp ownership path, and archive/unarchive plus the legacy archive migration keep `_Archive/` behind explicit internal paths rather than generic rename/delete access.
+- Harden mutation/lifecycle behavior: `brain_move(rename)` is artefact-aware and same-type-only, delete/rename respect the general write guard, destructive mutations dirty the router consistently, shaping helpers queue retrieval-index updates, and `start-shaping` now revives terminal artefacts back out of `+Status/` folders when work resumes.
+- Refresh current-state docs, DDs, template-vault mirrors/tracking, and contract/server tests so the shipped eight-tool MCP surface, script inventories, archive semantics, and parked experimental branch are all described consistently by code, docs, and tests.
+
 ## v0.32.10 — 2026-04-28
 
 **Add a `code-review` core skill family for triaged reviews and guided fixups.** `code-review:investigate` dispatches reuse, quality, and efficiency reviewers in parallel and returns raw findings; `code-review` triages those findings for the user; `code-review:fix` applies the approved subset.
