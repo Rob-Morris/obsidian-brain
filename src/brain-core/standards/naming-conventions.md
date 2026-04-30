@@ -70,7 +70,6 @@ Every naming rule that uses a date token (`yyyymmdd`, `yyyy-mm-dd`, etc.) binds 
 - `temporal/logs` → `date_source: date` (the day the log is about, which may differ from `created` when a log is backfilled later)
 - `living/daily-notes` → `date_source: date` (a dedicated per-type field; the subject date of the note, which may differ from physical creation when notes are backfilled)
 - `living/writing` (on the `published` rule) → `date_source: publisheddate`
-- `living/release` (on the `shipped` rule) → `date_source: shipped_at`
 
 Month-bucket temporal folders follow the selected rule's `date_source` too. A backfilled log for 2026-03-31 created on 2026-04-01 therefore still lives in `_Temporal/Logs/2026-03/`, not `_Temporal/Logs/2026-04/`.
 
@@ -102,7 +101,7 @@ Any other placeholder must be declared with a backing frontmatter field. Using a
 ```md
 ## Naming
 
-Primary folder: `Releases/{owner-folder}/`.
+Primary folder: `Releases/{parent-type}~{parent-key}/`.
 
 ### Rules
 

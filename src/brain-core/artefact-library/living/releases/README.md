@@ -1,6 +1,6 @@
 # Releases
 
-Version-scoped shipment records for a project.
+Release milestone records that can optionally sit under an owning artefact.
 
 ## Files
 

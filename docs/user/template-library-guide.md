@@ -42,7 +42,7 @@ Project index files linking to all related artefacts — designs, research, plan
 
 ### Releases
 
-Version-scoped shipment records for a project. Use a release artefact when a project has a named version or milestone worth planning, tracking, or recording separately from the project hub. Each release captures the goal, ship gates, human-readable changelog, and sources for one version, and when owned by a project lives under `Releases/project~{key}/`.
+Release milestone records. Use a release artefact when a project, workstream, or product area has a named milestone or release cut worth planning, tracking, or recording separately from a broader hub. Before shipment, each release captures the goal, acceptance criteria, in-scope designs, and sources for that milestone; after shipment, it becomes the canonical historical record for the shipped release and its internal release notes. A release must set a canonical `parent` (any owning living artefact type — projects are the canonical case but designs, books, standards, and other living owners are also valid); the file then lives under an owner-derived folder such as `Releases/project~{key}/`.
 
 ### Tasks
 

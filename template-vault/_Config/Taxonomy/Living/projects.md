@@ -31,19 +31,6 @@ tags:
 
 Files related to a project can use the relationship tag `project/pistols-at-dawn`. Child artefacts that are structurally owned by the project should also set `parent: project/pistols-at-dawn`. Living children use owner-derived folders; temporal children stay in their date folders.
 
-## Releases
-
-Projects track releases through the ownership pattern. The project hub keeps the release index; each owned release lives as its own artefact under `Releases/project~{key}/`.
-
-A complete release section in the hub should include:
-
-- **Release policy** — cadence, versioning scheme, and any branch or tag rules
-- **Active releases** — wikilinks to `active` release artefacts
-- **Shipped releases** — wikilinks to `shipped` release artefacts, newest first
-- **Backlog** — planned future versions or named release ideas not yet active
-
-Release artefacts should share the project's `project/{key}` tag so they remain queryable alongside designs, plans, and decision logs.
-
 ## Temporal Handshake
 
 Research, decisions, plans, and logs tagged `project/{key}` feed this hub. When a temporal artefact changes the project's current picture — a decision that alters scope, research that shifts direction, a plan that's been superseded — distil the change into the hub body. Temporals preserve what happened and when; the project hub reflects where things stand now.

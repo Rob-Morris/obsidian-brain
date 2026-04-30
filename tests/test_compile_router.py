@@ -252,7 +252,7 @@ class TestParseTaxonomyFile:
 _ADVANCED_RELEASE_TAXONOMY = (
     "# Releases\n\n"
     "## Naming\n\n"
-    "Primary folder: `Releases/{Project}/`.\n\n"
+    "Primary folder: `Releases/`.\n\n"
     "### Rules\n\n"
     "| Match field | Match values | Pattern |\n"
     "|---|---|---|\n"
@@ -274,7 +274,7 @@ class TestAdvancedNaming:
         result = cr.parse_taxonomy_file(str(f))
         naming = result["naming"]
         assert naming["pattern"] is None
-        assert naming["folder"] == "Releases/{Project}/"
+        assert naming["folder"] == "Releases/"
         assert naming["rules"] == [
             {
                 "match_field": "status",

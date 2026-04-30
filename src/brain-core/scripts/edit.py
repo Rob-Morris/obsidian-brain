@@ -20,6 +20,7 @@ import sys
 from _resource_contract import RESOURCE_KINDS
 from _common import (
     SELF_TAG_PREFIXES,
+    apply_terminal_status_folder,
     check_write_allowed,
     config_resource_rel_path,
     ensure_parent_tag,
@@ -730,15 +731,6 @@ def _derive_title_from_path(art, fields, path):
     return extract_title(art.get("naming"), fields, stem) or stem
 
 
-def _terminal_status_folder(art, fields):
-    """Return the canonical +Status folder for terminal artefacts, if any."""
-    terminal = ((art or {}).get("frontmatter") or {}).get("terminal_statuses") or []
-    status = (fields or {}).get("status")
-    if status in terminal:
-        return f"+{status.capitalize()}"
-    return None
-
-
 def _render_existing_artefact_path(vault_root, router, art, path, fields):
     """Render the canonical path for an existing artefact from its fields."""
     current_basename = os.path.basename(path)
@@ -752,9 +744,7 @@ def _render_existing_artefact_path(vault_root, router, art, path, fields):
         fields=rendered_fields,
         router=router,
     )
-    status_folder = _terminal_status_folder(art, rendered_fields)
-    if status_folder:
-        folder = os.path.join(folder, status_folder)
+    folder = apply_terminal_status_folder(folder, art, rendered_fields)
     basename = render_filename_or_default(art.get("naming"), title, rendered_fields)
     return os.path.join(folder, basename), rendered_fields
 

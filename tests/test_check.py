@@ -89,6 +89,22 @@ def vault(tmp_path):
         "template_file": None, "trigger": None,
     }
 
+    # Releases — living, configured, requires a canonical parent (any owner type)
+    releases_art = {
+        "folder": "Releases", "type": "living/releases", "key": "releases",
+        "classification": "living", "configured": True,
+        "path": "Releases",
+        "naming": {"pattern": "{name}.md", "folder": "Releases/"},
+        "frontmatter": {
+            "type": "living/release",
+            "required": ["type", "tags", "status", "parent"],
+            "status_enum": ["planned", "active", "shipped", "cancelled"],
+            "terminal_statuses": ["shipped", "cancelled"],
+        },
+        "taxonomy_file": "_Config/Taxonomy/Living/releases.md",
+        "template_file": None, "trigger": None,
+    }
+
     # Logs — temporal, configured, yyyymmdd-log.md
     logs_art = {
         "folder": "Logs", "type": "temporal/log", "key": "logs",
@@ -163,7 +179,7 @@ def vault(tmp_path):
         "taxonomy_file": None, "template_file": None, "trigger": None,
     }
 
-    artefacts = [wiki_art, designs_art, notes_art, daily_art, logs_art,
+    artefacts = [wiki_art, designs_art, notes_art, daily_art, releases_art, logs_art,
                  plans_art, shaping_art, cookies_art, projects_art]
 
     router = make_router(artefacts)
@@ -204,6 +220,15 @@ def vault(tmp_path):
             "parent": None,
             "children_count": 0,
         },
+        "project/brain": {
+            "path": "Projects/Brain.md",
+            "type": "living/project",
+            "type_key": "projects",
+            "type_prefix": "project",
+            "key": "brain",
+            "parent": None,
+            "children_count": 1,
+        },
     }
 
     # Write compiled router
@@ -219,6 +244,7 @@ def vault(tmp_path):
     (tmp_path / "Notes").mkdir()
     (tmp_path / "Daily Notes").mkdir()
     (tmp_path / "Projects").mkdir()
+    (tmp_path / "Releases").mkdir()
     (tmp_path / "_Temporal" / "Logs" / "2026-03").mkdir(parents=True)
     (tmp_path / "_Temporal" / "Plans" / "2026-03").mkdir(parents=True)
     (tmp_path / "_Temporal" / "Shaping Transcripts" / "2026-03").mkdir(parents=True)
@@ -234,6 +260,8 @@ def vault(tmp_path):
              {"type": "living/note", "tags": ["rust"], "key": "rust-lifetimes"}, "# Rust Lifetimes")
     write_md(tmp_path / "Daily Notes" / "2026-03-15 Sat.md",
              {"type": "living/daily-note", "tags": ["daily-note"], "key": "2026-03-15-sat"}, "# Saturday")
+    write_md(tmp_path / "Projects" / "Brain.md",
+             {"type": "living/project", "tags": ["project/brain"], "key": "brain"}, "# Brain")
     write_md(tmp_path / "_Temporal" / "Logs" / "2026-03" / "20260315-log.md",
              {"type": "temporal/log", "tags": ["log"]}, "09:00 Started work.")
     write_md(tmp_path / "_Temporal" / "Shaping Transcripts" / "2026-03" /
@@ -603,6 +631,40 @@ class TestOwnershipChecks:
         findings = check.check_parent_contract(str(tmp_path), router)
         hits = [f for f in findings if f.get("file") == "Wiki/orphan-base.md"]
         assert hits == []
+
+    def test_unparented_release_flagged_by_required_field_check(self, vault):
+        tmp_path, router = vault
+        write_md(
+            tmp_path / "Releases" / "orphan-release.md",
+            {"type": "living/release", "tags": ["release"], "status": "active", "key": "orphan-release"},
+            "# Orphan Release",
+        )
+        # parent_contract has nothing to resolve, so no folder-drift finding
+        contract_findings = check.check_parent_contract(str(tmp_path), router)
+        contract_hits = [f for f in contract_findings if f.get("file") == "Releases/orphan-release.md"]
+        assert contract_hits == []
+        # frontmatter_required flags the missing parent
+        required_findings = check.check_frontmatter_required(str(tmp_path), router)
+        required_hits = [f for f in required_findings if f.get("file") == "Releases/orphan-release.md"]
+        assert any("parent" in (hit.get("message") or "") for hit in required_hits)
+
+    def test_release_with_parent_uses_generic_folder_drift(self, vault):
+        tmp_path, router = vault
+        write_md(
+            tmp_path / "Releases" / "wrong-parent.md",
+            {
+                "type": "living/release",
+                "tags": ["release", "design/auth-redesign"],
+                "status": "active",
+                "key": "wrong-parent",
+                "parent": "design/auth-redesign",
+            },
+            "# Wrong Parent",
+        )
+        findings = check.check_parent_contract(str(tmp_path), router)
+        hits = [f for f in findings if f.get("file") == "Releases/wrong-parent.md"]
+        assert len(hits) == 1
+        assert "Parent-folder drift" in hits[0]["message"]
 
     def test_temporal_child_parent_is_valid_without_folder_drift(self, vault):
         tmp_path, router = vault

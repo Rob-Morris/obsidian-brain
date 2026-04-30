@@ -1,23 +1,23 @@
 # Releases
 
-Living artefact. Version-scoped shipment records for a project.
+Living artefact. Release milestone record.
 
 ## Purpose
 
-One file per planned or shipped version of a project. A release artefact keeps the goal, gate checklist, human-readable changelog, and source links for that version in one place so shipping work stays separate from the long-lived project hub.
+One file per release milestone. Before shipment, a release artefact tracks the milestone goal, acceptance criteria, in-scope designs, and supporting sources. After shipment, the same artefact becomes the canonical historical record for the shipped release range and its internal release notes.
 
 ## When To Use
 
-When a project has a specific version, milestone, or named release worth planning, tracking, or recording. Create one release artefact per shipped or planned version.
+When a project, workstream, or product area has a named milestone, version target, or release cut worth planning, tracking, or recording separately from a broader hub. A release must set a canonical `parent` to its owning living artefact (any owner type is valid — projects are the canonical case but not the only one) and lives under the corresponding owner-derived subfolder such as `Releases/project~{key}/`.
 
 ## Lifecycle
 
 | Status | Meaning |
 |---|---|
-| `planned` | Scoped and named, but work has not started yet. |
-| `active` | In progress — gates are being worked through. |
-| `shipped` | Released. Terminal — keep as the canonical record of what went out. |
-| `cancelled` | Abandoned before release. Terminal — keep as the record of what was cut. |
+| `planned` | Aspirational milestone record. Scoped and named, but work has not started yet. Owns no shipped versions. |
+| `active` | Current milestone record. Work is in progress, but the release still owns no shipped versions. |
+| `shipped` | Historical release record. Terminal — keeps the canonical shipped range, metadata, and release notes. |
+| `cancelled` | Abandoned milestone. Terminal — keeps the record of what was cut. Owns no shipped versions. |
 
 ## Terminal Status
 
@@ -29,9 +29,9 @@ Shipped and cancelled releases remain searchable and indexed in their terminal f
 
 ## Naming
 
-Primary folder: `Releases/{parent-type}~{parent-key}/` (e.g. `Releases/project~brain/`). Releases are owned by their parent (typically a project); the cross-type subfolder convention keeps the owner visible in the path.
+Primary folder: `Releases/{parent-type}~{parent-key}/` (for example `Releases/project~brain/`). The release follows the standard living-child convention rooted at the canonical `parent`.
 
-Before ship a release is identified by its human title. Once `status` is `shipped` the filename leads with the shipped version so the canonical record on disk is version-led.
+Before ship a release is identified by its human title. Once `status` is `shipped` the filename leads with the shipped terminal version so the canonical record on disk is version-led.
 
 ### Rules
 
@@ -48,7 +48,7 @@ Before ship a release is identified by its human title. Once `status` is `shippe
 
 Examples:
 
-- Planned: `Releases/project~brain/Experimental Cut.md`
+- Planned: `Releases/project~brain/Operational Maturity.md`
 - Shipped: `Releases/project~brain/+Shipped/v0.28.6 - Release Artefact Type.md`
 
 ## Frontmatter
@@ -66,7 +66,7 @@ shipped:
 ---
 ```
 
-When a release belongs to a project, tooling injects the canonical `parent: project/{key}` field and matching project relationship tag during creation or migration. Do not leave literal project placeholders in the template.
+`parent` is required and uses a canonical artefact key such as `project/brain` (any owning living artefact type is valid — projects are the canonical case but not the only one). Tooling keeps the owner-derived folder path and matching relationship tag aligned. `version`, `tag`, `commit`, and `shipped` become load-bearing at ship time; until then they may stay blank.
 
 ## Template
 
@@ -74,6 +74,19 @@ When a release belongs to a project, tooling injects the canonical `parent: proj
 
 ## Taxonomy guidance
 
-- Keep the gate list short. Seven or fewer gates is the recommended default.
-- Write the changelog for humans, not machines. Summaries should explain what changed and why, not mirror commit messages.
-- Use gate status `deferred` when a scope cut is intentional and acknowledged, not forgotten.
+- Use `## Acceptance Criteria` for milestone criteria only. Recommended status values are `pending`, `partially met`, `met`, and `deferred`.
+- Use `## Designs In Scope` for designs or plans intended to help meet the milestone goal. Each entry pairs the design with a brief release-specific role note describing what the design contributes to this release (e.g. `- [[Documentation Audit Skills]] — provides the audit and recommendation machinery`). This keeps the design portfolio legible without re-coupling individual designs to specific criteria. Keep this section separate from the acceptance-criteria table.
+- Use `## Release Notes` for the internal shipped summary. It should explain what the milestone amounted to, not mirror the repo changelog line-by-line.
+- Use `## Sources` for evidence supporting acceptance-criteria status claims and ship-time decisions.
+- Only `shipped` releases own versions. The terminal `version` recorded at ship time marks the end of the contiguous shipped range that the release claims.
+
+## Hub Indexing
+
+Releases are owner-indexed. Any artefact that owns one or more releases — a project, a book, a design, a wiki page, or any other living artefact — should index its releases in its own body using the standard four-section pattern:
+
+- `## Release Policy` — cadence, versioning scheme, and any branch or tag rules
+- `## Active Releases` — wikilinks to `active` release artefacts
+- `## Shipped Releases` — wikilinks to `shipped` release artefacts, newest first
+- `## Backlog` — planned future versions or named release ideas not yet active
+
+Projects are the canonical case and the project template ships with these sections by default. Other owner types adopt the same headings when they hold releases. The pattern is a body convention: the ownership relationship is structural (`parent:` on each release), but the index in the owner's body remains authored content rather than auto-generated state.

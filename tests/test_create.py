@@ -70,7 +70,17 @@ def vault(tmp_path):
     # Taxonomy: Releases
     (tax_living / "releases.md").write_text(
         "# Releases\n\n"
-        "## Naming\n\n`{Version} - {Title}.md` in `Releases/{Project}/`.\n\n"
+        "## Naming\n\n"
+        "Primary folder: `Releases/{parent-type}~{parent-key}/`.\n\n"
+        "### Rules\n\n"
+        "| Match field | Match values | Pattern |\n"
+        "|---|---|---|\n"
+        "| `status` | `planned`, `active`, `cancelled` | `{Title}.md` |\n"
+        "| `status` | `shipped` | `{Version} - {Title}.md` |\n\n"
+        "### Placeholders\n\n"
+        "| Placeholder | Field | Required when field | Required values | Regex |\n"
+        "|---|---|---|---|---|\n"
+        "| `Version` | `version` | `status` | `shipped` | `^v?\\d+\\.\\d+\\.\\d+$` |\n\n"
         "## Lifecycle\n\n"
         "| Status | Meaning |\n|---|---|\n"
         "| `planned` | Scoped. |\n"
@@ -78,8 +88,8 @@ def vault(tmp_path):
         "| `shipped` | Released. |\n"
         "| `cancelled` | Stopped. |\n\n"
         "## Terminal Status\n\n"
-        "When a release reaches `shipped` status, move to `Releases/{Project}/+Shipped/`.\n"
-        "When a release reaches `cancelled` status, move to `Releases/{Project}/+Cancelled/`.\n\n"
+        "When a release reaches `shipped` status, move to `+Shipped/` within its current ownership context.\n"
+        "When a release reaches `cancelled` status, move to `+Cancelled/` within its current ownership context.\n\n"
         "## Frontmatter\n\n```yaml\n---\ntype: living/release\ntags:\n  - release\n"
         "status: planned\nversion:\ntag:\ncommit:\nshipped:\n---\n```\n\n"
         "## Template\n\n[[_Config/Templates/Living/Releases]]\n"
@@ -114,8 +124,11 @@ def vault(tmp_path):
     )
     (templates_living / "Releases.md").write_text(
         "---\ntype: living/release\ntags:\n  - release\nstatus: planned\nversion:\ntag:\ncommit:\nshipped:\n---\n\n"
-        "## Goal\n\n## Gates\n\n| Gate | Status | Implicated Designs |\n|---|---|---|\n|  | pending |  |\n\n"
-        "## Changelog\n\n### Added\n\n### Changed\n\n### Fixed\n\n### Removed\n\n## Sources\n\n- \n"
+        "## Goal\n\n"
+        "## Acceptance Criteria\n\n| Criterion | Status |\n|---|---|\n|  | pending |\n\n"
+        "## Designs In Scope\n\n- \n\n"
+        "## Release Notes\n\n"
+        "## Sources\n\n- \n"
     )
     (templates_living / "Projects.md").write_text(
         "---\ntype: living/project\ntags: []\nkey:\n---\n\n# {{title}}\n\n"
@@ -204,13 +217,14 @@ class TestCreateArtefact:
             router,
             "release",
             "Search Hardening",
-            frontmatter_overrides={"version": "v0.28.6"},
+            frontmatter_overrides={"status": "shipped", "version": "v0.28.6"},
             parent="project/brain",
         )
         assert result["type"] == "living/releases"
         assert result["path"] == os.path.join(
             "Releases",
             "project~brain",
+            "+Shipped",
             "v0.28.6 - Search Hardening.md",
         )
         content = open(os.path.join(str(vault), result["path"])).read()
@@ -219,7 +233,23 @@ class TestCreateArtefact:
         assert fields["version"] == "v0.28.6"
         assert fields["parent"] == "project/brain"
         assert "project/brain" in fields["tags"]
-        assert "## Changelog" in body
+        assert "## Acceptance Criteria" in body
+        assert "## Designs In Scope" in body
+        assert "## Release Notes" in body
+
+    def test_create_planned_release_uses_title_led_filename(self, vault, router):
+        result = create.create_artefact(
+            str(vault),
+            router,
+            "release",
+            "Search Hardening",
+            parent="project/brain",
+        )
+        assert result["path"] == os.path.join(
+            "Releases",
+            "project~brain",
+            "Search Hardening.md",
+        )
 
     def test_create_release_type_requires_version_for_filename(self, vault, router):
         with pytest.raises(ValueError, match=r"\{Version\}"):
@@ -228,6 +258,7 @@ class TestCreateArtefact:
                 router,
                 "release",
                 "Missing Version",
+                frontmatter_overrides={"status": "shipped"},
                 parent="project/brain",
             )
 

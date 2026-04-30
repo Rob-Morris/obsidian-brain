@@ -36,7 +36,7 @@ DATED_TEMPORAL_NAMING = {
 
 RELEASE_NAMING = {
     "pattern": None,
-    "folder": "Releases/{Project}/",
+    "folder": "Releases/",
     "rules": [
         {
             "match_field": "status",

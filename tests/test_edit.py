@@ -143,7 +143,7 @@ def vault(tmp_path):
     (tax_living / "releases.md").write_text(
         "# Releases\n\n"
         "## Naming\n\n"
-        "Primary folder: `Releases/{Project}/`.\n\n"
+        "Primary folder: `Releases/{parent-type}~{parent-key}/`.\n\n"
         "### Rules\n\n"
         "| Match field | Match values | Pattern |\n"
         "|---|---|---|\n"
@@ -160,9 +160,9 @@ def vault(tmp_path):
         "| `shipped` | Released. |\n"
         "| `cancelled` | Stopped. |\n\n"
         "## Terminal Status\n\n"
-        "When a release reaches `shipped` status, move to `Releases/{Project}/+Shipped/`.\n"
+        "When a release reaches `shipped` status, move to `+Shipped/` within its current ownership context.\n"
         "Set `status: shipped` before the move.\n"
-        "When a release reaches `cancelled` status, move to `Releases/{Project}/+Cancelled/`.\n"
+        "When a release reaches `cancelled` status, move to `+Cancelled/` within its current ownership context.\n"
         "Set `status: cancelled` before the move.\n\n"
         "## Frontmatter\n\n```yaml\n---\ntype: living/release\ntags:\n  - release\n"
         "status: planned\nversion:\ntag:\ncommit:\nshipped:\n---\n```\n\n"
@@ -217,6 +217,11 @@ def vault(tmp_path):
     )
     (templates_living / "Releases.md").write_text(
         "---\ntype: living/release\ntags:\n  - release\nstatus: planned\nversion:\ntag:\ncommit:\nshipped:\n---\n\n"
+        "## Goal\n\n"
+        "## Acceptance Criteria\n\n| Criterion | Status |\n|---|---|\n|  | pending |\n\n"
+        "## Designs In Scope\n\n- \n\n"
+        "## Release Notes\n\n"
+        "## Sources\n\n- \n"
     )
     (templates_living / "Projects.md").write_text(
         "---\ntype: living/project\ntags: []\nkey:\n---\n\n# {{title}}\n\n"
@@ -1974,7 +1979,20 @@ class TestTerminalStatusMove:
             f"---\ntype: living/ideas\ntags: []\nstatus: {status}\n---\n\n{body}"
         )
 
-    def _make_release(self, vault, path, status="active", version="v0.28.6", body="## Goal\n\nShip it.\n"):
+    def _make_release(
+        self,
+        vault,
+        path,
+        status="active",
+        version="v0.28.6",
+        body=(
+            "## Goal\n\nShip it.\n\n"
+            "## Acceptance Criteria\n\n| Criterion | Status |\n|---|---|\n| Ship it | pending |\n\n"
+            "## Designs In Scope\n\n- [[Brain Master Design]]\n\n"
+            "## Release Notes\n\n"
+            "## Sources\n\n- [[Brain Master Design]]\n"
+        ),
+    ):
         """Helper to create a release file at the given relative path."""
         abs_path = vault / path
         abs_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1984,6 +2002,7 @@ class TestTerminalStatusMove:
             "tags:\n"
             "  - release\n"
             "  - project/brain\n"
+            "parent: project/brain\n"
             f"status: {status}\n"
             f"version: {version}\n"
             "tag:\n"
@@ -2075,29 +2094,29 @@ class TestTerminalStatusMove:
 
     def test_release_shipped_moves_to_project_status_folder(self, vault, router):
         # Pre-ship releases use title-led filenames; shipping renames to version-led.
-        self._make_release(vault, "Releases/Brain/Search Hardening.md", version="v0.28.6")
+        self._make_release(vault, "Releases/project~brain/Search Hardening.md", version="v0.28.6")
         result = edit.edit_artefact(
             str(vault),
             router,
-            "Releases/Brain/Search Hardening.md",
+            "Releases/project~brain/Search Hardening.md",
             "",
             frontmatter_changes={"status": "shipped", "shipped": "2026-04-16"},
         )
-        assert result["path"] == "Releases/Brain/+Shipped/v0.28.6 - Search Hardening.md"
-        assert (vault / "Releases" / "Brain" / "+Shipped" / "v0.28.6 - Search Hardening.md").is_file()
+        assert result["path"] == "Releases/project~brain/+Shipped/v0.28.6 - Search Hardening.md"
+        assert (vault / "Releases" / "project~brain" / "+Shipped" / "v0.28.6 - Search Hardening.md").is_file()
 
     def test_release_cancelled_moves_to_project_status_folder(self, vault, router):
         # Cancelled releases stay title-led — no version in the filename.
-        self._make_release(vault, "Releases/Brain/Experimental Cut.md")
+        self._make_release(vault, "Releases/project~brain/Experimental Cut.md")
         result = edit.edit_artefact(
             str(vault),
             router,
-            "Releases/Brain/Experimental Cut.md",
+            "Releases/project~brain/Experimental Cut.md",
             "",
             frontmatter_changes={"status": "cancelled"},
         )
-        assert result["path"] == "Releases/Brain/+Cancelled/Experimental Cut.md"
-        assert (vault / "Releases" / "Brain" / "+Cancelled" / "Experimental Cut.md").is_file()
+        assert result["path"] == "Releases/project~brain/+Cancelled/Experimental Cut.md"
+        assert (vault / "Releases" / "project~brain" / "+Cancelled" / "Experimental Cut.md").is_file()
 
     def test_edit_no_terminal_defined(self, vault, router):
         """Type with no terminal_statuses doesn't move on status change."""

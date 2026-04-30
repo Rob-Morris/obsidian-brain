@@ -2,6 +2,18 @@
 
 Follows a pre-1.0 [semver](https://semver.org/) policy: backward-compatible changes are patch; breaking Brain changes are minor; only fundamental model changes are major. Breaking Brain changes include vault-structure changes and breaking tool/script/MCP contract changes. Fundamental model changes are changes to the artefact model, router contract, or agent bootstrap/entry flow.
 
+## v0.34.0 — 2026-04-30
+
+**Realign the shipped release artefact around milestone-first planning, with required parent-agnostic ownership.** Release templates and docs now treat releases as milestone records before ship and historical records after ship; every release must set a canonical `parent` (any owning living artefact type — projects are the canonical case but designs, books, standards, and others all qualify), and the release-owner hub-indexing pattern is decoupled from `living/projects` so the two types can be installed independently.
+
+- Replace the shipped release template/body guidance with `Goal`, `Acceptance Criteria`, `Designs In Scope`, `Release Notes`, and `Sources`; planned/active/cancelled releases are now title-led on disk, while shipped releases stay version-led.
+- Make `parent` required on the release schema, and treat any owning living artefact type as a valid parent (not just projects); core create/edit/check logic stays generic via the standard required-field plumbing rather than release-specific code paths.
+- Lift the release-owner hub-indexing pattern (`## Release Policy` / `## Active Releases` / `## Shipped Releases` / `## Backlog`) out of `living/projects` and into the releases taxonomy as a parent-agnostic convention; `living/projects` no longer ships release-specific structure, so the two types are installable independently.
+- Reshape `## Designs In Scope` so each entry pairs the design with a brief release-specific role note (what the design contributes to *this* release), inverting the old `Gate | Status | Implicated Designs` table that over-correlated designs to gates. The migration extracts unique designs out of the legacy table, emits a `_todo: release role_` placeholder per design, and preserves the originally-listed criteria as transition context for the author.
+- Add shared `terminal_status_folder(...)` and `apply_terminal_status_folder(folder, artefact, fields)` helpers, and use them in create/edit/migration path rendering so artefacts created or rewritten directly into a terminal state land in the canonical `+Status/` folder consistently.
+- Ship `migrate_to_0_34_0.py` to normalise legacy release bodies, strip the old literal project placeholder, refresh matching parent relationship tags when a resolvable canonical `parent:` already exists, and rename/rehome releases to the current status-based naming contract. The migration halts on legacy unparented releases rather than silently rehoming them: it lists the offending files and asks the operator to set `parent:` explicitly before retrying.
+- Refresh release docs, script inventories, and test fixtures around the new milestone-first release shape.
+
 ## v0.33.0 — 2026-04-30
 
 **Reshape the shipped MCP surface around clearer agent-facing contracts, while parking unfinished processing work off-main.** `brain_move` is now the first-class content-move tool, `brain_action` is reduced to a smaller residual workflow bucket, admin flows return to scripts, and the live docs/tests now describe that surface consistently.

@@ -9,25 +9,19 @@ commit:
 shipped:
 ---
 
-**Project:** [[PROJECT]]
-
 ## Goal
 
-## Gates
+## Acceptance Criteria
 
-| Gate | Status | Implicated Designs |
-|---|---|---|
-|  | pending |  |
+| Criterion | Status |
+|---|---|
+|  | pending |
 
-## Changelog
+## Designs In Scope
 
-### Added
+- 
 
-### Changed
-
-### Fixed
-
-### Removed
+## Release Notes
 
 ## Sources
 

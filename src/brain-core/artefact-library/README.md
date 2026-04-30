@@ -18,7 +18,7 @@ The template vault ships with a curated set of defaults (marked below). This lib
 | [Notes](living/notes/) | `notes` | Flat knowledge base of date-prefixed interconnected notes. **Template vault default.** |
 | [People](living/people/) | `people` | Person index files — living hub for everything you know about someone. **Template vault default.** |
 | [Projects](living/projects/) | `projects` | Project index files that can own child artefacts and relate wider work via project tags. **Template vault default.** |
-| [Releases](living/releases/) | `releases` | Version-scoped shipment records grouped under owner-derived release folders. **Template vault default.** |
+| [Releases](living/releases/) | `releases` | Release milestone records that can optionally group under owner-derived release folders. **Template vault default.** |
 | [Tasks](living/tasks/) | `tasks` | Persistent units of work — tracked, prioritised, and linked to artefacts. **Template vault default.** |
 | [Wiki](living/wiki/) | `wiki` | Interconnected knowledge base. One page per concept. |
 | [Workspaces](living/workspaces/) | `workspaces` | Workspace hub files linking brain artefacts to bounded data containers (`_Workspaces/`). **Template vault default.** |

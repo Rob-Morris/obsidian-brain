@@ -60,7 +60,7 @@ Pick the artefact type that fits, create the file in the right folder with the r
 | Note | `Notes/` | `yyyymmdd - {Title}.md` |
 | Person | `People/` | `{Title}.md` |
 | Project | `Projects/` | `{Title}.md` |
-| Release | `Releases/{owner-folder}/` | `{Version} - {Title}.md` |
+| Release | `Releases/` or `Releases/{owner-folder}/` | `{Title}.md` pre-ship; `{Version} - {Title}.md` when `shipped` |
 | Task | `Tasks/` | `{Title}.md` |
 | Workspace | `Workspaces/` | `{Title}.md` |
 | Writing | `Writing/` | `{Title}.md` |

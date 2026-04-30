@@ -23,6 +23,7 @@ from datetime import datetime, timezone
 
 from _resource_contract import RESOURCE_KINDS
 from _common import (
+    apply_terminal_status_folder,
     artefact_type_prefix,
     check_write_allowed,
     config_resource_rel_path,
@@ -56,10 +57,6 @@ from _common import (
 )
 import fix_links as _fix_links
 
-
-# ---------------------------------------------------------------------------
-# Core logic
-# ---------------------------------------------------------------------------
 
 def _generate_key(vault_root, router, artefact, title, explicit=None):
     """Generate or validate a key value for a living artefact."""
@@ -203,6 +200,7 @@ def create_artefact(vault_root, router, type_key, title, body="", frontmatter_ov
         fields=fields,
         router=router,
     )
+    folder = apply_terminal_status_folder(folder, artefact, fields)
 
     final_body = body if body else template_body
     if not body and final_body:

@@ -4,6 +4,8 @@ required:
   tags:
     type: array
     contains: "release"
+  parent:
+    type: string
 optional:
   status:
     enum: [planned, active, shipped, cancelled]

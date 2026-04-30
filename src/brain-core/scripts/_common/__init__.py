@@ -34,6 +34,7 @@ from ._router import (
 from ._artefacts import (
     SELF_TAG_PREFIXES,
     STATUS_FOLDER_PREFIX,
+    apply_terminal_status_folder,
     artefact_type_prefix,
     config_resource_rel_path,
     ensure_parent_tag,
@@ -57,6 +58,7 @@ from ._artefacts import (
     resolve_parent_reference,
     resolve_type,
     scan_artefact_key_references,
+    terminal_status_folder,
 )
 
 from ._naming import (

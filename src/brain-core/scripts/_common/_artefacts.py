@@ -95,6 +95,21 @@ def resolve_artefact_key_entry(router, value):
     return (router.get("artefact_index") or {}).get(key)
 
 
+def terminal_status_folder(artefact, fields):
+    """Return the canonical ``+Status`` folder for terminal artefacts, if any."""
+    terminal = ((artefact or {}).get("frontmatter") or {}).get("terminal_statuses") or []
+    status = (fields or {}).get("status")
+    if status in terminal:
+        return f"{STATUS_FOLDER_PREFIX}{status.capitalize()}"
+    return None
+
+
+def apply_terminal_status_folder(folder, artefact, fields):
+    """Append the terminal ``+Status`` folder to *folder* if the artefact is in one."""
+    status_folder = terminal_status_folder(artefact, fields)
+    return os.path.join(folder, status_folder) if status_folder else folder
+
+
 def iter_markdown_under(type_dir, *, include_status_folders=True):
     """Yield markdown file paths relative to *type_dir*.
 
