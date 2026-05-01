@@ -38,11 +38,11 @@ Person index files — one per person, serving as the living source of truth for
 
 ### Projects
 
-Project index files linking to all related artefacts — designs, research, plans, releases, transcripts. Use a project file as the hub for any body of work. Owned child artefacts can use `parent: project/{key}`; living children also move into owner-derived folders, while temporal children stay date-filed. Related artefacts can still use a `project/{key}` relationship tag so everything connected to a project is findable from one place.
+Project index files linking to all related artefacts — designs, research, plans, releases, transcripts. Use a project file as the hub for any body of work. Owned child artefacts can use `parent: project/{key}`; living children then file into canonical child folders (same-type `{key}/`, cross-type `{scope}/`), while temporal children stay date-filed. Related artefacts can still use a `project/{key}` relationship tag so everything connected to a project is findable from one place.
 
 ### Releases
 
-Release milestone records. Use a release artefact when a project, workstream, or product area has a named milestone or release cut worth planning, tracking, or recording separately from a broader hub. Before shipment, each release captures the goal, acceptance criteria, in-scope designs, and sources for that milestone; after shipment, it becomes the canonical historical record for the shipped release and its internal release notes. A release must set a canonical `parent` (any owning living artefact type — projects are the canonical case but designs, books, standards, and other living owners are also valid); the file then lives under an owner-derived folder such as `Releases/project~{key}/`.
+Release milestone records. Use a release artefact when a project, workstream, or product area has a named milestone or release cut worth planning, tracking, or recording separately from a broader hub. Before shipment, each release captures the goal, acceptance criteria, in-scope designs, and sources for that milestone; after shipment, it becomes the canonical historical record for the shipped release and its internal release notes. A release must set a canonical `parent` (any owning living artefact type — projects are the canonical case but designs, books, standards, and other living owners are also valid); the file then lives under `Releases/{scope}/`, where `scope` is the tokenised form of the owner's canonical key (for example `project/brain` → `project~brain`).
 
 ### Tasks
 

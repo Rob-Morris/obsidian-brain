@@ -143,7 +143,7 @@ def vault(tmp_path):
     (tax_living / "releases.md").write_text(
         "# Releases\n\n"
         "## Naming\n\n"
-        "Primary folder: `Releases/{parent-type}~{parent-key}/`.\n\n"
+        "Primary folder: `Releases/{scope}/`.\n\n"
         "### Rules\n\n"
         "| Match field | Match values | Pattern |\n"
         "|---|---|---|\n"

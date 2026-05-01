@@ -53,13 +53,13 @@ Documented in `.brain-core/standards/extending/README.md`:
 
 Some living artefact types act as hubs because other artefacts gather around them. A hub is an ordinary living artefact with a stable key (for example `project/{key}` or `person/{key}`), not a separate structural type.
 
-Ownership for child artefacts is persisted via `parent: {type}/{key}`. Living children also reflect that ownership in owner-derived subfolders; temporal children remain filed by date. Tags remain relationships only: they can connect temporal or living artefacts to a hub, but they are not an ownership fallback once the canonical parent model exists.
+Ownership for child artefacts is persisted via `parent: {type}/{key}`. Living children also project that ownership into same-type `{key}/` folders or cross-type `{scope}/` folders; temporal children remain filed by date. Tags remain relationships only: they can connect temporal or living artefacts to a hub, but they are not an ownership fallback once the canonical parent model exists.
 
 This pattern is useful when a single living artefact organises a stream of related work or content across the vault. Current examples: People, Projects, Journals, and Workspaces.
 
 ### Master/Sub-Artefact Convention
 
-When a living artefact accumulates enough related sub-artefacts to crowd the type folder, sub-artefacts move into an ownership-derived subfolder. The owner stays in the type root as the entry point; the subfolder groups its children. Sub-artefacts inherit the child type — no separate taxonomy or CSS needed.
+When a living artefact accumulates enough related sub-artefacts to crowd the type folder, sub-artefacts move into a child subfolder determined by canonical ownership. The owner stays in the type root as the entry point; the subfolder groups its children. Sub-artefacts inherit the child type — no separate taxonomy or CSS needed.
 
 ```
 Designs/
@@ -69,7 +69,7 @@ Designs/
     Brain Mcp Server.md
 ```
 
-Cross-type child folders use `{parent-type}~{key}/` (for example `Releases/project~brain/`). Archiving uses `brain_move(op="archive", path="...")`, which moves artefacts to a top-level `_Archive/` directory at the vault root while preserving type and owner-derived structure inside. Archived files are excluded from the vault file index, search, and all normal operations.
+Cross-type child folders use `{scope}/` (for example `Releases/project~brain/`), where `scope` is the tokenised form of the owner's canonical key. Archiving uses `brain_move(op="archive", path="...")`, which moves artefacts to a top-level `_Archive/` directory at the vault root while preserving type and canonical child-folder structure inside. Archived files are excluded from the vault file index, search, and all normal operations.
 
 ## Documentation
 
@@ -97,7 +97,7 @@ Cross-type child folders use `{parent-type}~{key}/` (for example `Releases/proje
 - `Notes/` — low-friction knowledge notes
 - `People/` — person hubs
 - `Projects/` — project index files linking related artefacts
-- `Releases/` — version-scoped shipment records grouped by project
+- `Releases/` — release milestone records owned by a living artefact
 - `Tasks/` — persistent units of work, tracked and linked to artefacts
 - `Workspaces/` — scoped data containers
 - `Writing/` — long-form written works with lifecycle

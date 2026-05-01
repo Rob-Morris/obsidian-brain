@@ -57,7 +57,7 @@ Root-level folders without a `_` or `.` prefix are living artefact types (e.g. `
 
 ### `_Archive/` — archived artefacts
 
-`_Archive/` is the deliberate-removal path for taking artefacts out of the active vault namespace. Routine terminal statuses usually move living artefacts into `+Status/` folders within their type namespace; archived artefacts are the separate subset intentionally moved to the top-level `_Archive/` tree by type and owner-derived subfolder. Archived files remain readable but are write-protected by the path security model and excluded from normal artefact operations.
+`_Archive/` is the deliberate-removal path for taking artefacts out of the active vault namespace. Routine terminal statuses usually move living artefacts into `+Status/` folders within their type namespace; archived artefacts are the separate subset intentionally moved to the top-level `_Archive/` tree by type and canonical child-folder structure. Archived files remain readable but are write-protected by the path security model and excluded from normal artefact operations.
 
 ---
 

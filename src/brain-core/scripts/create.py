@@ -134,7 +134,9 @@ def create_artefact(vault_root, router, type_key, title, body="", frontmatter_ov
         parent: Optional parent artefact reference for child artefacts.
                 Accepts canonical key form (e.g. "project/brain"), or a
                 resolvable name/path; persists as canonical `{type}/{key}`.
-                Temporal artefacts keep their normal date-based folders.
+                Living children then file into same-type `{key}/` folders
+                or cross-type `{scope}/` folders. Temporal artefacts keep
+                their normal date-based folders.
         template_vars: Optional dict of placeholder→value substitutions applied
                 to the template body (e.g. {"SOURCE_TYPE": "designs"}).
                 ``{{date:FORMAT}}`` placeholders are always substituted when the

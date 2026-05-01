@@ -8,7 +8,7 @@ One file per release milestone. Before shipment, a release artefact tracks the m
 
 ## When To Use
 
-When a project, workstream, or product area has a named milestone, version target, or release cut worth planning, tracking, or recording separately from a broader hub. A release must set a canonical `parent` to its owning living artefact (any owner type is valid — projects are the canonical case but not the only one) and lives under the corresponding owner-derived subfolder such as `Releases/project~{key}/`.
+When a project, workstream, or product area has a named milestone, version target, or release cut worth planning, tracking, or recording separately from a broader hub. A release must set a canonical `parent` to its owning living artefact (any owner type is valid — projects are the canonical case but not the only one) and lives under `Releases/{scope}/`, where `scope` is the tokenised form of the owner's canonical key (for example `project/brain` → `project~brain`).
 
 ## Lifecycle
 
@@ -21,15 +21,15 @@ When a project, workstream, or product area has a named milestone, version targe
 
 ## Terminal Status
 
-When a release reaches `shipped` status, move it to `Releases/{parent-type}~{parent-key}/+Shipped/`.
+When a release reaches `shipped` status, move it to `Releases/{scope}/+Shipped/`.
 
-When a release reaches `cancelled` status, move it to `Releases/{parent-type}~{parent-key}/+Cancelled/`.
+When a release reaches `cancelled` status, move it to `Releases/{scope}/+Cancelled/`.
 
 Shipped and cancelled releases remain searchable and indexed in their terminal folders. No rename, no `archiveddate`.
 
 ## Naming
 
-Primary folder: `Releases/{parent-type}~{parent-key}/` (for example `Releases/project~brain/`). The release follows the standard living-child convention rooted at the canonical `parent`.
+Primary folder: `Releases/{scope}/` (for example `Releases/project~brain/`). The release follows the standard living-child convention rooted at the canonical `parent`; `scope` is the tokenised form of that canonical key.
 
 Before ship a release is identified by its human title. Once `status` is `shipped` the filename leads with the shipped terminal version so the canonical record on disk is version-led.
 
@@ -66,7 +66,7 @@ shipped:
 ---
 ```
 
-`parent` is required and uses a canonical artefact key such as `project/brain` (any owning living artefact type is valid — projects are the canonical case but not the only one). Tooling keeps the owner-derived folder path and matching relationship tag aligned. `version`, `tag`, `commit`, and `shipped` become load-bearing at ship time; until then they may stay blank.
+`parent` is required and uses a canonical artefact key such as `project/brain` (any owning living artefact type is valid — projects are the canonical case but not the only one). Tooling keeps the `Releases/{scope}/` path and matching relationship tag aligned. `version`, `tag`, `commit`, and `shipped` become load-bearing at ship time; until then they may stay blank.
 
 ## Template
 

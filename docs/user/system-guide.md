@@ -37,7 +37,7 @@ Brain classifies every file as either **living** or **temporal**.
 | `living/note` | `Notes/` | none | Low-friction knowledge capture. |
 | `living/person` | `People/` | `active` → `shaping` → `parked` | Living hub for what you know about a person. |
 | `living/project` | `Projects/` | none | Living hub for project state and related artefacts. |
-| `living/release` | `Releases/` (optionally `Releases/{owner-folder}/`) | `planned` → `active` → `shipped`/`cancelled` | Milestone record before ship, historical release record after ship. |
+| `living/release` | `Releases/{scope}/` | `planned` → `active` → `shipped`/`cancelled` | Milestone record before ship, historical release record after ship. |
 | `living/task` | `Tasks/` | `open` → `shaping` → `in-progress` → `done`/`blocked` | Persistent unit of work linked to the artefacts it serves. |
 | `living/workspace` | `Workspaces/` | `active` → `parked` → `completed` | Hub linking brain artefacts to a bounded data container. |
 | `living/writing` | `Writing/` | `draft` → `editing` → `review` → `published`/`parked` | Long-form written work crafted for an audience. |
@@ -160,7 +160,8 @@ Why? Obsidian's backlinks and graph view resolve body wikilinks. Body text is vi
 - Freeform naming for most types: `{Title}.md` (spaces and mixed case allowed)
 - Some types use date prefixes — see the type's taxonomy file for the exact pattern
 - Start flat; subfolders emerge organically when a single work outgrows one file
-- When a living artefact owns children, same-type child folders use `{key}/` and cross-type child folders use `{parent-type}~{key}/`
+- When a living artefact owns children, same-type child folders use `{key}/` and cross-type child folders use `{scope}/`
+- `scope` is the tokenised form of the owner's canonical key (for example `project/brain` → `project~brain`)
 
 ### Temporal Artefacts
 
@@ -201,7 +202,7 @@ At each transition, use provenance links (origin on child, callout on parent). C
 
 ### Hub Pattern
 
-Hub artefacts (a living type like People, Projects, or Workspaces) are living summaries that other artefacts gather around. Child artefacts use canonical `parent` when they are structurally owned; living children also move into owner-derived folders, while temporal children stay in their date folders. Additional temporal or thematic relationships still use tags and prose links. See `.brain-core/standards/hub-pattern` for the full standard.
+Hub artefacts (a living type like People, Projects, or Workspaces) are living summaries that other artefacts gather around. Child artefacts use canonical `parent` when they are structurally owned; living children also project that ownership into same-type `{key}/` folders or cross-type `{scope}/` folders, while temporal children stay in their date folders. Additional temporal or thematic relationships still use tags and prose links. See `.brain-core/standards/hub-pattern` for the full standard.
 
 **Temporal handshake:** Related temporal artefacts feed their hub. When a temporal changes the current picture, distil the change into the hub. Temporals preserve *when*; the hub reflects *now*.
 

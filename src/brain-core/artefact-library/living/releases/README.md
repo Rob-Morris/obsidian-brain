@@ -1,6 +1,6 @@
 # Releases
 
-Release milestone records that can optionally sit under an owning artefact.
+Release milestone records structurally owned by a living artefact and filed under `Releases/{scope}/`.
 
 ## Files
 

@@ -21,5 +21,5 @@ Normalises legacy release artefacts to the settled Phase 1 release structure.
 ## Verification
 
 - Release files now have sections in this order: `Goal`, `Acceptance Criteria`, `Designs In Scope`, `Release Notes`, `Sources`.
-- Every release carries a canonical `parent:` and the matching relationship tag, and lives under the corresponding owner-derived folder.
+- Every release carries a canonical `parent:` and the matching relationship tag, and lives under the corresponding `Releases/{scope}/` path.
 - Terminal releases now live under `+Shipped/` or `+Cancelled/` within their current ownership context and use the current naming contract.

@@ -315,7 +315,7 @@ def check_living_key_fields(vault_root, router, *, ctx=None):
 
 
 def check_parent_contract(vault_root, router, *, ctx=None):
-    """Validate canonical parent references and owner-folder placement."""
+    """Validate canonical parent references and key/scope placement."""
     findings = []
     read_fm = ctx.read_frontmatter if ctx is not None else read_frontmatter
     for rel_path in iter_artefact_markdown_files(

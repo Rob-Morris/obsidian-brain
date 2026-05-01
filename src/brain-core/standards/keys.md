@@ -1,8 +1,17 @@
 # Keys
 
-Every living artefact has a `key` — a short, stable identifier that participates in the artefact's canonical key `{type}/{key}`. The key is the foundation of hub lookup, parent ownership, subfolder structure, and rename behaviour.
+Every living artefact has a `key` — a short, stable identifier that participates in the artefact's canonical key `{type}/{key}`. The key is the foundation of hub lookup, parent ownership, cross-type scope projection, and rename behaviour.
 
 Only living artefacts carry keys because only living artefacts act as referenceable targets — they can *be* a hub. Temporal artefacts never act as hubs themselves; they can still *be owned* by a living hub via `parent:`, but they don't need a key of their own to do so.
+
+## Terminology
+
+- `key` — the frontmatter identifier stored on a living artefact (for example `brain`)
+- `canonical key` — the typed identity `{type}/{key}` (for example `project/brain`)
+- `parent` — a frontmatter field whose value is an owning artefact's canonical key
+- `scope` — the tokenised cross-type folder form of a canonical key (for example `project~brain`)
+
+Same-type child folders still use the raw `key` directly; `scope` exists for cross-type folder projection only.
 
 ## Frontmatter contract
 
@@ -55,7 +64,7 @@ The key drives several derived structures:
 
 - The canonical artefact key `{type}/{key}` used in `parent:` pointers and hub relationship tags.
 - Same-type child folder names under an owner: `{Type}/{key}/`.
-- Cross-type ownership folders: `{Type}/{parent-type}~{key}/`.
+- Cross-type scope tokens such as `project~brain`, used in folder paths as `{Type}/{scope}/`.
 
 Tags and wikilinks remain relationship signals; ownership lives in the `key` and `parent` fields and the canonical folder layout.
 

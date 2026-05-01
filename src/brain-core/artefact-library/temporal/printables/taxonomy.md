@@ -12,7 +12,7 @@ Printables bridge the gap between working knowledge and shareable documents. The
 
 - **Link to the source.** Every printable should reference the artefact(s) it comes from. Follow [[.brain-core/standards/provenance]].
 - **Write for pages, not slides.** Use paragraphs, headings, lists, and short sections. The reader can sustain more detail than in a presentation.
-- **Generated output lives under `_Assets/Generated/Printables/`.** The normal output is `_Assets/Generated/Printables/{stem}.pdf`. If one printable workflow produces multiple linked files, use the owning artefact's canonical key and use `_Assets/Generated/Printables/{OwnerType}~{owner-key}/`.
+- **Generated output lives under `_Assets/Generated/Printables/`.** The normal output is `_Assets/Generated/Printables/{stem}.pdf`. If one printable workflow produces multiple linked files, use the owning artefact's `scope` (the tokenised form of its canonical key) and use `_Assets/Generated/Printables/{scope}/`.
 - **Regenerate PDF after edits.** The markdown is the source of truth. Always rerender the PDF when content changes.
 - **Use heading-break control when needed.** `keep_heading_with_next: true` reduces orphaned headings at page breaks by reserving space before new sections. Disable it for dense layouts that need tighter pagination.
 

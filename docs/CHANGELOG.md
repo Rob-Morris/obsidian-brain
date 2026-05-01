@@ -2,6 +2,14 @@
 
 Follows a pre-1.0 [semver](https://semver.org/) policy: backward-compatible changes are patch; breaking Brain changes are minor; only fundamental model changes are major. Breaking Brain changes include vault-structure changes and breaking tool/script/MCP contract changes. Fundamental model changes are changes to the artefact model, router contract, or agent bootstrap/entry flow.
 
+## v0.34.2 — 2026-05-01
+
+**Name cross-type ownership projection as `scope` and route contributor commit guidance through shared standards.** Shipped standards, release/project taxonomies, generated-output docs, and relevant API/help surfaces now define `key`, `canonical key`, `parent`, and `scope` consistently; repo contributor docs now index a shared commit-message standard under `docs/standards/`.
+
+- Define `scope` as the tokenised cross-type folder form of a canonical key across shipped standards, DD-041, quick-start/system docs, and the release/project taxonomies. Release naming metadata now uses `Releases/{scope}/` instead of spelling out the owner token inline, and the frozen taxonomy tests were updated to match.
+- Apply the same vocabulary to generated-output guidance for mockups, presentations, and printables, plus the create/check/migration/help surfaces that describe canonical `parent` handling and child-folder projection.
+- Add `docs/standards/commit-messages.md` and `docs/standards/README.md`, wire them into the repo docs router, contributor docs, and the pre-commit canary, and make the canary enforce drafting the commit message against that standard.
+
 ## v0.34.1 — 2026-05-01
 
 **Harden definition sync against false conflicts from harmless markdown table rewrites and stale tracking hashes.** `sync_definitions.py` now uses a sync-local markdown comparison for `.md` files, so Obsidian-style pipe-table padding changes no longer surface as local customisation or conflict, and a stale tracked source hash now self-heals as a safe update when the local file already matches the current upstream content.

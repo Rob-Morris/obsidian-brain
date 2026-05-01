@@ -86,11 +86,11 @@
       }
     },
     "living/projects": {
-      "brain_core_version": "0.32.5",
-      "installed_at": "2026-04-26T11:04:53.009887+00:00",
+      "brain_core_version": "0.34.2",
+      "installed_at": "2026-05-01T05:22:36.214495+00:00",
       "files": {
         "taxonomy": {
-          "source_hash": "sha256:be365fd61bf5ba36b883c226b73721022ec2604c5472e6e0ae6cc80e41af6bb7",
+          "source_hash": "sha256:f44c1ea4bca3b1fd75778f2b766ece36e48084f1787b4b62fc8d62edcb0026d1",
           "target": "_Config/Taxonomy/Living/projects.md"
         },
         "template": {
@@ -244,11 +244,11 @@
       }
     },
     "temporal/mockups": {
-      "brain_core_version": "0.30.2",
-      "installed_at": "2026-04-21T06:27:30.221354+00:00",
+      "brain_core_version": "0.34.2",
+      "installed_at": "2026-05-01T05:22:36.214495+00:00",
       "files": {
         "taxonomy": {
-          "source_hash": "sha256:8b859090533072ebee0db5ed41c904a83dcf4d79e0926bbab0895f94c3cd1931",
+          "source_hash": "sha256:5cfe541716eefdb12f544f1c1780d685acd40f1987bd17363e359394bb4b1738",
           "target": "_Config/Taxonomy/Temporal/mockups.md"
         },
         "template": {
@@ -286,11 +286,11 @@
       }
     },
     "temporal/presentations": {
-      "brain_core_version": "0.33.0",
-      "installed_at": "2026-04-28T11:38:24.495493+00:00",
+      "brain_core_version": "0.34.2",
+      "installed_at": "2026-05-01T05:22:36.214495+00:00",
       "files": {
         "taxonomy": {
-          "source_hash": "sha256:774de6fd0562589142bbc5d91dcfc438c3a88f374d13d74731370be89f46e39c",
+          "source_hash": "sha256:f161807c755470fd65d506ada48706006a178a31a358dd5348a179474226003c",
           "target": "_Config/Taxonomy/Temporal/presentations.md"
         },
         "template": {
@@ -298,7 +298,7 @@
           "target": "_Config/Templates/Temporal/Presentations.md"
         },
         "skill": {
-          "source_hash": "sha256:a7daee232b0e11398880fcda4861a32eabc02e91008ec244fff324d952c8e076",
+          "source_hash": "sha256:1e3eb59d899eeb5ef66c6a8491fa49ced8d8c909d8ea6b994df67434691dde02",
           "target": "_Config/Skills/presentations/SKILL.md"
         },
         "theme": {
@@ -392,11 +392,11 @@
       }
     },
     "living/releases": {
-      "brain_core_version": "0.34.0",
-      "installed_at": "2026-04-30T04:26:53.465889+00:00",
+      "brain_core_version": "0.34.2",
+      "installed_at": "2026-05-01T05:22:36.214495+00:00",
       "files": {
         "taxonomy": {
-          "source_hash": "sha256:dd8d16d16fc48dbaae114c2179dd81c5a0abc4e959b418e29b4009fa9aa46a7c",
+          "source_hash": "sha256:05734c9ce1c5e1c39c65ce77664cf4e9975cfde4ce78a354597a180a36ae942b",
           "target": "_Config/Taxonomy/Living/releases.md"
         },
         "template": {

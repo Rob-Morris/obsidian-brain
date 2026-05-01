@@ -29,7 +29,7 @@ tags:
 
 `key` is the canonical identifier (see [[.brain-core/standards/keys]]). The platform generates it at create time; edit it manually only when a memorable key is genuinely needed.
 
-Files related to a project can use the relationship tag `project/pistols-at-dawn`. Child artefacts that are structurally owned by the project should also set `parent: project/pistols-at-dawn`. Living children use owner-derived folders; temporal children stay in their date folders.
+Files related to a project can use the relationship tag `project/pistols-at-dawn`. Child artefacts that are structurally owned by the project should also set `parent: project/pistols-at-dawn`. Living children use same-type `{key}/` folders or cross-type `{scope}/` folders; temporal children stay in their date folders.
 
 ## Temporal Handshake
 

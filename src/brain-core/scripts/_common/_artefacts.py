@@ -58,7 +58,7 @@ def make_artefact_key(type_prefix, key):
 
 
 def parse_artefact_key(value):
-    """Parse ``{type-prefix}/{key}`` or ``{type-prefix}~{key}`` form."""
+    """Parse canonical slash form or cross-type scope form."""
     if not isinstance(value, str):
         return None
     match = ARTEFACT_KEY_RE.fullmatch(value.strip())
@@ -71,7 +71,7 @@ def parse_artefact_key(value):
 
 
 def normalize_artefact_key(value):
-    """Normalise folder-form or slash-form artefact keys to slash form."""
+    """Normalise scope-form or slash-form artefact keys to slash form."""
     parsed = parse_artefact_key(value)
     if not parsed:
         return None
@@ -509,7 +509,8 @@ def resolve_folder(artefact, parent=None, fields=None, router=None):
         if entry:
             if entry["type_prefix"] == artefact_type_prefix(artefact):
                 return os.path.join(base_path, entry["key"])
-            return os.path.join(base_path, f"{entry['type_prefix']}~{entry['key']}")
+            scope = f"{entry['type_prefix']}~{entry['key']}"
+            return os.path.join(base_path, scope)
     if parent:
         return os.path.join(base_path, parent)
     return base_path

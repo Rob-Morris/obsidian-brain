@@ -25,7 +25,7 @@ When building reference knowledge about a concept you want to understand, refere
 Wiki pages are flat by default — one file per concept in `Wiki/`. When a broad topic spawns multiple related pages, use the master/sub-artefact convention (see [[.brain-core/standards/subfolders]]):
 
 - The **master page** stays in `Wiki/` as the entry point (e.g. `Wiki/Claude Code.md`, key `claude-code`)
-- **Sub-pages** live in `Wiki/{parent-key}/` (e.g. `Wiki/claude-code/Claude Code Tool Search.md`)
+- **Sub-pages** live in `Wiki/{key}/` (e.g. `Wiki/claude-code/Claude Code Tool Search.md`)
 - Sub-pages inherit the wiki type — no separate taxonomy needed
 - Use `brain_create` with the `parent` parameter to place sub-pages directly
 
@@ -49,7 +49,7 @@ Wiki and zettelkasten form a two-layer semantic graph: a fine-grained concept me
 
 `{Title}.md` in `Wiki/`.
 
-For sub-pages within a topic cluster: `{Title}.md` in `Wiki/{parent-key}/`. The subfolder is the parent page's key (lowercase, URL-safe); the filename stays the human-readable title.
+For sub-pages within a topic cluster: `{Title}.md` in `Wiki/{key}/`. The subfolder is the parent page's key (lowercase, URL-safe); the filename stays the human-readable title.
 
 Examples:
 - `Wiki/Rust Lifetimes.md`

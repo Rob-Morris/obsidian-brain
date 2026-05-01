@@ -951,7 +951,7 @@ class TestTemplateVault:
         parsed = cr.parse_taxonomy_file(path)
         # Advanced table form: no simple one-line pattern.
         assert parsed["naming"]["pattern"] is None
-        assert parsed["naming"]["folder"] == "Releases/{parent-type}~{parent-key}/"
+        assert parsed["naming"]["folder"] == "Releases/{scope}/"
         rules = parsed["naming"]["rules"]
         assert len(rules) == 2
         assert rules[0]["match_field"] == "status"

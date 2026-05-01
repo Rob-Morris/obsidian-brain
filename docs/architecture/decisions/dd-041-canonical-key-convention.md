@@ -24,6 +24,8 @@ Every living artefact carries an explicit `key:` field in frontmatter. The compo
 
 The migration `migrations/migrate_to_0_31_0.py` backfills `key:` for existing vaults, with a fixed priority: existing valid key → legacy `hub-slug` / `hub_slug` → self-referencing type tag → title-derived key → generated `{keyword}-{suffix}` fallback.
 
+Terminology clarification: the tokenised cross-type folder form derived from a canonical artefact key (for example `project~brain` from `project/brain`) may be referred to as that artefact's `scope`. Same-type child folders still use the raw `{key}` directly. This is naming clarification only, not a change to the decision.
+
 ## Alternatives Considered
 
 **Tag-derived hub identity (status quo).** Rejected. The implicit-from-tags model conflated relationship signals with ownership and made multi-type identity impossible to express without overloading the tag namespace.
@@ -38,7 +40,7 @@ The migration `migrations/migrate_to_0_31_0.py` backfills `key:` for existing va
 
 - Hub resolution becomes a `(type, key)` dict lookup rather than a tag scan. `_artefacts.py` exposes `resolve_artefact_key_entry`, `make_artefact_key`, `parse_artefact_key`, `normalize_artefact_key`, and `scan_artefact_key_references`/`replace_artefact_key_references` to work with the canonical form everywhere.
 - Ownership is robust under filesystem moves. `parent: project/widget` continues to resolve regardless of where the child file lives, as long as a living `project/widget` exists.
-- Subfolder layout becomes a function of canonical keys, not folder discovery. Same-type children live under `{Type}/{key}/`; cross-type children live under `{Type}/{parent-type}~{key}/`. See [[subfolders]] for the full layout rules.
+- Subfolder layout becomes a function of canonical keys, not folder discovery. Same-type children live under `{Type}/{key}/`; cross-type children live under `{Type}/{scope}/`, where `scope` is the tokenised form of the canonical key. See [[subfolders]] for the full layout rules.
 - The compiler validates uniqueness at startup. Duplicate keys within a type are a hard error, not a silent collision; `artefact_index` is the authoritative resolver and it refuses ambiguity.
 - The slug helpers (`title_to_slug`, `slug_to_title`, `slugify`, `generate_contextual_slug`, `extract_slug_keyword`, the `SLUG_*` shape constants, and `_common/_slugs.py`) keep their names. They genuinely produce slug-shaped strings from input; they are unrelated to the field-naming choice.
 - Field-level validators live under `is_valid_key` / `validate_key`; collisions raise `KEY_TAKEN` and shape violations raise `INVALID_KEY`. There is no `slug`-named alias because the field has only ever shipped as `key`.

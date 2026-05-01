@@ -164,7 +164,7 @@ def _resolve_folder_parent(art, rel_path, type_prefix, own_key, entry_by_key):
 
 
 def _parent_token_for_path(art, rel_path):
-    """Return the single owner-folder token from a living artefact path, if any."""
+    """Return the single child-folder token from a living artefact path, if any."""
     current_folder = os.path.dirname(rel_path)
     rel_to_type = os.path.relpath(current_folder, art["path"])
     if rel_to_type in {".", ""}:

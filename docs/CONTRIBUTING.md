@@ -32,16 +32,19 @@ This repo's documentation structure follows the [Agent-Ready Documentation Stand
 
 ### Repo docs (in `docs/`)
 
-Most repo documentation lives under `docs/`, with a separate folder for each layer. Each folder has its own `README.md`. Start with [docs/README.md](README.md), which links to the main documentation areas:
+Most repo documentation lives under `docs/`. Audience layers have their own folders with `README.md` indexes, and `docs/standards/README.md` indexes the shared contributor standards used across those layers. Start with [docs/README.md](README.md), which links to the main documentation areas:
 
 - [Architecture docs](architecture/README.md) — system design and decisions
 - [Contributor docs](contributor/README.md) — contributor-facing docs
 - [Functional docs](functional/README.md) — tool, script, and config reference
 - [User docs](user/README.md) — user-facing guides and reference
+- [Standards docs](standards/README.md) — shared contributor standards and workflow conventions
 
 This repo keeps its changelog at [docs/CHANGELOG.md](CHANGELOG.md).
 
-If you add, move, remove, or rename repo docs, update the relevant `README.md` files so people and agents can still find them.
+Shared contributor standards live under `docs/standards/` and are indexed from [standards/README.md](standards/README.md), including [Agent Workflow](standards/agent-workflow.md), [Canary](standards/canary.md), and [Commit Messages](standards/commit-messages.md).
+
+If you add, move, remove, or rename repo docs, update the relevant `README.md` files so people and agents can still find them, including `docs/standards/README.md` for shared standards.
 
 ### Brain-core docs (in `src/brain-core/`, ship as `.brain-core/` in vaults)
 
@@ -86,6 +89,10 @@ New entry at the top of `docs/CHANGELOG.md`. Format: `## v{x.y.z} — YYYY-MM-DD
 - Include type counts when they change (e.g. "9 → 10 living types")
 - Include colour hex values for new temporal types
 - If a past entry is wrong, add a correction in the current version's entry
+
+## Commit Messages
+
+Every commit in this repo should have a scannable subject and a body that explains *why* the change exists, not just what the diff already shows. See [standards/commit-messages.md](standards/commit-messages.md) for the subject-line template, body structure, worked example, and drafting rules. Read the corresponding `docs/CHANGELOG.md` entry (if any) and recent `git log --oneline` output before drafting.
 
 ## Testing
 
@@ -166,6 +173,7 @@ obsidian-brain/
 │   │   ├── agents.md            # contributor workflow guidance for agents
 │   │   ├── plugins.md           # writing and packaging plugin integrations
 │   │   └── specification.md     # design rationale and structural decisions
+│   ├── standards/               # shared contributor standards used across docs and workflow
 │   ├── user/                    # user-facing docs (getting-started, workflows, system-guide, template-library, plugins, reference)
 │   ├── functional/              # functional specs (mcp-tools, scripts, config)
 │   ├── architecture/            # architectural docs (overview, bounded-contexts, documentation-philosophy, decisions/, security)

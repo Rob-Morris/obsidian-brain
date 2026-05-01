@@ -94,6 +94,8 @@ Most types declare a single naming pattern as a one-line `## Naming` entry (e.g.
 
 **Built-in placeholders** (always available, need no declaration): `{Title}`, `{title}`, `{name}`, `yyyymmdd`, `yyyy-mm-dd`, `yyyy`, `mm`, `dd`, `ddd`, `{sourcedoctype}`. Filenames never use the key — `key` is a frontmatter-only machine identifier; see [[keys]].
 
+In `Primary folder:` metadata, cross-type child folders use `{scope}` for the tokenised canonical parent key (for example `project/brain` → `project~brain`). Same-type child folders continue to use raw key-based folders.
+
 Any other placeholder must be declared with a backing frontmatter field. Using an undeclared non-built-in placeholder is a type-definition error caught at compile time.
 
 **Canonical advanced form:**
@@ -101,7 +103,7 @@ Any other placeholder must be declared with a backing frontmatter field. Using a
 ```md
 ## Naming
 
-Primary folder: `Releases/{parent-type}~{parent-key}/`.
+Primary folder: `Releases/{scope}/`.
 
 ### Rules
 

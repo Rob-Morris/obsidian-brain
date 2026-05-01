@@ -60,7 +60,7 @@ Pick the artefact type that fits, create the file in the right folder with the r
 | Note | `Notes/` | `yyyymmdd - {Title}.md` |
 | Person | `People/` | `{Title}.md` |
 | Project | `Projects/` | `{Title}.md` |
-| Release | `Releases/` or `Releases/{owner-folder}/` | `{Title}.md` pre-ship; `{Version} - {Title}.md` when `shipped` |
+| Release | `Releases/{scope}/` | `{Title}.md` pre-ship; `{Version} - {Title}.md` when `shipped` |
 | Task | `Tasks/` | `{Title}.md` |
 | Workspace | `Workspaces/` | `{Title}.md` |
 | Writing | `Writing/` | `{Title}.md` |
@@ -94,6 +94,8 @@ tags:
   - topic-tag
 ---
 ```
+
+When a living artefact owns cross-type children, its canonical key also projects to a folder `scope`. For example, `parent: project/brain` gives scope `project~brain`, so a release owned by that project files under `Releases/project~brain/`.
 
 ### Logging
 
