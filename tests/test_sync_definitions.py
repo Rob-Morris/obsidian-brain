@@ -58,6 +58,31 @@ def _hash(path):
     return hash_file(path)
 
 
+COMPACT_TABLE = """\
+# Cookies taxonomy
+
+| Status | Notes |
+| --- | --- |
+| Open | Fresh |
+"""
+
+PADDED_TABLE = """\
+# Cookies taxonomy
+
+|  Status  |   Notes |
+| --- | --- |
+| Open |   Fresh   |
+"""
+
+UPDATED_TABLE = """\
+# Cookies taxonomy
+
+| Status | Notes |
+| --- | --- |
+| Done | Archived |
+"""
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -309,6 +334,51 @@ class TestComputeFileStatus:
         status = sync.compute_file_status(src, entry, dst)
         assert status["action"] == "conflict"
 
+    def test_update_when_tracked_hash_is_stale_but_local_matches_upstream(self, vault):
+        src = str(vault / ".brain-core" / "artefact-library" / "temporal" / "cookies" / "taxonomy.md")
+        dst = str(vault / "_Config" / "Taxonomy" / "Temporal" / "cookies.md")
+        _write(src, "original\n")
+        shutil.copy2(src, dst)
+        old_hash = _hash(src)
+        entry = {"source_hash": old_hash, "target": "..."}
+        _write(src, "updated upstream\n")
+        _write(dst, "updated upstream\n")
+        status = sync.compute_file_status(src, entry, dst)
+        assert status["action"] == "update"
+        assert status["matches_upstream"] is True
+
+    def test_skip_when_markdown_table_diff_is_whitespace_only(self, vault):
+        src = str(vault / ".brain-core" / "artefact-library" / "temporal" / "cookies" / "taxonomy.md")
+        dst = str(vault / "_Config" / "Taxonomy" / "Temporal" / "cookies.md")
+        _write(src, COMPACT_TABLE)
+        _write(dst, PADDED_TABLE)
+        entry = {"source_hash": _hash(src), "target": "..."}
+        status = sync.compute_file_status(src, entry, dst)
+        assert status["action"] == "skip"
+        assert status["matches_upstream"] is True
+
+    def test_baseline_when_untracked_markdown_table_diff_is_whitespace_only(self, vault):
+        src = str(vault / ".brain-core" / "artefact-library" / "temporal" / "cookies" / "taxonomy.md")
+        dst = str(vault / "_Config" / "Taxonomy" / "Temporal" / "cookies.md")
+        _write(src, COMPACT_TABLE)
+        _write(dst, PADDED_TABLE)
+        status = sync.compute_file_status(src, None, dst)
+        assert status["action"] == "baseline"
+        assert status["matches_upstream"] is True
+
+    def test_conflict_when_markdown_table_content_really_differs(self, vault):
+        src = str(vault / ".brain-core" / "artefact-library" / "temporal" / "cookies" / "taxonomy.md")
+        dst = str(vault / "_Config" / "Taxonomy" / "Temporal" / "cookies.md")
+        _write(src, COMPACT_TABLE)
+        shutil.copy2(src, dst)
+        old_hash = _hash(src)
+        entry = {"source_hash": old_hash, "target": "..."}
+        _write(src, UPDATED_TABLE)
+        _write(dst, PADDED_TABLE)
+        status = sync.compute_file_status(src, entry, dst)
+        assert status["action"] == "conflict"
+        assert status["matches_upstream"] is False
+
 
 # ---------------------------------------------------------------------------
 # sync_definitions — full integration
@@ -389,6 +459,62 @@ class TestSyncDefinitions:
         assert result["status"] == "warnings"
         conflict = next(w for w in result["warnings"] if w["role"] == "taxonomy")
         assert conflict["action"] == "conflict"
+
+    def test_stale_tracking_matching_upstream_refreshes_without_warning(self, vault):
+        """Tracked stale hashes should refresh when local already matches upstream."""
+        _install_type(vault)
+        lib_tax = vault / ".brain-core" / "artefact-library" / "temporal" / "cookies" / "taxonomy.md"
+        target = vault / "_Config" / "Taxonomy" / "Temporal" / "cookies.md"
+        lib_tax.write_text("# Upstream change\n")
+        target.write_text("# Upstream change\n")
+        result = sync.sync_definitions(str(vault))
+        assert result["status"] == "ok"
+        assert not any(w["role"] == "taxonomy" for w in result["warnings"])
+        taxonomy_update = next(u for u in result["updated"] if u["role"] == "taxonomy")
+        assert taxonomy_update["action"] == "update"
+        tracking = sync.load_tracking(str(vault))
+        assert tracking["installed"]["temporal/cookies"]["files"]["taxonomy"]["source_hash"] == _hash(str(lib_tax))
+
+    def test_whitespace_only_markdown_table_drift_does_not_warn(self, vault):
+        """Whitespace-only markdown table drift should remain in sync."""
+        _install_type(vault)
+        lib_tax = vault / ".brain-core" / "artefact-library" / "temporal" / "cookies" / "taxonomy.md"
+        target = vault / "_Config" / "Taxonomy" / "Temporal" / "cookies.md"
+        lib_tax.write_text(COMPACT_TABLE)
+        target.write_text(PADDED_TABLE)
+        tracking = sync.load_tracking(str(vault))
+        tracking["installed"]["temporal/cookies"]["files"]["taxonomy"]["source_hash"] = _hash(str(lib_tax))
+        sync.save_tracking(str(vault), tracking)
+        result = sync.sync_definitions(str(vault))
+        assert result["status"] == "ok"
+        assert not any(w["role"] == "taxonomy" for w in result["warnings"])
+        taxonomy_skip = next(s for s in result["skipped"] if s["role"] == "taxonomy")
+        assert taxonomy_skip["reason"] == "in_sync"
+
+    def test_stale_tracking_matching_upstream_preserves_local_markdown_formatting(self, vault):
+        """Tracking refresh should not rewrite semantically matching markdown."""
+        _install_type(vault)
+        lib_tax = vault / ".brain-core" / "artefact-library" / "temporal" / "cookies" / "taxonomy.md"
+        target = vault / "_Config" / "Taxonomy" / "Temporal" / "cookies.md"
+        lib_tax.write_text(COMPACT_TABLE)
+        target.write_text(PADDED_TABLE)
+        result = sync.sync_definitions(str(vault))
+        assert result["status"] == "ok"
+        taxonomy_update = next(u for u in result["updated"] if u["role"] == "taxonomy")
+        assert taxonomy_update["action"] == "update"
+        assert target.read_text() == PADDED_TABLE
+        tracking = sync.load_tracking(str(vault))
+        assert tracking["installed"]["temporal/cookies"]["files"]["taxonomy"]["source_hash"] == _hash(str(lib_tax))
+
+    def test_non_utf8_markdown_is_treated_as_local_customisation(self, vault):
+        """Non-UTF-8 local markdown should not crash sync."""
+        _install_type(vault)
+        target = vault / "_Config" / "Taxonomy" / "Temporal" / "cookies.md"
+        target.write_bytes(b"# Local customisation \xff\n")
+        result = sync.sync_definitions(str(vault))
+        assert result["status"] == "ok"
+        taxonomy_skip = next(s for s in result["skipped"] if s["role"] == "taxonomy")
+        assert taxonomy_skip["reason"] == "user_customised"
 
     def test_collision_warning(self, vault):
         """No tracking, target exists with different content → collision warning."""
@@ -823,6 +949,33 @@ class TestStatusDefinitions:
         result = sync.status_definitions(str(vault))
         conflicts = [t["type"] for t in result["types"]["conflict"]]
         assert "temporal/cookies" in conflicts
+
+    def test_in_sync_with_markdown_table_whitespace_drift(self, vault):
+        """Whitespace-only markdown table edits stay in_sync."""
+        _install_type(vault)
+        lib_tax = vault / ".brain-core" / "artefact-library" / "temporal" / "cookies" / "taxonomy.md"
+        target = vault / "_Config" / "Taxonomy" / "Temporal" / "cookies.md"
+        lib_tax.write_text(COMPACT_TABLE)
+        target.write_text(PADDED_TABLE)
+        tracking = sync.load_tracking(str(vault))
+        tracking["installed"]["temporal/cookies"]["files"]["taxonomy"]["source_hash"] = _hash(str(lib_tax))
+        sync.save_tracking(str(vault), tracking)
+        result = sync.status_definitions(str(vault))
+        in_sync = [t["type"] for t in result["types"]["in_sync"]]
+        assert "temporal/cookies" in in_sync
+
+    def test_sync_ready_when_tracking_is_stale_but_local_matches_upstream(self, vault):
+        """Matching content with stale tracking should be sync_ready, not conflict."""
+        _install_type(vault)
+        lib_tax = vault / ".brain-core" / "artefact-library" / "temporal" / "cookies" / "taxonomy.md"
+        target = vault / "_Config" / "Taxonomy" / "Temporal" / "cookies.md"
+        lib_tax.write_text("# Upstream change\n")
+        target.write_text("# Upstream change\n")
+        result = sync.status_definitions(str(vault))
+        ready = [t["type"] for t in result["types"]["sync_ready"]]
+        assert "temporal/cookies" in ready
+        conflicts = [t["type"] for t in result["types"]["conflict"]]
+        assert "temporal/cookies" not in conflicts
 
     def test_not_installable_missing_source(self, vault):
         """A library type whose declared source file is missing appears in

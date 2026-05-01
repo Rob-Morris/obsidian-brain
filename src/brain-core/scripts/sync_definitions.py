@@ -25,8 +25,10 @@ Sync rules:
 """
 
 import argparse
+import hashlib
 import json
 import os
+import re
 import shutil
 import sys
 from datetime import datetime, timezone
@@ -49,6 +51,82 @@ CLASSIFICATIONS = ("living", "temporal")
 
 def _tracking_seed() -> dict:
     return {"schema_version": 1, "installed": {}}
+
+
+# ---------------------------------------------------------------------------
+# Sync-local content comparison
+# ---------------------------------------------------------------------------
+
+_FENCE_START_RE = re.compile(r"^[ ]{0,3}(`{3,}|~{3,})")
+
+
+def _hash_bytes(data: bytes) -> str:
+    """Return a sha256 hash for arbitrary bytes."""
+    return "sha256:" + hashlib.sha256(data).hexdigest()
+
+
+def _is_pipe_table_line(line: str) -> bool:
+    """Return True when a line looks like a standard pipe-table row."""
+    stripped = line.strip()
+    return stripped.startswith("|") and stripped.endswith("|") and stripped.count("|") >= 2
+
+
+def _normalise_pipe_table_line(line: str) -> str:
+    """Collapse harmless cell-edge padding in a pipe-table row."""
+    newline = "\n" if line.endswith("\n") else ""
+    stripped = line.strip()
+    cells = [cell.strip() for cell in stripped[1:-1].split("|")]
+    return f"| {' | '.join(cells)} |{newline}"
+
+
+def _normalise_markdown_for_sync(text: str) -> str:
+    """Normalise markdown formatting differences that should not trigger sync drift.
+
+    This is intentionally narrow and sync-local:
+    - normalise line endings to LF
+    - collapse padding inside standard pipe tables
+    - leave fenced code blocks untouched
+    """
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    lines = text.splitlines(keepends=True)
+    normalised = []
+    fence_char = None
+    fence_len = 0
+
+    for line in lines:
+        match = _FENCE_START_RE.match(line)
+        if match:
+            marker = match.group(1)
+            marker_char = marker[0]
+            marker_len = len(marker)
+            if fence_char is None:
+                fence_char = marker_char
+                fence_len = marker_len
+            elif marker_char == fence_char and marker_len >= fence_len:
+                fence_char = None
+                fence_len = 0
+            normalised.append(line)
+            continue
+
+        if fence_char is None and _is_pipe_table_line(line):
+            normalised.append(_normalise_pipe_table_line(line))
+            continue
+
+        normalised.append(line)
+
+    return "".join(normalised)
+
+
+def _comparison_hash(path: str) -> str:
+    """Return the sync-local comparison hash for a file."""
+    if Path(path).suffix.lower() != ".md":
+        return hash_file(path)
+    data = Path(path).read_bytes()
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        return _hash_bytes(data)
+    return _hash_bytes(_normalise_markdown_for_sync(text).encode("utf-8"))
 
 
 # ---------------------------------------------------------------------------
@@ -207,15 +285,18 @@ def compute_file_status(
     local_hash, target (vault-relative).
     """
     upstream_hash = hash_file(upstream_path)
+    upstream_compare_hash = _comparison_hash(upstream_path)
     target_exists = os.path.isfile(vault_path)
     local_hash = hash_file(vault_path) if target_exists else None
+    local_compare_hash = _comparison_hash(vault_path) if target_exists else None
     installed_from_hash = installed_entry.get("source_hash") if installed_entry else None
+    matches_upstream = bool(target_exists and local_compare_hash == upstream_compare_hash)
 
     # No tracking entry — bootstrap or collision
     if installed_from_hash is None:
         if not target_exists:
             action = "new"
-        elif local_hash == upstream_hash:
+        elif matches_upstream:
             action = "baseline"  # silent bootstrap — hashes match
         else:
             action = "collision"
@@ -223,7 +304,9 @@ def compute_file_status(
         upstream_changed = upstream_hash != installed_from_hash
         local_changed = local_hash != installed_from_hash if local_hash else True
 
-        if not upstream_changed:
+        if matches_upstream:
+            action = "skip" if not upstream_changed else "update"
+        elif not upstream_changed:
             action = "skip"
         elif not local_changed:
             action = "update"
@@ -235,6 +318,7 @@ def compute_file_status(
         "upstream_hash": upstream_hash,
         "installed_from_hash": installed_from_hash,
         "local_hash": local_hash,
+        "matches_upstream": matches_upstream,
     }
 
 
@@ -309,7 +393,7 @@ def _classify_file(
     fs = compute_file_status(source_path, installed_entry, vault_path)
     action = fs["action"]
     if action == "skip":
-        if fs["local_hash"] == fs["upstream_hash"]:
+        if fs["matches_upstream"]:
             return "in_sync"
         return "locally_customised"
     if action in ("update", "new", "baseline"):
@@ -524,7 +608,7 @@ def sync_definitions(
                     "type": type_key,
                     "role": role,
                     "target": target_rel,
-                    "reason": "in_sync" if status["local_hash"] == status["upstream_hash"]
+                    "reason": "in_sync" if status["matches_upstream"]
                     else "user_customised",
                 })
                 new_type_files[role] = installed_entry if installed_entry else _make_tracking_entry(
@@ -551,8 +635,12 @@ def sync_definitions(
             )
             if should_apply:
                 if not dry_run:
-                    os.makedirs(os.path.dirname(vault_path), exist_ok=True)
-                    shutil.copy2(source_path, vault_path)
+                    # Matching markdown content can still surface as an update
+                    # when tracking is stale; refresh tracking without
+                    # rewriting harmless local formatting.
+                    if not status["matches_upstream"]:
+                        os.makedirs(os.path.dirname(vault_path), exist_ok=True)
+                        shutil.copy2(source_path, vault_path)
                 new_type_files[role] = _make_tracking_entry(
                     status["upstream_hash"], target_rel,
                 )

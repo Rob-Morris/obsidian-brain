@@ -2,6 +2,14 @@
 
 Follows a pre-1.0 [semver](https://semver.org/) policy: backward-compatible changes are patch; breaking Brain changes are minor; only fundamental model changes are major. Breaking Brain changes include vault-structure changes and breaking tool/script/MCP contract changes. Fundamental model changes are changes to the artefact model, router contract, or agent bootstrap/entry flow.
 
+## v0.34.1 — 2026-05-01
+
+**Harden definition sync against false conflicts from harmless markdown table rewrites and stale tracking hashes.** `sync_definitions.py` now uses a sync-local markdown comparison for `.md` files, so Obsidian-style pipe-table padding changes no longer surface as local customisation or conflict, and a stale tracked source hash now self-heals as a safe update when the local file already matches the current upstream content.
+
+- Keep global file hashing unchanged while adding a sync-local markdown normaliser in `sync_definitions.py`: line endings are normalised, standard pipe-table cell padding is collapsed, and fenced code blocks stay untouched.
+- Treat tracked files whose current local content already matches upstream as safe `update`s rather than `conflict`s when the stored `source_hash` is stale, so the next real sync refreshes tracking cleanly.
+- Refresh the sync/status classifier tests around stale tracking, whitespace-only markdown-table drift, and true table-content conflicts, and document the new dry-run behaviour: dry-run previews the repaired classification but does not rewrite tracking.
+
 ## v0.34.0 — 2026-04-30
 
 **Realign the shipped release artefact around milestone-first planning, with required parent-agnostic ownership.** Release templates and docs now treat releases as milestone records before ship and historical records after ship; every release must set a canonical `parent` (any owning living artefact type — projects are the canonical case but designs, books, standards, and others all qualify), and the release-owner hub-indexing pattern is decoupled from `living/projects` so the two types can be installed independently.

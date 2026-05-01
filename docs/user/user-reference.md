@@ -208,7 +208,7 @@ Available in `.brain-core/scripts/`. Scripts are the source of truth for all vau
 | `check.py` | Structural compliance checker — validates naming, frontmatter, month folders, archives, status values, and now prints exact `repair.py` commands when it detects repairable router/MCP/local-registry drift |
 | `migrate_naming.py` | Migrate vault filenames from old aggressive slugs to generous naming conventions |
 | `fix_links.py` | Auto-repair broken wikilinks using naming convention heuristics |
-| `sync_definitions.py` | Sync artefact library definitions to vault `_Config/` using three-way hash comparison |
+| `sync_definitions.py` | Sync artefact library definitions to vault `_Config/` using tracked source hashes plus markdown-aware comparison for `.md` files, so harmless pipe-table rewrites do not surface as conflicts |
 | `config.py` | Vault configuration loader (three-layer merge: template → vault → local) |
 | `generate_key.py` | Generate operator key + SHA-256 hash for pasting into `config.yaml` |
 

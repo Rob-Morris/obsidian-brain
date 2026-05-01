@@ -358,7 +358,7 @@ Canonical upgrade script at `src/brain-core/scripts/upgrade.py`. It is shipped i
 - **Standard migration targets** — `post_compile` is the default versioned migration stage; `pre_compile_patch` is the standard patch stage for compatibility fixes that must land before the compile gate. Migrations declare non-default targets via `TARGET_HANDLERS`
 - **Dependency management** — MCP server dependencies are declared in `.brain-core/brain_mcp/requirements.txt`. When this file changes during an upgrade, the CLI best-effort syncs the vault-local `.venv` itself if one exists. `--no-sync-deps` skips that step and prints the exact absolute retry command instead. The `install.sh` wrapper delegates this behavior to `upgrade.py`, and `install.sh --skip-mcp` passes through the opt-out.
 - **Not exposed via MCP** — self-upgrading MCP servers are an anti-pattern (a prompt-injected agent could point upgrade at a crafted directory). The MCP server detects version drift and exits cleanly; the client restarts it with the new code
-- **Post-upgrade definition sync** — after a successful upgrade, `sync_definitions` runs automatically. Safe updates (upstream changed, no local changes) always apply. Conflicts (both upstream and local changed) are returned as warnings for the caller to present. If `artefact_sync` is `"skip"` in `.brain/preferences.json`, no sync runs. CLI flags `--sync` / `--no-sync` override the preference. Sync failures are captured in the result — they never crash the upgrade
+- **Post-upgrade definition sync** — after a successful upgrade, `sync_definitions` runs automatically. Safe updates (upstream changed, no local changes) always apply, and tracked files whose current local content already matches upstream also self-heal as safe updates even if their stored `source_hash` is stale. Conflicts (both upstream and local changed) are returned as warnings for the caller to present. For markdown files, harmless line-ending or pipe-table padding rewrites do not count as local drift. If `artefact_sync` is `"skip"` in `.brain/preferences.json`, no sync runs. CLI flags `--sync` / `--no-sync` override the preference. Sync failures are captured in the result — they never crash the upgrade
 
 **CLI:**
 ```bash
@@ -375,6 +375,8 @@ python3 upgrade.py --source src/brain-core --no-sync-deps  # skip upgrade-time M
 
 The single tool for reconciling vault `_Config/` definitions with the artefact library. Covers install of new library types, update of drifted ones, conflict surfacing, and a read-only status classifier.
 
+For `.md` files, sync uses a narrow markdown-aware comparison layer in addition to the raw tracked source hash: line endings are normalised, standard pipe-table cell padding is collapsed, and fenced code blocks stay literal. This prevents false `locally_customised` / `conflict` results from harmless editor rewrites while keeping the persisted tracking hash byte-precise.
+
 **Invocation modes:**
 
 | Command | Behaviour |
@@ -384,21 +386,22 @@ The single tool for reconciling vault `_Config/` definitions with the artefact l
 | `sync_definitions.py --types X --force` | Overwrites local customisation or conflict for X with the library version. |
 | `sync_definitions.py --force` | Overwrites conflicts for already-installed types (does not install new types). |
 | `sync_definitions.py --status` | Read-only. Classifies every library type by vault state. |
-| `sync_definitions.py --dry-run` | Preview any of the above without modifying files. |
+| `sync_definitions.py --dry-run` | Preview any of the above without modifying files or refreshing tracking. |
 
 **Design decisions:**
 - **Install requires explicit intent.** Bare sync never installs uninstalled types — that's the safety rail keeping upgrade.py from surprise-installing every new library type. `--types X` is the explicit install path.
 - **Install is not destructive.** It's additive (file doesn't exist; library file is copied in). `--force` is only needed when there's something to overwrite.
 - **Status is a separate mode**, not the default. Bare invocation stays a sync so chained callers (`upgrade.py`) keep working.
 - **Target-missing is indistinguishable from upstream-added.** If tracking says a file is installed but it's gone, sync just copies it back from the library — same code path as a genuine upstream addition.
+- **Stale tracking heals on a real sync, not a dry-run.** If a tracked file already matches the current upstream content, sync treats it as a safe update so the stored `source_hash` can refresh. `--dry-run` shows that classification but leaves tracking unchanged.
 
 **State taxonomy** (used by `--status` and by callers of `status_definitions()`):
 
 | State | Meaning | Sync action |
 |---|---|---|
 | `uninstalled` | Not present in the vault at all | Install via `--types X` |
-| `in_sync` | Hashes match library | None |
-| `sync_ready` | Library has content the vault lacks or differs on (upstream side) | Bare sync auto-applies |
+| `in_sync` | Local content matches library under the sync comparison rules | None |
+| `sync_ready` | Library has content the vault lacks, upstream changed safely, or tracking is stale even though local content already matches upstream | Bare sync auto-applies |
 | `locally_customised` | Local diverged, library unchanged | Preserved; `--force` to revert |
 | `conflict` | Both sides diverged | Warned; `--force` to overwrite |
 
