@@ -40,9 +40,9 @@ Most repo documentation lives under `docs/`. Audience layers have their own fold
 - [User docs](user/README.md) — user-facing guides and reference
 - [Standards docs](standards/README.md) — shared contributor standards and workflow conventions
 
-This repo keeps its changelog at [docs/CHANGELOG.md](CHANGELOG.md).
+This repo keeps its live changelog at [docs/CHANGELOG.md](CHANGELOG.md), with one file per shipped version under `docs/changelog/` and milestone release files under `docs/changelog/releases/`.
 
-Shared contributor standards live under `docs/standards/` and are indexed from [standards/README.md](standards/README.md), including [Agent Workflow](standards/agent-workflow.md), [Canary](standards/canary.md), and [Commit Messages](standards/commit-messages.md).
+Shared contributor standards live under `docs/standards/` and are indexed from [standards/README.md](standards/README.md), including [Agent Workflow](standards/agent-workflow.md), [Canary](standards/canary.md), [Changelog](standards/changelog.md), and [Commit Messages](standards/commit-messages.md).
 
 If you add, move, remove, or rename repo docs, update the relevant `README.md` files so people and agents can still find them, including `docs/standards/README.md` for shared standards.
 
@@ -82,17 +82,25 @@ Bump `src/brain-core/VERSION` for any change to files under `src/brain-core/`, i
 
 ## Changelog
 
-New entry at the top of `docs/CHANGELOG.md`. Format: `## v{x.y.z} — YYYY-MM-DD`. Never edit past entries.
+The live changelog is tiered:
 
-- **Bold lead** for significant changes — what changed and why in one sentence
-- Regular bullets for smaller changes
-- Include type counts when they change (e.g. "9 → 10 living types")
-- Include colour hex values for new temporal types
-- If a past entry is wrong, add a correction in the current version's entry
+- `docs/CHANGELOG.md` — newest-first index
+- `docs/changelog/vX.Y.Z.md` — one file per shipped version
+- `docs/changelog/releases/vX.Y.Z-<slug>.md` — one file per shipped milestone release
+
+For each shipped version:
+
+- create `docs/changelog/vX.Y.Z.md` with a short top-line Summary (~60–75 chars, imperative, no period, no version suffix, specific identifier) plus supporting bullets
+- write the same Summary text into the new row's `Summary` cell in `docs/CHANGELOG.md`. The Summary is one canonical text used three places — per-version top-line Summary, index `Summary` cell, release commit subject — drafted once before commit
+- preserve `BREAKING —` in the `Summary` when the per-version entry requires install-manager action
+- milestone rows use `Release: <title>`
+- if the version closes a shipped `living/release`, add or update the matching file under `docs/changelog/releases/`
+
+Never rewrite older per-version files to “fix history”. Add any correction in the current version's entry instead.
 
 ## Commit Messages
 
-Every commit in this repo should have a scannable subject and a body that explains *why* the change exists, not just what the diff already shows. See [standards/commit-messages.md](standards/commit-messages.md) for the subject-line template, body structure, worked example, and drafting rules. Read the corresponding `docs/CHANGELOG.md` entry (if any) and recent `git log --oneline` output before drafting.
+Every commit in this repo should have a scannable subject and a body that explains *why* the change exists, not just what the diff already shows. See [standards/commit-messages.md](standards/commit-messages.md) for the subject-line template, body structure, worked example, and drafting rules. For release commits, the subject is `<Summary> (vX.Y.Z)` where `<Summary>` is the canonical Summary text — the per-version file's top-line Summary, also filled into the matching `docs/CHANGELOG.md` index row — verbatim, parenthesised version suffix, never `as vX.Y.Z`. Read `git diff` and `git diff --stat`, the matching index row, the corresponding `docs/changelog/vX.Y.Z.md` entry (if any), and recent `git log --oneline` output before drafting. Use only public-safe references in the message body — anything a stranger can verify using only `git log` and the public web.
 
 ## Testing
 
@@ -177,7 +185,8 @@ obsidian-brain/
 │   ├── user/                    # user-facing docs (getting-started, workflows, system-guide, template-library, plugins, reference)
 │   ├── functional/              # functional specs (mcp-tools, scripts, config)
 │   ├── architecture/            # architectural docs (overview, bounded-contexts, documentation-philosophy, decisions/, security)
-│   ├── CHANGELOG.md             # version history
+│   ├── CHANGELOG.md             # changelog index
+│   ├── changelog/              # per-version and per-release changelog files
 │   ├── CONTRIBUTING.md          # contributor guide and maintenance rules
 │   └── README.md                # documentation router
 ├── template-vault/              # starter vault; copy to create a new Brain

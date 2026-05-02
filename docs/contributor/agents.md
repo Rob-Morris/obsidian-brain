@@ -6,6 +6,7 @@ Contributor standards:
 
 - [Agent Workflow](../standards/agent-workflow.md) — contributor workflow tiers and escalation bar
 - [Canary](../standards/canary.md) — subjective-work checklists and log enforcement
+- [Changelog](../standards/changelog.md) — tiered public release-history standard
 - [Commit Messages](../standards/commit-messages.md) — subject-line template, body structure, and drafting process
 
 ## Bootstrap Contract

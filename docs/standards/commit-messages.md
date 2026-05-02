@@ -6,13 +6,14 @@ A good commit message does three things: makes the subject scannable in `git log
 
 ## Process
 
-Before drafting, read three things:
+Before drafting, read four things:
 
 1. **`git diff` and `git diff --stat`** — know what actually changed.
-2. **The corresponding `docs/CHANGELOG.md` entry**, if one exists for this change. Changelog entries in this repo are deliberately written as prose; paraphrase tighter for the commit message instead of reinventing the narrative.
-3. **`git log --oneline -15`** — match the local subject-line style.
+2. **The matching `docs/CHANGELOG.md` index row** and **the corresponding `docs/changelog/vX.Y.Z.md` entry's top-line Summary**, if this change ships a version. Both carry the same canonical Summary text — one short scannable sentence describing the version's user-observable effect. The commit subject reuses that Summary verbatim with a `(vX.Y.Z)` suffix.
+3. **The body of the corresponding `docs/changelog/vX.Y.Z.md` entry**, if one exists. Per-version file bodies are written as prose; paraphrase the commit-message body from there instead of reinventing the narrative.
+4. **`git log --oneline -15`** — match the local subject-line style.
 
-Skip step 2 only if the change is too small for a changelog entry, for example a test-only fix.
+Skip steps 2 and 3 only if the change is too small for a changelog entry, for example a test-only fix.
 
 ## Subject Line
 
@@ -20,9 +21,11 @@ Template: `<verb> <specific noun> via <specific mechanism> (vX.Y.Z)`
 
 - **Short** — under about 70 characters.
 - **Specific** — name the new thing by its identifier, not by category. `safe_write_via kernel` beats `shared atomic write kernel`; the former is greppable, the latter is not.
-- **Versioned** — if the change bumps `src/brain-core/VERSION`, include the new version in parens at the end.
+- **Versioned** — if the change bumps `src/brain-core/VERSION`, include the new version in parens at the end. Always parenthesised, never `as vX.Y.Z`.
 - **No period** at the end.
 - **Imperative mood** — "Harden embeddings writes", not "Hardened" or "Hardens".
+
+For release commits the subject is `<Summary> (vX.Y.Z)`, where `<Summary>` is the canonical Summary text — the top-line Summary of the per-version file, also filled into the matching `docs/CHANGELOG.md` index row. Do not re-paraphrase: the per-version Summary is the source of record, drafted before commit; the index cell carries the same text; the subject reuses it verbatim. See [Changelog](changelog.md).
 
 Good:
 
@@ -42,19 +45,28 @@ Refactor atomic writes (v0.29.6)       # "refactor" hides intent
 
 ## Body
 
-Three parts, in order:
+The body explains *why* the change exists — the motivation, the mechanism, the downstream effect. It is optional: trivial commits skip it. Two parts when used, in order:
 
-**1. Prose paragraph** — motivation → mechanism → consequence. Explain *why* the change exists, what new mechanism it introduces, and what downstream effect that has. Use concrete identifiers such as function names, file paths, and flag names. One paragraph, typically 3–6 sentences.
+**1. Explanation** — concept-level bullets by default; prose only when a change has a strong causal arc that bullets would fragment.
 
-**2. File-level bullets** — each bullet starts with the path or module and says what changed in that file specifically. This is not a restatement of the diff; it is a summary keyed to where a reviewer would look.
+Operating principle: **less words, less bullets, still clear.** Add bullets only when the diff doesn't already explain why.
 
-**3. Reference** — a single trailing line pointing to the plan, issue, or DD that motivated the work, if one exists:
+- Hard cap: 120 characters per bullet, 6 bullets per body. No exceptions.
+- One focus per bullet: a single contract, behaviour, trade-off, or invariant.
+- Each bullet adds a fact a reviewer cannot get from the subject or the diff. If it doesn't, drop it.
+- Explain conceptually — never enumerate *where in the codebase*; the diff shows that.
+- Reference specific identifiers (function names, flag names, type names) inline only when they add meaning.
+- If your change won't fit in 6 bullets at 120 characters, the commit is doing too much — split it.
+
+When prose is the right choice, the same content rules apply. Prefer 2–4 sentences; cap at 6.
+
+**2. Reference** — a single trailing line pointing to a public-safe reference that motivated the work, if one exists. Public-safe means a stranger can verify the reference using only `git log` and the public web — nothing requiring access to a private system, machine, or workspace.
+
+Examples of valid references include repo paths, semver versions, public URLs, and named public standards. The form is `Label: value` on a single trailing line:
 
 ```text
-Plan: 20260419-plan~Embeddings Atomic Write Hardening.md
+Issue: #123
 ```
-
-or
 
 ```text
 DD: docs/architecture/decisions/dd-036-safe-write-pattern.md
@@ -65,31 +77,22 @@ DD: docs/architecture/decisions/dd-036-safe-write-pattern.md
 ```text
 Harden embeddings writes via safe_write_via kernel (v0.29.6)
 
-Introduce safe_write_via() in src/brain-core/scripts/_common/_filesystem.py
-as a low-level callback-driven atomic-write primitive, and route
-build_index.py's type-embeddings.npy and doc-embeddings.npy persistence
-through it via a local _safe_save_npy() wrapper, eliminating the last
-direct np.save(path, ...) calls for embeddings outputs.
-safe_write_json() now shares the same kernel, so text, JSON, and
-handle-driven serializers all go through one sibling-tempfile + fsync +
-os.replace path.
+Embeddings persistence was the last code path still calling np.save()
+directly, bypassing the atomic-write guarantees the rest of the
+pipeline already had. Introduce safe_write_via() as a callback-driven
+kernel that routes any serializer through one sibling-tempfile + fsync
++ os.replace path, then move text, JSON, and the embeddings arrays
+onto it via thin serializer-specific wrappers. This collapses three
+parallel atomic-write implementations into one, makes adding a new
+serializer a one-wrapper change, and closes the last gap in
+build-time crash safety.
 
-- src/brain-core/scripts/_common/_filesystem.py: expose safe_write_via();
-  route safe_write() and safe_write_json() through the shared kernel.
-- src/brain-core/scripts/build_index.py: persist both embeddings arrays
-  via _safe_save_npy() backed by safe_write_via().
-- tests/test_common_filesystem.py: add regressions for success,
-  cleanup-on-failure, bounds refusal, and text-mode.
-- tests/test_build_index.py: integration test proving build_embeddings()
-  routes both .npy writes through the new wrapper.
-- docs/architecture/decisions/dd-036-safe-write-pattern.md +
-  docs/architecture/security.md: document the callback-driven kernel and
-  its scope.
-
-Plan: 20260419-plan~Embeddings Atomic Write Hardening.md
+DD: docs/architecture/decisions/dd-036-safe-write-pattern.md
 ```
 
 ## Rules
+
+**Words must earn their place.** Every sentence and bullet must add a fact a reviewer cannot get from the subject or the diff. If it doesn't, drop it. Length is not a quality signal; signal density is.
 
 **Why, not what.** The diff shows what. The message explains why. If your message could be reconstructed by reading the diff, it is not earning its keep.
 
@@ -111,3 +114,8 @@ Bump dev dependency: pytest 8.3 -> 8.4
 ```
 
 If there is genuinely nothing to explain beyond the subject, do not invent filler. But most commits in this repo are not trivial; when in doubt, write the body.
+
+## Related
+
+- [Changelog](changelog.md) — tiered public release-history standard
+- [Agent Workflow](agent-workflow.md) — contributor workflow tiers

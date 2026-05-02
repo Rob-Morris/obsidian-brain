@@ -171,4 +171,4 @@ Good starting points:
 - [Getting Started](docs/user/getting-started.md) — install Obsidian Brain and create your first vault
 - [User Docs](docs/user/README.md) — user-facing guides, workflows, and reference
 - [Contributing](docs/CONTRIBUTING.md) — repo contribution guide, including links to contributor-specific docs
-- [CHANGELOG](docs/CHANGELOG.md) — release history
+- [Changelog](docs/CHANGELOG.md) — release history

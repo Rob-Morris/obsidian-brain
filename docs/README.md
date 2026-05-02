@@ -13,7 +13,7 @@ Root index for Obsidian Brain's repo-facing documentation. Start with the index 
 ## Convention-Based Exceptions
 
 - [Contributing](CONTRIBUTING.md) — contributor entry point at the chosen location
-- [Changelog](CHANGELOG.md) — release history at the chosen location
+- [Changelog](CHANGELOG.md) — tiered release-history index at the chosen location
 
 ## Shared Standards
 
@@ -21,4 +21,5 @@ Root index for Obsidian Brain's repo-facing documentation. Start with the index 
 - [Agent-Ready Documentation](standards/agent-ready-documentation.md) — documentation structure standard for agent-effective projects
 - [Agent Workflow](standards/agent-workflow.md) — contributor workflow tiers
 - [Canary](standards/canary.md) — canary system standard
+- [Changelog](standards/changelog.md) — tiered public release-history standard
 - [Commit Messages](standards/commit-messages.md) — contributor commit message standard

@@ -8,7 +8,7 @@ Follow before every commit.
 
 [2] **Version bumped.** Bump `src/brain-core/VERSION` for any change to files under `src/brain-core/`, including doc-only edits. If it ships in `.brain-core/`, it gets a version bump. Also bump it for end-user install or upgrade contract changes (`install.sh`, installer docs, upgrade entry-point guidance) even when those files live outside `src/brain-core/`. Use the repo's pre-1.0 semver policy: patch = bug fixes, doc clarifications, additive, backward-compatible changes, including backward-compatible install/upgrade contract changes; minor = breaking Brain changes that preserve the core model, including vault-structure or tool/script/MCP contract changes; major = fundamental model changes to the artefact model, router contract, or agent bootstrap/entry flow.
 
-[3] **Changelog updated.** New entry at the top of `docs/CHANGELOG.md`. Format: `## v{x.y.z} — YYYY-MM-DD`. Bold lead for significant changes. Never edit past entries.
+[3] **Changelog updated.** Follow `docs/standards/changelog.md`. Create `docs/changelog/vX.Y.Z.md` with a short top-line Summary (~60–75 chars, imperative, no period, no version suffix, specific identifier) plus supporting bullets, and write the same Summary text into the matching row's `Summary` cell in `docs/CHANGELOG.md`. The Summary is one canonical text used three places — per-version top-line Summary, index `Summary` cell, release commit subject (with a `(vX.Y.Z)` suffix) — drafted once before commit. Preserve a `BREAKING —` prefix when install-manager action is required. Milestone rows use `Release: <title>`. Add or update `docs/changelog/releases/vX.Y.Z-<slug>.md` when the version closes a shipped release. Never rewrite older per-version files.
 
 [4] **Docs updated.** Update every file affected by your change:
 
@@ -26,7 +26,7 @@ Follow before every commit.
     [4l] **Security model** — if path boundaries, write guards, privilege model, or safe write pattern changed: `docs/architecture/security.md`
     [4m] **Plugin system** — if plugin conventions, install procedures, or plugin API changed: `docs/user/plugins.md`, `docs/contributor/plugins.md`, `src/brain-core/plugins.md`
     [4n] **Doc structure** — if doc files added/moved/removed or navigation changed: `docs/README.md` (router), the relevant layer `README.md` files such as `docs/contributor/README.md` or `docs/standards/README.md`, and `docs/CONTRIBUTING.md` (Documentation Layers section)
-    [4o] **Contribution process** — if canary items, pre-commit workflow, versioning rules, testing procedures, or commit-message rules changed: `docs/CONTRIBUTING.md`, `docs/contributor/README.md`, `docs/contributor/agents.md`, `docs/standards/canary.md` (canary system standard), `docs/standards/commit-messages.md` (commit message standard)
+    [4o] **Contribution process** — if canary items, pre-commit workflow, versioning rules, testing procedures, changelog rules, or commit-message rules changed: `docs/CONTRIBUTING.md`, `docs/contributor/README.md`, `docs/contributor/agents.md`, `docs/standards/canary.md` (canary system standard), `docs/standards/changelog.md` (changelog standard), `docs/standards/commit-messages.md` (commit message standard)
     [4p] **Bootstrap audience boundary** — if bootstrap surfaces or contributor-doc boundaries changed: `docs/architecture/documentation-philosophy.md`, `docs/architecture/decisions/dd-038-unified-session-bootstrap.md`, `docs/CONTRIBUTING.md`; shipped `.brain-core/` bootstrap docs must stay written for normal vault agents, not repo contributors
 
 [5] **Shared facts cross-checked.** Grep for the specific values you changed to catch stale references in other files. With the three-layer structure, most facts now live in one place — only check if you changed a shared fact:
@@ -37,7 +37,7 @@ Follow before every commit.
     [5d] **Install step counts** — `docs/user/system-guide.md`, `src/brain-core/artefact-library/README.md`, `src/brain-core/standards/extending/`
     [5e] **Bootstrap audience split** — if changing shipped bootstrap docs or contributor workflow guidance, grep the relevant surfaces and confirm contributor-only process language stays out of `.brain-core/` bootstrap docs
 
-[6] **Commit message drafted per standard.** See `docs/standards/commit-messages.md`. Read the `git diff`, the corresponding changelog entry (if any), and `git log --oneline -15` before writing. Subject is scannable and names a specific identifier; body explains *why* (not just what); reference the plan, issue, or DD that motivated the work.
+[6] **Commit message drafted per standard.** See `docs/standards/commit-messages.md`. Read `git diff` and `git diff --stat`, the matching `docs/CHANGELOG.md` index row, the corresponding `docs/changelog/vX.Y.Z.md` entry (if any), and `git log --oneline -15` before writing. For release commits, the subject is `<Summary> (vX.Y.Z)` where `<Summary>` is the canonical Summary text drafted in [3] (per-version top-line Summary = index `Summary` cell) — verbatim, parenthesised version suffix, never `as vX.Y.Z`. Body paraphrases the per-version file's supporting prose, explains *why* (not just what), and includes a public-safe reference (anything a stranger can verify from `git log` or the public web) when one exists.
 
 ## Log
 

@@ -80,7 +80,7 @@ Cross-type child folders use `{scope}/` (for example `Releases/project~brain/`),
 - `docs/user/template-library-guide.md` — template library, available types, install procedures
 - `docs/user/plugins.md` — plugin installation and usage guide
 - `docs/user/user-reference.md` — full type specs, conventions, config reference
-- `docs/CHANGELOG.md` — single-file version history. When it exceeds ~500 lines, consider splitting into per-version files under `docs/changelog/` with the main file as an index
+- `docs/CHANGELOG.md` — live changelog index, with per-version files under `docs/changelog/` and milestone release files under `docs/changelog/releases/`
 - `.canaries/pre-commit.md` — pre-commit canary: versioning, changelog, routing table, cross-checks
 - `docs/CONTRIBUTING.md` — contributor guide: doc architecture, drift prevention, testing, pitfalls
 - `docs/contributor/agents.md` — contributor workflow guidance for agents

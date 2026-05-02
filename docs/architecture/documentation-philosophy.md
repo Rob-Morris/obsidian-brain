@@ -24,7 +24,7 @@ Brain's repo docs are navigated through an explicit index chain:
 
 Agents should be able to reach any repo doc through that chain without crawling the filesystem. The root docs index routes to layer indexes first; layer indexes then route to individual artefacts.
 
-Convention-based exceptions still exist. In this repo, `docs/CONTRIBUTING.md` and `docs/CHANGELOG.md` live under `docs/` rather than the repo root, but they are still listed from `docs/README.md` so they remain part of the explicit discovery surface.
+Convention-based exceptions still exist. In this repo, `docs/CONTRIBUTING.md` and the changelog entry point `docs/CHANGELOG.md` live under `docs/` rather than the repo root, but they are still listed from `docs/README.md` so they remain part of the explicit discovery surface.
 
 ## Co-location of Functional Docs
 

@@ -82,7 +82,7 @@ Every conforming project provides an **agent-facing bootstrap** — the orientat
 
 - Names the project in one line
 - Links to each layer of documentation
-- Names any convention-based exceptions (see [Convention-based exceptions](#convention-based-exceptions)) at their chosen locations, so non-layer artefacts like `CHANGELOG.md` and `SECURITY.md` remain reachable from the bootstrap
+- Names any convention-based exceptions (see [Convention-based exceptions](#convention-based-exceptions)) at their chosen locations, so non-layer artefacts like `CHANGELOG.md`, `docs/changelog/`, and `SECURITY.md` remain reachable from the bootstrap
 - Notes any out-of-repo context, when publicly available (see [External context](#external-context))
 
 **What the bootstrap does not do:**
@@ -112,7 +112,7 @@ Some files are fixed by ecosystem convention — filename and location recognise
 
 **CONTRIBUTING.md** *(prescriptive)*. The contributor layer's public-facing landing page — carries baseline contributor content and must link to `docs/contributor/README.md` so agents and humans arriving via the ecosystem's contributor surface can reach the rest of the layer. An artefact of the contributor layer at a conventional location; `docs/contributor/README.md` lists it as such. Recognised at the repository root, in `docs/`, or in `.github/`. See [Contributor layer](#contributor-layer).
 
-**CHANGELOG.md, SECURITY.md, CODE_OF_CONDUCT.md, and similar platform conventions** *(referential)*. The standard acknowledges them as ecosystem conventions and does not prescribe their shape. The `docs/README.md` root index lists each at its chosen location so they remain discoverable; beyond that, their contents are the project's business.
+**`CHANGELOG.md`, `docs/changelog/`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, and similar platform conventions** *(referential)*. The standard acknowledges them as ecosystem conventions and does not prescribe their shape. The `docs/README.md` root index lists each at its chosen location so they remain discoverable; beyond that, their contents are the project's business.
 
 Projects pick one location per file — no duplicates.
 

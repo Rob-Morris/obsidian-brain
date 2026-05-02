@@ -74,7 +74,7 @@ checker in prose.
 ## Tasks
 
 [1] **Update README** If new feature merged: ensure `README.md` reflects current usage and examples
-[2] **Update Changelog** One entry per version number (semver), prepend new entries, summarise what changed and who it affects: `CHANGELOG.md`
+[2] **Update Changelog** Create one `docs/changelog/vX.Y.Z.md` file per shipped version, add the matching row to `docs/CHANGELOG.md`, and update `docs/changelog/releases/` when the version closes a shipped release
 [3] **Deprecation notices** If API surface removed: add inline deprecation warnings with target removal version
 [4] **Tone review** Skip if minor typo fix: read docs from a new user's perspective, flag jargon or assumed knowledge
   [4a] **Glossary check** If new domain terms introduced: add to glossary at `docs/glossary.md` or define on first use
