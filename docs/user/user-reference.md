@@ -97,7 +97,12 @@ Skill documents for MCP tools, CLI commands, or plugin workflows. One folder per
 
 ### MCP Tools
 
-If your vault runs the Brain MCP server (`.brain-core/brain_mcp/server.py`), eight tools are available:
+If your vault runs the Brain MCP server (`.brain-core/brain_mcp/server.py`), nine tools are available:
+
+**brain_init** (safe, auto-approvable)
+- Additive bootstrap/orientation snapshot for the Brain runtime
+- Returns vault identity plus coarse readiness/warmup state, `next_action`, and optional cheap debug diagnostics
+- Optional `warmup` parameter ensures shared background warmup is running or already complete, then returns immediately
 
 **brain_session** (safe, auto-approvable)
 - Bootstrap an agent session in one call — returns the canonical session model as compact JSON
@@ -105,6 +110,7 @@ If your vault runs the Brain MCP server (`.brain-core/brain_mcp/server.py`), eig
 - Optional `context` parameter for scoped sessions (not yet implemented)
 - Optional `operator_key` parameter for operator authentication — sets the session profile for per-call tool enforcement
 - Refreshes `.brain/local/session.md`, the generated markdown bootstrap mirror, from the same model; that refresh is best-effort and runs on a background worker, so a stalled write never blocks readiness or tool calls
+- If router warmup is still in progress, returns a structured progress/retry payload instead of blocking blindly
 
 **brain_read** (safe, no side effects)
 - Look up artefacts, triggers, styles, templates, skills, plugins, memories, workspaces, environment info, the compiled router, structural compliance results, or read artefact files by path

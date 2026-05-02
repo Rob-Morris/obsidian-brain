@@ -150,11 +150,14 @@ def handle_brain_read(
     if denied:
         return denied
 
-    runtime.ensure_router_fresh()
+    runtime.ensure_warmup_started("brain_read")
 
     state = runtime.get_state()
     if state.router is None:
-        return runtime.fmt_error("server not initialized")
+        return runtime.fmt_progress("brain_read", ("router",))
+
+    runtime.ensure_router_fresh()
+    state = runtime.get_state()
 
     name = params.get("name")
 
@@ -210,11 +213,14 @@ def handle_brain_search(
     if denied:
         return denied
 
-    runtime.ensure_router_fresh()
+    runtime.ensure_warmup_started("brain_search")
 
     state = runtime.get_state()
     if state.router is None:
-        return runtime.fmt_error("server not initialized")
+        return runtime.fmt_progress("brain_search", ("router",))
+
+    runtime.ensure_router_fresh()
+    state = runtime.get_state()
 
     if resource != "artefact":
         results = search_index.search_resource(
@@ -229,7 +235,7 @@ def handle_brain_search(
     runtime.ensure_index_fresh()
     state = runtime.get_state()
     if state.index is None:
-        return runtime.fmt_error("server not initialized")
+        return runtime.fmt_progress("brain_search", ("index",))
 
     type_filter = type
     if type_filter and state.router:
@@ -282,11 +288,14 @@ def handle_brain_list(
     if denied:
         return denied
 
-    runtime.ensure_router_fresh()
+    runtime.ensure_warmup_started("brain_list")
 
     state = runtime.get_state()
     if state.router is None:
-        return runtime.fmt_error("server not initialized")
+        return runtime.fmt_progress("brain_list", ("router",))
+
+    runtime.ensure_router_fresh()
+    state = runtime.get_state()
 
     query = params.get("query")
     type_filter = params.get("type")
@@ -309,7 +318,7 @@ def handle_brain_list(
         runtime.ensure_index_fresh()
         state = runtime.get_state()
         if state.index is None:
-            return runtime.fmt_error("server not initialized")
+            return runtime.fmt_progress("brain_list", ("index",))
 
     results = list_artefacts.list_resources(
         state.index,

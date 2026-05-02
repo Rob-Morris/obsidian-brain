@@ -86,7 +86,7 @@ Three built-in profiles define what each agent can do:
 
 | Profile | Allowed tools |
 |---|---|
-| `reader` | `brain_session`, `brain_read`, `brain_search`, `brain_list` |
+| `reader` | `brain_init`, `brain_session`, `brain_read`, `brain_search`, `brain_list` |
 | `contributor` | All reader tools + `brain_create`, `brain_edit` |
 | `operator` | All contributor tools + `brain_move`, `brain_action` |
 

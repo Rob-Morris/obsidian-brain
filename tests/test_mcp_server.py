@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 import threading
 import time
+import types
 from unittest.mock import patch
 
 import pytest
@@ -27,6 +28,13 @@ def _assert_error(result, substring=None):
     assert result.isError is True
     if substring:
         assert substring in result.content[0].text
+
+
+def _progress_payload(result):
+    """Decode a structured warmup/progress payload."""
+    assert isinstance(result, CallToolResult), f"Expected CallToolResult, got {type(result)}"
+    assert result.isError is True
+    return json.loads(result.content[0].text)
 
 
 # ---------------------------------------------------------------------------
@@ -169,6 +177,7 @@ def vault(tmp_path):
 def initialized(vault):
     """Return vault root after initializing the server against the vault fixture."""
     server.startup(vault_root=str(vault))
+    assert server._wait_for_warmup(timeout=5.0), "warmup did not complete in fixture setup"
     # Reset staleness-check TTLs so tests can trigger checks immediately
     server._router_checked_at = 0.0
     server._index_checked_at = 0.0
@@ -196,16 +205,53 @@ def cli_available():
     server._vault_name = None
 
 
+@pytest.fixture
+def gated_router_warmup(monkeypatch):
+    """Patch router warmup to block until released; yield the gate.
+
+    The fixture wires the patch but does not call ``server.startup`` —
+    callers do, so they can time the call or interleave assertions.
+    The gate exposes two ``threading.Event`` attributes: ``entered``
+    (set when warmup begins router loading) and ``release`` (callers
+    set this to let warmup proceed). Teardown auto-releases and joins
+    the warmup thread, idempotent if the test already released.
+    """
+    release = threading.Event()
+    entered = threading.Event()
+    real = server._load_router_for_warmup
+
+    def slow_load(vault_root, generation):
+        entered.set()
+        release.wait(timeout=2.0)
+        return real(vault_root, generation)
+
+    monkeypatch.setattr(server, "_load_router_for_warmup", slow_load)
+    yield types.SimpleNamespace(release=release, entered=entered)
+    release.set()
+    server._wait_for_warmup(timeout=5.0)
+
+
 # ---------------------------------------------------------------------------
 # Startup tests
 # ---------------------------------------------------------------------------
 
 class TestStartup:
-    def test_startup_compiles_router(self, vault):
-        """Startup should compile the router when none exists."""
+    def test_startup_defers_router_compile_to_background_warmup(self, vault, gated_router_warmup):
+        """Startup should return before router warmup completes."""
         router_path = vault / ".brain" / "local" / "compiled-router.json"
         assert not router_path.exists()
+
+        started = time.monotonic()
         server.startup(vault_root=str(vault))
+        elapsed = time.monotonic() - started
+
+        assert elapsed < 1.0, f"startup blocked for {elapsed:.2f}s"
+        assert gated_router_warmup.entered.wait(timeout=2.0), "warmup did not start router loading"
+        assert server._router is None
+        assert not router_path.exists()
+
+        gated_router_warmup.release.set()
+        assert server._wait_for_warmup(timeout=5.0), "warmup did not complete"
         assert router_path.exists()
 
     def test_startup_builds_index(self, vault):
@@ -213,16 +259,19 @@ class TestStartup:
         index_path = vault / ".brain" / "local" / "retrieval-index.json"
         assert not index_path.exists()
         server.startup(vault_root=str(vault))
+        assert server._wait_for_warmup(timeout=5.0), "warmup did not complete"
         assert index_path.exists()
 
     def test_startup_loads_router_into_memory(self, vault):
         server.startup(vault_root=str(vault))
+        assert server._wait_for_warmup(timeout=5.0), "warmup did not complete"
         assert server._router is not None
         assert "artefacts" in server._router
         assert "meta" in server._router
 
     def test_startup_loads_index_into_memory(self, vault):
         server.startup(vault_root=str(vault))
+        assert server._wait_for_warmup(timeout=5.0), "warmup did not complete"
         assert server._index is not None
         assert "documents" in server._index
         assert "corpus_stats" in server._index
@@ -231,7 +280,7 @@ class TestStartup:
         session_path = vault / ".brain" / "local" / "session.md"
         assert not session_path.exists()
         server.startup(vault_root=str(vault))
-        # Shape 2: mirror write is async via the worker queue.
+        assert server._wait_for_warmup(timeout=5.0), "warmup did not complete"
         server._mirror_queue.join()
         assert session_path.exists()
         content = session_path.read_text()
@@ -528,6 +577,7 @@ class TestBrainReadMemory:
         )
         # Restart to recompile and pick up memories
         server.startup(vault_root=str(initialized))
+        assert server._wait_for_warmup(timeout=5.0), "warmup did not complete"
 
     def test_read_memory_requires_name(self):
         result = server.brain_read("memory")
@@ -1064,19 +1114,23 @@ class TestStartupCaching:
     def test_startup_reuses_fresh_router(self, vault):
         """Second startup should load from disk, not recompile."""
         server.startup(vault_root=str(vault))
+        assert server._wait_for_warmup(timeout=5.0), "warmup did not complete"
         compiled_at_1 = server._router["meta"]["compiled_at"]
 
         # Second startup — files haven't changed
         server.startup(vault_root=str(vault))
+        assert server._wait_for_warmup(timeout=5.0), "warmup did not complete"
         compiled_at_2 = server._router["meta"]["compiled_at"]
         assert compiled_at_1 == compiled_at_2
 
     def test_startup_reuses_fresh_index(self, vault):
         """Second startup should load from disk, not rebuild."""
         server.startup(vault_root=str(vault))
+        assert server._wait_for_warmup(timeout=5.0), "warmup did not complete"
         built_at_1 = server._index["meta"]["built_at"]
 
         server.startup(vault_root=str(vault))
+        assert server._wait_for_warmup(timeout=5.0), "warmup did not complete"
         built_at_2 = server._index["meta"]["built_at"]
         assert built_at_1 == built_at_2
 
@@ -1243,21 +1297,28 @@ class TestEnsureFreshRobustness:
 
 class TestStartupRobustness:
     def test_startup_survives_router_compile_failure(self, vault):
-        """If router compile fails, _router is None but index still loads."""
+        """Warmup failure in router compile does not block index readiness."""
         server._router = None
-        with patch.object(server, "_compile_and_save", side_effect=OSError("boom")), \
-             patch.object(server, "_check_router", return_value=(True, None)):
+        with patch.object(server.compile_router, "compile", side_effect=OSError("boom")):
             server.startup(vault_root=str(vault))
+            assert server._wait_for_warmup(timeout=5.0), "warmup did not complete"
 
         assert server._router is None
         assert server._index is not None
 
     def test_startup_survives_index_build_failure(self, vault):
-        """If index build fails, _index is None but router still loads."""
+        """Warmup failure in index build does not block router readiness."""
         server._index = None
-        with patch.object(server, "_build_index_and_save", side_effect=OSError("boom")), \
-             patch.object(server, "_check_index", return_value=(True, None)):
+        real_run_with_timeout = server._run_with_timeout
+
+        def fail_index_build(label, fn, timeout=server._STARTUP_OP_TIMEOUT):
+            if label == "index build":
+                raise OSError("boom")
+            return real_run_with_timeout(label, fn, timeout=timeout)
+
+        with patch.object(server, "_run_with_timeout", side_effect=fail_index_build):
             server.startup(vault_root=str(vault))
+            assert server._wait_for_warmup(timeout=5.0), "warmup did not complete"
 
         assert server._router is not None
         assert server._index is None
@@ -2414,6 +2475,7 @@ class TestBrainEdit:
             "---\ntriggers:\n  - kw1\n---\n\nOriginal.\n"
         )
         server.startup(vault_root=str(initialized))
+        assert server._wait_for_warmup(timeout=5.0), "warmup did not complete"
 
         result = server.brain_edit(
             resource="memory",
@@ -2433,6 +2495,7 @@ class TestBrainEdit:
             "---\ntriggers:\n  - kw1\n---\n\nOriginal.\n"
         )
         server.startup(vault_root=str(initialized))
+        assert server._wait_for_warmup(timeout=5.0), "warmup did not complete"
 
         baseline = _search_text(server.brain_search("xenocrypticmemorytoken"))
         assert "0 results" in baseline
@@ -3091,6 +3154,64 @@ class TestBrainActionStartShaping:
 
 
 # ---------------------------------------------------------------------------
+# brain_init / warmup boundary tests
+# ---------------------------------------------------------------------------
+
+class TestBrainInit:
+    def test_returns_minimal_snapshot(self, initialized):
+        result = json.loads(server.brain_init())
+        assert result["version"] == "1"
+        assert result["readiness"] == "ready"
+        assert result["warmup_state"] == "complete"
+        assert "bootstrap_hint" in result
+        assert "next_action" in result
+
+    def test_debug_adds_only_cheap_diagnostics(self, initialized):
+        result = json.loads(server.brain_init(debug=True))
+        assert result["readiness"] == "ready"
+        assert "debug" in result
+        assert result["debug"]["router_ready"] is True
+        assert result["debug"]["index_ready"] is True
+        assert result["debug"]["workspace_registry_ready"] is True
+
+    def test_is_idempotent(self, initialized):
+        first = json.loads(server.brain_init())
+        second = json.loads(server.brain_init())
+        assert first == second
+
+
+class TestWarmupBoundary:
+    def test_brain_init_warmup_true_returns_immediately_while_warming(
+        self, vault, gated_router_warmup
+    ):
+        server.startup(vault_root=str(vault))
+        assert gated_router_warmup.entered.wait(timeout=2.0), "warmup did not start router loading"
+        started = time.monotonic()
+        result = json.loads(server.brain_init(warmup=True, debug=True))
+        elapsed = time.monotonic() - started
+        assert elapsed < 1.0, f"brain_init blocked for {elapsed:.2f}s"
+        assert result["warmup_state"] == "running"
+        assert result["debug"]["router_ready"] is False
+
+    def test_brain_session_returns_progress_while_warming(self, vault, gated_router_warmup):
+        server.startup(vault_root=str(vault))
+        assert gated_router_warmup.entered.wait(timeout=2.0), "warmup did not start router loading"
+        payload = _progress_payload(server.brain_session())
+        assert payload["status"] == "starting"
+        assert payload["tool"] == "brain_session"
+        assert payload["needs"] == ["router"]
+        assert payload["warmup_state"] == "running"
+
+    def test_brain_read_returns_progress_while_warming(self, vault, gated_router_warmup):
+        server.startup(vault_root=str(vault))
+        assert gated_router_warmup.entered.wait(timeout=2.0), "warmup did not start router loading"
+        payload = _progress_payload(server.brain_read("router"))
+        assert payload["status"] == "starting"
+        assert payload["tool"] == "brain_read"
+        assert payload["needs"] == ["router"]
+
+
+# ---------------------------------------------------------------------------
 # brain_session tests
 # ---------------------------------------------------------------------------
 
@@ -3182,6 +3303,7 @@ class TestBrainSession:
             "---\ntriggers: [test, memory]\n---\n\n# Test Memory\n"
         )
         server.startup(vault_root=str(initialized))
+        assert server._wait_for_warmup(timeout=5.0), "warmup did not complete"
 
         result = json.loads(server.brain_session())
         assert isinstance(result["memories"], list)
@@ -3704,6 +3826,7 @@ class TestWorkspaceStartup:
     def test_startup_loads_empty_registry(self, vault):
         """Startup with no .brain/ → empty registry."""
         server.startup(vault_root=str(vault))
+        assert server._wait_for_warmup(timeout=5.0), "warmup did not complete"
         assert server._workspace_registry == {}
 
     def test_startup_loads_existing_registry(self, vault, tmp_path):
@@ -3714,6 +3837,7 @@ class TestWorkspaceStartup:
             "workspaces": {"pre-existing": {"path": str(tmp_path / "pre")}}
         }))
         server.startup(vault_root=str(vault))
+        assert server._wait_for_warmup(timeout=5.0), "warmup did not complete"
         assert "pre-existing" in server._workspace_registry
 
 
@@ -4345,23 +4469,25 @@ class TestStartupLogging:
     def test_startup_messages_logged(self, vault):
         """Log file contains startup begin, phase markers, and startup complete."""
         server.startup(vault_root=str(vault))
+        assert server._wait_for_warmup(timeout=5.0), "warmup did not complete"
         log_path = vault / ".brain" / "local" / "mcp-server.log"
         content = log_path.read_text()
         assert "startup begin" in content
         assert "startup phase begin: config_load" in content
         assert "startup phase success: config_load" in content
-        assert "startup phase begin: router_freshness" in content
-        assert "startup phase begin: index_freshness" in content
-        assert "startup phase begin: workspace_registry_load" in content
-        assert "startup phase begin: session_mirror_refresh" in content
+        assert "warmup started (startup)" in content
+        assert "warmup phase begin: router_freshness" in content
+        assert "warmup phase begin: index_freshness" in content
+        assert "warmup phase begin: workspace_registry_load" in content
+        assert "warmup phase begin: session_mirror_refresh" in content
         assert "startup complete" in content
 
     def test_router_compile_logged(self, vault):
         """Stale router compile is logged with timing."""
         server.startup(vault_root=str(vault))
+        assert server._wait_for_warmup(timeout=5.0), "warmup did not complete"
         log_path = vault / ".brain" / "local" / "mcp-server.log"
         content = log_path.read_text()
-        # First startup always compiles (no cached router)
         assert "router compile" in content
 
     def test_startup_does_not_block_on_slow_mirror_write(self, vault, monkeypatch):
@@ -4417,7 +4543,7 @@ class TestStartupLogging:
             log_path = vault / ".brain" / "local" / "mcp-server.log"
             content = log_path.read_text()
             assert elapsed < 2.0, f"startup blocked for {elapsed:.2f}s"
-            assert "startup phase begin: router_freshness" in content
+            assert "warmup phase begin: router_freshness" in content
             assert entered.wait(timeout=2.0), "worker did not pick up the refresh"
         finally:
             release.set()

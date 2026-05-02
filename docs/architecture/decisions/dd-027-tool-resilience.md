@@ -21,4 +21,4 @@ All error returns use `_fmt_error(msg)` which produces `CallToolResult(isError=T
 - The server survives unexpected vault states without crashing.
 - Omitting the outer catch-all on any tool is a bug, even when inner catches seem complete.
 - Error messages are consistent and MCP-client-renderable via the `isError` flag.
-- All 8 tools (`brain_session`, `brain_read`, `brain_search`, `brain_list`, `brain_create`, `brain_edit`, `brain_action`, `brain_process`) conform as of v0.18.7.
+- All shipped MCP tools must conform to the same three-layer exception strategy; tool-count changes do not create exceptions to the rule.

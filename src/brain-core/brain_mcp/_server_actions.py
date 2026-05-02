@@ -351,6 +351,7 @@ ACTION_SPECS = {
     "fix-links": ActionSpec(
         optional_fields=("fix", "path", "links"),
         handler=_action_fix_links,
+        requires_router_refresh=True,
     ),
 }
 
@@ -373,6 +374,10 @@ def handle_brain_move(op: str, params: dict | None, runtime: ServerRuntime):
         )
 
     if spec.requires_router_refresh:
+        runtime.ensure_warmup_started("brain_move")
+        state = runtime.get_state()
+        if state.router is None:
+            return runtime.fmt_progress("brain_move", ("router",))
         runtime.ensure_router_fresh()
 
     return spec.handler(runtime, params or {})
@@ -401,6 +406,10 @@ def handle_brain_action(action: str, params: dict | None, runtime: ServerRuntime
         return runtime.fmt_error(str(e))
 
     if spec.requires_router_refresh:
+        runtime.ensure_warmup_started("brain_action")
+        state = runtime.get_state()
+        if state.router is None:
+            return runtime.fmt_progress("brain_action", ("router",))
         runtime.ensure_router_fresh()
 
     return spec.handler(runtime, validated_params)

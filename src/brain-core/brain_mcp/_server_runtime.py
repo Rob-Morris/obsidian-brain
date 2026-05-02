@@ -7,6 +7,7 @@ from typing import Any, Callable
 @dataclass(frozen=True)
 class ServerState:
     vault_root: str | None
+    loaded_version: str | None
     config: dict | None
     session_profile: str | None
     router: dict | None
@@ -25,10 +26,13 @@ class ServerRuntime:
     set_workspace_registry: Callable[[dict | None], None]
     set_session_profile: Callable[[str | None], None]
     fmt_error: Callable[[str], Any]
+    fmt_progress: Callable[[str, tuple[str, ...]], Any]
     enforce_profile: Callable[[str], Any]
     refresh_cli_available: Callable[[], bool]
+    ensure_warmup_started: Callable[[str | None], None]
     ensure_router_fresh: Callable[[], None]
     ensure_index_fresh: Callable[[], None]
+    get_readiness_snapshot: Callable[[bool], dict[str, Any]]
     check_version_drift: Callable[[], None]
     mark_index_dirty: Callable[[], None]
     mark_index_pending: Callable[[str, str | None], None]

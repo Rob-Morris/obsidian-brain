@@ -85,11 +85,14 @@ def handle_brain_create(
     if denied:
         return denied
 
-    runtime.ensure_router_fresh()
+    runtime.ensure_warmup_started("brain_create")
 
     state = runtime.get_state()
     if state.router is None or state.vault_root is None:
-        return runtime.fmt_error("server not initialized")
+        return runtime.fmt_progress("brain_create", ("router",))
+
+    runtime.ensure_router_fresh()
+    state = runtime.get_state()
 
     body = params.get("body") or ""
     body_file = params.get("body_file") or ""
@@ -159,11 +162,14 @@ def handle_brain_edit(
     if denied:
         return denied
 
-    runtime.ensure_router_fresh()
+    runtime.ensure_warmup_started("brain_edit")
 
     state = runtime.get_state()
     if state.router is None or state.vault_root is None:
-        return runtime.fmt_error("server not initialized")
+        return runtime.fmt_progress("brain_edit", ("router",))
+
+    runtime.ensure_router_fresh()
+    state = runtime.get_state()
 
     path = params.get("path") or ""
     body = params.get("body") or ""

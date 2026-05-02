@@ -15,11 +15,9 @@ def handle_brain_session(
     runtime: ServerRuntime,
 ):
     runtime.check_version_drift()
-    runtime.ensure_router_fresh()
-    runtime.refresh_cli_available()
 
     state = runtime.get_state()
-    if state.router is None or state.vault_root is None:
+    if state.vault_root is None:
         return runtime.fmt_error("server not initialized")
 
     if state.config is not None:
@@ -31,6 +29,13 @@ def handle_brain_session(
     else:
         runtime.set_session_profile(None)
 
+    runtime.ensure_warmup_started("brain_session")
+    state = runtime.get_state()
+    if state.router is None:
+        return runtime.fmt_progress("brain_session", ("router",))
+
+    runtime.ensure_router_fresh()
+    runtime.refresh_cli_available()
     state = runtime.get_state()
     result = session.build_session_model(
         state.router,

@@ -15,9 +15,9 @@ Three built-in profiles are shipped with brain-core:
 
 | Profile | Allowed tools |
 |---|---|
-| `reader` | `brain_session`, `brain_read`, `brain_search`, `brain_list` |
-| `contributor` | All reader tools + `brain_create`, `brain_edit`, `brain_process` |
-| `operator` | All contributor tools + `brain_action` |
+| `reader` | `brain_init`, `brain_session`, `brain_read`, `brain_search`, `brain_list` |
+| `contributor` | All reader tools + `brain_create`, `brain_edit` |
+| `operator` | All contributor tools + `brain_move`, `brain_action` |
 
 Profiles are defined in `defaults/config.yaml` under `vault.profiles` and can be extended or replaced in `.brain/config.yaml`. The default profile (when no key is supplied) is `operator`, which preserves backward compatibility for single-agent vaults.
 

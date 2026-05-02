@@ -4,7 +4,8 @@ Brain MCP Server — thin MCP wrapper over brain-core scripts.
 
 All logic lives in `.brain-core/scripts/` as importable functions.
 The server imports them, holds the compiled router and search index in memory,
-and exposes 8 MCP tools:
+and exposes 9 MCP tools:
+  brain_init    — additive bootstrap/orientation snapshot, cheap and idempotent
   brain_session — bootstrap an agent session (compiled payload, one call)
   brain_read    — read compiled router resources (safe, no side effects)
   brain_search  — BM25 keyword search, with optional Obsidian CLI live search
@@ -26,11 +27,9 @@ Optional native Obsidian CLI integration (Obsidian 1.12+ IPC socket):
 
 Startup sequence:
   1. Find vault root (server is launched with BRAIN_VAULT_ROOT by init.py-managed client config)
-  2. Auto-compile router if stale
-  3. Auto-build index if stale
-  4. Load both into memory
-  5. Probe Obsidian CLI availability
-  6. Serve via stdio
+  2. Build the minimal runtime skeleton required to answer MCP initialize quickly
+  3. Start background warmup for router/index/session readiness work
+  4. Serve via stdio
 
 Composition-root by design: the resilience shell, runtime state, startup,
 shutdown, and MCP registration stay here. Tool implementation logic now
@@ -89,6 +88,7 @@ import workspace_registry
 import config as config_mod
 from . import _server_actions
 from . import _server_artefacts
+from . import _server_init
 from . import _server_reading
 from . import _server_session
 from ._server_contracts import (
@@ -132,6 +132,14 @@ _cli_probed_at: float = 0.0  # monotonic timestamp of last CLI probe
 _vault_name: str | None = None
 _loaded_version: str | None = None
 _workspace_registry: dict | None = None
+_readiness: str = "cold"
+_warmup_state: str = "not_started"
+_warmup_active_phase: str | None = None
+_last_warmup_error: str | None = None
+_last_warmup_reason: str | None = None
+_warmup_generation: int = 0
+_warmup_thread: threading.Thread | None = None
+_warmup_lock = threading.Lock()
 
 
 # Staleness-check TTLs — intentionally different because the checks have
@@ -142,6 +150,7 @@ _CLI_PROBE_TTL = 30
 _ROUTER_CHECK_TTL = 5
 _INDEX_CHECK_TTL = 30
 _STARTUP_OP_TIMEOUT = 30   # seconds — guard against iCloud I/O hangs during startup
+_PROGRESS_RETRY_AFTER_MS = 1000
 _MIRROR_DRAIN_TIMEOUT = 2.0  # seconds — atexit drain cap; filesystem stalls terminate normally
 _router_checked_at: float = 0.0
 _index_checked_at: float = 0.0
@@ -243,6 +252,182 @@ def _trace_tool(tool_name: str, **kwargs):
         _logger.info("tool done: %s %.3fs", tool_name, time.monotonic() - t0)
 
 
+def _reset_runtime_state_for_startup() -> int:
+    """Reset warmup-owned state for a fresh startup cycle."""
+    global _session_profile, _router, _index, _workspace_registry
+    global _index_dirty, _router_dirty, _router_checked_at, _index_checked_at
+    global _resource_mtime_cache, _warmup_generation, _warmup_thread
+    global _readiness, _warmup_state, _warmup_active_phase
+    global _last_warmup_error, _last_warmup_reason
+
+    _session_profile = None
+    _router = None
+    _index = None
+    _workspace_registry = None
+    _index_dirty = False
+    _router_dirty = False
+    _router_checked_at = 0.0
+    _index_checked_at = 0.0
+    _resource_mtime_cache = None
+    with _index_pending_lock:
+        _index_pending.clear()
+    with _warmup_lock:
+        _warmup_generation += 1
+        _warmup_thread = None
+        _readiness = "cold"
+        _warmup_state = "not_started"
+        _warmup_active_phase = None
+        _last_warmup_error = None
+        _last_warmup_reason = None
+        return _warmup_generation
+
+
+def _warmup_generation_matches(generation: int) -> bool:
+    with _warmup_lock:
+        return generation == _warmup_generation
+
+
+def _set_warmup_phase(generation: int, phase_key: str | None) -> None:
+    global _warmup_active_phase
+    with _warmup_lock:
+        if generation != _warmup_generation:
+            return
+        _warmup_active_phase = phase_key
+
+
+def _record_warmup_failure(generation: int, phase_key: str, error: str) -> None:
+    global _last_warmup_error
+    with _warmup_lock:
+        if generation != _warmup_generation:
+            return
+        _last_warmup_error = f"{phase_key}: {error}"
+
+
+def _finish_warmup(generation: int, *, success: bool) -> None:
+    global _readiness, _warmup_state, _warmup_active_phase, _warmup_thread
+    with _warmup_lock:
+        if generation != _warmup_generation:
+            return
+        _warmup_active_phase = None
+        _warmup_thread = None
+        if success:
+            _readiness = "ready"
+            _warmup_state = "complete"
+        else:
+            _readiness = "failed"
+            _warmup_state = "failed"
+
+
+def _ensure_warmup_started(reason: str | None = None) -> None:
+    """Ensure the background warmup thread is running or already complete."""
+    global _readiness, _warmup_state, _warmup_active_phase
+    global _last_warmup_reason, _last_warmup_error, _warmup_thread
+
+    if _vault_root is None:
+        return
+
+    with _warmup_lock:
+        if _warmup_state == "complete":
+            return
+        if _warmup_thread is not None and _warmup_thread.is_alive():
+            return
+        generation = _warmup_generation
+        _readiness = "warming"
+        _warmup_state = "running"
+        _warmup_active_phase = None
+        _last_warmup_error = None
+        _last_warmup_reason = reason
+        _warmup_thread = threading.Thread(
+            target=_run_warmup,
+            args=(generation, _vault_root),
+            daemon=True,
+            name="brain-startup-warmup",
+        )
+        _warmup_thread.start()
+        if _logger:
+            _logger.info("warmup started (%s)", reason or "unspecified")
+
+
+def _wait_for_warmup(timeout: float = 5.0) -> bool:
+    """Join the current warmup thread for tests and bounded shutdown paths."""
+    thread = _warmup_thread
+    if thread is None:
+        return True
+    thread.join(timeout=timeout)
+    return not thread.is_alive()
+
+
+def _readiness_next_action(
+    readiness: str,
+    warmup_state: str,
+    *,
+    tool_name: str | None = None,
+) -> str:
+    next_tool = tool_name or "brain_session"
+    if readiness == "ready":
+        return "Call `brain_session` when you start real Brain work."
+    if warmup_state == "failed":
+        return (
+            f"Retry `{next_tool}` or call `brain_init(warmup=true, debug=true)` "
+            "to restart warmup and inspect cheap diagnostics."
+        )
+    if warmup_state == "not_started":
+        return (
+            f"Call `{next_tool}` or `brain_init(warmup=true)` to start background warmup."
+        )
+    return f"Retry `{next_tool}` shortly while Brain warmup continues."
+
+
+def _readiness_snapshot(debug: bool = False, *, tool_name: str | None = None) -> dict:
+    with _warmup_lock:
+        readiness = _readiness
+        warmup_state = _warmup_state
+        active_phase = _warmup_active_phase
+        last_error = _last_warmup_error
+        last_reason = _last_warmup_reason
+    state = _get_state()
+    payload = {
+        "version": "1",
+        "brain_core_version": state.loaded_version,
+        "vault_root": state.vault_root,
+        "vault_name": state.vault_name,
+        "readiness": readiness,
+        "warmup_state": warmup_state,
+        "next_action": _readiness_next_action(
+            readiness,
+            warmup_state,
+            tool_name=tool_name,
+        ),
+    }
+    if active_phase:
+        payload["active_phase"] = active_phase
+    if last_error:
+        payload["last_error"] = last_error
+    if debug:
+        payload["debug"] = {
+            "active_phase": active_phase,
+            "last_error": last_error,
+            "last_reason": last_reason,
+            "router_ready": state.router is not None,
+            "index_ready": state.index is not None,
+            "workspace_registry_ready": state.workspace_registry is not None,
+        }
+    return payload
+
+
+def _fmt_progress(tool_name: str, needs: tuple[str, ...] = ()) -> CallToolResult:
+    snapshot = _readiness_snapshot(debug=False, tool_name=tool_name)
+    snapshot["status"] = "failed" if snapshot["warmup_state"] == "failed" else "starting"
+    snapshot["tool"] = tool_name
+    snapshot["retry_after_ms"] = _PROGRESS_RETRY_AFTER_MS
+    if needs:
+        snapshot["needs"] = list(needs)
+    return CallToolResult(
+        content=[TextContent(type="text", text=json.dumps(snapshot, ensure_ascii=False))],
+        isError=True,
+    )
+
+
 @contextlib.contextmanager
 def _serialize_mutation(label: str):
     """Serialize vault mutations within this MCP server process.
@@ -294,36 +479,131 @@ def _run_with_timeout(label, fn, timeout=_STARTUP_OP_TIMEOUT):
     return result
 
 
-def _run_startup_phase(phase_key: str, fn):
-    """Log a startup phase with begin/success/failure outcomes.
+def _run_phase(kind: str, phase_key: str, fn, *, on_error=None):
+    """Log a named phase with begin/success/failure outcomes.
 
     Contract: all exceptions are logged and swallowed, returning ``None``.
-    Per the mutation-safety phase 1 plan, this preserves pre-refactor
-    semantics — readiness-model changes for critical phases (router, index)
-    are deferred to phase 2.
+    Callers that need stateful failure tracking can provide *on_error*.
     """
     started_at = time.monotonic()
     if _logger:
-        _logger.info("startup phase begin: %s", phase_key)
+        _logger.info("%s phase begin: %s", kind, phase_key)
     try:
         result = fn()
     except Exception as e:
         if _logger:
             _logger.error(
-                "startup phase failure: %s %.3fs: %s",
+                "%s phase failure: %s %.3fs: %s",
+                kind,
                 phase_key,
                 time.monotonic() - started_at,
                 e,
                 exc_info=True,
             )
+        if on_error is not None:
+            on_error(str(e))
         return None
     if _logger:
         _logger.info(
-            "startup phase success: %s %.3fs",
+            "%s phase success: %s %.3fs",
+            kind,
             phase_key,
             time.monotonic() - started_at,
         )
     return result
+
+
+def _load_router_for_warmup(vault_root: str, generation: int) -> dict | None:
+    """Load or compile the router for the active warmup generation."""
+    global _router, _router_checked_at, _router_dirty
+
+    stale, data = _check_router(vault_root)
+    if not stale and data is not None and _check_router_resource_counts(vault_root, data):
+        stale = True
+    if stale:
+        t0 = time.monotonic()
+        compiled = _run_with_timeout("router compile", lambda: compile_router.compile(vault_root))
+        compile_router.persist_compiled_router(vault_root, compiled)
+        if _logger:
+            _logger.info("router compile (stale) %.1fs", time.monotonic() - t0)
+        if _warmup_generation_matches(generation):
+            _router = compiled
+            _router_checked_at = time.monotonic()
+            _router_dirty = False
+        return compiled
+
+    if _logger:
+        _logger.info("router compile (fresh)")
+    if _warmup_generation_matches(generation):
+        _router = data
+        _router_checked_at = time.monotonic()
+        _router_dirty = False
+    return data
+
+
+def _load_index_for_warmup(vault_root: str, generation: int) -> dict | None:
+    """Load or build the retrieval index for the active warmup generation."""
+    global _index, _index_dirty, _index_checked_at
+
+    stale, data = _check_index(vault_root)
+    if stale:
+        t0 = time.monotonic()
+        index = _run_with_timeout("index build", lambda: build_index.build_index(vault_root))
+        build_index.persist_retrieval_index(vault_root, index)
+        if _logger:
+            _logger.info("index build (stale) %.1fs", time.monotonic() - t0)
+        if _warmup_generation_matches(generation):
+            _index = index
+            _index_dirty = False
+            with _index_pending_lock:
+                _index_pending.clear()
+            _index_checked_at = time.monotonic()
+        return index
+
+    if _logger:
+        _logger.info("index build (fresh)")
+    if _warmup_generation_matches(generation):
+        _index = data
+        _index_dirty = False
+        _index_checked_at = time.monotonic()
+    return data
+
+
+def _run_warmup(generation: int, vault_root: str) -> None:
+    """Run heavyweight startup work behind the readiness boundary."""
+    if not _warmup_generation_matches(generation):
+        return
+
+    phase_results: dict[str, object | None] = {}
+
+    for phase_key, fn in (
+        ("router_freshness", lambda: _load_router_for_warmup(vault_root, generation)),
+        ("index_freshness", lambda: _load_index_for_warmup(vault_root, generation)),
+        ("workspace_registry_load", lambda: workspace_registry.load_registry(vault_root)),
+        ("session_mirror_refresh", lambda: _enqueue_mirror_refresh(generation=generation)),
+    ):
+        _set_warmup_phase(generation, phase_key)
+        result = _run_phase(
+            "warmup",
+            phase_key,
+            fn,
+            on_error=lambda error, phase_key=phase_key: _record_warmup_failure(
+                generation,
+                phase_key,
+                error,
+            ),
+        )
+        phase_results[phase_key] = result
+        if phase_key == "workspace_registry_load" and result is not None and _warmup_generation_matches(generation):
+            _set_workspace_registry(result)
+
+    success = (
+        _warmup_generation_matches(generation)
+        and phase_results.get("router_freshness") is not None
+        and phase_results.get("index_freshness") is not None
+        and phase_results.get("workspace_registry_load") is not None
+    )
+    _finish_warmup(generation, success=success)
 
 
 def _refresh_cli_available() -> bool:
@@ -350,6 +630,8 @@ def _mirror_worker_loop() -> None:
         try:
             if req is _MIRROR_SHUTDOWN:
                 return
+            if not _warmup_generation_matches(req.get("generation", -1)):
+                continue
             vault_root = req["vault_root"]
             build_kwargs = req["build_kwargs"]
             try:
@@ -381,7 +663,7 @@ def _ensure_mirror_worker_started() -> None:
         _mirror_worker_thread.start()
 
 
-def _enqueue_mirror_refresh() -> None:
+def _enqueue_mirror_refresh(*, generation: int | None = None) -> None:
     """Enqueue a session-mirror refresh for the background worker.
 
     Non-blocking. Coalesces with any pending request — the queue has
@@ -390,8 +672,12 @@ def _enqueue_mirror_refresh() -> None:
     """
     if _vault_root is None or _router is None:
         return
+    generation = _warmup_generation if generation is None else generation
+    if not _warmup_generation_matches(generation):
+        return
     _ensure_mirror_worker_started()
     req = {
+        "generation": generation,
         "vault_root": _vault_root,
         "build_kwargs": {
             "router": _router,
@@ -463,7 +749,14 @@ def _sweep_mirror_tmpfiles(vault_root: str) -> None:
     the process was killed mid-write, the tempfile is orphaned. Sweep at
     startup — the rename-on-success guarantee means any unrenamed tempfile
     is stale by definition.
+
+    Skip the sweep while this process still has a live mirror worker —
+    same-process restart-style startup() calls can overlap an older
+    in-flight mirror write, and deleting its tempfile would manufacture a
+    false FileNotFoundError on the eventual rename.
     """
+    if _mirror_worker_thread is not None and _mirror_worker_thread.is_alive():
+        return
     pattern = os.path.join(vault_root, ".brain", "local", "session.md.*.tmp")
     for path in glob.glob(pattern):
         try:
@@ -894,8 +1187,8 @@ def _build_index_and_save(vault_root: str) -> dict:
 # ---------------------------------------------------------------------------
 
 def startup(vault_root: str | None = None) -> None:
-    """Initialize server state: find vault, compile/build if stale, load data."""
-    global _vault_root, _config, _router, _index, _vault_name, _loaded_version, _workspace_registry, _logger
+    """Initialize the minimal server skeleton and start background warmup."""
+    global _vault_root, _config, _vault_name, _loaded_version, _logger
 
     if vault_root is None:
         vault_root = os.environ.get("BRAIN_VAULT_ROOT")
@@ -910,6 +1203,7 @@ def startup(vault_root: str | None = None) -> None:
     # Set up logging early so all subsequent startup steps are captured
     _logger = _setup_logging(_vault_root)
     _logger.info("startup begin (version %s, vault %s)", _loaded_version, _vault_root)
+    generation = _reset_runtime_state_for_startup()
 
     # Sweep orphaned session-mirror tempfiles from a prior killed worker.
     # Cheap, idempotent, and the one layer with authority to decide "stale".
@@ -922,57 +1216,11 @@ def startup(vault_root: str | None = None) -> None:
     _register_mirror_drain_once()
 
     # Load vault config (three-layer merge: template → vault → local)
-    _config = _run_startup_phase(
+    _config = _run_phase(
+        "startup",
         "config_load",
         lambda: config_mod.load_config(_vault_root),
     )
-
-    # Auto-compile router if stale (reuse parsed data when fresh)
-    # Timeout guard: compile writes CSS + graph.json to the vault, which can
-    # hang indefinitely on iCloud-synced vaults if files are mid-upload.
-    def _load_router():
-        global _router
-        stale, data = _check_router(_vault_root)
-        if stale:
-            t0 = time.monotonic()
-            _router = _run_with_timeout("router compile",
-                                        lambda: _compile_and_save(_vault_root))
-            _logger.info("router compile (stale) %.1fs", time.monotonic() - t0)
-            return _router
-        else:
-            _router = data
-            _logger.info("router compile (fresh)")
-            return _router
-    _run_startup_phase("router_freshness", _load_router)
-
-    # Auto-build index if stale (same iCloud timeout concern)
-    def _load_index():
-        global _index
-        stale, data = _check_index(_vault_root)
-        if stale:
-            t0 = time.monotonic()
-            _index = _run_with_timeout("index build",
-                                       lambda: _build_index_and_save(_vault_root))
-            _logger.info("index build (stale) %.1fs", time.monotonic() - t0)
-            return _index
-        else:
-            _index = data
-            _logger.info("index build (fresh)")
-            return _index
-    _run_startup_phase("index_freshness", _load_index)
-
-    # Load workspace registry
-    _workspace_registry = _run_startup_phase(
-        "workspace_registry_load",
-        lambda: workspace_registry.load_registry(_vault_root),
-    )
-
-    # Session mirror is owned by startup, not by _compile_and_save, so
-    # mid-session recompiles don't log under a misleading "startup phase"
-    # label. The refresh is enqueued (non-blocking) and handled by the
-    # mirror worker; startup completes the phase as soon as the request
-    # lands in the queue. Failures (if any) are logged from the worker.
-    _run_startup_phase("session_mirror_refresh", _enqueue_mirror_refresh)
 
     # CLI availability is probed lazily on first tool call via _refresh_cli_available()
     # to avoid blocking startup (the Obsidian IPC socket check is fast but we defer entirely).
@@ -980,6 +1228,9 @@ def startup(vault_root: str | None = None) -> None:
     config_brain_name = (_config or {}).get("vault", {}).get("brain_name", "")
     _vault_name = config_brain_name or os.environ.get("BRAIN_VAULT_NAME") or os.path.basename(_vault_root)
 
+    _ensure_warmup_started("startup")
+    if _logger:
+        _logger.info("startup warmup enqueued (generation %s)", generation)
     _logger.info("startup complete")
 
 
@@ -990,6 +1241,7 @@ def startup(vault_root: str | None = None) -> None:
 def _get_state() -> ServerState:
     return ServerState(
         vault_root=_vault_root,
+        loaded_version=_loaded_version,
         config=_config,
         session_profile=_session_profile,
         router=_router,
@@ -1029,10 +1281,13 @@ def _runtime() -> ServerRuntime:
         set_workspace_registry=_set_workspace_registry,
         set_session_profile=_set_session_profile,
         fmt_error=_fmt_error,
+        fmt_progress=_fmt_progress,
         enforce_profile=_enforce_profile,
         refresh_cli_available=_refresh_cli_available,
+        ensure_warmup_started=_ensure_warmup_started,
         ensure_router_fresh=_ensure_router_fresh,
         ensure_index_fresh=_ensure_index_fresh,
+        get_readiness_snapshot=_readiness_snapshot,
         check_version_drift=_check_version_drift,
         mark_index_dirty=_mark_index_dirty,
         mark_index_pending=_mark_index_pending,
@@ -1430,6 +1685,50 @@ class _BrainActionFixLinksParams(BaseModel):
         list[str] | None,
         Field(description="Optional list of target link stems to limit which resolvable links are rewritten."),
     ] = None
+
+
+# ---------------------------------------------------------------------------
+# brain_init — additive bootstrap/orientation snapshot
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def brain_init(
+    warmup: Annotated[
+        bool | None,
+        Field(description=(
+            "When true, ensure background warmup is underway or already complete, "
+            "then return immediately."
+        )),
+    ] = None,
+    debug: Annotated[
+        bool | None,
+        Field(description=(
+            "When true, include cheap already-known diagnostics such as the active "
+            "phase and capability readiness. Never triggers deep inspection."
+        )),
+    ] = None,
+):
+    """Return a cheap Brain bootstrap snapshot. Safe, idempotent, never blocks.
+
+    Use as an additive orientation probe: returns vault identity plus coarse
+    readiness and warmup state, with `next_action` guidance for the caller.
+    Lighter than `brain_session` — does not compile the session payload and
+    does not wait for warmup to finish even when `warmup=True`. `debug=True`
+    only surfaces already-known cheap diagnostics; it never triggers deep
+    inspection or forced rebuilds. Call `brain_session` when starting real
+    Brain work.
+    """
+    with _trace_tool("brain_init", warmup=warmup, debug=debug):
+        try:
+            return _server_init.handle_brain_init(
+                warmup=bool(warmup),
+                debug=bool(debug),
+                runtime=_runtime(),
+            )
+        except Exception as e:
+            if _logger:
+                _logger.error("brain_init: %s", e, exc_info=True)
+            return _fmt_error(f"Unexpected error: {e}")
 
 
 # ---------------------------------------------------------------------------

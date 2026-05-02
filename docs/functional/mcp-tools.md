@@ -5,12 +5,15 @@ MCP tool specifications for the brain server.
 `server.py` remains the MCP composition root and runtime-state owner. Tool
 implementation logic may delegate through sibling `_server_*.py` handler
 modules, but the external tool contracts documented here stay unchanged. The
-server now logs explicit startup phases to `.brain/local/mcp-server.log`, and
-the non-critical `.brain/local/session.md` refresh runs on a dedicated daemon
-worker fed by a `maxsize=1` coalescing queue — startup only enqueues, rapid
-successive refreshes collapse to the latest intent, and an `atexit` drain
-with a bounded cap lets the last in-flight write finish on clean shutdown.
-See dd-036 for the full contract.
+server now answers MCP `initialize` from a minimal startup skeleton, then runs
+router/index/workspace maintenance as background warmup with explicit warmup
+phase logging in `.brain/local/mcp-server.log`. Warmup-dependent tools return
+structured progress/retry payloads instead of blocking blindly. The non-critical
+`.brain/local/session.md` refresh still runs on a dedicated daemon worker fed
+by a `maxsize=1` coalescing queue — startup and warmup only enqueue, rapid
+successive refreshes collapse to the latest intent, and an `atexit` drain with
+a bounded cap lets the last in-flight write finish on clean shutdown. See
+dd-036 for the full contract.
 
 ## Tool Metadata Contract
 
@@ -55,6 +58,7 @@ implementation.
 
 | Tool | Safety Level | Purpose |
 |---|---|---|
+| `brain_init` | Safe — auto-approvable | Additive bootstrap/orientation snapshot with readiness and optional warmup hinting |
 | `brain_session` | Safe — auto-approvable | Agent bootstrap: session payload, authentication, profile resolution |
 | `brain_read` | Safe — auto-approvable | Read a specific vault resource by name |
 | `brain_search` | Safe — auto-approvable | Relevance-ranked search over artefacts and config resources |
@@ -69,11 +73,50 @@ Mutating MCP calls are serialized within one server process. This applies to
 the source of truth for mutation behavior, and direct script callers must still
 coordinate their own parallel writes.
 
+Warmup-dependent tools may return a structured `isError=true` progress payload
+while background warmup is still running or has failed. The payload includes
+coarse readiness state, retry guidance, and the capability still needed
+(`router` or `index`) instead of relying on silence or long blocking waits.
+
 ## Tool Specifications
+
+### brain_init
+
+Safe, no heavy work by default, auto-approvable. Additive bootstrap/orientation
+snapshot for the Brain runtime. `brain_init` is intentionally lighter than
+`brain_session`: it reports vault identity plus coarse readiness/warmup state,
+and it can optionally ensure warmup is underway without waiting for completion.
+It does not replace the canonical bootstrap line yet — callers still use
+`brain_session` when they are actually starting Brain work.
+
+**Parameters:**
+- `warmup` (optional) — when `true`, ensure shared background warmup is running or already complete, then return immediately
+- `debug` (optional) — include only already-known cheap diagnostics such as active phase and capability readiness; never triggers deep inspection or forced rebuilds
+
+**Response format:** Single JSON string, no indentation. Includes version/vault identity, `readiness`, `warmup_state`, `next_action`, and optional cheap debug diagnostics.
+
+---
 
 ### brain_session
 
-Agent bootstrap tool — safe, auto-approvable. Builds the canonical session model in one call: static core bootstrap content (`core_bootstrap`), structured core-doc references with explicit MCP load instructions (`core_docs`), always-rules, user preferences, gotchas, triggers, condensed artefact types, environment, memory/skill/plugin/style indexes, and config/profile metadata when known. When the caller supplies a workspace directory, the payload also includes raw `workspace` identity plus optional `workspace_record` and `workspace_defaults` derived from `.brain/local/workspace.yaml` (with legacy `.brain/workspace.yaml` fallback) and any resolvable workspace binding. The server actively compiles this — strips frontmatter from user files, condenses artefact metadata, merges runtime environment state, and refreshes the generated markdown mirror at `.brain/local/session.md` from the same model. That refresh is best-effort: the MCP server enqueues it onto a single long-lived daemon worker so a stalled write only degrades the markdown mirror, never startup or subsequent tool calls.
+Agent bootstrap tool — safe, auto-approvable. Builds the canonical session
+model in one call: static core bootstrap content (`core_bootstrap`),
+structured core-doc references with explicit MCP load instructions
+(`core_docs`), always-rules, user preferences, gotchas, triggers, condensed
+artefact types, environment, memory/skill/plugin/style indexes, and
+config/profile metadata when known. When the caller supplies a workspace
+directory, the payload also includes raw `workspace` identity plus optional
+`workspace_record` and `workspace_defaults` derived from
+`.brain/local/workspace.yaml` (with legacy `.brain/workspace.yaml` fallback)
+and any resolvable workspace binding. The server actively compiles this —
+strips frontmatter from user files, condenses artefact metadata, merges runtime
+environment state, and refreshes the generated markdown mirror at
+`.brain/local/session.md` from the same model. That refresh is best-effort: the
+MCP server enqueues it onto a single long-lived daemon worker so a stalled
+write only degrades the markdown mirror, never startup or subsequent tool
+calls. If router warmup is still running, `brain_session` ensures warmup is in
+flight and returns a structured progress/retry payload instead of blocking on
+startup work.
 
 **Parameters:**
 - `context` (optional) — scoped session hint (forward-compatible, not yet implemented)

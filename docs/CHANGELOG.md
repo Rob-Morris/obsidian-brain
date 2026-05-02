@@ -6,6 +6,7 @@ Version-by-version release history for Obsidian Brain. Every shipped version has
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.35.0](changelog/v0.35.0.md) | 2026-05-02 | Split MCP startup with `brain_init` and background warmup |
 | [v0.34.2](changelog/v0.34.2.md) | 2026-05-01 | Prepare release/changelog docs via scope terminology |
 | [v0.34.1](changelog/v0.34.1.md) | 2026-05-01 | Harden definition sync against false conflicts from stale tracking |
 | [v0.34.0](changelog/v0.34.0.md) | 2026-04-30 | Realign release artefacts as milestone-first with required parent-agnostic ownership |

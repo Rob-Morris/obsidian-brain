@@ -229,8 +229,9 @@ For project scope, registration is not the whole story. Claude still needs the p
 
 ## Tooling
 
-If your vault has the Brain MCP server running, you get eight tools:
+If your vault has the Brain MCP server running, you get nine tools:
 
+- **brain_init** — additive bootstrap/orientation snapshot with readiness, warmup status, and optional cheap debug output. `warmup=true` ensures background warmup is underway, then returns immediately.
 - **brain_session** — bootstrap an agent session in one call (static core bootstrap content, structured core-doc references with explicit `brain_read(resource="file", ...)` load instructions, always-rules, preferences, gotchas, triggers, artefact types, environment); also refreshes `.brain/local/session.md`
 - **brain_read** — read a specific resource by name: artefact content (by relative path, basename, or display name — resolves like wikilinks), type definitions, triggers, styles, templates, skills, plugins, memories, workspaces, or compliance checks. Name is required for collection resources; use brain_list to enumerate collections.
 - **brain_search** — find files by query, type, or tag (relevance-ranked, BM25). Also searches non-artefact collections (skills, triggers, styles, memories, plugins) via text matching (use `resource` parameter).
