@@ -8,9 +8,10 @@ Operational reference for scripts in `.brain-core/scripts/`. Most scripts expose
 |---|---|---|
 | `compile_router.py` | Compile router from source files and refresh the session mirror | `python3 compile_router.py [--json]` |
 | `compile_colours.py` | Generate folder colour CSS | (called by compile_router) |
-| `build_index.py` | Build BM25 retrieval index | `python3 build_index.py [--json]` |
+| `build_index.py` | Build retrieval index and optional embeddings sidecars | `python3 build_index.py [--json]` |
 | `list_artefacts.py` | Enumerate vault artefacts and resources (unranked, no cap) | (library module, used by MCP server) |
-| `search_index.py` | BM25 keyword search | `python3 search_index.py "query" [--type T] [--json]` |
+| `search_index.py` | Lexical, semantic, or hybrid local search | `python3 search_index.py "query" [--type T] [--mode M] [--json]` |
+| `evaluate_search.py` | Benchmark lexical, semantic, and hybrid retrieval against a JSON query set | `python3 evaluate_search.py --benchmark PATH [--mode M]... [--json]` |
 | `read.py` | Query compiled router resources | `python3 read.py RESOURCE [--name N]` |
 | `create.py` | Create new artefact | `python3 create.py --type T --title "Title" [--body B] [--body-file PATH] [--temp-path [SUFFIX]] [--json]` |
 | `edit.py` | Edit artefacts via CLI; importable helpers also back `brain_edit` for editable `_Config/` resources | `python3 edit.py edit\|append\|prepend\|delete_section --path P [--body B\|--body-file PATH] [--frontmatter JSON] [--target T] [--scope S] [--occurrence N] [--within T --within-occurrence N]... [--vault V] [--json]` |
@@ -31,6 +32,7 @@ Operational reference for scripts in `.brain-core/scripts/`. Most scripts expose
 | `config.py` | Vault configuration loader (three-layer merge) | `python3 config.py` |
 | `session.py` | Build the canonical session model and refresh `.brain/local/session.md` | `python3 session.py [--json] [--workspace-dir PATH]` |
 | `obsidian_cli.py` | IPC client for native Obsidian CLI | (library module, used by MCP server) |
+| `process.py` | Experimental content classification, duplicate resolution, ingestion | (library module, used by the parked `brain_process` MCP surface on `brain-process-wip`) |
 | `generate_key.py` | Generate operator key + hash for config.yaml | `python3 generate_key.py [--count N]` |
 | `init.py` | Claude/Codex MCP registration + recorded removal; keeps direct file writes atomic with unique sibling temp files | `python3 init.py [--client {claude,codex,all}] [--user] [--local] [--project PATH] [--remove] [--force]` |
 
@@ -81,7 +83,7 @@ The MCP server is a thin wrapper that imports functions from scripts and holds t
 
 **Importable API** (used by the MCP server to drive its staleness checks): `resource_counts(vault_root)` returns `{key: count}` for the discoverable resource categories. `resource_source_dirs(vault_root)` yields `(rel_path, descend)` pairs identifying every directory whose mtime governs the resource-count answer.
 
-**Post-step generation:** `compile_colours.py` runs as a post-step, reading the compiled router to generate `.obsidian/snippets/brain-folder-colours.css` and `.obsidian/graph.json` colour groups. After a successful compile, `session.py` also refreshes `.brain/local/session.md` so the markdown bootstrap mirror stays aligned with the current canonical session model. All of this happens automatically — no separate invocation needed.
+**Post-step generation:** `compile_colours.py` runs as a post-step, reading the compiled router to generate `.obsidian/snippets/brain-folder-colours.css` and `.obsidian/graph.json` colour groups. After a successful compile, `session.py` also refreshes `.brain/local/session.md` so the markdown bootstrap mirror stays aligned with the current canonical session model. Existing embeddings sidecars are invalidated on router rebuild because type-description vectors depend on the compiled router. All of this happens automatically — no separate invocation needed.
 
 **Flags:** `--json` (output JSON to stdout instead of writing to file).
 
@@ -405,27 +407,65 @@ Plus a separate `not_installable` bucket in `--status` output for library-side e
 
 **MCP surface:** no direct MCP wrapper. Use the CLI/script entry point for definition installs, syncs, and status classification.
 
-## build_index.py / search_index.py
+## build_index.py / search_index.py / evaluate_search.py
 
-BM25 keyword search over all vault markdown files. Built offline like the compiled router, queried at search time from a pre-built index.
+Retrieval search over all vault markdown files. BM25 remains the lexical
+backbone; optional semantic and hybrid modes reuse persisted document
+embeddings built alongside the index.
 
 **Key properties:**
-- **Zero mandatory dependencies for BM25** — the retrieval index build itself is hand-rolled and stdlib-only
+- **Zero mandatory dependencies for BM25** — the retrieval index build itself is hand-rolled and stdlib-only. Optional embeddings refresh piggybacks on the same command only when `defaults.flags.semantic_processing` or `defaults.flags.semantic_retrieval` is enabled and the pinned semantic runtime is installed
 - **Same folder discovery** — reuses `scan_living_types()` / `scan_temporal_types()` patterns, then recurses each type folder for `.md` files
 - **Whole-document indexing** — each note is one entry (sufficient at vault scale)
-- **Build/search split** — `build_index.py` builds the index, `search_index.py` queries it. Separate scripts, no cross-imports.
+- **Build/search/evaluate split** — `build_index.py` builds the index, `search_index.py` queries it in lexical, semantic, or hybrid mode, and `evaluate_search.py` compares those modes against a benchmark fixture without changing the underlying retrieval contract.
 
 **BM25 parameters:** `k1=1.5`, `b=0.75`. IDF: `log((N - df + 0.5) / (df + 0.5) + 1)`. Score: `sum IDF(t) * (tf(t,d) * (k1+1)) / (tf(t,d) + k1 * (1 - b + b * dl/avgdl))`. **Title boosting** (v0.11.3): terms appearing in the document title receive an additional `IDF(t) * 3.0` score contribution, stored as `title_tf` per document. Backward compatible — older indexes without `title_tf` still work.
 
 **Output:** `.brain/local/retrieval-index.json` — local, gitignored. Contains corpus stats (document frequencies, average document length), per-document term frequencies, and metadata (path, title, type, tags, status, modified).
 
+When `defaults.flags.semantic_processing: true` or `defaults.flags.semantic_retrieval: true` and a compiled router is available, `build_index.py` also refreshes the optional embeddings sidecars in `.brain/local/`:
+- `type-embeddings.npy`
+- `doc-embeddings.npy`
+- `embeddings-meta.json`
+
+The BM25 index remains the primary output. If both flags are off, the compiled router is missing, or embedding dependencies are unavailable, the sidecars are cleared rather than left stale.
+
+**Optional semantic runtime:** install with `make install-semantic`. This
+branch pins `numpy 2.4.4`, `torch 2.11.0`, `transformers 5.5.4`, and
+`sentence-transformers 5.4.1`. Intel macOS is not a supported semantic-search
+target because upstream PyPI wheels for this Torch line no longer cover
+`darwin/x86_64`. When run from a vault root, `make install-semantic` also
+writes `defaults.local_runtime.semantic_engine_installed: true` into
+`.brain/local/config.yaml`.
+
 **CLI:**
 ```bash
-python3 build_index.py           # write .brain/local/retrieval-index.json
+python3 build_index.py           # write .brain/local/retrieval-index.json (+ embeddings when enabled)
 python3 build_index.py --json    # output JSON to stdout
-python3 search_index.py "query"  # search and print ranked results
+python3 search_index.py "query"  # search and print ranked results (best local default)
 python3 search_index.py "query" --type living/design --tag brain-core --top-k 5
+python3 search_index.py "query" --mode lexical
+python3 search_index.py "query" --mode semantic
+python3 search_index.py "query" --mode hybrid
 python3 search_index.py "query" --json  # structured output
+```
+
+`search_index.py` defaults to `hybrid` when semantic retrieval is enabled and usable; otherwise it defaults to `lexical`. Explicit `--mode semantic` and `--mode hybrid` fail fast when embeddings sidecars or dependencies are unavailable.
+
+`evaluate_search.py` runs a benchmark JSON file against one or more explicit modes and reports hit@1 / hit@3 / hit@5 plus simple comparisons against lexical baseline behaviour. The benchmark schema is intentionally small:
+
+- benchmark-level `hit_ks`
+- per-case `id`
+- per-case `query`
+- per-case `relevant_paths`
+- optional per-case `filters` using `type`, `tag`, and `status`
+
+A template benchmark ships at `.brain-core/scripts/benchmarks/inline-search-benchmark.template.json`. Copy it, replace the example paths with real vault artefacts, then run the evaluator from the vault root:
+
+```bash
+python3 evaluate_search.py --benchmark path/to/benchmark.json
+python3 evaluate_search.py --benchmark path/to/benchmark.json --mode lexical --mode hybrid
+python3 evaluate_search.py --benchmark path/to/benchmark.json --json
 ```
 
 **Tokeniser:** lowercase, split on non-alphanumeric, strip tokens < 2 chars.

@@ -2,6 +2,16 @@
 
 Follows a pre-1.0 [semver](https://semver.org/) policy: backward-compatible changes are patch; breaking Brain changes are minor; only fundamental model changes are major. Breaking Brain changes include vault-structure changes and breaking tool/script/MCP contract changes. Fundamental model changes are changes to the artefact model, router contract, or agent bootstrap/entry flow.
 
+## v0.34.0 — 2026-05-02
+
+**Make the parked semantic-retrieval line operational with a shared runtime, incremental embeddings maintenance, and a repeatable evaluator.** This turns the exploratory `brain_process` branch into a coherent semantic-search foundation: search and process share one internal semantic subsystem, embeddings refresh incrementally without eager sidecar deletion, and the branch gains a script-first benchmark harness for lexical, semantic, and hybrid retrieval.
+
+- Add `src/brain-core/scripts/_semantic/` as the shared internal semantic runtime for feature-policy helpers, local install markers, sidecar paths, query-encoder caching, vector ranking, and embedding-state loading. `process.py`, `search_index.py`, the MCP server, and repair/runtime helpers now consume one semantic boundary instead of duplicating ranking, loader, and flag logic across modules.
+- Keep `brain_process` degraded modes available while gating embedding-backed behavior behind `semantic_processing`, add explicit `lexical` / `semantic` / `hybrid` search modes, and align CLI + MCP mode validation and semantic-availability checks around one shared contract.
+- Land the embeddings-maintenance critical path: per-path invalidation domains, no eager sidecar deletion on ordinary writes, in-memory build outputs for refresh/save paths, and build-local body reuse so embedding rebuilds stop doing a write-then-read round-trip plus a second full document-body scan.
+- Tighten the hot path and parked-branch correctness edges around that foundation: lock lazy query-encoder construction, defer snippet extraction until after top-k truncation / hybrid fusion, memoise type-description reads, and decouple router persistence from embeddings invalidation ownership.
+- Add `evaluate_search.py`, a benchmark template, and a synthetic evaluator fixture so the parked branch can be measured from cached local files without a warm MCP process; update the functional/user docs, DD-047, and the affected regression suites to describe the new parked semantic-search contract consistently.
+
 ## v0.33.0 — 2026-04-30
 
 **Reshape the shipped MCP surface around clearer agent-facing contracts, while parking unfinished processing work off-main.** `brain_move` is now the first-class content-move tool, `brain_action` is reduced to a smaller residual workflow bucket, admin flows return to scripts, and the live docs/tests now describe that surface consistently.

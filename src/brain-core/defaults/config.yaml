@@ -16,16 +16,21 @@ vault:
     reader:
       allow: [brain_session, brain_read, brain_search, brain_list]
     contributor:
-      allow: [brain_session, brain_read, brain_search, brain_list, brain_create, brain_edit]
+      allow: [brain_session, brain_read, brain_search, brain_list, brain_create, brain_edit, brain_process]
     operator:
-      allow: [brain_session, brain_read, brain_search, brain_list, brain_create, brain_edit, brain_move, brain_action]
+      allow: [brain_session, brain_read, brain_search, brain_list, brain_create, brain_edit, brain_process, brain_move, brain_action]
 
   operators: []
 
 defaults:
   default_profile: operator
 
-  flags: {}
+  flags:
+    semantic_processing: false
+    semantic_retrieval: false
+
+  local_runtime:
+    semantic_engine_installed: false
 
   tool_paths: {}
 

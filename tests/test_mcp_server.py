@@ -13,10 +13,14 @@ import pytest
 
 from mcp.types import CallToolResult
 
+import _semantic.runtime as semantic_runtime
 from brain_mcp import server
 import build_index
 import compile_router
 import obsidian_cli
+import process
+import retrieval_embeddings
+import search_index
 import workspace_registry
 import config as config_mod
 
@@ -660,6 +664,45 @@ class TestArchiveGuardsMcp:
 
 
 class TestBrainSearch:
+    def _enable_semantic_engine(self):
+        defaults = server._config.setdefault("defaults", {})
+        defaults.setdefault("local_runtime", {})["semantic_engine_installed"] = True
+
+    def _enable_semantic_retrieval(self):
+        self._enable_semantic_engine()
+        server._config.setdefault("defaults", {}).setdefault("flags", {})["semantic_retrieval"] = True
+
+    def _enable_semantic_processing(self):
+        self._enable_semantic_engine()
+        server._config.setdefault("defaults", {}).setdefault("flags", {})["semantic_processing"] = True
+
+    def _log_doc_path(self):
+        for doc in server._index["documents"]:
+            if doc["type"] == "temporal/logs":
+                return doc["path"]
+        raise AssertionError("expected a temporal/logs fixture document in the index")
+
+    def _semantic_meta(self):
+        return {
+            "documents": [
+                {
+                    "path": doc["path"],
+                    "title": doc["title"],
+                    "type": doc["type"],
+                    "tags": doc.get("tags", []),
+                    "status": doc.get("status"),
+                }
+                for doc in server._index["documents"]
+            ]
+        }
+
+    def _aligned_vectors(self, path_vectors):
+        np = pytest.importorskip("numpy")
+        return np.array(
+            [path_vectors[doc["path"]] for doc in server._index["documents"]],
+            dtype=float,
+        )
+
     def test_search_returns_results(self, initialized):
         resp = server.brain_search("brain knowledge")
         text = _search_text(resp)
@@ -807,6 +850,180 @@ class TestBrainSearch:
         resp = server.brain_search("brain")
         text = _search_text(resp)
         assert "bm25" in text
+
+    def test_search_rejects_unknown_mode(self, initialized):
+        result = server.brain_search("brain", mode="vectorish")
+        _assert_error(result, "unknown search mode")
+
+    def test_search_semantic_mode_errors_when_disabled(self, initialized):
+        result = server.brain_search("brain", mode="semantic")
+        _assert_error(result, "semantic retrieval is disabled")
+
+    def test_search_hybrid_mode_errors_when_semantic_unavailable(self, initialized, monkeypatch):
+        self._enable_semantic_retrieval()
+        monkeypatch.setattr(server, "_ensure_embeddings_fresh", lambda: None)
+        monkeypatch.setattr(
+            search_index._semantic,
+            "semantic_engine_available",
+            lambda *args, **kwargs: False,
+        )
+
+        result = server.brain_search("brain", mode="hybrid")
+        _assert_error(result, "semantic retrieval is unavailable")
+
+    def test_search_resource_rejects_semantic_mode(self, initialized):
+        result = server.brain_search("vault", resource="skill", mode="semantic")
+        _assert_error(result, "mode applies only to artefact search")
+
+    def test_search_semantic_mode_uses_semantic_source(self, initialized, monkeypatch):
+        np = pytest.importorskip("numpy")
+        self._enable_semantic_retrieval()
+        log_path = self._log_doc_path()
+        vectors = self._aligned_vectors(
+            {
+                "Wiki/brain-overview-abc123.md": [0.98, 0.02],
+                "Wiki/python-guide-def456.md": [0.10, 0.90],
+                "Designs/brain-tooling-design.md": [0.92, 0.08],
+                log_path: [0.40, 0.60],
+            }
+        )
+        meta = self._semantic_meta()
+        monkeypatch.setattr(search_index, "_encode_query", lambda _query: np.array([1.0, 0.0]))
+
+        def fake_ensure_embeddings_fresh():
+            server._doc_embeddings = vectors
+            server._embeddings_meta = meta
+
+        monkeypatch.setattr(server, "_ensure_embeddings_fresh", fake_ensure_embeddings_fresh)
+
+        text = _search_text(server.brain_search("brain", mode="semantic"))
+        assert "semantic" in text
+        assert "Wiki/brain-overview-abc123.md" in text
+
+    def test_search_hybrid_mode_ignores_obsidian_cli(self, initialized, cli_available, monkeypatch):
+        np = pytest.importorskip("numpy")
+        self._enable_semantic_retrieval()
+        log_path = self._log_doc_path()
+        vectors = self._aligned_vectors(
+            {
+                "Wiki/brain-overview-abc123.md": [0.60, 0.40],
+                "Wiki/python-guide-def456.md": [0.20, 0.80],
+                "Designs/brain-tooling-design.md": [0.99, 0.01],
+                log_path: [0.50, 0.50],
+            }
+        )
+        meta = self._semantic_meta()
+        monkeypatch.setattr(search_index, "_encode_query", lambda _query: np.array([1.0, 0.0]))
+
+        def fake_ensure_embeddings_fresh():
+            server._doc_embeddings = vectors
+            server._embeddings_meta = meta
+
+        monkeypatch.setattr(server, "_ensure_embeddings_fresh", fake_ensure_embeddings_fresh)
+        def _no_cli_search(*_args, **_kwargs):
+            raise AssertionError("CLI search should not run for hybrid mode")
+
+        monkeypatch.setattr(obsidian_cli, "search", _no_cli_search)
+        monkeypatch.setattr(obsidian_cli, "check_available", lambda: True)
+        server._cli_probed_at = 0.0
+
+        text = _search_text(server.brain_search("brain", mode="hybrid"))
+        assert "hybrid" in text
+        assert "Wiki/brain-overview-abc123.md" in text
+
+    def test_search_omitted_mode_prefers_hybrid_when_semantic_available(self, initialized, cli_available, monkeypatch):
+        np = pytest.importorskip("numpy")
+        self._enable_semantic_retrieval()
+        log_path = self._log_doc_path()
+        vectors = self._aligned_vectors(
+            {
+                "Wiki/brain-overview-abc123.md": [0.60, 0.40],
+                "Wiki/python-guide-def456.md": [0.20, 0.80],
+                "Designs/brain-tooling-design.md": [0.99, 0.01],
+                log_path: [0.50, 0.50],
+            }
+        )
+        meta = self._semantic_meta()
+        monkeypatch.setattr(search_index, "_encode_query", lambda _query: np.array([1.0, 0.0]))
+
+        def fake_ensure_embeddings_fresh():
+            server._doc_embeddings = vectors
+            server._embeddings_meta = meta
+
+        monkeypatch.setattr(server, "_ensure_embeddings_fresh", fake_ensure_embeddings_fresh)
+        def _no_cli_search(*_args, **_kwargs):
+            raise AssertionError("CLI search should not run for omitted mode when hybrid is available")
+
+        monkeypatch.setattr(obsidian_cli, "search", _no_cli_search)
+        monkeypatch.setattr(obsidian_cli, "check_available", lambda: True)
+        server._cli_probed_at = 0.0
+
+        text = _search_text(server.brain_search("brain"))
+        assert "hybrid" in text
+
+    def test_search_omitted_mode_falls_back_to_lexical_when_semantic_unavailable(
+        self,
+        initialized,
+        monkeypatch,
+    ):
+        self._enable_semantic_retrieval()
+        monkeypatch.setattr(server, "_ensure_embeddings_fresh", lambda: None)
+        monkeypatch.setattr(
+            search_index._semantic,
+            "semantic_engine_available",
+            lambda *args, **kwargs: False,
+        )
+
+        text = _search_text(server.brain_search("brain"))
+        assert "bm25" in text
+
+    def test_semantic_search_and_process_reuse_cached_query_encoder(self, initialized, monkeypatch):
+        np = pytest.importorskip("numpy")
+        self._enable_semantic_retrieval()
+        self._enable_semantic_processing()
+        log_path = self._log_doc_path()
+        server._doc_embeddings = self._aligned_vectors(
+            {
+                "Wiki/brain-overview-abc123.md": [0.98, 0.02],
+                "Wiki/python-guide-def456.md": [0.10, 0.90],
+                "Designs/brain-tooling-design.md": [0.92, 0.08],
+                log_path: [0.40, 0.60],
+            }
+        )
+        server._embeddings_meta = self._semantic_meta()
+
+        load_calls = []
+
+        class FakeEncoder:
+            def encode(self, texts, normalize_embeddings=True):
+                return np.array([[1.0, 0.0]])
+
+        def fake_load_query_encoder():
+            load_calls.append("load")
+            return FakeEncoder()
+
+        monkeypatch.setattr(server, "_ensure_embeddings_fresh", lambda: None)
+        monkeypatch.setattr(
+            semantic_runtime,
+            "load_query_encoder",
+            fake_load_query_encoder,
+        )
+
+        semantic_runtime.clear_query_encoder()
+        try:
+            text = _search_text(server.brain_search("brain", mode="semantic"))
+            assert "semantic" in text
+
+            result = server.brain_process(
+                operation="resolve",
+                content="Reference notes about the Brain system.",
+                type="wiki",
+                title="Brain Overview",
+            )
+            assert isinstance(result, str)
+            assert len(load_calls) == 1
+        finally:
+            semantic_runtime.clear_query_encoder()
 
 
 # ---------------------------------------------------------------------------
@@ -3699,6 +3916,139 @@ class TestWorkspaceRead:
         _assert_error(result, "Unknown workspace")
         assert "proj" not in server._workspace_registry
 
+# ---------------------------------------------------------------------------
+# brain_process tool
+# ---------------------------------------------------------------------------
+
+class TestBrainProcessFeatureGate:
+    def test_process_runs_in_degraded_mode_by_default(self, initialized):
+        result = server.brain_process(
+            operation="classify",
+            content="I have a new idea",
+        )
+        assert isinstance(result, str)
+        assert "context_assembly" in result
+
+
+class TestBrainProcess:
+    @pytest.fixture(autouse=True)
+    def enable_process_feature(self, initialized, monkeypatch):
+        server._config.setdefault("defaults", {}).setdefault("flags", {})["semantic_processing"] = True
+        server._config["defaults"].setdefault("local_runtime", {})["semantic_engine_installed"] = True
+        server._type_embeddings = None
+        server._doc_embeddings = None
+        server._embeddings_meta = None
+        monkeypatch.setattr(server, "_ensure_embeddings_fresh", lambda: None)
+
+    def test_process_classify_context_assembly(self, initialized):
+        result = server.brain_process(
+            operation="classify",
+            content="I have a new idea for solar powered keyboards",
+            mode="context_assembly",
+        )
+        assert isinstance(result, str)
+        assert "context_assembly" in result
+
+    def test_process_classify_bm25(self, initialized):
+        # Add Purpose/When To Use to taxonomy for BM25 scoring
+        tax_ideas = os.path.join(str(initialized), "_Config", "Taxonomy", "Living", "ideas.md")
+        with open(tax_ideas, "w") as f:
+            f.write(
+                "# Ideas\n\n"
+                "A concept that needs iterative refinement.\n\n"
+                "## Naming\n\n`{Title}.md` in `Ideas/`.\n\n"
+                "## Frontmatter\n\n```yaml\n---\ntype: living/ideas\n---\n```\n\n"
+                "## Purpose\n\nCapture concepts that need development.\n\n"
+                "## When To Use\n\nWhen developing a concept that needs iterative refinement.\n\n"
+                "## Template\n\n[[_Config/Templates/Living/Ideas]]\n"
+        )
+        # Re-initialize to rebuild index
+        server.startup(vault_root=str(initialized))
+        server._config["defaults"]["flags"]["semantic_processing"] = True
+        server._config["defaults"].setdefault("local_runtime", {})["semantic_engine_installed"] = True
+        result = server.brain_process(
+            operation="classify",
+            content="a new concept idea that needs iterative development and refinement",
+            mode="bm25_only",
+        )
+        assert isinstance(result, str)
+        assert "**Classified**" in result
+        assert "bm25_only" in result
+
+    def test_process_resolve_create(self, initialized):
+        result = server.brain_process(
+            operation="resolve",
+            content="Some content about a brand new topic",
+            type="wiki",
+            title="Quantum Computing Primer",
+        )
+        assert isinstance(result, str)
+        assert "**Resolve**" in result
+        assert "create" in result
+
+    def test_process_resolve_update(self, initialized):
+        result = server.brain_process(
+            operation="resolve",
+            content="Updated information",
+            type="wiki",
+            title="brain-overview-abc123",
+        )
+        assert isinstance(result, str)
+        assert "**Resolve**" in result
+        assert "update" in result
+
+    def test_process_resolve_missing_params(self, initialized):
+        result = server.brain_process(
+            operation="resolve",
+            content="Some content",
+        )
+        _assert_error(result, "requires top-level field 'type'")
+
+    def test_process_classify_rejects_type_hint(self, initialized):
+        result = server.brain_process(
+            operation="classify",
+            content="Some content",
+            type="wiki",
+        )
+        _assert_error(result, "does not accept top-level field 'type'")
+
+    def test_process_resolve_rejects_mode(self, initialized):
+        result = server.brain_process(
+            operation="resolve",
+            content="Some content",
+            type="wiki",
+            title="Quantum Computing Primer",
+            mode="auto",
+        )
+        _assert_error(result, "does not accept top-level field 'mode'")
+
+    def test_process_ingest_creates_file(self, initialized):
+        result = server.brain_process(
+            operation="ingest",
+            content="# Quantum Coffee\n\nWhat if coffee brewed itself?",
+            type="ideas",
+        )
+        assert isinstance(result, str)
+        assert "**Ingested**" in result
+        assert "created" in result
+
+    def test_process_ingest_needs_classification(self, initialized):
+        # Without embeddings or BM25 type descriptions, falls to context_assembly
+        result = server.brain_process(
+            operation="ingest",
+            content="Random content without hints",
+        )
+        # Should return context_assembly since no scoring available
+        assert isinstance(result, str)
+        assert "context_assembly" in result
+
+    def test_process_unknown_operation(self, initialized):
+        result = server.brain_process(
+            operation="nonexistent",
+            content="test",
+        )
+        _assert_error(result, "Unknown process operation")
+
 
 class TestWorkspaceStartup:
     def test_startup_loads_empty_registry(self, vault):
@@ -4027,6 +4377,138 @@ class TestIndexStaleness:
         # built_at must not have advanced
         assert server._index["meta"]["built_at"] == original_built_at
 
+    def test_runtime_can_mark_embeddings_dirty(self, initialized):
+        """ServerRuntime should expose the embeddings-dirty flag helper."""
+        server._doc_embeddings_dirty = False
+        server._type_embeddings_dirty = False
+
+        server._runtime().mark_embeddings_dirty()
+
+        assert server._doc_embeddings_dirty is True
+        assert server._type_embeddings_dirty is True
+
+    def test_mark_index_pending_queues_path_and_clears_in_memory(self, initialized):
+        """Per-path doc-embedding pending tracking; no eager sidecar delete.
+
+        After _mark_index_pending, the path is queued for embedding refresh and
+        in-memory caches are cleared, but on-disk sidecars remain (stale-but-
+        loadable preferred over missing-and-failing). Refresh overwrites them.
+        """
+        local_dir = initialized / ".brain" / "local"
+        local_dir.mkdir(parents=True, exist_ok=True)
+        for rel_path in (
+            "type-embeddings.npy",
+            "doc-embeddings.npy",
+            "embeddings-meta.json",
+        ):
+            (local_dir / rel_path).write_bytes(b"stale")
+
+        server._type_embeddings = object()
+        server._doc_embeddings = object()
+        server._embeddings_meta = {"documents": [], "types": []}
+        with server._doc_embeddings_pending_lock:
+            server._doc_embeddings_pending.clear()
+
+        server._mark_index_pending("Wiki/brain-overview-abc123.md", "living/wiki")
+
+        assert "Wiki/brain-overview-abc123.md" in server._doc_embeddings_pending
+        assert server._type_embeddings is None
+        assert server._doc_embeddings is None
+        assert server._embeddings_meta is None
+        # Sidecars remain on disk; next refresh overwrites them in place.
+        assert (local_dir / "type-embeddings.npy").exists()
+        assert (local_dir / "doc-embeddings.npy").exists()
+        assert (local_dir / "embeddings-meta.json").exists()
+
+    def test_process_context_assembly_skips_embeddings_refresh(self, initialized, monkeypatch):
+        server._config["defaults"]["flags"]["semantic_processing"] = True
+        server._config["defaults"].setdefault("local_runtime", {})["semantic_engine_installed"] = True
+        server._type_embeddings = None
+        server._doc_embeddings = None
+        server._embeddings_meta = None
+
+        calls = []
+
+        def fake_refresh(vault_root, router, documents, *, enable_embeddings=None, config=None):
+            calls.append((str(vault_root), enable_embeddings, len(documents)))
+            return (object(), object(), {"documents": [], "types": []})
+
+        monkeypatch.setattr(build_index, "refresh_embeddings_outputs", fake_refresh)
+
+        result = server.brain_process(
+            operation="classify",
+            content="some content",
+            mode="context_assembly",
+        )
+
+        assert "context_assembly" in result
+        assert calls == []
+        assert server._type_embeddings is None
+        assert server._doc_embeddings is None
+
+    def test_disabled_embeddings_clear_cached_query_encoder(self, initialized, monkeypatch):
+        sentinel = object()
+        monkeypatch.setattr(semantic_runtime, "_QUERY_ENCODER", sentinel)
+        server._config["defaults"]["flags"]["semantic_processing"] = False
+        server._config["defaults"]["flags"]["semantic_retrieval"] = False
+
+        server._ensure_embeddings_fresh()
+
+        assert semantic_runtime._QUERY_ENCODER is None
+
+    def test_process_auto_refreshes_embeddings_when_enabled(self, initialized, monkeypatch):
+        server._config["defaults"]["flags"]["semantic_processing"] = True
+        server._config["defaults"].setdefault("local_runtime", {})["semantic_engine_installed"] = True
+        server._type_embeddings = None
+        server._doc_embeddings = None
+        server._embeddings_meta = None
+
+        calls = []
+
+        def fake_refresh(vault_root, router, documents, *, enable_embeddings=None, config=None):
+            calls.append((str(vault_root), enable_embeddings, len(documents)))
+            return (object(), object(), {"documents": [], "types": []})
+
+        monkeypatch.setattr(build_index, "refresh_embeddings_outputs", fake_refresh)
+        monkeypatch.setattr(
+            process,
+            "classify_content",
+            lambda *args, **kwargs: {
+                "mode": "context_assembly",
+                "type_descriptions": [],
+                "instruction": "stub",
+            },
+        )
+
+        result = server.brain_process(
+            operation="classify",
+            content="some content",
+        )
+
+        assert isinstance(result, str)
+        assert calls == [(str(initialized), True, len(server._index["documents"]))]
+        assert server._type_embeddings is not None
+        assert server._doc_embeddings is not None
+
+    def test_process_ingest_queues_index_update_instead_of_rebuilding_inline(self, initialized, monkeypatch):
+        server._config["defaults"]["flags"]["semantic_processing"] = True
+        server._config["defaults"].setdefault("local_runtime", {})["semantic_engine_installed"] = True
+        server._type_embeddings = None
+        server._doc_embeddings = None
+        server._embeddings_meta = None
+        monkeypatch.setattr(server, "_ensure_embeddings_fresh", lambda: None)
+        original_count = len(server._index["documents"])
+
+        result = server.brain_process(
+            operation="ingest",
+            content="# Quantum Coffee\n\nWhat if coffee brewed itself?",
+            type="ideas",
+        )
+
+        assert isinstance(result, str)
+        assert "created" in result
+        assert len(server._index["documents"]) == original_count
+        assert len(server._index_pending) == 1
     def test_incremental_then_external_file_triggers_rebuild(self, initialized):
         """After incremental update, external files are detected via count mismatch."""
         # Queue and process an incremental update

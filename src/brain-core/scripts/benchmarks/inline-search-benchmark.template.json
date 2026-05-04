@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "description": "Copy this template and replace the example paths and queries with real vault cases before recording a baseline.",
+  "hit_ks": [1, 3, 5],
+  "cases": [
+    {
+      "id": "exact-title-example",
+      "query": "Exact title or phrase here",
+      "intent": "exact-title",
+      "relevant_paths": ["Wiki/Replace Me.md"]
+    },
+    {
+      "id": "filtered-semantic-example",
+      "query": "A paraphrased question or concept search here",
+      "intent": "filtered-semantic",
+      "filters": {
+        "type": "living/design",
+        "tag": "brain-core"
+      },
+      "relevant_paths": ["Designs/Replace Me.md"]
+    }
+  ]
+}

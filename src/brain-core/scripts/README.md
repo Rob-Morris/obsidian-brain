@@ -2,6 +2,11 @@
 
 Scripts are the **source of truth** for all vault operations. The MCP server (`brain_mcp/server.py`) is a thin wrapper that imports functions from these scripts and holds the compiled router and search index in memory. Scripts are the single implementation — the server adds MCP transport, in-memory caching, process-local mutation serialization for mutating tool calls, and Obsidian CLI delegation. Agents without MCP use scripts directly and get identical results. New operations are implemented as scripts first, then exposed via MCP.
 
+Semantic and hybrid retrieval remain optional on this branch. Install the
+pinned runtime with `make install-semantic` before using embedding-backed
+search or evaluation flows. The pinned stack targets current upstream
+wheel-supported platforms; Intel macOS remains lexical-only.
+
 ## Module Table
 
 | Script | Purpose | CLI usage |
@@ -9,7 +14,8 @@ Scripts are the **source of truth** for all vault operations. The MCP server (`b
 | `_common/` | Shared utilities package: vault discovery, frontmatter parsing, serialisation, BM25 tokenisation | (library only) |
 | `_repair_common.py` | Launcher-safe repair metadata, scope definitions, and exact command builders | (library only) |
 | `_repair_runtime.py` | Managed-runtime repair scope implementations plus additive compliance repair detectors | (library only) |
-| `build_index.py` | Build BM25 retrieval index | `python3 build_index.py [--json]` |
+| `build_index.py` | Build retrieval index and refresh embeddings sidecars when `semantic_processing` or `semantic_retrieval` is enabled and router data is available | `python3 build_index.py [--json]` |
+| `evaluate_search.py` | Benchmark lexical, semantic, and hybrid retrieval against a JSON query set | `python3 evaluate_search.py --benchmark PATH [--mode M]... [--json]` |
 | `check.py` | Router-driven structural compliance checks; human output now prints exact `repair.py` commands for repairable router/MCP/local-registry drift and structured results include `repair` metadata | `python3 check.py [--json] [--actionable] [--severity S] [--vault V]` |
 | `compile_colours.py` | Generate folder colour CSS | (called by compile_router) |
 | `compile_router.py` | Compile router from source files and refresh session markdown | `python3 compile_router.py [--json]` |
@@ -22,10 +28,11 @@ Scripts are the **source of truth** for all vault operations. The MCP server (`b
 | `list_artefacts.py` | Enumerate vault artefacts and resources (unranked, no cap) | (library module, used by MCP server) |
 | `migrate_naming.py` | Migrate filenames to generous naming conventions | `python3 migrate_naming.py [--vault V] [--dry-run] [--json]` |
 | `obsidian_cli.py` | IPC client for native Obsidian CLI | (library module, used by MCP server) |
+| `process.py` | Experimental content classification, duplicate resolution, ingestion | (library module, used by MCP server) |
 | `repair.py` | Explicit infrastructure repair entry point; bootstraps from a compatible Python 3.12+ launcher, converges into the vault-local `.venv`, then runs one named repair scope. `mcp` repairs installed current-vault project MCP state only; it does not create first-time project registrations. | `python3 repair.py {mcp,router,index,registry} [--vault V] [--dry-run] [--json]` |
 | `read.py` | Query compiled router resources | `python3 read.py RESOURCE [--name N]` |
 | `rename.py` | Rename/delete file + update wikilinks, refusing existing-destination collisions | `python3 rename.py "source" "dest" [--json]` |
-| `search_index.py` | BM25 keyword search | `python3 search_index.py "query" [--type T] [--json]` |
+| `search_index.py` | Lexical, semantic, or hybrid local search | `python3 search_index.py "query" [--type T] [--mode M] [--json]` |
 | `session.py` | Build the canonical session model and refresh `.brain/local/session.md` | `python3 session.py [--json] [--workspace-dir PATH]` |
 | `shape_printable.py` | Create printable + render PDF | `python3 shape_printable.py --source P --slug S [--no-render] [--pdf-engine E]` |
 | `shape_presentation.py` | Create presentation + render PDF + launch Marp preview | `python3 shape_presentation.py --source P --slug S [--no-render] [--no-preview]` |
@@ -44,7 +51,7 @@ The script layer is organised into 8 bounded contexts. This is an architectural 
 | Compilation | `compile_router.py`, `compile_colours.py`, `build_index.py`, `sync_definitions.py` |
 | Artefact Operations | `create.py`, `edit.py`, `read.py`, `rename.py`, `fix_links.py`, `start_shaping.py`, `shape_printable.py`, `shape_presentation.py` |
 | Compliance | `check.py` |
-| Content Intelligence | `search_index.py`, `list_artefacts.py` |
+| Content Intelligence | `search_index.py`, `evaluate_search.py`, `list_artefacts.py` |
 | Session & Configuration | `session.py`, `config.py`, `workspace_registry.py`, `generate_key.py` |
 | Lifecycle Management | `init.py`, `repair.py`, `upgrade.py`, `vault_registry.py`, `migrate_naming.py`, `migrations/` |
 | MCP Integration | `brain_mcp/server.py`, `brain_mcp/proxy.py` |

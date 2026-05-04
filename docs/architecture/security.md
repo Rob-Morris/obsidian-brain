@@ -87,7 +87,7 @@ Three built-in profiles define what each agent can do:
 | Profile | Allowed tools |
 |---|---|
 | `reader` | `brain_session`, `brain_read`, `brain_search`, `brain_list` |
-| `contributor` | All reader tools + `brain_create`, `brain_edit` |
+| `contributor` | All reader tools + `brain_create`, `brain_edit`, `brain_process` |
 | `operator` | All contributor tools + `brain_move`, `brain_action` |
 
 Profiles are defined in `defaults/config.yaml` under `vault.profiles` and can be

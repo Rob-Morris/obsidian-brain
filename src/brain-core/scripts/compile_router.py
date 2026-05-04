@@ -38,8 +38,10 @@ from _common import (
     is_valid_key,
 )
 from _common._artefacts import pattern_has_date_tokens
+import build_index
 import compile_colours
 import session
+import _semantic.runtime as _semantic
 
 OUTPUT_PATH = os.path.join(".brain", "local", "compiled-router.json")
 
@@ -1054,7 +1056,11 @@ def compile(vault_root):
 
 
 def persist_compiled_router(vault_root, compiled):
-    """Persist the compiled router and derived colour outputs."""
+    """Persist the compiled router and colour outputs.
+
+    Embedding-sidecar invalidation is the caller's responsibility (router and
+    embeddings are separate invalidation domains).
+    """
     output_path = os.path.join(str(vault_root), OUTPUT_PATH)
     safe_write_json(output_path, compiled, bounds=str(vault_root))
     compile_colours.generate(vault_root, compiled)
@@ -1080,6 +1086,7 @@ def main():
         print(json_output)
     else:
         persist_compiled_router(vault_root, compiled)
+        _semantic.clear_embeddings_outputs(vault_root)
 
         art_count = len(compiled["artefacts"])
         configured = sum(1 for a in compiled["artefacts"] if a["configured"])

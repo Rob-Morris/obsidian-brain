@@ -30,7 +30,7 @@ from _resource_contract import RESOURCE_KINDS
 
 _TOOL_NAMES = (
     "brain_action", "brain_create", "brain_edit", "brain_list", "brain_move",
-    "brain_read", "brain_search", "brain_session",
+    "brain_process", "brain_read", "brain_search", "brain_session",
 )
 
 _DOCSTRING_BANNED_HEADINGS = re.compile(

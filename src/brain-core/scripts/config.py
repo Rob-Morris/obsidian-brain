@@ -37,7 +37,7 @@ LOCAL_CONFIG_YAML = os.path.join(".brain", "local", "config.yaml")
 # All valid MCP tool names (for profile validation)
 _VALID_TOOLS = frozenset([
     "brain_session", "brain_read", "brain_search", "brain_list",
-    "brain_create", "brain_edit", "brain_move", "brain_action",
+    "brain_create", "brain_edit", "brain_process", "brain_move", "brain_action",
 ])
 
 

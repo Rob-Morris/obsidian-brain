@@ -6,6 +6,10 @@ Reference for the brain-core configuration system, operator profiles, core skill
 - [docs/functional/mcp-tools.md](mcp-tools.md) — MCP tool specifications and server details
 - [docs/architecture/decisions/](../architecture/decisions/) — design decisions referenced throughout
 
+Branch note: this document reflects the exploratory `brain-process-wip` branch.
+Shipped `v0.33.0` mainline keeps `brain_process` parked off the supported MCP
+surface.
+
 ---
 
 ## Configuration System
@@ -53,6 +57,44 @@ defaults:
 
 These values belong in `.brain/local/config.yaml`, not `.brain/config.yaml`, because they are machine-local installation details. Environment variables can still override them when a specific runtime launch needs a different binary path.
 
+### Feature flags
+
+Feature flags live under `defaults.flags`. They are off by default in the
+shipped template and follow the normal defaults-zone merge rules, so a local
+override can opt in without changing the shared vault config.
+
+On this branch, semantic and hybrid retrieval also require the optional
+semantic runtime installed via `make install-semantic`. That runtime is pinned
+to the current upstream wheel-supported stack and does not support Intel
+macOS; unsupported installs should stay on lexical search.
+
+Example local opt-in:
+
+```yaml
+defaults:
+  flags:
+    semantic_processing: true
+    semantic_retrieval: true
+```
+
+- `semantic_processing` enables embedding-backed classification, duplicate
+  resolution, and ingest improvements inside `brain_process`. When false,
+  `brain_process` still runs in degraded non-embedding modes.
+- `semantic_retrieval` enables semantic and hybrid artefact search. When true,
+  `brain_search` accepts `mode="semantic"` and `mode="hybrid"`, and omitted
+  `mode` defaults to hybrid when the embeddings sidecars and dependencies are
+  available.
+- `defaults.local_runtime.semantic_engine_installed` is a machine-local marker
+  written by `make install-semantic`. It is a cheap provisioning hint only —
+  the runtime still checks dependencies and sidecars before using the semantic
+  engine.
+- The shipped template default is `false`; enabling it is an explicit opt-in on
+  this branch until the feature returns to main through a separate decision.
+- When either flag is enabled, `build_index.py` and the MCP server may refresh
+  the optional `.brain/local/type-embeddings.npy`,
+  `.brain/local/doc-embeddings.npy`, and `.brain/local/embeddings-meta.json`
+  sidecars on demand.
+
 ### Startup behaviour
 
 On startup, the MCP server calls `load_config()`, which reads all three layers, runs the merge, validates the result (unknown profile tool names raise warnings), and returns a typed dict. If a layer's YAML is missing or unparseable, it is treated as `{}` with a warning — the server continues with the remaining layers.
@@ -93,8 +135,8 @@ The config system supports three built-in operator profiles with different level
 | Profile | Intended use |
 |---------|-------------|
 | `reader` | Read-only access — `brain_session`, `brain_read`, `brain_search`, `brain_list` |
-| `contributor` | Read + create/edit — adds `brain_create`, `brain_edit` |
-| `operator` | Full access — all tools including `brain_move` and `brain_action` |
+| `contributor` | Read + create/edit — adds `brain_create`, `brain_edit`, `brain_process` |
+| `operator` | Full access — all tools including `brain_process`, `brain_move`, and `brain_action` |
 
 Each profile has a per-tool allow-list defined in the vault config. Tools not on the active profile's allow-list return an error `CallToolResult` — no silent failures.
 

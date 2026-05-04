@@ -11,6 +11,12 @@ dev = [
     "pytest>=9.0",
     "pytest-bdd>=8.0",
 ]
+semantic = [
+    "numpy==2.4.4; not (sys_platform == 'darwin' and platform_machine == 'x86_64')",
+    "torch==2.11.0; not (sys_platform == 'darwin' and platform_machine == 'x86_64')",
+    "transformers==5.5.4; not (sys_platform == 'darwin' and platform_machine == 'x86_64')",
+    "sentence-transformers==5.4.1; not (sys_platform == 'darwin' and platform_machine == 'x86_64')",
+]
 
 [tool.interrogate]
 paths = ["src/brain-core/scripts"]

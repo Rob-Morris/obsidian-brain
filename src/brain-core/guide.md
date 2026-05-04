@@ -227,22 +227,25 @@ For project scope, registration is not the whole story. Claude still needs the p
 
 ## Tooling
 
-If your vault has the Brain MCP server running, you get eight tools:
+On the exploratory `brain-process-wip` branch, if your vault has the Brain MCP
+server running, you get nine tools. Shipped `v0.33.0` mainline vaults still
+expose eight and keep `brain_process` parked.
 
 - **brain_session** — bootstrap an agent session in one call (static core bootstrap content, structured core-doc references with explicit `brain_read(resource="file", ...)` load instructions, always-rules, preferences, gotchas, triggers, artefact types, environment); also refreshes `.brain/local/session.md`
 - **brain_read** — read a specific resource by name: artefact content (by relative path, basename, or display name — resolves like wikilinks), type definitions, triggers, styles, templates, skills, plugins, memories, workspaces, or compliance checks. Name is required for collection resources; use brain_list to enumerate collections.
-- **brain_search** — find files by query, type, or tag (relevance-ranked, BM25). Also searches non-artefact collections (skills, triggers, styles, memories, plugins) via text matching (use `resource` parameter).
+- **brain_search** — find files by query, type, tag, status, and retrieval mode (`lexical`, `semantic`, `hybrid`). Omitted mode prefers hybrid when semantic retrieval is enabled and usable; lexical may use Obsidian CLI, while non-artefact collections stay lexical-only.
 - **brain_list** — enumerate resources exhaustively. For artefacts: filter by type, date range, or tag (not relevance-ranked; use when completeness matters). Also lists non-artefact collections: skills, triggers, styles, plugins, memories, templates, types, workspaces, archives (use `resource` parameter).
 - **brain_create** — create a new artefact or _Config/ resource (additive, safe to auto-approve). Use `resource` parameter for skill, memory, style, or template creation.
 - **brain_edit** — edit, append, prepend, or delete_section on an existing artefact or _Config/ resource (by path/basename for artefacts, by name for skill/memory/style/template). The public model is explicit: `target` selects `:body`, a heading, or a callout; optional `selector` disambiguates duplicates via ancestor steps and 1-based `occurrence`; `scope` selects the mutable range (`section` / `intro` on `:body`, `section` / `body` / `intro` / `heading` on headings, `section` / `body` / `header` on callouts). `delete_section` uses the same `target` / `selector` model without `scope`. Body mutations require `target=":body"` plus scope, callouts do not terminate body intro, legacy spellings (`:entire_body`, `:body_preamble`, `:body_before_first_heading`, `:section:...`) now hard-error with migration guidance, and confirmations include the resolved structural range instead of surrounding-heading context. Frontmatter merge strategy follows the operation verb (edit overwrites, append/prepend extend lists, null deletes field); artefacts auto-move to `+Status/` folders on terminal status change and back out on revive; config resources skip auto-move and modified injection
 - **brain_move** — rename, convert, archive, or unarchive artefacts via a flat top-level move contract
 - **brain_action** — smaller workflow/utility bucket for delete, shaping helpers, and fix-links
+- **brain_process** — experimental content tool for classifying against artefact types, resolving duplicates, or running the full ingest pipeline (classify → resolve → create/update). Embedding-backed behavior is controlled by `defaults.flags.semantic_processing`; degraded non-embedding behavior remains available when it is off.
 
 The MCP server logs to `.brain/local/mcp-server.log` — startup diagnostics, tool call tracing, and errors. Set `BRAIN_LOG_LEVEL=DEBUG` for tool argument details.
 
 For structural compliance (naming, frontmatter, archives), run `python3 .brain-core/scripts/check.py` or use `brain_read(resource="compliance")` via MCP.
 
-Without MCP, read `.brain-core/index.md` first. It routes to the generated markdown session mirror at `.brain/local/session.md` when available, or to `.brain-core/md-bootstrap.md` for the degraded raw-file fallback. The scripts in `.brain-core/scripts/` remain available directly (`read.py`, `search_index.py`, `create.py`, `edit.py`, `rename.py`, `compile_router.py`, `compile_colours.py`, `check.py`, `repair.py`, `fix_links.py`, `sync_definitions.py`, `workspace_registry.py`, `vault_registry.py`, `migrate_naming.py`, `session.py`, `build_index.py`, `shape_printable.py`, `shape_presentation.py`, `start_shaping.py`, `init.py`, `upgrade.py`, `config.py`, `generate_key.py`). Library modules such as `list_artefacts.py` and `obsidian_cli.py` also remain available to script callers even though they are not primary CLI entry points.
+Without MCP, read `.brain-core/index.md` first. It routes to the generated markdown session mirror at `.brain/local/session.md` when available, or to `.brain-core/md-bootstrap.md` for the degraded raw-file fallback. The scripts in `.brain-core/scripts/` remain available directly (`read.py`, `search_index.py`, `evaluate_search.py`, `create.py`, `edit.py`, `rename.py`, `compile_router.py`, `compile_colours.py`, `check.py`, `repair.py`, `fix_links.py`, `sync_definitions.py`, `workspace_registry.py`, `vault_registry.py`, `migrate_naming.py`, `session.py`, `build_index.py`, `shape_printable.py`, `shape_presentation.py`, `start_shaping.py`, `init.py`, `upgrade.py`, `config.py`, `generate_key.py`). Library modules such as `list_artefacts.py` and `obsidian_cli.py` also remain available to script callers even though they are not primary CLI entry points.
 
 ## Further Reading
 

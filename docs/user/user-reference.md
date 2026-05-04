@@ -97,7 +97,10 @@ Skill documents for MCP tools, CLI commands, or plugin workflows. One folder per
 
 ### MCP Tools
 
-If your vault runs the Brain MCP server (`.brain-core/brain_mcp/server.py`), eight tools are available:
+On the exploratory `brain-process-wip` branch, if your vault runs the Brain MCP
+server (`.brain-core/brain_mcp/server.py`), nine tools are available. Shipped
+`v0.33.0` mainline vaults still expose eight tools and keep `brain_process`
+parked.
 
 **brain_session** (safe, auto-approvable)
 - Bootstrap an agent session in one call — returns the canonical session model as compact JSON
@@ -115,8 +118,9 @@ If your vault runs the Brain MCP server (`.brain-core/brain_mcp/server.py`), eig
 - Search vault content by query text
 - Optional `resource` parameter (default `"artefact"`) — also accepts `skill`, `trigger`, `style`, `memory`, `plugin` for searching non-artefact collections via text matching
 - Artefact-specific filters: `type` (key, full type, or singular form), `tag`, `status`
-- Returns ranked results with paths, titles, scores, and text snippets
-- Uses Obsidian CLI when available, falls back to BM25 index; `resource="artefact"` stays scoped to artefacts, while non-artefact resources use text matching
+- Optional `mode` parameter for artefact search: `lexical`, `semantic`, `hybrid`. If omitted, Brain prefers `hybrid` when semantic retrieval is enabled and usable; otherwise it uses `lexical`
+- `lexical` may use Obsidian CLI when available; `semantic` uses persisted vectors only; `hybrid` fuses BM25 + vectors and does not use Obsidian CLI as its lexical leg
+- Non-artefact resources stay lexical-only and reject semantic/hybrid modes
 
 **brain_list** (safe, no side effects)
 - List vault artefacts exhaustively — not relevance-ranked
@@ -175,6 +179,10 @@ If your vault runs the Brain MCP server (`.brain-core/brain_mcp/server.py`), eig
 - `shape-presentation` — request shape: `{action: "shape-presentation", params: {source, slug, render?, preview?}}`; creates a presentation artefact, renders `_Assets/Generated/Presentations/{stem}.pdf`, and optionally launches Marp live preview
 - `start-shaping` — request shape: `{action: "start-shaping", params: {target, title?, skill_type?}}`; bootstraps a shaping session for an existing artefact and revives `+Status/` artefacts back into the active folder when shaping resumes
 - `fix-links` — request shape: `{action: "fix-links", params: {fix?, path?, links?}}`; scans for broken wikilinks and attempts auto-resolution
+**brain_process** (experimental content processing — classify/resolve are read-only, ingest can create/update; embedding-backed behavior is enabled with `defaults.flags.semantic_processing`, but degraded non-embedding behavior remains available by default)
+- `classify` — determine the best artefact type for content; returns ranked matches with confidence scores. Modes: `auto` (default), `embedding`, `bm25_only`, `context_assembly`
+- `resolve` — check if content should create a new artefact or update an existing one (requires `type` and `title`); returns create/update/ambiguous decision with candidate paths
+- `ingest` — full pipeline: classify → infer title → resolve → create/update. Optional `type`/`title` hints skip their respective steps
 
 ### Server Logging
 
@@ -188,9 +196,10 @@ Available in `.brain-core/scripts/`. Scripts are the source of truth for all vau
 |---|---|
 | `compile_router.py` | Compile router, taxonomy, skills, and styles into a single JSON file |
 | `compile_colours.py` | Generate folder colour CSS and graph colour groups |
-| `build_index.py` | Build the BM25 retrieval index for search |
+| `build_index.py` | Build the retrieval index for search and refresh embeddings sidecars when `semantic_processing` or `semantic_retrieval` is enabled, router data is available, and the optional semantic runtime has been installed |
 | `list_artefacts.py` | Enumerate vault artefacts and resources (library module used by MCP) |
-| `search_index.py` | Search the BM25 index from the command line |
+| `search_index.py` | Search the local retrieval index from the command line via lexical, semantic, or hybrid modes |
+| `evaluate_search.py` | Benchmark lexical, semantic, and hybrid retrieval against a JSON query set so you can measure search quality before tuning it; semantic and hybrid modes require the optional semantic runtime |
 | `read.py` | Query compiled router resources (artefacts, triggers, styles, templates, skills, etc.) |
 | `create.py` | Create a new artefact with template/naming resolution |
 | `edit.py` | Edit artefacts via explicit `target + selector + scope`; the importable helpers also back editable `_Config/` resources |
@@ -198,6 +207,7 @@ Available in `.brain-core/scripts/`. Scripts are the source of truth for all vau
 | `repair.py` | Explicit infrastructure repair entry point. Bootstraps from any compatible Python 3.12+ launcher, converges into the vault-local `.venv`, and then repairs one named scope: `mcp`, `router`, `index`, or `registry`. |
 | `session.py` | Build the canonical session model and refresh `.brain/local/session.md` |
 | `obsidian_cli.py` | IPC client for native Obsidian CLI (library module used by MCP) |
+| `process.py` | Experimental content classification, duplicate resolution, ingestion |
 | `shape_printable.py` | Create printable + render PDF |
 | `shape_presentation.py` | Create presentation + render PDF + launch preview |
 | `start_shaping.py` | Bootstrap a shaping session for an existing artefact |

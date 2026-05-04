@@ -14,6 +14,7 @@ import build_index
 import compile_router
 import init
 import workspace_registry
+import _semantic.runtime as _semantic
 from _common import iter_artefact_paths
 from _repair_common import attach_repair_guidance, iso_now, make_result_envelope, step as _step
 
@@ -446,6 +447,7 @@ def repair_router(vault_root: Path, dry_run: bool, bootstrap_steps: list[dict] |
 
     compiled = compile_router.compile(str(vault_root))
     compile_router.persist_compiled_router(str(vault_root), compiled)
+    _semantic.clear_embeddings_outputs(str(vault_root))
     steps.append(_step("router", "changed", f"Rebuilt the compiled router ({reason})."))
     try:
         compile_router.refresh_session_markdown(str(vault_root), compiled)

@@ -1,11 +1,15 @@
 """Tests for build_index.py — BM25 retrieval index builder."""
 
+import io
 import json
 import os
+from unittest.mock import patch
 
 import pytest
 
+import _semantic.runtime as _semantic
 import build_index as bi
+import config as config_mod
 from _common import is_system_dir, iter_artefact_paths, parse_frontmatter
 
 
@@ -220,6 +224,26 @@ class TestBuildIndex:
         assert "corpus_stats" in index
         assert "documents" in index
 
+    def test_in_memory_index_retains_build_local_body_fields(self, vault):
+        """Documents carry retained body slice + headings in memory."""
+        index = bi.build_index(vault)
+        for doc in index["documents"]:
+            assert "_body_head" in doc
+            assert "_headings" in doc
+            assert isinstance(doc["_body_head"], str)
+            assert isinstance(doc["_headings"], list)
+
+    def test_persisted_index_strips_build_local_body_fields(self, vault):
+        """Build-local body fields must not land in retrieval-index.json."""
+        index = bi.build_index(vault)
+        assert any("_body_head" in doc for doc in index["documents"])
+        bi.persist_retrieval_index(vault, index)
+        with open(vault / bi.OUTPUT_PATH, encoding="utf-8") as f:
+            data = json.load(f)
+        for doc in data["documents"]:
+            assert "_body_head" not in doc
+            assert "_headings" not in doc
+
     def test_meta_fields(self, vault):
         index = bi.build_index(vault)
         meta = index["meta"]
@@ -317,8 +341,8 @@ class TestBuildIndex:
 # ---------------------------------------------------------------------------
 
 class TestIncrementalIndex:
-    def test_index_add_new_document(self, vault):
-        """index_add should add a new document and update corpus stats."""
+    def test_index_update_new_document(self, vault):
+        """index_update should add a new document and update corpus stats."""
         index = bi.build_index(vault)
         old_count = index["meta"]["document_count"]
         # Write a new file
@@ -326,7 +350,7 @@ class TestIncrementalIndex:
             "---\ntype: living/wiki\ntags: []\nstatus: active\n---\n\n"
             "# New Topic\n\nUnique xylophonic content here.\n"
         )
-        doc = bi.index_add(index, vault, "Wiki/new-topic.md", type_hint="living/wiki")
+        doc = bi.index_update(index, vault, "Wiki/new-topic.md", type_hint="living/wiki")
         assert doc is not None
         assert doc["title"] == "new-topic"
         assert index["meta"]["document_count"] == old_count + 1
@@ -334,11 +358,11 @@ class TestIncrementalIndex:
         paths = [d["path"] for d in index["documents"]]
         assert "Wiki/new-topic.md" in paths
 
-    def test_index_add_unreadable_returns_none(self, vault):
-        """index_add returns None for a path that doesn't exist."""
+    def test_index_update_unreadable_returns_none(self, vault):
+        """index_update returns None for a path that doesn't exist."""
         index = bi.build_index(vault)
         old_count = index["meta"]["document_count"]
-        doc = bi.index_add(index, vault, "Wiki/nonexistent.md")
+        doc = bi.index_update(index, vault, "Wiki/nonexistent.md")
         assert doc is None
         assert index["meta"]["document_count"] == old_count
 
@@ -367,3 +391,243 @@ class TestIncrementalIndex:
         assert doc is not None
         assert index["meta"]["document_count"] == old_count + 1
 
+# ---------------------------------------------------------------------------
+# Embedding building
+# ---------------------------------------------------------------------------
+
+class TestBuildEmbeddings:
+    def test_returns_none_without_deps(self, vault):
+        """When sentence-transformers is unavailable, returns None."""
+        with patch.object(bi, "_HAS_EMBEDDINGS", False):
+            result = bi.build_embeddings(vault, {"artefacts": []}, [])
+            assert result is None
+
+    def test_routes_npy_writes_through_safe_save_wrapper(self, vault, monkeypatch):
+        """build_embeddings writes both arrays through the local atomic wrapper path."""
+        calls = []
+
+        class FakeNumpy:
+            @staticmethod
+            def zeros(shape):
+                return {"shape": shape}
+
+            @staticmethod
+            def save(handle, array):
+                handle.write(b"\x93NUMPY")
+                handle.write(repr(array).encode("utf-8"))
+
+        class FakeModel:
+            def encode(self, texts, normalize_embeddings=True):  # pragma: no cover - empty inputs below
+                raise AssertionError("encode should not run for empty inputs")
+
+        def fake_safe_write_via(path, writer, **kwargs):
+            handle = io.BytesIO()
+            writer(handle)
+            calls.append((path, kwargs.get("bounds"), handle.getvalue()))
+            return str(path)
+
+        monkeypatch.setattr(bi, "_HAS_EMBEDDINGS", True)
+        monkeypatch.setattr(bi, "np", FakeNumpy(), raising=False)
+        monkeypatch.setattr(bi, "SentenceTransformer", lambda model: FakeModel(), raising=False)
+        monkeypatch.setattr(bi, "safe_write_via", fake_safe_write_via)
+
+        result = bi.build_embeddings(vault, {"artefacts": []}, [])
+
+        assert result is not None
+        assert [path for path, _bounds, _payload in calls] == [
+            str(vault / _semantic.TYPE_EMBEDDINGS_REL),
+            str(vault / _semantic.DOC_EMBEDDINGS_REL),
+        ]
+        assert all(bounds == str(vault) for _path, bounds, _payload in calls)
+        assert all(payload.startswith(b"\x93NUMPY") for _path, _bounds, payload in calls)
+
+    def test_document_meta_includes_type_and_title(self, vault, monkeypatch):
+        """Document embedding metadata must preserve retrieval filters and titles."""
+        class FakeNumpy:
+            @staticmethod
+            def zeros(shape):
+                return {"shape": shape}
+
+            @staticmethod
+            def save(handle, array):
+                handle.write(b"\x93NUMPY")
+                handle.write(repr(array).encode("utf-8"))
+
+        class FakeModel:
+            def encode(self, texts, normalize_embeddings=True):
+                return [[0.0] for _ in texts]
+
+        monkeypatch.setattr(bi, "_HAS_EMBEDDINGS", True)
+        monkeypatch.setattr(bi, "np", FakeNumpy(), raising=False)
+        monkeypatch.setattr(bi, "SentenceTransformer", lambda model: FakeModel(), raising=False)
+        monkeypatch.setattr(
+            bi,
+            "safe_write_via",
+            lambda path, writer, **kwargs: writer(io.BytesIO()),
+        )
+
+        index = bi.build_index(vault)
+        result = bi.build_embeddings(vault, {"artefacts": []}, index["documents"])
+
+        assert result is not None
+        _type_emb, _doc_emb, meta = result
+        by_path = {entry["path"]: entry for entry in meta["documents"]}
+        assert by_path["Wiki/python-basics.md"]["type"] == "living/wiki"
+        assert by_path["Wiki/python-basics.md"]["title"] == "python-basics"
+        assert by_path["Wiki/python-basics.md"]["tags"] == ["python", "programming"]
+        assert by_path["Wiki/python-basics.md"]["status"] == "active"
+
+
+class TestEmbeddingsOutputs:
+    def test_embeddings_follow_shared_feature_flags(self, vault):
+        cfg = {
+            "defaults": {
+                "flags": {
+                    "semantic_processing": False,
+                    "semantic_retrieval": False,
+                },
+                "local_runtime": {"semantic_engine_installed": False},
+            }
+        }
+
+        assert _semantic.semantic_processing_enabled(vault, config=cfg) is False
+        assert _semantic.semantic_retrieval_enabled(vault, config=cfg) is False
+        assert _semantic.embeddings_enabled(vault, config=cfg) is False
+
+        cfg["defaults"]["flags"]["semantic_processing"] = True
+        assert _semantic.semantic_processing_enabled(vault, config=cfg) is True
+        assert _semantic.embeddings_enabled(vault, config=cfg) is True
+
+        cfg["defaults"]["flags"]["semantic_processing"] = False
+        cfg["defaults"]["flags"]["semantic_retrieval"] = True
+        assert _semantic.semantic_processing_enabled(vault, config=cfg) is False
+        assert _semantic.semantic_retrieval_enabled(vault, config=cfg) is True
+        assert _semantic.embeddings_enabled(vault, config=cfg) is True
+
+    def test_persist_outputs_clears_stale_sidecars_when_disabled(self, vault):
+        local_dir = vault / ".brain" / "local"
+        local_dir.mkdir(parents=True, exist_ok=True)
+        for rel_path in (
+            _semantic.TYPE_EMBEDDINGS_REL,
+            _semantic.DOC_EMBEDDINGS_REL,
+            _semantic.EMBEDDINGS_META_REL,
+        ):
+            abs_path = vault / rel_path
+            abs_path.parent.mkdir(parents=True, exist_ok=True)
+            abs_path.write_bytes(b"stale")
+
+        index = bi.build_index(vault)
+        result = bi.persist_retrieval_outputs(
+            vault,
+            index,
+            router={"artefacts": []},
+            enable_embeddings=False,
+        )
+
+        assert result is None
+        for rel_path in (
+            _semantic.TYPE_EMBEDDINGS_REL,
+            _semantic.DOC_EMBEDDINGS_REL,
+            _semantic.EMBEDDINGS_META_REL,
+        ):
+            assert not (vault / rel_path).exists()
+
+    def test_persist_outputs_clears_stale_sidecars_when_process_disabled(self, vault):
+        for rel_path in (
+            _semantic.TYPE_EMBEDDINGS_REL,
+            _semantic.DOC_EMBEDDINGS_REL,
+            _semantic.EMBEDDINGS_META_REL,
+        ):
+            abs_path = vault / rel_path
+            abs_path.parent.mkdir(parents=True, exist_ok=True)
+            abs_path.write_bytes(b"stale")
+
+        cfg = {
+            "defaults": {
+                "flags": {
+                    "semantic_processing": False,
+                    "semantic_retrieval": False,
+                },
+                "local_runtime": {"semantic_engine_installed": False},
+            }
+        }
+        index = bi.build_index(vault)
+        result = bi.persist_retrieval_outputs(
+            vault,
+            index,
+            router={"artefacts": []},
+            config=cfg,
+        )
+
+        assert result is None
+        for rel_path in (
+            _semantic.TYPE_EMBEDDINGS_REL,
+            _semantic.DOC_EMBEDDINGS_REL,
+            _semantic.EMBEDDINGS_META_REL,
+        ):
+            assert not (vault / rel_path).exists()
+
+
+class TestBuildIndexMain:
+    def test_main_errors_when_config_load_fails(self, vault, monkeypatch, capsys):
+        monkeypatch.setattr(bi, "find_vault_root", lambda: vault)
+        monkeypatch.setattr(
+            config_mod,
+            "load_config",
+            lambda _vault: (_ for _ in ()).throw(ValueError("bad config")),
+        )
+        monkeypatch.setattr(bi.sys, "argv", ["build_index.py"])
+
+        with pytest.raises(SystemExit) as exc:
+            bi.main()
+
+        assert exc.value.code == 1
+        assert "failed to load config: bad config" in capsys.readouterr().err
+
+    def test_main_refreshes_embeddings_when_router_available(self, vault, monkeypatch, capsys):
+        calls = []
+
+        def fake_build_embeddings(vault_root, router, documents):
+            calls.append((str(vault_root), router, documents))
+            return (object(), object(), {"documents": [], "types": []})
+
+        monkeypatch.setattr(bi, "find_vault_root", lambda: vault)
+        monkeypatch.setattr(_semantic, "embeddings_enabled", lambda *args, **kwargs: True)
+        monkeypatch.setattr(
+            _semantic,
+            "semantic_engine_available",
+            lambda *args, **kwargs: True,
+        )
+        monkeypatch.setattr(bi, "load_compiled_router", lambda _vault: {"artefacts": []})
+        monkeypatch.setattr(bi, "build_embeddings", fake_build_embeddings)
+        monkeypatch.setattr(bi.sys, "argv", ["build_index.py"])
+
+        bi.main()
+
+        captured = capsys.readouterr()
+        assert (vault / ".brain" / "local" / "retrieval-index.json").is_file()
+        assert len(calls) == 1
+        assert calls[0][0] == str(vault)
+        assert calls[0][1] == {"artefacts": []}
+        assert calls[0][2]
+        assert "embeddings refreshed" in captured.err
+
+    def test_main_skips_embeddings_when_flag_disabled(self, vault, monkeypatch, capsys):
+        calls = []
+
+        monkeypatch.setattr(bi, "find_vault_root", lambda: vault)
+        monkeypatch.setattr(_semantic, "embeddings_enabled", lambda *args, **kwargs: False)
+        monkeypatch.setattr(bi, "load_compiled_router", lambda _vault: {"artefacts": []})
+        monkeypatch.setattr(
+            bi,
+            "build_embeddings",
+            lambda *args, **kwargs: calls.append(args) or (object(), object(), {"documents": [], "types": []}),
+        )
+        monkeypatch.setattr(bi.sys, "argv", ["build_index.py"])
+
+        bi.main()
+
+        captured = capsys.readouterr()
+        assert (vault / ".brain" / "local" / "retrieval-index.json").is_file()
+        assert calls == []
+        assert "embeddings refreshed" not in captured.err

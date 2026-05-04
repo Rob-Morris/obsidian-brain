@@ -4,13 +4,14 @@ Brain MCP Server — thin MCP wrapper over brain-core scripts.
 
 All logic lives in `.brain-core/scripts/` as importable functions.
 The server imports them, holds the compiled router and search index in memory,
-and exposes 8 MCP tools:
+and exposes 9 MCP tools:
   brain_session — bootstrap an agent session (compiled payload, one call)
   brain_read    — read compiled router resources (safe, no side effects)
-  brain_search  — BM25 keyword search, with optional Obsidian CLI live search
+  brain_search  — relevance-ranked lexical, semantic, or hybrid search
   brain_list    — exhaustive enumeration by type, date range, or tag (not relevance-ranked)
   brain_create  — create new vault artefacts (additive, safe to auto-approve)
   brain_edit    — modify existing vault artefacts (single-file mutation)
+  brain_process — experimental content classification, resolution, and ingestion
   brain_move    — destructive content-move ops: rename, convert, archive, unarchive
   brain_action  — workflow/utility bucket: delete, shaping helpers, fix-links
 
@@ -84,11 +85,13 @@ from _common import (
 import edit
 from _resource_contract import RESOURCE_KINDS
 import obsidian_cli
+import retrieval_embeddings as _retrieval_embeddings
 import session
 import workspace_registry
 import config as config_mod
 from . import _server_actions
 from . import _server_artefacts
+from . import _server_content
 from . import _server_reading
 from . import _server_session
 from ._server_contracts import (
@@ -132,6 +135,17 @@ _cli_probed_at: float = 0.0  # monotonic timestamp of last CLI probe
 _vault_name: str | None = None
 _loaded_version: str | None = None
 _workspace_registry: dict | None = None
+_type_embeddings = None
+_embeddings_meta = None
+_doc_embeddings = None
+# _doc_embeddings_pending tracks specific paths whose doc embeddings are stale.
+# _doc_embeddings_dirty is a full-rebuild signal that overrides the set.
+# _type_embeddings_dirty signals taxonomy churn (router change) requiring type re-encode.
+# Refresh fires if any of these are non-default OR any in-memory cache is None.
+_doc_embeddings_pending: set[str] = set()
+_doc_embeddings_pending_lock = threading.Lock()
+_doc_embeddings_dirty: bool = False
+_type_embeddings_dirty: bool = False
 
 
 # Staleness-check TTLs — intentionally different because the checks have
@@ -774,22 +788,126 @@ def _refresh_session_mirror_best_effort() -> None:
     _enqueue_mirror_refresh()
 
 
+def _embeddings_enabled() -> bool:
+    """Return True when any enabled feature needs embedding sidecars."""
+    if _vault_root is None:
+        return False
+    if not _retrieval_embeddings.embeddings_enabled(_vault_root, config=_config):
+        return False
+    return _retrieval_embeddings.semantic_engine_available(
+        _vault_root,
+        config=_config,
+        skip_sidecar_check=True,
+    )
+
+
+def _clear_loaded_embeddings() -> None:
+    """Drop in-memory embeddings so callers cannot use stale arrays."""
+    global _type_embeddings, _embeddings_meta, _doc_embeddings
+    _type_embeddings = None
+    _embeddings_meta = None
+    _doc_embeddings = None
+
+
+def _invalidate_embeddings_disk_state() -> None:
+    """Delete persisted embeddings sidecars after router/index-affecting writes."""
+    if _vault_root is None:
+        return
+    _retrieval_embeddings.clear_embeddings_outputs(_vault_root)
+
+
 def _mark_index_dirty() -> None:
-    """Flag the index for a full rebuild (e.g. version drift, unknown scope of change)."""
-    global _index_dirty
+    """Flag the index for a full rebuild (e.g. version drift, unknown scope of change).
+
+    Index rebuild may add/remove docs, so doc embeddings need full re-encode.
+    Type embeddings are sourced from the router and are not affected here.
+    """
+    global _index_dirty, _doc_embeddings_dirty
     _index_dirty = True
+    _doc_embeddings_dirty = True
+    _clear_loaded_embeddings()
 
 
 def _mark_router_dirty() -> None:
-    """Flag the router for recompile on the next _ensure_router_fresh call."""
-    global _router_dirty
+    """Flag the router for recompile on the next _ensure_router_fresh call.
+
+    Router holds taxonomy → type embeddings dirty. Each doc's embedding text
+    includes its type description, so doc embeddings are also stale.
+    """
+    global _router_dirty, _doc_embeddings_dirty, _type_embeddings_dirty
     _router_dirty = True
+    _doc_embeddings_dirty = True
+    _type_embeddings_dirty = True
+    _clear_loaded_embeddings()
+
+
+def _mark_embeddings_dirty() -> None:
+    """Mark all embeddings dirty (doc + type). Use sparingly — prefer per-path."""
+    global _doc_embeddings_dirty, _type_embeddings_dirty
+    _doc_embeddings_dirty = True
+    _type_embeddings_dirty = True
+    _clear_loaded_embeddings()
+
+
+def _ensure_embeddings_fresh() -> None:
+    """Rebuild doc embeddings if they're out of sync with the index.
+
+    Called lazily before search/process operations that need embeddings. Only
+    rebuilds if deps are available and the router is loaded.
+    """
+    global _doc_embeddings, _embeddings_meta, _type_embeddings
+    global _doc_embeddings_dirty, _type_embeddings_dirty
+    if _vault_root is None:
+        return
+    if not _embeddings_enabled():
+        _clear_loaded_embeddings()
+        _retrieval_embeddings.clear_query_encoder()
+        _invalidate_embeddings_disk_state()
+        _doc_embeddings_dirty = False
+        _type_embeddings_dirty = False
+        with _doc_embeddings_pending_lock:
+            _doc_embeddings_pending.clear()
+        return
+    if _index is None or _router is None:
+        return
+    with _doc_embeddings_pending_lock:
+        has_pending = bool(_doc_embeddings_pending)
+    needs_build = (
+        _doc_embeddings_dirty
+        or _type_embeddings_dirty
+        or has_pending
+        or any(value is None for value in (_type_embeddings, _embeddings_meta, _doc_embeddings))
+    )
+    if not needs_build:
+        return
+    result = build_index.refresh_embeddings_outputs(
+        _vault_root,
+        _router,
+        _index["documents"],
+        enable_embeddings=True,
+    )
+    if result is not None:
+        _type_embeddings, _doc_embeddings, _embeddings_meta = result
+    else:
+        _clear_loaded_embeddings()
+    _doc_embeddings_dirty = False
+    _type_embeddings_dirty = False
+    with _doc_embeddings_pending_lock:
+        _doc_embeddings_pending.clear()
 
 
 def _mark_index_pending(rel_path: str, type_hint: str | None = None) -> None:
-    """Queue a single file for incremental index update on the next search."""
+    """Queue a single file for incremental index update on the next search.
+
+    Also queues the same path for doc-embedding refresh. Sidecars are NOT
+    eager-deleted — the next refresh overwrites them. Stale-but-loadable sidecars
+    are preferred over missing-and-failing-fallback.
+    """
     with _index_pending_lock:
         _index_pending.append((rel_path, type_hint))
+    with _doc_embeddings_pending_lock:
+        _doc_embeddings_pending.add(rel_path)
+    _clear_loaded_embeddings()
 
 
 def _ensure_index_fresh() -> None:
@@ -823,7 +941,13 @@ def _ensure_index_fresh() -> None:
             build_index._recompute_corpus_stats(_index)
             if saved_built_at:
                 _index["meta"]["built_at"] = saved_built_at  # Don't advance threshold
-            _save_json(_index, _vault_root, _index_rel())
+            # Use build_index.persist_retrieval_index so build-local fields
+            # (body slices, heading lists) get stripped before the JSON write.
+            build_index.persist_retrieval_index(_vault_root, _index)
+            # Doc paths were already added to _doc_embeddings_pending by
+            # _mark_index_pending. Just drop the in-memory cache so the next
+            # semantic call rebuilds.
+            _clear_loaded_embeddings()
             _index_checked_at = time.monotonic()
         except Exception as e:
             if _logger:
@@ -865,11 +989,16 @@ def _compile_and_save(vault_root: str) -> dict:
     logged against the right scope (startup phase vs. mid-session recompile).
     """
     global _router_checked_at, _router_dirty
+    global _doc_embeddings_dirty, _type_embeddings_dirty
     compiled = compile_router.compile(vault_root)
     compile_router.persist_compiled_router(vault_root, compiled)
+    _clear_loaded_embeddings()
     _set_router(compiled)
     _router_checked_at = time.monotonic()
     _router_dirty = False
+    if _embeddings_enabled():
+        _doc_embeddings_dirty = True
+        _type_embeddings_dirty = True
     return compiled
 
 
@@ -879,16 +1008,49 @@ def _build_index_and_save(vault_root: str) -> dict:
     Always clears _index_dirty, _index_pending, and resets the staleness-check
     TTL so that callers don't need to remember to do it themselves.
     """
-    global _index_dirty, _index_checked_at
+    global _index_dirty, _index_checked_at, _embeddings_meta, _type_embeddings, _doc_embeddings
+    global _doc_embeddings_dirty, _type_embeddings_dirty
     index = build_index.build_index(vault_root)
-    build_index.persist_retrieval_index(vault_root, index)
+    result = build_index.persist_retrieval_outputs(
+        vault_root,
+        index,
+        router=_router,
+        enable_embeddings=_embeddings_enabled(),
+        config=_config,
+    )
     _index_dirty = False
+    _doc_embeddings_dirty = False
+    _type_embeddings_dirty = False
     with _index_pending_lock:
         _index_pending.clear()
+    with _doc_embeddings_pending_lock:
+        _doc_embeddings_pending.clear()
     _index_checked_at = time.monotonic()
+    if result is not None:
+        _type_embeddings, _doc_embeddings, _embeddings_meta = result
+    else:
+        _clear_loaded_embeddings()
     return index
 
 
+def _load_embeddings(vault_root: str) -> None:
+    """Load pre-built embeddings from disk if available."""
+    global _type_embeddings, _embeddings_meta, _doc_embeddings
+    if not _embeddings_enabled():
+        _clear_loaded_embeddings()
+        _retrieval_embeddings.clear_query_encoder()
+        _retrieval_embeddings.clear_embeddings_outputs(vault_root)
+        return
+    type_embeddings, doc_embeddings, meta = _retrieval_embeddings.load_embeddings_state(
+        vault_root
+    )
+    if meta is None:
+        _clear_loaded_embeddings()
+        _retrieval_embeddings.clear_query_encoder()
+        return
+    _type_embeddings = type_embeddings
+    _doc_embeddings = doc_embeddings
+    _embeddings_meta = meta
 # ---------------------------------------------------------------------------
 # Startup
 # ---------------------------------------------------------------------------
@@ -961,6 +1123,8 @@ def startup(vault_root: str | None = None) -> None:
             return _index
     _run_startup_phase("index_freshness", _load_index)
 
+    _run_startup_phase("embeddings_load", lambda: _load_embeddings(_vault_root))
+
     # Load workspace registry
     _workspace_registry = _run_startup_phase(
         "workspace_registry_load",
@@ -997,6 +1161,9 @@ def _get_state() -> ServerState:
         cli_available=_cli_available,
         vault_name=_vault_name,
         workspace_registry=_workspace_registry,
+        type_embeddings=_type_embeddings,
+        embeddings_meta=_embeddings_meta,
+        doc_embeddings=_doc_embeddings,
         logger=_logger,
     )
 
@@ -1033,8 +1200,10 @@ def _runtime() -> ServerRuntime:
         refresh_cli_available=_refresh_cli_available,
         ensure_router_fresh=_ensure_router_fresh,
         ensure_index_fresh=_ensure_index_fresh,
+        ensure_embeddings_fresh=_ensure_embeddings_fresh,
         check_version_drift=_check_version_drift,
         mark_index_dirty=_mark_index_dirty,
+        mark_embeddings_dirty=_mark_embeddings_dirty,
         mark_index_pending=_mark_index_pending,
         mark_router_dirty=_mark_router_dirty,
         compile_and_save=_compile_and_save,
@@ -1120,12 +1289,11 @@ _NAME_DESCRIPTION = (
 _FIX_LINKS_DESCRIPTION = "Repair resolvable broken wikilinks in this file."
 
 _ARTEFACT_TYPE_FILTER_DESCRIPTION = (
-    "Artefact type filter (e.g. 'living/wiki', 'temporal/research'). "
-    "Applied only when resource='artefact'."
+    "Artefact type filter, e.g. 'living/wiki' or 'temporal/research'."
 )
 
 _ARTEFACT_TAG_FILTER_DESCRIPTION = (
-    "Exact tag match in artefact frontmatter. Applied only when resource='artefact'."
+    "Exact artefact tag filter."
 )
 
 class _SelectorWithinStep(BaseModel):
@@ -1341,6 +1509,39 @@ def _build_brain_list_params(
         hint=list_contract_hint(resource),
         field_term="top-level field",
     )
+
+
+def _build_brain_process_params(
+    operation: str,
+    *,
+    content: str | None,
+    type: str | None,
+    title: str | None,
+    mode: str | None,
+):
+    """Validate flat brain_process fields and collapse them into handler params."""
+    spec = _server_content.PROCESS_SPECS.get(operation)
+    if spec is None:
+        raise ValueError(
+            f"Unknown process operation '{operation}'. "
+            f"Valid: {', '.join(_server_content.PROCESS_SPECS)}"
+        )
+    payload = {
+        "content": content,
+        "type": type,
+        "title": title,
+        "mode": mode,
+    }
+    params = validate_spec(
+        spec,
+        payload,
+        label=f"Process op '{operation}'",
+        hint=_server_content.process_contract_hint(operation),
+        field_term="top-level field",
+    )
+    if operation in ("classify", "ingest") and "mode" not in params:
+        params["mode"] = "auto"
+    return params
 
 
 class _BrainActionDeleteParams(BaseModel):
@@ -1594,15 +1795,14 @@ def brain_search(
     query: Annotated[
         str,
         Field(description=(
-            "Matched against artefact body and metadata, or against file name + "
-            "content for non-artefact resources."
+            "Search text. Artefacts search indexed content; other resources "
+            "search name + body text."
         )),
     ],
     resource: Annotated[
         Literal["artefact", "skill", "trigger", "style", "memory", "plugin"],
         Field(description=(
-            "Collection to search. Non-artefact resources use text matching; "
-            "type/tag/status apply only to artefacts."
+            "Collection to search. Type/tag/status/mode apply only to artefacts."
         )),
     ] = "artefact",
     type: Annotated[
@@ -1615,23 +1815,29 @@ def brain_search(
     ] = None,
     status: Annotated[
         str | None,
+        Field(description="Artefact status filter."),
+    ] = None,
+    mode: Annotated[
+        Literal["lexical", "semantic", "hybrid"] | None,
         Field(description=(
-            "Frontmatter status filter (e.g. 'shaping', 'active'). "
-            "Applied only when resource='artefact'."
+            "Artefact retrieval mode. 'lexical' may use Obsidian CLI; "
+            "'semantic' uses vectors; 'hybrid' fuses BM25 + vectors. Omit for "
+            "the best default."
         )),
     ] = None,
     top_k: Annotated[
         int,
-        Field(description="Maximum number of results to return."),
+        Field(description="Maximum results to return."),
     ] = 10,
 ):
     """Search vault content, relevance-ranked.
 
-    Uses the Obsidian CLI live index when available; falls back to BM25 over the
-    pre-built keyword index. For exhaustive enumeration (not relevance-ranked), use
-    brain_list. Returns ranked results with path, title, type, status, and source.
+    Artefact search supports lexical, semantic, and hybrid retrieval. Lexical
+    mode may use the Obsidian CLI live index in MCP when available; semantic
+    and hybrid use the local script-layer retrieval stack. For exhaustive
+    enumeration (not relevance-ranked), use brain_list.
     """
-    with _trace_tool("brain_search", query=query, resource=resource, type=type, tag=tag):
+    with _trace_tool("brain_search", query=query, resource=resource, type=type, tag=tag, mode=mode):
         try:
             return _server_reading.handle_brain_search(
                 query=query,
@@ -1639,6 +1845,7 @@ def brain_search(
                 type=type,
                 tag=tag,
                 status=status,
+                mode=mode,
                 top_k=top_k,
                 runtime=_runtime(),
             )
@@ -2076,6 +2283,76 @@ def brain_action(
         except Exception as e:
             if _logger:
                 _logger.error("brain_action: %s", e, exc_info=True)
+            return _fmt_error(f"Unexpected error: {e}")
+
+
+# ---------------------------------------------------------------------------
+# brain_process — experimental content classification, resolution, ingestion
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def brain_process(
+    operation: Annotated[
+        Literal["classify", "resolve", "ingest"],
+        Field(description=(
+            "Process operation: classify content, resolve create-vs-update, "
+            "or ingest via the full classify/resolve/create-update pipeline."
+        )),
+    ],
+    content: Annotated[
+        str,
+        Field(description="Source content to classify, resolve, or ingest."),
+    ],
+    type: Annotated[
+        str | None,
+        Field(description="Optional type key hint for ingest. Required for resolve. Not accepted for classify."),
+    ] = None,
+    title: Annotated[
+        str | None,
+        Field(description="Optional title hint for ingest. Required for resolve. Not accepted for classify."),
+    ] = None,
+    mode: Annotated[
+        Literal["auto", "embedding", "bm25_only", "context_assembly"] | None,
+        Field(description=(
+            "Optional classification mode for classify/ingest. Defaults to "
+            "'auto', which falls back from embeddings to BM25 to context "
+            "assembly. Not accepted for resolve."
+        )),
+    ] = None,
+):
+    """Process content for vault operations.
+
+    Experimental surface. `classify` and `resolve` are read-only. `ingest`
+    may create or update files. Embedding-backed behavior is controlled by
+    `defaults.flags.semantic_processing`; degraded non-embedding behavior
+    remains available when that flag is off.
+    """
+    with _trace_tool("brain_process", operation=operation, type=type, title=title, mode=mode):
+        try:
+            params = _build_brain_process_params(
+                operation,
+                content=content or None,
+                type=type,
+                title=title,
+                mode=mode,
+            )
+            if operation == "ingest":
+                with _serialize_mutation(f"brain_process:{operation}"):
+                    return _server_content.handle_brain_process(
+                        operation=operation,
+                        params=params,
+                        runtime=_runtime(),
+                    )
+            return _server_content.handle_brain_process(
+                operation=operation,
+                params=params,
+                runtime=_runtime(),
+            )
+        except ValueError as e:
+            return _fmt_error(str(e))
+        except Exception as e:
+            if _logger:
+                _logger.error("brain_process: %s", e, exc_info=True)
             return _fmt_error(f"Unexpected error: {e}")
 
 

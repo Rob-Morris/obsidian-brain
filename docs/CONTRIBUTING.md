@@ -96,6 +96,13 @@ make install   # first time — creates venv, installs dependencies
 make test      # runs pytest
 ```
 
+If you touch semantic retrieval, embeddings, or the evaluation harness, also
+install the pinned optional runtime first:
+
+```bash
+make install-semantic
+```
+
 If you change artefact-library definitions or template-vault defaults, also run:
 
 ```bash

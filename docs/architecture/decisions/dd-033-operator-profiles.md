@@ -5,7 +5,7 @@
 
 ## Context
 
-Different agents connecting to the MCP server need different levels of access. A read-only summariser should not be able to create or delete artefacts. A full operator agent needs access to all tools including `brain_action` (compile, build_index, rename, delete). Without a permission model, every connected agent has full access regardless of intent.
+Different agents connecting to the MCP server need different levels of access. A read-only summariser should not be able to create or delete artefacts. A full operator agent needs access to all tools including `brain_move`, the residual `brain_action` workflow bucket, and the experimental `brain_process` surface when enabled. Without a permission model, every connected agent has full access regardless of intent.
 
 The constraint is that MCP authentication is caller-supplied — the server receives whatever key the agent passes in `brain_session`. This means authentication must be verified, not assumed.
 
@@ -16,8 +16,8 @@ Three built-in profiles are shipped with brain-core:
 | Profile | Allowed tools |
 |---|---|
 | `reader` | `brain_session`, `brain_read`, `brain_search`, `brain_list` |
-| `contributor` | All reader tools + `brain_create`, `brain_edit`, `brain_process` |
-| `operator` | All contributor tools + `brain_action` |
+| `contributor` | All reader tools + `brain_create`, `brain_edit`, and `brain_process` |
+| `operator` | All contributor tools + `brain_move`, `brain_action` |
 
 Profiles are defined in `defaults/config.yaml` under `vault.profiles` and can be extended or replaced in `.brain/config.yaml`. The default profile (when no key is supplied) is `operator`, which preserves backward compatibility for single-agent vaults.
 

@@ -53,6 +53,10 @@ implementation.
 
 ## Tool Overview
 
+Branch note: this parked `brain-process-wip` branch documents an unreleased
+nine-tool exploratory surface. Shipped `v0.33.0` mainline remains the
+eight-tool surface from DD-045 and DD-046.
+
 | Tool | Safety Level | Purpose |
 |---|---|---|
 | `brain_session` | Safe — auto-approvable | Agent bootstrap: session payload, authentication, profile resolution |
@@ -63,9 +67,10 @@ implementation.
 | `brain_edit` | Single-file mutation | Edit, append, prepend, or delete a section from one file |
 | `brain_move` | Vault-wide / destructive — require explicit approval | Rename, convert, archive, or unarchive an artefact with flat top-level fields |
 | `brain_action` | Vault-wide / destructive — require explicit approval | Workflow/utility bucket for delete, shaping helpers, and fix-links |
+| `brain_process` | Classify/resolve: read-only; ingest: creates/updates files | Experimental content classification, duplicate resolution, and ingestion; embedding-backed behavior is controlled by `defaults.flags.semantic_processing`, but degraded non-embedding behavior remains available by default |
 
 Mutating MCP calls are serialized within one server process. This applies to
-`brain_create`, `brain_edit`, `brain_move`, and `brain_action`. The lock lives in the MCP wrapper only: scripts remain
+`brain_create`, `brain_edit`, `brain_move`, `brain_action`, and `brain_process(operation="ingest")`. The lock lives in the MCP wrapper only: scripts remain
 the source of truth for mutation behavior, and direct script callers must still
 coordinate their own parallel writes.
 
@@ -118,13 +123,18 @@ Safe, no side effects, auto-approvable. Relevance-ranked search — not exhausti
 - `query` (required)
 - `resource` (default `"artefact"`) — also accepts `skill`, `trigger`, `style`, `memory`, `plugin`
 - `type`, `tag`, `status` (artefact filters — only apply when `resource="artefact"`)
+- `mode` (optional) — artefact search only: `lexical`, `semantic`, `hybrid`
 - `top_k` (default 10)
 
 **Behaviour:**
-- For artefacts: CLI-first with BM25 fallback over the artefact retrieval index only; editable `_Config/` resources are excluded from `resource="artefact"` search results
-- For non-artefact resources: text matching on name and file content
+- For artefacts: omitted `mode` picks the best local default — `hybrid` when semantic retrieval is enabled and usable, otherwise `lexical`
+- `mode="lexical"` may use Obsidian CLI in MCP when available, with BM25 fallback; editable `_Config/` resources are excluded from `resource="artefact"` search results
+- `mode="semantic"` uses persisted document vectors only
+- `mode="hybrid"` fuses BM25 + vectors with RRF and deliberately does not use Obsidian CLI as its lexical leg
+- Explicit `mode="semantic"` or `mode="hybrid"` fails clearly when `defaults.flags.semantic_retrieval` is off or embeddings sidecars/dependencies are unavailable; the branch-standard runtime is installed with `make install-semantic`
+- For non-artefact resources: lexical text matching on name and file content only; `mode="semantic"` and `mode="hybrid"` are rejected
 
-**Response format:** Multi-block: bold past-tense metadata block (`**Searched:** N results (source)`) + results as a readable text list (one result per line: title, path, type, score). Includes `source` field (`"obsidian_cli"`, `"bm25"`, or `"text"`).
+**Response format:** Multi-block: bold past-tense metadata block (`**Searched:** N results (source)`) + results as a readable text list (one result per line: title, path, type, optional status). Includes `source` field (`"obsidian_cli"`, `"bm25"`, `"semantic"`, `"hybrid"`, or `"text"`).
 
 ---
 
@@ -268,6 +278,29 @@ Vault-wide and destructive operations, gated by explicit approval.
 
 ---
 
+### brain_process
+
+Experimental content processing operations for the parked branch. The tool
+remains registered for MCP discovery here. Set
+`defaults.flags.semantic_processing: true` to enable embedding-backed process
+behavior. Shared retrieval embeddings may also be kept warm by
+`defaults.flags.semantic_retrieval`, but that flag does not enable
+embedding-backed `brain_process` behavior by itself.
+
+**Parameters:**
+- `operation` (required) — `classify`, `resolve`, or `ingest`
+- `content` (required)
+- `type` (resolve required, ingest optional hint) — not accepted for `classify`
+- `title` (resolve required, ingest optional hint) — not accepted for `classify`
+- `mode` (optional, `classify`/`ingest` only) — `"auto"` (default), `"embedding"`, `"bm25_only"`, `"context_assembly"`; not accepted for `resolve`
+
+**Operations:**
+- **`classify`** — determines the best artefact type for content using three-tier fallback (embedding → BM25 → context_assembly); returns ranked type matches with confidence scores. Read-only.
+- **`resolve`** — checks if content should create a new artefact or update an existing one (requires `type` and `title`); matches against generous filenames, legacy slugs, BM25 search, and optional embeddings; returns create/update/ambiguous decision. Read-only.
+- **`ingest`** — runs the full pipeline: classify → infer title → resolve → create/update; optional `type`/`title` hints skip their respective steps. Can create or update files — treat like `brain_create`/`brain_edit` combined.
+
+Successful mutations queue the shared incremental index refresh path used by
+other MCP writers.
 ## Permission Configuration
 
 Recommended auto-approve settings:
@@ -276,6 +309,7 @@ Recommended auto-approve settings:
 - **`brain_create`** — additive-only (creates files, never destroys) — safe to auto-approve for most workflows
 - **`brain_edit`** — mutates a single validated file — approve-once or auto-approve depending on trust level
 - **`brain_move`** — destructive vault moves — require explicit approval per call
+- **`brain_process`** — experimental; `classify`/`resolve` are read-only and `ingest` can create/update files, so treat it like `brain_create`/`brain_edit` combined. `defaults.flags.semantic_processing` only controls whether embedding-backed behavior is available.
 - **`brain_action`** — delete, shaping, and fix-links utilities — require explicit approval per call
 
 ## Response Format Conventions
@@ -328,7 +362,9 @@ if not isinstance(data, dict):
 
 This catches the case where a cache file contains valid JSON of the wrong type (e.g. after a partial write, encoding error, or manual edit).
 
-**Status:** Codified in v0.33.0. All 8 current tools conform.
+**Status:** `v0.33.0` codified the released eight-tool mainline contract. This
+parked branch carries an unreleased ninth tool (`brain_process`) and the
+corresponding contract updates ahead of any future reintroduction decision.
 
 ## Server Runtime
 

@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-search_index.py — Brain-core BM25 retrieval search
+search_index.py — Brain-core retrieval search
 
-Loads the pre-built retrieval index and scores a query using BM25.
+Loads the pre-built retrieval index and supports lexical BM25 search plus
+optional semantic and hybrid retrieval over persisted embedding sidecars.
 Supports filtering by type, tag, status, and top-k limit.
 
 Usage:
@@ -10,6 +11,7 @@ Usage:
     python3 search_index.py "query" --type living/design --top-k 5
     python3 search_index.py "query" --tag brain-core
     python3 search_index.py "query" --status shaping
+    python3 search_index.py "query" --mode hybrid
     python3 search_index.py "query" --json
 """
 
@@ -19,7 +21,11 @@ import os
 import re
 import sys
 
+import _semantic.runtime as _semantic
 from _common import FM_RE, find_vault_root, tokenise
+
+# Backwards-compatible alias for tests and older local call sites.
+_retrieval_embeddings = _semantic
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -29,6 +35,87 @@ INDEX_PATH = os.path.join(".brain", "local", "retrieval-index.json")
 DEFAULT_TOP_K = 10
 SNIPPET_LENGTH = 200
 TITLE_BOOST = 3.0
+RRF_K = 60
+RRF_LEXICAL_WEIGHT = 1.0
+RRF_SEMANTIC_WEIGHT = 0.7
+RRF_CANDIDATE_MULTIPLIER = 3
+SEARCH_MODES = {"lexical", "semantic", "hybrid"}
+
+
+class SearchModeUnavailableError(ValueError):
+    """Raised when the caller requests a retrieval mode that is unavailable."""
+
+
+def default_search_mode(
+    vault_root,
+    *,
+    config=None,
+    doc_embeddings=None,
+    embeddings_meta=None,
+):
+    """Return the best-effort default search mode."""
+    if (
+        _semantic.semantic_retrieval_enabled(vault_root, config=config)
+        and _semantic.semantic_engine_available(
+            vault_root,
+            config=config,
+            doc_embeddings=doc_embeddings,
+            embeddings_meta=embeddings_meta,
+            skip_sidecar_check=True,
+        )
+    ):
+        return "hybrid"
+    return "lexical"
+
+
+def resolve_search_mode(
+    vault_root,
+    mode,
+    *,
+    config=None,
+    doc_embeddings=None,
+    embeddings_meta=None,
+):
+    """Validate and resolve a requested search mode.
+
+    Returns the resolved mode string. Raises SearchModeUnavailableError when
+    the requested mode is unknown or its prerequisites (feature flag, runtime
+    deps, embedding sidecars) are not satisfied.
+    """
+    if mode is not None and mode not in SEARCH_MODES:
+        valid = ", ".join(sorted(SEARCH_MODES))
+        raise SearchModeUnavailableError(
+            f"unknown search mode '{mode}'. Valid modes: {valid}"
+        )
+
+    resolved = mode if mode is not None else default_search_mode(
+        vault_root,
+        config=config,
+        doc_embeddings=doc_embeddings,
+        embeddings_meta=embeddings_meta,
+    )
+
+    if resolved in {"semantic", "hybrid"}:
+        if not _semantic.semantic_retrieval_enabled(
+            vault_root, config=config
+        ):
+            raise SearchModeUnavailableError(
+                "semantic retrieval is disabled; enable "
+                "defaults.flags.semantic_retrieval or use mode='lexical'"
+            )
+        if not _semantic.semantic_engine_available(
+            vault_root,
+            config=config,
+            doc_embeddings=doc_embeddings,
+            embeddings_meta=embeddings_meta,
+            skip_sidecar_check=True,
+        ):
+            raise SearchModeUnavailableError(
+                "semantic retrieval is unavailable: semantic runtime is not "
+                "installed or dependencies are unavailable"
+            )
+
+    return resolved
 
 
 # ---------------------------------------------------------------------------
@@ -48,6 +135,30 @@ def load_index(vault_root):
 
     with open(index_path, "r", encoding="utf-8") as f:
         return json.load(f)
+
+
+def _encode_query(query, *, query_encoder=None):
+    """Encode a query string for semantic retrieval."""
+    try:
+        return _semantic.encode_query(
+            query,
+            query_encoder=query_encoder,
+        )
+    except ImportError as exc:
+        raise SearchModeUnavailableError(
+            "semantic retrieval dependencies are unavailable"
+        ) from exc
+
+
+def _entry_matches_filters(entry, type_filter, tag_filter, status_filter):
+    """Apply the standard artefact filters to an index or embedding entry."""
+    if type_filter and entry.get("type") != type_filter:
+        return False
+    if tag_filter and tag_filter not in entry.get("tags", []):
+        return False
+    if status_filter and entry.get("status") != status_filter:
+        return False
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -122,8 +233,12 @@ def extract_snippet(vault_root, rel_path, query_tokens, length=SNIPPET_LENGTH,
 # ---------------------------------------------------------------------------
 
 def search(index, query, vault_root, type_filter=None, tag_filter=None,
-           status_filter=None, top_k=DEFAULT_TOP_K):
-    """Score documents against query using BM25. Returns ranked results."""
+           status_filter=None, top_k=DEFAULT_TOP_K, *, attach_snippets=True):
+    """Score documents against query using BM25. Returns ranked results.
+
+    When `attach_snippets` is False, results are returned without snippets
+    (caller is responsible for attaching them later).
+    """
     query_tokens = tokenise(query)
     if not query_tokens:
         return []
@@ -139,11 +254,7 @@ def search(index, query, vault_root, type_filter=None, tag_filter=None,
     results = []
     for doc in index["documents"]:
         # Apply filters
-        if type_filter and doc["type"] != type_filter:
-            continue
-        if tag_filter and tag_filter not in doc.get("tags", []):
-            continue
-        if status_filter and doc.get("status") != status_filter:
+        if not _entry_matches_filters(doc, type_filter, tag_filter, status_filter):
             continue
 
         # BM25 score with title boosting
@@ -171,19 +282,162 @@ def search(index, query, vault_root, type_filter=None, tag_filter=None,
                 score += idf * TITLE_BOOST
 
         if score > 0:
-            snippet = extract_snippet(vault_root, doc["path"], query_tokens)
             results.append({
                 "path": doc["path"],
                 "title": doc["title"],
                 "type": doc["type"],
                 "status": doc.get("status"),
                 "score": round(score, 4),
-                "snippet": snippet,
             })
 
     # Sort by score descending
     results.sort(key=lambda r: r["score"], reverse=True)
-    return results[:top_k]
+    top = results[:top_k]
+    if attach_snippets:
+        _attach_snippets(top, vault_root, query_tokens)
+    return top
+
+
+def _attach_snippets(results, vault_root, query_tokens):
+    """Attach a snippet to each result in-place. Hot-path helper used after
+    top-k truncation so disk reads scale with returned results, not candidates.
+    """
+    for result in results:
+        result["snippet"] = extract_snippet(vault_root, result["path"], query_tokens)
+
+
+def search_semantic(
+    query,
+    vault_root,
+    *,
+    type_filter=None,
+    tag_filter=None,
+    status_filter=None,
+    top_k=DEFAULT_TOP_K,
+    doc_embeddings=None,
+    embeddings_meta=None,
+    query_encoder=None,
+    attach_snippets=True,
+):
+    """Rank documents by cosine similarity against persisted document vectors.
+
+    When `attach_snippets` is False, results are returned without snippets
+    (caller is responsible for attaching them later).
+    """
+    query_tokens = tokenise(query)
+    if not query_tokens:
+        return []
+
+    if doc_embeddings is None or embeddings_meta is None:
+        doc_embeddings, embeddings_meta = _retrieval_embeddings.load_doc_embeddings(
+            vault_root
+        )
+    if doc_embeddings is None or embeddings_meta is None:
+        raise SearchModeUnavailableError(
+            "semantic retrieval is unavailable: embeddings sidecars are missing"
+        )
+
+    if query_encoder is None:
+        query_vec = _encode_query(query)
+    else:
+        query_vec = _encode_query(query, query_encoder=query_encoder)
+    ranked = _semantic.rank_against(
+        query_vec,
+        doc_embeddings,
+        embeddings_meta.get("documents", []),
+        filter_fn=lambda entry: _entry_matches_filters(
+            entry, type_filter, tag_filter, status_filter
+        ),
+        top_k=top_k,
+    )
+    top = [
+        {
+            "path": entry["path"],
+            "title": entry["title"],
+            "type": entry["type"],
+            "status": entry.get("status"),
+            "score": round(entry["score"], 4),
+        }
+        for entry in ranked
+    ]
+    if attach_snippets:
+        _attach_snippets(top, vault_root, query_tokens)
+    return top
+
+
+def _fuse_rrf(lexical_results, semantic_results, *, top_k):
+    """Fuse two ranked result lists with Reciprocal Rank Fusion."""
+    fused = {}
+    for weight, results in (
+        (RRF_LEXICAL_WEIGHT, lexical_results),
+        (RRF_SEMANTIC_WEIGHT, semantic_results),
+    ):
+        for rank, result in enumerate(results, start=1):
+            path = result["path"]
+            entry = fused.setdefault(
+                path,
+                {
+                    "path": result["path"],
+                    "title": result["title"],
+                    "type": result["type"],
+                    "status": result.get("status"),
+                    "snippet": result.get("snippet", ""),
+                    "score": 0.0,
+                },
+            )
+            entry["score"] += weight / (RRF_K + rank)
+    ranked = sorted(fused.values(), key=lambda result: result["score"], reverse=True)
+    for result in ranked:
+        result["score"] = round(result["score"], 6)
+    return ranked[:top_k]
+
+
+def search_hybrid(
+    index,
+    query,
+    vault_root,
+    *,
+    type_filter=None,
+    tag_filter=None,
+    status_filter=None,
+    top_k=DEFAULT_TOP_K,
+    doc_embeddings=None,
+    embeddings_meta=None,
+    query_encoder=None,
+):
+    """Fuse lexical BM25 and semantic retrieval with RRF.
+
+    Snippets are attached once after RRF truncation so disk reads scale with
+    `top_k`, not `top_k * RRF_CANDIDATE_MULTIPLIER * 2` (lexical + semantic
+    candidate sets).
+    """
+    query_tokens = tokenise(query)
+    candidate_k = top_k * RRF_CANDIDATE_MULTIPLIER
+    lexical_results = search(
+        index,
+        query,
+        vault_root,
+        type_filter=type_filter,
+        tag_filter=tag_filter,
+        status_filter=status_filter,
+        top_k=candidate_k,
+        attach_snippets=False,
+    )
+    semantic_results = search_semantic(
+        query,
+        vault_root,
+        type_filter=type_filter,
+        tag_filter=tag_filter,
+        status_filter=status_filter,
+        top_k=candidate_k,
+        doc_embeddings=doc_embeddings,
+        embeddings_meta=embeddings_meta,
+        query_encoder=query_encoder,
+        attach_snippets=False,
+    )
+    fused = _fuse_rrf(lexical_results, semantic_results, top_k=top_k)
+    _attach_snippets(fused, vault_root, query_tokens)
+    return fused
 
 
 # ---------------------------------------------------------------------------
@@ -285,13 +539,14 @@ def search_resource(router, vault_root, resource, query, top_k=DEFAULT_TOP_K):
 # ---------------------------------------------------------------------------
 
 def parse_args(argv):
-    """Parse CLI arguments. Returns (query, type_filter, tag_filter, status_filter, top_k, json_mode)."""
+    """Parse CLI arguments."""
     query = None
     type_filter = None
     tag_filter = None
     status_filter = None
     top_k = DEFAULT_TOP_K
     json_mode = False
+    mode = None
 
     i = 1
     while i < len(argv):
@@ -308,6 +563,9 @@ def parse_args(argv):
         elif arg == "--top-k" and i + 1 < len(argv):
             top_k = int(argv[i + 1])
             i += 2
+        elif arg == "--mode" and i + 1 < len(argv):
+            mode = argv[i + 1]
+            i += 2
         elif arg == "--json":
             json_mode = True
             i += 1
@@ -317,7 +575,7 @@ def parse_args(argv):
         else:
             i += 1
 
-    return query, type_filter, tag_filter, status_filter, top_k, json_mode
+    return query, type_filter, tag_filter, status_filter, top_k, json_mode, mode
 
 
 # ---------------------------------------------------------------------------
@@ -325,15 +583,49 @@ def parse_args(argv):
 # ---------------------------------------------------------------------------
 
 def main():
-    query, type_filter, tag_filter, status_filter, top_k, json_mode = parse_args(sys.argv)
+    query, type_filter, tag_filter, status_filter, top_k, json_mode, mode = parse_args(sys.argv)
 
     if not query:
-        print("Usage: search_index.py \"query\" [--type TYPE] [--tag TAG] [--status STATUS] [--top-k N] [--json]", file=sys.stderr)
+        print(
+            "Usage: search_index.py \"query\" [--type TYPE] [--tag TAG] "
+            "[--status STATUS] [--top-k N] [--mode lexical|semantic|hybrid] [--json]",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     vault_root = find_vault_root()
+    try:
+        cfg = _semantic.load_config_best_effort(vault_root)
+    except _semantic.SemanticConfigLoadError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
     index = load_index(vault_root)
-    results = search(index, query, vault_root, type_filter, tag_filter, status_filter, top_k)
+    try:
+        resolved_mode = resolve_search_mode(vault_root, mode, config=cfg)
+        if resolved_mode == "lexical":
+            results = search(
+                index, query, vault_root,
+                type_filter, tag_filter, status_filter, top_k,
+            )
+        elif resolved_mode == "semantic":
+            results = search_semantic(
+                query, vault_root,
+                type_filter=type_filter,
+                tag_filter=tag_filter,
+                status_filter=status_filter,
+                top_k=top_k,
+            )
+        else:
+            results = search_hybrid(
+                index, query, vault_root,
+                type_filter=type_filter,
+                tag_filter=tag_filter,
+                status_filter=status_filter,
+                top_k=top_k,
+            )
+    except SearchModeUnavailableError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
 
     if json_mode:
         print(json.dumps(results, indent=2, ensure_ascii=False))
