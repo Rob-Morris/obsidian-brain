@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 
 from _common import (
     find_vault_root,
+    load_compiled_router,
     match_artefact,
     now_iso,
     parse_frontmatter,
@@ -253,10 +254,10 @@ def main():
     vault_root = str(find_vault_root(vault_arg))
 
     # Load router
-    import compile_router
-    router = compile_router.load(vault_root)
-    if router is None:
-        router = compile_router.compile(vault_root)
+    router = load_compiled_router(vault_root)
+    if "error" in router:
+        print(f"Error: {router['error']}", file=sys.stderr)
+        sys.exit(1)
 
     params = {"target": target}
     if title:

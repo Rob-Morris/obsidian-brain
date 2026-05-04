@@ -6,6 +6,7 @@ Version-by-version release history for Obsidian Brain. Every shipped version has
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.35.4](changelog/v0.35.4.md) | 2026-05-04 | Restore start_shaping.py CLI bootstrap via load_compiled_router |
 | [v0.35.3](changelog/v0.35.3.md) | 2026-05-04 | Add software-design core skills and tighten code-review prompts |
 | [v0.35.2](changelog/v0.35.2.md) | 2026-05-04 | Keep brain_edit and brain_create fix_links off vault-wide walks |
 | [v0.35.1](changelog/v0.35.1.md) | 2026-05-04 | Reject duplicate-boundary `brain_edit` section replacement bodies |

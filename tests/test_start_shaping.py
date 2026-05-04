@@ -1,5 +1,6 @@
 """Tests for start_shaping.py — shaping session bootstrap."""
 
+import json
 import os
 from datetime import datetime, timezone
 
@@ -117,11 +118,45 @@ def router(vault):
     return compile_router.compile(str(vault))
 
 
+def _write_compiled_router(vault, router):
+    """Persist the compiled router for CLI bootstrap tests."""
+    brain_local = vault / ".brain" / "local"
+    brain_local.mkdir(parents=True, exist_ok=True)
+    (brain_local / "compiled-router.json").write_text(
+        json.dumps(router, indent=2) + "\n"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
 
 class TestStartShaping:
+
+    def test_cli_main_bootstraps_transcript_creation(self, vault, router, monkeypatch, capsys):
+        _write_compiled_router(vault, router)
+        monkeypatch.setattr(
+            start_shaping.sys,
+            "argv",
+            [
+                "start_shaping.py",
+                "--target",
+                "Designs/My Design.md",
+                "--vault",
+                str(vault),
+            ],
+        )
+
+        start_shaping.main()
+
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["status"] == "ok"
+        assert payload["appended"] is False
+        transcript_path = vault / payload["transcript_path"]
+        assert transcript_path.is_file()
+        source_content = (vault / "Designs" / "My Design.md").read_text()
+        assert "**Transcripts:**" in source_content
+        assert payload["transcript_path"].replace(".md", "") in source_content
 
     def test_missing_target_returns_error(self, vault, router):
         result = start_shaping.start_shaping(str(vault), router, {})
@@ -297,6 +332,30 @@ class TestStartShaping:
         folder = os.path.dirname(transcript_path)
         transcript_files = [f for f in os.listdir(folder) if "My Design" in f]
         assert len(transcript_files) == 1
+
+    def test_cli_main_appends_same_day_session(self, vault, router, monkeypatch, capsys):
+        _write_compiled_router(vault, router)
+        argv = [
+            "start_shaping.py",
+            "--target",
+            "Designs/My Design.md",
+            "--vault",
+            str(vault),
+        ]
+        monkeypatch.setattr(start_shaping.sys, "argv", argv)
+
+        start_shaping.main()
+        first = json.loads(capsys.readouterr().out)
+
+        start_shaping.main()
+        second = json.loads(capsys.readouterr().out)
+
+        assert first["transcript_path"] == second["transcript_path"]
+        assert second["appended"] is True
+        transcript_path = vault / second["transcript_path"]
+        content = transcript_path.read_text()
+        assert content.count("## ") >= 2
+        assert len(list(transcript_path.parent.glob("*My Design*.md"))) == 1
 
     def test_no_duplicate_transcript_link(self, vault, router):
         """Same-day append should not add a duplicate transcript link."""
