@@ -15,6 +15,7 @@ wheel-supported platforms; Intel macOS remains lexical-only.
 | `_repair_common.py` | Launcher-safe repair metadata, scope definitions, and exact command builders | (library only) |
 | `_repair_runtime.py` | Managed-runtime repair scope implementations plus additive compliance repair detectors | (library only) |
 | `build_index.py` | Build retrieval index and refresh embeddings sidecars when `semantic_processing` or `semantic_retrieval` is enabled and router data is available | `python3 build_index.py [--json]` |
+| `construct_benchmark_fixture.py` | Derive a vault-native retrieval benchmark fixture plus audit JSON from an existing vault, including semantic-variant audit diagnostics and optional externally seeded semantic or hybrid candidates | `python3 construct_benchmark_fixture.py --fixture-out PATH [--audit-out PATH] [--semantic-strategy S] [--semantic-seed-file PATH] [--hybrid-seed-file PATH] [--json]` |
 | `evaluate_search.py` | Benchmark lexical, semantic, and hybrid retrieval against a JSON query set | `python3 evaluate_search.py --benchmark PATH [--mode M]... [--json]` |
 | `check.py` | Router-driven structural compliance checks; human output now prints exact `repair.py` commands for repairable router/MCP/local-registry drift and structured results include `repair` metadata | `python3 check.py [--json] [--actionable] [--severity S] [--vault V]` |
 | `compile_colours.py` | Generate folder colour CSS | (called by compile_router) |
@@ -51,7 +52,7 @@ The script layer is organised into 8 bounded contexts. This is an architectural 
 | Compilation | `compile_router.py`, `compile_colours.py`, `build_index.py`, `sync_definitions.py` |
 | Artefact Operations | `create.py`, `edit.py`, `read.py`, `rename.py`, `fix_links.py`, `start_shaping.py`, `shape_printable.py`, `shape_presentation.py` |
 | Compliance | `check.py` |
-| Content Intelligence | `search_index.py`, `evaluate_search.py`, `list_artefacts.py` |
+| Content Intelligence | `search_index.py`, `evaluate_search.py`, `construct_benchmark_fixture.py`, `list_artefacts.py` |
 | Session & Configuration | `session.py`, `config.py`, `workspace_registry.py`, `generate_key.py` |
 | Lifecycle Management | `init.py`, `repair.py`, `upgrade.py`, `vault_registry.py`, `migrate_naming.py`, `migrations/` |
 | MCP Integration | `brain_mcp/server.py`, `brain_mcp/proxy.py` |
@@ -69,6 +70,7 @@ Import policy:
 These scripts import from `_common/` for vault discovery, frontmatter parsing, and shared utilities:
 
 - `build_index.py`
+- `construct_benchmark_fixture.py`
 - `check.py`
 - `compile_colours.py`
 - `compile_router.py`
@@ -136,6 +138,27 @@ _wikilinks   → _vault, _filesystem, _slugs, _markdown
 ```
 
 Tests may import owning submodules directly when validating internal helpers.
+
+## Benchmarking & Construction
+
+`search_index.py`, `evaluate_search.py`, and `construct_benchmark_fixture.py` form the current retrieval-evaluation toolchain.
+
+- `search_index.py` is the retrieval contract: lexical, semantic, and hybrid search over the same local assets the MCP layer uses.
+- `evaluate_search.py` runs one or more retrieval modes against a benchmark JSON and reports hit@k, per-intent summaries, a best-effort expected-winner scorecard for the primary buckets whose expected mode is present alongside at least one comparison mode, basic cluster-quality metrics, and per-mode timing.
+- `construct_benchmark_fixture.py` mines a real vault for lexical / semantic / hybrid / cluster / filter-sensitive candidates, audits them against live retrieval, and emits both a benchmark fixture JSON and a machine-readable audit JSON. The constructor is deliberately conservative: it records bucket shortfall instead of padding weak cases, keeps a bounded set of semantic query variants per source note, and marks near-pure semantic candidates plus the best audited semantic variant per source artefact. Semantic construction can stay fully local (`--semantic-strategy local`), use deterministic zero-overlap rewrites (`--semantic-strategy assisted-zero-overlap`), or ingest externally generated semantic candidates via `--semantic-seed-file PATH` and hybrid candidates via `--hybrid-seed-file PATH` while keeping the same strict retrieval admission rules. Seeded targets must still point at real vault artefacts rather than benchmark / fixture paths, and any provided `source_path` must be one of `relevant_paths`.
+
+For vault-specific fixtures, audits, and run outputs, prefer a gitignored local path such as `.brain/local/benchmarks/` rather than a tracked repo folder.
+
+Typical usage:
+
+```bash
+python3 construct_benchmark_fixture.py --fixture-out .brain/local/benchmarks/fixture.json --audit-out .brain/local/benchmarks/audit.json
+python3 construct_benchmark_fixture.py --fixture-out /tmp/fixture.json --audit-out /tmp/audit.json --semantic-strategy assisted-zero-overlap
+python3 construct_benchmark_fixture.py --fixture-out /tmp/fixture.json --audit-out /tmp/audit.json --semantic-seed-file /tmp/semantic-seeds.json
+python3 construct_benchmark_fixture.py --fixture-out /tmp/fixture.json --audit-out /tmp/audit.json --hybrid-seed-file /tmp/hybrid-seeds.json
+python3 evaluate_search.py --benchmark /tmp/fixture.json
+python3 evaluate_search.py --benchmark /tmp/fixture.json --mode lexical --mode semantic --mode hybrid --json
+```
 
 ## Shared Patterns
 

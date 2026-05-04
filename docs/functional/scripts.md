@@ -11,6 +11,7 @@ Operational reference for scripts in `.brain-core/scripts/`. Most scripts expose
 | `build_index.py` | Build retrieval index and optional embeddings sidecars | `python3 build_index.py [--json]` |
 | `list_artefacts.py` | Enumerate vault artefacts and resources (unranked, no cap) | (library module, used by MCP server) |
 | `search_index.py` | Lexical, semantic, or hybrid local search | `python3 search_index.py "query" [--type T] [--mode M] [--json]` |
+| `construct_benchmark_fixture.py` | Derive a vault-native retrieval benchmark fixture plus audit JSON from an existing vault, including semantic-variant audit diagnostics and optional externally seeded semantic or hybrid candidates | `python3 construct_benchmark_fixture.py --fixture-out PATH [--audit-out PATH] [--semantic-strategy S] [--semantic-seed-file PATH] [--hybrid-seed-file PATH] [--json]` |
 | `evaluate_search.py` | Benchmark lexical, semantic, and hybrid retrieval against a JSON query set | `python3 evaluate_search.py --benchmark PATH [--mode M]... [--json]` |
 | `read.py` | Query compiled router resources | `python3 read.py RESOURCE [--name N]` |
 | `create.py` | Create new artefact | `python3 create.py --type T --title "Title" [--body B] [--body-file PATH] [--temp-path [SUFFIX]] [--json]` |
@@ -407,7 +408,7 @@ Plus a separate `not_installable` bucket in `--status` output for library-side e
 
 **MCP surface:** no direct MCP wrapper. Use the CLI/script entry point for definition installs, syncs, and status classification.
 
-## build_index.py / search_index.py / evaluate_search.py
+## build_index.py / search_index.py / construct_benchmark_fixture.py / evaluate_search.py
 
 Retrieval search over all vault markdown files. BM25 remains the lexical
 backbone; optional semantic and hybrid modes reuse persisted document
@@ -417,7 +418,7 @@ embeddings built alongside the index.
 - **Zero mandatory dependencies for BM25** — the retrieval index build itself is hand-rolled and stdlib-only. Optional embeddings refresh piggybacks on the same command only when `defaults.flags.semantic_processing` or `defaults.flags.semantic_retrieval` is enabled and the pinned semantic runtime is installed
 - **Same folder discovery** — reuses `scan_living_types()` / `scan_temporal_types()` patterns, then recurses each type folder for `.md` files
 - **Whole-document indexing** — each note is one entry (sufficient at vault scale)
-- **Build/search/evaluate split** — `build_index.py` builds the index, `search_index.py` queries it in lexical, semantic, or hybrid mode, and `evaluate_search.py` compares those modes against a benchmark fixture without changing the underlying retrieval contract.
+- **Build/search/construct/evaluate split** — `build_index.py` builds the index, `search_index.py` queries it in lexical, semantic, or hybrid mode, `construct_benchmark_fixture.py` mines and audits vault-native benchmark fixtures, and `evaluate_search.py` compares those modes against a benchmark fixture without changing the underlying retrieval contract.
 
 **BM25 parameters:** `k1=1.5`, `b=0.75`. IDF: `log((N - df + 0.5) / (df + 0.5) + 1)`. Score: `sum IDF(t) * (tf(t,d) * (k1+1)) / (tf(t,d) + k1 * (1 - b + b * dl/avgdl))`. **Title boosting** (v0.11.3): terms appearing in the document title receive an additional `IDF(t) * 3.0` score contribution, stored as `title_tf` per document. Backward compatible — older indexes without `title_tf` still work.
 
@@ -452,7 +453,7 @@ python3 search_index.py "query" --json  # structured output
 
 `search_index.py` defaults to `hybrid` when semantic retrieval is enabled and usable; otherwise it defaults to `lexical`. Explicit `--mode semantic` and `--mode hybrid` fail fast when embeddings sidecars or dependencies are unavailable.
 
-`evaluate_search.py` runs a benchmark JSON file against one or more explicit modes and reports hit@1 / hit@3 / hit@5 plus simple comparisons against lexical baseline behaviour. The benchmark schema is intentionally small:
+`evaluate_search.py` runs a benchmark JSON file against one or more explicit modes and reports hit@1 / hit@3 / hit@5, per-mode timing, per-intent summaries, a best-effort expected-winner scorecard for whichever primary lexical/semantic/hybrid buckets have the expected mode plus at least one comparison mode present, basic cluster-quality metrics, explicit filter-sensitive pass/fail output, and comparisons against lexical baseline behaviour. The benchmark schema is intentionally small:
 
 - benchmark-level `hit_ks`
 - per-case `id`
@@ -460,12 +461,47 @@ python3 search_index.py "query" --json  # structured output
 - per-case `relevant_paths`
 - optional per-case `filters` using `type`, `tag`, and `status`
 
-A template benchmark ships at `.brain-core/scripts/benchmarks/inline-search-benchmark.template.json`. Copy it, replace the example paths with real vault artefacts, then run the evaluator from the vault root:
+A template benchmark ships at `.brain-core/scripts/benchmarks/inline-search-benchmark.template.json`. Copy it, replace the example paths with real vault artefacts, store vault-specific fixture/audit outputs under a gitignored local path such as `.brain/local/benchmarks/`, then run the evaluator from the vault root:
 
 ```bash
 python3 evaluate_search.py --benchmark path/to/benchmark.json
 python3 evaluate_search.py --benchmark path/to/benchmark.json --mode lexical --mode hybrid
 python3 evaluate_search.py --benchmark path/to/benchmark.json --json
+```
+
+`construct_benchmark_fixture.py` is the complementary constructor for vault-native benchmarks. It mines lexical / semantic / hybrid / cluster / filter-sensitive candidates from a real vault, audits those candidates against live retrieval behaviour, and writes:
+
+- a benchmark fixture JSON
+- a machine-readable audit JSON explaining admissions, rejections, and bucket shortfall
+
+The constructor is deliberately conservative. If the vault does not naturally support enough strong cases for one bucket, it records the shortfall instead of padding weak cases. For semantic cases it also keeps a bounded set of alternate phrasings per source artefact, records which phrasing was the best audited variant, and marks near-pure semantic candidates where semantic ranks first but lexical still lands in the top-5.
+
+Semantic construction supports three practical inputs:
+
+- local-only mining via `--semantic-strategy local`
+- deterministic zero-overlap rewrites via `--semantic-strategy assisted-zero-overlap`
+- externally generated semantic candidates via `--semantic-seed-file PATH`
+- externally generated hybrid candidates via `--hybrid-seed-file PATH`
+
+Seed files are JSON lists (or `{ "candidates": [...] }`) whose items provide:
+
+- `query`
+- `relevant_paths` or `target_path`
+- optional `id`, `source_path`, `filters`, and `notes` / `rationale`
+
+When `source_path` is provided it must be one of `relevant_paths`, and seeded
+targets must still point at real vault artefacts rather than benchmark /
+fixture paths.
+
+Seeded semantic candidates are audited with the same retrieval rules as locally mined semantic cases; the constructor does not auto-admit them just because they were externally generated.
+
+```bash
+python3 construct_benchmark_fixture.py --fixture-out .brain/local/benchmarks/fixture.json
+python3 construct_benchmark_fixture.py --fixture-out .brain/local/benchmarks/fixture.json --audit-out .brain/local/benchmarks/audit.json
+python3 construct_benchmark_fixture.py --fixture-out .brain/local/benchmarks/fixture.json --audit-out .brain/local/benchmarks/audit.json --semantic-strategy assisted-zero-overlap
+python3 construct_benchmark_fixture.py --fixture-out .brain/local/benchmarks/fixture.json --audit-out .brain/local/benchmarks/audit.json --semantic-seed-file /tmp/semantic-seeds.json
+python3 construct_benchmark_fixture.py --fixture-out .brain/local/benchmarks/fixture.json --audit-out .brain/local/benchmarks/audit.json --hybrid-seed-file /tmp/hybrid-seeds.json
+python3 construct_benchmark_fixture.py --fixture-out .brain/local/benchmarks/fixture.json --audit-out .brain/local/benchmarks/audit.json --json
 ```
 
 **Tokeniser:** lowercase, split on non-alphanumeric, strip tokens < 2 chars.

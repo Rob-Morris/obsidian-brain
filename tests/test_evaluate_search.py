@@ -75,7 +75,7 @@ class TestLoadBenchmark:
     def test_loads_fixture(self):
         benchmark = es.load_benchmark(FIXTURE_BENCHMARK)
         assert benchmark["hit_ks"] == (1, 3, 5)
-        assert len(benchmark["cases"]) == 5
+        assert len(benchmark["cases"]) == 6
         assert benchmark["cases"][0]["id"] == "python-basics"
 
     def test_rejects_empty_cases(self, tmp_path):
@@ -99,10 +99,14 @@ class TestEvaluateMode:
         )
 
         assert summary["status"] == "ok"
-        assert summary["metrics"]["case_count"] == 5
+        assert summary["metrics"]["case_count"] == 6
+        assert "elapsed_ms_total" in summary["metrics"]
+        assert "mean_elapsed_ms" in summary["metrics"]
         case_map = {case["id"]: case for case in summary["cases"]}
+        assert "elapsed_ms" in case_map["python-basics"]
         assert case_map["python-basics"]["hits"]["1"] is True
         assert case_map["python-log"]["hits"]["5"] is True
+        assert summary["metrics"]["intent_metrics"]["cluster-expected"]["case_count"] == 1
 
     def test_semantic_mode_marks_unavailable_when_flag_disabled(self, index, vault):
         benchmark = es.load_benchmark(FIXTURE_BENCHMARK)
@@ -120,6 +124,106 @@ class TestEvaluateMode:
         assert summary["status"] == "unavailable"
         assert "disabled" in summary["error"]
 
+    def test_multi_relevant_cases_report_cluster_metrics(self, monkeypatch, tmp_path):
+        cases = [
+            {
+                "id": "cluster",
+                "query": "q1",
+                "intent": "cluster-expected",
+                "relevant_paths": ["A.md", "B.md", "C.md"],
+                "filters": {},
+            }
+        ]
+
+        monkeypatch.setattr(es, "_mode_available", lambda *_args, **_kwargs: (True, None))
+        monkeypatch.setattr(
+            es,
+            "_run_mode_search",
+            lambda *_args, **_kwargs: [
+                {"path": "A.md", "title": "A", "score": 3.0},
+                {"path": "X.md", "title": "X", "score": 2.0},
+                {"path": "B.md", "title": "B", "score": 1.0},
+                {"path": "C.md", "title": "C", "score": 0.5},
+            ],
+        )
+
+        summary = es.evaluate_mode(
+            {"documents": []},
+            tmp_path,
+            cases,
+            "lexical",
+            hit_ks=(1, 3, 5),
+        )
+
+        case = summary["cases"][0]
+        assert case["cluster_recall"] == {"1": 0.3333, "3": 0.6667, "5": 1.0}
+        assert case["all_relevant_by_k"] == {"1": False, "3": False, "5": True}
+        assert summary["metrics"]["cluster_case_count"] == 1
+        assert summary["metrics"]["cluster_recall_rates"] == {"1": 0.3333, "3": 0.6667, "5": 1.0}
+        assert summary["metrics"]["cluster_all_relevant_rates"] == {"1": 0.0, "3": 0.0, "5": 1.0}
+        assert summary["metrics"]["intent_metrics"]["cluster-expected"]["cluster_case_count"] == 1
+
+    def test_filter_sensitive_cases_report_success_and_failure_ids(
+        self, monkeypatch, tmp_path
+    ):
+        cases = [
+            {
+                "id": "filter-pass",
+                "query": "q1",
+                "intent": "filter-sensitive",
+                "relevant_paths": ["A.md"],
+                "filters": {},
+            },
+            {
+                "id": "filter-fail",
+                "query": "q2",
+                "intent": "filter-sensitive",
+                "relevant_paths": ["B.md"],
+                "filters": {},
+            },
+            {
+                "id": "lexical",
+                "query": "q3",
+                "intent": "lexical-expected",
+                "relevant_paths": ["C.md"],
+                "filters": {},
+            },
+        ]
+
+        monkeypatch.setattr(es, "_mode_available", lambda *_args, **_kwargs: (True, None))
+
+        def fake_run(_index, query, _vault, _mode, **_kwargs):
+            responses = {
+                "q1": [{"path": "A.md", "title": "A", "score": 1.0}],
+                "q2": [{"path": "X.md", "title": "X", "score": 1.0}],
+                "q3": [{"path": "C.md", "title": "C", "score": 1.0}],
+            }
+            return responses[query]
+
+        monkeypatch.setattr(es, "_run_mode_search", fake_run)
+
+        summary = es.evaluate_mode(
+            {"documents": []},
+            tmp_path,
+            cases,
+            "lexical",
+            hit_ks=(1, 3, 5),
+        )
+
+        intent_metrics = summary["metrics"]["intent_metrics"]
+        assert intent_metrics["filter-sensitive"]["case_count"] == 2
+        assert intent_metrics["filter-sensitive"]["success_case_ids"] == {
+            "1": ["filter-pass"],
+            "3": ["filter-pass"],
+            "5": ["filter-pass"],
+        }
+        assert intent_metrics["filter-sensitive"]["failure_case_ids"] == {
+            "1": ["filter-fail"],
+            "3": ["filter-fail"],
+            "5": ["filter-fail"],
+        }
+        assert intent_metrics["lexical-expected"]["case_count"] == 1
+
 
 class TestBuildReport:
     def test_compares_modes_against_lexical(self, tmp_path, monkeypatch):
@@ -133,11 +237,13 @@ class TestBuildReport:
                         {
                             "id": "improves",
                             "query": "q1",
+                            "intent": "semantic-expected",
                             "relevant_paths": ["A.md"],
                         },
                         {
                             "id": "regresses",
                             "query": "q2",
+                            "intent": "filter-sensitive",
                             "relevant_paths": ["C.md"],
                         },
                     ],
@@ -182,6 +288,91 @@ class TestBuildReport:
         assert [case["id"] for case in comparison["improved"]] == ["improves"]
         assert [case["id"] for case in comparison["regressed"]] == ["regresses"]
         assert comparison["counts"]["unchanged"] == 0
+        assert comparison["counts_by_intent"] == {
+            "filter-sensitive": {"improved": 0, "regressed": 1, "unchanged": 0},
+            "semantic-expected": {"improved": 1, "regressed": 0, "unchanged": 0},
+        }
+
+    def test_builds_expected_winner_scorecard(self):
+        mode_summaries = [
+            {
+                "mode": "lexical",
+                "status": "ok",
+                "metrics": {
+                    "intent_metrics": {
+                        "lexical-expected": {"case_count": 2, "hit_rates": {"1": 1.0, "3": 1.0, "5": 1.0}},
+                        "semantic-expected": {"case_count": 2, "hit_rates": {"1": 0.0, "3": 0.5, "5": 0.5}},
+                        "hybrid-expected": {"case_count": 2, "hit_rates": {"1": 0.5, "3": 1.0, "5": 1.0}},
+                    }
+                },
+            },
+            {
+                "mode": "semantic",
+                "status": "ok",
+                "metrics": {
+                    "intent_metrics": {
+                        "lexical-expected": {"case_count": 2, "hit_rates": {"1": 0.0, "3": 0.5, "5": 0.5}},
+                        "semantic-expected": {"case_count": 2, "hit_rates": {"1": 1.0, "3": 1.0, "5": 1.0}},
+                        "hybrid-expected": {"case_count": 2, "hit_rates": {"1": 0.5, "3": 1.0, "5": 1.0}},
+                    }
+                },
+            },
+            {
+                "mode": "hybrid",
+                "status": "ok",
+                "metrics": {
+                    "intent_metrics": {
+                        "lexical-expected": {"case_count": 2, "hit_rates": {"1": 0.5, "3": 1.0, "5": 1.0}},
+                        "semantic-expected": {"case_count": 2, "hit_rates": {"1": 0.0, "3": 0.5, "5": 0.5}},
+                        "hybrid-expected": {"case_count": 2, "hit_rates": {"1": 1.0, "3": 1.0, "5": 1.0}},
+                    }
+                },
+            },
+        ]
+
+        scorecard = es.build_expected_winner_scorecard(mode_summaries)
+
+        assert scorecard["lexical-expected"]["winner_modes"] == ["lexical"]
+        assert scorecard["lexical-expected"]["expected_mode_is_winner"] is True
+        assert scorecard["semantic-expected"]["winner_modes"] == ["semantic"]
+        assert scorecard["semantic-expected"]["expected_mode_is_winner"] is True
+        assert scorecard["hybrid-expected"]["winner_modes"] == ["hybrid"]
+        assert scorecard["hybrid-expected"]["expected_mode_is_winner"] is True
+        assert scorecard["hybrid-expected"]["mode_hit_rates"]["lexical"]["1"] == 0.5
+
+    def test_expected_winner_scorecard_handles_partial_mode_runs_per_bucket(self):
+        mode_summaries = [
+            {
+                "mode": "lexical",
+                "status": "ok",
+                "metrics": {
+                    "intent_metrics": {
+                        "lexical-expected": {"case_count": 1, "hit_rates": {"1": 1.0, "3": 1.0, "5": 1.0}},
+                        "semantic-expected": {"case_count": 1, "hit_rates": {"1": 0.0, "3": 0.0, "5": 1.0}},
+                        "hybrid-expected": {"case_count": 1, "hit_rates": {"1": 0.0, "3": 1.0, "5": 1.0}},
+                    }
+                },
+            },
+            {
+                "mode": "semantic",
+                "status": "ok",
+                "metrics": {
+                    "intent_metrics": {
+                        "lexical-expected": {"case_count": 1, "hit_rates": {"1": 0.0, "3": 1.0, "5": 1.0}},
+                        "semantic-expected": {"case_count": 1, "hit_rates": {"1": 1.0, "3": 1.0, "5": 1.0}},
+                        "hybrid-expected": {"case_count": 1, "hit_rates": {"1": 0.0, "3": 1.0, "5": 1.0}},
+                    }
+                },
+            },
+        ]
+
+        scorecard = es.build_expected_winner_scorecard(mode_summaries)
+
+        assert set(scorecard) == {"lexical-expected", "semantic-expected"}
+        assert scorecard["lexical-expected"]["winner_modes"] == ["lexical"]
+        assert scorecard["lexical-expected"]["expected_mode_is_winner"] is True
+        assert scorecard["semantic-expected"]["winner_modes"] == ["semantic"]
+        assert scorecard["semantic-expected"]["expected_mode_is_winner"] is True
 
     def test_parse_args_collects_modes(self):
         benchmark, vault_root, modes, json_mode = es.parse_args(

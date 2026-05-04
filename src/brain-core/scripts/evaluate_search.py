@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 
 import retrieval_embeddings as _retrieval_embeddings
 import search_index as si
@@ -27,6 +28,11 @@ from _common import find_vault_root
 DEFAULT_HIT_KS = (1, 3, 5)
 DEFAULT_MODES = ("lexical", "semantic", "hybrid")
 VALID_FILTER_KEYS = {"type", "tag", "status"}
+EXPECTED_MODE_BY_INTENT = {
+    "lexical-expected": "lexical",
+    "semantic-expected": "semantic",
+    "hybrid-expected": "hybrid",
+}
 
 
 def _normalise_hit_ks(hit_ks):
@@ -199,9 +205,10 @@ def _run_mode_search(
     )
 
 
-def _case_result(case, results, *, hit_ks):
+def _case_result(case, results, *, hit_ks, elapsed_ms=None):
     """Summarise one benchmark case against a ranked result list."""
     relevant_paths = set(case["relevant_paths"])
+    relevant_count = len(relevant_paths)
     first_relevant_rank = None
     for rank, result in enumerate(results, start=1):
         if result["path"] in relevant_paths:
@@ -211,7 +218,7 @@ def _case_result(case, results, *, hit_ks):
         str(hit_k): bool(first_relevant_rank and first_relevant_rank <= hit_k)
         for hit_k in hit_ks
     }
-    return {
+    summary = {
         "id": case["id"],
         "query": case["query"],
         "intent": case.get("intent"),
@@ -228,9 +235,65 @@ def _case_result(case, results, *, hit_ks):
             for result in results[: max(hit_ks)]
         ],
     }
+    if relevant_count > 1:
+        relevant_ranks = sorted(
+            rank
+            for rank, result in enumerate(results, start=1)
+            if result["path"] in relevant_paths
+        )
+        cluster_recall = {}
+        all_relevant_by_k = {}
+        for hit_k in hit_ks:
+            found_count = sum(1 for rank in relevant_ranks if rank <= hit_k)
+            cluster_recall[str(hit_k)] = round(found_count / relevant_count, 4)
+            all_relevant_by_k[str(hit_k)] = found_count == relevant_count
+        summary["cluster_recall"] = cluster_recall
+        summary["all_relevant_by_k"] = all_relevant_by_k
+    if elapsed_ms is not None:
+        summary["elapsed_ms"] = round(elapsed_ms, 3)
+    return summary
 
 
-def _mode_metrics(case_results, *, hit_ks):
+def _intent_metrics(case_results, *, hit_ks):
+    """Aggregate metrics for each populated intent bucket."""
+    buckets = {}
+    for result in case_results:
+        intent = result.get("intent")
+        if not intent:
+            continue
+        buckets.setdefault(intent, []).append(result)
+
+    intent_metrics = {}
+    for intent, intent_results in sorted(buckets.items()):
+        elapsed_ms_total = None
+        if all("elapsed_ms" in result for result in intent_results):
+            elapsed_ms_total = sum(result["elapsed_ms"] for result in intent_results)
+        metrics = _mode_metrics(
+            intent_results,
+            hit_ks=hit_ks,
+            elapsed_ms_total=elapsed_ms_total,
+            include_intent_metrics=False,
+        )
+        if intent == "filter-sensitive":
+            success_case_ids = {}
+            failure_case_ids = {}
+            for hit_k in hit_ks:
+                key = str(hit_k)
+                success_case_ids[key] = [
+                    result["id"] for result in intent_results if result["hits"][key]
+                ]
+                failure_case_ids[key] = [
+                    result["id"] for result in intent_results if not result["hits"][key]
+                ]
+            metrics["success_case_ids"] = success_case_ids
+            metrics["failure_case_ids"] = failure_case_ids
+        intent_metrics[intent] = metrics
+    return intent_metrics
+
+
+def _mode_metrics(
+    case_results, *, hit_ks, elapsed_ms_total=None, include_intent_metrics=True
+):
     """Aggregate hit metrics for one mode summary."""
     case_count = len(case_results)
     found_ranks = [
@@ -242,7 +305,7 @@ def _mode_metrics(case_results, *, hit_ks):
     for hit_k in hit_ks:
         hit_count = sum(1 for result in case_results if result["hits"][str(hit_k)])
         hit_rates[str(hit_k)] = round(hit_count / case_count, 4)
-    return {
+    metrics = {
         "case_count": case_count,
         "match_count": len(found_ranks),
         "mean_first_relevant_rank": round(sum(found_ranks) / len(found_ranks), 3)
@@ -250,6 +313,54 @@ def _mode_metrics(case_results, *, hit_ks):
         else None,
         "hit_rates": hit_rates,
     }
+    cluster_cases = [result for result in case_results if "cluster_recall" in result]
+    if cluster_cases:
+        cluster_recall_rates = {}
+        cluster_all_relevant_rates = {}
+        cluster_case_count = len(cluster_cases)
+        for hit_k in hit_ks:
+            key = str(hit_k)
+            cluster_recall_rates[key] = round(
+                sum(result["cluster_recall"][key] for result in cluster_cases)
+                / cluster_case_count,
+                4,
+            )
+            cluster_all_relevant_rates[key] = round(
+                sum(1 for result in cluster_cases if result["all_relevant_by_k"][key])
+                / cluster_case_count,
+                4,
+            )
+        metrics["cluster_case_count"] = cluster_case_count
+        metrics["cluster_recall_rates"] = cluster_recall_rates
+        metrics["cluster_all_relevant_rates"] = cluster_all_relevant_rates
+    if elapsed_ms_total is not None:
+        metrics["elapsed_ms_total"] = round(elapsed_ms_total, 3)
+        metrics["mean_elapsed_ms"] = round(elapsed_ms_total / case_count, 3) if case_count else None
+    if include_intent_metrics:
+        intent_metrics = _intent_metrics(case_results, hit_ks=hit_ks)
+        if intent_metrics:
+            metrics["intent_metrics"] = intent_metrics
+    return metrics
+
+
+def _comparison_counts_by_intent(improved, regressed, unchanged):
+    """Aggregate baseline comparison counts by intent bucket."""
+    counts_by_intent = {}
+    for label, cases in (
+        ("improved", improved),
+        ("regressed", regressed),
+        ("unchanged", unchanged),
+    ):
+        for case in cases:
+            intent = case.get("intent")
+            if not intent:
+                continue
+            counts = counts_by_intent.setdefault(
+                intent,
+                {"improved": 0, "regressed": 0, "unchanged": 0},
+            )
+            counts[label] += 1
+    return counts_by_intent
 
 
 def evaluate_mode(
@@ -283,8 +394,10 @@ def evaluate_mode(
 
     max_k = max(hit_ks)
     case_results = []
+    elapsed_ms_total = 0.0
     for case in cases:
         filters = case.get("filters", {})
+        started = time.perf_counter()
         results = _run_mode_search(
             index,
             case["query"],
@@ -298,13 +411,19 @@ def evaluate_mode(
             embeddings_meta=embeddings_meta,
             query_encoder=query_encoder,
         )
-        case_results.append(_case_result(case, results, hit_ks=hit_ks))
+        elapsed_ms = (time.perf_counter() - started) * 1000
+        elapsed_ms_total += elapsed_ms
+        case_results.append(
+            _case_result(case, results, hit_ks=hit_ks, elapsed_ms=elapsed_ms)
+        )
 
     return {
         "mode": mode,
         "status": "ok",
         "error": None,
-        "metrics": _mode_metrics(case_results, hit_ks=hit_ks),
+        "metrics": _mode_metrics(
+            case_results, hit_ks=hit_ks, elapsed_ms_total=elapsed_ms_total
+        ),
         "cases": case_results,
     }
 
@@ -336,6 +455,7 @@ def compare_mode_summaries(mode_summaries, *, baseline_mode="lexical"):
             detail = {
                 "id": case["id"],
                 "query": case["query"],
+                "intent": case.get("intent"),
                 "baseline_rank": baseline_rank,
                 "candidate_rank": candidate_rank,
             }
@@ -359,9 +479,59 @@ def compare_mode_summaries(mode_summaries, *, baseline_mode="lexical"):
                     "regressed": len(regressed),
                     "unchanged": len(unchanged),
                 },
+                "counts_by_intent": _comparison_counts_by_intent(
+                    improved, regressed, unchanged
+                ),
             }
         )
     return comparisons
+
+
+def build_expected_winner_scorecard(mode_summaries, *, primary_hit_k=1):
+    """Summarise which mode wins each primary intent bucket at hit@k.
+
+    Best-effort on partial mode runs: a bucket is included when its expected
+    mode is present and there is at least one other available mode with
+    metrics for that bucket. On a tie at the best score every tied mode is
+    listed in winner_modes, and expected_mode_is_winner is True if the
+    expected mode is among them.
+    """
+    available = {
+        summary["mode"]: summary["metrics"]
+        for summary in mode_summaries
+        if summary["status"] == "ok" and summary.get("metrics")
+    }
+    scorecard = {}
+    hit_key = str(primary_hit_k)
+    for intent, expected_mode in EXPECTED_MODE_BY_INTENT.items():
+        if expected_mode not in available:
+            continue
+        mode_hit_rates = {}
+        case_count = None
+        for mode, metrics in available.items():
+            intent_metrics = (metrics.get("intent_metrics") or {}).get(intent)
+            if not intent_metrics:
+                continue
+            mode_hit_rates[mode] = intent_metrics["hit_rates"]
+            if case_count is None:
+                case_count = intent_metrics["case_count"]
+        if len(mode_hit_rates) < 2 or expected_mode not in mode_hit_rates:
+            continue
+        best_score = max(
+            rates[hit_key] for rates in mode_hit_rates.values()
+        )
+        winner_modes = sorted(
+            mode for mode, rates in mode_hit_rates.items() if rates[hit_key] == best_score
+        )
+        scorecard[intent] = {
+            "expected_mode": expected_mode,
+            "case_count": case_count,
+            "primary_hit_k": primary_hit_k,
+            "winner_modes": winner_modes,
+            "expected_mode_is_winner": expected_mode in winner_modes,
+            "mode_hit_rates": mode_hit_rates,
+        }
+    return scorecard
 
 
 def build_report(
@@ -423,6 +593,9 @@ def build_report(
             "hit_ks": list(benchmark["hit_ks"]),
         },
         "modes": mode_summaries,
+        "expected_winner_scorecard": build_expected_winner_scorecard(
+            mode_summaries, primary_hit_k=benchmark["hit_ks"][0]
+        ),
         "comparisons": compare_mode_summaries(mode_summaries),
     }
 
@@ -431,6 +604,24 @@ def format_report(report):
     """Render a human-readable summary of one benchmark report."""
     benchmark = report["benchmark"]
     hit_ks = benchmark["hit_ks"]
+
+    def _format_hit_parts(metrics):
+        return [
+            f"hit@{hit_k} {metrics['hit_rates'][str(hit_k)] * 100:.1f}%"
+            for hit_k in hit_ks
+        ]
+
+    def _format_cluster_parts(metrics):
+        return [
+            (
+                f"cluster recall@{hit_k} "
+                f"{metrics['cluster_recall_rates'][str(hit_k)] * 100:.1f}%, "
+                f"all@{hit_k} "
+                f"{metrics['cluster_all_relevant_rates'][str(hit_k)] * 100:.1f}%"
+            )
+            for hit_k in hit_ks
+        ]
+
     lines = [
         f"Benchmark: {benchmark['path']}",
         f"Cases: {benchmark['case_count']}",
@@ -444,15 +635,62 @@ def format_report(report):
             lines.append(f"  {summary['error']}")
             continue
         metrics = summary["metrics"]
-        hit_parts = [
-            f"hit@{hit_k} {metrics['hit_rates'][str(hit_k)] * 100:.1f}%"
-            for hit_k in hit_ks
-        ]
-        lines.append(f"\n{mode}: {', '.join(hit_parts)}")
+        lines.append(f"\n{mode}: {', '.join(_format_hit_parts(metrics))}")
         lines.append(
             f"  matches {metrics['match_count']}/{metrics['case_count']}, "
             f"mean first relevant rank {metrics['mean_first_relevant_rank']}"
         )
+        if "cluster_case_count" in metrics:
+            lines.append(
+                f"  cluster cases {metrics['cluster_case_count']}; "
+                + ", ".join(_format_cluster_parts(metrics))
+            )
+        if "elapsed_ms_total" in metrics:
+            lines.append(
+                f"  speed {metrics['elapsed_ms_total']:.3f} ms total, "
+                f"{metrics['mean_elapsed_ms']:.3f} ms/query"
+            )
+        if "intent_metrics" in metrics:
+            lines.append("  intents:")
+            for intent, intent_metrics in metrics["intent_metrics"].items():
+                lines.append(
+                    f"    {intent}: {', '.join(_format_hit_parts(intent_metrics))}"
+                )
+                if "cluster_case_count" in intent_metrics:
+                    lines.append(
+                        f"      cluster cases {intent_metrics['cluster_case_count']}; "
+                        + ", ".join(_format_cluster_parts(intent_metrics))
+                    )
+                if intent == "filter-sensitive":
+                    max_k = str(max(hit_ks))
+                    successes = intent_metrics["success_case_ids"][max_k]
+                    failures = intent_metrics["failure_case_ids"][max_k]
+                    lines.append(
+                        f"      success@{max_k}: "
+                        + (", ".join(successes) if successes else "none")
+                    )
+                    lines.append(
+                        f"      failure@{max_k}: "
+                        + (", ".join(failures) if failures else "none")
+                    )
+
+    if report.get("expected_winner_scorecard"):
+        lines.append("\nExpected winners:")
+        for intent, row in report["expected_winner_scorecard"].items():
+            hit_key = str(row["primary_hit_k"])
+            winner_label = ", ".join(row["winner_modes"])
+            expected_status = "yes" if row["expected_mode_is_winner"] else "no"
+            score_parts = [
+                f"{mode} {rates[hit_key] * 100:.1f}%"
+                for mode, rates in sorted(row["mode_hit_rates"].items())
+            ]
+            lines.append(
+                f"- {intent}: expected {row['expected_mode']}, winner {winner_label}, "
+                f"expected wins? {expected_status}"
+            )
+            lines.append(
+                f"  cases {row['case_count']}, hit@{hit_key}: " + ", ".join(score_parts)
+            )
 
     if report["comparisons"]:
         lines.append("\nComparisons against lexical:")
@@ -462,6 +700,12 @@ def format_report(report):
             f"- {comparison['mode']}: improved {counts['improved']}, "
             f"regressed {counts['regressed']}, unchanged {counts['unchanged']}"
         )
+        for intent, intent_counts in sorted(comparison["counts_by_intent"].items()):
+            lines.append(
+                f"  {intent}: improved {intent_counts['improved']}, "
+                f"regressed {intent_counts['regressed']}, "
+                f"unchanged {intent_counts['unchanged']}"
+            )
         for label in ("improved", "regressed"):
             for case in comparison[label]:
                 lines.append(

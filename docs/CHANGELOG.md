@@ -2,6 +2,15 @@
 
 Follows a pre-1.0 [semver](https://semver.org/) policy: backward-compatible changes are patch; breaking Brain changes are minor; only fundamental model changes are major. Breaking Brain changes include vault-structure changes and breaking tool/script/MCP contract changes. Fundamental model changes are changes to the artefact model, router contract, or agent bootstrap/entry flow.
 
+## v0.34.1 — 2026-05-04
+
+**Add a vault-driven benchmark constructor and harden the evaluator around bucketed, auditable search benchmarks.** This gives the parked semantic-search line a general way to build lexical / semantic / hybrid fixtures from a real vault, compare retrieval modes with richer timing and cluster metrics, and audit seeded candidates without inventing benchmark balance that the vault does not support.
+
+- Add `construct_benchmark_fixture.py`, a vault-native benchmark constructor that mines lexical / semantic / hybrid / cluster / filter-sensitive candidates from an existing vault, excludes benchmark-like and low-signal paths from semantic-heavy mining, audits candidates against live lexical/semantic/hybrid retrieval, and writes fixture + audit JSON to explicit output paths while reporting honest bucket shortfall.
+- Extend the constructor with richer semantic query generation, best-variant / near-pure diagnostics, external semantic and hybrid seed support, tighter seeded-target validation, and small per-source pre-audit caps so the constructor stays general while still producing trustworthy semantic- and hybrid-stress candidates.
+- Expand `evaluate_search.py` with per-mode timing metrics, per-intent summaries, filter-sensitive pass/fail reporting, basic cluster-quality scoring, and an expected-winner scorecard that degrades usefully on partial mode runs instead of going all-or-nothing.
+- Add constructor and evaluator regressions in `tests/test_construct_benchmark_fixture.py`, `tests/test_evaluate_search.py`, and `tests/fixtures/inline_search_benchmark.json`; refresh the script inventories and tooling docs around the richer benchmark construction and evaluation contract; and document vault-specific fixture/audit outputs as local generated state rather than tracked repo benchmarks.
+
 ## v0.34.0 — 2026-05-02
 
 **Make the parked semantic-retrieval line operational with a shared runtime, incremental embeddings maintenance, and a repeatable evaluator.** This turns the exploratory `brain_process` branch into a coherent semantic-search foundation: search and process share one internal semantic subsystem, embeddings refresh incrementally without eager sidecar deletion, and the branch gains a script-first benchmark harness for lexical, semantic, and hybrid retrieval.
@@ -11,6 +20,9 @@ Follows a pre-1.0 [semver](https://semver.org/) policy: backward-compatible chan
 - Land the embeddings-maintenance critical path: per-path invalidation domains, no eager sidecar deletion on ordinary writes, in-memory build outputs for refresh/save paths, and build-local body reuse so embedding rebuilds stop doing a write-then-read round-trip plus a second full document-body scan.
 - Tighten the hot path and parked-branch correctness edges around that foundation: lock lazy query-encoder construction, defer snippet extraction until after top-k truncation / hybrid fusion, memoise type-description reads, and decouple router persistence from embeddings invalidation ownership.
 - Add `evaluate_search.py`, a benchmark template, and a synthetic evaluator fixture so the parked branch can be measured from cached local files without a warm MCP process; update the functional/user docs, DD-047, and the affected regression suites to describe the new parked semantic-search contract consistently.
+- `build_embeddings`, `refresh_embeddings_outputs`, and `persist_retrieval_outputs` now return `(type_embeddings, doc_embeddings, meta)` tuples. The MCP server's `_ensure_embeddings_fresh` and `_build_index_and_save` adopt the arrays directly from the build path instead of round-tripping the npy files through disk.
+- `parse_doc` retains build-local `_body_head` and `_headings` fields so `build_embeddings` does not re-read every document body that `parse_doc` already read. New `_strip_build_local_fields` helper enforces the guardrail that these fields never reach `retrieval-index.json`; covered by a dedicated test.
+- Update the runtime `mark_embeddings_dirty` exposure and the affected MCP-server tests to match the new field shape; preserve disabled-clear and incremental-update test coverage.
 
 ## v0.33.0 — 2026-04-30
 
@@ -1016,7 +1028,7 @@ Hardening pass on the v0.28.0 vault registry:
 
 ## v0.14.1 — 2026-03-27
 
-- **Fix migrate_naming on case-insensitive filesystems** — case-only renames (e.g. `gizmo.md` → `Gizmo.md`) were falsely reported as conflicts on macOS HFS+/APFS. Now detects same-inode case renames and allows them.
+- **Fix migrate_naming on case-insensitive filesystems** — case-only renames (e.g. `note.md` → `Note.md`) were falsely reported as conflicts on macOS HFS+/APFS. Now detects same-inode case renames and allows them.
 
 ## v0.14.0 — 2026-03-26
 
