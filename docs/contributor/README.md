@@ -9,4 +9,4 @@ How to contribute to Obsidian Brain. This layer covers contributor-facing produc
 - [Agent Workflow](../standards/agent-workflow.md) — contributor workflow tiers
 - [Canary](../standards/canary.md) — canary system standard
 - [Changelog](../standards/changelog.md) — tiered public release-history standard
-- [Commit Messages](../standards/commit-messages.md) — commit message standard for contributors
+- [Commit Messages](../standards/commit-messages.md) — release Summary subjects plus required `docs:` / `test:` / `chore:` prefixes for non-versioned commits

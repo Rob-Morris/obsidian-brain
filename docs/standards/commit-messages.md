@@ -13,11 +13,13 @@ Before drafting, read four things:
 3. **The body of the corresponding `docs/changelog/vX.Y.Z.md` entry**, if one exists. Per-version file bodies are written as prose; paraphrase the commit-message body from there instead of reinventing the narrative.
 4. **`git log --oneline -15`** — match the local subject-line style.
 
-Skip steps 2 and 3 only if the change is too small for a changelog entry, for example a test-only fix.
+Skip steps 2 and 3 only for non-versioned support commits that do not ship a version, for example `docs:`, `test:`, or `chore:` work.
 
 ## Subject Line
 
-Template: `<verb> <specific noun> via <specific mechanism> (vX.Y.Z)`
+Versioned template: `<Summary> (vX.Y.Z)`
+
+Non-versioned template: `<prefix> <specific subject>`, where `<prefix>` is `docs:`, `test:`, or `chore:`
 
 - **Short** — under about 70 characters.
 - **Specific** — name the new thing by its identifier, not by category. `safe_write_via kernel` beats `shared atomic write kernel`; the former is greppable, the latter is not.
@@ -27,12 +29,22 @@ Template: `<verb> <specific noun> via <specific mechanism> (vX.Y.Z)`
 
 For release commits the subject is `<Summary> (vX.Y.Z)`, where `<Summary>` is the canonical Summary text — the top-line Summary of the per-version file, also filled into the matching `docs/CHANGELOG.md` index row. Do not re-paraphrase: the per-version Summary is the source of record, drafted before commit; the index cell carries the same text; the subject reuses it verbatim. See [Changelog](changelog.md).
 
+For non-versioned support commits, prefixes are required and narrow by design:
+
+- `docs:` — documentation-only work
+- `test:` — test-only work
+- `chore:` — repo-only maintenance that does not ship a version
+
+Do not use prefixes on versioned commits. In this repo, shipped code, fixes, features, and any change that bumps `src/brain-core/VERSION` already carry stronger release structure via semver, changelog entries, and the canonical Summary subject. Keep the prefix set small; add new prefixes only if a real recurring non-versioned category appears. Until then, every non-versioned commit should use exactly one of the prefixes above, and the subject after the prefix should still be short, specific, and imperative.
+
 Good:
 
 ```text
 Harden embeddings writes via safe_write_via kernel (v0.29.6)
 Key temporal logs off subject day; fail closed on rename collisions (v0.29.4)
 Frontmatter-backed filename rendering (v0.29.0)
+docs: clarify AGENTS.local.md local-override scope
+test: cover partial file-index basename upgrades
 ```
 
 Avoid:
@@ -41,6 +53,7 @@ Avoid:
 Update build_index.py                  # what changed? why?
 Harden embeddings                      # harden how?
 Refactor atomic writes (v0.29.6)       # "refactor" hides intent
+docs update                            # prefix present, but still vague
 ```
 
 ## Body
@@ -98,6 +111,8 @@ DD: docs/architecture/decisions/dd-036-safe-write-pattern.md
 
 **Specific identifiers over category nouns.** Name the function, file, or flag by its actual identifier. A reader searching `git log` for `safe_write_via` should find this commit; a reader searching for `atomic write kernel` should also find it, but the specific identifier is the one that cannot be confused with anything else.
 
+**Versioned commits stay prefix-free.** If the change ships a version, use the canonical Summary subject with the `(vX.Y.Z)` suffix, not `fix:`, `feat:`, `refactor:`, or `chore:`.
+
 **One logical change per commit.** If a single commit message needs two paragraphs to describe two unrelated changes, split the commit. The exception is coordinated changes that only make sense together, for example renaming a function and updating every call site.
 
 **Never combine unrelated changes** even when staging is convenient. Logical coherence over commit count.
@@ -109,8 +124,9 @@ DD: docs/architecture/decisions/dd-036-safe-write-pattern.md
 Trivial commits do not need a body:
 
 ```text
-Fix typo in docs/user/user-reference.md
-Bump dev dependency: pytest 8.3 -> 8.4
+docs: fix typo in docs/user/user-reference.md
+chore: bump dev dependency pytest 8.3 -> 8.4
+docs: clarify AGENTS.local.md naming
 ```
 
 If there is genuinely nothing to explain beyond the subject, do not invent filler. But most commits in this repo are not trivial; when in doubt, write the body.
