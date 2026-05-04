@@ -6,7 +6,7 @@ import os
 import pytest
 
 import fix_links
-from _common import build_vault_file_index
+from _common import file_index_from_documents
 from conftest import make_router, write_md
 
 
@@ -276,3 +276,49 @@ class TestApplyFixesToFile:
             str(vault), "Wiki/linker.md", fixes, links_filter=["not-there"],
         )
         assert count == 0
+
+
+class TestAttachWikilinkWarnings:
+    def test_apply_fixes_reuses_lazy_asset_cache_on_rescan(self, vault, monkeypatch):
+        import _common._wikilinks as wikilinks
+
+        assets = vault / "_Assets"
+        assets.mkdir()
+        (assets / "photo.png").write_bytes(b"\x89PNG")
+
+        write_md(
+            vault / "Wiki" / "Brain Inbox.md",
+            {"type": "living/wiki", "tags": ["test"]},
+            "# Brain Inbox",
+        )
+        write_md(
+            vault / "Wiki" / "linker.md",
+            {"type": "living/wiki", "tags": ["test"]},
+            "See [[brain-inbox]].\n![[photo.png]]\n",
+        )
+
+        called = {"count": 0}
+        original = wikilinks.build_vault_basename_index
+
+        def spy(*args, **kwargs):
+            called["count"] += 1
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(wikilinks, "build_vault_basename_index", spy)
+
+        file_index = file_index_from_documents(
+            [
+                {"path": "Wiki/Brain Inbox.md"},
+                {"path": "Wiki/linker.md"},
+            ],
+            vault_root=str(vault),
+        )
+        result = {"path": "Wiki/linker.md"}
+
+        fix_links.attach_wikilink_warnings(
+            str(vault), result, apply_fixes=True, file_index=file_index
+        )
+
+        assert called["count"] == 1
+        assert result["wikilink_fixes"]["applied"] == 1
+        assert "wikilink_warnings" not in result

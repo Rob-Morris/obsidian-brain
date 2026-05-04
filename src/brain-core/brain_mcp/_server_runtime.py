@@ -32,6 +32,7 @@ class ServerRuntime:
     ensure_warmup_started: Callable[[str | None], None]
     ensure_router_fresh: Callable[[], None]
     ensure_index_fresh: Callable[[], None]
+    ensure_mutation_index_ready: Callable[[], None]
     get_readiness_snapshot: Callable[[bool], dict[str, Any]]
     check_version_drift: Callable[[], None]
     mark_index_dirty: Callable[[], None]

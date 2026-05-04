@@ -121,7 +121,7 @@ def _build_parent_context(router, artefact, fields, parent_key, parent_entry):
     return None
 
 
-def create_artefact(vault_root, router, type_key, title, body="", frontmatter_overrides=None, parent=None, key=None, template_vars=None, fix_links=False):
+def create_artefact(vault_root, router, type_key, title, body="", frontmatter_overrides=None, parent=None, key=None, template_vars=None, fix_links=False, file_index=None):
     """Create a new artefact. Returns {"path": relative_path, "type": ..., "title": ...}.
 
     Args:
@@ -141,6 +141,9 @@ def create_artefact(vault_root, router, type_key, title, body="", frontmatter_ov
                 to the template body (e.g. {"SOURCE_TYPE": "designs"}).
                 ``{{date:FORMAT}}`` placeholders are always substituted when the
                 template body is used.
+        file_index: Optional pre-built vault file index (dict). When supplied,
+                    the wikilink-warning step skips ``build_vault_file_index``.
+                    Pass ``None`` (default) for legacy behaviour (vault walk).
 
     Returns:
         Dict with path, type, and title.
@@ -242,7 +245,7 @@ def create_artefact(vault_root, router, type_key, title, body="", frontmatter_ov
     )
     if parent_context:
         result["parent_context"] = parent_context
-    _fix_links.attach_wikilink_warnings(vault_root, result, apply_fixes=fix_links)
+    _fix_links.attach_wikilink_warnings(vault_root, result, apply_fixes=fix_links, file_index=file_index)
     return result
 
 
@@ -257,6 +260,8 @@ def create_resource(vault_root, router, resource="artefact", **kwargs):
     """Create a vault resource. Dispatches to resource-specific creators.
 
     For artefacts: delegates to create_artefact() with type_key, title, body, etc.
+    Artefact creation accepts an optional ``file_index`` kwarg (see
+    ``create_artefact`` for details); it passes through via ``**kwargs``.
     For other resources: creates in the appropriate _Config/ subfolder.
 
     Args:

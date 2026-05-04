@@ -26,11 +26,11 @@ from _common import (
     find_vault_root,
     load_compiled_router,
     make_wikilink_replacer,
+    overlay_file_index_result,
     replace_wikilinks_in_text,
     replace_wikilinks_in_vault,
     resolve_broken_link,
     safe_write,
-    strip_md_ext,
 )
 from check import check_broken_wikilinks
 
@@ -47,7 +47,7 @@ def _resolvable_fixes(findings):
     ]
 
 
-def attach_wikilink_warnings(vault_root, result, apply_fixes=False):
+def attach_wikilink_warnings(vault_root, result, apply_fixes=False, file_index=None):
     """Check the written/edited file for broken wikilinks and attach findings.
 
     Adds a ``wikilink_warnings`` key to *result* when the file contains any
@@ -58,12 +58,19 @@ def attach_wikilink_warnings(vault_root, result, apply_fixes=False):
     file re-checked so ``wikilink_warnings`` reflect only findings that remain.
     Applied fixes are attached as ``wikilink_fixes``. Reuses a single vault
     file index across the pre- and post-fix scans to avoid double-walking.
+
+    When ``file_index`` is provided, it is used directly and the vault walk via
+    ``build_vault_file_index`` is skipped entirely. Pass ``None`` (the default)
+    to retain legacy behaviour where the index is built from the vault on demand.
     """
     path = result.get("path")
     if not path:
         return
     vault_root = str(vault_root)
-    file_index = build_vault_file_index(vault_root)
+    if file_index is None:
+        file_index = build_vault_file_index(vault_root)
+    else:
+        file_index = overlay_file_index_result(file_index, result)
     temporal_prefixes = discover_temporal_prefixes(file_index["md_basenames"])
     findings = check_wikilinks_in_file(
         vault_root, path,

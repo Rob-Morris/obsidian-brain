@@ -1294,6 +1294,17 @@ class TestEnsureFreshRobustness:
 
         assert server._index_dirty, "Index should be marked dirty after incremental failure"
 
+    def test_ensure_mutation_index_ready_skips_staleness_sweep(self, initialized, monkeypatch):
+        """Write-path readiness must not trigger the TTL-gated external scan."""
+        server._index_checked_at = 0.0
+
+        def fail(*args, **kwargs):
+            raise AssertionError("_check_index should not run on the mutation path")
+
+        monkeypatch.setattr(server, "_check_index", fail)
+
+        server._ensure_mutation_index_ready()
+
 
 class TestStartupRobustness:
     def test_startup_survives_router_compile_failure(self, vault):
@@ -1746,6 +1757,49 @@ class TestBrainCreate:
         finally:
             if os.path.exists(temp_path):
                 os.remove(temp_path)
+
+
+class TestBrainCreateFixLinks:
+    def test_mcp_create_with_fix_links_does_not_walk_and_resolves_self_link(
+        self, initialized, monkeypatch
+    ):
+        import fix_links as _fix_links
+
+        called = {"count": 0}
+        original = _fix_links.build_vault_file_index
+
+        def spy(*args, **kwargs):
+            called["count"] += 1
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(_fix_links, "build_vault_file_index", spy)
+
+        result = server.brain_create(
+            type="wiki",
+            title="Self Link Page",
+            body="See [[Self Link Page]].\n",
+            fix_links=True,
+        )
+
+        assert "Error" not in str(result), f"brain_create unexpectedly returned error: {result}"
+        assert called["count"] == 0
+        assert "Broken wikilinks" not in result
+        assert "Resolvable wikilinks" not in result
+
+    def test_mcp_create_with_fix_links_requires_index_ready(self, initialized, monkeypatch):
+        monkeypatch.setattr(server, "_ensure_mutation_index_ready", lambda: None)
+        server._index = None
+
+        result = server.brain_create(
+            type="wiki",
+            title="Needs Index",
+            body="See [[Needs Index]].\n",
+            fix_links=True,
+        )
+
+        payload = _progress_payload(result)
+        assert payload["tool"] == "brain_create"
+        assert payload["needs"] == ["index"]
 
 
 # ---------------------------------------------------------------------------
@@ -2575,6 +2629,73 @@ class TestBrainEdit:
         finally:
             if os.path.exists(temp_path):
                 os.remove(temp_path)
+
+
+class TestBrainEditSkipsVaultWalk:
+    """Regression guard: brain_edit (MCP path) must not walk the vault for fix_links."""
+
+    def test_mcp_edit_with_fix_links_does_not_walk(self, initialized, monkeypatch):
+        """If state.index is populated, brain_edit derives file_index from it; no vault walk."""
+        import fix_links as _fix_links
+
+        called = {"count": 0}
+        original = _fix_links.build_vault_file_index
+
+        def spy(*args, **kwargs):
+            called["count"] += 1
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(_fix_links, "build_vault_file_index", spy)
+
+        assert server._index is not None, "fixture must populate state.index before test"
+
+        result = server.brain_edit(
+            operation="edit",
+            path="Wiki/brain-overview-abc123.md",
+            body="No links here.\n",
+            target=":body",
+            scope="section",
+            fix_links=True,
+        )
+
+        assert "Error" not in str(result), f"brain_edit unexpectedly returned error: {result}"
+        assert called["count"] == 0, (
+            "MCP path with state.index populated must not walk the vault "
+            f"(build_vault_file_index called {called['count']} time(s))"
+        )
+
+    def test_mcp_edit_with_fix_links_flushes_pending_index_updates(self, initialized):
+        server.brain_create(type="wiki", title="Fresh Target")
+
+        result = server.brain_edit(
+            operation="edit",
+            path="Wiki/brain-overview-abc123.md",
+            body="See [[Fresh Target]].\n",
+            target=":body",
+            scope="section",
+            fix_links=True,
+        )
+
+        assert "Error" not in str(result), f"brain_edit unexpectedly returned error: {result}"
+        assert "Broken wikilinks" not in result
+        assert "Resolvable wikilinks" not in result
+
+    def test_mcp_edit_with_fix_links_requires_index_ready(self, initialized, monkeypatch):
+        monkeypatch.setattr(server, "_ensure_mutation_index_ready", lambda: None)
+        server._index = None
+
+        result = server.brain_edit(
+            operation="edit",
+            path="Wiki/brain-overview-abc123.md",
+            body="No links here.\n",
+            target=":body",
+            scope="section",
+            fix_links=True,
+        )
+
+        payload = _progress_payload(result)
+        assert payload["tool"] == "brain_edit"
+        assert payload["needs"] == ["index"]
 
 
 # ---------------------------------------------------------------------------

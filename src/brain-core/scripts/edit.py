@@ -411,9 +411,9 @@ def _validate_single_structural_line(body, kind, label):
 def _validate_heading_section_replacement(body, resolved):
     """Whole heading-section replacement must begin with a heading line.
 
-    Also rejects bodies whose final heading equals the original next-sibling
-    boundary at the target's level — splicing such a body would duplicate the
-    boundary heading immediately after itself.
+    Also rejects bodies whose final heading equals the original section
+    boundary heading — splicing such a body would duplicate that boundary
+    immediately after itself.
     """
     if not body:
         raise ValueError("scope='section' for heading targets cannot be empty")
@@ -423,24 +423,19 @@ def _validate_heading_section_replacement(body, resolved):
             "scope='section' for heading targets must begin with a heading line"
         )
 
-    next_sibling_raw = resolved["next_sibling_raw"]
-    next_sibling_level = resolved["next_sibling_level"]
-    if next_sibling_raw is None:
-        return
-    target_level = resolved["level"]
-    if next_sibling_level != target_level:
+    next_boundary_raw = resolved["next_boundary_raw"]
+    if next_boundary_raw is None:
         return
 
     headings = collect_headings(body)
     assert headings, "body passed initial heading-line check; collect_headings must find at least one"
-    _h_start, h_level, _h_text, h_raw = headings[-1]
-    if h_raw == next_sibling_raw and h_level == target_level:
+    _h_start, _h_level, _h_text, h_raw = headings[-1]
+    if h_raw == next_boundary_raw:
         raise ValueError(
             f"scope='section' replacement body's final heading '{h_raw}' is the same "
-            f"as the next-sibling boundary heading at level {target_level}. Splicing "
-            "this body would duplicate that heading. Either drop the trailing heading "
-            "from the body, or widen the target so multiple sibling sections are "
-            "replaced together."
+            "as the next section boundary heading. Splicing this body would "
+            "duplicate that heading. Either drop the trailing heading from the "
+            "body, or widen the target so multiple sections are replaced together."
         )
 
 
@@ -632,7 +627,8 @@ EDITABLE_RESOURCES = RESOURCE_KINDS
 
 def edit_resource(vault_root, router, resource="artefact", operation="edit",
                   path=None, name=None, body="", frontmatter_changes=None,
-                  target=None, selector=None, scope=None, fix_links=False):
+                  target=None, selector=None, scope=None, fix_links=False,
+                  file_index=None):
     """Edit a vault resource. Dispatches to the appropriate handler.
 
     For artefacts: delegates to existing edit/append/prepend/delete_section functions.
@@ -652,6 +648,9 @@ def edit_resource(vault_root, router, resource="artefact", operation="edit",
         target: Optional body, heading, or callout target.
         selector: Optional duplicate/ancestor disambiguation object.
         scope: Optional mutable range within the resolved structural target.
+        file_index: Optional pre-built vault file index (dict). When supplied,
+                    the wikilink-warning step skips ``build_vault_file_index``.
+                    Pass ``None`` (default) for legacy behaviour (vault walk).
 
     Returns:
         Dict with path and operation.
@@ -668,7 +667,7 @@ def edit_resource(vault_root, router, resource="artefact", operation="edit",
             frontmatter_changes=frontmatter_changes,
             target=target, selector=selector, scope=scope,
         )
-        _fix_links.attach_wikilink_warnings(vault_root, result, apply_fixes=fix_links)
+        _fix_links.attach_wikilink_warnings(vault_root, result, apply_fixes=fix_links, file_index=file_index)
         return result
 
     if resource not in EDITABLE_RESOURCES:

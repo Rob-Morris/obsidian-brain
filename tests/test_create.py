@@ -9,7 +9,8 @@ from datetime import datetime, timezone, timedelta
 import pytest
 
 import create
-from _common import parse_frontmatter, resolve_naming_pattern
+import fix_links as _fix_links
+from _common import file_index_from_documents, parse_frontmatter, resolve_naming_pattern
 
 
 # ---------------------------------------------------------------------------
@@ -815,3 +816,49 @@ class TestCreateFixLinks:
         assert "wikilink_warnings" in result
         written = (vault / result["path"]).read_text()
         assert "[[my-target]]" in written
+
+
+class TestCreateFileIndexThreading:
+    def test_supplied_file_index_skips_vault_walk_and_resolves_self_link(
+        self, vault, router, monkeypatch
+    ):
+        called = {"count": 0}
+        original = _fix_links.build_vault_file_index
+
+        def spy(*args, **kwargs):
+            called["count"] += 1
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(_fix_links, "build_vault_file_index", spy)
+
+        file_index = file_index_from_documents([], vault_root=str(vault))
+        result = create.create_artefact(
+            str(vault),
+            router,
+            "wiki",
+            "Self Link Page",
+            body="See [[Self Link Page]].\n",
+            fix_links=True,
+            file_index=file_index,
+        )
+        assert called["count"] == 0
+        assert "wikilink_warnings" not in result
+
+    def test_no_file_index_falls_back_to_walk(self, vault, router, monkeypatch):
+        called = {"count": 0}
+        original = _fix_links.build_vault_file_index
+
+        def spy(*args, **kwargs):
+            called["count"] += 1
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(_fix_links, "build_vault_file_index", spy)
+
+        create.create_artefact(
+            str(vault),
+            router,
+            "wiki",
+            "Walk Fallback",
+            body="No links.\n",
+        )
+        assert called["count"] == 1

@@ -9,7 +9,7 @@ from unittest.mock import patch
 import pytest
 
 import edit
-from _common import parse_frontmatter, validate_artefact_folder
+from _common import file_index_from_documents, parse_frontmatter, validate_artefact_folder
 
 
 def test_scope_meanings_cover_valid_scopes():
@@ -2964,8 +2964,56 @@ class TestEditFixLinks:
         assert "[[real-target]]" in content
 
 
+class TestEditFileIndexThreading:
+    """Verify edit_resource skips the vault walk when file_index is supplied."""
+
+    def test_supplied_file_index_skips_vault_walk(self, vault, router, monkeypatch):
+        """When file_index is supplied, build_vault_file_index must not be called."""
+        import fix_links as _fix_links
+        called = {"count": 0}
+        original = _fix_links.build_vault_file_index
+        def spy(*args, **kwargs):
+            called["count"] += 1
+            return original(*args, **kwargs)
+        monkeypatch.setattr(_fix_links, "build_vault_file_index", spy)
+
+        # Construct a minimal file_index that resolves [[real-target]]
+        (vault / "Wiki" / "Real Target.md").write_text("# Real\n")
+        file_index = file_index_from_documents(
+            [{"path": "Wiki/Real Target.md"}],
+            vault_root=str(vault),
+        )
+
+        result = edit.edit_resource(
+            str(vault), router, resource="artefact", operation="edit",
+            path="Wiki/test-page.md", body="See [[real-target]].\n",
+            target=":body", scope="section",
+            fix_links=True, file_index=file_index,
+        )
+        assert called["count"] == 0, "build_vault_file_index must not be called when file_index supplied"
+        # The supplied index treats the link as ambiguous-or-resolved; we don't assert wikilink_fixes here
+        # because the synthetic stem doesn't exactly match. The point is the walk was skipped.
+
+    def test_no_file_index_falls_back_to_walk(self, vault, router, monkeypatch):
+        """Backward-compat: omitting file_index still triggers the walk (legacy CLI/tests)."""
+        import fix_links as _fix_links
+        called = {"count": 0}
+        original = _fix_links.build_vault_file_index
+        def spy(*args, **kwargs):
+            called["count"] += 1
+            return original(*args, **kwargs)
+        monkeypatch.setattr(_fix_links, "build_vault_file_index", spy)
+
+        edit.edit_resource(
+            str(vault), router, resource="artefact", operation="edit",
+            path="Wiki/test-page.md", body="No links.\n",
+            target=":body", scope="section",
+        )
+        assert called["count"] == 1, "build_vault_file_index must be called when file_index is None"
+
+
 class TestSectionReplaceBoundaryGuard:
-    """Reject section-replace bodies that would duplicate the next-sibling boundary heading."""
+    """Reject section-replace bodies that would duplicate the next boundary heading."""
 
     def _setup(self, vault, body_text):
         path = vault / "Wiki" / "boundary-page.md"
@@ -3100,5 +3148,17 @@ class TestSectionReplaceBoundaryGuard:
             edit.edit_artefact(
                 str(vault), router, "Wiki/boundary-page.md",
                 "## Alpha\n\nFirst.\n\n## Beta\n\nMid.\n\n## Gamma\n",
+                target="## Alpha", scope="section",
+            )
+
+    def test_rejects_body_ending_with_shallower_boundary_heading(self, vault, router):
+        self._setup(
+            vault,
+            "## Alpha\n\nbody.\n\n# Omega\n\nO body.\n",
+        )
+        with pytest.raises(ValueError, match="boundary"):
+            edit.edit_artefact(
+                str(vault), router, "Wiki/boundary-page.md",
+                "## Alpha\n\nUpdated.\n\n# Omega\n",
                 target="## Alpha", scope="section",
             )

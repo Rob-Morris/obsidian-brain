@@ -94,31 +94,63 @@ def _read_responses(proc, *, timeout: float = 5.0, count: int = 1) -> list[dict]
     Read up to `count` JSON objects from proc.stdout within `timeout` seconds.
     Uses select on POSIX so we don't block forever.
     """
+    return _read_json_messages(proc, timeout=timeout, max_count=count)
+
+
+def _read_json_messages(
+    proc,
+    *,
+    timeout: float,
+    max_count: int | None = None,
+    idle: float | None = None,
+    stop_id: int | str | None = None,
+) -> list[dict]:
+    """Read NDJSON messages from a subprocess pipe without text-buffer races.
+
+    These tests mix notifications and responses on the same stdout pipe. Using
+    ``select()`` with ``TextIOWrapper.readline()`` is flaky because one read can
+    buffer multiple lines in user space, leaving the fd unreadable while a
+    second message is already waiting in Python's text buffer. Read bytes from
+    the fd directly instead so readiness and consumption stay aligned.
+    """
     import select
 
-    results = []
+    fd = proc.stdout.fileno()
+    results: list[dict] = []
+    buf = getattr(proc, "_ndjson_buffer", b"")
     deadline = time.monotonic() + timeout
-    buf = ""
 
-    while len(results) < count and time.monotonic() < deadline:
+    while time.monotonic() < deadline:
+        while b"\n" in buf:
+            raw_line, buf = buf.split(b"\n", 1)
+            line = raw_line.strip()
+            if not line:
+                continue
+            try:
+                msg = json.loads(line.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                continue
+            results.append(msg)
+            if stop_id is not None and msg.get("id") == stop_id:
+                proc._ndjson_buffer = buf
+                return results
+            if max_count is not None and len(results) >= max_count:
+                proc._ndjson_buffer = buf
+                return results
+
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             break
-        ready, _, _ = select.select([proc.stdout], [], [], remaining)
+        wait = min(idle, remaining) if idle is not None else remaining
+        ready, _, _ = select.select([fd], [], [], wait)
         if not ready:
             break
-        chunk = proc.stdout.readline()
+        chunk = os.read(fd, 4096)
         if not chunk:
             break
         buf += chunk
-        # Each line should be a complete JSON object
-        line = chunk.strip()
-        if line:
-            try:
-                results.append(json.loads(line))
-            except json.JSONDecodeError:
-                pass  # skip malformed lines
 
+    proc._ndjson_buffer = buf
     return results
 
 
@@ -132,30 +164,9 @@ def _read_all_responses(proc, *, timeout: float = 5.0, idle: float = 0.5, max_co
     ``timeout`` hasn't elapsed.  This prevents tests from blocking for
     the full timeout when only a few quick messages are expected.
     """
-    import select
-
-    results = []
-    deadline = time.monotonic() + timeout
-
-    while len(results) < max_count and time.monotonic() < deadline:
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            break
-        wait = min(idle, remaining)
-        ready, _, _ = select.select([proc.stdout], [], [], wait)
-        if not ready:
-            break
-        chunk = proc.stdout.readline()
-        if not chunk:
-            break
-        line = chunk.strip()
-        if line:
-            try:
-                results.append(json.loads(line))
-            except json.JSONDecodeError:
-                pass
-
-    return results
+    return _read_json_messages(
+        proc, timeout=timeout, idle=idle, max_count=max_count
+    )
 
 
 def _read_until_id(proc, target_id: int | str, *, timeout: float = 15.0) -> list[dict]:
@@ -166,33 +177,7 @@ def _read_until_id(proc, target_id: int | str, *, timeout: float = 15.0) -> list
     slow-to-start child server may introduce a gap between an early
     notification and the real response.
     """
-    import select
-
-    results: list[dict] = []
-    deadline = time.monotonic() + timeout
-
-    while time.monotonic() < deadline:
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            break
-        ready, _, _ = select.select([proc.stdout], [], [], remaining)
-        if not ready:
-            break
-        chunk = proc.stdout.readline()
-        if not chunk:
-            break
-        line = chunk.strip()
-        if not line:
-            continue
-        try:
-            msg = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        results.append(msg)
-        if msg.get("id") == target_id:
-            return results
-
-    return results
+    return _read_json_messages(proc, timeout=timeout, stop_id=target_id)
 
 
 def _find_by_id(messages: list[dict], id: int | str) -> dict | None:
@@ -272,6 +257,33 @@ class _BlockingBuffer:
 class _BlockingFakeStdin:
     def __init__(self, lines: list[bytes], eof_event: threading.Event):
         self.buffer = _BlockingBuffer(lines, eof_event)
+
+
+class _PipeProc:
+    def __init__(self, payload: bytes):
+        read_fd, write_fd = os.pipe()
+        os.write(write_fd, payload)
+        os.close(write_fd)
+        self.stdout = os.fdopen(read_fd, "rb", buffering=0)
+
+    def close(self) -> None:
+        self.stdout.close()
+
+
+class TestReadJsonMessages:
+    def test_preserves_unread_lines_between_helper_calls(self):
+        proc = _PipeProc(
+            _make_response(1, {"value": "one"}).encode("utf-8")
+            + _make_response(2, {"value": "two"}).encode("utf-8")
+        )
+        try:
+            first = _read_responses(proc, timeout=1.0, count=1)
+            assert [msg["id"] for msg in first] == [1]
+
+            second = _read_all_responses(proc, timeout=1.0, idle=0.1, max_count=5)
+            assert [msg["id"] for msg in second] == [2]
+        finally:
+            proc.close()
 
 
 class _NoOpThread:

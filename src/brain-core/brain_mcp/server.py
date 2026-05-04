@@ -1085,6 +1085,56 @@ def _mark_index_pending(rel_path: str, type_hint: str | None = None) -> None:
         _index_pending.append((rel_path, type_hint))
 
 
+def _apply_pending_index_updates() -> None:
+    """Drain queued path updates into the in-memory index.
+
+    Keeps the stored ``built_at`` timestamp unchanged so the external-change
+    sweep still measures freshness against the last full build.
+    """
+    global _index, _index_checked_at
+    if _index is None or not _index_pending:
+        return
+
+    with _index_pending_lock:
+        pending = _index_pending[:]
+        _index_pending.clear()
+
+    try:
+        saved_built_at = _index["meta"].get("built_at")
+        for rel_path, type_hint in pending:
+            build_index.index_update(
+                _index, _vault_root, rel_path, type_hint=type_hint, recompute=False
+            )
+        build_index._recompute_corpus_stats(_index)
+        if saved_built_at:
+            _index["meta"]["built_at"] = saved_built_at
+        _save_json(_index, _vault_root, _index_rel())
+        _index_checked_at = time.monotonic()
+    except Exception as e:
+        if _logger:
+            _logger.error("index incremental update failed: %s", e)
+        _mark_index_dirty()
+
+
+def _try_rebuild_index(
+    error_message: str,
+    *,
+    clear_dirty_on_failure: bool,
+) -> bool:
+    """Run a full index rebuild and apply shared failure semantics."""
+    global _index, _index_checked_at, _index_dirty
+    try:
+        _index = _build_index_and_save(_vault_root)
+        return True
+    except Exception as e:
+        if _logger:
+            _logger.error("%s: %s", error_message, e)
+        if clear_dirty_on_failure:
+            _index_dirty = False  # prevent tight retry loop; staleness TTL will re-detect
+            _index_checked_at = time.monotonic()
+        return False
+
+
 def _ensure_index_fresh() -> None:
     """Update the index if needed: incremental for queued paths, full rebuild
     if dirty flag is set, filesystem staleness check on TTL for external changes.
@@ -1095,33 +1145,15 @@ def _ensure_index_fresh() -> None:
 
     # Full rebuild takes priority over incremental
     if _index_dirty:
-        try:
-            _index = _build_index_and_save(_vault_root)
-        except Exception as e:
-            if _logger:
-                _logger.error("index full rebuild failed: %s", e)
-            _index_dirty = False  # prevent tight retry loop; staleness TTL will re-detect
-            _index_checked_at = time.monotonic()
+        _try_rebuild_index(
+            "index full rebuild failed",
+            clear_dirty_on_failure=True,
+        )
         return
 
     # Incremental updates for paths queued by brain_create/brain_edit
     if _index_pending and _index is not None:
-        with _index_pending_lock:
-            pending = _index_pending[:]
-            _index_pending.clear()
-        try:
-            saved_built_at = _index["meta"].get("built_at")
-            for rel_path, type_hint in pending:
-                build_index.index_update(_index, _vault_root, rel_path, type_hint=type_hint, recompute=False)
-            build_index._recompute_corpus_stats(_index)
-            if saved_built_at:
-                _index["meta"]["built_at"] = saved_built_at  # Don't advance threshold
-            _save_json(_index, _vault_root, _index_rel())
-            _index_checked_at = time.monotonic()
-        except Exception as e:
-            if _logger:
-                _logger.error("index incremental update failed: %s", e)
-            _mark_index_dirty()
+        _apply_pending_index_updates()
         # Fall through to TTL-gated staleness check (detects external files)
 
     # Filesystem staleness check for external changes (throttled)
@@ -1132,11 +1164,37 @@ def _ensure_index_fresh() -> None:
     stale, data = _check_index(_vault_root)
     if not stale:
         return
-    try:
-        _index = _build_index_and_save(_vault_root)
-    except Exception as e:
-        if _logger:
-            _logger.error("index staleness rebuild failed: %s", e)
+    _try_rebuild_index(
+        "index staleness rebuild failed",
+        clear_dirty_on_failure=False,
+    )
+
+
+def _ensure_mutation_index_ready() -> None:
+    """Prepare the index for mutation-time link checks without a TTL sweep.
+
+    ``brain_create`` / ``brain_edit`` need the in-memory index to reflect MCP
+    writes queued in ``_index_pending``, but they should not pay the periodic
+    vault-wide external staleness scan that read/search paths use.
+    """
+    global _index, _index_checked_at, _index_dirty
+    if _vault_root is None or _index is None:
+        return
+
+    if _index_dirty:
+        _try_rebuild_index(
+            "index full rebuild failed",
+            clear_dirty_on_failure=True,
+        )
+        return
+
+    if _index_pending:
+        _apply_pending_index_updates()
+        if _index_dirty:
+            _try_rebuild_index(
+                "index full rebuild failed",
+                clear_dirty_on_failure=True,
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -1287,6 +1345,7 @@ def _runtime() -> ServerRuntime:
         ensure_warmup_started=_ensure_warmup_started,
         ensure_router_fresh=_ensure_router_fresh,
         ensure_index_fresh=_ensure_index_fresh,
+        ensure_mutation_index_ready=_ensure_mutation_index_ready,
         get_readiness_snapshot=_readiness_snapshot,
         check_version_drift=_check_version_drift,
         mark_index_dirty=_mark_index_dirty,

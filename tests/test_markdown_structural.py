@@ -209,27 +209,23 @@ class TestResolveStructuralTarget:
             )
 
 
-class TestResolverNextSiblingMetadata:
-    def test_heading_with_next_sibling_exposes_raw_and_level(self):
+class TestResolverNextBoundaryMetadata:
+    def test_heading_with_next_boundary_exposes_raw(self):
         body = "## Alpha\n\nA body.\n\n## Beta\n\nB body.\n"
         resolved = resolve_structural_target(body, "## Alpha")
-        assert resolved["next_sibling_raw"] == "## Beta"
-        assert resolved["next_sibling_level"] == 2
+        assert resolved["next_boundary_raw"] == "## Beta"
 
-    def test_heading_with_no_next_sibling_returns_none(self):
+    def test_heading_with_no_next_boundary_returns_none(self):
         body = "## Alpha\n\nA body.\n\n### Child\n\nChild body.\n"
         resolved = resolve_structural_target(body, "## Alpha")
-        assert resolved["next_sibling_raw"] is None
-        assert resolved["next_sibling_level"] is None
+        assert resolved["next_boundary_raw"] is None
 
-    def test_heading_next_sibling_can_be_shallower(self):
+    def test_heading_next_boundary_can_be_shallower(self):
         body = "# Top\n\n## Alpha\n\nA body.\n\n# Other\n\nO body.\n"
         resolved = resolve_structural_target(body, "## Alpha")
-        assert resolved["next_sibling_raw"] == "# Other"
-        assert resolved["next_sibling_level"] == 1
+        assert resolved["next_boundary_raw"] == "# Other"
 
-    def test_callout_target_has_no_next_sibling_metadata(self):
+    def test_callout_target_has_no_next_boundary_metadata(self):
         body = "## Alpha\n\n> [!note] Status\n> One.\n\n## Beta\n"
         resolved = resolve_structural_target(body, "[!note] Status")
-        assert resolved["next_sibling_raw"] is None
-        assert resolved["next_sibling_level"] is None
+        assert resolved["next_boundary_raw"] is None

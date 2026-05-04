@@ -273,3 +273,94 @@ class TestResolveArtefactPath:
             "Broken Link Prevention Briefing", vault_with_files
         )
         assert result == "_Temporal/Reports/2026-03/20260329-report~Broken Link Prevention Briefing.md"
+
+
+# ---------------------------------------------------------------------------
+# file_index_from_documents
+# ---------------------------------------------------------------------------
+
+class TestFileIndexFromDocuments:
+    def test_builds_md_basenames_from_documents(self):
+        docs = [{"path": "Wiki/Foo.md"}, {"path": "Designs/Bar.md"}]
+        idx = common.file_index_from_documents(docs, vault_root="/unused")
+        assert idx["md_basenames"]["foo"] == ["Wiki/Foo.md"]
+        assert idx["md_basenames"]["bar"] == ["Designs/Bar.md"]
+
+    def test_all_basenames_is_empty_and_marked_partial(self):
+        docs = [{"path": "Wiki/Foo.md"}, {"path": "Designs/Bar.md"}]
+        idx = common.file_index_from_documents(docs, vault_root="/unused")
+        assert idx["all_basenames"] == {}
+        assert idx["all_basenames_complete"] is False
+
+    def test_md_relpaths_uses_lowercase_strip_md_ext(self):
+        docs = [{"path": "Wiki/My Page.md"}]
+        idx = common.file_index_from_documents(docs, vault_root="/unused")
+        assert "wiki/my page" in idx["md_relpaths"]
+
+    def test_handles_duplicate_basenames(self):
+        docs = [{"path": "Wiki/notes.md"}, {"path": "Designs/notes.md"}]
+        idx = common.file_index_from_documents(docs, vault_root="/unused")
+        assert len(idx["md_basenames"]["notes"]) == 2
+        assert "Wiki/notes.md" in idx["md_basenames"]["notes"]
+        assert "Designs/notes.md" in idx["md_basenames"]["notes"]
+
+
+# ---------------------------------------------------------------------------
+# check_wikilinks_in_file — asset fallback via os.path.exists
+# ---------------------------------------------------------------------------
+
+class TestCheckWikilinksAssetFallback:
+    def test_asset_embed_resolves_via_path_exists_when_all_basenames_empty(self, vault):
+        assets = vault / "Assets"
+        assets.mkdir()
+        (assets / "photo.png").write_bytes(b"\x89PNG")
+        doc_path = vault / "Wiki" / "my-doc.md"
+        doc_path.write_text("# Doc\n\n![[Assets/photo.png]]\n")
+
+        docs = [{"path": "Wiki/my-doc.md"}]
+        file_index = common.file_index_from_documents(docs, vault_root=str(vault))
+        findings = common.check_wikilinks_in_file(
+            str(vault), "Wiki/my-doc.md", file_index=file_index
+        )
+        assert findings == []
+
+    def test_asset_embed_reports_broken_when_file_does_not_exist_either(self, vault):
+        doc_path = vault / "Wiki" / "my-doc.md"
+        doc_path.write_text("# Doc\n\n![[missing.png]]\n")
+
+        docs = [{"path": "Wiki/my-doc.md"}]
+        file_index = common.file_index_from_documents(docs, vault_root=str(vault))
+        findings = common.check_wikilinks_in_file(
+            str(vault), "Wiki/my-doc.md", file_index=file_index
+        )
+        assert len(findings) == 1
+        assert findings[0]["stem"] == "missing.png"
+        assert findings[0]["status"] == "broken"
+
+    def test_asset_basename_embed_uses_lazy_basename_index_fallback(self, vault, monkeypatch):
+        import _common._wikilinks as wikilinks
+
+        assets = vault / "_Assets"
+        assets.mkdir()
+        (assets / "photo.png").write_bytes(b"\x89PNG")
+        doc_path = vault / "Wiki" / "my-doc.md"
+        doc_path.write_text("# Doc\n\n![[photo.png]]\n")
+
+        called = {"count": 0}
+        original = wikilinks.build_vault_basename_index
+
+        def spy(*args, **kwargs):
+            called["count"] += 1
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(wikilinks, "build_vault_basename_index", spy)
+
+        docs = [{"path": "Wiki/my-doc.md"}]
+        file_index = common.file_index_from_documents(docs, vault_root=str(vault))
+        findings = common.check_wikilinks_in_file(
+            str(vault), "Wiki/my-doc.md", file_index=file_index
+        )
+        assert findings == []
+        assert called["count"] == 1
+        assert file_index["all_basenames_complete"] is True
+        assert "photo.png" in file_index["all_basenames"]

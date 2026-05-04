@@ -193,6 +193,14 @@ _WIKILINK_EXTRACT_RE = re.compile(r"(!?)\[\[([^\]]+)\]\]")
 INDEX_SKIP_DIRS = {".git", ".obsidian", ".venv", ".brain-core", "__pycache__", "_Archive"}
 
 
+def _iter_indexed_vault_files(vault_root):
+    """Yield ``(rel_path, fname)`` for files included in file-index scans."""
+    for dirpath, dirnames, filenames in os.walk(vault_root):
+        dirnames[:] = [d for d in dirnames if d not in INDEX_SKIP_DIRS]
+        for fname in filenames:
+            yield os.path.relpath(os.path.join(dirpath, fname), vault_root), fname
+
+
 def extract_wikilinks(text, literals="exclude"):
     """Extract all wikilinks from markdown text.
 
@@ -283,25 +291,147 @@ def build_vault_file_index(vault_root):
     all_basenames = defaultdict(list)
     md_relpaths = set()
 
-    for dirpath, dirnames, filenames in os.walk(vault_root):
-        # Prune skipped directories in-place so os.walk doesn't descend
-        dirnames[:] = [d for d in dirnames if d not in INDEX_SKIP_DIRS]
+    for rel_path, fname in _iter_indexed_vault_files(vault_root):
+        basename_lower = fname.lower()
+        all_basenames[basename_lower].append(rel_path)
 
-        for fname in filenames:
-            rel_path = os.path.relpath(os.path.join(dirpath, fname), vault_root)
-            basename_lower = fname.lower()
-            all_basenames[basename_lower].append(rel_path)
-
-            if fname.endswith(".md"):
-                stem = os.path.splitext(fname)[0].lower()
-                md_basenames[stem].append(rel_path)
-                md_relpaths.add(strip_md_ext(rel_path).lower())
+        if fname.endswith(".md"):
+            stem = os.path.splitext(fname)[0].lower()
+            md_basenames[stem].append(rel_path)
+            md_relpaths.add(strip_md_ext(rel_path).lower())
 
     return {
         "md_basenames": dict(md_basenames),
         "all_basenames": dict(all_basenames),
+        "all_basenames_complete": True,
         "md_relpaths": md_relpaths,
     }
+
+
+def build_vault_basename_index(vault_root):
+    """Build only the basename lookup needed for bare asset resolution."""
+    from collections import defaultdict
+
+    all_basenames = defaultdict(list)
+    for rel_path, fname in _iter_indexed_vault_files(vault_root):
+        all_basenames[fname.lower()].append(rel_path)
+    return dict(all_basenames)
+
+
+def file_index_from_documents(documents, vault_root):
+    """Build a wikilink file index from a documents list (no vault walk).
+
+    Mirrors the shape of build_vault_file_index but only the markdown-derived
+    lookups are complete. Non-markdown basenames are not present in the BM25
+    retrieval index, so callers must treat ``all_basenames`` as partial.
+
+    Args:
+        documents: list of doc dicts with a "path" key (vault-relative .md path).
+        vault_root: vault root path (kept for API symmetry; not used here).
+
+    Returns:
+        dict with md_basenames, partial all_basenames, md_relpaths.
+    """
+    from collections import defaultdict
+
+    _ = vault_root  # unused; kept for API symmetry with build_vault_file_index
+
+    md_basenames = defaultdict(list)
+    md_relpaths = set()
+
+    for doc in documents:
+        rel_path = doc["path"]
+        fname = os.path.basename(rel_path)
+        stem = os.path.splitext(fname)[0].lower()
+        md_basenames[stem].append(rel_path)
+        md_relpaths.add(strip_md_ext(rel_path).lower())
+
+    return {
+        "md_basenames": dict(md_basenames),
+        "all_basenames": {},
+        "all_basenames_complete": False,
+        "md_relpaths": md_relpaths,
+    }
+
+
+def clone_file_index(file_index):
+    """Return a shallow-cloned file index safe to mutate per request."""
+    return {
+        "md_basenames": {
+            stem: list(paths)
+            for stem, paths in (file_index.get("md_basenames") or {}).items()
+        },
+        "all_basenames": {
+            basename: list(paths)
+            for basename, paths in (file_index.get("all_basenames") or {}).items()
+        },
+        "all_basenames_complete": file_index.get("all_basenames_complete", True),
+        "md_relpaths": set(file_index.get("md_relpaths") or ()),
+    }
+
+
+def _drop_file_index_path(mapping, key, rel_path):
+    """Remove *rel_path* from a file-index lookup bucket."""
+    matches = mapping.get(key)
+    if not matches:
+        return
+    kept = [item for item in matches if item != rel_path]
+    if kept:
+        mapping[key] = kept
+    else:
+        del mapping[key]
+
+
+def remove_file_index_rel_path(file_index, rel_path):
+    """Remove a markdown path from a mutable file index."""
+    stem = strip_md_ext(os.path.basename(rel_path)).lower()
+    _drop_file_index_path(file_index["md_basenames"], stem, rel_path)
+    basename = os.path.basename(rel_path).lower()
+    _drop_file_index_path(file_index["all_basenames"], basename, rel_path)
+    file_index["md_relpaths"].discard(strip_md_ext(rel_path).lower())
+
+
+def add_file_index_rel_path(file_index, rel_path):
+    """Add a markdown path to a mutable file index."""
+    stem = strip_md_ext(os.path.basename(rel_path)).lower()
+    md_matches = file_index["md_basenames"].setdefault(stem, [])
+    if rel_path not in md_matches:
+        md_matches.append(rel_path)
+
+    basename = os.path.basename(rel_path).lower()
+    basename_matches = file_index["all_basenames"].setdefault(basename, [])
+    if rel_path not in basename_matches:
+        basename_matches.append(rel_path)
+
+    file_index["md_relpaths"].add(strip_md_ext(rel_path).lower())
+
+
+def overlay_file_index_result(file_index, result):
+    """Return a cloned file index updated for the current mutation result."""
+    cloned = clone_file_index(file_index)
+    path = result.get("path")
+    if not path:
+        return cloned
+    resolved_path = result.get("resolved_path")
+    if resolved_path and resolved_path != path:
+        remove_file_index_rel_path(cloned, resolved_path)
+    add_file_index_rel_path(cloned, path)
+    return cloned
+
+
+def ensure_complete_file_index_basenames(file_index, vault_root):
+    """Populate ``all_basenames`` in-place when a file index is partial.
+
+    The BM25-derived index used by MCP writes is complete for markdown stems
+    but not for asset basenames. When a bare asset embed needs basename
+    resolution, fill that cache once and let later scans reuse it.
+    """
+    if file_index.get("all_basenames_complete", True):
+        return file_index["all_basenames"]
+
+    file_index["all_basenames"] = build_vault_basename_index(vault_root)
+    file_index["all_basenames_complete"] = True
+    return file_index["all_basenames"]
 
 
 # ---------------------------------------------------------------------------
@@ -540,6 +670,7 @@ def check_wikilinks_in_file(vault_root, rel_path, file_index=None, temporal_pref
 
     md_basenames = file_index["md_basenames"]
     all_basenames = file_index["all_basenames"]
+    all_basenames_complete = file_index.get("all_basenames_complete", True)
     md_relpaths = file_index["md_relpaths"]
 
     fpath = os.path.join(vault_root, rel_path)
@@ -561,6 +692,15 @@ def check_wikilinks_in_file(vault_root, rel_path, file_index=None, temporal_pref
             basename_key = os.path.basename(stem).lower()
             if basename_key in all_basenames:
                 resolved = True
+            elif "/" in stem and os.path.exists(os.path.join(vault_root, stem)):
+                resolved = True
+            elif not all_basenames_complete:
+                all_basenames = ensure_complete_file_index_basenames(
+                    file_index, vault_root
+                )
+                all_basenames_complete = True
+                if basename_key in all_basenames:
+                    resolved = True
         elif "/" in stem:
             stem_lower = strip_md_ext(stem).lower()
             if stem_lower in md_relpaths:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from _common import (
     cleanup_temp_body_file,
+    file_index_from_documents,
     is_archived_path,
     resolve_body_file,
     temp_body_file_cleanup_path,
@@ -10,6 +11,36 @@ import create
 import edit
 
 from ._server_runtime import ServerRuntime
+
+
+def file_index_from_state(state):
+    """Derive a wikilink file_index from the runtime state, or None.
+
+    Adapter so brain_create / brain_edit handlers don't reach into the
+    state.index dict shape directly. MCP callers that require a ready
+    index should gate that before calling this helper.
+    """
+    if state.index is None or state.vault_root is None:
+        return None
+    documents = state.index.get("documents") or []
+    return file_index_from_documents(documents, state.vault_root)
+
+
+def require_fix_links_file_index(tool_name, fix_links, runtime):
+    """Return a file_index for mutation-time fix_links, or a progress payload.
+
+    The write path uses a bounded-cost readiness helper that applies pending
+    MCP updates but skips the read-path TTL staleness sweep.
+    """
+    if not fix_links:
+        return None, None
+
+    runtime.ensure_mutation_index_ready()
+    state = runtime.get_state()
+    if state.index is None:
+        return None, runtime.fmt_progress(tool_name, ("index",))
+    return file_index_from_state(state), None
+
 
 def format_wikilink_fixes(fixes):
     """Format applied-fix summary into a markdown block.
@@ -94,6 +125,13 @@ def handle_brain_create(
     runtime.ensure_router_fresh()
     state = runtime.get_state()
 
+    fix_links = bool(params.get("fix_links"))
+    file_index, progress = require_fix_links_file_index(
+        "brain_create", fix_links, runtime
+    )
+    if progress:
+        return progress
+
     body = params.get("body") or ""
     body_file = params.get("body_file") or ""
     frontmatter = params.get("frontmatter")
@@ -117,7 +155,8 @@ def handle_brain_create(
                 frontmatter_overrides=frontmatter,
                 parent=params.get("parent"),
                 key=params.get("key"),
-                fix_links=bool(params.get("fix_links")),
+                fix_links=fix_links,
+                file_index=file_index,
             )
             runtime.mark_router_dirty()
             runtime.mark_index_pending(result["path"], type_hint=result["type"])
@@ -130,6 +169,7 @@ def handle_brain_create(
                 name=params["name"],
                 body=body,
                 frontmatter=frontmatter,
+                file_index=file_index,
             )
             label = f"**Created** {result['resource']}: {result['path']}"
 
@@ -180,6 +220,11 @@ def handle_brain_edit(
     scope = params.get("scope")
     name = params.get("name") or ""
     fix_links = bool(params.get("fix_links"))
+    file_index, progress = require_fix_links_file_index(
+        "brain_edit", fix_links, runtime
+    )
+    if progress:
+        return progress
 
     cleanup_path = cleanup_path or temp_body_file_cleanup_path(body_file)
     try:
@@ -224,6 +269,7 @@ def handle_brain_edit(
                 selector=selector,
                 scope=scope,
                 fix_links=fix_links,
+                file_index=file_index,
             )
         except edit.ScopeValidationError as e:
             return runtime.fmt_error(e.detailed_message())
