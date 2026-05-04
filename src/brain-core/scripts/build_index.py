@@ -112,7 +112,12 @@ def parse_doc(vault_root, rel_path, type_hint=None):
 # ---------------------------------------------------------------------------
 
 def _recompute_corpus_stats(index):
-    """Recompute corpus_stats and meta from the documents list in-place."""
+    """Recompute corpus_stats and meta from the documents list in-place.
+
+    Authoritative source-of-truth for the invariants that
+    :func:`_apply_doc_to_corpus_stats` maintains incrementally. Used by full
+    builds; tests assert the incremental path produces identical state.
+    """
     documents = index["documents"]
     total_docs = len(documents)
     total_length = sum(d["doc_length"] for d in documents)
@@ -128,10 +133,39 @@ def _recompute_corpus_stats(index):
     index["corpus_stats"]["df"] = df
     index["meta"]["document_count"] = total_docs
     index["meta"]["avg_doc_length"] = round(avg_dl, 1)
-    # NOTE: This unconditionally advances built_at to now(). Callers doing
-    # incremental updates should save and restore built_at if they don't want
-    # to move the staleness threshold forward.
     index["meta"]["built_at"] = datetime.now(timezone.utc).astimezone().isoformat()
+
+
+def _apply_doc_to_corpus_stats(index, doc, delta):
+    """Apply a single doc add (delta=+1) or remove (delta=-1) to corpus stats.
+
+    Maintains the invariants of :func:`_recompute_corpus_stats` incrementally.
+    df entries that drop to zero are deleted to match the full-recompute shape.
+    Does not touch ``meta['built_at']`` — that timestamp marks full rebuilds.
+    """
+    assert delta in (1, -1), f"delta must be +1 or -1, got {delta}"
+
+    stats = index["corpus_stats"]
+    df = stats["df"]
+    for term in doc["tf"]:
+        new_count = df.get(term, 0) + delta
+        if new_count < 0:
+            raise ValueError(f"corpus df underflow for term {term!r}")
+        if new_count == 0:
+            df.pop(term, None)
+        else:
+            df[term] = new_count
+
+    total_docs = stats["total_docs"] + delta
+    # Re-sum doc_length from the documents list — O(N) but ~0.15ms on a 948-doc
+    # vault, and avoids accumulating rounding drift from the stored avg_dl.
+    total_length = sum(d["doc_length"] for d in index["documents"])
+    avg_dl = total_length / total_docs if total_docs > 0 else 0.0
+
+    stats["total_docs"] = total_docs
+    stats["avg_dl"] = round(avg_dl, 1)
+    index["meta"]["document_count"] = total_docs
+    index["meta"]["avg_doc_length"] = round(avg_dl, 1)
 
 
 # ---------------------------------------------------------------------------
@@ -188,12 +222,12 @@ def persist_retrieval_index(vault_root, index):
 # Incremental index updates
 # ---------------------------------------------------------------------------
 
-def index_update(index, vault_root, rel_path, type_hint=None, recompute=True):
+def index_update(index, vault_root, rel_path, type_hint=None):
     """Upsert a document in the index. Mutates index in-place.
 
     Re-parses the file at rel_path, replaces the existing entry if found,
-    or appends it. Recomputes corpus stats unless recompute=False (useful
-    when batching multiple updates — call _recompute_corpus_stats once after).
+    or appends it. Maintains corpus stats incrementally — does not advance
+    ``meta['built_at']``.
 
     Returns the parsed doc dict, or None if the file cannot be read.
     """
@@ -201,18 +235,15 @@ def index_update(index, vault_root, rel_path, type_hint=None, recompute=True):
     if doc is None:
         return None
 
-    # Find and replace existing entry
     for i, existing in enumerate(index["documents"]):
         if existing["path"] == rel_path:
+            _apply_doc_to_corpus_stats(index, existing, -1)
             index["documents"][i] = doc
-            if recompute:
-                _recompute_corpus_stats(index)
+            _apply_doc_to_corpus_stats(index, doc, +1)
             return doc
 
-    # Not found — append
     index["documents"].append(doc)
-    if recompute:
-        _recompute_corpus_stats(index)
+    _apply_doc_to_corpus_stats(index, doc, +1)
     return doc
 
 

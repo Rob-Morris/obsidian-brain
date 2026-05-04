@@ -250,7 +250,7 @@ def _action_fix_links(runtime: ServerRuntime, params: dict | None):
                     links_filter=links_filter,
                 )
                 result["substitutions"] = total
-                runtime.mark_index_dirty()
+                runtime.mark_index_pending(path)
         else:
             result = fix_links.scan_and_resolve(
                 state.vault_root, router=state.router,

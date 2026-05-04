@@ -1,5 +1,6 @@
 """Tests for build_index.py — BM25 retrieval index builder."""
 
+import copy
 import json
 import os
 
@@ -7,6 +8,17 @@ import pytest
 
 import build_index as bi
 from _common import is_system_dir, iter_artefact_paths, parse_frontmatter
+
+
+def assert_corpus_stats_match_recompute(index):
+    """Assert incremental corpus stats match a full recompute (modulo built_at)."""
+    expected = copy.deepcopy(index)
+    bi._recompute_corpus_stats(expected)
+    assert index["corpus_stats"]["df"] == expected["corpus_stats"]["df"]
+    assert index["corpus_stats"]["total_docs"] == expected["corpus_stats"]["total_docs"]
+    assert index["corpus_stats"]["avg_dl"] == expected["corpus_stats"]["avg_dl"]
+    assert index["meta"]["document_count"] == expected["meta"]["document_count"]
+    assert index["meta"]["avg_doc_length"] == expected["meta"]["avg_doc_length"]
 
 
 # ---------------------------------------------------------------------------
@@ -333,6 +345,7 @@ class TestIncrementalIndex:
         assert "xylophonic" in index["corpus_stats"]["df"]
         paths = [d["path"] for d in index["documents"]]
         assert "Wiki/new-topic.md" in paths
+        assert_corpus_stats_match_recompute(index)
 
     def test_index_add_unreadable_returns_none(self, vault):
         """index_add returns None for a path that doesn't exist."""
@@ -355,6 +368,7 @@ class TestIncrementalIndex:
         assert doc is not None
         assert index["meta"]["document_count"] == old_count  # count unchanged
         assert "plumbiferous" in index["corpus_stats"]["df"]
+        assert_corpus_stats_match_recompute(index)
 
     def test_index_update_missing_path_falls_back_to_add(self, vault):
         """index_update should add the document if path not found in index."""
@@ -366,4 +380,42 @@ class TestIncrementalIndex:
         doc = bi.index_update(index, vault, "Wiki/brand-new.md", type_hint="living/wiki")
         assert doc is not None
         assert index["meta"]["document_count"] == old_count + 1
+        assert_corpus_stats_match_recompute(index)
+
+    def test_index_update_drops_zero_df_terms(self, vault):
+        """Replacing a doc must remove its now-orphaned terms from df entirely."""
+        index = bi.build_index(vault)
+        # python-basics.md introduced 'plumbiferous'-free content. Inject a
+        # truly unique term, then overwrite without that term.
+        (vault / "Wiki" / "python-basics.md").write_text(
+            "---\ntype: living/wiki\ntags: []\nstatus: active\n---\n\n"
+            "# Python Basics\n\nA truly unique unobtainium reference here.\n"
+        )
+        bi.index_update(index, vault, "Wiki/python-basics.md", type_hint="living/wiki")
+        assert "unobtainium" in index["corpus_stats"]["df"]
+
+        (vault / "Wiki" / "python-basics.md").write_text(
+            "---\ntype: living/wiki\ntags: []\nstatus: active\n---\n\n"
+            "# Python Basics\n\nReplaced content without that term.\n"
+        )
+        bi.index_update(index, vault, "Wiki/python-basics.md", type_hint="living/wiki")
+        assert "unobtainium" not in index["corpus_stats"]["df"]
+        assert_corpus_stats_match_recompute(index)
+
+    def test_index_update_repeated_no_drift(self, vault):
+        """Many incremental updates must not drift from a full recompute."""
+        index = bi.build_index(vault)
+        for i in range(20):
+            (vault / "Wiki" / f"churn-{i}.md").write_text(
+                f"---\ntype: living/wiki\ntags: []\nstatus: active\n---\n\n"
+                f"# Churn {i}\n\nIteration {i} content with token-{i}.\n"
+            )
+            bi.index_update(index, vault, f"Wiki/churn-{i}.md", type_hint="living/wiki")
+        for i in range(0, 20, 2):
+            (vault / "Wiki" / f"churn-{i}.md").write_text(
+                f"---\ntype: living/wiki\ntags: []\nstatus: active\n---\n\n"
+                f"# Churn {i}\n\nRewritten with replacement-{i}.\n"
+            )
+            bi.index_update(index, vault, f"Wiki/churn-{i}.md", type_hint="living/wiki")
+        assert_corpus_stats_match_recompute(index)
 

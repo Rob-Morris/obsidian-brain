@@ -12,9 +12,9 @@ At the same time, the MCP server is long-running and must detect external change
 
 Three index update modes are implemented and selected by `_ensure_index_fresh()`:
 
-1. **Full rebuild** (`_index_dirty = True`) — Triggered by version drift or any operation with unknown scope (e.g., `build_index` action, `fix-links`). Rebuilds from scratch, clears the dirty flag.
+1. **Full rebuild** (`_index_dirty = True`) — Triggered by version drift or any operation with unknown scope (rename, delete, convert, archive, unarchive, vault-wide `fix-links`). Rebuilds from scratch, clears the dirty flag.
 
-2. **Incremental upsert** (`_index_pending` queue) — `brain_create` and `brain_edit` call `_mark_index_pending(rel_path, type_hint)` immediately after writing the file. On the next tool call that requires search, `_ensure_index_fresh()` drains the queue, calling `build_index.index_update()` for each queued path. Corpus-level statistics (IDF weights) are recomputed once after draining. The `built_at` timestamp is not advanced so the filesystem staleness check is not fooled into thinking a full rebuild happened.
+2. **Incremental upsert** (`_index_pending` queue) — `brain_create`, `brain_edit`, and single-file `fix-links` call `_mark_index_pending(rel_path, type_hint)` immediately after writing the file. On the next tool call that requires search, `_ensure_index_fresh()` drains the queue, calling `build_index.index_update()` for each queued path. `index_update()` maintains corpus-level statistics (document frequencies, average document length) incrementally via `_apply_doc_to_corpus_stats()` rather than recomputing them globally. The `built_at` timestamp is not advanced so the filesystem staleness check is not fooled into thinking a full rebuild happened.
 
 3. **TTL-gated staleness check** — After draining the incremental queue, a filesystem-level staleness check runs if more than `_INDEX_CHECK_TTL` seconds have elapsed since the last check. This catches external edits (files modified outside the MCP server).
 

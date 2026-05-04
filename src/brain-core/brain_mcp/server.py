@@ -1088,8 +1088,9 @@ def _mark_index_pending(rel_path: str, type_hint: str | None = None) -> None:
 def _apply_pending_index_updates() -> None:
     """Drain queued path updates into the in-memory index.
 
-    Keeps the stored ``built_at`` timestamp unchanged so the external-change
-    sweep still measures freshness against the last full build.
+    ``index_update`` maintains corpus stats incrementally and leaves
+    ``meta['built_at']`` untouched, so the external-change sweep still measures
+    freshness against the last full build.
     """
     global _index, _index_checked_at
     if _index is None or not _index_pending:
@@ -1100,14 +1101,8 @@ def _apply_pending_index_updates() -> None:
         _index_pending.clear()
 
     try:
-        saved_built_at = _index["meta"].get("built_at")
         for rel_path, type_hint in pending:
-            build_index.index_update(
-                _index, _vault_root, rel_path, type_hint=type_hint, recompute=False
-            )
-        build_index._recompute_corpus_stats(_index)
-        if saved_built_at:
-            _index["meta"]["built_at"] = saved_built_at
+            build_index.index_update(_index, _vault_root, rel_path, type_hint=type_hint)
         _save_json(_index, _vault_root, _index_rel())
         _index_checked_at = time.monotonic()
     except Exception as e:
