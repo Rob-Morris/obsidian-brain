@@ -137,6 +137,8 @@ Core skills teach agents how to use brain-core's own tools. They ship in `.brain
 - `shaping` — parent router plus `assess`, `brainstorm`, `discover`, and `refine` sub-skills for artefact shaping workflows
 - `swarm-test` — parent router plus `review` and `evaluate` sub-skills for multi-agent test workflows
 - `code-review` — parent router plus `investigate` and `fix` sub-skills for review-only and review-with-fixes workflows
+- `software-design-principles` — lightweight reference skill for in-the-moment design decisions and trivial code evaluation
+- `software-design-review` — multi-agent design review skill for complex code, diffs, and proposed technical changes
 
 ---
 

@@ -1,8 +1,8 @@
 ---
 name: code-review
 description: >
-  Review changed code for reuse, quality, and efficiency. Produce a triaged
-  list of findings; no edits.
+  Review changed code for reuse, quality, and efficiency, and produce a triaged list of findings (no edits).
+  Use after writing code, for simpler code with fewer bugs and better performance.
 ---
 
 # Code Review

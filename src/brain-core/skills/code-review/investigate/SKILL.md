@@ -11,7 +11,7 @@ Run a code review and return the raw findings list — no triage, no edits. Run 
 
 ## Phase 1: Identify Changes
 
-Run `git diff` (or `git diff HEAD` if there are staged changes) to see what changed. If there are no git changes, review the most recently modified files the user mentioned or that you edited earlier in this conversation.
+Run `git diff HEAD` to see uncommitted changes (staged and unstaged together). If there are no git changes, review the most recently modified files the user mentioned or that you edited earlier in this conversation.
 
 ## Phase 2: Launch Reviewer Agents in Parallel
 
