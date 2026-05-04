@@ -122,17 +122,17 @@ make sync-template               # force-syncs _Config + .brain/tracking.json, t
 `TestTemplateVaultSync::test_no_drift`, but `make sync-template-check` gives a
 faster failure mode while you are iterating.
 
-## AGENTS.md vs agents.local.md
+## AGENTS.md vs AGENTS.local.md
 
 `AGENTS.md` is checked in and universal — it applies to every contributor on every machine. Keep it lean: project identity, pre-commit canary, pointer to local overrides.
 
-`agents.local.md` is gitignored and machine-specific. It holds:
+`AGENTS.local.md` is gitignored and machine-specific. It holds:
 
 - **Workspace paths** — vault locations, related repo paths
 - **Workflow triggers that depend on the local environment** — e.g. post-core-commit canary (only relevant if a vault is co-located), deploy steps for a local staging environment
 - **Machine-specific tool config** — local CLI paths, env vars, capability flags
 
-**Rule of thumb:** if the instruction only makes sense when a specific path or local resource exists, it goes in `agents.local.md`. If it applies to anyone working on the repo, it goes in `AGENTS.md` or `docs/`.
+**Rule of thumb:** if the instruction only makes sense when a specific path or local resource exists, it goes in `AGENTS.local.md`. If it applies to anyone working on the repo, it goes in `AGENTS.md` or `docs/`.
 
 ## Contributor Skills
 
@@ -142,7 +142,7 @@ To add a contributor skill, create `.claude/commands/{name}.md` with a `descript
 
 These are distinct from user skills (`_Config/Skills/` in vaults), which teach agents how to use vault tools. User skills ship via the template vault and are documented in `src/brain-core/plugins.md`; repo-level plugin authoring is documented in `docs/contributor/plugins.md`.
 
-**Example `agents.local.md`:**
+**Example `AGENTS.local.md`:**
 
 ```markdown
 # Local Overrides

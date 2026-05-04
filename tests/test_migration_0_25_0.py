@@ -53,7 +53,7 @@ def test_updates_legacy_agents_md_only_vault(tmp_path):
 
 def test_does_not_rewrite_local_override_file(tmp_path):
     vault = make_vault(tmp_path)
-    local_override = vault / "agents.local.md"
+    local_override = vault / "AGENTS.local.md"
     local_override.write_text("ALWAYS DO FIRST: Call brain_session. Read [[.brain-core/index]]\n")
 
     result = migrate(str(vault))

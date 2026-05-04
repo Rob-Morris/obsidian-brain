@@ -29,4 +29,4 @@ When installing a vault on behalf of a user:
 
 ## Local Overrides
 
-If `agents.local.md` exists in the repo root, read it for machine-specific configuration.
+If `AGENTS.local.md` exists in the repo root, read it for machine-specific configuration.

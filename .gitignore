@@ -1,5 +1,17 @@
 # macOS
 .DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+logs/
 
 # Python
 __pycache__/
@@ -15,10 +27,10 @@ __pycache__/
 .canaries/*.local.md
 
 # Local overrides
+AGENTS.local.md
 agents.local.md
-
-.worktrees/
 CLAUDE.local.md
+.worktrees/
 
 # Test/tool artefacts
 .coverage

@@ -105,7 +105,7 @@ Brain-core is developed here (`src/brain-core/`) and deployed to vaults by copyi
 
 Never deploy to both simultaneously. Core-first, always.
 
-Step 3 depends on having a local vault. Post-core-commit canaries are machine-specific and belong in `agents.local.md`, not `AGENTS.md`.
+Step 3 depends on having a local vault. Post-core-commit canaries are machine-specific and belong in `AGENTS.local.md`, not `AGENTS.md`.
 
 ## Common Pitfalls
 
