@@ -339,6 +339,119 @@ class TestSemanticSearch:
         assert "Wiki/python-basics.md" in paths
         assert "Designs/brain-tooling.md" in paths[:3]
 
+    def test_hybrid_search_keeps_lexical_exact_anchor_wins(self, index, vault, monkeypatch):
+        lexical_results = [
+            {
+                "path": "Wiki/python-basics.md",
+                "title": "Python Basics",
+                "type": "living/wiki",
+                "status": "active",
+                "score": 42.0,
+                "snippet": "",
+            }
+        ]
+        semantic_called = False
+
+        def fake_search(*_args, **_kwargs):
+            return lexical_results
+
+        def fake_search_semantic(*_args, **_kwargs):
+            nonlocal semantic_called
+            semantic_called = True
+            return []
+
+        monkeypatch.setattr(si, "search", fake_search)
+        monkeypatch.setattr(si, "search_semantic", fake_search_semantic)
+        monkeypatch.setattr(si, "_attach_snippets", lambda *_args, **_kwargs: None)
+
+        results = si.search_hybrid(index, "v0.16 release notes", vault, top_k=1)
+
+        assert not semantic_called
+        assert results == lexical_results
+
+    def test_fuse_rrf_promotes_semantic_champion_when_margin_is_strong(self):
+        lexical_results = [
+            {"path": "A.md", "title": "A", "type": "living/wiki", "status": "active", "score": 10.0},
+            {"path": "C.md", "title": "C", "type": "living/wiki", "status": "active", "score": 9.0},
+            {"path": "B.md", "title": "B", "type": "living/wiki", "status": "active", "score": 8.0},
+        ]
+        semantic_results = [
+            {"path": "B.md", "title": "B", "type": "living/wiki", "status": "active", "score": 0.90},
+            {"path": "A.md", "title": "A", "type": "living/wiki", "status": "active", "score": 0.80},
+        ]
+
+        no_bonus = pytest.MonkeyPatch()
+        no_bonus.setattr(si, "SEMANTIC_CHAMPION_BONUS", 0.0)
+        try:
+            baseline = si._fuse_rrf(lexical_results, semantic_results, top_k=2)
+        finally:
+            no_bonus.undo()
+
+        boosted = si._fuse_rrf(lexical_results, semantic_results, top_k=2)
+
+        assert baseline[0]["path"] == "A.md"
+        assert boosted[0]["path"] == "B.md"
+
+    def test_fuse_rrf_does_not_promote_semantic_champion_when_margin_is_small(self):
+        lexical_results = [
+            {"path": "A.md", "title": "A", "type": "living/wiki", "status": "active", "score": 10.0},
+            {"path": "C.md", "title": "C", "type": "living/wiki", "status": "active", "score": 9.0},
+            {"path": "B.md", "title": "B", "type": "living/wiki", "status": "active", "score": 8.0},
+        ]
+        semantic_results = [
+            {"path": "B.md", "title": "B", "type": "living/wiki", "status": "active", "score": 0.81},
+            {"path": "A.md", "title": "A", "type": "living/wiki", "status": "active", "score": 0.80},
+        ]
+
+        boosted = si._fuse_rrf(lexical_results, semantic_results, top_k=2)
+
+        assert boosted[0]["path"] == "A.md"
+
+    def test_hybrid_search_applies_semantic_rescue_when_lexical_and_semantic_disagree(self, index, vault, monkeypatch):
+        lexical_results = [
+            {"path": "A.md", "title": "Application Process Research", "type": "living/wiki", "status": "active", "score": 20.0},
+            {"path": "C.md", "title": "Architecture Notes", "type": "living/wiki", "status": "active", "score": 19.9},
+        ]
+        semantic_results = [
+            {"path": "B.md", "title": "Collaborative App Design Chat", "type": "living/wiki", "status": "active", "score": 0.39},
+            {"path": "D.md", "title": "Three Level Context", "type": "living/wiki", "status": "active", "score": 0.378},
+        ]
+        monkeypatch.setattr(si, "search", lambda *_args, **_kwargs: lexical_results)
+        monkeypatch.setattr(si, "search_semantic", lambda *_args, **_kwargs: semantic_results)
+        monkeypatch.setattr(si, "_attach_snippets", lambda *_args, **_kwargs: None)
+
+        results = si.search_hybrid(
+            index,
+            "conversational exploration of collaborative application framework with event propagation architecture",
+            vault,
+            top_k=2,
+        )
+
+        assert results[0]["path"] == "B.md"
+
+    def test_hybrid_search_does_not_apply_semantic_rescue_when_top_results_overlap(self, index, vault, monkeypatch):
+        lexical_results = [
+            {"path": "A.md", "title": "Documentation Audit Skills", "type": "living/wiki", "status": "active", "score": 20.0},
+            {"path": "C.md", "title": "Implementation Notes", "type": "living/wiki", "status": "active", "score": 19.5},
+            {"path": "D.md", "title": "Shared Supporting Doc", "type": "living/wiki", "status": "active", "score": 19.0},
+        ]
+        semantic_results = [
+            {"path": "B.md", "title": "Implementation Plan", "type": "living/wiki", "status": "active", "score": 0.39},
+            {"path": "D.md", "title": "Shared Supporting Doc", "type": "living/wiki", "status": "active", "score": 0.378},
+        ]
+        monkeypatch.setattr(si, "search", lambda *_args, **_kwargs: lexical_results)
+        monkeypatch.setattr(si, "search_semantic", lambda *_args, **_kwargs: semantic_results)
+        monkeypatch.setattr(si, "_attach_snippets", lambda *_args, **_kwargs: None)
+
+        results = si.search_hybrid(
+            index,
+            "skills for auditing docs so they are actually usable by agents",
+            vault,
+            top_k=2,
+        )
+
+        assert results[0]["path"] == "D.md"
+
 
 # ---------------------------------------------------------------------------
 # Snippet extraction

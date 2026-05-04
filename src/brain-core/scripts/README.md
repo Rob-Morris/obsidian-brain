@@ -143,21 +143,19 @@ Tests may import owning submodules directly when validating internal helpers.
 
 `search_index.py`, `evaluate_search.py`, and `construct_benchmark_fixture.py` form the current retrieval-evaluation toolchain.
 
-- `search_index.py` is the retrieval contract: lexical, semantic, and hybrid search over the same local assets the MCP layer uses.
+- `search_index.py` is the retrieval contract: lexical, semantic, and hybrid search over the same local assets the MCP layer uses. Hybrid preserves exact-anchor lexical wins (release versions, ticket-like IDs) by returning the lexical champion outright, gives a small tie-break bonus to a clearly dominant semantic top result, and applies a stronger semantic rescue only when lexical and semantic leading candidates are clearly disjoint and the lexical top result is weakly title-grounded.
 - `evaluate_search.py` runs one or more retrieval modes against a benchmark JSON and reports hit@k, per-intent summaries, a best-effort expected-winner scorecard for the primary buckets whose expected mode is present alongside at least one comparison mode, basic cluster-quality metrics, and per-mode timing.
-- `construct_benchmark_fixture.py` mines a real vault for lexical / semantic / hybrid / cluster / filter-sensitive candidates, audits them against live retrieval, and emits both a benchmark fixture JSON and a machine-readable audit JSON. The constructor is deliberately conservative: it records bucket shortfall instead of padding weak cases, keeps a bounded set of semantic query variants per source note, and marks near-pure semantic candidates plus the best audited semantic variant per source artefact. Semantic construction can stay fully local (`--semantic-strategy local`), use deterministic zero-overlap rewrites (`--semantic-strategy assisted-zero-overlap`), or ingest externally generated semantic candidates via `--semantic-seed-file PATH` and hybrid candidates via `--hybrid-seed-file PATH` while keeping the same strict retrieval admission rules. Seeded targets must still point at real vault artefacts rather than benchmark / fixture paths, and any provided `source_path` must be one of `relevant_paths`.
-
-For vault-specific fixtures, audits, and run outputs, prefer a gitignored local path such as `.brain/local/benchmarks/` rather than a tracked repo folder.
+- `construct_benchmark_fixture.py` mines a real vault for lexical / semantic / hybrid / cluster / filter-sensitive candidates, audits them against live retrieval, and emits both a benchmark fixture JSON and a machine-readable audit JSON. The constructor is deliberately conservative: it records bucket shortfall instead of padding weak cases, keeps a bounded set of semantic query variants per source note, and marks near-pure semantic candidates plus the best audited semantic variant per source artefact. Semantic construction can stay fully local (`--semantic-strategy local`), use deterministic zero-overlap rewrites (`--semantic-strategy assisted-zero-overlap`), or ingest externally generated semantic candidates via `--semantic-seed-file PATH` and hybrid candidates via `--hybrid-seed-file PATH` while keeping the same strict retrieval admission rules. Seeded targets must still point at real vault artefacts rather than benchmark / fixture paths, and any provided `source_path` must be one of `relevant_paths`. Vault-specific benchmark outputs should live under `.brain/local/benchmarks/`; only public templates or synthetic harness fixtures belong in the tracked repo.
 
 Typical usage:
 
 ```bash
-python3 construct_benchmark_fixture.py --fixture-out .brain/local/benchmarks/fixture.json --audit-out .brain/local/benchmarks/audit.json
-python3 construct_benchmark_fixture.py --fixture-out /tmp/fixture.json --audit-out /tmp/audit.json --semantic-strategy assisted-zero-overlap
-python3 construct_benchmark_fixture.py --fixture-out /tmp/fixture.json --audit-out /tmp/audit.json --semantic-seed-file /tmp/semantic-seeds.json
-python3 construct_benchmark_fixture.py --fixture-out /tmp/fixture.json --audit-out /tmp/audit.json --hybrid-seed-file /tmp/hybrid-seeds.json
-python3 evaluate_search.py --benchmark /tmp/fixture.json
-python3 evaluate_search.py --benchmark /tmp/fixture.json --mode lexical --mode semantic --mode hybrid --json
+python3 construct_benchmark_fixture.py --fixture-out .brain/local/benchmarks/fixture.json --audit-out .brain/local/benchmarks/fixture.audit.json
+python3 construct_benchmark_fixture.py --fixture-out .brain/local/benchmarks/fixture.json --audit-out .brain/local/benchmarks/fixture.audit.json --semantic-strategy assisted-zero-overlap
+python3 construct_benchmark_fixture.py --fixture-out .brain/local/benchmarks/fixture.json --audit-out .brain/local/benchmarks/fixture.audit.json --semantic-seed-file /tmp/semantic-seeds.json
+python3 construct_benchmark_fixture.py --fixture-out .brain/local/benchmarks/fixture.json --audit-out .brain/local/benchmarks/fixture.audit.json --hybrid-seed-file /tmp/hybrid-seeds.json
+python3 evaluate_search.py --benchmark .brain/local/benchmarks/fixture.json
+python3 evaluate_search.py --benchmark .brain/local/benchmarks/fixture.json --mode lexical --mode semantic --mode hybrid --json
 ```
 
 ## Shared Patterns

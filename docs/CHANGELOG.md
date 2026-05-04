@@ -2,6 +2,15 @@
 
 Follows a pre-1.0 [semver](https://semver.org/) policy: backward-compatible changes are patch; breaking Brain changes are minor; only fundamental model changes are major. Breaking Brain changes include vault-structure changes and breaking tool/script/MCP contract changes. Fundamental model changes are changes to the artefact model, router contract, or agent bootstrap/entry flow.
 
+## v0.34.2 — 2026-05-04
+
+**Tune hybrid retrieval around lexical anchors, semantic champion ties, and semantic rescue so hybrid preserves exact-match precision while inheriting concept-heavy wins.** This turns hybrid search from a weak compromise into a stronger practical default: exact identifiers stay lexical, semantically dominant matches can win when lexical evidence is weak, and the benchmark tooling now constructs a stricter hybrid bucket for measuring that balance honestly.
+
+- Raise `RRF_SEMANTIC_WEIGHT` in `search_index.py` from `0.7` to `1.0`, keeping the candidate window and reciprocal-rank defaults unchanged so the tuning stays focused on the semantic leg’s relative contribution rather than a wider fusion reset.
+- Add a shared `LEXICAL_ANCHOR_RE` in `_common/_search.py` and use it to short-circuit obvious exact-anchor queries in `search_hybrid`, so version- and ticket-like identifiers stay lexical instead of being diluted through reciprocal-rank fusion.
+- Add a semantic-champion bonus inside `_fuse_rrf()` and a stronger second-stage semantic rescue for long queries whose lexical top titles barely overlap the query and whose lexical/semantic top candidates are disjoint, allowing hybrid to inherit more pure-semantic wins without broadening semantic influence everywhere.
+- Strengthen the hybrid side of the benchmark tooling around that tuning: the constructor now emits stricter hybrid-stress candidates and hybrid rewrite variants, keeps per-source hybrid caps and seed validation in place, and the retrieval/docs/tests reflect the refined hybrid-search contract.
+
 ## v0.34.1 — 2026-05-04
 
 **Add a vault-driven benchmark constructor and harden the evaluator around bucketed, auditable search benchmarks.** This gives the parked semantic-search line a general way to build lexical / semantic / hybrid fixtures from a real vault, compare retrieval modes with richer timing and cluster metrics, and audit seeded candidates without inventing benchmark balance that the vault does not support.

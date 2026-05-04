@@ -32,6 +32,7 @@ from pathlib import Path
 import retrieval_embeddings as _retrieval_embeddings
 import search_index as si
 from _common import (
+    LEXICAL_ANCHOR_RE,
     build_vault_file_index,
     extract_wikilinks,
     find_vault_root,
@@ -140,9 +141,6 @@ STOPWORDS = {
     "you",
     "your",
 }
-LEXICAL_CODE_RE = re.compile(
-    r"\b(?:v\d+(?:\.\d+){1,3}(?:[-+][a-z0-9._-]+)?|[A-Z]{2,}-\d{1,4}|[A-Z]{2,}\d{2,})\b"
-)
 SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+|\n+")
 TYPE_SEGMENT_RE = re.compile(r"[^a-z0-9]+")
 FAMILY_CODE_RE = re.compile(r"^([A-Z]{2,})[-]?\d")
@@ -572,7 +570,7 @@ def _extract_lexical_anchors(doc):
     title = doc.get("title") or ""
     rel_path = doc.get("path") or ""
     for source in (title, rel_path):
-        for match in LEXICAL_CODE_RE.finditer(source):
+        for match in LEXICAL_ANCHOR_RE.finditer(source):
             anchor = match.group(0)
             if anchor not in seen:
                 anchors.append(anchor)

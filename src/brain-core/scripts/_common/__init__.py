@@ -148,6 +148,7 @@ from ._slugs import (
 )
 
 from ._search import (
+    LEXICAL_ANCHOR_RE,
     tokenise,
 )
 

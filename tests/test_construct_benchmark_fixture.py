@@ -366,7 +366,7 @@ My girlfriend. First met 12 March 2024 at Riverside Cafe.
         body = """
 ## Relationship
 
-My girlfriend. We started dating on 15 January 2024.
+My girlfriend. We started dating on 18 April 2024.
 """
 
         queries = cbf._relationship_event_queries(body)
@@ -794,7 +794,7 @@ My girlfriend. First met 12 March 2024 at Riverside Cafe.
         body = """
 ## Relationship
 
-My girlfriend. We started dating on 15 January 2024.
+My girlfriend. We started dating on 18 April 2024.
 """
 
         monkeypatch.setattr(cbf, "_read_body", lambda _vault, _path: ({}, body))
