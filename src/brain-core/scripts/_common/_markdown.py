@@ -238,9 +238,11 @@ def _scan_structural_nodes(body):
     for idx, node in enumerate(heading_nodes):
         section_end = len(body)
         intro_end = section_end
+        next_sibling = None
         for other in heading_nodes[idx + 1:]:
             if other["level"] <= node["level"]:
                 section_end = other["start"]
+                next_sibling = other
                 break
         for other in heading_nodes[idx + 1:]:
             if other["start"] >= section_end:
@@ -251,6 +253,8 @@ def _scan_structural_nodes(body):
         node["section_end"] = section_end
         node["body_end"] = section_end
         node["intro_end"] = intro_end
+        node["next_sibling_raw"] = next_sibling["raw"] if next_sibling else None
+        node["next_sibling_level"] = next_sibling["level"] if next_sibling else None
 
     callout_nodes = []
     i = 0
@@ -294,6 +298,8 @@ def _scan_structural_nodes(body):
                 "body_end": end,
                 "intro_end": None,
                 "parent": None,
+                "next_sibling_raw": None,
+                "next_sibling_level": None,
             }
         )
         i = j
@@ -502,6 +508,7 @@ def resolve_structural_target(body, target, selector=None):
     return {
         "kind": node["kind"],
         "raw": node["raw"],
+        "level": node["level"],
         "occurrence": occurrence,
         "within": [
             {"raw": item["node"]["raw"], "occurrence": item["occurrence"]}
@@ -509,5 +516,7 @@ def resolve_structural_target(body, target, selector=None):
         ],
         "display_path": display,
         "ranges": ranges,
+        "next_sibling_raw": node["next_sibling_raw"],
+        "next_sibling_level": node["next_sibling_level"],
     }
 

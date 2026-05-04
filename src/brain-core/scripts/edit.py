@@ -22,6 +22,7 @@ from _common import (
     SELF_TAG_PREFIXES,
     apply_terminal_status_folder,
     check_write_allowed,
+    collect_headings,
     config_resource_rel_path,
     ensure_parent_tag,
     ensure_self_tag,
@@ -407,14 +408,39 @@ def _validate_single_structural_line(body, kind, label):
         raise ValueError(f"{label} replacement must be a valid {kind} line")
 
 
-def _validate_heading_section_replacement(body):
-    """Whole heading-section replacement must begin with a heading line."""
+def _validate_heading_section_replacement(body, resolved):
+    """Whole heading-section replacement must begin with a heading line.
+
+    Also rejects bodies whose final heading equals the original next-sibling
+    boundary at the target's level — splicing such a body would duplicate the
+    boundary heading immediately after itself.
+    """
     if not body:
         raise ValueError("scope='section' for heading targets cannot be empty")
     anchor = parse_structural_anchor_line(body)
     if anchor is None or anchor["kind"] != "heading":
         raise ValueError(
             "scope='section' for heading targets must begin with a heading line"
+        )
+
+    next_sibling_raw = resolved["next_sibling_raw"]
+    next_sibling_level = resolved["next_sibling_level"]
+    if next_sibling_raw is None:
+        return
+    target_level = resolved["level"]
+    if next_sibling_level != target_level:
+        return
+
+    headings = collect_headings(body)
+    assert headings, "body passed initial heading-line check; collect_headings must find at least one"
+    _h_start, h_level, _h_text, h_raw = headings[-1]
+    if h_raw == next_sibling_raw and h_level == target_level:
+        raise ValueError(
+            f"scope='section' replacement body's final heading '{h_raw}' is the same "
+            f"as the next-sibling boundary heading at level {target_level}. Splicing "
+            "this body would duplicate that heading. Either drop the trailing heading "
+            "from the body, or widen the target so multiple sibling sections are "
+            "replaced together."
         )
 
 
@@ -448,7 +474,7 @@ def _validate_heading_body_payload(body, resolved, scope):
     anchor = parse_structural_anchor_line(body)
     if anchor is None or anchor["kind"] != "heading":
         return
-    target_level = len(resolved["raw"].split()[0])
+    target_level = resolved["level"]
     if anchor["raw"] == resolved["raw"] or anchor["level"] <= target_level:
         raise ValueError(
             f"scope='{scope}' for heading target '{resolved['display_path']}' only "
@@ -461,7 +487,7 @@ def _validate_edit_payload(body, resolved, scope):
     """Validate payload shape for scope-specific edit replacements."""
     if resolved["kind"] == "heading":
         if scope == "section":
-            _validate_heading_section_replacement(body)
+            _validate_heading_section_replacement(body, resolved)
         elif scope == "heading":
             _validate_single_structural_line(body, "heading", "Heading")
         elif scope in {"body", "intro"}:

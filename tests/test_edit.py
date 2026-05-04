@@ -2962,3 +2962,143 @@ class TestEditFixLinks:
         assert "wikilink_fixes" not in result
         content = (vault / "Wiki" / "test-page.md").read_text()
         assert "[[real-target]]" in content
+
+
+class TestSectionReplaceBoundaryGuard:
+    """Reject section-replace bodies that would duplicate the next-sibling boundary heading."""
+
+    def _setup(self, vault, body_text):
+        path = vault / "Wiki" / "boundary-page.md"
+        path.write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n" + body_text
+        )
+
+    def test_rejects_body_ending_with_boundary_heading(self, vault, router):
+        self._setup(
+            vault,
+            "## Alpha\n\nAlpha body.\n\n## Beta\n\nBeta body.\n",
+        )
+        with pytest.raises(ValueError, match="boundary"):
+            edit.edit_artefact(
+                str(vault), router, "Wiki/boundary-page.md",
+                "## Alpha\n\nUpdated alpha.\n\n## Beta\n",
+                target="## Alpha", scope="section",
+            )
+
+    def test_accepts_split_into_two_with_interior_same_level_heading(self, vault, router):
+        self._setup(
+            vault,
+            "## Alpha\n\nAlpha body.\n\n## Gamma\n\nGamma body.\n",
+        )
+        edit.edit_artefact(
+            str(vault), router, "Wiki/boundary-page.md",
+            "## Alpha\n\nFirst half.\n\n## Beta\n\n| col |\n| --- |\n| val |\n",
+            target="## Alpha", scope="section",
+        )
+        content = (vault / "Wiki" / "boundary-page.md").read_text()
+        _, body = parse_frontmatter(content)
+        assert body.count("## Alpha") == 1
+        assert body.count("## Beta") == 1
+        assert body.count("## Gamma") == 1
+        assert body.index("## Alpha") < body.index("## Beta") < body.index("## Gamma")
+        assert "## Alpha\n\nFirst half.\n\n## Beta" in body
+
+    def test_accepts_body_ending_with_deeper_subsection(self, vault, router):
+        self._setup(
+            vault,
+            "## Alpha\n\nAlpha body.\n\n## Beta\n\nBeta body.\n",
+        )
+        edit.edit_artefact(
+            str(vault), router, "Wiki/boundary-page.md",
+            "## Alpha\n\nUpdated.\n\n### Subsection\n\nDeeper.\n",
+            target="## Alpha", scope="section",
+        )
+        content = (vault / "Wiki" / "boundary-page.md").read_text()
+        _, body = parse_frontmatter(content)
+        assert body.count("## Beta") == 1
+        assert "### Subsection" in body
+        assert body.index("### Subsection") < body.index("## Beta")
+
+    def test_accepts_when_target_has_no_next_sibling_at_level(self, vault, router):
+        self._setup(
+            vault,
+            "## Alpha\n\nAlpha body.\n\n### Child\n\nChild body.\n",
+        )
+        edit.edit_artefact(
+            str(vault), router, "Wiki/boundary-page.md",
+            "## Alpha\n\nUpdated.\n\n## Whatever\n",
+            target="## Alpha", scope="section",
+        )
+        content = (vault / "Wiki" / "boundary-page.md").read_text()
+        _, body = parse_frontmatter(content)
+        assert body.count("## Alpha") == 1
+        assert "## Whatever" in body
+
+    def test_rejection_error_is_actionable(self, vault, router):
+        self._setup(
+            vault,
+            "## Alpha\n\nAlpha body.\n\n## Beta\n\nBeta body.\n",
+        )
+        with pytest.raises(ValueError) as exc:
+            edit.edit_artefact(
+                str(vault), router, "Wiki/boundary-page.md",
+                "## Alpha\n\nUpdated alpha.\n\n## Beta\n",
+                target="## Alpha", scope="section",
+            )
+        msg = str(exc.value)
+        assert "## Beta" in msg
+        assert ("drop" in msg.lower()) or ("widen" in msg.lower()) or ("trailing" in msg.lower())
+
+    def test_accepts_body_with_no_internal_headings_other_than_target(self, vault, router):
+        self._setup(
+            vault,
+            "## Alpha\n\nbody.\n\n## Beta\n\nB body.\n",
+        )
+        edit.edit_artefact(
+            str(vault), router, "Wiki/boundary-page.md",
+            "## Alpha\n\nJust prose, no other headings.\n",
+            target="## Alpha", scope="section",
+        )
+        content = (vault / "Wiki" / "boundary-page.md").read_text()
+        _, body = parse_frontmatter(content)
+        assert body.count("## Alpha") == 1
+        assert body.count("## Beta") == 1
+
+    def test_accepts_when_body_final_heading_is_deeper_level_than_boundary(self, vault, router):
+        self._setup(
+            vault,
+            "## Alpha\n\nbody.\n\n## Beta\n\nB body.\n",
+        )
+        edit.edit_artefact(
+            str(vault), router, "Wiki/boundary-page.md",
+            "## Alpha\n\nUpdated.\n\n### Beta\n\nDeeper Beta.\n",
+            target="## Alpha", scope="section",
+        )
+        content = (vault / "Wiki" / "boundary-page.md").read_text()
+        _, body = parse_frontmatter(content)
+        assert "## Beta" in body
+        assert "### Beta" in body
+
+    def test_rejects_when_boundary_heading_appears_twice_in_body(self, vault, router):
+        self._setup(
+            vault,
+            "## Alpha\n\nbody.\n\n## Beta\n\nB body.\n",
+        )
+        with pytest.raises(ValueError, match="boundary"):
+            edit.edit_artefact(
+                str(vault), router, "Wiki/boundary-page.md",
+                "## Alpha\n\nFirst.\n\n## Beta\n\nMid.\n\n## Beta\n",
+                target="## Alpha", scope="section",
+            )
+
+    def test_rejects_split_into_two_when_interior_heading_matches_boundary_text(self, vault, router):
+        self._setup(
+            vault,
+            "## Alpha\n\nbody.\n\n## Gamma\n\nG body.\n",
+        )
+        with pytest.raises(ValueError, match="boundary"):
+            edit.edit_artefact(
+                str(vault), router, "Wiki/boundary-page.md",
+                "## Alpha\n\nFirst.\n\n## Beta\n\nMid.\n\n## Gamma\n",
+                target="## Alpha", scope="section",
+            )
