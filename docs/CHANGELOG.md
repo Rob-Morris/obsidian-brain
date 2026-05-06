@@ -6,6 +6,7 @@ Version-by-version release history for Obsidian Brain. Every shipped version has
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.35.6](changelog/v0.35.6.md) | 2026-05-06 | Codify type extension procedure to match brain-core behaviour |
 | [v0.35.5](changelog/v0.35.5.md) | 2026-05-04 | Maintain BM25 corpus stats incrementally per index update |
 | [v0.35.4](changelog/v0.35.4.md) | 2026-05-04 | Restore start_shaping.py CLI bootstrap via load_compiled_router |
 | [v0.35.3](changelog/v0.35.3.md) | 2026-05-04 | Add software-design core skills and tighten code-review prompts |

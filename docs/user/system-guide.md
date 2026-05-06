@@ -263,9 +263,9 @@ If it's a one-off, consider a subfolder or tag within an existing type instead.
 1. **Create the root folder** (e.g., `Projects/`)
 2. **Create taxonomy file** at `_Config/Taxonomy/Living/{key}.md`
 3. **Create template** at `_Config/Templates/Living/{Type Name}.md`
-4. **Reference standards** — if the type has lineage or archiving, reference `.brain-core/standards/provenance` and/or `.brain-core/standards/archiving` in the taxonomy
-5. **Add router trigger** in `_Config/router.md` (if the type has a trigger condition)
-6. **Run `python3 .brain-core/scripts/compile_router.py`** — colours are auto-generated
+4. **Add router trigger** in `_Config/router.md` (if the type has a trigger condition)
+5. **Run `python3 .brain-core/scripts/compile_router.py`** — colours are auto-generated
+6. **Validate** with `python3 .brain-core/scripts/check.py` (use `--actionable` for fix suggestions)
 7. **Log the addition**
 
 ### Adding a Temporal Artefact Type
@@ -273,10 +273,12 @@ If it's a one-off, consider a subfolder or tag within an existing type instead.
 1. **Create the folder** under `_Temporal/` (e.g., `_Temporal/Reports/`)
 2. **Create taxonomy file** at `_Config/Taxonomy/Temporal/{key}.md`
 3. **Create template** at `_Config/Templates/Temporal/{Type Name}.md`
-4. **Reference standards** — if the type has lineage or archiving, reference `.brain-core/standards/provenance` and/or `.brain-core/standards/archiving` in the taxonomy
-5. **Add router trigger** in `_Config/router.md` (if applicable)
-6. **Run `python3 .brain-core/scripts/compile_router.py`** — rose-blended colours are auto-generated
+4. **Add router trigger** in `_Config/router.md` (most temporal types have one)
+5. **Run `python3 .brain-core/scripts/compile_router.py`** — rose-blended colours are auto-generated
+6. **Validate** with `python3 .brain-core/scripts/check.py` (use `--actionable` for fix suggestions)
 7. **Log the addition**
+
+For the full procedure — required taxonomy sections, parser-required formats, manifest schema for upstream contributions — see `.brain-core/standards/extending/adding-living-type.md` and `adding-temporal-type.md`. If the type has lineage or archiving, the taxonomy references `.brain-core/standards/provenance` and/or `.brain-core/standards/archiving`.
 
 ---
 

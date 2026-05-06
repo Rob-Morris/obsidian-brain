@@ -44,8 +44,8 @@ CSS snippet at `.obsidian/snippets/brain-folder-colours.css` driven by a palette
 
 Documented in `.brain-core/standards/extending/README.md`:
 
-- **New living artefact**: create at root, add taxonomy file, reference standards (provenance/archiving) in taxonomy if applicable, optionally add router trigger, run `python3 .brain-core/scripts/compile_router.py` — colours are auto-generated
-- **New temporal child**: create under `_Temporal/`, add taxonomy file, reference standards (provenance/archiving) in taxonomy if applicable, optionally add router trigger, run `python3 .brain-core/scripts/compile_router.py` — rose-blended colours are auto-generated
+- **New living artefact**: create folder at root, add taxonomy file, add template, optionally add router trigger, run `python3 .brain-core/scripts/compile_router.py`, validate with `python3 .brain-core/scripts/check.py` — colours are auto-generated
+- **New temporal child**: create folder under `_Temporal/`, add taxonomy file, add template, add router trigger (most temporal types have one), run `python3 .brain-core/scripts/compile_router.py`, validate with `python3 .brain-core/scripts/check.py` — rose-blended colours are auto-generated
 - **New config child**: create under `_Config/`, inherits purple styling
 - **New plugin**: create under `_Plugins/`, inherits orchid styling, add skill if it has tools
 
