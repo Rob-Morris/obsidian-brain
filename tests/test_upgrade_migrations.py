@@ -144,6 +144,59 @@ def test_run_pending_migrations_force_reruns_recorded_migration(tmp_path):
     assert _ledger(vault)["migrations"]["1.0.0"]["status"] == "ok"
 
 
+def test_dry_run_lists_pending_migrations_without_running_them(tmp_path):
+    """Bug B fix: --dry-run preview must enumerate migrations the real run would
+    invoke, so users can see what's coming after the file-copy step.
+    """
+    source = _make_source(
+        tmp_path,
+        "2.0.0",
+        migrations={
+            "migrate_to_1_5_0.py": _counter_migration("count-1-5.txt"),
+            "migrate_to_2_0_0.py": _counter_migration("count-2-0.txt"),
+        },
+    )
+    vault = _make_vault(tmp_path, "1.0.0")
+
+    result = upgrade.upgrade(str(vault), str(source), dry_run=True, sync=False)
+
+    assert result["dry_run"] is True
+    assert [m["version"] for m in result["migrations_preview"]] == ["1.5.0", "2.0.0"]
+    # Nothing should have actually run
+    assert not (vault / ".brain" / "local" / "count-1-5.txt").exists()
+    assert not (vault / ".brain" / "local" / "count-2-0.txt").exists()
+
+
+def test_dry_run_force_lists_all_migrations_through_new_version(tmp_path):
+    """--force --dry-run should list every migration up to new_version, including
+    those already recorded in the ledger — matching the real --force run.
+    """
+    source = _make_source(
+        tmp_path,
+        "2.0.0",
+        migrations={
+            "migrate_to_1_0_0.py": _counter_migration("count-1-0.txt"),
+            "migrate_to_2_0_0.py": _counter_migration("count-2-0.txt"),
+        },
+    )
+    vault = _make_vault(tmp_path, "2.0.0")  # Same version as source
+    # Record both as already applied so the non-force preview would skip them
+    (vault / ".brain" / "local" / "migrations.json").write_text(json.dumps({
+        "schema_version": 1,
+        "migrations": {
+            "1.0.0": {"status": "ok", "target": "post_compile_migration"},
+            "2.0.0": {"status": "ok", "target": "post_compile_migration"},
+        },
+    }))
+
+    forced = upgrade.upgrade(str(vault), str(source), force=True, dry_run=True, sync=False)
+    assert [m["version"] for m in forced["migrations_preview"]] == ["1.0.0", "2.0.0"]
+
+    # Without force, all migrations are recorded → preview is empty
+    skipped = upgrade.upgrade(str(vault), str(source), force=False, dry_run=True, sync=False)
+    assert skipped.get("migrations_preview", []) == []
+
+
 def test_upgrade_backfills_old_versions_and_prevents_startup_rerun(tmp_path):
     source = _make_source(
         tmp_path,

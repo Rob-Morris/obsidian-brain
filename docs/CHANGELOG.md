@@ -6,6 +6,7 @@ Version-by-version release history for Obsidian Brain. Every shipped version has
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.35.9](changelog/v0.35.9.md) | 2026-05-08 | Preview migrations and sync in upgrade --dry-run output |
 | [v0.35.8](changelog/v0.35.8.md) | 2026-05-07 | Fix double-date filenames from migrate_naming catchall path |
 | [v0.35.7](changelog/v0.35.7.md) | 2026-05-07 | Add pid tags, latency, and gated body logging to MCP proxy |
 | [v0.35.6](changelog/v0.35.6.md) | 2026-05-06 | Codify type extension procedure to match brain-core behaviour |

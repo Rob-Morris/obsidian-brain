@@ -494,6 +494,40 @@ def _migration_record_key(version_str: str, target: str) -> str:
     return f"{version_str}{_MIGRATION_RECORD_SEP}{target}"
 
 
+def _select_pending_migrations(
+    all_migrations: list,
+    old_version: Optional[str],
+    new_version: str,
+    ledger: dict,
+    *,
+    force: bool,
+    target: str,
+) -> list:
+    """Filter discovered migrations to those eligible to run.
+
+    Single source of truth for the rule that determines which migrations a
+    real run would invoke; `_run_migrations` and `_pending_migrations_summary`
+    both call this so dry-run previews can never drift from real execution.
+
+    Returns the same 4-tuple shape as `_discover_target_migrations`
+    ((version_tuple, version_str, script_path, handler)) so callers can take
+    what they need.
+    """
+    new_tuple = _parse_version(new_version)
+    if force:
+        return [m for m in all_migrations if m[0] <= new_tuple]
+    old_tuple = _parse_version(old_version) if old_version else (0,)
+    pending = []
+    for entry in all_migrations:
+        version_tuple, version_str, _sp, _h = entry
+        if version_tuple <= old_tuple or version_tuple > new_tuple:
+            continue
+        if _migration_record_key(version_str, target) in ledger["migrations"]:
+            continue
+        pending.append(entry)
+    return pending
+
+
 def _run_migrations(
     vault_root: str,
     old_version: Optional[str],
@@ -523,7 +557,6 @@ def _run_migrations(
     if not all_migrations:
         return [], _load_migration_ledger(vault_root)
 
-    new_tuple = _parse_version(new_version)
     ledger = _seed_migration_ledger(
         vault_root,
         old_version,
@@ -531,21 +564,10 @@ def _run_migrations(
         target=target,
     )
 
-    if force:
-        pending = [
-            (vt, version_str, sp, handler)
-            for vt, version_str, sp, handler in all_migrations
-            if vt <= new_tuple
-        ]
-    else:
-        old_tuple = _parse_version(old_version) if old_version else (0,)
-        pending = []
-        for version_tuple, version_str, script_path, handler in all_migrations:
-            if version_tuple <= old_tuple or version_tuple > new_tuple:
-                continue
-            if _migration_record_key(version_str, target) in ledger["migrations"]:
-                continue
-            pending.append((version_tuple, version_str, script_path, handler))
+    pending = _select_pending_migrations(
+        all_migrations, old_version, new_version, ledger,
+        force=force, target=target,
+    )
     if not pending:
         return [], ledger
 
@@ -590,6 +612,47 @@ def _run_migrations(
                 "message": str(e),
             })
     return results, ledger
+
+def _pending_migrations_summary(
+    vault_root: str,
+    old_version: Optional[str],
+    new_version: str,
+    *,
+    force: bool = False,
+    target: str = _DEFAULT_MIGRATION_TARGET,
+    migrations_dir: Optional[str] = None,
+) -> list[dict]:
+    """Return a preview of which migrations would run, without executing them.
+
+    Shares `_select_pending_migrations` with `_run_migrations` so the preview
+    can never drift from real execution. Returns version-only metadata —
+    per-migration content preview would require every migration script to
+    expose a dry-run interface (Bug B's deeper fix).
+
+    Unlike `_run_migrations`, this loads the ledger without seeding so the
+    preview is fully side-effect-free; the version-comparison filter handles
+    pre-ledger history correctly without seeding for both force and non-force
+    paths.
+
+    The migrations_dir override lets callers point at the source's migrations
+    (e.g. during dry-run preview, before the upgrade copy step has run) so the
+    preview reflects scripts in the about-to-be-installed brain-core, not the
+    older set still in the vault.
+    """
+    _require_known_migration_target(target)
+    if migrations_dir is None:
+        migrations_dir = os.path.join(vault_root, BRAIN_CORE_DIR, "scripts", "migrations")
+    all_migrations = _discover_target_migrations(migrations_dir, target=target)
+    if not all_migrations:
+        return []
+
+    ledger = _load_migration_ledger(vault_root)
+    pending = _select_pending_migrations(
+        all_migrations, old_version, new_version, ledger,
+        force=force, target=target,
+    )
+    return [{"version": vs, "target": target} for _vt, vs, _sp, _h in pending]
+
 
 _MIGRATED_VERSION_FILE = os.path.join(".brain", "local", ".migrated-version")
 _MIGRATION_LEDGER_FILE = os.path.join(".brain", "local", "migrations.json")
@@ -880,7 +943,13 @@ def _validate_compile(vault_root: str) -> Optional[str]:
 # Post-upgrade definition sync
 # ---------------------------------------------------------------------------
 
-def _post_upgrade_sync(vault_root: str, *, sync: Optional[bool]) -> Optional[dict]:
+def _post_upgrade_sync(
+    vault_root: str,
+    *,
+    sync: Optional[bool],
+    dry_run: bool = False,
+    scripts_dir: Optional[str] = None,
+) -> Optional[dict]:
     """Run artefact definition sync after upgrade.
 
     Sync is optional — failures are captured, never raised. The upgrade
@@ -889,9 +958,22 @@ def _post_upgrade_sync(vault_root: str, *, sync: Optional[bool]) -> Optional[dic
     Safe updates (upstream changed, no local changes) always apply.
     Conflicts (both sides changed) are returned as warnings.
 
+    When dry_run=True, runs sync_definitions(dry_run=True) and returns the
+    preview under 'sync_preview' instead of executing — gives upgrade --dry-run
+    a real preview of what sync would do (Bug B: previously dry-run hid sync
+    side effects entirely).
+
+    The scripts_dir override lets dry-run import sync_definitions from the
+    source (about-to-be-installed scripts) rather than the vault's still-old
+    scripts, matching the migrations_dir pattern in
+    `_pending_migrations_summary`. Without it, cross-version dry-run would
+    fall back to a sync_error when source's sync_definitions is incompatible
+    or when the vault has no scripts yet.
+
     Returns None if skipped entirely, or a dict with one of:
-      'sync_result'  — sync ran and produced a result
-      'sync_error'   — sync was attempted but failed
+      'sync_result'   — sync ran and produced a result
+      'sync_preview'  — dry_run produced a preview without applying
+      'sync_error'    — sync was attempted but failed
     """
     # Read preference
     prefs_path = os.path.join(vault_root, ".brain", "preferences.json")
@@ -909,8 +991,8 @@ def _post_upgrade_sync(vault_root: str, *, sync: Optional[bool]) -> Optional[dic
         return None
 
     try:
-        # Import sync_definitions from the freshly-upgraded scripts
-        scripts_dir = os.path.join(vault_root, ".brain-core", "scripts")
+        if scripts_dir is None:
+            scripts_dir = os.path.join(vault_root, ".brain-core", "scripts")
         spec = importlib.util.spec_from_file_location(
             "sync_definitions",
             os.path.join(scripts_dir, "sync_definitions.py"),
@@ -925,11 +1007,13 @@ def _post_upgrade_sync(vault_root: str, *, sync: Optional[bool]) -> Optional[dic
         # conflicts are returned as warnings for the caller to present.
         # force=True when explicitly requested via --sync flag.
         sync_result = sync_mod.sync_definitions(
-            vault_root, force=(sync is True),
+            vault_root, force=(sync is True), dry_run=dry_run,
         )
-        if sync_result["updated"] or sync_result["warnings"]:
-            return {"sync_result": sync_result}
-        return None
+        if not (sync_result["updated"] or sync_result["warnings"]):
+            return None
+        if dry_run:
+            return {"sync_preview": sync_result}
+        return {"sync_result": sync_result}
     except Exception as e:
         return {"sync_error": f"Definition sync failed: {e}"}
 
@@ -1057,6 +1141,36 @@ def upgrade(vault_root: str, source: str, *, force: bool = False, dry_run: bool 
 
     if dry_run:
         result["message"] = f"Dry run: {old_version or '(none)'} → {new_version}"
+
+        # Preview migrations and definition sync that would run after the
+        # version copy. Without this, dry-run reports only file-copy changes
+        # and silently hides the migration + sync side effects (Bug B). The
+        # source migrations dir is used so the preview reflects the
+        # about-to-be-installed scripts, not whichever older set is still in
+        # the vault.
+        source_migrations_dir = os.path.join(source, "scripts", "migrations")
+        precompile_preview = _pending_migrations_summary(
+            vault_root, old_version, new_version,
+            force=force, target=_PRECOMPILE_PATCH_TARGET,
+            migrations_dir=source_migrations_dir,
+        )
+        if precompile_preview:
+            result["precompile_patch_migrations_preview"] = precompile_preview
+
+        migrations_preview = _pending_migrations_summary(
+            vault_root, old_version, new_version, force=force,
+            migrations_dir=source_migrations_dir,
+        )
+        if migrations_preview:
+            result["migrations_preview"] = migrations_preview
+
+        sync_info = _post_upgrade_sync(
+            vault_root, sync=sync, dry_run=True,
+            scripts_dir=os.path.join(source, "scripts"),
+        )
+        if sync_info is not None:
+            result.update(sync_info)
+
         return result
 
     # --- Backup .brain-core/ before modifying anything ---
@@ -1289,6 +1403,27 @@ def main() -> None:
         for f in result["files_removed"]:
             info(f"    - {f}")
     info(f"  Unchanged: {result['files_unchanged']} files")
+
+    if args.dry_run:
+        precompile_preview = result.get("precompile_patch_migrations_preview", [])
+        migrations_preview = result.get("migrations_preview", [])
+        if precompile_preview or migrations_preview:
+            info("")
+            if precompile_preview:
+                versions = ", ".join(m["version"] for m in precompile_preview)
+                info(f"Pre-compile patches that would run: {versions}")
+            if migrations_preview:
+                versions = ", ".join(m["version"] for m in migrations_preview)
+                info(f"Post-compile migrations that would run: {versions}")
+
+        sync_preview = result.get("sync_preview")
+        if sync_preview:
+            info("")
+            info("Definition sync preview (would update if real run):")
+            for item in sync_preview.get("updated", []):
+                info(f"  ~ {item['type']} / {item['role']} → {item['target']}")
+            for item in sync_preview.get("warnings", []):
+                info(f"  ? {item['type']} / {item['role']} → {item['target']} (conflict)")
 
     if not args.dry_run:
         print(file=sys.stderr)

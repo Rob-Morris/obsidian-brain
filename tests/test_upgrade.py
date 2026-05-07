@@ -450,8 +450,15 @@ class TestPostUpgradeSyncOverrides:
         assert "sync_result" not in result
         assert "sync_preview" not in result
 
-    def test_upgrade_dry_run_no_sync(self, source_and_vault):
-        """Dry-run upgrade never runs sync (even with auto preference)."""
+    def test_upgrade_dry_run_does_not_apply_sync(self, source_and_vault):
+        """Dry-run upgrade never APPLIES sync — sync_result must be absent.
+
+        Previously this test also asserted sync_preview was absent, but Bug B
+        showed dry-run was hiding sync side effects entirely. Dry-run now
+        produces a sync_preview (without applying anything) so users can see
+        what sync would do — but sync_result (the applied-changes key) must
+        still be absent because nothing was applied.
+        """
         source, vault = source_and_vault
         (vault / ".brain" / "preferences.json").write_text(
             json.dumps({"artefact_sync": "auto"})
@@ -459,7 +466,37 @@ class TestPostUpgradeSyncOverrides:
         result = upgrade.upgrade(str(vault), str(source), dry_run=True)
         assert result["dry_run"] is True
         assert "sync_result" not in result
-        assert "sync_preview" not in result
+        # The vault filesystem must be untouched by a dry run — even if sync
+        # would have updated _Config taxonomy files, nothing should change.
+        assert "v2" not in _read(str(vault / "_Config" / "Taxonomy" / "Living" / "docs.md"))
+
+    def test_dry_run_populates_sync_preview_when_drift_exists(self, source_and_vault):
+        """Dry-run must surface a populated sync_preview when sync would update files.
+
+        sync_definitions reads the *vault* library during dry-run (the limitation
+        documented in v0.35.9), so this test pre-applies a library bump in the
+        vault to trigger drift — the same condition a real same-version --force
+        run would observe accurately.
+        """
+        source, vault = source_and_vault
+        (vault / ".brain" / "preferences.json").write_text(
+            json.dumps({"artefact_sync": "auto"})
+        )
+        # Simulate the library being already bumped in the vault relative to the
+        # tracked install hash; _Config/Taxonomy/.../docs.md still matches the
+        # old install, so sync would safely update it.
+        (vault / ".brain-core" / "artefact-library" / "living" / "docs" / "taxonomy.md").write_text(
+            "# Docs v1.5\nUpgraded library, _Config not yet synced.\n"
+        )
+
+        result = upgrade.upgrade(str(vault), str(source), dry_run=True)
+
+        assert "sync_result" not in result
+        assert "sync_preview" in result
+        updated_targets = [u["target"] for u in result["sync_preview"]["updated"]]
+        assert "_Config/Taxonomy/Living/docs.md" in updated_targets
+        # And nothing was actually written
+        assert "v1.5" not in _read(str(vault / "_Config" / "Taxonomy" / "Living" / "docs.md"))
 
     def test_sync_result_includes_warnings_for_customised(self, source_and_vault):
         """Customised definitions appear as warnings in sync result."""
