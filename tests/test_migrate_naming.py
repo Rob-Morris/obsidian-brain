@@ -91,6 +91,45 @@ class TestComputeNewFilename:
         result = migrate_naming.compute_new_filename("auth.md", art)
         assert result == "Auth.md"
 
+    def test_space_separated_date_prefix_not_double_prefixed(self):
+        """Files with space-separated leading date should not get a second YYYYMMDD- prefix.
+
+        Regression test: 20260322 Canary Md Article.md was being renamed to
+        20260322-20260322 Canary Md Article.md because the legacy regexes only
+        recognise dash-separated date prefixes, so the catchall used the full
+        stem (date and all) as the title and render_filename re-added the date.
+        """
+        art = {
+            "classification": "temporal",
+            "naming": {
+                "pattern": "yyyymmdd-{Title}.md",
+                "rules": [{"match_field": None, "match_values": None, "pattern": "yyyymmdd-{Title}.md", "date_source": "created"}],
+            },
+        }
+        result = migrate_naming.compute_new_filename(
+            "20260322 Canary Md Article.md", art
+        )
+        assert result == "20260322-Canary Md Article.md"
+
+    def test_dash_separated_date_prefix_with_capitalised_title(self):
+        """Files like 20260322-Canary Md Article.md (canonical-shape but title leaks
+        another date) should not be re-prefixed when the title itself starts with
+        the same date in dash form.
+        """
+        art = {
+            "classification": "temporal",
+            "naming": {
+                "pattern": "yyyymmdd-{Title}.md",
+                "rules": [{"match_field": None, "match_values": None, "pattern": "yyyymmdd-{Title}.md", "date_source": "created"}],
+            },
+        }
+        # Already canonical — should not migrate at all
+        result = migrate_naming.compute_new_filename(
+            "20260322-Canary Md Article.md", art
+        )
+        assert result is None
+
+
 
 # ---------------------------------------------------------------------------
 # Vault fixture

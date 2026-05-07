@@ -52,6 +52,12 @@ _OLD_PREFIXLESS_RE = re.compile(
 # Old living pattern: aggressive-slug.md (all lowercase, hyphens, no spaces)
 _OLD_LIVING_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*\.md$")
 
+# Leading date in title catchall — handles space- or dash-separated 8-digit prefix
+# that the legacy regexes above don't recognise (because they require canonical
+# dash-after-date temporal forms). Without stripping, render_filename re-applies
+# the canonical YYYYMMDD- prefix on top of the title's existing date.
+_LEADING_DATE_IN_TITLE_RE = re.compile(r"^(\d{8})[ \-]+")
+
 
 # ---------------------------------------------------------------------------
 # Core logic
@@ -96,6 +102,11 @@ def compute_new_filename(filename, artefact, fields=None, abs_path=None):
 
     if title is None and naming and not validate_filename(naming, fields, filename):
         title = os.path.splitext(filename)[0]
+        m_date = _LEADING_DATE_IN_TITLE_RE.match(title)
+        if m_date:
+            if historical_date is None:
+                historical_date = m_date.group(1)
+            title = title[m_date.end():]
 
     if title is None or not naming:
         return None
