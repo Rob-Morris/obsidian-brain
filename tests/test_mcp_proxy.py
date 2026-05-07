@@ -954,8 +954,9 @@ class TestAsyncRecoveryThread:
         with proxy._child_lock:
             proxy._child = child
         with proxy._inflight_lock:
-            proxy._inflight_requests[2] = json.loads(
-                _make_jsonrpc("tools/call", id=2, params={"name": "ping"})
+            proxy._inflight_requests[2] = (
+                json.loads(_make_jsonrpc("tools/call", id=2, params={"name": "ping"})),
+                time.monotonic(),
             )
 
         start_calls: list[int] = []
@@ -1058,8 +1059,9 @@ class TestAsyncRecoveryThread:
         with proxy._child_lock:
             proxy._child = child
         with proxy._inflight_lock:
-            proxy._inflight_requests[42] = json.loads(
-                _make_jsonrpc("tools/call", id=42, params={"name": "ping"})
+            proxy._inflight_requests[42] = (
+                json.loads(_make_jsonrpc("tools/call", id=42, params={"name": "ping"})),
+                time.monotonic(),
             )
 
         # Non-drift exit (crash with code 1) — replay path does not apply.
@@ -1097,8 +1099,9 @@ class TestAsyncRecoveryThread:
         with proxy._child_lock:
             proxy._child = child
         with proxy._inflight_lock:
-            proxy._inflight_requests[42] = json.loads(
-                _make_jsonrpc("tools/call", id=42, params={"name": "ping"})
+            proxy._inflight_requests[42] = (
+                json.loads(_make_jsonrpc("tools/call", id=42, params={"name": "ping"})),
+                time.monotonic(),
             )
 
         # Simulate a drift exit (code 10) signaled by a detection path.

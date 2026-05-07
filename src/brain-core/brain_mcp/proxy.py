@@ -13,6 +13,7 @@ Env:
     BRAIN_VAULT_ROOT        — vault path (passed through to child)
     BRAIN_WORKSPACE_DIR     — optional active workspace path (passed through to child)
     BRAIN_LOG_LEVEL         — file handler log level (default INFO)
+    BRAIN_LOG_BODIES        — when "1", log full JSON bodies of every forwarded message
     BRAIN_PROXY_BACKOFF     — comma-separated int seconds (default: 0,4,8,16,32)
     BRAIN_PROXY_INIT_TIMEOUT — seconds to wait for child initialize response (default 60)
     BRAIN_PROXY_VERSION_CHECK_INTERVAL — rate-limit for version-reset checks (default 5)
@@ -85,8 +86,7 @@ def _setup_logging(vault_root: str) -> logging.Logger:
     )
     file_handler.setLevel(file_level)
     file_handler.setFormatter(logging.Formatter(
-        "%(asctime)s [%(levelname)s] %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
+        "%(asctime)s [pid=%(process)d] [%(levelname)s] %(message)s",
     ))
     logger.addHandler(file_handler)
 
@@ -229,6 +229,9 @@ def _get_version_check_interval() -> float:
         return float(_VERSION_CHECK_INTERVAL)
 
 
+_LOG_BODIES = os.environ.get("BRAIN_LOG_BODIES", "").strip() == "1"
+
+
 # ---------------------------------------------------------------------------
 # ChildProcess
 # ---------------------------------------------------------------------------
@@ -354,10 +357,11 @@ class Proxy:
         self._proxy_version_on_disk: str | None = None  # version read from disk
         self._proxy_file_hash = self._compute_proxy_hash()  # hash at startup
 
-        # In-flight request tracking — maps request ID to full request object
-        # for requests forwarded to the child but not yet answered.
+        # In-flight request tracking — maps request ID to (request, sent_at)
+        # for requests forwarded to the child but not yet answered. sent_at is
+        # a monotonic timestamp used to log per-message latency on response.
         # Protected by _inflight_lock.
-        self._inflight_requests: dict[int | str, dict] = {}
+        self._inflight_requests: dict[int | str, tuple[dict, float]] = {}
         self._inflight_lock = threading.Lock()
         # _pending_replay holds drained-but-not-yet-replayed requests across
         # the wake/sleep boundary on a drift restart. Protected by
@@ -875,7 +879,7 @@ class Proxy:
         replay, etc.) — this method only owns the lock-protected snapshot.
         """
         with self._inflight_lock:
-            orphans = list(self._inflight_requests.values())
+            orphans = [req for req, _ in self._inflight_requests.values()]
             self._inflight_requests.clear()
         return orphans
 
@@ -904,7 +908,7 @@ class Proxy:
             try:
                 child.send(req)
                 with self._inflight_lock:
-                    self._inflight_requests[req_id] = req
+                    self._inflight_requests[req_id] = (req, time.monotonic())
                 replayed_any = True
             except Exception as e:
                 _log().error("replay failed for request id=%s: %s", req_id, e)
@@ -990,13 +994,28 @@ class Proxy:
 
                 msg_id = obj.get("id")
                 method = obj.get("method")
-                _log().debug("child→client: id=%s method=%s", msg_id, method)
 
-                # Remove from in-flight tracking (response received)
+                # Remove from in-flight tracking (response received) and
+                # compute round-trip latency so we can attribute slow calls
+                # to the child rather than the proxy.
+                latency_s: float | None = None
                 if msg_id is not None:
                     with self._inflight_lock:
-                        self._inflight_requests.pop(msg_id, None)
+                        entry = self._inflight_requests.pop(msg_id, None)
+                    if entry is not None:
+                        _, sent_at = entry
+                        latency_s = time.monotonic() - sent_at
                     self._replay_depth = 0
+
+                if latency_s is not None:
+                    _log().debug(
+                        "child→client: id=%s method=%s latency=%.3fs",
+                        msg_id, method, latency_s,
+                    )
+                else:
+                    _log().debug("child→client: id=%s method=%s", msg_id, method)
+                if _LOG_BODIES:
+                    _log().debug("child→client body: %s", line.decode("utf-8").strip())
 
                 # Capture initialize response (first time only)
                 if (
@@ -1067,6 +1086,8 @@ class Proxy:
             is_request = msg_id is not None
 
             _log().debug("client→child: id=%s method=%s", msg_id, method)
+            if _LOG_BODIES:
+                _log().debug("client→child body: %s", line.decode("utf-8").strip())
 
             # Keep the latest initialize request until we capture a matching
             # initialize response from a live child.
@@ -1100,7 +1121,7 @@ class Proxy:
             # Forward to child
             if is_request:
                 with self._inflight_lock:
-                    self._inflight_requests[msg_id] = obj
+                    self._inflight_requests[msg_id] = (obj, time.monotonic())
             try:
                 child.send(obj)
             except BrokenPipeError:

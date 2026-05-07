@@ -226,8 +226,7 @@ def _setup_logging(vault_root: str) -> logging.Logger:
     )
     file_handler.setLevel(file_level)
     file_handler.setFormatter(logging.Formatter(
-        "%(asctime)s [%(levelname)s] %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
+        "%(asctime)s [pid=%(process)d] [%(levelname)s] %(message)s",
     ))
     logger.addHandler(file_handler)
 
