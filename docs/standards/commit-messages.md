@@ -60,9 +60,13 @@ docs update                            # prefix present, but still vague
 
 The body explains *why* the change exists — the motivation, the mechanism, the downstream effect. It is optional: trivial commits skip it. Two parts when used, in order:
 
-**1. Explanation** — concept-level bullets by default; prose only when a change has a strong causal arc that bullets would fragment.
+**1. Explanation** — pick one form: concept-level bullets (default) or prose. Don't mix.
+
+Use prose only when the change has a single mechanism whose parts must be read together to make sense — bullets would force the reader to reassemble the causal chain. Otherwise use bullets.
 
 Operating principle: **less words, less bullets, still clear.** Add bullets only when the diff doesn't already explain why.
+
+For bullets:
 
 - Hard cap: 120 characters per bullet, 6 bullets per body. No exceptions.
 - One focus per bullet: a single contract, behaviour, trade-off, or invariant.
@@ -71,7 +75,7 @@ Operating principle: **less words, less bullets, still clear.** Add bullets only
 - Reference specific identifiers (function names, flag names, type names) inline only when they add meaning.
 - If your change won't fit in 6 bullets at 120 characters, the commit is doing too much — split it.
 
-When prose is the right choice, the same content rules apply. Prefer 2–4 sentences; cap at 6.
+For prose: 2–4 sentences, cap at 6. Same content rules apply — every sentence adds a fact a reviewer cannot get from the diff.
 
 **2. Reference** — a single trailing line pointing to a public-safe reference that motivated the work, if one exists. Public-safe means a stranger can verify the reference using only `git log` and the public web — nothing requiring access to a private system, machine, or workspace.
 
@@ -85,7 +89,21 @@ Issue: #123
 DD: docs/architecture/decisions/dd-036-safe-write-pattern.md
 ```
 
-## Worked Example
+## Worked Examples
+
+**Bullets** — five independent hardenings to the vault registry; no causal chain binds them, each can be read alone:
+
+```text
+Harden v0.28.0 vault registry (v0.28.1)
+
+- Serialize register/unregister/prune via fcntl.flock so concurrent installers can't lose entries on load→modify→save.
+- _config_home() now honours XDG spec when $XDG_CONFIG_HOME is unset, empty, or non-absolute — installer was crashing.
+- Accept Agents.md marker in install.sh so shell and Python registry detection agree on what counts as a vault.
+- Standardise install.sh prompts to stderr; mixed stdout was breaking automation that pipes stdin and stdout.
+- Drop dead same-path guard in register() — the caller already dedupes, so the guard could never fire.
+```
+
+**Prose** — one mechanism (kernel + wrappers + serializers form a single causal arc); bullets would fragment it:
 
 ```text
 Harden embeddings writes via safe_write_via kernel (v0.29.6)
