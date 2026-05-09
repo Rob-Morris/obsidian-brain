@@ -33,7 +33,7 @@ platforms; Intel macOS remains lexical-only.
 | `repair.py` | Explicit infrastructure repair entry point; bootstraps from a compatible Python 3.12+ launcher, converges into the vault-local `.venv`, then runs one named repair scope. `mcp` repairs installed current-vault project MCP state only; it does not create first-time project registrations. | `python3 repair.py {mcp,router,index,registry} [--vault V] [--dry-run] [--json]` |
 | `read.py` | Query compiled router resources | `python3 read.py RESOURCE [--name N]` |
 | `rename.py` | Rename/delete file + update wikilinks, refusing existing-destination collisions | `python3 rename.py "source" "dest" [--json]` |
-| `search_index.py` | Lexical, semantic, or hybrid local search | `python3 search_index.py "query" [--type T] [--mode M] [--json]` |
+| `search_index.py` | Lexical, semantic, or hybrid local search with exact-anchor lexical wins, strong semantic champions, Brain-only title champions, and semantic-rescue fusion for disjoint leaders | `python3 search_index.py "query" [--type T] [--mode M] [--json]` |
 | `session.py` | Build the canonical session model and refresh `.brain/local/session.md` | `python3 session.py [--json] [--workspace-dir PATH]` |
 | `shape_printable.py` | Create printable + render PDF | `python3 shape_printable.py --source P --slug S [--no-render] [--pdf-engine E]` |
 | `shape_presentation.py` | Create presentation + render PDF + launch Marp preview | `python3 shape_presentation.py --source P --slug S [--no-render] [--no-preview]` |
@@ -122,7 +122,7 @@ Boundary rule:
 | `_wikilinks.py` | Wikilink extraction, file index, broken link resolution, region-aware text mutation | 15 |
 | `_markdown.py` | Heading/callout parsing, shared structural target resolution, and typed literal-text regions (fenced code, inline code, HTML comments, `$$` math, raw HTML) | 28 |
 | `_slugs.py` | Slug generation, validation, title/filename/slug conversions | 9 |
-| `_search.py` | BM25 tokenisation | 1 |
+| `_search.py` | BM25 tokenisation and exact-anchor query detection | 1 |
 | `_templates.py` | Timestamp utilities, template variable substitution | 3 |
 | `_coerce.py` | Type coercion helpers for MCP boundary | 1 |
 

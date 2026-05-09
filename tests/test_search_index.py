@@ -194,6 +194,31 @@ class TestSearch:
 
 
 class TestSemanticSearch:
+    def _write_doc(
+        self,
+        vault,
+        rel_path,
+        title,
+        body,
+        *,
+        artefact_type="living/wiki",
+        tags=None,
+        status="active",
+    ):
+        path = vault / rel_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tag_list = ", ".join(tags or [])
+        path.write_text(
+            "---\n"
+            f"type: {artefact_type}\n"
+            f"tags: [{tag_list}]\n"
+            f"status: {status}\n"
+            "---\n\n"
+            f"# {title}\n\n"
+            f"{body}\n",
+            encoding="utf-8",
+        )
+
     def _doc_meta(self, index):
         return {
             "documents": [
@@ -211,6 +236,9 @@ class TestSemanticSearch:
     def _aligned_vectors(self, index, path_vectors):
         np = pytest.importorskip("numpy")
         return np.array([path_vectors[doc["path"]] for doc in index["documents"]], dtype=float)
+
+    def _default_vectors(self, index, base_vector):
+        return {doc["path"]: list(base_vector) for doc in index["documents"]}
 
     def test_default_mode_prefers_hybrid_when_semantic_available(self, vault, monkeypatch):
         cfg = {
@@ -338,6 +366,532 @@ class TestSemanticSearch:
         paths = [result["path"] for result in results]
         assert "Wiki/python-basics.md" in paths
         assert "Designs/brain-tooling.md" in paths[:3]
+
+    def test_hybrid_search_keeps_lexical_exact_anchor_wins(self, index, vault, monkeypatch):
+        lexical_results = [
+            {
+                "path": "Wiki/python-basics.md",
+                "title": "Python Basics",
+                "type": "living/wiki",
+                "status": "active",
+                "score": 42.0,
+                "snippet": "",
+            }
+        ]
+        semantic_called = False
+
+        def fake_search(*_args, **_kwargs):
+            return lexical_results
+
+        def fake_search_semantic(*_args, **_kwargs):
+            nonlocal semantic_called
+            semantic_called = True
+            return []
+
+        monkeypatch.setattr(si, "search", fake_search)
+        monkeypatch.setattr(si, "search_semantic", fake_search_semantic)
+        monkeypatch.setattr(si, "_attach_snippets", lambda *_args, **_kwargs: None)
+
+        results = si.search_hybrid(index, "v0.16 release notes", vault, top_k=1)
+
+        assert not semantic_called
+        assert results == lexical_results
+
+    def test_core_title_tokens_strip_brain_product_prefix_only(self):
+        assert si._core_title_tokens("Brain MCP Server") == ["mcp", "server"]
+        assert si._core_title_tokens("Atlas MCP Server") == ["atlas", "mcp", "server"]
+
+    def test_hybrid_search_end_to_end_promotes_semantic_champion(self, vault, monkeypatch):
+        self._write_doc(
+            vault,
+            "Wiki/lattice-harbour-guide.md",
+            "Lattice Harbour Guide",
+            (
+                "Lattice harbour planning notes explain lattice harbour routing, "
+                "lattice harbour maintenance, and lattice harbour planning."
+            ),
+        )
+        self._write_doc(
+            vault,
+            "Wiki/harbour-operations.md",
+            "Harbour Operations",
+            (
+                "Harbour operations describe lattice traffic, harbour routing, "
+                "and manual harbour operations."
+            ),
+        )
+        self._write_doc(
+            vault,
+            "Wiki/conceptual-docking-notes.md",
+            "Conceptual Docking Notes",
+            (
+                "Conceptual docking notes mention lattice harbour once while "
+                "focusing on docking abstractions."
+            ),
+        )
+        index = bi.build_index(vault)
+        path_vectors = self._default_vectors(index, [0.0, 1.0])
+        path_vectors.update(
+            {
+                "Wiki/lattice-harbour-guide.md": [0.2, 0.98],
+                "Wiki/harbour-operations.md": [0.0, 1.0],
+                "Wiki/conceptual-docking-notes.md": [1.0, 0.0],
+            }
+        )
+        vectors = self._aligned_vectors(index, path_vectors)
+        meta = self._doc_meta(index)
+        np = pytest.importorskip("numpy")
+        monkeypatch.setattr(si, "_encode_query", lambda _query: np.array([1.0, 0.0]))
+
+        no_bonus = pytest.MonkeyPatch()
+        no_bonus.setattr(si, "SEMANTIC_CHAMPION_BONUS", 0.0)
+        try:
+            baseline = si.search_hybrid(
+                index,
+                "lattice harbour",
+                vault,
+                top_k=2,
+                doc_embeddings=vectors,
+                embeddings_meta=meta,
+            )
+        finally:
+            no_bonus.undo()
+
+        boosted = si.search_hybrid(
+            index,
+            "lattice harbour",
+            vault,
+            top_k=2,
+            doc_embeddings=vectors,
+            embeddings_meta=meta,
+        )
+
+        assert baseline[0]["path"] == "Wiki/lattice-harbour-guide.md"
+        assert boosted[0]["path"] == "Wiki/conceptual-docking-notes.md"
+
+    def test_hybrid_search_end_to_end_promotes_brain_title_champion(self, vault, monkeypatch):
+        self._write_doc(
+            vault,
+            "Wiki/brain-mcp-server.md",
+            "Brain MCP Server",
+            (
+                "The MCP server design is the authoritative MCP server tool "
+                "surface for the Brain tooling stack."
+            ),
+            tags=["brain-core", "tooling"],
+        )
+        self._write_doc(
+            vault,
+            "Wiki/brain-remote-administration.md",
+            "Brain Remote Administration",
+            (
+                "Remote administration guidance covers operator access and "
+                "maintenance procedures."
+            ),
+            tags=["brain-core"],
+        )
+        self._write_doc(
+            vault,
+            "Wiki/mcp-server-logging.md",
+            "MCP Server Logging",
+            (
+                "Logging guidance describes MCP server traces, MCP server "
+                "spans, and log inspection workflows."
+            ),
+            tags=["brain-core", "logging"],
+        )
+        index = bi.build_index(vault)
+        path_vectors = self._default_vectors(index, [0.0, 1.0])
+        path_vectors.update(
+            {
+                "Wiki/brain-mcp-server.md": [0.2, 0.98],
+                "Wiki/brain-remote-administration.md": [0.0, 1.0],
+                "Wiki/mcp-server-logging.md": [1.0, 0.0],
+            }
+        )
+        vectors = self._aligned_vectors(index, path_vectors)
+        meta = self._doc_meta(index)
+        np = pytest.importorskip("numpy")
+        monkeypatch.setattr(si, "_encode_query", lambda _query: np.array([1.0, 0.0]))
+        query = "authoritative design for the MCP server tool surface"
+
+        no_bonus = pytest.MonkeyPatch()
+        no_bonus.setattr(si, "LEXICAL_TITLE_CHAMPION_BONUS", 0.0)
+        try:
+            baseline = si.search_hybrid(
+                index,
+                query,
+                vault,
+                top_k=2,
+                doc_embeddings=vectors,
+                embeddings_meta=meta,
+            )
+        finally:
+            no_bonus.undo()
+
+        boosted = si.search_hybrid(
+            index,
+            query,
+            vault,
+            top_k=2,
+            doc_embeddings=vectors,
+            embeddings_meta=meta,
+        )
+
+        assert baseline[0]["path"] == "Wiki/mcp-server-logging.md"
+        assert boosted[0]["path"] == "Wiki/brain-mcp-server.md"
+
+    def test_hybrid_search_end_to_end_applies_semantic_rescue(self, vault, monkeypatch):
+        self._write_doc(
+            vault,
+            "Wiki/application-process-research.md",
+            "Application Process Research",
+            (
+                "This research covers conversational exploration of a "
+                "collaborative application framework with event propagation "
+                "orchestration for operators."
+            ),
+        )
+        self._write_doc(
+            vault,
+            "Wiki/workflow-notes.md",
+            "Workflow Notes",
+            (
+                "Workflow notes examine collaborative application framework "
+                "patterns and event propagation trade-offs."
+            ),
+        )
+        self._write_doc(
+            vault,
+            "Wiki/operations-study.md",
+            "Operations Study",
+            (
+                "Operations study tracks conversational exploration and "
+                "framework orchestration patterns."
+            ),
+        )
+        self._write_doc(
+            vault,
+            "Wiki/collaborative-app-design-chat.md",
+            "Collaborative App Design Chat",
+            (
+                "This chat captures design discussions about a collaborative "
+                "app and facilitation patterns."
+            ),
+        )
+        self._write_doc(
+            vault,
+            "Wiki/three-level-context.md",
+            "Three Level Context",
+            "Layered context notes for semantic ranking experiments.",
+        )
+        self._write_doc(
+            vault,
+            "Wiki/ambient-operations.md",
+            "Ambient Operations",
+            "Ambient operational notes for background coordination flows.",
+        )
+        index = bi.build_index(vault)
+        path_vectors = self._default_vectors(index, [0.0, 1.0])
+        path_vectors.update(
+            {
+                "Wiki/application-process-research.md": [0.3, 0.95],
+                "Wiki/workflow-notes.md": [0.2, 0.98],
+                "Wiki/operations-study.md": [0.1, 1.0],
+                "Wiki/collaborative-app-design-chat.md": [1.0, 0.0],
+                "Wiki/three-level-context.md": [0.95, 0.05],
+                "Wiki/ambient-operations.md": [0.9, 0.1],
+            }
+        )
+        vectors = self._aligned_vectors(index, path_vectors)
+        meta = self._doc_meta(index)
+        np = pytest.importorskip("numpy")
+        monkeypatch.setattr(si, "_encode_query", lambda _query: np.array([1.0, 0.0]))
+        monkeypatch.setattr(si, "SEMANTIC_CHAMPION_BONUS", 0.0)
+        query = (
+            "conversational exploration of collaborative application framework "
+            "with event propagation orchestration"
+        )
+
+        no_bonus = pytest.MonkeyPatch()
+        no_bonus.setattr(si, "SEMANTIC_RESCUE_BONUS", 0.0)
+        try:
+            baseline = si.search_hybrid(
+                index,
+                query,
+                vault,
+                top_k=2,
+                doc_embeddings=vectors,
+                embeddings_meta=meta,
+            )
+        finally:
+            no_bonus.undo()
+
+        boosted = si.search_hybrid(
+            index,
+            query,
+            vault,
+            top_k=2,
+            doc_embeddings=vectors,
+            embeddings_meta=meta,
+        )
+
+        assert baseline[0]["path"] == "Wiki/application-process-research.md"
+        assert boosted[0]["path"] == "Wiki/collaborative-app-design-chat.md"
+
+    def test_fuse_rrf_promotes_semantic_champion_when_margin_is_strong(self):
+        lexical_results = [
+            {"path": "A.md", "title": "A", "type": "living/wiki", "status": "active", "score": 10.0},
+            {"path": "C.md", "title": "C", "type": "living/wiki", "status": "active", "score": 9.0},
+            {"path": "B.md", "title": "B", "type": "living/wiki", "status": "active", "score": 8.0},
+        ]
+        semantic_results = [
+            {"path": "B.md", "title": "B", "type": "living/wiki", "status": "active", "score": 0.90},
+            {"path": "A.md", "title": "A", "type": "living/wiki", "status": "active", "score": 0.80},
+        ]
+
+        no_bonus = pytest.MonkeyPatch()
+        no_bonus.setattr(si, "SEMANTIC_CHAMPION_BONUS", 0.0)
+        try:
+            baseline = si._fuse_rrf(lexical_results, semantic_results, top_k=2)
+        finally:
+            no_bonus.undo()
+
+        boosted = si._fuse_rrf(lexical_results, semantic_results, top_k=2)
+
+        assert baseline[0]["path"] == "A.md"
+        assert boosted[0]["path"] == "B.md"
+
+    def test_fuse_rrf_does_not_promote_semantic_champion_when_margin_is_small(self):
+        lexical_results = [
+            {"path": "A.md", "title": "A", "type": "living/wiki", "status": "active", "score": 10.0},
+            {"path": "C.md", "title": "C", "type": "living/wiki", "status": "active", "score": 9.0},
+            {"path": "B.md", "title": "B", "type": "living/wiki", "status": "active", "score": 8.0},
+        ]
+        semantic_results = [
+            {"path": "B.md", "title": "B", "type": "living/wiki", "status": "active", "score": 0.81},
+            {"path": "A.md", "title": "A", "type": "living/wiki", "status": "active", "score": 0.80},
+        ]
+
+        boosted = si._fuse_rrf(lexical_results, semantic_results, top_k=2)
+
+        assert boosted[0]["path"] == "A.md"
+
+    def test_fuse_rrf_promotes_lexical_champion_when_query_contains_core_title_phrase(self):
+        lexical_results = [
+            {
+                "path": "A.md",
+                "title": "Brain MCP Server",
+                "type": "living/wiki",
+                "status": "active",
+                "score": 24.0,
+            },
+            {
+                "path": "C.md",
+                "title": "Brain Remote Administration",
+                "type": "living/wiki",
+                "status": "active",
+                "score": 18.0,
+            },
+            {
+                "path": "B.md",
+                "title": "MCP Server Logging",
+                "type": "living/wiki",
+                "status": "active",
+                "score": 17.0,
+            },
+        ]
+        semantic_results = [
+            {
+                "path": "B.md",
+                "title": "MCP Server Logging",
+                "type": "living/wiki",
+                "status": "active",
+                "score": 0.90,
+            },
+            {
+                "path": "A.md",
+                "title": "Brain MCP Server",
+                "type": "living/wiki",
+                "status": "active",
+                "score": 0.80,
+            },
+        ]
+
+        no_bonus = pytest.MonkeyPatch()
+        no_bonus.setattr(si, "LEXICAL_TITLE_CHAMPION_BONUS", 0.0)
+        try:
+            baseline = si._fuse_rrf(
+                lexical_results,
+                semantic_results,
+                top_k=2,
+                query_tokens=si.tokenise(
+                    "authoritative design for the MCP server tool surface"
+                ),
+            )
+        finally:
+            no_bonus.undo()
+
+        boosted = si._fuse_rrf(
+            lexical_results,
+            semantic_results,
+            top_k=2,
+            query_tokens=si.tokenise(
+                "authoritative design for the MCP server tool surface"
+            ),
+        )
+
+        assert baseline[0]["path"] == "B.md"
+        assert boosted[0]["path"] == "A.md"
+
+    def test_fuse_rrf_does_not_promote_lexical_champion_without_core_title_phrase(self):
+        lexical_results = [
+            {
+                "path": "A.md",
+                "title": "Brain Bootstrap Doctor",
+                "type": "living/wiki",
+                "status": "active",
+                "score": 24.0,
+            },
+            {
+                "path": "C.md",
+                "title": "Brain Bootstrap Doctor Phase 2",
+                "type": "living/wiki",
+                "status": "active",
+                "score": 18.0,
+            },
+            {
+                "path": "B.md",
+                "title": "Bootstrap Streamlining",
+                "type": "living/wiki",
+                "status": "active",
+                "score": 17.0,
+            },
+        ]
+        semantic_results = [
+            {
+                "path": "B.md",
+                "title": "Bootstrap Streamlining",
+                "type": "living/wiki",
+                "status": "active",
+                "score": 0.90,
+            },
+            {
+                "path": "A.md",
+                "title": "Brain Bootstrap Doctor",
+                "type": "living/wiki",
+                "status": "active",
+                "score": 0.80,
+            },
+        ]
+
+        boosted = si._fuse_rrf(
+            lexical_results,
+            semantic_results,
+            top_k=2,
+            query_tokens=si.tokenise(
+                "repair workflow for bootstrap and initialisation failures"
+            ),
+        )
+
+        assert boosted[0]["path"] == "B.md"
+
+    def test_fuse_rrf_does_not_promote_lexical_champion_without_clear_margin(self):
+        lexical_results = [
+            {
+                "path": "A.md",
+                "title": "Brain MCP Server",
+                "type": "living/wiki",
+                "status": "active",
+                "score": 20.0,
+            },
+            {
+                "path": "C.md",
+                "title": "Brain Remote Administration",
+                "type": "living/wiki",
+                "status": "active",
+                "score": 17.5,
+            },
+            {
+                "path": "B.md",
+                "title": "MCP Server Logging",
+                "type": "living/wiki",
+                "status": "active",
+                "score": 17.0,
+            },
+        ]
+        semantic_results = [
+            {
+                "path": "B.md",
+                "title": "MCP Server Logging",
+                "type": "living/wiki",
+                "status": "active",
+                "score": 0.90,
+            },
+            {
+                "path": "A.md",
+                "title": "Brain MCP Server",
+                "type": "living/wiki",
+                "status": "active",
+                "score": 0.80,
+            },
+        ]
+
+        boosted = si._fuse_rrf(
+            lexical_results,
+            semantic_results,
+            top_k=2,
+            query_tokens=si.tokenise(
+                "authoritative design for the MCP server tool surface"
+            ),
+        )
+
+        assert boosted[0]["path"] == "B.md"
+
+    def test_hybrid_search_applies_semantic_rescue_when_lexical_and_semantic_disagree(self, index, vault, monkeypatch):
+        lexical_results = [
+            {"path": "A.md", "title": "Application Process Research", "type": "living/wiki", "status": "active", "score": 20.0},
+            {"path": "C.md", "title": "Architecture Notes", "type": "living/wiki", "status": "active", "score": 19.9},
+        ]
+        semantic_results = [
+            {"path": "B.md", "title": "Collaborative App Design Chat", "type": "living/wiki", "status": "active", "score": 0.39},
+            {"path": "D.md", "title": "Three Level Context", "type": "living/wiki", "status": "active", "score": 0.378},
+        ]
+        monkeypatch.setattr(si, "search", lambda *_args, **_kwargs: lexical_results)
+        monkeypatch.setattr(si, "search_semantic", lambda *_args, **_kwargs: semantic_results)
+        monkeypatch.setattr(si, "_attach_snippets", lambda *_args, **_kwargs: None)
+
+        results = si.search_hybrid(
+            index,
+            "conversational exploration of collaborative application framework with event propagation architecture",
+            vault,
+            top_k=2,
+        )
+
+        assert results[0]["path"] == "B.md"
+
+    def test_hybrid_search_does_not_apply_semantic_rescue_when_top_results_overlap(self, index, vault, monkeypatch):
+        lexical_results = [
+            {"path": "A.md", "title": "Documentation Audit Skills", "type": "living/wiki", "status": "active", "score": 20.0},
+            {"path": "C.md", "title": "Implementation Notes", "type": "living/wiki", "status": "active", "score": 19.5},
+            {"path": "D.md", "title": "Shared Supporting Doc", "type": "living/wiki", "status": "active", "score": 19.0},
+        ]
+        semantic_results = [
+            {"path": "B.md", "title": "Implementation Plan", "type": "living/wiki", "status": "active", "score": 0.39},
+            {"path": "D.md", "title": "Shared Supporting Doc", "type": "living/wiki", "status": "active", "score": 0.378},
+        ]
+        monkeypatch.setattr(si, "search", lambda *_args, **_kwargs: lexical_results)
+        monkeypatch.setattr(si, "search_semantic", lambda *_args, **_kwargs: semantic_results)
+        monkeypatch.setattr(si, "_attach_snippets", lambda *_args, **_kwargs: None)
+
+        results = si.search_hybrid(
+            index,
+            "skills for auditing docs so they are actually usable by agents",
+            vault,
+            top_k=2,
+        )
+
+        assert results[0]["path"] == "D.md"
 
 
 # ---------------------------------------------------------------------------

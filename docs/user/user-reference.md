@@ -201,7 +201,7 @@ Available in `.brain-core/scripts/`. Scripts are the source of truth for all vau
 | `compile_colours.py` | Generate folder colour CSS and graph colour groups |
 | `build_index.py` | Build the retrieval index for search and refresh embeddings sidecars when `semantic_processing` or `semantic_retrieval` is enabled, router data is available, and the optional semantic runtime has been installed |
 | `list_artefacts.py` | Enumerate vault artefacts and resources (library module used by MCP) |
-| `search_index.py` | Search the local retrieval index from the command line via lexical, semantic, or hybrid modes |
+| `search_index.py` | Search the local retrieval index from the command line via lexical, semantic, or hybrid modes; hybrid preserves obvious exact-anchor lexical wins, gives a small tie-break boost to a clearly dominant semantic top result, preserves strong lexical title champions when the query literally contains their core title phrase (stripping only the shipped `Brain` product namespace from first-party titles), and can apply a stronger semantic rescue when lexical and semantic leaders are clearly disjoint |
 | `construct_benchmark_fixture.py` | Mine a real vault for lexical / semantic / hybrid / cluster / filter-sensitive benchmark cases and emit both a benchmark fixture JSON and an audit JSON |
 | `evaluate_search.py` | Benchmark lexical, semantic, and hybrid retrieval against a JSON query set |
 | `read.py` | Query compiled router resources (artefacts, triggers, styles, templates, skills, etc.) |

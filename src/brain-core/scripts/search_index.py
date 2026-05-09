@@ -22,7 +22,7 @@ import re
 import sys
 
 import _semantic.runtime as _semantic
-from _common import FM_RE, find_vault_root, tokenise
+from _common import FM_RE, LEXICAL_ANCHOR_RE, find_vault_root, tokenise
 
 # Backwards-compatible alias for tests and older local call sites.
 _retrieval_embeddings = _semantic
@@ -37,8 +37,23 @@ SNIPPET_LENGTH = 200
 TITLE_BOOST = 3.0
 RRF_K = 60
 RRF_LEXICAL_WEIGHT = 1.0
-RRF_SEMANTIC_WEIGHT = 0.7
+RRF_SEMANTIC_WEIGHT = 1.0
 RRF_CANDIDATE_MULTIPLIER = 3
+SEMANTIC_CHAMPION_MARGIN = 0.05
+SEMANTIC_CHAMPION_BONUS = 0.002
+LEXICAL_TITLE_CHAMPION_BONUS = 0.002
+# Borderline lexical leads are not decisive enough to override semantic ranking.
+LEXICAL_TITLE_CHAMPION_MIN_MARGIN = 1.2
+# Prevent one-word titles like "Doctor" from dominating any query mentioning them.
+LEXICAL_TITLE_CHAMPION_MIN_TOKENS = 2
+# Strip only the shipped Brain product namespace from title-phrase matching.
+# This is not a general vault-prefix rule: only "Brain" is known here to be a
+# semantically empty namespace token in first-party titles like "Brain MCP Server".
+BRAIN_PRODUCT_NAMESPACE_PREFIX_TOKENS = frozenset({"brain"})
+SEMANTIC_RESCUE_MIN_QUERY_TOKENS = 5
+SEMANTIC_RESCUE_MAX_LEXICAL_TITLE_OVERLAP = 1
+SEMANTIC_RESCUE_TOP_OVERLAP_WINDOW = 3
+SEMANTIC_RESCUE_BONUS = 0.015
 SEARCH_MODES = {"lexical", "semantic", "hybrid"}
 
 
@@ -427,8 +442,75 @@ def search_semantic(
     return top
 
 
-def _fuse_rrf(lexical_results, semantic_results, *, top_k):
-    """Fuse two ranked result lists with Reciprocal Rank Fusion."""
+def _semantic_champion_bonus_applies(semantic_results):
+    return (
+        len(semantic_results) >= 2
+        and semantic_results[0]["score"] - semantic_results[1]["score"] >= SEMANTIC_CHAMPION_MARGIN
+    )
+
+
+def _core_title_tokens(title):
+    """Return title tokens with the known Brain product namespace stripped."""
+    tokens = tokenise(title)
+    while tokens and tokens[0] in BRAIN_PRODUCT_NAMESPACE_PREFIX_TOKENS:
+        tokens = tokens[1:]
+    return tokens
+
+
+def _lexical_title_champion_bonus_applies(query_tokens, lexical_results, semantic_results):
+    """Return whether hybrid should preserve a strong lexical title champion."""
+    if not query_tokens or not lexical_results or not semantic_results:
+        return False
+    if lexical_results[0]["path"] == semantic_results[0]["path"]:
+        return False
+
+    title_tokens = _core_title_tokens(lexical_results[0]["title"])
+    if len(title_tokens) < LEXICAL_TITLE_CHAMPION_MIN_TOKENS:
+        return False
+
+    query_text = " ".join(query_tokens)
+    title_phrase = " ".join(title_tokens)
+    if title_phrase not in query_text:
+        return False
+
+    if len(lexical_results) < 2:
+        return True
+    return (
+        lexical_results[0]["score"]
+        >= lexical_results[1]["score"] * LEXICAL_TITLE_CHAMPION_MIN_MARGIN
+    )
+
+
+def _semantic_rescue_applies(query_tokens, lexical_results, semantic_results):
+    """Return whether hybrid should apply the stronger semantic rescue bonus."""
+    query_token_set = set(query_tokens)
+    if len(query_token_set) < SEMANTIC_RESCUE_MIN_QUERY_TOKENS:
+        return False
+    if not lexical_results or not semantic_results:
+        return False
+
+    lexical_title_tokens = set(tokenise(lexical_results[0]["title"]))
+    title_overlap = len(query_token_set & lexical_title_tokens)
+    if title_overlap > SEMANTIC_RESCUE_MAX_LEXICAL_TITLE_OVERLAP:
+        return False
+
+    lexical_top = {
+        result["path"] for result in lexical_results[:SEMANTIC_RESCUE_TOP_OVERLAP_WINDOW]
+    }
+    semantic_top = {
+        result["path"] for result in semantic_results[:SEMANTIC_RESCUE_TOP_OVERLAP_WINDOW]
+    }
+    return not (lexical_top & semantic_top)
+
+
+def _fuse_rrf(lexical_results, semantic_results, *, top_k, query_tokens=()):
+    """Fuse two ranked result lists with Reciprocal Rank Fusion.
+
+    Applies two post-RRF score nudges before truncating to `top_k`: a small
+    tie-break bonus when the semantic leg has a clearly dominant top-1, and a
+    larger rescue bonus when the lexical and semantic legs are disjoint and
+    the lexical top is weakly title-grounded against the query.
+    """
     fused = {}
     for weight, results in (
         (RRF_LEXICAL_WEIGHT, lexical_results),
@@ -448,6 +530,20 @@ def _fuse_rrf(lexical_results, semantic_results, *, top_k):
                 },
             )
             entry["score"] += weight / (RRF_K + rank)
+    if _semantic_champion_bonus_applies(semantic_results):
+        champion = fused.get(semantic_results[0]["path"])
+        if champion is not None:
+            champion["score"] += SEMANTIC_CHAMPION_BONUS
+    if _lexical_title_champion_bonus_applies(
+        query_tokens, lexical_results, semantic_results
+    ):
+        champion = fused.get(lexical_results[0]["path"])
+        if champion is not None:
+            champion["score"] += LEXICAL_TITLE_CHAMPION_BONUS
+    if _semantic_rescue_applies(query_tokens, lexical_results, semantic_results):
+        rescue = fused.get(semantic_results[0]["path"])
+        if rescue is not None:
+            rescue["score"] += SEMANTIC_RESCUE_BONUS
     ranked = sorted(fused.values(), key=lambda result: result["score"], reverse=True)
     for result in ranked:
         result["score"] = round(result["score"], 6)
@@ -472,7 +568,20 @@ def search_hybrid(
     Snippets are attached once after RRF truncation so disk reads scale with
     `top_k`, not `top_k * RRF_CANDIDATE_MULTIPLIER * 2` (lexical + semantic
     candidate sets).
+
+    Exact-anchor queries (version strings, ticket codes) keep the lexical
+    champion outright so hybrid does not dilute obvious exact-match wins.
     """
+    if LEXICAL_ANCHOR_RE.search(query):
+        return search(
+            index,
+            query,
+            vault_root,
+            type_filter=type_filter,
+            tag_filter=tag_filter,
+            status_filter=status_filter,
+            top_k=top_k,
+        )
     query_tokens = tokenise(query)
     candidate_k = top_k * RRF_CANDIDATE_MULTIPLIER
     lexical_results = search(
@@ -497,7 +606,12 @@ def search_hybrid(
         query_encoder=query_encoder,
         attach_snippets=False,
     )
-    fused = _fuse_rrf(lexical_results, semantic_results, top_k=top_k)
+    fused = _fuse_rrf(
+        lexical_results,
+        semantic_results,
+        top_k=top_k,
+        query_tokens=query_tokens,
+    )
     _attach_snippets(fused, vault_root, query_tokens)
     return fused
 
