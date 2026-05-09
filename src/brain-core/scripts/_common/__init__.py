@@ -156,11 +156,17 @@ from ._slugs import (
 )
 
 from ._search import (
+    LEXICAL_ANCHOR_RE,
     tokenise,
 )
 
 from ._coerce import (
     coerce_bool,
+)
+
+from ._cli import (
+    RaisingArgumentParser,
+    require_option,
 )
 
 from ._templates import (

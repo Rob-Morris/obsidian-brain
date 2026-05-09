@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "description": "Synthetic inline semantic-search benchmark for regression tests, aligned with the lexical / semantic / hybrid / cluster / filter bucket contract.",
+  "hit_ks": [1, 3, 5],
+  "cases": [
+    {
+      "id": "python-basics",
+      "query": "python programming language",
+      "intent": "lexical-expected",
+      "relevant_paths": ["Wiki/python-basics.md"]
+    },
+    {
+      "id": "rust-ownership",
+      "query": "borrow checker memory ownership",
+      "intent": "semantic-expected",
+      "relevant_paths": ["Wiki/rust-ownership.md"]
+    },
+    {
+      "id": "brain-tooling",
+      "query": "brain tooling architecture",
+      "intent": "hybrid-expected",
+      "relevant_paths": ["Designs/brain-tooling.md"]
+    },
+    {
+      "id": "python-cluster",
+      "query": "python",
+      "intent": "cluster-expected",
+      "relevant_paths": [
+        "Wiki/python-basics.md",
+        "_Temporal/Logs/2026-03/20260315-python-log.md"
+      ]
+    },
+    {
+      "id": "python-log",
+      "query": "packaging tools",
+      "intent": "filter-sensitive",
+      "filters": {
+        "type": "temporal/logs"
+      },
+      "relevant_paths": ["_Temporal/Logs/2026-03/20260315-python-log.md"]
+    },
+    {
+      "id": "javascript-draft",
+      "query": "event loop async await",
+      "intent": "filter-sensitive",
+      "filters": {
+        "status": "draft"
+      },
+      "relevant_paths": ["Wiki/javascript-async.md"]
+    }
+  ]
+}

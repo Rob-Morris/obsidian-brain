@@ -298,6 +298,68 @@ def search(index, query, vault_root, type_filter=None, tag_filter=None,
     return top
 
 
+def dispatch_search(
+    index,
+    query,
+    vault_root,
+    mode,
+    *,
+    type_filter=None,
+    tag_filter=None,
+    status_filter=None,
+    top_k=DEFAULT_TOP_K,
+    doc_embeddings=None,
+    embeddings_meta=None,
+    query_encoder=None,
+    attach_snippets=True,
+):
+    """Dispatch one query through the selected retrieval mode.
+
+    `attach_snippets` applies to lexical and semantic modes directly. Hybrid
+    retrieval always attaches snippets after RRF fusion internally, so the
+    parameter is intentionally ignored for `mode="hybrid"`.
+    """
+    if mode == "lexical":
+        return search(
+            index,
+            query,
+            vault_root,
+            type_filter=type_filter,
+            tag_filter=tag_filter,
+            status_filter=status_filter,
+            top_k=top_k,
+            attach_snippets=attach_snippets,
+        )
+    if mode == "semantic":
+        return search_semantic(
+            query,
+            vault_root,
+            type_filter=type_filter,
+            tag_filter=tag_filter,
+            status_filter=status_filter,
+            top_k=top_k,
+            doc_embeddings=doc_embeddings,
+            embeddings_meta=embeddings_meta,
+            query_encoder=query_encoder,
+            attach_snippets=attach_snippets,
+        )
+    if mode == "hybrid":
+        return search_hybrid(
+            index,
+            query,
+            vault_root,
+            type_filter=type_filter,
+            tag_filter=tag_filter,
+            status_filter=status_filter,
+            top_k=top_k,
+            doc_embeddings=doc_embeddings,
+            embeddings_meta=embeddings_meta,
+            query_encoder=query_encoder,
+        )
+    valid = ", ".join(sorted(SEARCH_MODES))
+    raise ValueError(f"unknown search mode '{mode}'. Valid modes: {valid}")
+
+
 def _attach_snippets(results, vault_root, query_tokens):
     """Attach a snippet to each result in-place. Hot-path helper used after
     top-k truncation so disk reads scale with returned results, not candidates.

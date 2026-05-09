@@ -364,6 +364,139 @@ class TestSnippet:
 
 
 # ---------------------------------------------------------------------------
+# Shared mode dispatch
+# ---------------------------------------------------------------------------
+
+class TestDispatchSearch:
+    def test_dispatch_search_routes_lexical_mode(self, monkeypatch, tmp_path):
+        calls = []
+
+        def fake_search(index, query, vault_root, **kwargs):
+            calls.append((index, query, vault_root, kwargs))
+            return [{"path": "A.md"}]
+
+        monkeypatch.setattr(si, "search", fake_search)
+        index = {"documents": []}
+
+        results = si.dispatch_search(
+            index,
+            "query",
+            tmp_path,
+            "lexical",
+            type_filter="living/wiki",
+            tag_filter="python",
+            status_filter="active",
+            top_k=3,
+            attach_snippets=False,
+        )
+
+        assert results == [{"path": "A.md"}]
+        assert calls == [
+            (
+                index,
+                "query",
+                tmp_path,
+                {
+                    "type_filter": "living/wiki",
+                    "tag_filter": "python",
+                    "status_filter": "active",
+                    "top_k": 3,
+                    "attach_snippets": False,
+                },
+            )
+        ]
+
+    def test_dispatch_search_routes_semantic_mode(self, monkeypatch, tmp_path):
+        calls = []
+
+        def fake_search_semantic(query, vault_root, **kwargs):
+            calls.append((query, vault_root, kwargs))
+            return [{"path": "B.md"}]
+
+        monkeypatch.setattr(si, "search_semantic", fake_search_semantic)
+
+        results = si.dispatch_search(
+            {"documents": []},
+            "query",
+            tmp_path,
+            "semantic",
+            type_filter="living/wiki",
+            tag_filter="python",
+            status_filter="active",
+            top_k=4,
+            doc_embeddings="doc-vectors",
+            embeddings_meta={"documents": []},
+            query_encoder="encoder",
+            attach_snippets=False,
+        )
+
+        assert results == [{"path": "B.md"}]
+        assert calls == [
+            (
+                "query",
+                tmp_path,
+                {
+                    "type_filter": "living/wiki",
+                    "tag_filter": "python",
+                    "status_filter": "active",
+                    "top_k": 4,
+                    "doc_embeddings": "doc-vectors",
+                    "embeddings_meta": {"documents": []},
+                    "query_encoder": "encoder",
+                    "attach_snippets": False,
+                },
+            )
+        ]
+
+    def test_dispatch_search_routes_hybrid_mode(self, monkeypatch, tmp_path):
+        calls = []
+
+        def fake_search_hybrid(index, query, vault_root, **kwargs):
+            calls.append((index, query, vault_root, kwargs))
+            return [{"path": "C.md"}]
+
+        monkeypatch.setattr(si, "search_hybrid", fake_search_hybrid)
+        index = {"documents": []}
+
+        results = si.dispatch_search(
+            index,
+            "query",
+            tmp_path,
+            "hybrid",
+            type_filter="living/wiki",
+            tag_filter="python",
+            status_filter="active",
+            top_k=5,
+            doc_embeddings="doc-vectors",
+            embeddings_meta={"documents": []},
+            query_encoder="encoder",
+        )
+
+        assert results == [{"path": "C.md"}]
+        assert calls == [
+            (
+                index,
+                "query",
+                tmp_path,
+                {
+                    # search_hybrid attaches snippets internally after fusion.
+                    "type_filter": "living/wiki",
+                    "tag_filter": "python",
+                    "status_filter": "active",
+                    "top_k": 5,
+                    "doc_embeddings": "doc-vectors",
+                    "embeddings_meta": {"documents": []},
+                    "query_encoder": "encoder",
+                },
+            )
+        ]
+
+    def test_dispatch_search_rejects_unknown_mode(self, tmp_path):
+        with pytest.raises(ValueError, match="unknown search mode 'bogus'"):
+            si.dispatch_search({}, "query", tmp_path, "bogus")
+
+
+# ---------------------------------------------------------------------------
 # CLI argument parsing
 # ---------------------------------------------------------------------------
 
