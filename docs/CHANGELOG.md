@@ -6,6 +6,7 @@ Version-by-version release history for Obsidian Brain. Every shipped version has
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.36.3](changelog/v0.36.3.md) | 2026-05-09 | Round off semantic retrieval for installed vaults with a real configure/check/repair lifecycle |
 | [v0.36.2](changelog/v0.36.2.md) | 2026-05-09 | Tune hybrid retrieval around lexical anchors, semantic rescue, and Brain title champions |
 | [v0.36.1](changelog/v0.36.1.md) | 2026-05-09 | Build vault-driven benchmark tooling and auditable scorecards |
 | [v0.36.0](changelog/v0.36.0.md) | 2026-05-09 | Make semantic retrieval operational across MCP, process, and search |

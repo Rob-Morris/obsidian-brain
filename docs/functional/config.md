@@ -57,10 +57,15 @@ Feature flags live under `defaults.flags`. They are off by default in the
 shipped template and follow the normal defaults-zone merge rules, so a local
 override can opt in without changing the shared vault config.
 
-Semantic and hybrid retrieval also require the optional
-semantic runtime installed via `make install-semantic`. That runtime is pinned
-to the current upstream wheel-supported stack and does not support Intel
-macOS; unsupported installs should stay on lexical search.
+Semantic and hybrid retrieval also require the optional semantic runtime
+configured via `python3 .brain-core/scripts/configure.py semantic --enable`.
+That flow writes the local semantic flags first, then provisions the pinned
+runtime packages, snapshots the pinned model under
+`.brain/local/semantic-models/`, records
+`.brain/local/semantic-model-manifest.json`, and refreshes semantic sidecars.
+Ordinary semantic runtime paths then load from that local snapshot only. Intel
+macOS remains unsupported for semantic runtime provisioning and should stay on
+lexical search.
 
 Example local opt-in:
 
@@ -79,9 +84,11 @@ defaults:
   `mode` defaults to hybrid when the embeddings sidecars and dependencies are
   available.
 - `defaults.local_runtime.semantic_engine_installed` is a machine-local marker
-  written by `make install-semantic`. It is a cheap provisioning hint only —
-  the runtime still checks dependencies and sidecars before using the semantic
-  engine.
+  written by `configure.py semantic --enable` or repaired by
+  `repair.py semantic`. It flips true only after the configured vault has the
+  pinned runtime packages, the pinned local model snapshot, and refreshed
+  sidecars; the runtime still re-checks dependencies, manifest/model load, and
+  sidecar provenance before using the semantic engine.
 - The shipped template default is `false`; enabling it is an explicit opt-in.
 - When either flag is enabled, `build_index.py` and the MCP server may refresh
   the optional `.brain/local/type-embeddings.npy`,

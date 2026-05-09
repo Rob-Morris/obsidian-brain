@@ -8,6 +8,7 @@
 # From a clone:
 #   bash install.sh ~/my-brain
 #   bash install.sh --skip-mcp ~/my-brain
+#   bash install.sh --enable-semantic ~/my-brain
 #   bash install.sh --non-interactive ~/my-brain
 #   bash install.sh              # prompts for path
 #
@@ -20,6 +21,7 @@
 #   3. Copies brain-core into the vault as .brain-core
 #   4. Installs Python dependencies into a vault-local .venv (unless skipped)
 #   5. Registers the Brain MCP server for Claude Code and Codex (unless skipped)
+#   6. Optionally delegates semantic setup to configure.py
 #
 # Requirements: git, python3 (basic preflight), python3.12+ for upgrade + MCP setup
 # Safe to re-run with a new path.
@@ -81,6 +83,7 @@ warn()  { printf '\033[33mWarning: %s\033[0m\n' "$*" >&2; }
 parse_flags() {
     NON_INTERACTIVE=false
     SKIP_MCP=false
+    ENABLE_SEMANTIC=false
     VAULT_PATH=""
     for arg in "$@"; do
         case "$arg" in
@@ -92,6 +95,9 @@ parse_flags() {
                 ;;
             --skip-mcp|--no-mcp)
                 SKIP_MCP=true
+                ;;
+            --enable-semantic)
+                ENABLE_SEMANTIC=true
                 ;;
             *)
                 VAULT_PATH="$arg"
@@ -155,6 +161,12 @@ print_init_retry_hint() {
     local vault_path="$1"
     local python_cmd="$2"
     info "  \"$python_cmd\" \"$vault_path/.brain-core/scripts/init.py\" --vault \"$vault_path\" --project \"$vault_path\" --client all"
+}
+
+print_semantic_retry_hint() {
+    local vault_path="$1"
+    local python_cmd="$2"
+    info "  \"$python_cmd\" \"$vault_path/.brain-core/scripts/configure.py\" semantic --enable --vault \"$vault_path\""
 }
 
 # Locate Python 3.12+ on PATH. On success sets _PY312_PATH and _PY312_VERSION.
@@ -687,6 +699,39 @@ elif [ "$UPGRADE_MODE" != true ] && [ -n "$PYTHON" ]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Optional semantic retrieval setup
+# ---------------------------------------------------------------------------
+
+printf '\n' >&2
+CONFIGURE_SEMANTIC=""
+if [ "$UPGRADE_MODE" = true ]; then
+    info "Upgrade mode does not change local capability configuration."
+elif [ -n "$PYTHON" ]; then
+    if [ "$ENABLE_SEMANTIC" = true ]; then
+        CONFIGURE_SEMANTIC=y
+    elif [ "$NON_INTERACTIVE" = false ]; then
+        printf '  \033[1mEnable semantic retrieval locally? (optional)\033[0m [y/N]: ' >&2
+        read -r CONFIGURE_SEMANTIC
+    fi
+elif [ "$ENABLE_SEMANTIC" = true ]; then
+    warn "Semantic retrieval setup skipped (requires Python 3.12+)."
+    info "Install Python 3.12+, then run:"
+    print_semantic_retry_hint "$VAULT_PATH" "python3.12"
+fi
+
+if [ -n "$PYTHON" ] && { [ "${CONFIGURE_SEMANTIC:-}" = "y" ] || [ "${CONFIGURE_SEMANTIC:-}" = "Y" ]; }; then
+    printf '\n' >&2
+    if spin "Configuring semantic retrieval" "$PYTHON" "$VAULT_PATH/.brain-core/scripts/configure.py" semantic --enable --vault "$VAULT_PATH"; then
+        info "Semantic retrieval is enabled for this vault."
+    else
+        printf '\n' >&2
+        warn "Vault is ready, but semantic retrieval setup was incomplete."
+        info "Retry later with:"
+        print_semantic_retry_hint "$VAULT_PATH" "$PYTHON"
+    fi
+fi
+
+# ---------------------------------------------------------------------------
 # Optional: Obsidian CLI (uncomment when ready)
 # ---------------------------------------------------------------------------
 
@@ -726,4 +771,7 @@ printf '     → cd %s\n' "$VAULT_PATH"
 printf '\n'
 printf '  \033[1m4. Start a conversation\033[0m\n'
 printf '     → try "I just had an idea about..."\n'
+printf '\n'
+printf '  \033[1m5. Optional: enable semantic retrieval later\033[0m\n'
+printf '     → python3 .brain-core/scripts/configure.py semantic --enable\n'
 printf '\n\033[1;32m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m\n\n'

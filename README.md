@@ -1,6 +1,6 @@
 # Obsidian Brain
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.36.2-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.12-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.36.3-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.12-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
 
 A self-evolving knowledge base for agents and humans working together on what matters.
 
@@ -41,6 +41,9 @@ bash <(curl -fsSL https://raw.githubusercontent.com/rob-morris/obsidian-brain/ma
 
 This downloads the repo, creates the vault in the current directory, and then attempts project-scope MCP setup for Claude Code and Codex. Pass a path to install elsewhere. If you want the vault scaffold without `.venv` / MCP setup, pass `--skip-mcp` (or add `--non-interactive` for non-interactive agent installs). From a local clone, use `bash install.sh` instead.
 
+Semantic retrieval remains explicit opt-in. Enable it later from inside the
+vault with `python3 .brain-core/scripts/configure.py semantic --enable`.
+
 **Open in Obsidian (recommended):** Open the vault folder, then enable the `brain-folder-colours` CSS snippet in Settings > Appearance > CSS Snippets.
 
 **Start talking:** Open your agent in the vault folder (for example `cd /path/to/brain && claude` or `cd /path/to/brain && codex`). It reads the vault structure and knows what to do. See [Workflows](docs/user/workflows.md) for what working with the brain looks like in practice.
@@ -59,7 +62,7 @@ If you want a convenience wrapper that fetches the repo or prompts for confirmat
 bash install.sh /path/to/brain
 ```
 
-The wrapper detects the existing installation, shows the version change, and then runs `upgrade.py`. When `.brain-core/brain_mcp/requirements.txt` changes and the vault already has a local `.venv`, the upgrader syncs that environment directly; project MCP registration is left in place and is not re-run. Same-version re-apply, downgrade, and migration rerun flows remain explicit `upgrade.py --force` operations.
+The wrapper detects the existing installation, shows the version change, and then runs `upgrade.py`. When `.brain-core/brain_mcp/requirements.txt` changes and the vault already has a local `.venv`, the upgrader syncs that environment directly; project MCP registration is left in place and is not re-run. If semantic retrieval is already configured for the vault, `upgrade.py` also re-runs semantic repair after the file update so the local runtime and sidecars converge intentionally. Same-version re-apply, downgrade, and migration rerun flows remain explicit `upgrade.py --force` operations.
 
 #### Repair
 
@@ -70,21 +73,28 @@ python3.12 .brain-core/scripts/repair.py mcp
 python3.12 .brain-core/scripts/repair.py router
 python3.12 .brain-core/scripts/repair.py index
 python3.12 .brain-core/scripts/repair.py registry
+python3.12 .brain-core/scripts/repair.py semantic
 ```
 
 For most users, `repair.py mcp` is the main recovery path. Use it when the
 vault-local `.venv`, MCP dependencies, or installed current-vault project MCP
 registration have drifted. It repairs the clients that are already installed
-for the vault; it does not act as a first-time installer. The other scopes
-repair generated router/index state or the local workspace registry.
+for the vault; it does not act as a first-time installer. `repair.py semantic`
+is the semantic-runtime equivalent after a vault has been opted in with
+`configure.py semantic --enable`. The other scopes repair generated
+router/index state or the local workspace registry.
 
 If you do not know what is broken, start with:
 
 ```bash
-python3 .brain-core/scripts/check.py
+python3 .brain-core/scripts/check.py --actionable
 ```
 
-When `check.py` detects router, MCP, or local workspace-registry drift, it now prints the exact `repair.py` command to run. `repair.py` may be launched from any compatible Python 3.12+ interpreter, but packageful repair converges into the vault-local `.venv`; it does not install packages into your wider Python environment.
+When `check.py --actionable` detects router, MCP, semantic-runtime, or local
+workspace-registry drift, it prints the exact `repair.py` command to run.
+`repair.py` may be launched from any compatible Python 3.12+ interpreter, but
+packageful repair converges into the vault-local `.venv`; it does not install
+packages into your wider Python environment.
 
 #### Existing vault
 

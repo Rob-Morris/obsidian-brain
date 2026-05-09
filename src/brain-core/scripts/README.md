@@ -11,13 +11,16 @@ platforms; Intel macOS remains lexical-only.
 
 | Script | Purpose | CLI usage |
 |---|---|---|
-| `_common/` | Shared utilities package: vault discovery, frontmatter parsing, serialisation, BM25 tokenisation | (library only) |
+| `_common/` | Shared utilities package: vault discovery, frontmatter parsing, serialisation, CLI parser helpers, BM25 tokenisation | (library only) |
+| `_lifecycle_common.py` | Launcher-safe lifecycle helpers shared by configure/repair: managed-runtime bootstrap, probe helpers, result envelopes, and human/json rendering | (library only) |
 | `_repair_common.py` | Launcher-safe repair metadata, scope definitions, and exact command builders | (library only) |
 | `_repair_runtime.py` | Managed-runtime repair scope implementations plus additive compliance repair detectors | (library only) |
+| `_semantic/` | Internal semantic package: config flags, model/runtime provisioning, embeddings helpers, and vector-ranking/runtime utilities shared by build/search/configure/repair flows | (library only) |
 | `build_index.py` | Build retrieval index and refresh embeddings sidecars when `semantic_processing` or `semantic_retrieval` is enabled and router data is available | `python3 build_index.py [--json]` |
 | `construct_benchmark_fixture.py` | Derive a vault-native retrieval benchmark fixture plus audit JSON from an existing vault, including semantic-variant audit diagnostics and optional externally seeded semantic or hybrid candidates | `python3 construct_benchmark_fixture.py --fixture-out PATH [--audit-out PATH] [--semantic-strategy S] [--semantic-seed-file PATH] [--hybrid-seed-file PATH] [--json]` |
 | `evaluate_search.py` | Benchmark lexical, semantic, and hybrid retrieval against a JSON query set | `python3 evaluate_search.py --benchmark PATH [--mode M]... [--json]` |
 | `check.py` | Router-driven structural compliance checks; human output now prints exact `repair.py` commands for repairable router/MCP/local-registry drift and structured results include `repair` metadata | `python3 check.py [--json] [--actionable] [--severity S] [--vault V]` |
+| `configure.py` | Explicit installed-vault lifecycle entry point for local semantic opt-in and managed-runtime provisioning | `python3 configure.py semantic [--enable\|--disable] [--skip-provision] [--json] [--vault V]` |
 | `compile_colours.py` | Generate folder colour CSS | (called by compile_router) |
 | `compile_router.py` | Compile router from source files and refresh session markdown | `python3 compile_router.py [--json]` |
 | `config.py` | Vault configuration loader (three-layer merge) | `python3 config.py` |
@@ -30,7 +33,7 @@ platforms; Intel macOS remains lexical-only.
 | `migrate_naming.py` | Migrate filenames to generous naming conventions | `python3 migrate_naming.py [--vault V] [--dry-run] [--json]` |
 | `obsidian_cli.py` | IPC client for native Obsidian CLI | (library module, used by MCP server) |
 | `process.py` | Experimental content classification, duplicate resolution, ingestion | (library module, used by MCP server) |
-| `repair.py` | Explicit infrastructure repair entry point; bootstraps from a compatible Python 3.12+ launcher, converges into the vault-local `.venv`, then runs one named repair scope. `mcp` repairs installed current-vault project MCP state only; it does not create first-time project registrations. | `python3 repair.py {mcp,router,index,registry} [--vault V] [--dry-run] [--json]` |
+| `repair.py` | Explicit infrastructure repair entry point; bootstraps from a compatible Python 3.12+ launcher, converges into the vault-local `.venv`, then runs one named repair scope. `mcp` repairs installed current-vault project MCP state only; `semantic` converges the optional semantic runtime and sidecars after a vault has opted in. | `python3 repair.py {mcp,router,index,registry,semantic} [--vault V] [--dry-run] [--json]` |
 | `read.py` | Query compiled router resources | `python3 read.py RESOURCE [--name N]` |
 | `rename.py` | Rename/delete file + update wikilinks, refusing existing-destination collisions | `python3 rename.py "source" "dest" [--json]` |
 | `search_index.py` | Lexical, semantic, or hybrid local search with exact-anchor lexical wins, strong semantic champions, Brain-only title champions, and semantic-rescue fusion for disjoint leaders | `python3 search_index.py "query" [--type T] [--mode M] [--json]` |

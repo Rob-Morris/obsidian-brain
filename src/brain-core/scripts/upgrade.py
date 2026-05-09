@@ -77,6 +77,7 @@ IGNORE_FILES = {".DS_Store", "upgrade.py"}
 REQ_FILE_REL = os.path.join("brain_mcp", "requirements.txt")
 VENV_PYTHON_REL = os.path.join(".venv", "bin", "python")
 DEPENDENCY_SYNC_TIMEOUT = 300
+SEMANTIC_REPAIR_TIMEOUT = 1800
 
 
 # ---------------------------------------------------------------------------
@@ -1075,6 +1076,105 @@ def _maybe_sync_mcp_dependencies(
     return {**summary, "outcome": "ok"}
 
 
+def _load_post_upgrade_semantic_config(vault_root: Path):
+    """Load the upgraded vault's semantic config helper from its scripts tree."""
+    scripts_dir = vault_root / ".brain-core" / "scripts"
+    module_path = scripts_dir / "_semantic" / "config.py"
+    if not module_path.is_file():
+        raise ImportError(f"semantic config helper missing at {module_path}")
+
+    spec = importlib.util.spec_from_file_location(
+        "_brain_upgrade_semantic_config",
+        module_path,
+    )
+    if spec is None or spec.loader is None:
+        raise ImportError(f"failed to load semantic config helper at {module_path}")
+
+    sys.path.insert(0, str(scripts_dir))
+    try:
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+    finally:
+        if sys.path and sys.path[0] == str(scripts_dir):
+            sys.path.pop(0)
+
+
+def _semantic_intent_active_fallback(config_path: Path) -> bool:
+    """Best-effort fallback when the upgraded semantic config helper cannot load."""
+    try:
+        text = config_path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return False
+    patterns = (
+        r"(?im)^\s*semantic_retrieval:\s*true\s*$",
+        r"(?im)^\s*semantic_processing:\s*true\s*$",
+        r"(?im)^\s*semantic_engine_installed:\s*true\s*$",
+    )
+    return any(re.search(pattern, text) for pattern in patterns)
+
+
+def _semantic_intent_active(vault_root: Path) -> bool:
+    """Return True when the vault expects semantic lifecycle ownership."""
+    config_path = vault_root / ".brain" / "local" / "config.yaml"
+    if not config_path.is_file():
+        return False
+    try:
+        semantic_config = _load_post_upgrade_semantic_config(vault_root)
+    except ImportError:
+        return _semantic_intent_active_fallback(config_path)
+    return bool(
+        semantic_config.embeddings_enabled(vault_root)
+        or semantic_config.semantic_engine_installed(vault_root)
+    )
+
+
+def _maybe_repair_semantic_model(vault_root: Path) -> Optional[dict]:
+    """Run semantic repair after upgrade when semantic intent is active."""
+    if not _semantic_intent_active(vault_root):
+        return None
+
+    repair_script = vault_root / ".brain-core" / "scripts" / "repair.py"
+    command = [
+        sys.executable,
+        str(repair_script),
+        "semantic",
+        "--vault",
+        str(vault_root),
+        "--json",
+    ]
+    summary = {
+        "command": command,
+    }
+    try:
+        proc = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=SEMANTIC_REPAIR_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        return {**summary, "outcome": "error", "message": f"timed out after {SEMANTIC_REPAIR_TIMEOUT}s"}
+    except OSError as e:
+        return {**summary, "outcome": "error", "message": str(e)}
+
+    stdout = proc.stdout.strip()
+    payload = None
+    if stdout:
+        try:
+            loaded = json.loads(stdout)
+        except json.JSONDecodeError:
+            loaded = None
+        if isinstance(loaded, dict):
+            payload = loaded
+
+    if proc.returncode != 0:
+        message = proc.stderr.strip() or stdout or f"repair.py exited {proc.returncode}"
+        return {**summary, "outcome": "error", "message": message, "result": payload}
+
+    return {**summary, "outcome": "ok", "result": payload}
+
+
 # ---------------------------------------------------------------------------
 # Core upgrade function
 # ---------------------------------------------------------------------------
@@ -1284,6 +1384,10 @@ def upgrade(vault_root: str, source: str, *, force: bool = False, dry_run: bool 
     if sync_info is not None:
         result.update(sync_info)
 
+    semantic_repair = _maybe_repair_semantic_model(Path(vault_root))
+    if semantic_repair is not None:
+        result["semantic_repair"] = semantic_repair
+
     result["message"] = f"Upgraded {old_version or '(none)'} → {new_version}"
     _write_upgrade_log(vault_root, result)
     return result
@@ -1446,6 +1550,16 @@ def main() -> None:
             elif outcome == "error":
                 prefix = "Dependencies changed" if requirements_changed else "Vault-local MCP dependency sync was requested"
                 info(f"{prefix}, but vault-local MCP dependency sync failed: {dep_sync['message']}")
+                info(f"  {command}")
+            print(file=sys.stderr)
+
+        semantic_repair = result.get("semantic_repair")
+        if semantic_repair is not None:
+            command = shlex.join(semantic_repair["command"])
+            if semantic_repair["outcome"] == "ok":
+                info("Semantic model state reconciled after upgrade.")
+            else:
+                info(f"Semantic model repair after upgrade failed: {semantic_repair['message']}")
                 info(f"  {command}")
             print(file=sys.stderr)
 

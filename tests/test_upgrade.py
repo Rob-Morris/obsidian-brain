@@ -43,6 +43,13 @@ def _copy_real_scripts(source):
         upgrade_in_source.unlink()
 
 
+def _replace_vault_scripts_with_real(vault):
+    """Install the real repo scripts into an existing vault brain-core tree."""
+    scripts_dir = vault / ".brain-core" / "scripts"
+    shutil.rmtree(scripts_dir)
+    _copy_real_scripts(vault / ".brain-core")
+
+
 def _make_real_compile_source(tmp_path, version="0.29.1"):
     """Create a source tree with the real compiler and upgrade-time scripts."""
     source = tmp_path / f"source-{version.replace('.', '-')}"
@@ -527,6 +534,131 @@ class TestPostUpgradeSyncOverrides:
         assert "sync_error" in result
         assert "sync_result" not in result
         assert "sync_preview" not in result
+
+
+class TestUpgradeSemanticRepair:
+    @pytest.mark.parametrize(
+        "config_text",
+        [
+            "defaults:\n  flags:\n    semantic_retrieval: true\n",
+            "defaults:\n  flags:\n    semantic_processing: true\n",
+            "defaults:\n  local_runtime:\n    semantic_engine_installed: true\n",
+        ],
+    )
+    def test_upgrade_runs_semantic_repair_for_intent_active_vault(self, source_and_vault, monkeypatch, config_text):
+        source, vault = source_and_vault
+        local_config = vault / ".brain" / "local" / "config.yaml"
+        local_config.write_text(config_text)
+        real_run = upgrade.subprocess.run
+        calls = []
+
+        def fake_run(args, **kwargs):
+            if not any(str(arg).endswith("repair.py") for arg in args):
+                return real_run(args, **kwargs)
+            calls.append((args, kwargs))
+            return subprocess.CompletedProcess(
+                args=args,
+                returncode=0,
+                stdout=json.dumps({"status": "noop", "steps": []}),
+                stderr="",
+            )
+
+        monkeypatch.setattr(upgrade.subprocess, "run", fake_run)
+
+        result = upgrade.upgrade(str(vault), str(source))
+
+        assert result["status"] == "ok"
+        assert result["semantic_repair"]["outcome"] == "ok"
+        assert result["semantic_repair"]["result"]["status"] == "noop"
+        assert calls[0][0][0] == sys.executable
+        assert calls[0][0][-1] == "--json"
+        assert "repair.py" in calls[0][0][1]
+
+    def test_semantic_intent_active_matches_canonical_reader_for_quoted_boolean_strings(self, source_and_vault):
+        _source, vault = source_and_vault
+        _replace_vault_scripts_with_real(vault)
+        local_config = vault / ".brain" / "local" / "config.yaml"
+        local_config.write_text(
+            'defaults:\n  flags:\n    semantic_retrieval: "true"\n'
+        )
+
+        semantic_config = upgrade._load_post_upgrade_semantic_config(vault)
+        expected = bool(
+            semantic_config.embeddings_enabled(vault)
+            or semantic_config.semantic_engine_installed(vault)
+        )
+
+        assert expected is True
+        assert upgrade._semantic_intent_active(vault) is expected
+
+    def test_semantic_intent_active_ignores_nested_metadata_flags(self, source_and_vault):
+        _source, vault = source_and_vault
+        _replace_vault_scripts_with_real(vault)
+        local_config = vault / ".brain" / "local" / "config.yaml"
+        local_config.write_text(
+            "meta:\n  semantic_retrieval: true\n"
+        )
+
+        assert upgrade._semantic_intent_active(vault) is False
+
+    def test_semantic_intent_active_ignores_missing_file_race(self, source_and_vault, monkeypatch):
+        _source, vault = source_and_vault
+        local_config = vault / ".brain" / "local" / "config.yaml"
+        local_config.write_text("defaults:\n  flags:\n    semantic_retrieval: true\n")
+        real_read_text = Path.read_text
+
+        monkeypatch.setattr(
+            upgrade,
+            "_load_post_upgrade_semantic_config",
+            lambda _vault: (_ for _ in ()).throw(ImportError("fallback")),
+        )
+
+        def fake_read_text(path, *args, **kwargs):
+            if path == local_config:
+                raise FileNotFoundError("gone")
+            return real_read_text(path, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "read_text", fake_read_text)
+
+        assert upgrade._semantic_intent_active(vault) is False
+
+    def test_semantic_intent_active_propagates_non_missing_read_errors(self, source_and_vault, monkeypatch):
+        _source, vault = source_and_vault
+        local_config = vault / ".brain" / "local" / "config.yaml"
+        local_config.write_text("defaults:\n  flags:\n    semantic_retrieval: true\n")
+        real_read_text = Path.read_text
+
+        monkeypatch.setattr(
+            upgrade,
+            "_load_post_upgrade_semantic_config",
+            lambda _vault: (_ for _ in ()).throw(ImportError("fallback")),
+        )
+
+        def fake_read_text(path, *args, **kwargs):
+            if path == local_config:
+                raise PermissionError("denied")
+            return real_read_text(path, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "read_text", fake_read_text)
+
+        with pytest.raises(PermissionError, match="denied"):
+            upgrade._semantic_intent_active(vault)
+
+    def test_upgrade_skips_semantic_repair_for_lexical_only_vault(self, source_and_vault, monkeypatch):
+        source, vault = source_and_vault
+        real_run = upgrade.subprocess.run
+
+        def fake_run(args, **kwargs):
+            if any(str(arg).endswith("repair.py") for arg in args):
+                raise AssertionError("semantic repair should not run without semantic intent")
+            return real_run(args, **kwargs)
+
+        monkeypatch.setattr(upgrade.subprocess, "run", fake_run)
+
+        result = upgrade.upgrade(str(vault), str(source))
+
+        assert result["status"] == "ok"
+        assert "semantic_repair" not in result
 
 
 class TestUpgradeCliDependencySync:

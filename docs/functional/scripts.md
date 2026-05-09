@@ -18,6 +18,7 @@ Operational reference for scripts in `.brain-core/scripts/`. Most scripts expose
 | `edit.py` | Edit artefacts via CLI; importable helpers also back `brain_edit` for editable `_Config/` resources | `python3 edit.py edit\|append\|prepend\|delete_section --path P [--body B\|--body-file PATH] [--frontmatter JSON] [--target T] [--scope S] [--occurrence N] [--within T --within-occurrence N]... [--vault V] [--json]` |
 | `rename.py` | Rename/delete file + update wikilinks (full-path and filename-only), refusing existing-destination collisions | `python3 rename.py "source" "dest" [--json]` |
 | `check.py` | Structural compliance checks, including exact repair commands for repairable infrastructure drift | `python3 check.py [--json] [--actionable] [--severity S] [--vault V]` |
+| `configure.py` | Explicit installed-vault lifecycle entry point for local semantic opt-in and runtime provisioning | `python3 configure.py semantic [--enable\|--disable] [--skip-provision] [--json] [--vault V]` |
 | `repair.py` | Explicit infrastructure repair entry point with bootstrap-to-managed-runtime handoff | `python3 repair.py {mcp,router,index,registry} [--vault V] [--dry-run] [--json]` |
 | `shape_printable.py` | Create printable + render PDF | `python3 shape_printable.py --source P --slug S [--no-render] [--pdf-engine E]` |
 | `shape_presentation.py` | Create presentation + render PDF + launch preview | `python3 shape_presentation.py --source P --slug S [--no-render] [--no-preview]` |
@@ -142,6 +143,7 @@ Explicit infrastructure repair entry point at `.brain-core/scripts/repair.py`. F
 - `router` — rebuild `.brain/local/compiled-router.json`
 - `index` — rebuild `.brain/local/retrieval-index.json`
 - `registry` — repair or normalise current-vault `.brain/local/workspaces.json`
+- `semantic` — converge the optional semantic runtime, provisioning marker, and generated retrieval sidecars for a vault that has already opted in
 
 **CLI:**
 
@@ -150,6 +152,7 @@ python3 repair.py mcp
 python3 repair.py router --dry-run
 python3 repair.py index --json
 python3 repair.py registry --vault /path/to/vault
+python3 repair.py semantic --vault /path/to/vault
 ```
 
 **Flags:** `--vault <path>` (repair a specific vault), `--dry-run` (preview the planned mutations for one named scope), `--json` (machine-readable result).
@@ -167,8 +170,31 @@ python3 repair.py registry --vault /path/to/vault
 - `mcp` is the proving slice and owns the managed-runtime recovery path. It repairs or creates `.venv`, syncs `.brain-core/brain_mcp/requirements.txt`, then repairs installed current-vault project MCP state in `.mcp.json`, `.codex/config.toml`, `CLAUDE.md`, `.claude/settings.local.json`, and `.brain/local/init-state.json`. It does not touch user-scope Claude/Codex config, it does not create first-time project registrations on a bare scaffold, and it does not add a second client that is not already installed for the vault.
 - `router` and `index` use internal freshness checks and are no-ops when their generated caches are already healthy.
 - `registry` is intentionally narrow in the first cut: it only mutates the current vault's `.brain/local/workspaces.json`. It does not prune or rewrite `~/.config/brain/vaults`, and it does not touch user-scope MCP config.
+- `semantic` is the explicit follow-up after a vault has opted in via `configure.py semantic --enable`. It bootstraps the managed runtime if needed, provisions the pinned semantic packages into the vault-local `.venv`, refreshes the semantic engine marker in local config, and rebuilds router/index/embeddings sidecars so semantic retrieval and processing converge intentionally.
 
 If you do not know what is broken, start with `check.py`. Compliance findings now point to the exact `repair.py` command when a shaped repair scope applies.
+
+## configure.py
+
+Explicit installed-vault lifecycle entry point at `.brain-core/scripts/configure.py`. The initial public surface is intentionally narrow:
+
+- `semantic` — opt the vault into or out of semantic retrieval and semantic processing, optionally provisioning the pinned local runtime as part of the same workflow
+
+**CLI:**
+
+```bash
+python3 configure.py semantic --enable
+python3 configure.py semantic --enable --skip-provision --json
+python3 configure.py semantic --disable --vault /path/to/vault
+```
+
+**Behaviour:**
+
+- `--enable` turns on the canonical local semantic flags under `.brain/local/config.yaml`
+- the default enable path also provisions the pinned semantic runtime and refreshes router/index/embeddings sidecars so the vault lands in a usable state immediately
+- `--skip-provision` records semantic intent without attempting package install or asset refresh
+- `--disable` turns off the local semantic flags but leaves the managed runtime and generated sidecars in place until the user explicitly repairs or deletes them
+- machine-readable output mirrors `repair.py`: a result envelope plus ordered step records for bootstrap, provisioning, and asset refresh work
 
 ## edit.py
 

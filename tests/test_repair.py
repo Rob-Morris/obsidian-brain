@@ -10,6 +10,8 @@ import sys
 
 import pytest
 
+import _lifecycle_common as lifecycle_common
+import _semantic.config as semantic_config
 import _repair_common as repair_common
 import _repair_runtime as repair_runtime
 import check
@@ -110,6 +112,23 @@ class TestBootstrapSummary:
         assert payload["steps"][0]["status"] == "error"
         assert "Python 3.12+" in payload["steps"][0]["message"]
 
+    def test_bootstrap_invariant_error_is_wrapped_in_structured_envelope(self, repair_vault, monkeypatch, capsys):
+        def boom(*_args, **_kwargs):
+            raise AssertionError("Created vault-local .venv is not Python 3.12+")
+
+        monkeypatch.setattr(repair, "_bootstrap_summary", boom)
+        monkeypatch.setattr(repair, "_find_launcher_python", lambda: sys.executable)
+        monkeypatch.delenv("BRAIN_REPAIR_MANAGED", raising=False)
+
+        exit_code = repair.main(["router", "--vault", str(repair_vault), "--json"])
+
+        assert exit_code == 2
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["status"] == "error"
+        assert payload["steps"][0]["name"] == "managed_runtime"
+        assert payload["steps"][0]["status"] == "error"
+        assert "Python 3.12+" in payload["steps"][0]["message"]
+
     def test_non_mcp_scope_does_not_plan_dependency_sync(self, repair_vault, monkeypatch):
         managed_python = repair_vault / ".venv" / "bin" / "python"
         managed_python.parent.mkdir(parents=True)
@@ -120,7 +139,7 @@ class TestBootstrapSummary:
                 return {"compatible": True, "ok": False, "missing": list(modules)}
             return {"compatible": True, "ok": True, "missing": []}
 
-        monkeypatch.setattr(repair, "probe_python", fake_probe)
+        monkeypatch.setattr(lifecycle_common, "probe_python", fake_probe)
 
         summary = repair._bootstrap_summary(
             repair_vault,
@@ -133,6 +152,14 @@ class TestBootstrapSummary:
         assert summary["steps"][0]["status"] == "noop"
         assert summary["steps"][1]["status"] == "noop"
         assert "does not require additional managed runtime dependencies" in summary["steps"][1]["message"]
+
+    def test_repair_main_rejects_corrupt_bootstrap_summary(self, repair_vault, monkeypatch):
+        monkeypatch.setenv(repair.MANAGED_RUNTIME_ENV, "1")
+        monkeypatch.setenv(repair.BOOTSTRAP_SUMMARY_ENV, "{not-json")
+        monkeypatch.setattr(repair, "find_vault_root", lambda _vault: str(repair_vault))
+
+        with pytest.raises(RuntimeError, match="bootstrap summary"):
+            repair.main(["router", "--vault", str(repair_vault)])
 
 
 class TestRepairScopes:
@@ -173,6 +200,25 @@ class TestRepairScopes:
         state = json.loads((repair_vault / ".brain" / "local" / "init-state.json").read_text())
         assert [record["client"] for record in state["records"]] == ["claude"]
 
+    def test_mcp_repair_propagates_programmer_errors(self, repair_vault, monkeypatch):
+        monkeypatch.setattr(
+            repair_runtime,
+            "inspect_mcp",
+            lambda _vault: {
+                "server_config": {},
+                "claude": {"present": False, "healthy": False},
+                "codex": {"present": True, "healthy": False},
+            },
+        )
+        monkeypatch.setattr(
+            repair_runtime.init,
+            "register_codex",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(TypeError("programmer bug")),
+        )
+
+        with pytest.raises(TypeError, match="programmer bug"):
+            repair_runtime.repair_mcp(repair_vault, dry_run=False)
+
     def test_router_repair_builds_compiled_router(self, repair_vault):
         result = repair_runtime.repair_router(repair_vault, dry_run=False)
 
@@ -194,6 +240,191 @@ class TestRepairScopes:
         assert result["status"] == "ok"
         repaired = json.loads(registry_path.read_text())
         assert repaired == {"workspaces": {"ext": {"path": "/tmp/ext"}}}
+
+    def test_semantic_repair_is_noop_when_not_configured(self, repair_vault):
+        result = repair_runtime.repair_semantic(repair_vault, dry_run=False)
+
+        assert result["status"] == "noop"
+        assert result["steps"][-1]["name"] == "semantic_config"
+
+    def test_semantic_repair_marks_runtime_when_only_marker_is_missing(self, repair_vault, monkeypatch):
+        semantic_config.set_semantic_flags(repair_vault, retrieval=True)
+        semantic_config.set_semantic_engine_installed(repair_vault, installed=False)
+
+        monkeypatch.setattr(
+            repair_runtime,
+            "probe_python",
+            lambda _python_path, *, modules=(): {"compatible": True, "ok": True, "missing": []},
+        )
+        monkeypatch.setattr(repair_runtime._semantic_runtime, "embeddings_sidecars_present", lambda _vault: True)
+        monkeypatch.setattr(
+            repair_runtime._semantic_provision,
+            "sync_runtime_packages",
+            lambda _python: pytest.fail("runtime sync should not run when dependencies are already available"),
+        )
+        monkeypatch.setattr(
+            repair_runtime._semantic_provision,
+            "refresh_semantic_assets",
+            lambda _vault: pytest.fail("asset refresh should not run when sidecars are already present"),
+        )
+
+        result = repair_runtime.repair_semantic(repair_vault, dry_run=False)
+
+        assert result["status"] == "ok"
+        assert [step["name"] for step in result["steps"]] == [
+            "semantic_runtime",
+            "semantic_runtime_marker",
+        ]
+        cfg = semantic_config.load_config_best_effort(repair_vault)
+        assert semantic_config.semantic_retrieval_enabled(repair_vault, config=cfg) is True
+        assert semantic_config.semantic_engine_installed(repair_vault, config=cfg) is True
+
+    def test_semantic_repair_syncs_runtime_and_rebuilds_sidecars_when_unhealthy(self, repair_vault, monkeypatch):
+        semantic_config.set_semantic_flags(repair_vault, retrieval=True)
+        semantic_config.set_semantic_engine_installed(repair_vault, installed=False)
+
+        calls = {"probe": 0, "sync": 0, "refresh": 0}
+
+        def fake_probe(_python_path, *, modules=()):
+            calls["probe"] += 1
+            if calls["probe"] == 1:
+                return {"compatible": True, "ok": False, "missing": list(modules)}
+            return {"compatible": True, "ok": True, "missing": []}
+
+        monkeypatch.setattr(repair_runtime, "probe_python", fake_probe)
+        monkeypatch.setattr(repair_runtime._semantic_provision, "probe_python", fake_probe)
+        monkeypatch.setattr(repair_runtime._semantic_runtime, "embeddings_sidecars_present", lambda _vault: False)
+        monkeypatch.setattr(
+            repair_runtime._semantic_provision,
+            "sync_runtime_packages",
+            lambda _python: calls.__setitem__("sync", calls["sync"] + 1),
+        )
+        monkeypatch.setattr(
+            repair_runtime._semantic_provision,
+            "refresh_semantic_assets",
+            lambda _vault: calls.__setitem__("refresh", calls["refresh"] + 1) or ["semantic assets refreshed"],
+        )
+
+        result = repair_runtime.repair_semantic(repair_vault, dry_run=False)
+
+        assert result["status"] == "ok"
+        assert calls["sync"] == 1
+        assert calls["refresh"] == 1
+        assert result["notes"] == ["semantic assets refreshed"]
+        assert [step["name"] for step in result["steps"]] == [
+            "semantic_runtime",
+            "semantic_runtime_marker",
+            "semantic_assets",
+        ]
+
+    def test_semantic_repair_skips_asset_refresh_when_sidecars_are_present(self, repair_vault, monkeypatch):
+        semantic_config.set_semantic_flags(repair_vault, retrieval=True)
+        semantic_config.set_semantic_engine_installed(repair_vault, installed=False)
+
+        calls = {"probe": 0, "sync": 0}
+
+        def fake_probe(_python_path, *, modules=()):
+            calls["probe"] += 1
+            if calls["probe"] == 1:
+                return {"compatible": True, "ok": False, "missing": list(modules)}
+            return {"compatible": True, "ok": True, "missing": []}
+
+        monkeypatch.setattr(repair_runtime, "probe_python", fake_probe)
+        monkeypatch.setattr(repair_runtime._semantic_provision, "probe_python", fake_probe)
+        monkeypatch.setattr(repair_runtime._semantic_runtime, "embeddings_sidecars_present", lambda _vault: True)
+        monkeypatch.setattr(
+            repair_runtime._semantic_provision,
+            "sync_runtime_packages",
+            lambda _python: calls.__setitem__("sync", calls["sync"] + 1),
+        )
+        monkeypatch.setattr(
+            repair_runtime._semantic_provision,
+            "refresh_semantic_assets",
+            lambda _vault: pytest.fail("asset refresh should not run when sidecars are already present"),
+        )
+
+        result = repair_runtime.repair_semantic(repair_vault, dry_run=False)
+
+        assert result["status"] == "ok"
+        assert calls["sync"] == 1
+        assert [step["name"] for step in result["steps"]] == [
+            "semantic_runtime",
+            "semantic_runtime_marker",
+        ]
+
+    def test_semantic_repair_returns_structured_error_when_asset_refresh_fails(self, repair_vault, monkeypatch):
+        semantic_config.set_semantic_flags(repair_vault, retrieval=True)
+        semantic_config.set_semantic_engine_installed(repair_vault, installed=True)
+
+        monkeypatch.setattr(
+            repair_runtime,
+            "probe_python",
+            lambda _python_path, *, modules=(): {"compatible": True, "ok": True, "missing": []},
+        )
+        monkeypatch.setattr(repair_runtime._semantic_runtime, "embeddings_sidecars_present", lambda _vault: False)
+        monkeypatch.setattr(
+            repair_runtime._semantic_provision,
+            "refresh_semantic_assets",
+            lambda _vault: (_ for _ in ()).throw(ValueError("boom")),
+        )
+
+        result = repair_runtime.repair_semantic(repair_vault, dry_run=False)
+
+        assert result["status"] == "partial"
+        assert result["steps"][-1]["name"] == "semantic_assets"
+        assert "boom" in result["steps"][-1]["message"]
+
+    def test_semantic_repair_dry_run_uses_shared_planned_step_shapes(self, repair_vault, monkeypatch):
+        semantic_config.set_semantic_flags(repair_vault, retrieval=True)
+        semantic_config.set_semantic_engine_installed(repair_vault, installed=False)
+
+        monkeypatch.setattr(
+            repair_runtime,
+            "probe_python",
+            lambda _python_path, *, modules=(): {"compatible": True, "ok": False, "missing": list(modules)},
+        )
+        monkeypatch.setattr(repair_runtime._semantic_runtime, "embeddings_sidecars_present", lambda _vault: False)
+
+        result = repair_runtime.repair_semantic(repair_vault, dry_run=True)
+
+        assert result["status"] == "planned"
+        assert result["steps"] == [
+            {
+                "name": "semantic_runtime",
+                "status": "planned",
+                "message": "Would provision or re-sync the pinned semantic runtime dependencies for this vault.",
+            },
+            {
+                "name": "semantic_assets",
+                "status": "planned",
+                "message": "Would rebuild the compiled router, retrieval index, and semantic embeddings sidecars.",
+            },
+        ]
+
+    def test_semantic_repair_propagates_programmer_errors_from_asset_refresh(self, repair_vault, monkeypatch):
+        semantic_config.set_semantic_flags(repair_vault, retrieval=True)
+        semantic_config.set_semantic_engine_installed(repair_vault, installed=True)
+
+        monkeypatch.setattr(
+            repair_runtime,
+            "probe_python",
+            lambda _python_path, *, modules=(): {"compatible": True, "ok": True, "missing": []},
+        )
+        monkeypatch.setattr(repair_runtime._semantic_runtime, "embeddings_sidecars_present", lambda _vault: False)
+        monkeypatch.setattr(
+            repair_runtime._semantic_provision,
+            "refresh_semantic_assets",
+            lambda _vault: (_ for _ in ()).throw(TypeError("programmer bug")),
+        )
+
+        with pytest.raises(TypeError, match="programmer bug"):
+            repair_runtime.repair_semantic(repair_vault, dry_run=False)
+
+    def test_router_repair_propagates_programmer_errors_from_session_refresh(self, repair_vault, monkeypatch):
+        monkeypatch.setattr(repair_runtime.compile_router, "refresh_session_markdown", lambda *_args: (_ for _ in ()).throw(TypeError("bad refresh")))
+
+        with pytest.raises(TypeError, match="bad refresh"):
+            repair_runtime.repair_router(repair_vault, dry_run=False)
 
 
 @pytest.mark.slow
@@ -328,3 +559,20 @@ class TestCheckRepairHints:
         result = check.run_checks(str(repair_vault), _wiki_router())
 
         assert not any(f["check"] == "mcp_registration" for f in result["findings"])
+
+    def test_semantic_drift_adds_semantic_repair_guidance(self, repair_vault, monkeypatch):
+        semantic_config.set_semantic_flags(repair_vault, retrieval=True)
+        semantic_config.set_semantic_engine_installed(repair_vault, installed=False)
+
+        monkeypatch.setattr(
+            repair_runtime,
+            "probe_python",
+            lambda _python_path, *, modules=(): {"compatible": True, "ok": False, "missing": list(modules)},
+        )
+        monkeypatch.setattr(repair_runtime._semantic_runtime, "embeddings_sidecars_present", lambda _vault: False)
+
+        result = check.run_checks(str(repair_vault), _wiki_router())
+
+        hit = next(f for f in result["findings"] if f["check"] == "semantic_runtime")
+        assert hit["repair"]["scope"] == "semantic"
+        assert "repair.py semantic" in hit["repair"]["command"]

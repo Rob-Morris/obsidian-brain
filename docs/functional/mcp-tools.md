@@ -173,7 +173,7 @@ Safe, no side effects, auto-approvable. Relevance-ranked search — not exhausti
 - `mode="lexical"` may use Obsidian CLI in MCP when available, with BM25 fallback; editable `_Config/` resources are excluded from `resource="artefact"` search results
 - `mode="semantic"` uses persisted document vectors only
 - `mode="hybrid"` fuses BM25 + vectors with RRF and deliberately does not use Obsidian CLI as its lexical leg
-- Explicit `mode="semantic"` or `mode="hybrid"` fails clearly when `defaults.flags.semantic_retrieval` is off or embeddings sidecars/dependencies are unavailable; the branch-standard runtime is installed with `make install-semantic`
+- Explicit `mode="semantic"` or `mode="hybrid"` fails clearly when `defaults.flags.semantic_retrieval` is off or when the configured vault is missing semantic runtime packages, the pinned local model snapshot/manifest, or embeddings sidecars; configure the local semantic runtime with `python3 .brain-core/scripts/configure.py semantic --enable`
 - For non-artefact resources: lexical text matching on name and file content only; `mode="semantic"` and `mode="hybrid"` are rejected
 
 **Response format:** Multi-block: bold past-tense metadata block (`**Searched:** N results (source)`) + results as a readable text list (one result per line: title, path, type, optional status). Includes `source` field (`"obsidian_cli"`, `"bm25"`, `"semantic"`, `"hybrid"`, or `"text"`).

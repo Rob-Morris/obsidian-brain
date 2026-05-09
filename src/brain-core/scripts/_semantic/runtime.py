@@ -7,81 +7,30 @@ import json
 import os
 import threading
 
-from _common import safe_write_via
+import _semantic.config as semantic_config
 
 
 TYPE_EMBEDDINGS_REL = os.path.join(".brain", "local", "type-embeddings.npy")
 DOC_EMBEDDINGS_REL = os.path.join(".brain", "local", "doc-embeddings.npy")
 EMBEDDINGS_META_REL = os.path.join(".brain", "local", "embeddings-meta.json")
-LOCAL_CONFIG_REL = os.path.join(".brain", "local", "config.yaml")
 EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 EMBEDDING_DIM = 384
-
-SEMANTIC_PROCESSING_FLAG = "semantic_processing"
-SEMANTIC_RETRIEVAL_FLAG = "semantic_retrieval"
-SEMANTIC_ENGINE_INSTALLED_FLAG = "semantic_engine_installed"
 
 _QUERY_ENCODER = None
 _QUERY_ENCODER_LOCK = threading.Lock()
 
 
-class SemanticConfigLoadError(RuntimeError):
-    """Raised when semantic config probing hits a real config load failure."""
-
-
-def load_config_best_effort(vault_root, config=None):
-    """Best-effort config loader used by feature-flag helpers."""
-    if config is not None:
-        return config
-    try:
-        import config as config_mod
-    except ImportError:
-        return None
-    try:
-        return config_mod.load_config(str(vault_root))
-    except Exception as exc:
-        raise SemanticConfigLoadError(f"failed to load config: {exc}") from exc
-
-
-def _read_nested_flag(vault_root, section, flag_name, *, config=None, compat_names=()):
-    """Return a boolean from defaults.<section>.<flag_name>."""
-    config = load_config_best_effort(vault_root, config=config)
-    if not isinstance(config, dict):
-        return False
-    flags = config.get("defaults", {}).get(section, {})
-    if not isinstance(flags, dict):
-        return False
-    if bool(flags.get(flag_name, False)):
-        return True
-    return any(bool(flags.get(name, False)) for name in compat_names)
-
-
-def semantic_processing_enabled(vault_root, *, config=None):
-    """Return True when embedding-backed processing is enabled."""
-    return _read_nested_flag(vault_root, "flags", SEMANTIC_PROCESSING_FLAG, config=config)
-
-
-def semantic_retrieval_enabled(vault_root, *, config=None):
-    """Return True when semantic retrieval is enabled for search."""
-    return _read_nested_flag(vault_root, "flags", SEMANTIC_RETRIEVAL_FLAG, config=config)
-
-
-def embeddings_enabled(vault_root, *, config=None):
-    """Return True when any embedding-backed feature is enabled."""
-    return (
-        semantic_processing_enabled(vault_root, config=config)
-        or semantic_retrieval_enabled(vault_root, config=config)
-    )
-
-
-def semantic_engine_installed(vault_root, *, config=None):
-    """Return True when the local environment was provisioned for semantic work."""
-    return _read_nested_flag(
-        vault_root,
-        "local_runtime",
-        SEMANTIC_ENGINE_INSTALLED_FLAG,
-        config=config,
-    )
+# Slice 4 moves semantic config ownership into _semantic.config without
+# forcing every existing runtime caller to change imports at once.
+SemanticConfigLoadError = semantic_config.SemanticConfigLoadError
+load_config_best_effort = semantic_config.load_config_best_effort
+semantic_processing_enabled = semantic_config.semantic_processing_enabled
+semantic_retrieval_enabled = semantic_config.semantic_retrieval_enabled
+embeddings_enabled = semantic_config.embeddings_enabled
+semantic_engine_installed = semantic_config.semantic_engine_installed
+set_semantic_engine_installed = semantic_config.set_semantic_engine_installed
+set_semantic_retrieval_enabled = semantic_config.set_semantic_retrieval_enabled
+set_semantic_flags = semantic_config.set_semantic_flags
 
 
 def semantic_runtime_dependencies_available():
@@ -175,7 +124,7 @@ def semantic_engine_available(
     skip_sidecar_check=False,
 ):
     """Return True when the semantic runtime is provisioned and usable."""
-    if not semantic_engine_installed(vault_root, config=config):
+    if not semantic_config.semantic_engine_installed(vault_root, config=config):
         return False
     if not semantic_runtime_dependencies_available():
         return False
@@ -184,7 +133,6 @@ def semantic_engine_available(
     if doc_embeddings is not None and embeddings_meta is not None:
         return True
     return embeddings_sidecars_present(vault_root)
-
 
 def load_embeddings_state(vault_root):
     """Load type+doc embeddings and shared meta from disk.
@@ -242,40 +190,3 @@ def load_doc_embeddings(vault_root):
     if doc is None or meta is None:
         return (None, None)
     return (doc, meta)
-
-
-def set_semantic_engine_installed(vault_root, installed=True):
-    """Write the local semantic-engine provisioning marker if this is a vault."""
-    import yaml
-
-    vault_root = str(vault_root)
-    if not os.path.isdir(os.path.join(vault_root, ".brain")):
-        return False
-
-    config_path = os.path.join(vault_root, LOCAL_CONFIG_REL)
-    os.makedirs(os.path.dirname(config_path), exist_ok=True)
-
-    try:
-        with open(config_path, "r", encoding="utf-8") as handle:
-            data = yaml.safe_load(handle) or {}
-    except FileNotFoundError:
-        data = {}
-    if not isinstance(data, dict):
-        data = {}
-
-    defaults = data.get("defaults")
-    if not isinstance(defaults, dict):
-        defaults = {}
-        data["defaults"] = defaults
-    local_runtime = defaults.get("local_runtime")
-    if not isinstance(local_runtime, dict):
-        local_runtime = {}
-        defaults["local_runtime"] = local_runtime
-    local_runtime[SEMANTIC_ENGINE_INSTALLED_FLAG] = bool(installed)
-
-    safe_write_via(
-        config_path,
-        lambda handle: yaml.safe_dump(data, handle, sort_keys=False),
-        mode="w",
-    )
-    return True
