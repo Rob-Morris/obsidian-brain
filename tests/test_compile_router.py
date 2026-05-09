@@ -1192,20 +1192,40 @@ class TestArtefactIndex:
 
 
 class TestCompileRouterMain:
-    def test_main_writes_router_and_colour_outputs(self, vault, monkeypatch):
+    def test_main_writes_router_and_colour_outputs_and_clears_embeddings(self, vault, monkeypatch):
         monkeypatch.setattr(cr, "find_vault_root", lambda: vault)
         monkeypatch.setattr(cr.sys, "argv", ["compile_router.py"])
+
+        for rel_path in (
+            ".brain/local/type-embeddings.npy",
+            ".brain/local/doc-embeddings.npy",
+            ".brain/local/embeddings-meta.json",
+        ):
+            path = vault / rel_path
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"stale")
 
         cr.main()
 
         assert (vault / ".brain" / "local" / "compiled-router.json").is_file()
         assert (vault / ".obsidian" / "snippets" / "brain-folder-colours.css").is_file()
         assert (vault / ".obsidian" / "graph.json").is_file()
+        assert not (vault / ".brain" / "local" / "type-embeddings.npy").exists()
+        assert not (vault / ".brain" / "local" / "doc-embeddings.npy").exists()
+        assert not (vault / ".brain" / "local" / "embeddings-meta.json").exists()
 
     def test_main_json_mode_keeps_compile_side_effect_free(self, vault, monkeypatch, capsys):
         monkeypatch.setattr(cr, "find_vault_root", lambda: vault)
         monkeypatch.setattr(cr.sys, "argv", ["compile_router.py", "--json"])
 
+        for rel_path in (
+            ".brain/local/type-embeddings.npy",
+            ".brain/local/doc-embeddings.npy",
+            ".brain/local/embeddings-meta.json",
+        ):
+            path = vault / rel_path
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"stale")
         cr.main()
 
         captured = capsys.readouterr()
@@ -1213,3 +1233,6 @@ class TestCompileRouterMain:
         assert not (vault / ".brain" / "local" / "compiled-router.json").exists()
         assert not (vault / ".obsidian" / "snippets" / "brain-folder-colours.css").exists()
         assert not (vault / ".obsidian" / "graph.json").exists()
+        assert (vault / ".brain" / "local" / "type-embeddings.npy").exists()
+        assert (vault / ".brain" / "local" / "doc-embeddings.npy").exists()
+        assert (vault / ".brain" / "local" / "embeddings-meta.json").exists()

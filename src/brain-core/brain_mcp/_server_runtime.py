@@ -15,6 +15,9 @@ class ServerState:
     cli_available: bool
     vault_name: str | None
     workspace_registry: dict | None
+    type_embeddings: Any
+    embeddings_meta: dict | None
+    doc_embeddings: Any
     logger: Any
 
 
@@ -34,8 +37,10 @@ class ServerRuntime:
     ensure_index_fresh: Callable[[], None]
     ensure_mutation_index_ready: Callable[[], None]
     get_readiness_snapshot: Callable[[bool], dict[str, Any]]
+    ensure_embeddings_fresh: Callable[[], None]
     check_version_drift: Callable[[], None]
     mark_index_dirty: Callable[[], None]
+    mark_embeddings_dirty: Callable[[], None]
     mark_index_pending: Callable[[str, str | None], None]
     mark_router_dirty: Callable[[], None]
     compile_and_save: Callable[[str], dict]

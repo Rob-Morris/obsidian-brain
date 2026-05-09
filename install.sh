@@ -162,8 +162,20 @@ find_python_312() {
     _PY312_PATH=""
     _PY312_VERSION=""
     local candidate path ver major minor
-    for candidate in python3.13 python3.12 python3; do
-        path=$(command -v "$candidate" 2>/dev/null) || continue
+    for candidate in \
+        python3.13 \
+        python3.12 \
+        /opt/homebrew/bin/python3.13 \
+        /opt/homebrew/bin/python3.12 \
+        /usr/local/bin/python3.13 \
+        /usr/local/bin/python3.12 \
+        python3; do
+        if [[ "$candidate" == */* ]]; then
+            path="$candidate"
+            [ -x "$path" ] || continue
+        else
+            path=$(command -v "$candidate" 2>/dev/null) || continue
+        fi
         ver=$("$path" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null) || continue
         major=$(echo "$ver" | cut -d. -f1)
         minor=$(echo "$ver" | cut -d. -f2)

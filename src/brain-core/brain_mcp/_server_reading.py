@@ -8,9 +8,11 @@ from mcp.types import TextContent
 
 import _common
 from _common import is_archived_path
+import build_index
 import list_artefacts
 import obsidian_cli
 import read as read_mod
+import retrieval_embeddings as _retrieval_embeddings
 import search_index
 import workspace_registry
 
@@ -204,6 +206,7 @@ def handle_brain_search(
     type: str | None,
     tag: str | None,
     status: str | None,
+    mode: Literal["lexical", "semantic", "hybrid"] | None,
     top_k: int,
     runtime: ServerRuntime,
 ):
@@ -223,6 +226,11 @@ def handle_brain_search(
     state = runtime.get_state()
 
     if resource != "artefact":
+        if mode not in (None, "lexical"):
+            return runtime.fmt_error(
+                "brain_search mode applies only to artefact search; "
+                "non-artefact resources support lexical text matching only"
+            )
         results = search_index.search_resource(
             state.router,
             state.vault_root,
@@ -243,31 +251,86 @@ def handle_brain_search(
         if art:
             type_filter = art["frontmatter_type"]
 
-    runtime.refresh_cli_available()
-    state = runtime.get_state()
-    if state.cli_available and state.vault_name and query:
-        cli_results = obsidian_cli.search(state.vault_name, query)
-        if cli_results is not None:
-            results = _transform_cli_results(
-                cli_results,
-                type_filter,
-                tag,
-                status,
-                top_k,
-                state.index,
-            )
-            return _fmt_search("obsidian_cli", results)
+    try:
+        resolved_mode = search_index.resolve_search_mode(
+            state.vault_root,
+            mode,
+            config=state.config,
+            doc_embeddings=state.doc_embeddings,
+            embeddings_meta=state.embeddings_meta,
+        )
+    except search_index.SearchModeUnavailableError as e:
+        return runtime.fmt_error(str(e))
 
-    results = search_index.search(
-        state.index,
-        query,
-        state.vault_root,
-        type_filter=type_filter,
-        tag_filter=tag,
-        status_filter=status,
-        top_k=top_k,
-    )
-    return _fmt_search("bm25", results)
+    if resolved_mode in {"semantic", "hybrid"}:
+        runtime.ensure_embeddings_fresh()
+        state = runtime.get_state()
+        if not _retrieval_embeddings.semantic_engine_available(
+            state.vault_root,
+            config=state.config,
+            doc_embeddings=state.doc_embeddings,
+            embeddings_meta=state.embeddings_meta,
+        ):
+            return runtime.fmt_error(
+                "semantic retrieval is unavailable: embeddings sidecars are "
+                "missing or dependencies are not installed"
+            )
+
+    if resolved_mode == "lexical":
+        runtime.refresh_cli_available()
+        state = runtime.get_state()
+        if state.cli_available and state.vault_name and query:
+            cli_results = obsidian_cli.search(state.vault_name, query)
+            if cli_results is not None:
+                results = _transform_cli_results(
+                    cli_results,
+                    type_filter,
+                    tag,
+                    status,
+                    top_k,
+                    state.index,
+                )
+                return _fmt_search("obsidian_cli", results)
+
+        results = search_index.search(
+            state.index,
+            query,
+            state.vault_root,
+            type_filter=type_filter,
+            tag_filter=tag,
+            status_filter=status,
+            top_k=top_k,
+        )
+        return _fmt_search("bm25", results)
+
+    try:
+        if resolved_mode == "semantic":
+            results = search_index.search_semantic(
+                query,
+                state.vault_root,
+                type_filter=type_filter,
+                tag_filter=tag,
+                status_filter=status,
+                top_k=top_k,
+                doc_embeddings=state.doc_embeddings,
+                embeddings_meta=state.embeddings_meta,
+            )
+            return _fmt_search("semantic", results)
+
+        results = search_index.search_hybrid(
+            state.index,
+            query,
+            state.vault_root,
+            type_filter=type_filter,
+            tag_filter=tag,
+            status_filter=status,
+            top_k=top_k,
+            doc_embeddings=state.doc_embeddings,
+            embeddings_meta=state.embeddings_meta,
+        )
+        return _fmt_search("hybrid", results)
+    except search_index.SearchModeUnavailableError as e:
+        return runtime.fmt_error(str(e))
 
 
 def handle_brain_list(
