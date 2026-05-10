@@ -8,7 +8,7 @@ Operational reference for scripts in `.brain-core/scripts/`. Most scripts expose
 |---|---|---|
 | `compile_router.py` | Compile router from source files and refresh the session mirror | `python3 compile_router.py [--json]` |
 | `compile_colours.py` | Generate folder colour CSS | (called by compile_router) |
-| `build_index.py` | Build retrieval index and optional embeddings sidecars | `python3 build_index.py [--json]` |
+| `build_index.py` | Build retrieval index and optional embeddings sidecars from the provisioned local semantic model | `python3 build_index.py [--json]` |
 | `list_artefacts.py` | Enumerate vault artefacts and resources (unranked, no cap) | (library module, used by MCP server) |
 | `search_index.py` | Lexical, semantic, or hybrid local search | `python3 search_index.py "query" [--type T] [--mode M] [--json]` |
 | `construct_benchmark_fixture.py` | Derive a vault-native retrieval benchmark fixture plus audit JSON from an existing vault, including semantic-variant audit diagnostics and optional externally seeded semantic or hybrid candidates | `python3 construct_benchmark_fixture.py --fixture-out PATH [--audit-out PATH] [--semantic-strategy S] [--semantic-seed-file PATH] [--hybrid-seed-file PATH] [--json]` |
@@ -17,9 +17,9 @@ Operational reference for scripts in `.brain-core/scripts/`. Most scripts expose
 | `create.py` | Create new artefact | `python3 create.py --type T --title "Title" [--body B] [--body-file PATH] [--temp-path [SUFFIX]] [--json]` |
 | `edit.py` | Edit artefacts via CLI; importable helpers also back `brain_edit` for editable `_Config/` resources | `python3 edit.py edit\|append\|prepend\|delete_section --path P [--body B\|--body-file PATH] [--frontmatter JSON] [--target T] [--scope S] [--occurrence N] [--within T --within-occurrence N]... [--vault V] [--json]` |
 | `rename.py` | Rename/delete file + update wikilinks (full-path and filename-only), refusing existing-destination collisions | `python3 rename.py "source" "dest" [--json]` |
-| `check.py` | Structural compliance checks, including exact repair commands for repairable infrastructure drift | `python3 check.py [--json] [--actionable] [--severity S] [--vault V]` |
-| `configure.py` | Explicit installed-vault lifecycle entry point for local semantic opt-in and runtime provisioning | `python3 configure.py semantic [--enable\|--disable] [--skip-provision] [--json] [--vault V]` |
-| `repair.py` | Explicit infrastructure repair entry point with bootstrap-to-managed-runtime handoff | `python3 repair.py {mcp,router,index,registry} [--vault V] [--dry-run] [--json]` |
+| `check.py` | Structural compliance checks, including exact repair commands for repairable infrastructure drift such as semantic runtime/model/sidecar drift | `python3 check.py [--json] [--actionable] [--severity S] [--vault V]` |
+| `configure.py` | Explicit installed-vault lifecycle entry point for local semantic opt-in and runtime/model provisioning | `python3 configure.py semantic --enable [--no-provision] [--json] [--vault V]` |
+| `repair.py` | Explicit infrastructure repair entry point with bootstrap-to-managed-runtime handoff, including semantic runtime/model/sidecar recovery | `python3 repair.py {mcp,router,index,registry,semantic} [--vault V] [--dry-run] [--json]` |
 | `shape_printable.py` | Create printable + render PDF | `python3 shape_printable.py --source P --slug S [--no-render] [--pdf-engine E]` |
 | `shape_presentation.py` | Create presentation + render PDF + launch preview | `python3 shape_presentation.py --source P --slug S [--no-render] [--no-preview]` |
 | `start_shaping.py` | Bootstrap a shaping session for an existing artefact | `python3 start_shaping.py --target P [--title T] [--vault V]` |
@@ -170,7 +170,7 @@ python3 repair.py semantic --vault /path/to/vault
 - `mcp` is the proving slice and owns the managed-runtime recovery path. It repairs or creates `.venv`, syncs `.brain-core/brain_mcp/requirements.txt`, then repairs installed current-vault project MCP state in `.mcp.json`, `.codex/config.toml`, `CLAUDE.md`, `.claude/settings.local.json`, and `.brain/local/init-state.json`. It does not touch user-scope Claude/Codex config, it does not create first-time project registrations on a bare scaffold, and it does not add a second client that is not already installed for the vault.
 - `router` and `index` use internal freshness checks and are no-ops when their generated caches are already healthy.
 - `registry` is intentionally narrow in the first cut: it only mutates the current vault's `.brain/local/workspaces.json`. It does not prune or rewrite `~/.config/brain/vaults`, and it does not touch user-scope MCP config.
-- `semantic` is the explicit follow-up after a vault has opted in via `configure.py semantic --enable`. It bootstraps the managed runtime if needed, provisions the pinned semantic packages into the vault-local `.venv`, refreshes the semantic engine marker in local config, and rebuilds router/index/embeddings sidecars so semantic retrieval and processing converge intentionally.
+- `semantic` is the explicit follow-up after a vault has opted in via `configure.py semantic --enable`. It bootstraps the managed runtime if needed, provisions or re-syncs the pinned semantic packages into the vault-local `.venv`, restores the pinned local model snapshot/manifest, refreshes the semantic engine marker in local config, and rebuilds router/index/embeddings sidecars so semantic retrieval converges intentionally.
 
 If you do not know what is broken, start with `check.py`. Compliance findings now point to the exact `repair.py` command when a shaped repair scope applies.
 
@@ -178,22 +178,20 @@ If you do not know what is broken, start with `check.py`. Compliance findings no
 
 Explicit installed-vault lifecycle entry point at `.brain-core/scripts/configure.py`. The initial public surface is intentionally narrow:
 
-- `semantic` — opt the vault into or out of semantic retrieval and semantic processing, optionally provisioning the pinned local runtime as part of the same workflow
+- `semantic` — enable semantic retrieval for the vault, optionally skipping provisioning so the runtime/model/sidecar work can be run later
 
 **CLI:**
 
 ```bash
 python3 configure.py semantic --enable
-python3 configure.py semantic --enable --skip-provision --json
-python3 configure.py semantic --disable --vault /path/to/vault
+python3 configure.py semantic --enable --no-provision --json
 ```
 
 **Behaviour:**
 
-- `--enable` turns on the canonical local semantic flags under `.brain/local/config.yaml`
-- the default enable path also provisions the pinned semantic runtime and refreshes router/index/embeddings sidecars so the vault lands in a usable state immediately
-- `--skip-provision` records semantic intent without attempting package install or asset refresh
-- `--disable` turns off the local semantic flags but leaves the managed runtime and generated sidecars in place until the user explicitly repairs or deletes them
+- `--enable` turns on the canonical local semantic-retrieval flag under `.brain/local/config.yaml`
+- the default enable path also provisions the pinned semantic runtime, snapshots the pinned local model under `.brain/local/semantic-models/`, records `.brain/local/semantic-model-manifest.json`, and refreshes router/index/embeddings sidecars so the vault lands in a usable state immediately
+- `--no-provision` records semantic intent without attempting package install, local model provisioning, or asset refresh
 - machine-readable output mirrors `repair.py`: a result envelope plus ordered step records for bootstrap, provisioning, and asset refresh work
 
 ## edit.py
@@ -461,13 +459,18 @@ When `defaults.flags.semantic_processing: true` or `defaults.flags.semantic_retr
 
 The BM25 index remains the primary output. If both flags are off, the compiled router is missing, or embedding dependencies are unavailable, the sidecars are cleared rather than left stale.
 
-**Optional semantic runtime:** install with `make install-semantic`. This
-branch pins `numpy 2.4.4`, `torch 2.11.0`, `transformers 5.5.4`, and
-`sentence-transformers 5.4.1`. Intel macOS is not a supported semantic-search
-target because upstream PyPI wheels for this Torch line no longer cover
-`darwin/x86_64`. When run from a vault root, `make install-semantic` also
-writes `defaults.local_runtime.semantic_engine_installed: true` into
-`.brain/local/config.yaml`.
+**Optional semantic runtime:** enable from an installed vault with
+`python3 .brain-core/scripts/configure.py semantic --enable`. The semantic
+runtime pins `numpy 2.4.4`, `torch 2.11.0`, `transformers 5.5.4`,
+`sentence-transformers 5.4.1`, and `huggingface-hub 1.13.0`, downloads the
+pinned local model snapshot into `.brain/local/semantic-models/`, records
+`.brain/local/semantic-model-manifest.json`, and refreshes the semantic
+sidecars. Ordinary semantic search/process/index paths then load that local
+snapshot with `local_files_only=True`; they do not fetch from Hugging Face at
+runtime. Intel macOS is not a supported semantic-search target because
+upstream PyPI wheels for this Torch line no longer cover `darwin/x86_64`. If
+a vault is already configured on but the runtime, model snapshot, or sidecars
+later drift, `check.py` will point to `repair.py semantic`.
 
 **CLI:**
 ```bash

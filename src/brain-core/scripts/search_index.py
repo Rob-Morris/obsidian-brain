@@ -21,11 +21,10 @@ import os
 import re
 import sys
 
+import _semantic.config as _semantic_config
+import _semantic.model as _semantic_model
 import _semantic.runtime as _semantic
 from _common import FM_RE, LEXICAL_ANCHOR_RE, find_vault_root, tokenise
-
-# Backwards-compatible alias for tests and older local call sites.
-_retrieval_embeddings = _semantic
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -70,7 +69,7 @@ def default_search_mode(
 ):
     """Return the best-effort default search mode."""
     if (
-        _semantic.semantic_retrieval_enabled(vault_root, config=config)
+        _semantic_config.semantic_retrieval_enabled(vault_root, config=config)
         and _semantic.semantic_engine_available(
             vault_root,
             config=config,
@@ -111,7 +110,7 @@ def resolve_search_mode(
     )
 
     if resolved in {"semantic", "hybrid"}:
-        if not _semantic.semantic_retrieval_enabled(
+        if not _semantic_config.semantic_retrieval_enabled(
             vault_root, config=config
         ):
             raise SearchModeUnavailableError(
@@ -152,16 +151,17 @@ def load_index(vault_root):
         return json.load(f)
 
 
-def _encode_query(query, *, query_encoder=None):
+def _encode_query(vault_root, query, *, query_encoder=None):
     """Encode a query string for semantic retrieval."""
     try:
         return _semantic.encode_query(
+            vault_root,
             query,
             query_encoder=query_encoder,
         )
-    except ImportError as exc:
+    except (ImportError, _semantic_model.SemanticModelError) as exc:
         raise SearchModeUnavailableError(
-            "semantic retrieval dependencies are unavailable"
+            f"semantic retrieval is unavailable: {exc}"
         ) from exc
 
 
@@ -406,7 +406,7 @@ def search_semantic(
         return []
 
     if doc_embeddings is None or embeddings_meta is None:
-        doc_embeddings, embeddings_meta = _retrieval_embeddings.load_doc_embeddings(
+        doc_embeddings, embeddings_meta = _semantic.load_doc_embeddings(
             vault_root
         )
     if doc_embeddings is None or embeddings_meta is None:
@@ -415,9 +415,9 @@ def search_semantic(
         )
 
     if query_encoder is None:
-        query_vec = _encode_query(query)
+        query_vec = _encode_query(vault_root, query)
     else:
-        query_vec = _encode_query(query, query_encoder=query_encoder)
+        query_vec = _encode_query(vault_root, query, query_encoder=query_encoder)
     ranked = _semantic.rank_against(
         query_vec,
         doc_embeddings,
@@ -771,8 +771,8 @@ def main():
 
     vault_root = find_vault_root()
     try:
-        cfg = _semantic.load_config_best_effort(vault_root)
-    except _semantic.SemanticConfigLoadError as e:
+        cfg = _semantic_config.load_config_best_effort(vault_root)
+    except _semantic_config.SemanticConfigLoadError as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
     index = load_index(vault_root)

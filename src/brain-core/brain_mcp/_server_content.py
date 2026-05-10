@@ -184,7 +184,7 @@ def handle_brain_process(
                 content,
                 index=state.index,
                 type_embeddings=state.type_embeddings,
-                embeddings_meta=state.embeddings_meta,
+                type_embeddings_meta=state.embeddings_meta,
                 mode=mode,
             )
             return _fmt_classify(result)
@@ -203,7 +203,7 @@ def handle_brain_process(
                 content=content,
                 index=state.index,
                 doc_embeddings=state.doc_embeddings,
-                embeddings_meta=state.embeddings_meta,
+                doc_embeddings_meta=state.embeddings_meta,
             )
             if result.get("action") == "error":
                 return runtime.fmt_error(result["reasoning"])
@@ -221,8 +221,9 @@ def handle_brain_process(
                 type_hint=type_hint,
                 index=state.index,
                 type_embeddings=state.type_embeddings,
-                embeddings_meta=state.embeddings_meta,
+                type_embeddings_meta=state.embeddings_meta,
                 doc_embeddings=state.doc_embeddings,
+                doc_embeddings_meta=state.embeddings_meta,
             )
             formatted = _fmt_ingest(result)
             if formatted is None:

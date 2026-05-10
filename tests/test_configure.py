@@ -10,6 +10,7 @@ import config as config_module
 import configure
 import _lifecycle_common as lifecycle_common
 import _semantic.config as semantic_config
+import _semantic.model as semantic_model
 import _semantic.provision as semantic_provision
 
 
@@ -26,6 +27,22 @@ def _make_vault(tmp_path):
     (bc / "brain_mcp" / "requirements.txt").write_text("mcp>=1.0.0\npyyaml>=6.0\n")
     (tmp_path / ".brain" / "local").mkdir(parents=True)
     return tmp_path
+
+
+def _model_outcome(vault, *, downloaded=False, manifest_changed=False):
+    return semantic_model.SemanticModelProvisionOutcome(
+        model_name=semantic_model.SHIPPED_MODEL_NAME,
+        revision=semantic_model.SHIPPED_MODEL_REVISION,
+        local_path=str(
+            semantic_model.model_snapshot_path(
+                vault,
+                semantic_model.SHIPPED_MODEL_NAME,
+                semantic_model.SHIPPED_MODEL_REVISION,
+            )
+        ),
+        downloaded=downloaded,
+        manifest_changed=manifest_changed,
+    )
 
 
 def test_configure_semantic_enable_sets_flags_before_provisioning(tmp_path, monkeypatch):
@@ -50,6 +67,11 @@ def test_configure_semantic_enable_sets_flags_before_provisioning(tmp_path, monk
     monkeypatch.setattr(semantic_provision, "probe_python", fake_probe)
     monkeypatch.setattr(semantic_provision, "semantic_runtime_supported_platform", lambda: (True, None))
     monkeypatch.setattr(semantic_provision, "sync_runtime_packages", fake_sync)
+    monkeypatch.setattr(
+        semantic_provision.semantic_model,
+        "provision_semantic_model",
+        lambda _vault: _model_outcome(vault, downloaded=True, manifest_changed=True),
+    )
     monkeypatch.setattr(semantic_provision, "refresh_semantic_assets", fake_refresh)
 
     result = configure._configure_semantic_enable(vault, provision=True, bootstrap_steps=[])
@@ -265,6 +287,11 @@ def test_configure_semantic_enable_propagates_programmer_errors_from_asset_refre
         lambda _python_path, *, modules=(): {"compatible": True, "ok": True, "missing": []},
     )
     monkeypatch.setattr(
+        semantic_provision.semantic_model,
+        "provision_semantic_model",
+        lambda _vault: _model_outcome(vault, downloaded=False, manifest_changed=False),
+    )
+    monkeypatch.setattr(
         semantic_provision,
         "refresh_semantic_assets",
         lambda _vault: (_ for _ in ()).throw(TypeError("programmer bug")),
@@ -272,6 +299,42 @@ def test_configure_semantic_enable_propagates_programmer_errors_from_asset_refre
 
     with pytest.raises(TypeError, match="programmer bug"):
         configure._configure_semantic_enable(vault, provision=True, bootstrap_steps=[])
+
+
+def test_provision_semantic_runtime_preserves_model_notes(tmp_path, monkeypatch):
+    vault = _make_vault(tmp_path)
+
+    monkeypatch.setattr(
+        semantic_provision,
+        "probe_python",
+        lambda _python_path, *, modules=(): {"compatible": True, "ok": True, "missing": []},
+    )
+    monkeypatch.setattr(
+        semantic_provision.semantic_model,
+        "provision_semantic_model",
+        lambda _vault: semantic_model.SemanticModelProvisionOutcome(
+            model_name=semantic_model.SHIPPED_MODEL_NAME,
+            revision=semantic_model.SHIPPED_MODEL_REVISION,
+            local_path="fake-model-path",
+            downloaded=True,
+            manifest_changed=True,
+            notes=("Replaced an unreadable semantic model manifest: bad json",),
+        ),
+    )
+    monkeypatch.setattr(
+        semantic_provision,
+        "refresh_semantic_assets",
+        lambda _vault: [],
+    )
+
+    outcome = semantic_provision.provision_semantic_runtime(
+        vault,
+        python_executable="/managed/python",
+        runtime_ok=True,
+        refresh_assets=True,
+    )
+
+    assert outcome.notes == ["Replaced an unreadable semantic model manifest: bad json"]
 
 
 def test_sync_runtime_packages_installs_pinned_runtime(monkeypatch):

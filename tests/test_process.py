@@ -1,11 +1,10 @@
 """Tests for process.py — classify, resolve, and ingest operations."""
 
 import os
-import sys
-import types
 
 import pytest
 
+import _semantic.model as semantic_model
 import build_index
 import compile_router
 import process
@@ -196,6 +195,45 @@ class TestClassifyAuto:
         assert result["mode"] == "context_assembly"
 
 
+class TestSemanticFailureDegradation:
+    def test_classify_embedding_returns_none_when_model_is_unavailable(self, monkeypatch):
+        monkeypatch.setattr(
+            process._semantic,
+            "encode_query",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                semantic_model.SemanticModelMissingError("missing model snapshot")
+            ),
+        )
+
+        result = process._classify_embedding(
+            "/tmp/vault",
+            "content",
+            object(),
+            {"types": []},
+        )
+
+        assert result is None
+
+    def test_embedding_search_returns_empty_when_model_is_unavailable(self, monkeypatch):
+        monkeypatch.setattr(
+            process._semantic,
+            "encode_query",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                semantic_model.SemanticModelMissingError("missing model snapshot")
+            ),
+        )
+
+        result = process._embedding_search(
+            "/tmp/vault",
+            "query",
+            None,
+            object(),
+            {"documents": []},
+        )
+
+        assert result == []
+
+
 class TestResolve:
     def test_create_novel(self, router, vault):
         result = process.resolve_content(router, str(vault), "ideas", "Quantum Coffee Maker")
@@ -278,6 +316,8 @@ class TestResolve:
         )
 
         class FakeEmbeddings:
+            shape = (2, 2)
+
             def __matmul__(self, query_vec):
                 assert query_vec == "query-vector"
                 return [0.96, 0.99]
@@ -287,12 +327,7 @@ class TestResolve:
                 assert texts == ["Ownership Primer Rust ownership memory safety"]
                 return ["query-vector"]
 
-        fake_numpy = types.ModuleType("numpy")
-        fake_sentence_transformers = types.ModuleType("sentence_transformers")
-        fake_sentence_transformers.SentenceTransformer = lambda model: FakeModel()
-
-        monkeypatch.setitem(sys.modules, "numpy", fake_numpy)
-        monkeypatch.setitem(sys.modules, "sentence_transformers", fake_sentence_transformers)
+        monkeypatch.setattr(process._semantic, "get_query_encoder", lambda _vault: FakeModel())
 
         result = process.resolve_content(
             populated_router,
@@ -302,7 +337,7 @@ class TestResolve:
             content="Rust ownership memory safety",
             index=None,
             doc_embeddings=FakeEmbeddings(),
-            embeddings_meta={
+            doc_embeddings_meta={
                 "documents": [
                     {
                         "path": "Wiki/rust-ownership.md",

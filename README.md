@@ -1,6 +1,6 @@
 # Obsidian Brain
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.36.3-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.12-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.36.4-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.12-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
 
 A self-evolving knowledge base for agents and humans working together on what matters.
 
@@ -42,7 +42,12 @@ bash <(curl -fsSL https://raw.githubusercontent.com/rob-morris/obsidian-brain/ma
 This downloads the repo, creates the vault in the current directory, and then attempts project-scope MCP setup for Claude Code and Codex. Pass a path to install elsewhere. If you want the vault scaffold without `.venv` / MCP setup, pass `--skip-mcp` (or add `--non-interactive` for non-interactive agent installs). From a local clone, use `bash install.sh` instead.
 
 Semantic retrieval remains explicit opt-in. Enable it later from inside the
-vault with `python3 .brain-core/scripts/configure.py semantic --enable`.
+vault with `python3 .brain-core/scripts/configure.py semantic --enable`. That
+flow writes the local semantic-retrieval flag first, installs the pinned
+semantic Python stack into the vault-local `.venv`, snapshots the pinned model
+under `.brain/local/semantic-models/`, records
+`.brain/local/semantic-model-manifest.json`, and refreshes the embeddings
+sidecars so ordinary semantic search stays fully local.
 
 **Open in Obsidian (recommended):** Open the vault folder, then enable the `brain-folder-colours` CSS snippet in Settings > Appearance > CSS Snippets.
 
@@ -62,7 +67,7 @@ If you want a convenience wrapper that fetches the repo or prompts for confirmat
 bash install.sh /path/to/brain
 ```
 
-The wrapper detects the existing installation, shows the version change, and then runs `upgrade.py`. When `.brain-core/brain_mcp/requirements.txt` changes and the vault already has a local `.venv`, the upgrader syncs that environment directly; project MCP registration is left in place and is not re-run. If semantic retrieval is already configured for the vault, `upgrade.py` also re-runs semantic repair after the file update so the local runtime and sidecars converge intentionally. Same-version re-apply, downgrade, and migration rerun flows remain explicit `upgrade.py --force` operations.
+The wrapper detects the existing installation, shows the version change, and then runs `upgrade.py`. When `.brain-core/brain_mcp/requirements.txt` changes and the vault already has a local `.venv`, the upgrader syncs that environment directly; project MCP registration is left in place and is not re-run. If semantic retrieval is already configured for the vault, `upgrade.py` also re-runs semantic repair after the file update so the pinned local model snapshot, manifest, and embeddings sidecars converge intentionally. Same-version re-apply, downgrade, and migration rerun flows remain explicit `upgrade.py --force` operations.
 
 #### Repair
 
@@ -80,9 +85,10 @@ For most users, `repair.py mcp` is the main recovery path. Use it when the
 vault-local `.venv`, MCP dependencies, or installed current-vault project MCP
 registration have drifted. It repairs the clients that are already installed
 for the vault; it does not act as a first-time installer. `repair.py semantic`
-is the semantic-runtime equivalent after a vault has been opted in with
-`configure.py semantic --enable`. The other scopes repair generated
-router/index state or the local workspace registry.
+is the semantic equivalent after a vault has been opted in with
+`configure.py semantic --enable`: it repairs the pinned runtime packages, the
+local model snapshot/manifest, and the embeddings sidecars together. The other
+scopes repair generated router/index state or the local workspace registry.
 
 If you do not know what is broken, start with:
 

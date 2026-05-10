@@ -1718,7 +1718,7 @@ def construct_fixture(
     if semantic_available and (doc_embeddings is None or embeddings_meta is None):
         doc_embeddings, embeddings_meta = _retrieval_embeddings.load_doc_embeddings(vault_root)
     if semantic_available and query_encoder is None:
-        query_encoder = _retrieval_embeddings.get_query_encoder()
+        query_encoder = _retrieval_embeddings.get_query_encoder(vault_root)
 
     candidates = mine_candidates(
         vault_root,

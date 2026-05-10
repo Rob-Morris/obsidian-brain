@@ -20,6 +20,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+import _semantic.config as _semantic_config
+import _semantic.model as _semantic_model
 import _semantic.runtime as _semantic
 from _common import (
     find_vault_root,
@@ -36,13 +38,14 @@ from _common import (
 )
 from _common._markdown import collect_headings
 
-# Optional embedding dependencies — graceful degradation when missing
+# Optional NumPy dependency — without it we cannot persist or return
+# embeddings arrays. The full semantic stack is validated later when the
+# local model is loaded.
 try:
     import numpy as np
-    from sentence_transformers import SentenceTransformer
-    _HAS_EMBEDDINGS = True
+    _HAS_NUMPY = True
 except ImportError:
-    _HAS_EMBEDDINGS = False
+    _HAS_NUMPY = False
 
 
 def extract_title(body, filename):
@@ -161,11 +164,11 @@ def build_embeddings(vault_root, router, documents):
     """Compute embeddings for type descriptions and documents.
 
     Returns (type_embeddings, doc_embeddings, meta) tuple on success, or None
-    if embedding deps unavailable. Arrays are returned alongside meta so that
+    if NumPy is unavailable. Arrays are returned alongside meta so that
     callers (notably the MCP server's _ensure_embeddings_fresh) can use them
     directly in memory without re-reading the persisted .npy files.
     """
-    if not _HAS_EMBEDDINGS:
+    if not _HAS_NUMPY:
         return None
 
     vault_str = str(vault_root)
@@ -226,7 +229,7 @@ def build_embeddings(vault_root, router, documents):
         })
 
     # Encode
-    model = SentenceTransformer(_semantic.EMBEDDING_MODEL)
+    model, manifest = _semantic_model.load_local_model_with_manifest(vault_root)
 
     type_embeddings = model.encode(type_texts, normalize_embeddings=True) if type_texts else np.zeros((0, _semantic.EMBEDDING_DIM))
     doc_embeddings = model.encode(doc_texts, normalize_embeddings=True) if doc_texts else np.zeros((0, _semantic.EMBEDDING_DIM))
@@ -237,7 +240,8 @@ def build_embeddings(vault_root, router, documents):
     _safe_save_npy(os.path.join(vault_str, _semantic.DOC_EMBEDDINGS_REL), doc_embeddings, bounds=vault_str)
 
     meta = {
-        "model": _semantic.EMBEDDING_MODEL,
+        "model": manifest.model_name,
+        "model_revision": manifest.revision,
         "dim": _semantic.EMBEDDING_DIM,
         "built_at": datetime.now(timezone.utc).astimezone().isoformat(),
         "types": type_meta,
@@ -464,7 +468,7 @@ def refresh_embeddings_outputs(
     """
     if enable_embeddings is None:
         enable_embeddings = (
-            _semantic.embeddings_enabled(vault_root, config=config)
+            _semantic_config.embeddings_enabled(vault_root, config=config)
             and _semantic.semantic_engine_available(
                 vault_root,
                 config=config,
@@ -498,7 +502,7 @@ def persist_retrieval_outputs(
     persist_retrieval_index(vault_root, index)
     if enable_embeddings is None:
         enable_embeddings = (
-            _semantic.embeddings_enabled(vault_root, config=config)
+            _semantic_config.embeddings_enabled(vault_root, config=config)
             and _semantic.semantic_engine_available(
                 vault_root,
                 config=config,
@@ -557,8 +561,8 @@ def index_update(index, vault_root, rel_path, type_hint=None):
 def main():
     vault_root = find_vault_root()
     try:
-        cfg = _semantic.load_config_best_effort(vault_root)
-    except _semantic.SemanticConfigLoadError as exc:
+        cfg = _semantic_config.load_config_best_effort(vault_root)
+    except _semantic_config.SemanticConfigLoadError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(1)
     index = build_index(vault_root)

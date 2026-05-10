@@ -565,7 +565,7 @@ def build_report(
             embeddings_meta=embeddings_meta,
         )
         if available:
-            query_encoder = _retrieval_embeddings.get_query_encoder()
+            query_encoder = _retrieval_embeddings.get_query_encoder(vault_root)
 
     mode_summaries = []
     for mode in modes:

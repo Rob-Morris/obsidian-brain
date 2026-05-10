@@ -60,6 +60,15 @@ def embeddings_enabled(vault_root, *, config=None):
     )
 
 
+def is_semantic_intent_active(vault_root, *, config=None):
+    """Return True when the vault expects a working semantic stack."""
+    return (
+        semantic_retrieval_enabled(vault_root, config=config)
+        or semantic_processing_enabled(vault_root, config=config)
+        or semantic_engine_installed(vault_root, config=config)
+    )
+
+
 def semantic_engine_installed(vault_root, *, config=None):
     """Return True when the local environment was provisioned for semantic work."""
     return _read_nested_flag(

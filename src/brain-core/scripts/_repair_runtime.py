@@ -16,6 +16,7 @@ import compile_router
 import init
 import workspace_registry
 import _semantic.config as _semantic_config
+import _semantic.model as _semantic_model
 import _semantic.provision as _semantic_provision
 import _semantic.runtime as _semantic_runtime
 from _common import iter_artefact_paths
@@ -26,7 +27,12 @@ ISSUE_CONFIG_LOAD_ERROR = "config-load-error"
 ISSUE_UNSUPPORTED_PLATFORM = "unsupported-platform"
 ISSUE_RUNTIME_NOT_PROVISIONED = "runtime-not-provisioned"
 ISSUE_RUNTIME_DEPENDENCIES_MISSING = "runtime-dependencies-missing"
+ISSUE_SEMANTIC_MODEL_MANIFEST_MISSING = "semantic-model-manifest-missing"
+ISSUE_SEMANTIC_MODEL_PATH_MISSING = "semantic-model-path-missing"
+ISSUE_SEMANTIC_MODEL_REVISION_MISMATCH = "semantic-model-revision-mismatch"
+ISSUE_SEMANTIC_MODEL_LOAD_ERROR = "semantic-model-load-error"
 ISSUE_SEMANTIC_SIDECARS_MISSING = "semantic-sidecars-missing"
+ISSUE_SEMANTIC_SIDECARS_OUTDATED = "semantic-sidecars-outdated"
 
 
 def _finalise_result(
@@ -54,15 +60,42 @@ def _semantic_message(configured: bool, supported: bool, unsupported_message: st
         return unsupported_message or "Semantic runtime is unsupported on this platform."
 
     issue_set = set(issues)
+    if ISSUE_SEMANTIC_MODEL_LOAD_ERROR in issue_set:
+        return "Semantic retrieval is configured on, but the provisioned semantic model failed to load locally."
+    if ISSUE_SEMANTIC_MODEL_REVISION_MISMATCH in issue_set:
+        return "Semantic retrieval is configured on, but the provisioned semantic model revision no longer matches the shipped pin."
+    if ISSUE_SEMANTIC_MODEL_PATH_MISSING in issue_set:
+        return "Semantic retrieval is configured on, but the provisioned semantic model snapshot is missing from disk."
+    if ISSUE_SEMANTIC_MODEL_MANIFEST_MISSING in issue_set:
+        return "Semantic retrieval is configured on, but the local semantic model manifest is missing or unreadable."
     if ISSUE_RUNTIME_NOT_PROVISIONED in issue_set and ISSUE_RUNTIME_DEPENDENCIES_MISSING in issue_set:
         return "Semantic retrieval is configured on, but the local semantic runtime has not been provisioned."
     if ISSUE_RUNTIME_DEPENDENCIES_MISSING in issue_set:
         return "Semantic retrieval is configured on, but the local semantic runtime dependencies are unavailable."
     if ISSUE_RUNTIME_NOT_PROVISIONED in issue_set:
         return "Semantic retrieval is configured on, but the local semantic runtime marker is not set."
+    if ISSUE_SEMANTIC_SIDECARS_OUTDATED in issue_set:
+        return "Semantic retrieval is configured on, but the embeddings sidecars were built against a different semantic model revision."
     if ISSUE_SEMANTIC_SIDECARS_MISSING in issue_set:
-        return "Semantic retrieval is configured on, but the embeddings sidecars are missing or stale."
+        return "Semantic retrieval is configured on, but the embeddings sidecars are missing."
     return "Semantic retrieval runtime is healthy."
+
+
+def _semantic_issue_message(issue: str) -> str:
+    """Return a specific user-facing message for one semantic health issue."""
+    messages = {
+        ISSUE_CONFIG_LOAD_ERROR: "Semantic config could not be loaded for this vault.",
+        ISSUE_UNSUPPORTED_PLATFORM: "Semantic runtime is unsupported on this platform.",
+        ISSUE_RUNTIME_NOT_PROVISIONED: "Semantic retrieval is configured on, but the local semantic runtime marker is not set.",
+        ISSUE_RUNTIME_DEPENDENCIES_MISSING: "Semantic retrieval is configured on, but the local semantic runtime dependencies are unavailable.",
+        ISSUE_SEMANTIC_MODEL_MANIFEST_MISSING: "Semantic retrieval is configured on, but the local semantic model manifest is missing or unreadable.",
+        ISSUE_SEMANTIC_MODEL_PATH_MISSING: "Semantic retrieval is configured on, but the provisioned semantic model snapshot is missing from disk.",
+        ISSUE_SEMANTIC_MODEL_REVISION_MISMATCH: "Semantic retrieval is configured on, but the provisioned semantic model revision no longer matches the shipped pin.",
+        ISSUE_SEMANTIC_MODEL_LOAD_ERROR: "Semantic retrieval is configured on, but the provisioned semantic model failed to load locally.",
+        ISSUE_SEMANTIC_SIDECARS_MISSING: "Semantic retrieval is configured on, but the embeddings sidecars are missing.",
+        ISSUE_SEMANTIC_SIDECARS_OUTDATED: "Semantic retrieval is configured on, but the embeddings sidecars were built against a different semantic model revision.",
+    }
+    return messages.get(issue, "Semantic retrieval runtime is unhealthy.")
 
 
 def _router_is_stale(vault_root: Path) -> tuple[bool, str]:
@@ -541,7 +574,7 @@ def inspect_semantic(vault_root: Path) -> dict:
 
     retrieval_enabled = _semantic_config.semantic_retrieval_enabled(vault_root, config=cfg)
     processing_enabled = _semantic_config.semantic_processing_enabled(vault_root, config=cfg)
-    configured = retrieval_enabled or processing_enabled
+    configured = _semantic_config.is_semantic_intent_active(vault_root, config=cfg)
     marker = _semantic_config.semantic_engine_installed(vault_root, config=cfg)
     supported, unsupported_message = _semantic_provision.semantic_runtime_supported_platform()
     if not configured:
@@ -563,7 +596,13 @@ def inspect_semantic(vault_root: Path) -> dict:
         modules=_semantic_provision.SEMANTIC_RUNTIME_MODULES,
     )
     dependencies_ok = bool(managed_probe.get("ok"))
-    sidecars_present = _semantic_runtime.embeddings_sidecars_present(vault_root)
+    model_state = _semantic_model.verify_local_model_load(
+        _semantic_model.inspect_model_state(vault_root)
+    )
+    sidecars_present, sidecars_outdated = _semantic_runtime.embeddings_sidecars_match_manifest(
+        vault_root,
+        model_state.manifest,
+    )
 
     issues: list[str] = []
     if not supported:
@@ -572,8 +611,18 @@ def inspect_semantic(vault_root: Path) -> dict:
         issues.append(ISSUE_RUNTIME_NOT_PROVISIONED)
     if not dependencies_ok:
         issues.append(ISSUE_RUNTIME_DEPENDENCIES_MISSING)
+    if model_state.load_error:
+        issues.append(ISSUE_SEMANTIC_MODEL_LOAD_ERROR)
+    elif model_state.manifest_missing:
+        issues.append(ISSUE_SEMANTIC_MODEL_MANIFEST_MISSING)
+    elif model_state.model_revision_mismatch:
+        issues.append(ISSUE_SEMANTIC_MODEL_REVISION_MISMATCH)
+    elif model_state.model_path_missing:
+        issues.append(ISSUE_SEMANTIC_MODEL_PATH_MISSING)
     if not sidecars_present:
         issues.append(ISSUE_SEMANTIC_SIDECARS_MISSING)
+    elif sidecars_outdated:
+        issues.append(ISSUE_SEMANTIC_SIDECARS_OUTDATED)
 
     return {
         "configured": configured,
@@ -585,6 +634,8 @@ def inspect_semantic(vault_root: Path) -> dict:
         "marker": marker,
         "dependencies_ok": dependencies_ok,
         "sidecars_present": sidecars_present,
+        "sidecars_outdated": sidecars_outdated,
+        "model_state": model_state,
         "supported": supported,
     }
 
@@ -609,19 +660,34 @@ def repair_semantic(vault_root: Path, dry_run: bool, bootstrap_steps: list[dict]
 
     dependencies_missing = not state["dependencies_ok"]
     marker_missing = not state["marker"]
-    sidecars_need_refresh = not state["sidecars_present"]
+    model_state = state["model_state"]
+    model_needs_provision = (
+        model_state.manifest_missing
+        or model_state.model_path_missing
+        or model_state.model_revision_mismatch
+        or bool(model_state.load_error)
+    )
+    sidecars_need_refresh = not state["sidecars_present"] or state["sidecars_outdated"]
 
-    if not dependencies_missing and not marker_missing and not sidecars_need_refresh:
+    if not dependencies_missing and not marker_missing and not model_needs_provision and not sidecars_need_refresh:
         steps.append(_step("semantic_runtime", "noop", "Semantic runtime and embeddings sidecars are already healthy."))
         return _finalise_result("semantic", vault_root, dry_run, steps)
 
     if dry_run:
-        _semantic_provision.plan_runtime_steps(
+        _semantic_provision.plan_runtime_step(
             steps,
             runtime_missing=dependencies_missing,
-            marker_missing=marker_missing,
+        )
+        _semantic_provision.plan_model_step(
+            steps,
+            model_needs_provision=model_needs_provision,
         )
         _semantic_provision.plan_asset_step(steps, assets_missing=sidecars_need_refresh)
+        if marker_missing or dependencies_missing or model_needs_provision or sidecars_need_refresh:
+            _semantic_provision.plan_marker_step(
+                steps,
+                marker_missing=True,
+            )
         return _finalise_result("semantic", vault_root, dry_run, steps)
 
     try:
@@ -629,7 +695,7 @@ def repair_semantic(vault_root: Path, dry_run: bool, bootstrap_steps: list[dict]
             vault_root,
             python_executable=sys.executable,
             runtime_ok=state["dependencies_ok"],
-            refresh_assets=sidecars_need_refresh,
+            refresh_assets=sidecars_need_refresh or model_needs_provision,
         )
     except _semantic_provision.SemanticProvisionError as exc:
         steps.append(_step("semantic_runtime", "error", str(exc)))
@@ -637,10 +703,10 @@ def repair_semantic(vault_root: Path, dry_run: bool, bootstrap_steps: list[dict]
     _semantic_provision.append_runtime_steps(
         steps,
         outcome,
-        include_marker=marker_missing or outcome.marker_changed,
     )
     notes: list[str] = []
     _semantic_provision.append_asset_step(steps, notes, outcome)
+    _semantic_provision.append_marker_step(steps, outcome)
     if outcome.assets_changed or outcome.assets_error:
         return _finalise_result("semantic", vault_root, dry_run, steps, notes=notes or None)
     return _finalise_result("semantic", vault_root, dry_run, steps)
@@ -710,12 +776,13 @@ def collect_check_findings(vault_root: str | Path) -> list[dict]:
 
     semantic = inspect_semantic(vault_root)
     if semantic["configured"] and not semantic["healthy"]:
-        finding = {
-            "check": "semantic_runtime",
-            "severity": "warning",
-            "file": None,
-            "message": semantic["message"],
-        }
-        findings.append(attach_repair_guidance(finding, vault_root, "semantic"))
+        for issue in semantic["issues"]:
+            finding = {
+                "check": f"semantic:{issue}",
+                "severity": "warning",
+                "file": None,
+                "message": _semantic_issue_message(issue),
+            }
+            findings.append(attach_repair_guidance(finding, vault_root, "semantic"))
 
     return findings

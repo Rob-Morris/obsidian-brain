@@ -5,32 +5,17 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
-import threading
 
 import _semantic.config as semantic_config
+import _semantic.model as semantic_model
 
 
 TYPE_EMBEDDINGS_REL = os.path.join(".brain", "local", "type-embeddings.npy")
 DOC_EMBEDDINGS_REL = os.path.join(".brain", "local", "doc-embeddings.npy")
 EMBEDDINGS_META_REL = os.path.join(".brain", "local", "embeddings-meta.json")
-EMBEDDING_MODEL = "all-MiniLM-L6-v2"
+EMBEDDING_MODEL = semantic_model.SHIPPED_MODEL_NAME
+EMBEDDING_MODEL_REVISION = semantic_model.SHIPPED_MODEL_REVISION
 EMBEDDING_DIM = 384
-
-_QUERY_ENCODER = None
-_QUERY_ENCODER_LOCK = threading.Lock()
-
-
-# Slice 4 moves semantic config ownership into _semantic.config without
-# forcing every existing runtime caller to change imports at once.
-SemanticConfigLoadError = semantic_config.SemanticConfigLoadError
-load_config_best_effort = semantic_config.load_config_best_effort
-semantic_processing_enabled = semantic_config.semantic_processing_enabled
-semantic_retrieval_enabled = semantic_config.semantic_retrieval_enabled
-embeddings_enabled = semantic_config.embeddings_enabled
-semantic_engine_installed = semantic_config.semantic_engine_installed
-set_semantic_engine_installed = semantic_config.set_semantic_engine_installed
-set_semantic_retrieval_enabled = semantic_config.set_semantic_retrieval_enabled
-set_semantic_flags = semantic_config.set_semantic_flags
 
 
 def semantic_runtime_dependencies_available():
@@ -42,30 +27,20 @@ def semantic_runtime_dependencies_available():
 
 
 def clear_query_encoder():
-    global _QUERY_ENCODER
-    with _QUERY_ENCODER_LOCK:
-        _QUERY_ENCODER = None
+    semantic_model.clear_query_encoder()
 
 
-def load_query_encoder():
-    from sentence_transformers import SentenceTransformer
-
-    return SentenceTransformer(EMBEDDING_MODEL)
+def load_query_encoder(vault_root):
+    return semantic_model.load_local_model(vault_root)
 
 
-def get_query_encoder():
-    global _QUERY_ENCODER
-    if _QUERY_ENCODER is not None:
-        return _QUERY_ENCODER
-    with _QUERY_ENCODER_LOCK:
-        if _QUERY_ENCODER is None:
-            _QUERY_ENCODER = load_query_encoder()
-        return _QUERY_ENCODER
+def get_query_encoder(vault_root):
+    return semantic_model.get_query_encoder(vault_root)
 
 
-def encode_query(query, *, query_encoder=None):
+def encode_query(vault_root, query, *, query_encoder=None):
     """Encode a single query string with an optional preloaded encoder."""
-    encoder = query_encoder if query_encoder is not None else get_query_encoder()
+    encoder = query_encoder if query_encoder is not None else get_query_encoder(vault_root)
     return encoder.encode([query], normalize_embeddings=True)[0]
 
 
@@ -76,11 +51,12 @@ def rank_against(query_vec, matrix, meta_entries, *, filter_fn=None, top_k=None)
     `normalize_embeddings=True`), so `matrix @ query_vec` equals cosine
     similarity per row.
     """
+    assert matrix.shape[0] == len(meta_entries), (
+        "embedding matrix row count must match metadata entry count"
+    )
     similarities = matrix @ query_vec
     results = []
     for idx, score in enumerate(similarities):
-        if idx >= len(meta_entries):
-            continue
         entry = meta_entries[idx]
         if filter_fn is not None and not filter_fn(entry):
             continue
@@ -128,11 +104,35 @@ def semantic_engine_available(
         return False
     if not semantic_runtime_dependencies_available():
         return False
+    model_state = semantic_model.inspect_model_state(vault_root)
+    if not model_state.healthy:
+        return False
     if skip_sidecar_check:
         return True
     if doc_embeddings is not None and embeddings_meta is not None:
         return True
     return embeddings_sidecars_present(vault_root)
+
+
+def embeddings_sidecars_match_manifest(vault_root, manifest):
+    """Return `(present, outdated)` for sidecars relative to a model manifest."""
+    present = embeddings_sidecars_present(vault_root)
+    if not present or manifest is None:
+        return (present, False)
+
+    meta_path = os.path.join(str(vault_root), EMBEDDINGS_META_REL)
+    try:
+        with open(meta_path, "r", encoding="utf-8") as handle:
+            meta = json.load(handle)
+    except (OSError, ValueError, json.JSONDecodeError):
+        return (True, True)
+    if not isinstance(meta, dict):
+        return (True, True)
+    outdated = (
+        meta.get("model") != manifest.model_name
+        or meta.get("model_revision") != manifest.revision
+    )
+    return (True, outdated)
 
 def load_embeddings_state(vault_root):
     """Load type+doc embeddings and shared meta from disk.

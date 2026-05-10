@@ -2,10 +2,15 @@
 
 Scripts are the **source of truth** for all vault operations. The MCP server (`brain_mcp/server.py`) is a thin wrapper that imports functions from these scripts and holds the compiled router and search index in memory. Scripts are the single implementation — the server adds MCP transport, in-memory caching, process-local mutation serialization for mutating tool calls, and Obsidian CLI delegation. Agents without MCP use scripts directly and get identical results. New operations are implemented as scripts first, then exposed via MCP.
 
-Semantic and hybrid retrieval are optional features. Install the pinned runtime
-with `make install-semantic` before using embedding-backed search or process
-flows. The pinned stack targets current upstream wheel-supported
-platforms; Intel macOS remains lexical-only.
+Semantic and hybrid retrieval remain optional. Enable them from an installed
+vault with `python3 .brain-core/scripts/configure.py semantic --enable`
+before using embedding-backed search or evaluation flows. That command writes
+the local semantic-retrieval flag, installs the pinned semantic Python stack,
+snapshots the pinned model under `.brain/local/semantic-models/`, records
+`.brain/local/semantic-model-manifest.json`, and refreshes embeddings sidecars.
+After provisioning, ordinary search/process/index paths load the local snapshot
+with no surprise Hugging Face fetches. The pinned stack targets current
+upstream wheel-supported platforms; Intel macOS remains lexical-only.
 
 ## Module Table
 
@@ -16,11 +21,11 @@ platforms; Intel macOS remains lexical-only.
 | `_repair_common.py` | Launcher-safe repair metadata, scope definitions, and exact command builders | (library only) |
 | `_repair_runtime.py` | Managed-runtime repair scope implementations plus additive compliance repair detectors | (library only) |
 | `_semantic/` | Internal semantic package: config flags, model/runtime provisioning, embeddings helpers, and vector-ranking/runtime utilities shared by build/search/configure/repair flows | (library only) |
-| `build_index.py` | Build retrieval index and refresh embeddings sidecars when `semantic_processing` or `semantic_retrieval` is enabled and router data is available | `python3 build_index.py [--json]` |
+| `build_index.py` | Build retrieval index and refresh embeddings sidecars from the provisioned local semantic model when `semantic_processing` or `semantic_retrieval` is enabled and router data is available | `python3 build_index.py [--json]` |
 | `construct_benchmark_fixture.py` | Derive a vault-native retrieval benchmark fixture plus audit JSON from an existing vault, including semantic-variant audit diagnostics and optional externally seeded semantic or hybrid candidates | `python3 construct_benchmark_fixture.py --fixture-out PATH [--audit-out PATH] [--semantic-strategy S] [--semantic-seed-file PATH] [--hybrid-seed-file PATH] [--json]` |
 | `evaluate_search.py` | Benchmark lexical, semantic, and hybrid retrieval against a JSON query set | `python3 evaluate_search.py --benchmark PATH [--mode M]... [--json]` |
-| `check.py` | Router-driven structural compliance checks; human output now prints exact `repair.py` commands for repairable router/MCP/local-registry drift and structured results include `repair` metadata | `python3 check.py [--json] [--actionable] [--severity S] [--vault V]` |
-| `configure.py` | Explicit installed-vault lifecycle entry point for local semantic opt-in and managed-runtime provisioning | `python3 configure.py semantic [--enable\|--disable] [--skip-provision] [--json] [--vault V]` |
+| `check.py` | Router-driven structural compliance checks; human output now prints exact `repair.py` commands for repairable router/MCP/local-registry/semantic drift and structured results include `repair` metadata | `python3 check.py [--json] [--actionable] [--severity S] [--vault V]` |
+| `configure.py` | Explicit installed-vault lifecycle entry point for semantic-retrieval opt-in and runtime/model provisioning | `python3 configure.py semantic --enable [--no-provision] [--json] [--vault V]` |
 | `compile_colours.py` | Generate folder colour CSS | (called by compile_router) |
 | `compile_router.py` | Compile router from source files and refresh session markdown | `python3 compile_router.py [--json]` |
 | `config.py` | Vault configuration loader (three-layer merge) | `python3 config.py` |
@@ -33,7 +38,7 @@ platforms; Intel macOS remains lexical-only.
 | `migrate_naming.py` | Migrate filenames to generous naming conventions | `python3 migrate_naming.py [--vault V] [--dry-run] [--json]` |
 | `obsidian_cli.py` | IPC client for native Obsidian CLI | (library module, used by MCP server) |
 | `process.py` | Experimental content classification, duplicate resolution, ingestion | (library module, used by MCP server) |
-| `repair.py` | Explicit infrastructure repair entry point; bootstraps from a compatible Python 3.12+ launcher, converges into the vault-local `.venv`, then runs one named repair scope. `mcp` repairs installed current-vault project MCP state only; `semantic` converges the optional semantic runtime and sidecars after a vault has opted in. | `python3 repair.py {mcp,router,index,registry,semantic} [--vault V] [--dry-run] [--json]` |
+| `repair.py` | Explicit infrastructure repair entry point; bootstraps from a compatible Python 3.12+ launcher, converges into the vault-local `.venv`, then runs one named repair scope. `mcp` repairs installed current-vault project MCP state only; `semantic` repairs the pinned semantic runtime, local model snapshot/manifest, and sidecars after a vault has opted in. | `python3 repair.py {mcp,router,index,registry,semantic} [--vault V] [--dry-run] [--json]` |
 | `read.py` | Query compiled router resources | `python3 read.py RESOURCE [--name N]` |
 | `rename.py` | Rename/delete file + update wikilinks, refusing existing-destination collisions | `python3 rename.py "source" "dest" [--json]` |
 | `search_index.py` | Lexical, semantic, or hybrid local search with exact-anchor lexical wins, strong semantic champions, Brain-only title champions, and semantic-rescue fusion for disjoint leaders | `python3 search_index.py "query" [--type T] [--mode M] [--json]` |

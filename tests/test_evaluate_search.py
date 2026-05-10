@@ -258,7 +258,9 @@ class TestBuildReport:
             lambda _vault: {"defaults": {"flags": {"semantic_retrieval": True}}},
         )
         monkeypatch.setattr(es, "_mode_available", lambda *_args, **_kwargs: (True, None))
-        monkeypatch.setattr(es._retrieval_embeddings, "get_query_encoder", lambda: object())
+        monkeypatch.setattr(
+            es._retrieval_embeddings, "get_query_encoder", lambda _vault: object()
+        )
 
         responses = {
             ("lexical", "q1"): [

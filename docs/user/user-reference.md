@@ -204,7 +204,7 @@ Available in `.brain-core/scripts/`. Scripts are the source of truth for all vau
 | `search_index.py` | Search the local retrieval index from the command line via lexical, semantic, or hybrid modes; hybrid preserves obvious exact-anchor lexical wins, gives a small tie-break boost to a clearly dominant semantic top result, preserves strong lexical title champions when the query literally contains their core title phrase (stripping only the shipped `Brain` product namespace from first-party titles), and can apply a stronger semantic rescue when lexical and semantic leaders are clearly disjoint |
 | `construct_benchmark_fixture.py` | Mine a real vault for lexical / semantic / hybrid / cluster / filter-sensitive benchmark cases and emit both a benchmark fixture JSON and an audit JSON |
 | `evaluate_search.py` | Benchmark lexical, semantic, and hybrid retrieval against a JSON query set |
-| `configure.py` | Explicit installed-vault semantic lifecycle entry point: opt the vault into or out of semantic retrieval / processing, optionally provision the pinned local runtime, and emit ordered step results for bootstrap, provisioning, and asset refresh work |
+| `configure.py` | Explicit installed-vault semantic lifecycle entry point: enable semantic retrieval for the vault, optionally skip provisioning, and emit ordered step results for bootstrap, provisioning, and asset refresh work |
 | `read.py` | Query compiled router resources (artefacts, triggers, styles, templates, skills, etc.) |
 | `create.py` | Create a new artefact with template/naming resolution |
 | `edit.py` | Edit artefacts via explicit `target + selector + scope`; the importable helpers also back editable `_Config/` resources |
@@ -239,12 +239,11 @@ python3 .brain-core/scripts/check.py --json --actionable # structured with fixes
 python3 .brain-core/scripts/check.py --vault /path/to/vault  # check a specific vault
 ```
 
-**`configure.py`** (installed-vault semantic lifecycle) — explicit local opt-in surface for semantic retrieval and semantic processing. `configure.py semantic --enable` turns on the local semantic flags in `.brain/local/config.yaml`, provisions the pinned semantic runtime into the vault-local `.venv`, and refreshes router/index/embeddings sidecars so the vault lands in a usable state immediately. Use `--skip-provision` when you want to record semantic intent without attempting package install or asset refresh yet. `--disable` turns the local flags back off without deleting the managed runtime or generated sidecars.
+**`configure.py`** (installed-vault semantic lifecycle) — explicit local opt-in surface for semantic retrieval. `configure.py semantic --enable` turns on the local semantic-retrieval flag in `.brain/local/config.yaml`, provisions the pinned semantic runtime into the vault-local `.venv`, snapshots the pinned local model under `.brain/local/semantic-models/`, records `.brain/local/semantic-model-manifest.json`, and refreshes router/index/embeddings sidecars so the vault lands in a usable state immediately. Use `--no-provision` when you want to record semantic intent without attempting package install, local model provisioning, or asset refresh yet.
 
 ```bash
 python3.12 .brain-core/scripts/configure.py semantic --enable
-python3.12 .brain-core/scripts/configure.py semantic --enable --skip-provision --json
-python3.12 .brain-core/scripts/configure.py semantic --disable
+python3.12 .brain-core/scripts/configure.py semantic --enable --no-provision --json
 ```
 
 **`repair.py`** (infrastructure recovery) — explicit repair surface for current-vault operational drift. It bootstraps from any compatible Python 3.12+ launcher, repairs the vault-local managed runtime when needed, then hands off into that `.venv` for packageful work. First-cut scopes are `mcp`, `router`, `index`, `registry`, and `semantic`.
@@ -261,8 +260,9 @@ If you are unsure which scope applies, run `check.py` first. For most broken
 tooling cases, `repair.py mcp` is the right recovery path. It repairs installed
 current-vault project MCP state for the clients already present; it does not
 create a first-time project registration. `repair.py semantic` is the semantic
-runtime equivalent after a vault has been opted in with
-`configure.py semantic --enable`.
+equivalent after a vault has been opted in with
+`configure.py semantic --enable`; it restores the pinned runtime packages, the
+local model snapshot/manifest, and the embeddings sidecars together.
 
 **`compliance_check.py`** (session hygiene) — quick checks like "did you log today?" and "are backups fresh?" Run after each work block.
 

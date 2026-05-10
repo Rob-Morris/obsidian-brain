@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 import json
 import os
 from pathlib import Path
@@ -12,6 +13,7 @@ import pytest
 
 import _lifecycle_common as lifecycle_common
 import _semantic.config as semantic_config
+import _semantic.model as semantic_model
 import _repair_common as repair_common
 import _repair_runtime as repair_runtime
 import check
@@ -76,6 +78,52 @@ def _register_project_client(vault: Path, client: str) -> dict:
         record = repair_runtime.init.register_codex(server_config, "project", vault)
     repair_runtime.init.record_init_target(vault, record)
     return server_config
+
+
+def _model_outcome(vault: Path, *, downloaded=False, manifest_changed=False):
+    return semantic_model.SemanticModelProvisionOutcome(
+        model_name=semantic_model.SHIPPED_MODEL_NAME,
+        revision=semantic_model.SHIPPED_MODEL_REVISION,
+        local_path=str(
+            semantic_model.model_snapshot_path(
+                vault,
+                semantic_model.SHIPPED_MODEL_NAME,
+                semantic_model.SHIPPED_MODEL_REVISION,
+            )
+        ),
+        downloaded=downloaded,
+        manifest_changed=manifest_changed,
+        notes=(),
+    )
+
+
+def _model_state(
+    vault: Path,
+    *,
+    manifest_missing=False,
+    model_path_missing=False,
+    model_revision_mismatch=False,
+    load_error=None,
+):
+    manifest = None
+    if not manifest_missing:
+        manifest = semantic_model.ModelManifest(
+            model_name=semantic_model.SHIPPED_MODEL_NAME,
+            revision=semantic_model.SHIPPED_MODEL_REVISION,
+            provisioned_at="2026-05-06T00:00:00+10:00",
+        )
+    return semantic_model.ModelState(
+        manifest=manifest,
+        snapshot_path=semantic_model.model_snapshot_path(
+            vault,
+            semantic_model.SHIPPED_MODEL_NAME,
+            semantic_model.SHIPPED_MODEL_REVISION,
+        ),
+        manifest_missing=manifest_missing,
+        model_path_missing=model_path_missing,
+        model_revision_mismatch=model_revision_mismatch,
+        load_error=load_error,
+    )
 
 
 class TestBootstrapSummary:
@@ -256,11 +304,30 @@ class TestRepairScopes:
             "probe_python",
             lambda _python_path, *, modules=(): {"compatible": True, "ok": True, "missing": []},
         )
-        monkeypatch.setattr(repair_runtime._semantic_runtime, "embeddings_sidecars_present", lambda _vault: True)
+        monkeypatch.setattr(
+            repair_runtime._semantic_model,
+            "inspect_model_state",
+            lambda _vault: _model_state(repair_vault),
+        )
+        monkeypatch.setattr(
+            repair_runtime._semantic_model,
+            "verify_local_model_load",
+            lambda state: state,
+        )
+        monkeypatch.setattr(
+            repair_runtime._semantic_runtime,
+            "embeddings_sidecars_match_manifest",
+            lambda _vault, _manifest: (True, False),
+        )
         monkeypatch.setattr(
             repair_runtime._semantic_provision,
             "sync_runtime_packages",
             lambda _python: pytest.fail("runtime sync should not run when dependencies are already available"),
+        )
+        monkeypatch.setattr(
+            repair_runtime._semantic_provision.semantic_model,
+            "provision_semantic_model",
+            lambda _vault: _model_outcome(repair_vault, downloaded=False, manifest_changed=False),
         )
         monkeypatch.setattr(
             repair_runtime._semantic_provision,
@@ -273,6 +340,7 @@ class TestRepairScopes:
         assert result["status"] == "ok"
         assert [step["name"] for step in result["steps"]] == [
             "semantic_runtime",
+            "semantic_model",
             "semantic_runtime_marker",
         ]
         cfg = semantic_config.load_config_best_effort(repair_vault)
@@ -293,11 +361,30 @@ class TestRepairScopes:
 
         monkeypatch.setattr(repair_runtime, "probe_python", fake_probe)
         monkeypatch.setattr(repair_runtime._semantic_provision, "probe_python", fake_probe)
-        monkeypatch.setattr(repair_runtime._semantic_runtime, "embeddings_sidecars_present", lambda _vault: False)
+        monkeypatch.setattr(
+            repair_runtime._semantic_model,
+            "inspect_model_state",
+            lambda _vault: _model_state(repair_vault, manifest_missing=True),
+        )
+        monkeypatch.setattr(
+            repair_runtime._semantic_model,
+            "verify_local_model_load",
+            lambda state: state,
+        )
+        monkeypatch.setattr(
+            repair_runtime._semantic_runtime,
+            "embeddings_sidecars_match_manifest",
+            lambda _vault, _manifest: (False, False),
+        )
         monkeypatch.setattr(
             repair_runtime._semantic_provision,
             "sync_runtime_packages",
             lambda _python: calls.__setitem__("sync", calls["sync"] + 1),
+        )
+        monkeypatch.setattr(
+            repair_runtime._semantic_provision.semantic_model,
+            "provision_semantic_model",
+            lambda _vault: _model_outcome(repair_vault, downloaded=True, manifest_changed=True),
         )
         monkeypatch.setattr(
             repair_runtime._semantic_provision,
@@ -313,8 +400,9 @@ class TestRepairScopes:
         assert result["notes"] == ["semantic assets refreshed"]
         assert [step["name"] for step in result["steps"]] == [
             "semantic_runtime",
-            "semantic_runtime_marker",
+            "semantic_model",
             "semantic_assets",
+            "semantic_runtime_marker",
         ]
 
     def test_semantic_repair_skips_asset_refresh_when_sidecars_are_present(self, repair_vault, monkeypatch):
@@ -331,11 +419,30 @@ class TestRepairScopes:
 
         monkeypatch.setattr(repair_runtime, "probe_python", fake_probe)
         monkeypatch.setattr(repair_runtime._semantic_provision, "probe_python", fake_probe)
-        monkeypatch.setattr(repair_runtime._semantic_runtime, "embeddings_sidecars_present", lambda _vault: True)
+        monkeypatch.setattr(
+            repair_runtime._semantic_model,
+            "inspect_model_state",
+            lambda _vault: _model_state(repair_vault),
+        )
+        monkeypatch.setattr(
+            repair_runtime._semantic_model,
+            "verify_local_model_load",
+            lambda state: state,
+        )
+        monkeypatch.setattr(
+            repair_runtime._semantic_runtime,
+            "embeddings_sidecars_match_manifest",
+            lambda _vault, _manifest: (True, False),
+        )
         monkeypatch.setattr(
             repair_runtime._semantic_provision,
             "sync_runtime_packages",
             lambda _python: calls.__setitem__("sync", calls["sync"] + 1),
+        )
+        monkeypatch.setattr(
+            repair_runtime._semantic_provision.semantic_model,
+            "provision_semantic_model",
+            lambda _vault: _model_outcome(repair_vault, downloaded=False, manifest_changed=False),
         )
         monkeypatch.setattr(
             repair_runtime._semantic_provision,
@@ -349,6 +456,7 @@ class TestRepairScopes:
         assert calls["sync"] == 1
         assert [step["name"] for step in result["steps"]] == [
             "semantic_runtime",
+            "semantic_model",
             "semantic_runtime_marker",
         ]
 
@@ -361,7 +469,26 @@ class TestRepairScopes:
             "probe_python",
             lambda _python_path, *, modules=(): {"compatible": True, "ok": True, "missing": []},
         )
-        monkeypatch.setattr(repair_runtime._semantic_runtime, "embeddings_sidecars_present", lambda _vault: False)
+        monkeypatch.setattr(
+            repair_runtime._semantic_model,
+            "inspect_model_state",
+            lambda _vault: _model_state(repair_vault),
+        )
+        monkeypatch.setattr(
+            repair_runtime._semantic_model,
+            "verify_local_model_load",
+            lambda state: state,
+        )
+        monkeypatch.setattr(
+            repair_runtime._semantic_runtime,
+            "embeddings_sidecars_match_manifest",
+            lambda _vault, _manifest: (False, False),
+        )
+        monkeypatch.setattr(
+            repair_runtime._semantic_provision.semantic_model,
+            "provision_semantic_model",
+            lambda _vault: _model_outcome(repair_vault, downloaded=False, manifest_changed=False),
+        )
         monkeypatch.setattr(
             repair_runtime._semantic_provision,
             "refresh_semantic_assets",
@@ -371,8 +498,8 @@ class TestRepairScopes:
         result = repair_runtime.repair_semantic(repair_vault, dry_run=False)
 
         assert result["status"] == "partial"
-        assert result["steps"][-1]["name"] == "semantic_assets"
-        assert "boom" in result["steps"][-1]["message"]
+        assert result["steps"][-2]["name"] == "semantic_assets"
+        assert "boom" in result["steps"][-2]["message"]
 
     def test_semantic_repair_dry_run_uses_shared_planned_step_shapes(self, repair_vault, monkeypatch):
         semantic_config.set_semantic_flags(repair_vault, retrieval=True)
@@ -383,7 +510,11 @@ class TestRepairScopes:
             "probe_python",
             lambda _python_path, *, modules=(): {"compatible": True, "ok": False, "missing": list(modules)},
         )
-        monkeypatch.setattr(repair_runtime._semantic_runtime, "embeddings_sidecars_present", lambda _vault: False)
+        monkeypatch.setattr(
+            repair_runtime._semantic_runtime,
+            "embeddings_sidecars_match_manifest",
+            lambda _vault, _manifest: (False, False),
+        )
 
         result = repair_runtime.repair_semantic(repair_vault, dry_run=True)
 
@@ -395,9 +526,19 @@ class TestRepairScopes:
                 "message": "Would provision or re-sync the pinned semantic runtime dependencies for this vault.",
             },
             {
+                "name": "semantic_model",
+                "status": "planned",
+                "message": "Would provision or update the pinned local semantic model snapshot for this vault.",
+            },
+            {
                 "name": "semantic_assets",
                 "status": "planned",
                 "message": "Would rebuild the compiled router, retrieval index, and semantic embeddings sidecars.",
+            },
+            {
+                "name": "semantic_runtime_marker",
+                "status": "planned",
+                "message": "Would mark the local semantic runtime as provisioned for this vault once semantic provisioning completes successfully.",
             },
         ]
 
@@ -410,7 +551,26 @@ class TestRepairScopes:
             "probe_python",
             lambda _python_path, *, modules=(): {"compatible": True, "ok": True, "missing": []},
         )
-        monkeypatch.setattr(repair_runtime._semantic_runtime, "embeddings_sidecars_present", lambda _vault: False)
+        monkeypatch.setattr(
+            repair_runtime._semantic_model,
+            "inspect_model_state",
+            lambda _vault: _model_state(repair_vault),
+        )
+        monkeypatch.setattr(
+            repair_runtime._semantic_model,
+            "verify_local_model_load",
+            lambda state: state,
+        )
+        monkeypatch.setattr(
+            repair_runtime._semantic_runtime,
+            "embeddings_sidecars_match_manifest",
+            lambda _vault, _manifest: (False, False),
+        )
+        monkeypatch.setattr(
+            repair_runtime._semantic_provision.semantic_model,
+            "provision_semantic_model",
+            lambda _vault: _model_outcome(repair_vault, downloaded=False, manifest_changed=False),
+        )
         monkeypatch.setattr(
             repair_runtime._semantic_provision,
             "refresh_semantic_assets",
@@ -569,10 +729,106 @@ class TestCheckRepairHints:
             "probe_python",
             lambda _python_path, *, modules=(): {"compatible": True, "ok": False, "missing": list(modules)},
         )
-        monkeypatch.setattr(repair_runtime._semantic_runtime, "embeddings_sidecars_present", lambda _vault: False)
+        monkeypatch.setattr(
+            repair_runtime._semantic_runtime,
+            "embeddings_sidecars_match_manifest",
+            lambda _vault, _manifest: (False, False),
+        )
 
         result = check.run_checks(str(repair_vault), _wiki_router())
 
-        hit = next(f for f in result["findings"] if f["check"] == "semantic_runtime")
-        assert hit["repair"]["scope"] == "semantic"
-        assert "repair.py semantic" in hit["repair"]["command"]
+        semantic_hits = [f for f in result["findings"] if f["check"].startswith("semantic:")]
+        assert {f["check"] for f in semantic_hits} == {
+            "semantic:runtime-not-provisioned",
+            "semantic:runtime-dependencies-missing",
+            "semantic:semantic-model-manifest-missing",
+            "semantic:semantic-sidecars-missing",
+        }
+        assert all(hit["repair"]["scope"] == "semantic" for hit in semantic_hits)
+        assert all("repair.py semantic" in hit["repair"]["command"] for hit in semantic_hits)
+
+    @pytest.mark.parametrize(
+        ("model_state", "sidecars_present", "meta_payload", "expected_check"),
+        [
+            (
+                _model_state(Path("/tmp"), manifest_missing=False, model_path_missing=True),
+                True,
+                {
+                    "model": semantic_model.SHIPPED_MODEL_NAME,
+                    "model_revision": semantic_model.SHIPPED_MODEL_REVISION,
+                },
+                "semantic:semantic-model-path-missing",
+            ),
+            (
+                _model_state(Path("/tmp"), manifest_missing=False, model_revision_mismatch=True),
+                True,
+                {
+                    "model": semantic_model.SHIPPED_MODEL_NAME,
+                    "model_revision": semantic_model.SHIPPED_MODEL_REVISION,
+                },
+                "semantic:semantic-model-revision-mismatch",
+            ),
+            (
+                _model_state(Path("/tmp"), manifest_missing=False, load_error="semantic model manifest is unreadable"),
+                True,
+                {
+                    "model": semantic_model.SHIPPED_MODEL_NAME,
+                    "model_revision": semantic_model.SHIPPED_MODEL_REVISION,
+                },
+                "semantic:semantic-model-load-error",
+            ),
+            (
+                _model_state(Path("/tmp")),
+                True,
+                {
+                    "model": semantic_model.SHIPPED_MODEL_NAME,
+                    "model_revision": "different-revision",
+                },
+                "semantic:semantic-sidecars-outdated",
+            ),
+        ],
+    )
+    def test_semantic_drift_reports_specific_model_and_sidecar_findings(
+        self,
+        repair_vault,
+        monkeypatch,
+        model_state,
+        sidecars_present,
+        meta_payload,
+        expected_check,
+    ):
+        semantic_config.set_semantic_flags(repair_vault, retrieval=True)
+        semantic_config.set_semantic_engine_installed(repair_vault, installed=True)
+
+        monkeypatch.setattr(
+            repair_runtime,
+            "probe_python",
+            lambda _python_path, *, modules=(): {"compatible": True, "ok": True, "missing": []},
+        )
+        monkeypatch.setattr(
+            repair_runtime._semantic_model,
+            "inspect_model_state",
+            lambda _vault: replace(
+                model_state,
+                snapshot_path=semantic_model.model_snapshot_path(
+                    repair_vault,
+                    semantic_model.SHIPPED_MODEL_NAME,
+                    semantic_model.SHIPPED_MODEL_REVISION,
+                ),
+            ),
+        )
+        monkeypatch.setattr(
+            repair_runtime._semantic_model,
+            "verify_local_model_load",
+            lambda state: state,
+        )
+        monkeypatch.setattr(
+            repair_runtime._semantic_runtime,
+            "embeddings_sidecars_match_manifest",
+            lambda _vault, _manifest: (sidecars_present, sidecars_present and meta_payload["model_revision"] != semantic_model.SHIPPED_MODEL_REVISION),
+        )
+
+        result = check.run_checks(str(repair_vault), _wiki_router())
+
+        semantic_hits = [f["check"] for f in result["findings"] if f["check"].startswith("semantic:")]
+        assert expected_check in semantic_hits

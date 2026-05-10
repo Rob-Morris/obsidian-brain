@@ -8,6 +8,8 @@ from unittest.mock import patch
 
 import pytest
 
+import _semantic.config as _semantic_config
+import _semantic.model as _semantic_model
 import _semantic.runtime as _semantic
 import build_index as bi
 import config as config_mod
@@ -78,6 +80,14 @@ def vault(tmp_path):
     )
 
     return tmp_path
+
+
+def _model_manifest():
+    return _semantic_model.ModelManifest(
+        model_name=_semantic_model.SHIPPED_MODEL_NAME,
+        revision=_semantic_model.SHIPPED_MODEL_REVISION,
+        provisioned_at="2026-05-06T00:00:00+10:00",
+    )
 
 
 @pytest.fixture
@@ -450,7 +460,7 @@ class TestIncrementalIndex:
 class TestBuildEmbeddings:
     def test_returns_none_without_deps(self, vault):
         """When sentence-transformers is unavailable, returns None."""
-        with patch.object(bi, "_HAS_EMBEDDINGS", False):
+        with patch.object(bi, "_HAS_NUMPY", False):
             result = bi.build_embeddings(vault, {"artefacts": []}, [])
             assert result is None
 
@@ -478,9 +488,13 @@ class TestBuildEmbeddings:
             calls.append((path, kwargs.get("bounds"), handle.getvalue()))
             return str(path)
 
-        monkeypatch.setattr(bi, "_HAS_EMBEDDINGS", True)
+        monkeypatch.setattr(bi, "_HAS_NUMPY", True)
         monkeypatch.setattr(bi, "np", FakeNumpy(), raising=False)
-        monkeypatch.setattr(bi, "SentenceTransformer", lambda model: FakeModel(), raising=False)
+        monkeypatch.setattr(
+            bi._semantic_model,
+            "load_local_model_with_manifest",
+            lambda _vault: (FakeModel(), _model_manifest()),
+        )
         monkeypatch.setattr(bi, "safe_write_via", fake_safe_write_via)
 
         result = bi.build_embeddings(vault, {"artefacts": []}, [])
@@ -509,9 +523,13 @@ class TestBuildEmbeddings:
             def encode(self, texts, normalize_embeddings=True):
                 return [[0.0] for _ in texts]
 
-        monkeypatch.setattr(bi, "_HAS_EMBEDDINGS", True)
+        monkeypatch.setattr(bi, "_HAS_NUMPY", True)
         monkeypatch.setattr(bi, "np", FakeNumpy(), raising=False)
-        monkeypatch.setattr(bi, "SentenceTransformer", lambda model: FakeModel(), raising=False)
+        monkeypatch.setattr(
+            bi._semantic_model,
+            "load_local_model_with_manifest",
+            lambda _vault: (FakeModel(), _model_manifest()),
+        )
         monkeypatch.setattr(
             bi,
             "safe_write_via",
@@ -523,6 +541,7 @@ class TestBuildEmbeddings:
 
         assert result is not None
         _type_emb, _doc_emb, meta = result
+        assert meta["model_revision"] == _semantic_model.SHIPPED_MODEL_REVISION
         by_path = {entry["path"]: entry for entry in meta["documents"]}
         assert by_path["Wiki/python-basics.md"]["type"] == "living/wiki"
         assert by_path["Wiki/python-basics.md"]["title"] == "python-basics"
@@ -542,19 +561,19 @@ class TestEmbeddingsOutputs:
             }
         }
 
-        assert _semantic.semantic_processing_enabled(vault, config=cfg) is False
-        assert _semantic.semantic_retrieval_enabled(vault, config=cfg) is False
-        assert _semantic.embeddings_enabled(vault, config=cfg) is False
+        assert _semantic_config.semantic_processing_enabled(vault, config=cfg) is False
+        assert _semantic_config.semantic_retrieval_enabled(vault, config=cfg) is False
+        assert _semantic_config.embeddings_enabled(vault, config=cfg) is False
 
         cfg["defaults"]["flags"]["semantic_processing"] = True
-        assert _semantic.semantic_processing_enabled(vault, config=cfg) is True
-        assert _semantic.embeddings_enabled(vault, config=cfg) is True
+        assert _semantic_config.semantic_processing_enabled(vault, config=cfg) is True
+        assert _semantic_config.embeddings_enabled(vault, config=cfg) is True
 
         cfg["defaults"]["flags"]["semantic_processing"] = False
         cfg["defaults"]["flags"]["semantic_retrieval"] = True
-        assert _semantic.semantic_processing_enabled(vault, config=cfg) is False
-        assert _semantic.semantic_retrieval_enabled(vault, config=cfg) is True
-        assert _semantic.embeddings_enabled(vault, config=cfg) is True
+        assert _semantic_config.semantic_processing_enabled(vault, config=cfg) is False
+        assert _semantic_config.semantic_retrieval_enabled(vault, config=cfg) is True
+        assert _semantic_config.embeddings_enabled(vault, config=cfg) is True
 
     def test_persist_outputs_clears_stale_sidecars_when_disabled(self, vault):
         local_dir = vault / ".brain" / "local"
@@ -644,9 +663,9 @@ class TestBuildIndexMain:
             return (object(), object(), {"documents": [], "types": []})
 
         monkeypatch.setattr(bi, "find_vault_root", lambda: vault)
-        monkeypatch.setattr(_semantic, "embeddings_enabled", lambda *args, **kwargs: True)
+        monkeypatch.setattr(bi._semantic_config, "embeddings_enabled", lambda *args, **kwargs: True)
         monkeypatch.setattr(
-            _semantic,
+            bi._semantic,
             "semantic_engine_available",
             lambda *args, **kwargs: True,
         )
@@ -668,7 +687,7 @@ class TestBuildIndexMain:
         calls = []
 
         monkeypatch.setattr(bi, "find_vault_root", lambda: vault)
-        monkeypatch.setattr(_semantic, "embeddings_enabled", lambda *args, **kwargs: False)
+        monkeypatch.setattr(bi._semantic_config, "embeddings_enabled", lambda *args, **kwargs: False)
         monkeypatch.setattr(bi, "load_compiled_router", lambda _vault: {"artefacts": []})
         monkeypatch.setattr(
             bi,

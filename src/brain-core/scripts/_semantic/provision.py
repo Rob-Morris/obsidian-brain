@@ -9,15 +9,17 @@ from pathlib import Path
 
 from _lifecycle_common import probe_python, step as _step
 import _semantic.config as semantic_config
+import _semantic.model as semantic_model
 
 
 SEMANTIC_RUNTIME_PACKAGES = (
+    "huggingface-hub==1.13.0",
     "numpy==2.4.4",
     "torch==2.11.0",
     "transformers==5.5.4",
     "sentence-transformers==5.4.1",
 )
-SEMANTIC_RUNTIME_MODULES = ("numpy", "sentence_transformers")
+SEMANTIC_RUNTIME_MODULES = ("huggingface_hub", "numpy", "sentence_transformers")
 SEMANTIC_RUNTIME_TIMEOUT = 900
 SEMANTIC_ASSET_REFRESH_ERRORS = (OSError, ValueError)
 
@@ -31,7 +33,9 @@ class SemanticProvisionOutcome:
     """Result of ensuring the semantic runtime and optionally refreshing assets."""
 
     runtime_changed: bool
+    model_outcome: semantic_model.SemanticModelProvisionOutcome
     marker_changed: bool
+    marker_installed: bool
     assets_changed: bool
     assets_error: str | None
     notes: list[str]
@@ -69,12 +73,17 @@ def refresh_semantic_assets(vault_root: str | Path) -> list[str]:
     compile_router.refresh_session_markdown(str(vault_root), compiled)
 
     index = build_index.build_index(str(vault_root))
-    build_index.persist_retrieval_outputs(str(vault_root), index, router=compiled)
+    build_index.persist_retrieval_outputs(
+        str(vault_root),
+        index,
+        router=compiled,
+        enable_embeddings=True,
+    )
     return []
 
 
-def append_runtime_steps(steps: list[dict], outcome: SemanticProvisionOutcome, *, include_marker: bool = True) -> None:
-    """Append shared semantic runtime/marker step shapes from a provision outcome."""
+def append_runtime_steps(steps: list[dict], outcome: SemanticProvisionOutcome) -> None:
+    """Append shared semantic runtime/model step shapes from a provision outcome."""
     steps.append(
         _step(
             "semantic_runtime",
@@ -86,18 +95,44 @@ def append_runtime_steps(steps: list[dict], outcome: SemanticProvisionOutcome, *
             ),
         )
     )
-    if include_marker:
-        steps.append(
-            _step(
-                "semantic_runtime_marker",
-                "changed" if outcome.marker_changed else "noop",
-                (
-                    "Marked the local semantic runtime as provisioned for this vault."
-                    if outcome.marker_changed
-                    else "The local semantic runtime is already marked as provisioned for this vault."
-                ),
-            )
+    append_model_step(steps, outcome.model_outcome)
+
+
+def append_model_step(steps: list[dict], outcome: semantic_model.SemanticModelProvisionOutcome) -> None:
+    """Append the shared semantic-model step shape from a provision outcome."""
+    if outcome.downloaded:
+        status = "changed"
+        message = "Provisioned the pinned semantic model snapshot for this vault."
+    elif outcome.manifest_changed:
+        status = "changed"
+        message = "Recorded the pinned semantic model manifest for this vault."
+    else:
+        status = "noop"
+        message = "The pinned semantic model snapshot is already provisioned locally for this vault."
+    steps.append(_step("semantic_model", status, message))
+
+
+def append_marker_step(steps: list[dict], outcome: SemanticProvisionOutcome) -> None:
+    """Append the shared semantic runtime-marker step from a provision outcome."""
+    if outcome.marker_installed:
+        message = (
+            "Marked the local semantic runtime as provisioned for this vault."
+            if outcome.marker_changed
+            else "The local semantic runtime is already marked as provisioned for this vault."
         )
+    else:
+        message = (
+            "Cleared the local semantic runtime marker until semantic provisioning completes successfully."
+            if outcome.marker_changed
+            else "The local semantic runtime remains unmarked until semantic provisioning completes successfully."
+        )
+    steps.append(
+        _step(
+            "semantic_runtime_marker",
+            "changed" if outcome.marker_changed else "noop",
+            message,
+        )
+    )
 
 
 def append_asset_step(steps: list[dict], notes: list[str], outcome: SemanticProvisionOutcome) -> None:
@@ -115,14 +150,8 @@ def append_asset_step(steps: list[dict], notes: list[str], outcome: SemanticProv
     notes.extend(outcome.notes)
 
 
-def plan_runtime_steps(
-    steps: list[dict],
-    *,
-    runtime_missing: bool,
-    marker_missing: bool,
-    include_marker: bool = True,
-) -> None:
-    """Append planned semantic runtime/marker steps for a dry-run path."""
+def plan_runtime_step(steps: list[dict], *, runtime_missing: bool) -> None:
+    """Append the planned semantic runtime step for a dry-run path."""
     if runtime_missing:
         steps.append(
             _step(
@@ -131,13 +160,32 @@ def plan_runtime_steps(
                 "Would provision or re-sync the pinned semantic runtime dependencies for this vault.",
             )
         )
-        return
-    if marker_missing and include_marker:
+
+
+def plan_marker_step(steps: list[dict], *, marker_missing: bool) -> None:
+    """Append the planned semantic runtime-marker step for a dry-run path."""
+    if marker_missing:
         steps.append(
             _step(
                 "semantic_runtime_marker",
                 "planned",
-                "Would mark the local semantic runtime as provisioned for this vault.",
+                "Would mark the local semantic runtime as provisioned for this vault once semantic provisioning completes successfully.",
+            )
+        )
+
+
+def plan_model_step(
+    steps: list[dict],
+    *,
+    model_needs_provision: bool,
+) -> None:
+    """Append the planned semantic-model step for a dry-run path."""
+    if model_needs_provision:
+        steps.append(
+            _step(
+                "semantic_model",
+                "planned",
+                "Would provision or update the pinned local semantic model snapshot for this vault.",
             )
         )
 
@@ -188,20 +236,33 @@ def provision_semantic_runtime(
             )
         runtime_changed = True
 
-    marker_changed = semantic_config.set_semantic_engine_installed(vault_root, installed=True)
-    notes: list[str] = []
+    try:
+        model_outcome = semantic_model.provision_semantic_model(vault_root)
+    except semantic_model.SemanticModelProvisionError as exc:
+        semantic_config.set_semantic_engine_installed(vault_root, installed=False)
+        raise SemanticProvisionError(str(exc)) from exc
+
+    notes: list[str] = list(model_outcome.notes)
     assets_changed = False
     assets_error = None
     if refresh_assets:
         try:
-            notes = refresh_semantic_assets(vault_root)
+            notes.extend(refresh_semantic_assets(vault_root))
             assets_changed = True
         except SEMANTIC_ASSET_REFRESH_ERRORS as exc:
             assets_error = f"Semantic runtime is ready, but retrieval asset refresh failed: {exc}"
 
+    marker_installed = assets_error is None
+    marker_changed = semantic_config.set_semantic_engine_installed(
+        vault_root,
+        installed=marker_installed,
+    )
+
     return SemanticProvisionOutcome(
         runtime_changed=runtime_changed,
+        model_outcome=model_outcome,
         marker_changed=bool(marker_changed),
+        marker_installed=marker_installed,
         assets_changed=assets_changed,
         assets_error=assets_error,
         notes=notes,

@@ -23,11 +23,9 @@ from _common import (
 import build_index
 import create as create_mod
 import edit as edit_mod
+import _semantic.model as _semantic_model
 import _semantic.runtime as _semantic
 import search_index
-
-CONFIDENT_MATCH_THRESHOLD = 0.90
-AMBIGUOUS_MATCH_THRESHOLD = 0.75
 
 
 def infer_title(content):
@@ -52,7 +50,7 @@ def classify_content(
     content,
     index=None,
     type_embeddings=None,
-    embeddings_meta=None,
+    type_embeddings_meta=None,
     mode="auto",
     query_encoder=None,
 ):
@@ -62,9 +60,10 @@ def classify_content(
 
     if mode == "embedding" or (mode == "auto" and type_embeddings is not None):
         result = _classify_embedding(
+            vault_root,
             content,
             type_embeddings,
-            embeddings_meta,
+            type_embeddings_meta,
             query_encoder=query_encoder,
         )
         if result is not None:
@@ -79,28 +78,30 @@ def classify_content(
 
 
 def _classify_embedding(
+    vault_root,
     content,
     type_embeddings,
-    embeddings_meta,
+    type_embeddings_meta,
     *,
     query_encoder=None,
 ):
     """Classify via cosine similarity against type embeddings."""
-    if type_embeddings is None or embeddings_meta is None:
+    if type_embeddings is None or type_embeddings_meta is None:
         return None
 
     try:
         query_vec = _semantic.encode_query(
+            vault_root,
             content,
             query_encoder=query_encoder,
         )
-    except ImportError:
+    except (ImportError, _semantic_model.SemanticModelError):
         return None
 
     ranked = _semantic.rank_against(
         query_vec,
         type_embeddings,
-        embeddings_meta.get("types", []),
+        type_embeddings_meta.get("types", []),
         top_k=6,
     )
     if not ranked:
@@ -228,7 +229,7 @@ def resolve_content(
     content="",
     index=None,
     doc_embeddings=None,
-    embeddings_meta=None,
+    doc_embeddings_meta=None,
     query_encoder=None,
 ):
     """Determine if content should create a new artefact or update existing."""
@@ -279,12 +280,13 @@ def resolve_content(
                 best_score = result["score"]
                 best_candidate = result
 
-    if doc_embeddings is not None and embeddings_meta is not None:
+    if doc_embeddings is not None and doc_embeddings_meta is not None:
         emb_candidates = _embedding_search(
+            vault_root,
             title + " " + content[:200] if content else title,
             resolved_type,
             doc_embeddings,
-            embeddings_meta,
+            doc_embeddings_meta,
             query_encoder=query_encoder,
         )
         for candidate in emb_candidates:
@@ -294,7 +296,7 @@ def resolve_content(
                 best_score = candidate["score"]
                 best_candidate = candidate
 
-    if best_candidate and best_score > CONFIDENT_MATCH_THRESHOLD:
+    if best_candidate and best_score > 0.90:
         target = best_candidate["path"]
         return {
             "action": "update",
@@ -306,7 +308,7 @@ def resolve_content(
             "reasoning": f"High similarity match (score {best_score:.2f}): {target}",
         }
 
-    if best_candidate and best_score >= AMBIGUOUS_MATCH_THRESHOLD:
+    if best_candidate and best_score >= 0.75:
         return {
             "action": "ambiguous",
             "type": resolved_type,
@@ -353,20 +355,22 @@ def _find_filename_match(vault_root, artefact, generous_name, legacy_slug):
 
 
 def _embedding_search(
+    vault_root,
     query,
     type_filter,
     doc_embeddings,
-    embeddings_meta,
+    doc_embeddings_meta,
     *,
     query_encoder=None,
 ):
     """Search for similar documents via embeddings, filtered by type."""
     try:
         query_vec = _semantic.encode_query(
+            vault_root,
             query,
             query_encoder=query_encoder,
         )
-    except ImportError:
+    except (ImportError, _semantic_model.SemanticModelError):
         return []
     filter_fn = (
         (lambda entry: entry.get("type") == type_filter) if type_filter else None
@@ -374,7 +378,7 @@ def _embedding_search(
     ranked = _semantic.rank_against(
         query_vec,
         doc_embeddings,
-        embeddings_meta.get("documents", []),
+        doc_embeddings_meta.get("documents", []),
         filter_fn=filter_fn,
         top_k=5,
     )
@@ -389,8 +393,9 @@ def ingest_content(
     type_hint=None,
     index=None,
     type_embeddings=None,
-    embeddings_meta=None,
+    type_embeddings_meta=None,
     doc_embeddings=None,
+    doc_embeddings_meta=None,
     query_encoder=None,
 ):
     """Full pipeline: classify -> infer title -> resolve -> act."""
@@ -419,7 +424,7 @@ def ingest_content(
             content,
             index=index,
             type_embeddings=type_embeddings,
-            embeddings_meta=embeddings_meta,
+            type_embeddings_meta=type_embeddings_meta,
             query_encoder=query_encoder,
         )
         if classification.get("mode") == "context_assembly":
@@ -446,7 +451,7 @@ def ingest_content(
         content=content,
         index=index,
         doc_embeddings=doc_embeddings,
-        embeddings_meta=embeddings_meta,
+        doc_embeddings_meta=doc_embeddings_meta,
         query_encoder=query_encoder,
     )
 

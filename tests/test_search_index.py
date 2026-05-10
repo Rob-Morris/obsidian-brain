@@ -4,8 +4,11 @@ import json
 import math
 import os
 
+import numpy as np
 import pytest
 
+import _semantic.model as semantic_model
+import _semantic.runtime as semantic_runtime
 import build_index as bi
 import config as config_mod
 import search_index as si
@@ -83,6 +86,15 @@ class TestTokenise:
         """Ensure search tokeniser matches build tokeniser."""
         text = "BM25 retrieval with Python 3.8"
         assert si.tokenise(text) == bi.tokenise(text)
+
+
+class TestSemanticRuntime:
+    def test_rank_against_requires_matrix_and_metadata_lengths_to_match(self):
+        matrix = np.array([[1.0, 0.0], [0.0, 1.0]])
+        query_vec = np.array([1.0, 0.0])
+
+        with pytest.raises(AssertionError, match="matrix row count must match"):
+            semantic_runtime.rank_against(query_vec, matrix, [{"path": "A.md"}])
 
 
 # ---------------------------------------------------------------------------
@@ -248,7 +260,7 @@ class TestSemanticSearch:
             }
         }
         monkeypatch.setattr(
-            si._retrieval_embeddings,
+            si._semantic,
             "semantic_engine_available",
             lambda *_args, **kwargs: kwargs.get("skip_sidecar_check", False),
         )
@@ -276,7 +288,7 @@ class TestSemanticSearch:
             }
         }
         monkeypatch.setattr(
-            si._retrieval_embeddings,
+            si._semantic,
             "semantic_engine_available",
             lambda *_args, **kwargs: kwargs.get("skip_sidecar_check", False),
         )
@@ -285,7 +297,7 @@ class TestSemanticSearch:
 
     def test_semantic_search_uses_document_vectors(self, index, vault, monkeypatch):
         np = pytest.importorskip("numpy")
-        monkeypatch.setattr(si, "_encode_query", lambda _query: np.array([1.0, 0.0]))
+        monkeypatch.setattr(si, "_encode_query", lambda _vault, _query: np.array([1.0, 0.0]))
         vectors = self._aligned_vectors(
             index,
             {
@@ -311,7 +323,7 @@ class TestSemanticSearch:
 
     def test_semantic_search_respects_filters(self, index, vault, monkeypatch):
         np = pytest.importorskip("numpy")
-        monkeypatch.setattr(si, "_encode_query", lambda _query: np.array([1.0, 0.0]))
+        monkeypatch.setattr(si, "_encode_query", lambda _vault, _query: np.array([1.0, 0.0]))
         vectors = self._aligned_vectors(
             index,
             {
@@ -339,9 +351,23 @@ class TestSemanticSearch:
         with pytest.raises(si.SearchModeUnavailableError):
             si.search_semantic("brain", vault)
 
+    def test_semantic_search_wraps_semantic_model_errors(self, vault, monkeypatch):
+        def boom(_vault, _query, *, query_encoder=None):
+            raise semantic_model.SemanticModelMissingError("missing model snapshot")
+
+        monkeypatch.setattr(si._semantic, "encode_query", boom)
+
+        with pytest.raises(si.SearchModeUnavailableError, match="missing model snapshot"):
+            si.search_semantic(
+                "brain",
+                vault,
+                doc_embeddings=np.array([[1.0, 0.0]]),
+                embeddings_meta={"documents": [{"path": "Wiki/python-basics.md"}]},
+            )
+
     def test_hybrid_search_combines_lexical_and_semantic_results(self, index, vault, monkeypatch):
         np = pytest.importorskip("numpy")
-        monkeypatch.setattr(si, "_encode_query", lambda _query: np.array([1.0, 0.0]))
+        monkeypatch.setattr(si, "_encode_query", lambda _vault, _query: np.array([1.0, 0.0]))
         vectors = self._aligned_vectors(
             index,
             {
@@ -441,7 +467,7 @@ class TestSemanticSearch:
         vectors = self._aligned_vectors(index, path_vectors)
         meta = self._doc_meta(index)
         np = pytest.importorskip("numpy")
-        monkeypatch.setattr(si, "_encode_query", lambda _query: np.array([1.0, 0.0]))
+        monkeypatch.setattr(si, "_encode_query", lambda _vault, _query: np.array([1.0, 0.0]))
 
         no_bonus = pytest.MonkeyPatch()
         no_bonus.setattr(si, "SEMANTIC_CHAMPION_BONUS", 0.0)
@@ -512,7 +538,7 @@ class TestSemanticSearch:
         vectors = self._aligned_vectors(index, path_vectors)
         meta = self._doc_meta(index)
         np = pytest.importorskip("numpy")
-        monkeypatch.setattr(si, "_encode_query", lambda _query: np.array([1.0, 0.0]))
+        monkeypatch.setattr(si, "_encode_query", lambda _vault, _query: np.array([1.0, 0.0]))
         query = "authoritative design for the MCP server tool surface"
 
         no_bonus = pytest.MonkeyPatch()
@@ -606,7 +632,7 @@ class TestSemanticSearch:
         vectors = self._aligned_vectors(index, path_vectors)
         meta = self._doc_meta(index)
         np = pytest.importorskip("numpy")
-        monkeypatch.setattr(si, "_encode_query", lambda _query: np.array([1.0, 0.0]))
+        monkeypatch.setattr(si, "_encode_query", lambda _vault, _query: np.array([1.0, 0.0]))
         monkeypatch.setattr(si, "SEMANTIC_CHAMPION_BONUS", 0.0)
         query = (
             "conversational exploration of collaborative application framework "
@@ -1146,7 +1172,7 @@ class TestCliModes:
             },
         )
         monkeypatch.setattr(
-            si._retrieval_embeddings,
+            si._semantic_config,
             "semantic_retrieval_enabled",
             lambda _vault, **_: False,
         )
@@ -1175,12 +1201,12 @@ class TestCliModes:
             },
         )
         monkeypatch.setattr(
-            si._retrieval_embeddings,
+            si._semantic_config,
             "semantic_retrieval_enabled",
             lambda _vault, **_: True,
         )
         monkeypatch.setattr(
-            si._retrieval_embeddings,
+            si._semantic,
             "semantic_engine_available",
             lambda *_args, **_kwargs: False,
         )
