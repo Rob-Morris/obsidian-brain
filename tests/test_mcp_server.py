@@ -4742,6 +4742,49 @@ class TestIndexStaleness:
         assert (local_dir / "doc-embeddings.npy").exists()
         assert (local_dir / "embeddings-meta.json").exists()
 
+    def test_load_embeddings_marks_corrupt_sidecars_dirty_until_refresh(self, initialized, monkeypatch):
+        refresh_calls = []
+
+        def fake_refresh(vault_root, router, documents, *, enable_embeddings=None, config=None):
+            refresh_calls.append((str(vault_root), enable_embeddings, len(documents)))
+            return (
+                object(),
+                object(),
+                {"documents": [], "types": []},
+            )
+
+        monkeypatch.setattr(server, "_embeddings_enabled", lambda: True)
+        monkeypatch.setattr(
+            retrieval_embeddings,
+            "load_embeddings_state",
+            lambda _vault: (_ for _ in ()).throw(
+                retrieval_embeddings.SemanticEmbeddingsLoadError("corrupt sidecars")
+            ),
+        )
+        monkeypatch.setattr(build_index, "refresh_embeddings_outputs", fake_refresh)
+
+        server._type_embeddings = None
+        server._doc_embeddings = None
+        server._embeddings_meta = None
+        server._doc_embeddings_dirty = False
+        server._type_embeddings_dirty = False
+
+        server._load_embeddings(str(initialized))
+
+        assert server._type_embeddings is None
+        assert server._doc_embeddings is None
+        assert server._embeddings_meta is None
+        assert server._doc_embeddings_dirty is True
+        assert server._type_embeddings_dirty is True
+
+        server._ensure_embeddings_fresh()
+
+        assert refresh_calls == [(str(initialized), True, len(server._index["documents"]))]
+        assert server._type_embeddings is not None
+        assert server._doc_embeddings is not None
+        assert server._embeddings_meta == {"documents": [], "types": []}
+        assert server._doc_embeddings_dirty is False
+        assert server._type_embeddings_dirty is False
     def test_process_context_assembly_skips_embeddings_refresh(self, initialized, monkeypatch):
         server._config["defaults"]["flags"]["semantic_processing"] = True
         server._config["defaults"].setdefault("local_runtime", {})["semantic_engine_installed"] = True

@@ -9,8 +9,11 @@ the local semantic-retrieval flag, installs the pinned semantic Python stack,
 snapshots the pinned model under `.brain/local/semantic-models/`, records
 `.brain/local/semantic-model-manifest.json`, and refreshes embeddings sidecars.
 After provisioning, ordinary search/process/index paths load the local snapshot
-with no surprise Hugging Face fetches. The pinned stack targets current
-upstream wheel-supported platforms; Intel macOS remains lexical-only.
+with no surprise Hugging Face fetches. Missing sidecars still degrade cleanly;
+present-but-corrupt sidecars now fail explicitly at search/evaluation entry
+points so the owning boundary can rebuild or repair them deliberately. The
+pinned stack targets current upstream wheel-supported platforms; Intel macOS
+remains lexical-only.
 
 ## Module Table
 

@@ -165,6 +165,17 @@ def _encode_query(vault_root, query, *, query_encoder=None):
         ) from exc
 
 
+def load_doc_embeddings_or_unavailable(vault_root, *, loader=None):
+    """Load semantic sidecars or raise the canonical unavailable error."""
+    load = loader or _semantic.load_doc_embeddings
+    try:
+        return load(vault_root)
+    except _semantic.SemanticEmbeddingsLoadError as exc:
+        raise SearchModeUnavailableError(
+            f"semantic retrieval is unavailable: {exc}"
+        ) from exc
+
+
 def _entry_matches_filters(entry, type_filter, tag_filter, status_filter):
     """Apply the standard artefact filters to an index or embedding entry."""
     if type_filter and entry.get("type") != type_filter:
@@ -406,7 +417,7 @@ def search_semantic(
         return []
 
     if doc_embeddings is None or embeddings_meta is None:
-        doc_embeddings, embeddings_meta = _semantic.load_doc_embeddings(
+        doc_embeddings, embeddings_meta = load_doc_embeddings_or_unavailable(
             vault_root
         )
     if doc_embeddings is None or embeddings_meta is None:
@@ -771,7 +782,7 @@ def main():
 
     vault_root = find_vault_root()
     try:
-        cfg = _semantic_config.load_config_best_effort(vault_root)
+        cfg = _semantic_config.load_config_checked(vault_root)
     except _semantic_config.SemanticConfigLoadError as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)

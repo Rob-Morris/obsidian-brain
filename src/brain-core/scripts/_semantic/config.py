@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import os
 
 from _common import safe_write_via
@@ -17,14 +18,14 @@ class SemanticConfigLoadError(RuntimeError):
     """Raised when semantic config probing hits a real config load failure."""
 
 
-def load_config_best_effort(vault_root, config=None):
-    """Best-effort config loader used by semantic feature-policy helpers."""
+def load_config_checked(vault_root, config=None):
+    """Load vault config or raise when the config layer is broken."""
     if config is not None:
         return config
     try:
-        import config as config_mod
-    except ImportError:
-        return None
+        config_mod = importlib.import_module("config")
+    except ImportError as exc:
+        raise SemanticConfigLoadError(f"failed to import config module: {exc}") from exc
     try:
         return config_mod.load_config(str(vault_root))
     except (FileNotFoundError, OSError, ValueError) as exc:
@@ -33,7 +34,7 @@ def load_config_best_effort(vault_root, config=None):
 
 def _read_nested_flag(vault_root, section, flag_name, *, config=None):
     """Return a boolean from defaults.<section>.<flag_name>."""
-    config = load_config_best_effort(vault_root, config=config)
+    config = load_config_checked(vault_root, config=config)
     if not isinstance(config, dict):
         return False
     flags = config.get("defaults", {}).get(section, {})

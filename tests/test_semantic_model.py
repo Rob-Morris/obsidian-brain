@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import builtins
 import os
 import sys
 import types
@@ -125,6 +126,60 @@ def test_embeddings_sidecars_match_manifest_keeps_present_honest_without_manifes
     assert present is True
     assert outdated is False
 
+def test_load_embeddings_state_returns_none_without_numpy(tmp_path, monkeypatch):
+    vault = _make_vault(tmp_path)
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "numpy":
+            raise ImportError("numpy unavailable")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+
+    assert semantic_runtime.load_embeddings_state(vault) == (None, None, None)
+
+
+def test_load_embeddings_state_raises_on_corrupt_meta(tmp_path):
+    vault = _make_vault(tmp_path)
+    meta_path = vault / semantic_runtime.EMBEDDINGS_META_REL
+    meta_path.parent.mkdir(parents=True, exist_ok=True)
+    meta_path.write_text("{not-json", encoding="utf-8")
+
+    with pytest.raises(
+        semantic_runtime.SemanticEmbeddingsLoadError,
+        match="semantic embeddings metadata is unreadable",
+    ):
+        semantic_runtime.load_embeddings_state(vault)
+
+
+def test_load_embeddings_state_raises_when_meta_is_not_a_json_object(tmp_path):
+    vault = _make_vault(tmp_path)
+    meta_path = vault / semantic_runtime.EMBEDDINGS_META_REL
+    meta_path.parent.mkdir(parents=True, exist_ok=True)
+    meta_path.write_text('["not", "an", "object"]', encoding="utf-8")
+
+    with pytest.raises(
+        semantic_runtime.SemanticEmbeddingsLoadError,
+        match=r"semantic embeddings metadata at .* is not a JSON object",
+    ):
+        semantic_runtime.load_embeddings_state(vault)
+
+
+def test_load_embeddings_state_raises_on_corrupt_document_array(tmp_path):
+    pytest.importorskip("numpy")
+    vault = _make_vault(tmp_path)
+    meta_path = vault / semantic_runtime.EMBEDDINGS_META_REL
+    doc_path = vault / semantic_runtime.DOC_EMBEDDINGS_REL
+    meta_path.parent.mkdir(parents=True, exist_ok=True)
+    meta_path.write_text('{"documents": [], "types": []}', encoding="utf-8")
+    doc_path.write_bytes(b"not-a-numpy-array")
+
+    with pytest.raises(
+        semantic_runtime.SemanticEmbeddingsLoadError,
+        match="semantic document embeddings are unreadable",
+    ):
+        semantic_runtime.load_embeddings_state(vault)
 
 def test_get_query_encoder_cache_is_vault_scoped(tmp_path, monkeypatch):
     vault_a = _make_vault(tmp_path / "vault-a")

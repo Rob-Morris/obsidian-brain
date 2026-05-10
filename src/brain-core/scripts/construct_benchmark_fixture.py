@@ -1706,7 +1706,7 @@ def construct_fixture(
     if index is None:
         index = si.load_index(vault_root)
     if config is None:
-        config = _retrieval_embeddings.load_config_best_effort(vault_root)
+        config = _retrieval_embeddings.load_config_checked(vault_root)
 
     semantic_available, semantic_error = _mode_available(
         vault_root,
@@ -1716,7 +1716,10 @@ def construct_fixture(
         embeddings_meta=embeddings_meta,
     )
     if semantic_available and (doc_embeddings is None or embeddings_meta is None):
-        doc_embeddings, embeddings_meta = _retrieval_embeddings.load_doc_embeddings(vault_root)
+        doc_embeddings, embeddings_meta = si.load_doc_embeddings_or_unavailable(
+            vault_root,
+            loader=_retrieval_embeddings.load_doc_embeddings,
+        )
     if semantic_available and query_encoder is None:
         query_encoder = _retrieval_embeddings.get_query_encoder(vault_root)
 
@@ -1891,7 +1894,7 @@ def main():
             semantic_seed_file=semantic_seed_file,
             hybrid_seed_file=hybrid_seed_file,
         )
-    except si.SearchModeUnavailableError as exc:
+    except (si.SearchModeUnavailableError, _retrieval_embeddings.SemanticConfigLoadError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(1)
 

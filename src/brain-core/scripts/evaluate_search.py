@@ -549,12 +549,13 @@ def build_report(
     if index is None:
         index = si.load_index(vault_root)
     if config is None:
-        config = _retrieval_embeddings.load_config_best_effort(vault_root)
+        config = _retrieval_embeddings.load_config_checked(vault_root)
 
     needs_semantic = any(mode in {"semantic", "hybrid"} for mode in modes)
     if needs_semantic and (doc_embeddings is None or embeddings_meta is None):
-        doc_embeddings, embeddings_meta = _retrieval_embeddings.load_doc_embeddings(
-            vault_root
+        doc_embeddings, embeddings_meta = si.load_doc_embeddings_or_unavailable(
+            vault_root,
+            loader=_retrieval_embeddings.load_doc_embeddings,
         )
     if needs_semantic and query_encoder is None:
         available, _error = _mode_available(

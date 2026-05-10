@@ -15,7 +15,7 @@ import _semantic.provision as semantic_provision
 
 
 def _load_local_config(vault):
-    return semantic_config.load_config_best_effort(vault)
+    return semantic_config.load_config_checked(vault)
 
 
 def _make_vault(tmp_path):
@@ -360,7 +360,7 @@ def test_sync_runtime_packages_installs_pinned_runtime(monkeypatch):
     assert captured["kwargs"]["timeout"] == semantic_provision.SEMANTIC_RUNTIME_TIMEOUT
 
 
-def test_load_config_best_effort_wraps_expected_failures(tmp_path, monkeypatch):
+def test_load_config_checked_wraps_expected_failures(tmp_path, monkeypatch):
     vault = _make_vault(tmp_path)
 
     def boom(_vault_root):
@@ -369,10 +369,26 @@ def test_load_config_best_effort_wraps_expected_failures(tmp_path, monkeypatch):
     monkeypatch.setattr(config_module, "load_config", boom)
 
     with pytest.raises(semantic_config.SemanticConfigLoadError, match="missing template"):
-        semantic_config.load_config_best_effort(vault)
+        semantic_config.load_config_checked(vault)
 
 
-def test_load_config_best_effort_propagates_programmer_errors(tmp_path, monkeypatch):
+def test_load_config_checked_wraps_import_failures(tmp_path, monkeypatch):
+    vault = _make_vault(tmp_path)
+
+    monkeypatch.setattr(
+        semantic_config.importlib,
+        "import_module",
+        lambda _name: (_ for _ in ()).throw(ImportError("missing config module")),
+    )
+
+    with pytest.raises(
+        semantic_config.SemanticConfigLoadError,
+        match="failed to import config module: missing config module",
+    ):
+        semantic_config.load_config_checked(vault)
+
+
+def test_load_config_checked_propagates_programmer_errors(tmp_path, monkeypatch):
     vault = _make_vault(tmp_path)
 
     def boom(_vault_root):
@@ -381,4 +397,4 @@ def test_load_config_best_effort_propagates_programmer_errors(tmp_path, monkeypa
     monkeypatch.setattr(config_module, "load_config", boom)
 
     with pytest.raises(TypeError, match="bad call"):
-        semantic_config.load_config_best_effort(vault)
+        semantic_config.load_config_checked(vault)

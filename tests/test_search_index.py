@@ -351,6 +351,15 @@ class TestSemanticSearch:
         with pytest.raises(si.SearchModeUnavailableError):
             si.search_semantic("brain", vault)
 
+    def test_semantic_search_reports_corrupt_sidecars(self, vault, monkeypatch):
+        def boom(_vault):
+            raise semantic_runtime.SemanticEmbeddingsLoadError("corrupt sidecars")
+
+        monkeypatch.setattr(si._semantic, "load_doc_embeddings", boom)
+
+        with pytest.raises(si.SearchModeUnavailableError, match="corrupt sidecars"):
+            si.search_semantic("brain", vault)
+
     def test_semantic_search_wraps_semantic_model_errors(self, vault, monkeypatch):
         def boom(_vault, _query, *, query_encoder=None):
             raise semantic_model.SemanticModelMissingError("missing model snapshot")

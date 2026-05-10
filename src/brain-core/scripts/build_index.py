@@ -561,7 +561,7 @@ def index_update(index, vault_root, rel_path, type_hint=None):
 def main():
     vault_root = find_vault_root()
     try:
-        cfg = _semantic_config.load_config_best_effort(vault_root)
+        cfg = _semantic_config.load_config_checked(vault_root)
     except _semantic_config.SemanticConfigLoadError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(1)

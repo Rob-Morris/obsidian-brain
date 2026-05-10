@@ -470,7 +470,10 @@ snapshot with `local_files_only=True`; they do not fetch from Hugging Face at
 runtime. Intel macOS is not a supported semantic-search target because
 upstream PyPI wheels for this Torch line no longer cover `darwin/x86_64`. If
 a vault is already configured on but the runtime, model snapshot, or sidecars
-later drift, `check.py` will point to `repair.py semantic`.
+later drift, `check.py` will point to `repair.py semantic`. Missing sidecars
+still degrade cleanly; present-but-corrupt sidecars fail explicitly at the
+script entry points so the owning boundary can rebuild or repair them
+deliberately.
 
 **CLI:**
 ```bash
@@ -484,7 +487,7 @@ python3 search_index.py "query" --mode hybrid
 python3 search_index.py "query" --json  # structured output
 ```
 
-`search_index.py` defaults to `hybrid` when semantic retrieval is enabled and usable; otherwise it defaults to `lexical`. Explicit `--mode semantic` and `--mode hybrid` fail fast when embeddings sidecars or dependencies are unavailable. Hybrid search applies four query-shape adjustments on top of RRF: exact-anchor queries (release versions, ticket-like IDs) return the lexical champion outright, a clearly dominant semantic top result receives a small tie-break bonus, a strong lexical leader receives a small bonus when the query literally contains its core title phrase, and a stronger semantic rescue applies only when lexical and semantic top candidates are disjoint while the lexical top title shows very little query overlap. The title-phrase rule strips only the shipped `Brain` product namespace from first-party titles like `Brain MCP Server`; it is not a general vault-prefix mechanism.
+`search_index.py` defaults to `hybrid` when semantic retrieval is enabled and usable; otherwise it defaults to `lexical`. Explicit `--mode semantic` and `--mode hybrid` fail fast when embeddings sidecars are missing or corrupt, or when semantic dependencies are unavailable. Hybrid search applies four query-shape adjustments on top of RRF: exact-anchor queries (release versions, ticket-like IDs) return the lexical champion outright, a clearly dominant semantic top result receives a small tie-break bonus, a strong lexical leader receives a small bonus when the query literally contains its core title phrase, and a stronger semantic rescue applies only when lexical and semantic top candidates are disjoint while the lexical top title shows very little query overlap. The title-phrase rule strips only the shipped `Brain` product namespace from first-party titles like `Brain MCP Server`; it is not a general vault-prefix mechanism.
 
 `evaluate_search.py` runs a benchmark JSON file against one or more explicit modes and reports hit@1 / hit@3 / hit@5, per-mode timing, per-intent summaries, a best-effort expected-winner scorecard for whichever primary lexical/semantic/hybrid buckets have the expected mode plus at least one comparison mode present, basic cluster-quality metrics, explicit filter-sensitive pass/fail output, and comparisons against lexical baseline behaviour. The benchmark schema is intentionally small:
 

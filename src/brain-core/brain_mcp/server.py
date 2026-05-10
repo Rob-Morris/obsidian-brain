@@ -1381,9 +1381,18 @@ def _load_embeddings(vault_root: str) -> None:
         _retrieval_embeddings.clear_query_encoder()
         _retrieval_embeddings.clear_embeddings_outputs(vault_root)
         return
-    type_embeddings, doc_embeddings, meta = _retrieval_embeddings.load_embeddings_state(
-        vault_root
-    )
+    try:
+        type_embeddings, doc_embeddings, meta = _retrieval_embeddings.load_embeddings_state(
+            vault_root
+        )
+    except _retrieval_embeddings.SemanticEmbeddingsLoadError as exc:
+        if _logger:
+            _logger.warning(
+                "semantic embeddings sidecars are unreadable; scheduling rebuild: %s",
+                exc,
+            )
+        _mark_embeddings_dirty()
+        return
     if meta is None:
         _clear_loaded_embeddings()
         _retrieval_embeddings.clear_query_encoder()

@@ -18,6 +18,10 @@ EMBEDDING_MODEL_REVISION = semantic_model.SHIPPED_MODEL_REVISION
 EMBEDDING_DIM = 384
 
 
+class SemanticEmbeddingsLoadError(RuntimeError):
+    """Raised when persisted semantic embeddings state is present but unreadable."""
+
+
 def semantic_runtime_dependencies_available():
     """Return True when lightweight semantic-search deps appear importable."""
     return (
@@ -134,14 +138,17 @@ def embeddings_sidecars_match_manifest(vault_root, manifest):
     )
     return (True, outdated)
 
+
 def load_embeddings_state(vault_root):
     """Load type+doc embeddings and shared meta from disk.
 
     Returns `(type_embeddings, doc_embeddings, meta)`. Meta is the shared
     row→entry mapping; without it the npy arrays can't be interpreted, so
-    type/doc default to `None` whenever meta is missing or unparseable.
-    Either npy can independently be `None` if its file is missing or fails
-    to load. Returns `(None, None, None)` when numpy is unavailable.
+    type/doc default to `None` whenever metadata is absent. Either npy can
+    independently be `None` if its file is missing. Returns
+    `(None, None, None)` when numpy is unavailable. Raises
+    `SemanticEmbeddingsLoadError` when persisted metadata or arrays are
+    present but unreadable.
     """
     try:
         import numpy as np
@@ -158,24 +165,33 @@ def load_embeddings_state(vault_root):
         try:
             with open(meta_path, "r", encoding="utf-8") as f:
                 loaded = json.load(f)
-            if isinstance(loaded, dict):
-                meta = loaded
-        except (OSError, ValueError, json.JSONDecodeError):
-            meta = None
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            raise SemanticEmbeddingsLoadError(
+                f"semantic embeddings metadata is unreadable at {meta_path}: {exc}"
+            ) from exc
+        if not isinstance(loaded, dict):
+            raise SemanticEmbeddingsLoadError(
+                f"semantic embeddings metadata at {meta_path} is not a JSON object"
+            )
+        meta = loaded
 
     type_embeddings = None
     if meta is not None and os.path.isfile(type_path):
         try:
             type_embeddings = np.load(type_path)
-        except (OSError, ValueError):
-            type_embeddings = None
+        except (OSError, ValueError) as exc:
+            raise SemanticEmbeddingsLoadError(
+                f"semantic type embeddings are unreadable at {type_path}: {exc}"
+            ) from exc
 
     doc_embeddings = None
     if meta is not None and os.path.isfile(doc_path):
         try:
             doc_embeddings = np.load(doc_path)
-        except (OSError, ValueError):
-            doc_embeddings = None
+        except (OSError, ValueError) as exc:
+            raise SemanticEmbeddingsLoadError(
+                f"semantic document embeddings are unreadable at {doc_path}: {exc}"
+            ) from exc
 
     return (type_embeddings, doc_embeddings, meta)
 

@@ -295,6 +295,26 @@ class TestRepairScopes:
         assert result["status"] == "noop"
         assert result["steps"][-1]["name"] == "semantic_config"
 
+    def test_semantic_repair_surfaces_config_load_errors(self, repair_vault, monkeypatch):
+        monkeypatch.setattr(
+            repair_runtime._semantic_config,
+            "load_config_checked",
+            lambda _vault: (_ for _ in ()).throw(
+                repair_runtime._semantic_config.SemanticConfigLoadError(
+                    "semantic config is unreadable"
+                )
+            ),
+        )
+
+        result = repair_runtime.repair_semantic(repair_vault, dry_run=False)
+
+        assert result["status"] == "error"
+        assert result["steps"][-1] == {
+            "name": "semantic_config",
+            "status": "error",
+            "message": "semantic config is unreadable",
+        }
+
     def test_semantic_repair_marks_runtime_when_only_marker_is_missing(self, repair_vault, monkeypatch):
         semantic_config.set_semantic_flags(repair_vault, retrieval=True)
         semantic_config.set_semantic_engine_installed(repair_vault, installed=False)
@@ -343,7 +363,7 @@ class TestRepairScopes:
             "semantic_model",
             "semantic_runtime_marker",
         ]
-        cfg = semantic_config.load_config_best_effort(repair_vault)
+        cfg = semantic_config.load_config_checked(repair_vault)
         assert semantic_config.semantic_retrieval_enabled(repair_vault, config=cfg) is True
         assert semantic_config.semantic_engine_installed(repair_vault, config=cfg) is True
 

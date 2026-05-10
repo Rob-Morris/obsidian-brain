@@ -80,6 +80,27 @@ class TestParseArgs:
         assert exc.value.code == 1
         assert "unrecognized arguments: --bogus" in capsys.readouterr().err
 
+    def test_main_exits_on_semantic_config_error(self, monkeypatch, capsys):
+        monkeypatch.setattr(
+            cbf.sys,
+            "argv",
+            ["construct_benchmark_fixture.py", "--fixture-out", "fixture.json"],
+        )
+        monkeypatch.setattr(cbf, "find_vault_root", lambda _vault: "/tmp/vault")
+        monkeypatch.setattr(
+            cbf,
+            "construct_fixture",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                cbf._retrieval_embeddings.SemanticConfigLoadError("bad config")
+            ),
+        )
+
+        with pytest.raises(SystemExit) as exc:
+            cbf.main()
+
+        assert exc.value.code == 1
+        assert "Error: bad config" in capsys.readouterr().err
+
 
 class TestSelection:
     def test_select_cases_respects_targets_and_shortfall(self):

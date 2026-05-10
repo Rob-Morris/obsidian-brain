@@ -7,6 +7,7 @@ import pytest
 
 import build_index as bi
 import evaluate_search as es
+import search_index as si
 
 
 FIXTURE_BENCHMARK = Path(__file__).parent / "fixtures" / "inline_search_benchmark.json"
@@ -254,7 +255,7 @@ class TestBuildReport:
         monkeypatch.setattr(es.si, "load_index", lambda _vault: {"documents": []})
         monkeypatch.setattr(
             es._retrieval_embeddings,
-            "load_config_best_effort",
+            "load_config_checked",
             lambda _vault: {"defaults": {"flags": {"semantic_retrieval": True}}},
         )
         monkeypatch.setattr(es, "_mode_available", lambda *_args, **_kwargs: (True, None))
@@ -294,6 +295,46 @@ class TestBuildReport:
             "filter-sensitive": {"improved": 0, "regressed": 1, "unchanged": 0},
             "semantic-expected": {"improved": 1, "regressed": 0, "unchanged": 0},
         }
+
+    def test_reports_corrupt_embeddings_sidecars_as_semantic_unavailable(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        benchmark_path = tmp_path / "benchmark.json"
+        benchmark_path.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "cases": [
+                        {
+                            "id": "semantic-case",
+                            "query": "q1",
+                            "intent": "semantic-expected",
+                            "relevant_paths": ["A.md"],
+                        }
+                    ],
+                }
+            )
+        )
+
+        monkeypatch.setattr(es.si, "load_index", lambda _vault: {"documents": []})
+        monkeypatch.setattr(
+            es._retrieval_embeddings,
+            "load_config_checked",
+            lambda _vault: {"defaults": {"flags": {"semantic_retrieval": True}}},
+        )
+        monkeypatch.setattr(es, "_mode_available", lambda *_args, **_kwargs: (True, None))
+        monkeypatch.setattr(
+            es._retrieval_embeddings,
+            "load_doc_embeddings",
+            lambda _vault: (_ for _ in ()).throw(
+                es._retrieval_embeddings.SemanticEmbeddingsLoadError("corrupt sidecars")
+            ),
+        )
+
+        with pytest.raises(si.SearchModeUnavailableError, match="corrupt sidecars"):
+            es.build_report(tmp_path, benchmark_path, modes=["semantic"])
 
     def test_builds_expected_winner_scorecard(self):
         mode_summaries = [
@@ -415,3 +456,24 @@ class TestBuildReport:
 
         assert exc.value.code == 1
         assert "Error: unrecognized arguments: --bogus" in capsys.readouterr().err
+
+    def test_main_exits_on_semantic_config_error(self, monkeypatch, capsys):
+        monkeypatch.setattr(
+            es.sys,
+            "argv",
+            ["evaluate_search.py", "--benchmark", "bench.json"],
+        )
+        monkeypatch.setattr(es, "find_vault_root", lambda: "/tmp/vault")
+        monkeypatch.setattr(
+            es,
+            "build_report",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                es._retrieval_embeddings.SemanticConfigLoadError("bad config")
+            ),
+        )
+
+        with pytest.raises(SystemExit) as exc:
+            es.main()
+
+        assert exc.value.code == 1
+        assert "Error: bad config" in capsys.readouterr().err

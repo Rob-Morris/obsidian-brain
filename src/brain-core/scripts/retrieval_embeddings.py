@@ -4,7 +4,7 @@
 from _semantic.config import (  # noqa: F401
     SemanticConfigLoadError,
     embeddings_enabled,
-    load_config_best_effort,
+    load_config_checked,
     semantic_engine_installed,
     semantic_processing_enabled,
     semantic_retrieval_enabled,
@@ -15,6 +15,7 @@ from _semantic.config import (  # noqa: F401
 from _semantic.runtime import (  # noqa: F401
     DOC_EMBEDDINGS_REL,
     EMBEDDINGS_META_REL,
+    SemanticEmbeddingsLoadError,
     TYPE_EMBEDDINGS_REL,
     clear_embeddings_outputs,
     clear_query_encoder,

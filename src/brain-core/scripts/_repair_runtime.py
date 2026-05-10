@@ -557,7 +557,7 @@ def repair_registry(vault_root: Path, dry_run: bool, bootstrap_steps: list[dict]
 def inspect_semantic(vault_root: Path) -> dict:
     """Inspect semantic config/runtime health for this vault."""
     try:
-        cfg = _semantic_config.load_config_best_effort(vault_root)
+        cfg = _semantic_config.load_config_checked(vault_root)
     except _semantic_config.SemanticConfigLoadError as exc:
         return {
             "configured": False,
@@ -643,6 +643,10 @@ def inspect_semantic(vault_root: Path) -> dict:
 def repair_semantic(vault_root: Path, dry_run: bool, bootstrap_steps: list[dict] | None = None) -> dict:
     steps = list(bootstrap_steps or [])
     state = inspect_semantic(vault_root)
+
+    if ISSUE_CONFIG_LOAD_ERROR in state["issues"]:
+        steps.append(_step("semantic_config", "error", state["message"]))
+        return _finalise_result("semantic", vault_root, dry_run, steps)
 
     if not state["configured"]:
         steps.append(

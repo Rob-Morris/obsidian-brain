@@ -246,7 +246,7 @@ python3.12 .brain-core/scripts/configure.py semantic --enable
 python3.12 .brain-core/scripts/configure.py semantic --enable --no-provision --json
 ```
 
-**`repair.py`** (infrastructure recovery) — explicit repair surface for current-vault operational drift. It bootstraps from any compatible Python 3.12+ launcher, repairs the vault-local managed runtime when needed, then hands off into that `.venv` for packageful work. First-cut scopes are `mcp`, `router`, `index`, `registry`, and `semantic`.
+**`repair.py`** (infrastructure recovery) — explicit repair surface for current-vault operational drift. It bootstraps from any compatible Python 3.12+ launcher, repairs the vault-local managed runtime when needed, then hands off into that `.venv` for packageful work. First-cut scopes are `mcp`, `router`, `index`, `registry`, and `semantic`; the semantic scope restores the pinned runtime packages, local model snapshot/manifest, and sidecars together for an already-configured vault. Missing sidecars degrade cleanly at runtime; present-but-corrupt sidecars now fail explicitly so the owning entry point can rebuild or point you at repair.
 
 ```bash
 python3.12 .brain-core/scripts/repair.py mcp
