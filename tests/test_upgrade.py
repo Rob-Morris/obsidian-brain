@@ -661,6 +661,97 @@ class TestUpgradeSemanticRepair:
         assert "semantic_repair" not in result
 
 
+class TestUpgradeProgressLogging:
+    def test_upgrade_records_running_stage_before_compile_validation(self, tmp_path, monkeypatch):
+        source = _make_real_compile_source(tmp_path)
+        vault = _make_minimal_upgrade_vault(tmp_path)
+        log_path = vault / ".brain" / "local" / "last-upgrade.json"
+        seen = []
+
+        def fake_validate(_vault_root):
+            entry = json.loads(log_path.read_text())
+            seen.append(entry)
+            return "compile failed for test"
+
+        monkeypatch.setattr(upgrade, "_validate_compile", fake_validate)
+
+        result = upgrade.upgrade(str(vault), str(source), sync=False)
+
+        assert result["status"] == "error"
+        assert "compile failed for test" in result["message"]
+        assert seen
+        assert seen[0]["status"] == "running"
+        assert seen[0]["stage"] == "validate_compile"
+        assert seen[0]["message"] == "Validating the upgraded router/compiler state"
+
+        final = json.loads(log_path.read_text())
+        assert final["status"] == "error"
+        assert "compile failed for test" in final["message"]
+
+    def test_cli_records_dependency_sync_stage_before_follow_up(self, tmp_path, monkeypatch, capsys):
+        source = _make_real_compile_source(tmp_path)
+        brain_mcp = source / "brain_mcp"
+        brain_mcp.mkdir()
+        (brain_mcp / "requirements.txt").write_text("mcp==2.0.0\n")
+
+        vault = _make_minimal_upgrade_vault(tmp_path)
+        old_requirements = vault / ".brain-core" / "brain_mcp"
+        old_requirements.mkdir(parents=True)
+        (old_requirements / "requirements.txt").write_text("mcp==1.0.0\n")
+        log_path = vault / ".brain" / "local" / "last-upgrade.json"
+
+        def fake_upgrade(vault_root, source_arg, *, force=False, dry_run=False, sync=None):
+            result = {
+                "status": "ok",
+                "old_version": "0.35.9",
+                "new_version": "0.36.7",
+                "files_added": [],
+                "files_modified": [upgrade.REQ_FILE_REL],
+                "files_removed": [],
+                "files_unchanged": 0,
+                "dry_run": False,
+                "message": "Upgraded 0.35.9 → 0.36.7",
+            }
+            upgrade._write_upgrade_log(vault_root, result)
+            return result
+
+        def fake_dep_sync(vault_root, *, requirements_changed, sync_deps):
+            entry = json.loads(log_path.read_text())
+            assert entry["status"] == "running"
+            assert entry["stage"] == "dependency_sync"
+            assert entry["message"] == "Synchronising vault-local MCP dependencies"
+            assert requirements_changed is True
+            return {
+                "outcome": "ok",
+                "command": ["python", "-m", "pip", "install", "-r", "requirements.txt"],
+                "requirements_changed": True,
+                "message": "ok",
+            }
+
+        monkeypatch.setattr(upgrade, "upgrade", fake_upgrade)
+        monkeypatch.setattr(upgrade, "_maybe_sync_mcp_dependencies", fake_dep_sync)
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "upgrade.py",
+                "--source",
+                str(source),
+                "--vault",
+                str(vault),
+                "--json",
+            ],
+        )
+
+        upgrade.main()
+
+        result = json.loads(capsys.readouterr().out)
+        assert result["dependency_sync"]["outcome"] == "ok"
+        final = json.loads(log_path.read_text())
+        assert final["status"] == "ok"
+        assert final["dependency_sync"]["outcome"] == "ok"
+
+
 class TestUpgradeCliDependencySync:
     def test_cli_syncs_vault_local_dependencies_and_prints_absolute_follow_up(self, tmp_path):
         source = _make_real_compile_source(tmp_path)

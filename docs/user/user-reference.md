@@ -216,7 +216,7 @@ Available in `.brain-core/scripts/`. Scripts are the source of truth for all vau
 | `shape_printable.py` | Create printable + render PDF |
 | `shape_presentation.py` | Create presentation + render PDF + launch preview |
 | `start_shaping.py` | Bootstrap a shaping session for an existing artefact |
-| `upgrade.py` | Canonical brain-core upgrade entry point from a source directory, including versioned pre-compile compatibility patches, binary-safe rollback snapshots for `.brain/` / `_Config/`, post-compile migration rollback of touched artefact roots, applied-migration tracking in `.brain/local/`, self-contained atomic writes, and best-effort vault-local MCP dependency sync when requirements change |
+| `upgrade.py` | Canonical brain-core upgrade entry point from a source directory, including versioned pre-compile compatibility patches, binary-safe rollback snapshots for `.brain/` / `_Config/`, applied-migration tracking in `.brain/local/`, running stage snapshots in `.brain/local/last-upgrade.json`, self-contained atomic writes, and best-effort vault-local MCP dependency sync when requirements change |
 | `vault_registry.py` | User-home registry of installed Brain vaults |
 | `workspace_registry.py` | Workspace key→path resolution and registration |
 | `init.py` | Set up Claude Code and/or Codex to use this vault's MCP server; requires a Python 3.12+ runtime with the `mcp` package, folder-scoped installs also scaffold `.brain/local/workspace.yaml` (migrates legacy `.brain/workspace.yaml` automatically), and direct config writes stay atomic with unique sibling temp files. Project scope outranks user scope once the client activates the project entry: approve via `/mcp` in Claude, or trust/enable the project-scoped server in Codex. |

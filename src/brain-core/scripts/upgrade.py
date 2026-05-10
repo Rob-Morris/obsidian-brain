@@ -912,6 +912,36 @@ def _write_upgrade_log(vault_root: str, result: dict) -> None:
         pass  # best-effort — don't let log failure mask the real error
 
 
+def _write_upgrade_progress(
+    vault_root: str,
+    *,
+    old_version: Optional[str],
+    new_version: str,
+    dry_run: bool,
+    stage: str,
+    message: str,
+) -> None:
+    """Write an in-progress upgrade stage snapshot for post-mortem diagnosis.
+
+    The CLI can appear stuck even after the real upgrader process has died or
+    after a later follow-up step (such as dependency sync) has taken over the
+    wall-clock time. Recording the current stage up front makes the vault-local
+    diagnostic file useful even when the caller never receives the final JSON or
+    stderr footer.
+    """
+    _write_upgrade_log(
+        vault_root,
+        {
+            "status": "running",
+            "stage": stage,
+            "old_version": old_version,
+            "new_version": new_version,
+            "dry_run": dry_run,
+            "message": message,
+        },
+    )
+
+
 def _validate_compile(vault_root: str) -> Optional[str]:
     """Run compile_router.py against the vault as a validation step.
 
@@ -1273,6 +1303,15 @@ def upgrade(vault_root: str, source: str, *, force: bool = False, dry_run: bool 
 
         return result
 
+    _write_upgrade_progress(
+        vault_root,
+        old_version=old_version,
+        new_version=new_version,
+        dry_run=False,
+        stage="backup_brain_core",
+        message=f"Preparing upgrade {old_version or '(none)'} → {new_version}",
+    )
+
     # --- Backup .brain-core/ before modifying anything ---
     backup_dir = _backup_brain_core(target)
 
@@ -1298,6 +1337,14 @@ def upgrade(vault_root: str, source: str, *, force: bool = False, dry_run: bool 
         return err_result
 
     try:
+        _write_upgrade_progress(
+            vault_root,
+            old_version=old_version,
+            new_version=new_version,
+            dry_run=False,
+            stage="copy_brain_core",
+            message="Copying brain-core files into the vault",
+        )
         # Copy only added and modified files (avoids touching unchanged files,
         # which prevents sync-service conflict copies on iCloud/Dropbox/etc.)
         for rel in diff["files_added"] + diff["files_modified"]:
@@ -1323,6 +1370,14 @@ def upgrade(vault_root: str, source: str, *, force: bool = False, dry_run: bool 
 
         _snapshot_tree(os.path.join(vault_root, ".brain"), precompile_snapshots, roots=precompile_snapshot_roots)
         _snapshot_tree(os.path.join(vault_root, "_Config"), precompile_snapshots, roots=precompile_snapshot_roots)
+        _write_upgrade_progress(
+            vault_root,
+            old_version=old_version,
+            new_version=new_version,
+            dry_run=False,
+            stage="validate_compile",
+            message="Validating the upgraded router/compiler state",
+        )
         compile_context = {
             "compile_error": _validate_compile(vault_root),
             "validate_compile": lambda: _validate_compile(vault_root),
@@ -1367,6 +1422,14 @@ def upgrade(vault_root: str, source: str, *, force: bool = False, dry_run: bool 
         )
 
     try:
+        _write_upgrade_progress(
+            vault_root,
+            old_version=old_version,
+            new_version=new_version,
+            dry_run=False,
+            stage="post_compile_migrations",
+            message="Running post-compile migrations",
+        )
         migrations, ledger = _run_migrations(
             vault_root, old_version, new_version, force=force, raise_on_error=True,
         )
@@ -1380,10 +1443,26 @@ def upgrade(vault_root: str, source: str, *, force: bool = False, dry_run: bool 
     shutil.rmtree(backup_dir, ignore_errors=True)
 
     # --- Post-upgrade definition sync ---
+    _write_upgrade_progress(
+        vault_root,
+        old_version=old_version,
+        new_version=new_version,
+        dry_run=False,
+        stage="post_upgrade_sync",
+        message="Running post-upgrade definition sync",
+    )
     sync_info = _post_upgrade_sync(vault_root, sync=sync)
     if sync_info is not None:
         result.update(sync_info)
 
+    _write_upgrade_progress(
+        vault_root,
+        old_version=old_version,
+        new_version=new_version,
+        dry_run=False,
+        stage="semantic_repair",
+        message="Reconciling semantic runtime state after upgrade",
+    )
     semantic_repair = _maybe_repair_semantic_model(Path(vault_root))
     if semantic_repair is not None:
         result["semantic_repair"] = semantic_repair
@@ -1473,6 +1552,14 @@ def main() -> None:
         requirements_changed = REQ_FILE_REL in (
             result.get("files_added", []) + result.get("files_modified", [])
         )
+        _write_upgrade_progress(
+            str(vault_root),
+            old_version=result.get("old_version"),
+            new_version=result["new_version"],
+            dry_run=False,
+            stage="dependency_sync",
+            message="Synchronising vault-local MCP dependencies",
+        )
         dep_sync = _maybe_sync_mcp_dependencies(
             vault_root,
             requirements_changed=requirements_changed,
@@ -1480,6 +1567,7 @@ def main() -> None:
         )
         if dep_sync is not None:
             result["dependency_sync"] = dep_sync
+        _write_upgrade_log(str(vault_root), result)
 
     if args.json_output:
         print(json.dumps(result, indent=2))
