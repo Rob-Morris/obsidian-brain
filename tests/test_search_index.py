@@ -360,6 +360,32 @@ class TestSemanticSearch:
         with pytest.raises(si.SearchModeUnavailableError, match="corrupt sidecars"):
             si.search_semantic("brain", vault)
 
+    def test_load_doc_embeddings_reports_stale_router_sidecars(self, vault):
+        np = pytest.importorskip("numpy")
+        local_dir = vault / ".brain" / "local"
+        local_dir.mkdir(parents=True, exist_ok=True)
+        (local_dir / "compiled-router.json").write_text(
+            json.dumps({"meta": {"source_hash": "sha256:current-router"}}),
+            encoding="utf-8",
+        )
+        np.save(vault / semantic_runtime.DOC_EMBEDDINGS_REL, np.zeros((1, 2)))
+        (vault / semantic_runtime.EMBEDDINGS_META_REL).write_text(
+            json.dumps(
+                {
+                    semantic_runtime.ROUTER_SOURCE_HASH_KEY: "sha256:stale-router",
+                    "documents": [],
+                    "types": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        with pytest.raises(
+            si.SearchModeUnavailableError,
+            match="built for a different compiled router",
+        ):
+            si.load_doc_embeddings_or_unavailable(vault)
+
     def test_semantic_search_wraps_semantic_model_errors(self, vault, monkeypatch):
         def boom(_vault, _query, *, query_encoder=None):
             raise semantic_model.SemanticModelMissingError("missing model snapshot")

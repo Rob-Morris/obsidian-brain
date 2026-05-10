@@ -111,7 +111,6 @@ def test_load_local_model_stays_local_under_offline_env(tmp_path, monkeypatch):
 
 def test_embeddings_sidecars_match_manifest_keeps_present_honest_without_manifest(tmp_path):
     vault = _make_vault(tmp_path)
-    local_dir = vault / ".brain" / "local"
     for rel in (
         semantic_runtime.TYPE_EMBEDDINGS_REL,
         semantic_runtime.DOC_EMBEDDINGS_REL,
@@ -180,6 +179,46 @@ def test_load_embeddings_state_raises_on_corrupt_document_array(tmp_path):
         match="semantic document embeddings are unreadable",
     ):
         semantic_runtime.load_embeddings_state(vault)
+
+def test_router_source_hash_reads_string_from_router_meta():
+    assert semantic_runtime.router_source_hash({"meta": {"source_hash": "sha256:router"}}) == "sha256:router"
+    assert semantic_runtime.router_source_hash({"meta": {}}) is None
+    with pytest.raises(
+        semantic_runtime.RouterMetadataError,
+        match="compiled router meta.source_hash must be a string",
+    ):
+        semantic_runtime.router_source_hash({"meta": {"source_hash": 123}})
+    with pytest.raises(
+        semantic_runtime.RouterMetadataError,
+        match="compiled router metadata must be a JSON object containing source_hash",
+    ):
+        semantic_runtime.router_source_hash({})
+    with pytest.raises(
+        semantic_runtime.RouterMetadataError,
+        match="compiled router must be a JSON object with a meta.source_hash field",
+    ):
+        semantic_runtime.router_source_hash(None)
+
+
+def test_embeddings_meta_matches_router_uses_source_hash_fingerprint():
+    router = {"meta": {"source_hash": "sha256:router"}}
+
+    assert (
+        semantic_runtime.embeddings_meta_matches_router(
+            {semantic_runtime.ROUTER_SOURCE_HASH_KEY: "sha256:router"},
+            router,
+        )
+        is True
+    )
+    assert (
+        semantic_runtime.embeddings_meta_matches_router(
+            {semantic_runtime.ROUTER_SOURCE_HASH_KEY: "sha256:other"},
+            router,
+        )
+        is False
+    )
+    assert semantic_runtime.embeddings_meta_matches_router({}, router) is False
+
 
 def test_get_query_encoder_cache_is_vault_scoped(tmp_path, monkeypatch):
     vault_a = _make_vault(tmp_path / "vault-a")

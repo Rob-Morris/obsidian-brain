@@ -239,9 +239,11 @@ def build_embeddings(vault_root, router, documents):
     _safe_save_npy(os.path.join(vault_str, _semantic.TYPE_EMBEDDINGS_REL), type_embeddings, bounds=vault_str)
     _safe_save_npy(os.path.join(vault_str, _semantic.DOC_EMBEDDINGS_REL), doc_embeddings, bounds=vault_str)
 
+    router_hash = _semantic.router_source_hash(router)
     meta = {
         "model": manifest.model_name,
         "model_revision": manifest.revision,
+        _semantic.ROUTER_SOURCE_HASH_KEY: router_hash,
         "dim": _semantic.EMBEDDING_DIM,
         "built_at": datetime.now(timezone.utc).astimezone().isoformat(),
         "types": type_meta,

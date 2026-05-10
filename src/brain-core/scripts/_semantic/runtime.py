@@ -13,6 +13,7 @@ import _semantic.model as semantic_model
 TYPE_EMBEDDINGS_REL = os.path.join(".brain", "local", "type-embeddings.npy")
 DOC_EMBEDDINGS_REL = os.path.join(".brain", "local", "doc-embeddings.npy")
 EMBEDDINGS_META_REL = os.path.join(".brain", "local", "embeddings-meta.json")
+ROUTER_SOURCE_HASH_KEY = "router_source_hash"
 EMBEDDING_MODEL = semantic_model.SHIPPED_MODEL_NAME
 EMBEDDING_MODEL_REVISION = semantic_model.SHIPPED_MODEL_REVISION
 EMBEDDING_DIM = 384
@@ -20,6 +21,10 @@ EMBEDDING_DIM = 384
 
 class SemanticEmbeddingsLoadError(RuntimeError):
     """Raised when persisted semantic embeddings state is present but unreadable."""
+
+
+class RouterMetadataError(RuntimeError):
+    """Raised when compiled router metadata is malformed."""
 
 
 def semantic_runtime_dependencies_available():
@@ -137,6 +142,32 @@ def embeddings_sidecars_match_manifest(vault_root, manifest):
         or meta.get("model_revision") != manifest.revision
     )
     return (True, outdated)
+
+def router_source_hash(router):
+    """Return the router source-hash fingerprint when present."""
+    if not isinstance(router, dict):
+        raise RouterMetadataError(
+            "compiled router must be a JSON object with a meta.source_hash field"
+        )
+    meta = router.get("meta")
+    if not isinstance(meta, dict):
+        raise RouterMetadataError(
+            "compiled router metadata must be a JSON object containing source_hash"
+        )
+    source_hash = meta.get("source_hash")
+    if source_hash is None:
+        return None
+    if not isinstance(source_hash, str):
+        raise RouterMetadataError("compiled router meta.source_hash must be a string")
+    return source_hash
+
+
+def embeddings_meta_matches_router(meta, router):
+    """Return True when embeddings metadata was built against `router`."""
+    current_router_source_hash = router_source_hash(router)
+    if current_router_source_hash is None:
+        return False
+    return meta.get(ROUTER_SOURCE_HASH_KEY) == current_router_source_hash
 
 
 def load_embeddings_state(vault_root):

@@ -366,6 +366,30 @@ class TestStaleness:
 
         assert stale is True
 
+    def test_router_stale_when_source_hash_missing(self, vault):
+        server._compile_and_save(str(vault))
+        router_path = vault / ".brain" / "local" / "compiled-router.json"
+        data = json.loads(router_path.read_text(encoding="utf-8"))
+        del data["meta"]["source_hash"]
+        router_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+        stale, loaded = server._check_router(str(vault))
+
+        assert stale is True
+        assert loaded is None
+
+    def test_router_stale_when_meta_is_not_a_json_object(self, vault):
+        server._compile_and_save(str(vault))
+        router_path = vault / ".brain" / "local" / "compiled-router.json"
+        data = json.loads(router_path.read_text(encoding="utf-8"))
+        data["meta"] = "garbage"
+        router_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+        stale, loaded = server._check_router(str(vault))
+
+        assert stale is True
+        assert loaded is None
+
     def test_index_stale_when_missing(self, vault):
         stale, data = server._check_index(str(vault))
         assert stale is True
@@ -4742,47 +4766,62 @@ class TestIndexStaleness:
         assert (local_dir / "doc-embeddings.npy").exists()
         assert (local_dir / "embeddings-meta.json").exists()
 
-    def test_load_embeddings_marks_corrupt_sidecars_dirty_until_refresh(self, initialized, monkeypatch):
-        refresh_calls = []
+    def test_ensure_embeddings_fresh_rebuilds_router_stale_sidecars(self, initialized, monkeypatch):
+        np = pytest.importorskip("numpy")
+        stale_meta = {
+            retrieval_embeddings.ROUTER_SOURCE_HASH_KEY: "sha256:stale-router-hash",
+            "documents": [],
+            "types": [],
+        }
 
-        def fake_refresh(vault_root, router, documents, *, enable_embeddings=None, config=None):
-            refresh_calls.append((str(vault_root), enable_embeddings, len(documents)))
-            return (
-                object(),
-                object(),
-                {"documents": [], "types": []},
-            )
+        class FakeModel:
+            def encode(self, texts, normalize_embeddings=True):
+                return np.zeros((len(texts), 1), dtype=float)
 
-        monkeypatch.setattr(server, "_embeddings_enabled", lambda: True)
+        manifest = semantic_model.ModelManifest(
+            model_name=semantic_model.SHIPPED_MODEL_NAME,
+            revision=semantic_model.SHIPPED_MODEL_REVISION,
+            provisioned_at="2026-05-10T00:00:00+10:00",
+        )
+
         monkeypatch.setattr(
             retrieval_embeddings,
-            "load_embeddings_state",
-            lambda _vault: (_ for _ in ()).throw(
-                retrieval_embeddings.SemanticEmbeddingsLoadError("corrupt sidecars")
-            ),
+            "semantic_engine_available",
+            lambda *_args, **_kwargs: True,
         )
-        monkeypatch.setattr(build_index, "refresh_embeddings_outputs", fake_refresh)
+        monkeypatch.setattr(
+            build_index._semantic_model,
+            "load_local_model_with_manifest",
+            lambda _vault: (FakeModel(), manifest),
+        )
 
-        server._type_embeddings = None
-        server._doc_embeddings = None
-        server._embeddings_meta = None
+        server._config["defaults"]["flags"]["semantic_processing"] = True
+        server._config["defaults"]["flags"]["semantic_retrieval"] = True
+        server._config["defaults"].setdefault("local_runtime", {})[
+            "semantic_engine_installed"
+        ] = True
+
+        router_path = initialized / ".brain" / "local" / "compiled-router.json"
+        server._router["meta"]["source_hash"] = "sha256:current-router-hash"
+        router_path.write_text(json.dumps(server._router, indent=2), encoding="utf-8")
+
+        meta_path = initialized / retrieval_embeddings.EMBEDDINGS_META_REL
+        meta_path.parent.mkdir(parents=True, exist_ok=True)
+        meta_path.write_text(json.dumps(stale_meta), encoding="utf-8")
+
+        server._type_embeddings = np.zeros((0, 1), dtype=float)
+        server._doc_embeddings = np.zeros((0, 1), dtype=float)
+        server._embeddings_meta = stale_meta
         server._doc_embeddings_dirty = False
         server._type_embeddings_dirty = False
 
-        server._load_embeddings(str(initialized))
-
-        assert server._type_embeddings is None
-        assert server._doc_embeddings is None
-        assert server._embeddings_meta is None
-        assert server._doc_embeddings_dirty is True
-        assert server._type_embeddings_dirty is True
-
         server._ensure_embeddings_fresh()
 
-        assert refresh_calls == [(str(initialized), True, len(server._index["documents"]))]
         assert server._type_embeddings is not None
         assert server._doc_embeddings is not None
-        assert server._embeddings_meta == {"documents": [], "types": []}
+        refreshed_meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        assert refreshed_meta[retrieval_embeddings.ROUTER_SOURCE_HASH_KEY] == "sha256:current-router-hash"
+        assert server._embeddings_meta == refreshed_meta
         assert server._doc_embeddings_dirty is False
         assert server._type_embeddings_dirty is False
     def test_process_context_assembly_skips_embeddings_refresh(self, initialized, monkeypatch):

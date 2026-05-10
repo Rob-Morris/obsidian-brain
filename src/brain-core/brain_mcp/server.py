@@ -847,10 +847,14 @@ def _check_router(vault_root: str) -> tuple[bool, dict | None]:
     if not isinstance(data, dict):
         return True, None
 
+    try:
+        source_hash = _retrieval_embeddings.router_source_hash(data)
+    except _retrieval_embeddings.RouterMetadataError:
+        return True, None
     meta = data.get("meta", {})
     compiled_at = meta.get("compiled_at")
     sources = meta.get("sources", {})
-    if not compiled_at or not sources:
+    if not compiled_at or source_hash is None or not sources:
         return True, None
 
     try:
@@ -1165,6 +1169,17 @@ def _ensure_embeddings_fresh() -> None:
         return
     with _doc_embeddings_pending_lock:
         has_pending = bool(_doc_embeddings_pending)
+    # Every writer of `_router` should clear `_embeddings_meta` first.
+    # Keep this guard so a future writer that forgets still forces a rebuild
+    # instead of serving sidecars stamped for an older router fingerprint.
+    if (
+        _embeddings_meta is not None
+        and not _retrieval_embeddings.embeddings_meta_matches_router(
+            _embeddings_meta,
+            _router,
+        )
+    ):
+        _mark_embeddings_dirty()
     needs_build = (
         _doc_embeddings_dirty
         or _type_embeddings_dirty
@@ -1373,33 +1388,6 @@ def _build_index_and_save(vault_root: str) -> dict:
     return index
 
 
-def _load_embeddings(vault_root: str) -> None:
-    """Load pre-built embeddings from disk if available."""
-    global _type_embeddings, _embeddings_meta, _doc_embeddings
-    if not _embeddings_enabled():
-        _clear_loaded_embeddings()
-        _retrieval_embeddings.clear_query_encoder()
-        _retrieval_embeddings.clear_embeddings_outputs(vault_root)
-        return
-    try:
-        type_embeddings, doc_embeddings, meta = _retrieval_embeddings.load_embeddings_state(
-            vault_root
-        )
-    except _retrieval_embeddings.SemanticEmbeddingsLoadError as exc:
-        if _logger:
-            _logger.warning(
-                "semantic embeddings sidecars are unreadable; scheduling rebuild: %s",
-                exc,
-            )
-        _mark_embeddings_dirty()
-        return
-    if meta is None:
-        _clear_loaded_embeddings()
-        _retrieval_embeddings.clear_query_encoder()
-        return
-    _type_embeddings = type_embeddings
-    _doc_embeddings = doc_embeddings
-    _embeddings_meta = meta
 # ---------------------------------------------------------------------------
 # Startup
 # ---------------------------------------------------------------------------

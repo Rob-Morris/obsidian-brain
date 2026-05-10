@@ -38,10 +38,8 @@ from _common import (
     is_valid_key,
 )
 from _common._artefacts import pattern_has_date_tokens
-import build_index
 import compile_colours
 import session
-import _semantic.runtime as _semantic
 
 OUTPUT_PATH = os.path.join(".brain", "local", "compiled-router.json")
 
@@ -1086,7 +1084,6 @@ def main():
         print(json_output)
     else:
         persist_compiled_router(vault_root, compiled)
-        _semantic.clear_embeddings_outputs(vault_root)
 
         art_count = len(compiled["artefacts"])
         configured = sum(1 for a in compiled["artefacts"] if a["configured"])

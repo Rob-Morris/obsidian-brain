@@ -24,7 +24,13 @@ import sys
 import _semantic.config as _semantic_config
 import _semantic.model as _semantic_model
 import _semantic.runtime as _semantic
-from _common import FM_RE, LEXICAL_ANCHOR_RE, find_vault_root, tokenise
+from _common import (
+    FM_RE,
+    LEXICAL_ANCHOR_RE,
+    find_vault_root,
+    load_compiled_router,
+    tokenise,
+)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -169,11 +175,30 @@ def load_doc_embeddings_or_unavailable(vault_root, *, loader=None):
     """Load semantic sidecars or raise the canonical unavailable error."""
     load = loader or _semantic.load_doc_embeddings
     try:
-        return load(vault_root)
+        doc_embeddings, meta = load(vault_root)
     except _semantic.SemanticEmbeddingsLoadError as exc:
         raise SearchModeUnavailableError(
             f"semantic retrieval is unavailable: {exc}"
         ) from exc
+    if doc_embeddings is None or meta is None:
+        return (doc_embeddings, meta)
+
+    router = load_compiled_router(vault_root)
+    if "error" in router:
+        raise SearchModeUnavailableError(
+            f"semantic retrieval is unavailable: {router['error']}"
+        )
+    try:
+        if not _semantic.embeddings_meta_matches_router(meta, router):
+            raise SearchModeUnavailableError(
+                "semantic retrieval is unavailable: semantic embeddings were "
+                "built for a different compiled router"
+            )
+    except _semantic.RouterMetadataError as exc:
+        raise SearchModeUnavailableError(
+            f"semantic retrieval is unavailable: compiled router metadata is invalid: {exc}"
+        ) from exc
+    return (doc_embeddings, meta)
 
 
 def _entry_matches_filters(entry, type_filter, tag_filter, status_filter):

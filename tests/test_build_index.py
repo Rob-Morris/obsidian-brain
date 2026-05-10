@@ -497,7 +497,11 @@ class TestBuildEmbeddings:
         )
         monkeypatch.setattr(bi, "safe_write_via", fake_safe_write_via)
 
-        result = bi.build_embeddings(vault, {"artefacts": []}, [])
+        result = bi.build_embeddings(
+            vault,
+            {"artefacts": [], "meta": {"source_hash": "sha256:test-source-hash"}},
+            [],
+        )
 
         assert result is not None
         assert [path for path, _bounds, _payload in calls] == [
@@ -537,11 +541,16 @@ class TestBuildEmbeddings:
         )
 
         index = bi.build_index(vault)
-        result = bi.build_embeddings(vault, {"artefacts": []}, index["documents"])
+        router = {
+            "artefacts": [],
+            "meta": {"source_hash": "sha256:test-source-hash"},
+        }
+        result = bi.build_embeddings(vault, router, index["documents"])
 
         assert result is not None
         _type_emb, _doc_emb, meta = result
         assert meta["model_revision"] == _semantic_model.SHIPPED_MODEL_REVISION
+        assert meta[_semantic.ROUTER_SOURCE_HASH_KEY] == "sha256:test-source-hash"
         by_path = {entry["path"]: entry for entry in meta["documents"]}
         assert by_path["Wiki/python-basics.md"]["type"] == "living/wiki"
         assert by_path["Wiki/python-basics.md"]["title"] == "python-basics"

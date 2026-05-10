@@ -6,6 +6,7 @@ Version-by-version release history for Obsidian Brain. Every shipped version has
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.36.6](changelog/v0.36.6.md) | 2026-05-10 | Detect router and embeddings drift across standalone compile paths |
 | [v0.36.5](changelog/v0.36.5.md) | 2026-05-10 | Make semantic runtime failure boundaries explicit and honest |
 | [v0.36.4](changelog/v0.36.4.md) | 2026-05-10 | Make semantic model provisioning explicit and keep ordinary runtime paths fully local |
 | [v0.36.3](changelog/v0.36.3.md) | 2026-05-09 | Round off semantic retrieval for installed vaults with a real configure/check/repair lifecycle |
