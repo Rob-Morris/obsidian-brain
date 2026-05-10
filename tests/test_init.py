@@ -21,9 +21,22 @@ def vault(tmp_path):
     transport_dir.mkdir()
     (transport_dir / "proxy.py").write_text("# stub\n")
     (transport_dir / "server.py").write_text("# stub\n")
+    (transport_dir / "requirements.txt").write_text("mcp>=1.0.0\n")
     scripts_dir = bc / "scripts"
     scripts_dir.mkdir()
     (scripts_dir / "session.py").write_text("# stub\n")
+    # `find_python` dynamically loads `_venv.py` from the vault to resolve
+    # the central runtime path; copy it from source so the migration
+    # fallback chain (central → legacy → sys.executable → PATH) is
+    # observable in tests.
+    venv_helper_src = (
+        os.path.join(os.path.dirname(__file__), "..", "src", "brain-core",
+                     "scripts", "_common", "_venv.py")
+    )
+    common_dir = scripts_dir / "_common"
+    common_dir.mkdir()
+    with open(venv_helper_src, encoding="utf-8") as fh:
+        (common_dir / "_venv.py").write_text(fh.read())
     return tmp_path
 
 
@@ -62,6 +75,59 @@ class TestBuildMcpConfig:
     def test_includes_workspace_dir_when_provided(self, vault, project):
         config = init.build_mcp_config("/usr/bin/python3", vault, workspace_dir=project)
         assert config["env"]["BRAIN_WORKSPACE_DIR"] == str(project)
+
+
+class TestFindPythonFallbackChain:
+    """Cover the migration fallback ordering documented in DD-047.
+
+    `find_python` prefers the central managed runtime; if absent, falls back
+    to the legacy `<vault>/.venv/bin/python`; then `sys.executable`; then
+    PATH candidates. Each step requires the candidate Python to expose `mcp`.
+    """
+
+    def test_prefers_central_when_present(self, vault, monkeypatch, tmp_path):
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        monkeypatch.setenv("HOME", str(fake_home))
+        # Stage central + legacy pythons; ensure central wins.
+        from importlib import util as _util
+        helper_path = vault / ".brain-core" / "scripts" / "_common" / "_venv.py"
+        spec = _util.spec_from_file_location("_t_venv", str(helper_path))
+        helper = _util.module_from_spec(spec)
+        spec.loader.exec_module(helper)
+        central_py = helper.resolve_vault_venv_python(vault)
+        central_py.parent.mkdir(parents=True)
+        central_py.write_text("")
+        legacy_py = helper.legacy_vault_venv_python(vault)
+        legacy_py.parent.mkdir(parents=True)
+        legacy_py.write_text("")
+
+        monkeypatch.setattr(init, "_python_has_mcp", lambda p: True)
+        assert init.find_python(vault) == str(central_py)
+
+    def test_falls_back_to_legacy_when_central_absent(self, vault, monkeypatch, tmp_path):
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        monkeypatch.setenv("HOME", str(fake_home))
+        from importlib import util as _util
+        helper_path = vault / ".brain-core" / "scripts" / "_common" / "_venv.py"
+        spec = _util.spec_from_file_location("_t_venv", str(helper_path))
+        helper = _util.module_from_spec(spec)
+        spec.loader.exec_module(helper)
+        legacy_py = helper.legacy_vault_venv_python(vault)
+        legacy_py.parent.mkdir(parents=True)
+        legacy_py.write_text("")
+
+        monkeypatch.setattr(init, "_python_has_mcp", lambda p: True)
+        assert init.find_python(vault) == str(legacy_py)
+
+    def test_falls_back_to_sys_executable_when_no_venv(self, vault, monkeypatch, tmp_path):
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        monkeypatch.setenv("HOME", str(fake_home))
+        # Only sys.executable advertises mcp.
+        monkeypatch.setattr(init, "_python_has_mcp", lambda p: p == sys.executable)
+        assert init.find_python(vault) == sys.executable
 
 
 class TestVaultMatching:
@@ -193,7 +259,7 @@ class TestEnsureClaudeMd:
             path.write_text(content, encoding="utf-8")
             return str(path.resolve())
 
-        monkeypatch.setattr(init, "_safe_write", fake_safe_write)
+        monkeypatch.setattr(init, "safe_write", fake_safe_write)
 
         init.ensure_claude_md(project)
 

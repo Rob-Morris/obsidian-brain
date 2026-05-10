@@ -96,8 +96,11 @@ def test_install_ignores_machine_local_template_state(tmp_path):
     )
 
     target = tmp_path / "vault"
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
     env = os.environ.copy()
     env["PATH"] = f"{fake_bin}:{env['PATH']}"
+    env["HOME"] = str(fake_home)
 
     result = subprocess.run(
         ["bash", "install.sh", "--non-interactive", str(target)],
@@ -119,9 +122,17 @@ def test_install_ignores_machine_local_template_state(tmp_path):
     assert '"command": "python"' in (target / ".mcp.json").read_text()
     assert "stale-template-python" not in (target / ".codex" / "config.toml").read_text()
     assert 'command = "python"' in (target / ".codex" / "config.toml").read_text()
+    # Template-vault `.venv/` leakage is still scrubbed
     assert not (target / ".venv" / "bin" / "pip").exists()
     assert not (target / ".venv" / "source-only-marker").exists()
-    assert (target / ".venv" / "pip-args.txt").read_text().startswith(
+    # The central venv is now machine-local (under HOME) rather than vault-local
+    venvs_root = fake_home / ".brain" / "venvs"
+    assert venvs_root.is_dir()
+    venv_dirs = [p for p in venvs_root.iterdir() if p.is_dir()]
+    assert len(venv_dirs) == 1, f"expected exactly one central venv, got {venv_dirs}"
+    central = venv_dirs[0]
+    assert (central / "bin" / "python").is_file()
+    assert (central / "pip-args.txt").read_text().startswith(
         "install --quiet --upgrade pip -r "
     )
     assert not (target / ".brain" / "local" / "session.md").exists()
@@ -173,8 +184,11 @@ def test_install_continues_when_mcp_dependency_install_fails(tmp_path):
     )
 
     target = tmp_path / "vault"
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
     env = os.environ.copy()
     env["PATH"] = f"{fake_bin}:{env['PATH']}"
+    env["HOME"] = str(fake_home)
 
     result = subprocess.run(
         ["bash", "install.sh", "--non-interactive", str(target)],
@@ -187,8 +201,13 @@ def test_install_continues_when_mcp_dependency_install_fails(tmp_path):
 
     assert result.returncode == 0, result.stderr
     assert (target / ".brain-core" / "VERSION").is_file()
-    assert (target / ".venv" / "bin" / "python").is_file()
-    assert (target / ".venv" / "pip-args.txt").read_text().startswith(
+    venvs_root = fake_home / ".brain" / "venvs"
+    assert venvs_root.is_dir()
+    venv_dirs = [p for p in venvs_root.iterdir() if p.is_dir()]
+    assert len(venv_dirs) == 1
+    central = venv_dirs[0]
+    assert (central / "bin" / "python").is_file()
+    assert (central / "pip-args.txt").read_text().startswith(
         "install --quiet --upgrade pip -r "
     )
     assert not (target / ".mcp.json").exists()
@@ -388,8 +407,12 @@ def test_install_enable_semantic_uses_real_configure_boundary(tmp_path):
     )
 
     target = tmp_path / "vault"
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
     env = os.environ.copy()
     env["PATH"] = f"{fake_bin}:{env['PATH']}"
+    env["HOME"] = str(fake_home)
+    env.pop("XDG_CONFIG_HOME", None)
 
     result = subprocess.run(
         ["bash", "install.sh", "--non-interactive", "--skip-mcp", "--enable-semantic", str(target)],
@@ -404,11 +427,19 @@ def test_install_enable_semantic_uses_real_configure_boundary(tmp_path):
     assert "MCP server setup skipped (--skip-mcp)." in result.stderr
     assert "Semantic retrieval is enabled for this vault." in result.stderr
     assert (target / "semantic-provision-ran.txt").is_file()
-    assert str(target / ".venv" / "bin" / "python") in (target / "semantic-provision-ran.txt").read_text()
-    assert (target / ".venv" / "pip-args.txt").read_text().startswith(
-        "install --quiet -r "
+
+    # Provisioning runs with the central runtime python, located under the
+    # isolated HOME at `~/.brain/venvs/py<X.Y>-<sha16>/bin/python`.
+    venvs_root = fake_home / ".brain" / "venvs"
+    venv_dirs = [p for p in venvs_root.iterdir() if p.is_dir()]
+    assert len(venv_dirs) == 1, f"expected a single central venv under {venvs_root}, got {venv_dirs}"
+    central_venv = venv_dirs[0]
+    central_python = central_venv / "bin" / "python"
+    assert str(central_python) in (target / "semantic-provision-ran.txt").read_text()
+    assert (central_venv / "pip-args.txt").read_text().startswith(
+        "install --quiet --upgrade pip -r "
     )
-    assert "configure.py semantic --enable --vault" in (target / ".venv" / "invocations.txt").read_text()
+    assert "configure.py semantic --enable --vault" in (central_venv / "invocations.txt").read_text()
 
     config = yaml.safe_load((target / ".brain" / "local" / "config.yaml").read_text(encoding="utf-8"))
     assert config["defaults"]["flags"]["semantic_retrieval"] is True

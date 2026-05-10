@@ -128,8 +128,20 @@ def test_configure_semantic_enable_unsupported_platform_keeps_flags_enabled(tmp_
 
 
 def test_bootstrap_summary_creates_runtime_and_syncs_dependencies(tmp_path, monkeypatch):
+    """`_bootstrap_summary` orchestrates probe → ensure → re-probe correctly.
+
+    The ensure path now delegates to `_common._venv.ensure_central_venv`, so
+    we patch that helper directly. `probe_python` returns "missing" first
+    (drives the create branch) then "ok" (post-create re-probe).
+    """
     vault = _make_vault(tmp_path)
     calls: list[tuple[str, tuple[str, ...]]] = []
+
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    monkeypatch.setenv("HOME", str(fake_home))
+
+    central_python = fake_home / ".brain" / "venvs" / "py3.12-fake" / "bin" / "python"
 
     def fake_probe(_python_path, *, modules=()):
         calls.append(("probe", tuple(modules)))
@@ -139,16 +151,26 @@ def test_bootstrap_summary_creates_runtime_and_syncs_dependencies(tmp_path, monk
             return {"compatible": True, "ok": True, "missing": []}
         return {"compatible": True, "ok": True, "missing": []}
 
-    def fake_run(args, **_kwargs):
-        calls.append(("run", tuple(args)))
-        managed_python = vault / ".venv" / "bin" / "python"
-        managed_python.parent.mkdir(parents=True, exist_ok=True)
-        managed_python.write_text("#!/usr/bin/env python\n")
-        return None
+    def fake_ensure(*args, **kwargs):
+        calls.append(("ensure", tuple(str(a) for a in args)))
+        central_python.parent.mkdir(parents=True, exist_ok=True)
+        central_python.write_text("#!/usr/bin/env python\n")
+        return {
+            "venv_dir": str(central_python.parent.parent),
+            "python": str(central_python),
+            "created": True,
+            "python_tag": "py3.12",
+            "hash": "fake",
+        }
 
     monkeypatch.setattr(configure, "find_repair_launcher", lambda: "/fake/python3.12")
     monkeypatch.setattr(lifecycle_common, "probe_python", fake_probe)
-    monkeypatch.setattr(lifecycle_common.subprocess, "run", fake_run)
+    monkeypatch.setattr(lifecycle_common, "ensure_central_venv", fake_ensure)
+    monkeypatch.setattr(
+        lifecycle_common,
+        "resolve_vault_venv_python",
+        lambda _vault, **_kwargs: central_python,
+    )
 
     summary = configure._bootstrap_summary(vault)
 

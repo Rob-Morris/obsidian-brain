@@ -41,7 +41,7 @@ remains lexical-only.
 | `migrate_naming.py` | Migrate filenames to generous naming conventions | `python3 migrate_naming.py [--vault V] [--dry-run] [--json]` |
 | `obsidian_cli.py` | IPC client for native Obsidian CLI | (library module, used by MCP server) |
 | `process.py` | Experimental content classification, duplicate resolution, ingestion | (library module, used by MCP server) |
-| `repair.py` | Explicit infrastructure repair entry point; bootstraps from a compatible Python 3.12+ launcher, converges into the vault-local `.venv`, then runs one named repair scope. `mcp` repairs installed current-vault project MCP state only; `semantic` repairs the pinned semantic runtime, local model snapshot/manifest, and sidecars after a vault has opted in. | `python3 repair.py {mcp,router,index,registry,semantic} [--vault V] [--dry-run] [--json]` |
+| `repair.py` | Explicit infrastructure repair entry point; bootstraps from a compatible Python 3.12+ launcher, converges into the central managed runtime at `~/.brain/venvs/py<X.Y>-<sha16>/`, then runs one named repair scope. `mcp` repairs installed current-vault project MCP state only; `semantic` repairs the pinned semantic runtime, local model snapshot/manifest, and sidecars after a vault has opted in. | `python3 repair.py {mcp,router,index,registry,semantic} [--vault V] [--dry-run] [--json]` |
 | `read.py` | Query compiled router resources | `python3 read.py RESOURCE [--name N]` |
 | `rename.py` | Rename/delete file + update wikilinks, refusing existing-destination collisions | `python3 rename.py "source" "dest" [--json]` |
 | `search_index.py` | Lexical, semantic, or hybrid local search with exact-anchor lexical wins, strong semantic champions, Brain-only title champions, and semantic-rescue fusion for disjoint leaders | `python3 search_index.py "query" [--type T] [--mode M] [--json]` |
@@ -50,7 +50,7 @@ remains lexical-only.
 | `shape_presentation.py` | Create presentation + render PDF + launch Marp preview | `python3 shape_presentation.py --source P --slug S [--no-render] [--no-preview]` |
 | `start_shaping.py` | Bootstrap a shaping session for an existing artefact | `python3 start_shaping.py --target P [--title T] [--vault V]` |
 | `sync_definitions.py` | Sync artefact library definitions to vault `_Config/`, using raw tracked hashes plus markdown-aware comparison for `.md` files so harmless table-padding rewrites do not surface as drift | `python3 sync_definitions.py [--vault V] [--dry-run] [--force] [--types t1,t2] [--status] [--json]` |
-| `upgrade.py` | Canonical brain-core upgrade entry point with pre-compile compatibility patches, a target-aware local migration ledger, binary-safe rollback snapshots, running stage snapshots in `.brain/local/last-upgrade.json`, self-contained atomic writes, and best-effort vault-local MCP dependency sync when requirements change | `python3 upgrade.py --source P [--vault V] [--dry-run] [--force] [--sync\|--no-sync] [--sync-deps\|--no-sync-deps] [--json]` |
+| `upgrade.py` | Canonical brain-core upgrade entry point with pre-compile compatibility patches, a target-aware local migration ledger, binary-safe rollback snapshots, running stage snapshots in `.brain/local/last-upgrade.json`, self-contained atomic writes, and best-effort central-runtime provisioning when `requirements.txt` changes | `python3 upgrade.py --source P [--vault V] [--dry-run] [--force] [--sync\|--no-sync] [--sync-deps\|--no-sync-deps] [--json]` |
 | `vault_registry.py` | User-home registry of installed brain vaults (`$XDG_CONFIG_HOME/brain/vaults`, default `~/.config/brain/vaults`) | `python3 vault_registry.py [--register PATH\|--backfill PATH\|--unregister PATH\|--list [--json]\|--prune\|--resolve ALIAS]` |
 | `workspace_registry.py` | Workspace slug→path resolution | `python3 workspace_registry.py [--register SLUG PATH] [--unregister SLUG] [--resolve SLUG] [--json]` |
 
@@ -109,7 +109,7 @@ These scripts import from `_common/` for vault discovery, frontmatter parsing, a
 - `init.py` — stdlib only; self-contained because it may run before the managed runtime is available
 - `obsidian_cli.py` — stdlib only; IPC socket client
 - `_repair_common.py` — stdlib only; shared repair metadata and command builders
-- `repair.py` — bootstrap-safe launcher that repairs or creates the vault-local managed runtime before handing off into it
+- `repair.py` — bootstrap-safe launcher that repairs or creates the central managed runtime before handing off into it
 - `upgrade.py` — deliberately self-contained (it may replace `_common` during execution); duplicates only `find_vault_root()`, runs versioned `pre_compile_patch` handlers before compile validation, snapshots `.brain/` and `_Config/` for rollback using raw-byte restore so binary local-state files are safe, snapshots post-compile artefact roots before running migrations, records target-aware migration history in `.brain/local/` so reinstalls do not replay migrations unless forced, writes running stage snapshots to `.brain/local/last-upgrade.json` before long follow-up phases, and prints caller-independent follow-up commands after upgrade-time dependency handling
 
 ## `_common/` Package Structure

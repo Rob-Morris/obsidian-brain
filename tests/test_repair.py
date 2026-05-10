@@ -21,6 +21,19 @@ import repair
 from conftest import make_router, write_md
 
 
+@pytest.fixture(autouse=True)
+def _isolate_home(tmp_path, monkeypatch):
+    """Repair tests resolve the central runtime under `~/.brain/venvs/`.
+
+    Redirect HOME to a per-test directory so we never read or create real
+    venvs in the developer's home — and so tests cannot pass via leftover
+    state from a previous run.
+    """
+    fake_home = tmp_path / "_home"
+    fake_home.mkdir()
+    monkeypatch.setenv("HOME", str(fake_home))
+
+
 @pytest.fixture
 def repair_vault(tmp_path):
     """Minimal vault that can exercise repair scopes."""
@@ -30,6 +43,16 @@ def repair_vault(tmp_path):
     (bc / "session-core.md").write_text("Always:\n- Keep types tidy.\n")
     (bc / "brain_mcp").mkdir()
     (bc / "brain_mcp" / "requirements.txt").write_text("mcp>=1.0.0\npyyaml>=6.0\n")
+    # Repair loads the canonical venv path-resolver from the vault to avoid
+    # duplicating the rule in repair.py — copy it from source so the fixture
+    # mirrors a real vault layout.
+    venv_helper_src = (
+        Path(__file__).resolve().parents[1]
+        / "src" / "brain-core" / "scripts" / "_common" / "_venv.py"
+    )
+    venv_helper_dst = bc / "scripts" / "_common" / "_venv.py"
+    venv_helper_dst.parent.mkdir(parents=True)
+    venv_helper_dst.write_text(venv_helper_src.read_text())
 
     (tmp_path / ".brain" / "local").mkdir(parents=True)
     (tmp_path / "_Config").mkdir()
@@ -162,7 +185,7 @@ class TestBootstrapSummary:
 
     def test_bootstrap_invariant_error_is_wrapped_in_structured_envelope(self, repair_vault, monkeypatch, capsys):
         def boom(*_args, **_kwargs):
-            raise AssertionError("Created vault-local .venv is not Python 3.12+")
+            raise AssertionError("Created central managed runtime is not Python 3.12+")
 
         monkeypatch.setattr(repair, "_bootstrap_summary", boom)
         monkeypatch.setattr(repair, "_find_launcher_python", lambda: sys.executable)
@@ -178,9 +201,17 @@ class TestBootstrapSummary:
         assert "Python 3.12+" in payload["steps"][0]["message"]
 
     def test_non_mcp_scope_does_not_plan_dependency_sync(self, repair_vault, monkeypatch):
-        managed_python = repair_vault / ".venv" / "bin" / "python"
-        managed_python.parent.mkdir(parents=True)
-        managed_python.write_text("")
+        # The autouse `_isolate_home` fixture pins HOME to a per-test directory,
+        # so `~/.brain/venvs/...` resolves under tmp_path rather than the
+        # developer's real home.
+        sys.path.insert(0, str(repair_vault / ".brain-core" / "scripts"))
+        try:
+            from _common import _venv  # noqa: WPS433 — fixture loads from copied helper
+        finally:
+            sys.path.pop(0)
+        central_python = _venv.resolve_vault_venv_python(repair_vault)
+        central_python.parent.mkdir(parents=True)
+        central_python.write_text("")
 
         def fake_probe(_python_path, *, modules=()):
             if modules:

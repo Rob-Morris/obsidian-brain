@@ -148,9 +148,10 @@ compare_versions() {
 
 print_mcp_retry_hint() {
     local vault_path="$1"
+    local launcher="${2:-${PYTHON:-python3.12}}"
     info "Retry later with network access:"
-    info "  \"$vault_path/.venv/bin/python\" -m pip install -r \"$vault_path/.brain-core/brain_mcp/requirements.txt\""
-    info "  \"$vault_path/.venv/bin/python\" \"$vault_path/.brain-core/scripts/init.py\" --vault \"$vault_path\" --project \"$vault_path\" --client all"
+    info "  \"$launcher\" \"$vault_path/.brain-core/scripts/_common/_venv.py\" ensure --vault \"$vault_path\" --launcher \"$launcher\""
+    info "  \"$launcher\" \"$vault_path/.brain-core/scripts/init.py\" --vault \"$vault_path\" --project \"$vault_path\" --client all"
     info "  In Claude Code for that directory: run /mcp and approve brain if prompted"
     info "  In Codex for that directory: trust the project and ensure the project-scoped brain MCP is enabled"
     info "  Verify in either client: call brain_session and confirm environment.vault_root"
@@ -307,10 +308,12 @@ if [ "${1:-}" = "--uninstall" ]; then
     printf '\n'
     info "  - .brain-core/  (brain engine)"
     info "  - .brain/       (compiled data, caches)"
-    info "  - .venv/        (Python virtual environment)"
+    info "  - .venv/        (legacy Python virtual environment, if present)"
     info "  - Brain bootstrap line in CLAUDE.md (deletes the file only if it becomes empty)"
     info "  - recorded Brain-managed project MCP entries in .mcp.json / .codex/config.toml"
     info "  - recorded Brain-managed Claude local MCP state in .claude/"
+    printf '\n'
+    info "Brain runtimes at ~/.brain/venvs/ are kept — they may be shared with other vaults."
     printf '\n'
     info "User-scope Claude/Codex cleanup is explicit and is not run automatically."
     info "If this vault owns a user-scope registration, remove it before uninstalling:"
@@ -670,10 +673,7 @@ else
 fi
 if [ "$UPGRADE_MODE" != true ] && [ "$SKIP_MCP" = false ] && [ -n "$PYTHON" ] && { [ -z "${REGISTER_MCP:-}" ] || [ "${REGISTER_MCP:-}" = "y" ] || [ "${REGISTER_MCP:-}" = "Y" ]; }; then
     printf '\n' >&2
-    if spin "Setting up Python virtual environment" bash -c '
-        "$1" -m venv "$2/.venv"
-        "$2/.venv/bin/python" -m pip install --quiet --upgrade pip -r "$2/.brain-core/brain_mcp/requirements.txt"
-    ' _ "$PYTHON" "$VAULT_PATH"; then
+    if spin "Setting up Python virtual environment" "$PYTHON" "$VAULT_PATH/.brain-core/scripts/_common/_venv.py" ensure --vault "$VAULT_PATH" --launcher "$PYTHON"; then
         printf '\n' >&2
         if spin "Registering Brain MCP server" "$PYTHON" "$VAULT_PATH/.brain-core/scripts/init.py" --vault "$VAULT_PATH" --project "$VAULT_PATH" --client all; then
             printf '    \033[1mScope:\033[0m project (this vault only)\n' >&2

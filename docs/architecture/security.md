@@ -170,10 +170,13 @@ those paths stay atomic without depending on `_common` during early install or
 upgrade flows.
 
 The new `repair.py` bootstrap path is deliberately narrower: it repairs or
-creates the vault-local `.venv` and then hands off into that managed runtime
-for packageful work. Current-vault repair scopes such as `registry` are scoped
-to machine-local files under the vault (`.brain/local/...`) and do not broaden
-into user-home config or cross-vault registries by default.
+creates the central managed runtime at `~/.brain/venvs/py<X.Y>-<sha16>/` and
+then hands off into that runtime for packageful work. Brain installs its
+dependencies into that shared local runtime, never into the user's wider
+Python environment. Current-vault repair scopes such as `registry` are scoped
+to machine-local files under the vault (`.brain/local/...`) and do not
+broaden into user-home config or cross-vault registries by default. See
+[DD-048: Central managed runtime](decisions/dd-048-central-managed-runtime.md).
 
 **Exclusive mode:** `safe_write(exclusive=True)` (used by `brain_create`) checks file
 existence before writing, providing a lightweight create-or-fail guarantee.

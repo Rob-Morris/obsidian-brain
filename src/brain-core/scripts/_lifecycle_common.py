@@ -14,9 +14,14 @@ import sys
 from typing import Any
 
 
+from _common import (
+    REQUIREMENTS_REL,
+    ensure_central_venv,
+    resolve_vault_venv_python,
+)
+
+
 DEFAULT_MANAGED_RUNTIME_LAUNCHER = "python3.12"
-VENV_PYTHON_REL = Path(".venv/bin/python")
-REQUIREMENTS_REL = Path(".brain-core/brain_mcp/requirements.txt")
 BOOTSTRAP_SCOPE_MODULES = {
     "mcp": ("mcp", "yaml"),
     "router": (),
@@ -137,8 +142,14 @@ def bootstrap_managed_runtime(
     dry_run: bool = False,
     timeout: int = 300,
 ) -> dict:
-    """Ensure the vault-local managed runtime exists and has the requested modules."""
-    managed_python = vault_root / VENV_PYTHON_REL
+    """Ensure the central managed runtime exists and has the requested modules.
+
+    Path rule comes from `_common._venv` — see DD-048. Callers see a uniform
+    envelope with named steps regardless of whether the venv is created here
+    or already exists.
+    """
+    launcher_path = Path(launcher_python) if launcher_python else None
+    managed_python = resolve_vault_venv_python(vault_root, launcher=launcher_path)
     requirements = vault_root / REQUIREMENTS_REL
     steps: list[dict] = []
 
@@ -149,14 +160,14 @@ def bootstrap_managed_runtime(
         steps.append(step(
             "managed_runtime",
             "noop",
-            "Vault-local managed runtime is already present.",
+            "Central managed runtime is already present.",
             python=str(managed_python),
         ))
     elif dry_run:
         steps.append(step(
             "managed_runtime",
             "planned",
-            "Would create or repair the vault-local managed runtime.",
+            "Would create or repair the central managed runtime.",
             python=str(managed_python),
         ))
     else:
@@ -166,18 +177,20 @@ def bootstrap_managed_runtime(
                 "No compatible Python 3.12+ launcher was found. "
                 "Install Python 3.12 or 3.13 and rerun."
             )
-        subprocess.run(
-            [launcher, "-m", "venv", str(vault_root / ".venv")],
-            check=True,
+        ensure_central_venv(
+            requirements,
+            launcher=Path(launcher),
+            install_requirements=bool(required_modules),
             timeout=timeout,
         )
+        managed_python = resolve_vault_venv_python(vault_root, launcher=Path(launcher))
         runtime_probe = probe_python(str(managed_python))
         if not runtime_probe.get("compatible"):
-            raise AssertionError("Created vault-local .venv is not Python 3.12+")
+            raise AssertionError("Created central managed runtime is not Python 3.12+")
         steps.append(step(
             "managed_runtime",
             "changed",
-            "Created or repaired the vault-local managed runtime.",
+            "Created or repaired the central managed runtime.",
             python=str(managed_python),
         ))
 
@@ -217,7 +230,7 @@ def bootstrap_managed_runtime(
             dependency_probe = probe_python(str(managed_python), modules=required_modules)
             if not dependency_probe.get("ok"):
                 raise RuntimeError(
-                    "Vault-local dependency sync completed, but required modules are still unavailable."
+                    "Central runtime dependency sync completed, but required modules are still unavailable."
                 )
             steps.append(step(
                 "managed_dependencies",

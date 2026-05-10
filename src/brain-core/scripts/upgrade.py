@@ -4,7 +4,7 @@ upgrade.py — Canonical in-place brain-core upgrade entry point.
 
 Applies source brain-core files into a vault's .brain-core/ directory,
 validates the compile step, runs versioned migrations, syncs artefact
-definitions, and optionally syncs vault-local MCP dependencies when the
+definitions, and optionally provisions the central managed runtime when the
 requirements file changes. Follow-up commands are printed as absolute,
 caller-independent commands so the script can be run from any working
 directory.
@@ -75,9 +75,15 @@ BRAIN_CORE_DIR = ".brain-core"
 IGNORE_DIRS = {"__pycache__"}
 IGNORE_FILES = {".DS_Store", "upgrade.py"}
 REQ_FILE_REL = os.path.join("brain_mcp", "requirements.txt")
-VENV_PYTHON_REL = os.path.join(".venv", "bin", "python")
+VENV_HELPER_REL = os.path.join(".brain-core", "scripts", "_common", "_venv.py")
 DEPENDENCY_SYNC_TIMEOUT = 300
 SEMANTIC_REPAIR_TIMEOUT = 1800
+
+# Outcome tags for `_ensure_central_runtime` (named so producer + consumer cannot drift).
+RUNTIME_CREATED = "created"
+RUNTIME_REUSED = "reused"
+RUNTIME_SKIPPED_DISABLED = "skipped_disabled"
+RUNTIME_ERROR = "error"
 
 
 # ---------------------------------------------------------------------------
@@ -1049,61 +1055,79 @@ def _post_upgrade_sync(
         return {"sync_error": f"Definition sync failed: {e}"}
 
 
-def _maybe_sync_mcp_dependencies(
+def _ensure_central_runtime(
     vault_root: Path,
     *,
     requirements_changed: bool,
     sync_deps: Optional[bool],
 ) -> Optional[dict]:
-    """Best-effort MCP dependency sync for CLI-driven upgrades.
+    """Ensure the central Brain managed runtime exists for this vault's requirements.
 
-    Auto mode (sync_deps=None) only runs when requirements changed.
-    sync_deps=True forces a sync whenever a vault-local `.venv` exists.
-    sync_deps=False explicitly opts out. Errors are informational and do not
-    fail the upgrade.
+    Idempotent: when a venv already exists at the resolved central path
+    (`~/.brain/venvs/<py-tag>-<req-hash>/`), this is a no-op. When the hash
+    has changed or no central venv exists yet, a new one is created and pip
+    installs the requirements. Errors are informational and never fail the
+    upgrade.
+
+    Auto mode (`sync_deps=None`) skips when nothing changed. `sync_deps=True`
+    forces resolution even on identical requirements. `sync_deps=False` opts
+    out entirely. The resolution uses the freshly-installed `_venv.py`
+    helper from the vault's `.brain-core/scripts/_common/`, so the path rule
+    is single-sourced.
     """
+    if sync_deps is False:
+        return {"requirements_changed": requirements_changed, "outcome": RUNTIME_SKIPPED_DISABLED}
     if not requirements_changed and sync_deps is not True:
         return None
 
-    requirements_path = vault_root / ".brain-core" / "brain_mcp" / "requirements.txt"
-    venv_python = vault_root / VENV_PYTHON_REL
-    command = [
-        str(venv_python),
-        "-m",
-        "pip",
-        "install",
-        "--quiet",
-        "-r",
-        str(requirements_path),
-    ]
+    venv_helper_path = vault_root / VENV_HELPER_REL
+    if not venv_helper_path.is_file():
+        return {
+            "requirements_changed": requirements_changed,
+            "outcome": RUNTIME_ERROR,
+            "message": f"_venv helper missing at {venv_helper_path}",
+        }
+
+    spec = importlib.util.spec_from_file_location("brain_venv", str(venv_helper_path))
+    venv_mod = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(venv_mod)
+    except Exception as e:
+        return {
+            "requirements_changed": requirements_changed,
+            "outcome": RUNTIME_ERROR,
+            "message": f"could not load _venv helper: {e}",
+        }
+
     summary = {
         "requirements_changed": requirements_changed,
-        "command": command,
+        "venvs_root": str(venv_mod.central_venvs_root()),
     }
-
-    if sync_deps is False:
-        return {**summary, "outcome": "skipped_disabled"}
-
-    if not venv_python.is_file():
-        return {**summary, "outcome": "skipped_no_venv"}
-
     try:
-        proc = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
+        result = venv_mod.ensure_central_venv(
+            venv_mod.vault_requirements_path(vault_root),
+            launcher=Path(sys.executable),
             timeout=DEPENDENCY_SYNC_TIMEOUT,
         )
     except subprocess.TimeoutExpired:
-        return {**summary, "outcome": "error", "message": f"timed out after {DEPENDENCY_SYNC_TIMEOUT}s"}
+        return {**summary, "outcome": RUNTIME_ERROR, "message": f"timed out after {DEPENDENCY_SYNC_TIMEOUT}s"}
+    except subprocess.CalledProcessError as e:
+        return {**summary, "outcome": RUNTIME_ERROR, "message": f"venv setup failed: {e}"}
     except OSError as e:
-        return {**summary, "outcome": "error", "message": str(e)}
+        return {**summary, "outcome": RUNTIME_ERROR, "message": str(e)}
 
-    if proc.returncode != 0:
-        message = proc.stderr.strip() or proc.stdout.strip() or f"pip exited {proc.returncode}"
-        return {**summary, "outcome": "error", "message": message}
+    legacy = venv_mod.legacy_vault_venv_dir(vault_root)
+    if legacy.is_dir():
+        summary["legacy_vault_venv"] = str(legacy)
 
-    return {**summary, "outcome": "ok"}
+    summary.update({
+        "outcome": RUNTIME_CREATED if result["created"] else RUNTIME_REUSED,
+        "venv_dir": result["venv_dir"],
+        "python": result["python"],
+        "python_tag": result["python_tag"],
+        "hash": result["hash"],
+    })
+    return summary
 
 
 def _load_post_upgrade_semantic_config(vault_root: Path):
@@ -1533,11 +1557,11 @@ def main() -> None:
     deps_group = parser.add_mutually_exclusive_group()
     deps_group.add_argument(
         "--sync-deps", action="store_const", const=True, default=None, dest="sync_deps",
-        help="Force vault-local MCP dependency sync after upgrade",
+        help="Force central managed runtime sync after upgrade",
     )
     deps_group.add_argument(
         "--no-sync-deps", action="store_const", const=False, dest="sync_deps",
-        help="Skip vault-local MCP dependency sync after upgrade",
+        help="Skip central managed runtime sync after upgrade",
     )
     args = parser.parse_args()
 
@@ -1558,15 +1582,15 @@ def main() -> None:
             new_version=result["new_version"],
             dry_run=False,
             stage="dependency_sync",
-            message="Synchronising vault-local MCP dependencies",
+            message="Provisioning central managed runtime",
         )
-        dep_sync = _maybe_sync_mcp_dependencies(
+        runtime = _ensure_central_runtime(
             vault_root,
             requirements_changed=requirements_changed,
             sync_deps=args.sync_deps,
         )
-        if dep_sync is not None:
-            result["dependency_sync"] = dep_sync
+        if runtime is not None:
+            result["central_runtime"] = runtime
         _write_upgrade_log(str(vault_root), result)
 
     if args.json_output:
@@ -1620,25 +1644,28 @@ def main() -> None:
     if not args.dry_run:
         print(file=sys.stderr)
 
-        dep_sync = result.get("dependency_sync")
-        if dep_sync is not None:
-            command = shlex.join(dep_sync["command"])
-            outcome = dep_sync["outcome"]
-            requirements_changed = dep_sync["requirements_changed"]
-            if outcome == "ok":
-                info("MCP dependencies synced in the vault-local .venv.")
-            elif outcome == "skipped_disabled":
-                info("Dependencies changed — vault-local MCP dependency sync skipped (--no-sync-deps).")
-                info(f"  {command}")
-            elif outcome == "skipped_no_venv":
-                if requirements_changed:
-                    info("Dependencies changed, but no vault-local .venv was found. Skipping MCP dependency sync.")
-                else:
-                    info("Vault-local MCP dependency sync was requested, but no vault-local .venv was found. Skipping.")
-            elif outcome == "error":
-                prefix = "Dependencies changed" if requirements_changed else "Vault-local MCP dependency sync was requested"
-                info(f"{prefix}, but vault-local MCP dependency sync failed: {dep_sync['message']}")
-                info(f"  {command}")
+        runtime = result.get("central_runtime")
+        if runtime is not None:
+            outcome = runtime["outcome"]
+            if outcome == RUNTIME_CREATED:
+                info(f"Created central runtime at {runtime['venv_dir']}")
+            elif outcome == RUNTIME_REUSED:
+                info(f"Reused central runtime at {runtime['venv_dir']}")
+            elif outcome == RUNTIME_SKIPPED_DISABLED:
+                info("Central runtime check skipped (--no-sync-deps).")
+            elif outcome == RUNTIME_ERROR:
+                info(f"Central runtime setup failed: {runtime['message']}")
+                info(f"  Retry: {shlex.quote(sys.executable)} "
+                     f"{shlex.quote(str(vault_root / VENV_HELPER_REL))} "
+                     f"ensure --vault {shlex.quote(str(vault_root))} --launcher {shlex.quote(sys.executable)}")
+            if runtime.get("legacy_vault_venv"):
+                info(
+                    f"  Legacy vault venv detected at {runtime['legacy_vault_venv']}. "
+                    f"To migrate MCP config to the central runtime, run:"
+                )
+                info(f"    {shlex.quote(sys.executable)} "
+                     f"{shlex.quote(str(vault_root / '.brain-core' / 'scripts' / 'init.py'))} "
+                     f"--vault {shlex.quote(str(vault_root))} --client all")
             print(file=sys.stderr)
 
         semantic_repair = result.get("semantic_repair")

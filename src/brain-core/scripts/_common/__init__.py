@@ -181,3 +181,18 @@ from ._reconcile import (
     reconcile_fields_for_render,
     reconcile_timestamps,
 )
+
+from ._venv import (
+    REQUIREMENTS_REL,
+    central_venvs_root,
+    ensure_central_venv,
+    legacy_vault_venv_dir,
+    legacy_vault_venv_python,
+    python_tag,
+    requirements_hash,
+    resolve_vault_venv_dir,
+    resolve_vault_venv_python,
+    vault_requirements_path,
+    venv_dir_for,
+    venv_python,
+)

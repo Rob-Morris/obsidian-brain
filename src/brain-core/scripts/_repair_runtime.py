@@ -19,8 +19,8 @@ import _semantic.config as _semantic_config
 import _semantic.model as _semantic_model
 import _semantic.provision as _semantic_provision
 import _semantic.runtime as _semantic_runtime
-from _common import iter_artefact_paths
-from _lifecycle_common import VENV_PYTHON_REL, iso_now, make_result_envelope, probe_python, step as _step
+from _common import iter_artefact_paths, resolve_vault_venv_python
+from _lifecycle_common import iso_now, make_result_envelope, probe_python, step as _step
 from _repair_common import attach_repair_guidance
 
 ISSUE_CONFIG_LOAD_ERROR = "config-load-error"
@@ -308,7 +308,9 @@ def _backup_path(path: Path) -> Path:
 
 
 def _expected_project_server_config(vault_root: Path) -> dict:
-    venv_python = str((vault_root / init.VENV_PYTHON_REL).resolve())
+    # Drift comparison must be deterministic from the vault layout, so resolve
+    # the python path directly rather than probing via init.find_python.
+    venv_python = str(resolve_vault_venv_python(vault_root))
     return init.build_mcp_config(venv_python, vault_root, workspace_dir=vault_root)
 
 
@@ -592,7 +594,7 @@ def inspect_semantic(vault_root: Path) -> dict:
         }
 
     managed_probe = probe_python(
-        str(vault_root / VENV_PYTHON_REL),
+        str(resolve_vault_venv_python(vault_root)),
         modules=_semantic_provision.SEMANTIC_RUNTIME_MODULES,
     )
     dependencies_ok = bool(managed_probe.get("ok"))

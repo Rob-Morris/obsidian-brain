@@ -65,7 +65,7 @@ When in doubt, check `docs/README.md` — if a doc file is listed there, it's a 
 When a user asks an agent working in this repo to install a Brain vault on their behalf, separate the job into two outcomes:
 
 1. Vault scaffold created at the requested path
-2. MCP setup completed (`.venv` + dependency install + registration)
+2. MCP setup completed (central managed runtime at `~/.brain/venvs/` + dependency install + registration)
 
 Do not treat those as all-or-nothing unless the user explicitly requires MCP to be ready immediately.
 

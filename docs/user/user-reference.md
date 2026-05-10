@@ -209,14 +209,14 @@ Available in `.brain-core/scripts/`. Scripts are the source of truth for all vau
 | `create.py` | Create a new artefact with template/naming resolution |
 | `edit.py` | Edit artefacts via explicit `target + selector + scope`; the importable helpers also back editable `_Config/` resources |
 | `rename.py` | Rename a file with automatic wikilink updates; refuses existing-destination collisions before touching links |
-| `repair.py` | Explicit infrastructure repair entry point. Bootstraps from any compatible Python 3.12+ launcher, converges into the vault-local `.venv`, and then repairs one named scope: `mcp`, `router`, `index`, `registry`, or `semantic`. |
+| `repair.py` | Explicit infrastructure repair entry point. Bootstraps from any compatible Python 3.12+ launcher, converges into the central managed runtime at `~/.brain/venvs/py<X.Y>-<sha16>/`, and then repairs one named scope: `mcp`, `router`, `index`, `registry`, or `semantic`. |
 | `session.py` | Build the canonical session model and refresh `.brain/local/session.md` |
 | `obsidian_cli.py` | IPC client for native Obsidian CLI (library module used by MCP) |
 | `process.py` | Experimental content classification, duplicate resolution, ingestion |
 | `shape_printable.py` | Create printable + render PDF |
 | `shape_presentation.py` | Create presentation + render PDF + launch preview |
 | `start_shaping.py` | Bootstrap a shaping session for an existing artefact |
-| `upgrade.py` | Canonical brain-core upgrade entry point from a source directory, including versioned pre-compile compatibility patches, binary-safe rollback snapshots for `.brain/` / `_Config/`, applied-migration tracking in `.brain/local/`, running stage snapshots in `.brain/local/last-upgrade.json`, self-contained atomic writes, and best-effort vault-local MCP dependency sync when requirements change |
+| `upgrade.py` | Canonical brain-core upgrade entry point from a source directory, including versioned pre-compile compatibility patches, binary-safe rollback snapshots for `.brain/` / `_Config/`, post-compile migration rollback of touched artefact roots, applied-migration tracking in `.brain/local/`, running stage snapshots in `.brain/local/last-upgrade.json`, self-contained atomic writes, and provisioning of the central managed runtime at `~/.brain/venvs/` when requirements change |
 | `vault_registry.py` | User-home registry of installed Brain vaults |
 | `workspace_registry.py` | Workspace key→path resolution and registration |
 | `init.py` | Set up Claude Code and/or Codex to use this vault's MCP server; requires a Python 3.12+ runtime with the `mcp` package, folder-scoped installs also scaffold `.brain/local/workspace.yaml` (migrates legacy `.brain/workspace.yaml` automatically), and direct config writes stay atomic with unique sibling temp files. Project scope outranks user scope once the client activates the project entry: approve via `/mcp` in Claude, or trust/enable the project-scoped server in Codex. |
@@ -239,14 +239,14 @@ python3 .brain-core/scripts/check.py --json --actionable # structured with fixes
 python3 .brain-core/scripts/check.py --vault /path/to/vault  # check a specific vault
 ```
 
-**`configure.py`** (installed-vault semantic lifecycle) — explicit local opt-in surface for semantic retrieval. `configure.py semantic --enable` turns on the local semantic-retrieval flag in `.brain/local/config.yaml`, provisions the pinned semantic runtime into the vault-local `.venv`, snapshots the pinned local model under `.brain/local/semantic-models/`, records `.brain/local/semantic-model-manifest.json`, and refreshes router/index/embeddings sidecars so the vault lands in a usable state immediately. Use `--no-provision` when you want to record semantic intent without attempting package install, local model provisioning, or asset refresh yet.
+**`configure.py`** (installed-vault semantic lifecycle) — explicit local opt-in surface for semantic retrieval. `configure.py semantic --enable` turns on the local semantic-retrieval flag in `.brain/local/config.yaml`, provisions the pinned semantic runtime into the central managed runtime, snapshots the pinned local model under `.brain/local/semantic-models/`, records `.brain/local/semantic-model-manifest.json`, and refreshes router/index/embeddings sidecars so the vault lands in a usable state immediately. Use `--no-provision` when you want to record semantic intent without attempting package install, local model provisioning, or asset refresh yet.
 
 ```bash
 python3.12 .brain-core/scripts/configure.py semantic --enable
 python3.12 .brain-core/scripts/configure.py semantic --enable --no-provision --json
 ```
 
-**`repair.py`** (infrastructure recovery) — explicit repair surface for current-vault operational drift. It bootstraps from any compatible Python 3.12+ launcher, repairs the vault-local managed runtime when needed, then hands off into that `.venv` for packageful work. First-cut scopes are `mcp`, `router`, `index`, `registry`, and `semantic`; the semantic scope restores the pinned runtime packages, local model snapshot/manifest, and sidecars together for an already-configured vault. Missing sidecars degrade cleanly at runtime; present-but-corrupt sidecars now fail explicitly so the owning entry point can rebuild or point you at repair.
+**`repair.py`** (infrastructure recovery) — explicit repair surface for current-vault operational drift. It bootstraps from any compatible Python 3.12+ launcher, repairs the central managed runtime at `~/.brain/venvs/py<X.Y>-<sha16>/` when needed, then hands off into it for packageful work. First-cut scopes are `mcp`, `router`, `index`, `registry`, and `semantic`; the semantic scope restores the pinned runtime packages, local model snapshot/manifest, and sidecars together for an already-configured vault. Missing sidecars degrade cleanly at runtime; present-but-corrupt sidecars now fail explicitly so the owning entry point can rebuild or point you at repair.
 
 ```bash
 python3.12 .brain-core/scripts/repair.py mcp

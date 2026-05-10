@@ -5,10 +5,11 @@ repair.py — explicit Brain infrastructure repair entry point.
 Bootstrap layer:
   - self-contained and dependency-light
   - may be launched from any compatible Python 3.12+
-  - converges execution into the vault-local `.venv`
+  - converges execution into the central managed runtime
+    (`~/.brain/venvs/<py-tag>-<req-hash>/`)
 
 Runtime layer:
-  - runs inside the managed vault `.venv`
+  - runs inside the central managed runtime
   - performs named repair scopes: mcp, router, index, registry, semantic
 """
 
@@ -24,8 +25,8 @@ from typing import NoReturn
 
 from init import find_vault_root
 
+from _common import resolve_vault_venv_python
 from _lifecycle_common import (
-    VENV_PYTHON_REL,
     bootstrap_managed_runtime,
     exit_code_for_result,
     exec_managed_runtime,
@@ -40,10 +41,6 @@ from _repair_common import BOOTSTRAP_SUMMARY_ENV, MANAGED_RUNTIME_ENV, REPAIR_SC
 
 
 BOOTSTRAP_TIMEOUT = 300
-
-
-def _managed_python(vault_root: Path) -> Path:
-    return vault_root / VENV_PYTHON_REL
 
 
 def _bootstrap_summary(
@@ -135,11 +132,12 @@ def main(argv: list[str] | None = None) -> int:
                 message = f"Bootstrap command failed with exit code {exc.returncode}."
             else:
                 message = str(exc)
+            managed_python = str(resolve_vault_venv_python(vault_root))
             result = make_result_envelope(
                 scope=args.scope,
                 vault_root=vault_root,
                 dry_run=args.dry_run,
-                managed_python=str(_managed_python(vault_root)),
+                managed_python=managed_python,
                 steps=[_step("managed_runtime", "error", message)],
                 status="error",
             )
@@ -174,7 +172,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(_render_human(result))
             return 0
         else:
-            fatal("Managed runtime bootstrap did not produce a usable vault-local .venv.")
+            fatal("Managed runtime bootstrap did not produce a usable central venv.")
     else:
         bootstrap_steps = load_bootstrap_steps(BOOTSTRAP_SUMMARY_ENV)
 

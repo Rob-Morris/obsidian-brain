@@ -32,16 +32,16 @@ For non-interactive agent installs in restricted environments, scaffold the vaul
 bash install.sh --non-interactive --skip-mcp /path/to/brain
 ```
 
-The installer creates the vault from the template, copies `.brain-core/` into it, and then attempts project-scope Python / MCP setup for Claude Code and Codex. It can also install brain-core into an existing Obsidian vault. For already-installed Brain vaults, the canonical upgrade path is `upgrade.py`; `install.sh` is only a convenience wrapper that can detect the vault and delegate to the upgrader. In network-restricted environments you can pass `--skip-mcp` to scaffold the vault without the `.venv` / MCP setup, or rerun the printed retry steps later if dependency installation fails. Use `--non-interactive` when you want installer automation without prompts. When upgrade changes `.brain-core/brain_mcp/requirements.txt` and the vault already has a local `.venv`, `upgrade.py` syncs that environment itself; `install.sh --skip-mcp` passes through the opt-out. Same-version re-apply, downgrade, or explicit migration rerun flows remain explicit `upgrade.py --force` operations. Project scope still outranks user scope for both clients once the project-scoped MCP is active: in Claude, approve `brain` via `/mcp`; in Codex, trust the project and ensure `brain` is enabled for that project. See [install.sh](../functional/scripts.md#installsh) for full details, modes, and flags.
+The installer creates the vault from the template, copies `.brain-core/` into it, and then attempts project-scope Python / MCP setup for Claude Code and Codex. It can also install brain-core into an existing Obsidian vault. For already-installed Brain vaults, the canonical upgrade path is `upgrade.py`; `install.sh` is only a convenience wrapper that can detect the vault and delegate to the upgrader. In network-restricted environments you can pass `--skip-mcp` to scaffold the vault without the runtime / MCP setup, or rerun the printed retry steps later if dependency installation fails. Use `--non-interactive` when you want installer automation without prompts. When upgrade changes `.brain-core/brain_mcp/requirements.txt`, `upgrade.py` provisions the matching shared runtime under `~/.brain/venvs/` itself; `install.sh --skip-mcp` passes through the opt-out. Same-version re-apply, downgrade, or explicit migration rerun flows remain explicit `upgrade.py --force` operations. Project scope still outranks user scope for both clients once the project-scoped MCP is active: in Claude, approve `brain` via `/mcp`; in Codex, trust the project and ensure `brain` is enabled for that project. See [install.sh](../functional/scripts.md#installsh) for full details, modes, and flags.
 
 Semantic retrieval remains optional. Enable it later from inside the vault with
 `python3 .brain-core/scripts/configure.py semantic --enable`. That command
-installs the pinned semantic runtime into the vault-local `.venv`, snapshots
+installs the pinned semantic runtime into the central managed runtime, snapshots
 the pinned local model under `.brain/local/semantic-models/`, records
 `.brain/local/semantic-model-manifest.json`, and refreshes embeddings sidecars
 so semantic search stays local-only at query time.
 
-**Requirements:** git and `python3`. Python 3.12+ is the supported user-facing runtime for install, init, upgrade, repair, and MCP server support. Without it the vault can still be scaffolded, but agent tools will not be available until you install Python 3.12+ and either rerun `bash install.sh /path/to/brain` or manually create the vault-local `.venv` and run `.venv/bin/python .brain-core/scripts/init.py --client all`.
+**Requirements:** git and `python3`. Python 3.12+ is required for install, init, upgrade, repair, and MCP server support. Brain installs its dependencies into a shared local runtime under `~/.brain/venvs/` rather than into your wider Python environment. Without Python 3.12+ the vault can still be scaffolded, but agent tools will not be available until you install Python 3.12+ and rerun `bash install.sh /path/to/brain`.
 
 ---
 
@@ -203,18 +203,19 @@ python3.12 .brain-core/scripts/repair.py semantic
 ```
 
 For most broken-tooling cases, `repair.py mcp` is the important one. It
-repairs or creates the vault-local `.venv`, syncs Brain MCP dependencies there,
-and then repairs installed current-vault project MCP registration state.
-It does not act as a first-time installer or add a second client to the vault.
-`repair.py semantic` is the semantic equivalent after a vault has been opted in
-with `configure.py semantic --enable`. It restores the pinned runtime
-packages, local model snapshot/manifest, and embeddings sidecars together.
-`router`, `index`, and `registry` are narrower generated-state repairs and are
-usually best run when `check.py` tells you to.
+repairs or creates the shared managed runtime under `~/.brain/venvs/`, syncs
+Brain MCP dependencies there, and then repairs installed current-vault project
+MCP registration state. It does not act as a first-time installer or add a
+second client to the vault. `repair.py semantic` is the semantic equivalent
+after a vault has been opted in with `configure.py semantic --enable`. It
+restores the pinned runtime packages, local model snapshot/manifest, and
+embeddings sidecars together. `router`, `index`, and `registry` are narrower
+generated-state repairs and are usually best run when `check.py` tells you to.
 
 `repair.py` may be launched from any compatible Python 3.12+ interpreter, but
-packageful repair always converges back into the vault-local `.venv`. It does
-not install packages into your wider Python environment.
+packageful repair always converges back into the central managed runtime at
+`~/.brain/venvs/`. It does not install packages into your wider Python
+environment.
 
 ---
 

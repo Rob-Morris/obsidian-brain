@@ -3,6 +3,7 @@
 import json
 import os
 from pathlib import Path
+import shlex
 import shutil
 import subprocess
 import sys
@@ -715,21 +716,24 @@ class TestUpgradeProgressLogging:
             upgrade._write_upgrade_log(vault_root, result)
             return result
 
-        def fake_dep_sync(vault_root, *, requirements_changed, sync_deps):
+        def fake_runtime(vault_root, *, requirements_changed, sync_deps):
             entry = json.loads(log_path.read_text())
             assert entry["status"] == "running"
             assert entry["stage"] == "dependency_sync"
-            assert entry["message"] == "Synchronising vault-local MCP dependencies"
+            assert entry["message"] == "Provisioning central managed runtime"
             assert requirements_changed is True
             return {
-                "outcome": "ok",
-                "command": ["python", "-m", "pip", "install", "-r", "requirements.txt"],
+                "outcome": upgrade.RUNTIME_REUSED,
                 "requirements_changed": True,
-                "message": "ok",
+                "venv_dir": "/fake/venv",
+                "python": "/fake/venv/bin/python",
+                "python_tag": "py3.12",
+                "hash": "deadbeefdeadbeef",
+                "venvs_root": "/fake",
             }
 
         monkeypatch.setattr(upgrade, "upgrade", fake_upgrade)
-        monkeypatch.setattr(upgrade, "_maybe_sync_mcp_dependencies", fake_dep_sync)
+        monkeypatch.setattr(upgrade, "_ensure_central_runtime", fake_runtime)
         monkeypatch.setattr(
             sys,
             "argv",
@@ -746,14 +750,51 @@ class TestUpgradeProgressLogging:
         upgrade.main()
 
         result = json.loads(capsys.readouterr().out)
-        assert result["dependency_sync"]["outcome"] == "ok"
+        assert result["central_runtime"]["outcome"] == upgrade.RUNTIME_REUSED
         final = json.loads(log_path.read_text())
         assert final["status"] == "ok"
-        assert final["dependency_sync"]["outcome"] == "ok"
+        assert final["central_runtime"]["outcome"] == upgrade.RUNTIME_REUSED
 
 
-class TestUpgradeCliDependencySync:
-    def test_cli_syncs_vault_local_dependencies_and_prints_absolute_follow_up(self, tmp_path):
+class TestUpgradeCliCentralRuntime:
+    """Upgrade CLI ensures the central managed runtime when requirements change.
+
+    `ensure_central_venv` is exercised end-to-end against a fake launcher that
+    fabricates the venv layout deterministically — no real `python -m venv`
+    or `pip install` runs in tests.
+    """
+
+    @staticmethod
+    def _fake_launcher(path: Path) -> None:
+        """Stub Python launcher: simulates `-m venv DIR` and `-m pip install ...`.
+
+        The `-c` branch delegates to `sys.executable` rather than `/usr/bin/env
+        python3` so the launcher works on machines where `python3` is shimmed
+        (e.g. asdf without a configured version) — `python_tag` only needs the
+        version-info probe to succeed.
+        """
+        _write_executable(
+            path,
+            "#!/bin/sh\n"
+            "if [ \"$1\" = \"-c\" ]; then\n"
+            f"  exec {shlex.quote(sys.executable)} \"$@\"\n"
+            "fi\n"
+            "if [ \"$1\" = \"-m\" ] && [ \"$2\" = \"venv\" ]; then\n"
+            "  mkdir -p \"$3/bin\"\n"
+            "  cp \"$0\" \"$3/bin/python\"\n"
+            "  exit 0\n"
+            "fi\n"
+            "if [ \"$1\" = \"-m\" ] && [ \"$2\" = \"pip\" ]; then\n"
+            "  shift 2\n"
+            "  venv_dir=$(cd \"$(dirname \"$0\")/..\" && pwd)\n"
+            "  printf '%s\\n' \"$*\" >> \"$venv_dir/pip-args.txt\"\n"
+            "  exit 0\n"
+            "fi\n"
+            "printf 'unexpected fake-launcher args: %s\\n' \"$*\" >&2\n"
+            "exit 1\n",
+        )
+
+    def test_cli_creates_central_runtime_when_requirements_change(self, tmp_path, monkeypatch):
         source = _make_real_compile_source(tmp_path)
         brain_mcp = source / "brain_mcp"
         brain_mcp.mkdir()
@@ -764,18 +805,10 @@ class TestUpgradeCliDependencySync:
         old_requirements.mkdir(parents=True)
         (old_requirements / "requirements.txt").write_text("mcp==1.0.0\n")
 
-        _write_executable(
-            vault / ".venv" / "bin" / "python",
-            "#!/bin/sh\n"
-            "if [ \"$1\" = \"-m\" ] && [ \"$2\" = \"pip\" ]; then\n"
-            "  shift 2\n"
-            "  venv_dir=$(cd \"$(dirname \"$0\")/..\" && pwd)\n"
-            "  printf '%s\\n' \"$*\" > \"$venv_dir/pip-args.txt\"\n"
-            "  exit 0\n"
-            "fi\n"
-            "printf 'unexpected venv python args: %s\\n' \"$*\" >&2\n"
-            "exit 1\n",
-        )
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        launcher = tmp_path / "launcher" / "python"
+        self._fake_launcher(launcher)
 
         script = Path(__file__).resolve().parents[1] / "src" / "brain-core" / "scripts" / "upgrade.py"
         result = subprocess.run(
@@ -783,17 +816,24 @@ class TestUpgradeCliDependencySync:
             capture_output=True,
             text=True,
             timeout=60,
+            env={**os.environ, "HOME": str(fake_home), "BRAIN_VENV_LAUNCHER": str(launcher)},
         )
 
         assert result.returncode == 0, result.stderr
-        assert (vault / ".venv" / "pip-args.txt").read_text().startswith(
-            f"install --quiet -r {vault / '.brain-core' / 'brain_mcp' / 'requirements.txt'}"
-        )
-        assert "MCP dependencies synced in the vault-local .venv." in result.stderr
+        venvs_root = fake_home / ".brain" / "venvs"
+        assert venvs_root.is_dir()
+        venv_dirs = list(venvs_root.iterdir())
+        assert len(venv_dirs) == 1, f"expected exactly one central venv, got {venv_dirs}"
+        venv_dir = venv_dirs[0]
+        assert (venv_dir / "bin" / "python").is_file()
+        # The fake-launcher records pip args; we should see the install of the new requirements
+        pip_args = (venv_dir / "pip-args.txt").read_text()
+        assert "install --quiet --upgrade pip -r" in pip_args
+        assert str(vault / ".brain-core" / "brain_mcp" / "requirements.txt") in pip_args
+        assert f"Created central runtime at {venv_dir}" in result.stderr
         assert str(vault / ".brain-core" / "scripts" / "build_index.py") in result.stderr
-        assert "python3 .brain-core/scripts/build_index.py" not in result.stderr
 
-    def test_cli_forced_sync_deps_without_requirements_diff_uses_neutral_message(self, tmp_path):
+    def test_cli_forced_sync_deps_reuses_existing_central_runtime(self, tmp_path):
         source = _make_real_compile_source(tmp_path)
         brain_mcp = source / "brain_mcp"
         brain_mcp.mkdir()
@@ -804,14 +844,27 @@ class TestUpgradeCliDependencySync:
         old_requirements.mkdir(parents=True)
         (old_requirements / "requirements.txt").write_text("mcp==1.0.0\n")
 
-        script = Path(__file__).resolve().parents[1] / "src" / "brain-core" / "scripts" / "upgrade.py"
-        result = subprocess.run(
-            [sys.executable, str(script), "--source", str(source), "--vault", str(vault), "--sync-deps"],
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        launcher = tmp_path / "launcher" / "python"
+        self._fake_launcher(launcher)
 
-        assert result.returncode == 0, result.stderr
-        assert "Vault-local MCP dependency sync was requested, but no vault-local .venv was found. Skipping." in result.stderr
-        assert "Dependencies changed, but no vault-local .venv was found." not in result.stderr
+        script = Path(__file__).resolve().parents[1] / "src" / "brain-core" / "scripts" / "upgrade.py"
+
+        env = {**os.environ, "HOME": str(fake_home), "BRAIN_VENV_LAUNCHER": str(launcher)}
+
+        # First run: --sync-deps creates the venv (requirements unchanged but forced)
+        first = subprocess.run(
+            [sys.executable, str(script), "--source", str(source), "--vault", str(vault), "--sync-deps"],
+            capture_output=True, text=True, timeout=60, env=env,
+        )
+        assert first.returncode == 0, first.stderr
+        assert "Created central runtime" in first.stderr
+
+        # Second run: same requirements → reused, not recreated
+        second = subprocess.run(
+            [sys.executable, str(script), "--source", str(source), "--vault", str(vault), "--sync-deps", "--force"],
+            capture_output=True, text=True, timeout=60, env=env,
+        )
+        assert second.returncode == 0, second.stderr
+        assert "Reused central runtime" in second.stderr

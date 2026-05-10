@@ -9,14 +9,16 @@ Examples:
   4. Specific folder:    python3 /vault/.brain-core/scripts/init.py --project /path/to/project
   5. Explicit removal:   python3 /vault/.brain-core/scripts/init.py --remove --client all --project /path/to/project
 
-Self-contained - no imports from _common (may run before deps are installed).
-Idempotent - safe to re-run. Never clobbers non-brain MCP config.
+Imports only from `_common`, which is stdlib-only by contract; never from
+sibling modules that pull in third-party packages. Idempotent — safe to
+re-run. Never clobbers non-brain MCP config.
 
 Claude uses native project/local/user config surfaces.
 Codex uses native project/user config surfaces only.
 """
 
 import argparse
+import importlib.util
 import json
 import os
 import re
@@ -29,6 +31,13 @@ import unicodedata
 from pathlib import Path
 from typing import Any, Dict, List, NoReturn, Optional, Tuple
 
+# init.py is invoked with the system Python at install time, so we import
+# only from `_common` (stdlib-only by contract). _common's package init
+# pulls in sibling submodules; that's fine because none of them depend on
+# third-party packages. See `_common/__init__.py`.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _common import safe_write, safe_write_json  # noqa: E402
+
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -39,7 +48,7 @@ BRAIN_CORE_MARKER = os.path.join(".brain-core", "VERSION")
 MCP_PYTHONPATH_REL = os.path.join(".brain-core")
 MCP_PROXY_MODULE = "brain_mcp.proxy"
 MCP_SERVER_MODULE = "brain_mcp.server"
-VENV_PYTHON_REL = os.path.join(".venv", "bin", "python")
+VENV_HELPER_REL = os.path.join(".brain-core", "scripts", "_common", "_venv.py")
 
 CLAUDE_PROJECT_CONFIG_FILE = ".mcp.json"
 CLAUDE_USER_CONFIG_FILE = ".claude.json"
@@ -64,7 +73,7 @@ SUPPORTED_SCOPES = ("project", "local", "user")
 
 
 # ---------------------------------------------------------------------------
-# Vault root discovery (self-contained, no _common import)
+# Vault root discovery
 # ---------------------------------------------------------------------------
 
 def _is_vault_root(path: Path) -> bool:
@@ -109,23 +118,55 @@ def find_vault_root(vault_arg: Optional[str] = None) -> Path:
 # Python / dependency detection
 # ---------------------------------------------------------------------------
 
+def _load_venv_helper(vault_root: Path):
+    """Load the `_venv` helper from the vault, or return None when missing.
+
+    `_venv` is part of `_common` and could in principle be imported normally,
+    but this script is also packaged into the vault and may be invoked from
+    a different vault than the one its source tree was copied from (e.g.
+    when registering a project scope from outside the vault). Loading from
+    the vault under inspection guarantees the path rule matches *that*
+    vault's `.brain-core/` rather than whichever copy happens to be on
+    `sys.path`. Returns None for partially-installed vaults so callers can
+    fall through to legacy discovery.
+    """
+    helper = vault_root / VENV_HELPER_REL
+    if not helper.is_file():
+        return None
+    spec = importlib.util.spec_from_file_location("_brain_venv", str(helper))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
 def find_python(vault_root: Path) -> str:
-    """Find a Python 3.12+ interpreter with the mcp package available."""
-    venv_python = vault_root / VENV_PYTHON_REL
-    if venv_python.is_file() and _python_has_mcp(str(venv_python)):
-        return str(venv_python)
+    """Find a Python 3.12+ interpreter with the mcp package available.
+
+    Prefers the central managed runtime at `~/.brain/venvs/<py-tag>-<hash>/`
+    so the registered MCP path lines up with the post-D2 layout. Falls back
+    to the legacy vault-local `.venv/`, the running interpreter, and PATH
+    candidates so existing vaults keep working until they are migrated.
+    """
+    helper = _load_venv_helper(vault_root)
+    if helper is not None:
+        for candidate in (
+            helper.resolve_vault_venv_python(vault_root),
+            helper.legacy_vault_venv_python(vault_root),
+        ):
+            if candidate.is_file() and _python_has_mcp(str(candidate)):
+                return str(candidate)
 
     if _python_has_mcp(sys.executable):
         return sys.executable
 
-    for candidate in ["python3.13", "python3.12", "python3"]:
-        path = shutil.which(candidate)
+    for name in ("python3.13", "python3.12", "python3"):
+        path = shutil.which(name)
         if path and _python_has_mcp(path):
             return path
 
     fatal(
         "No Python 3.12+ with the 'mcp' package found.\n"
-        f"Run: cd {vault_root} && make install\n"
+        f"Run: bash install.sh {vault_root}\n"
         "Or:  pip install 'mcp>=1.0.0' --break-system-packages"
     )
 
@@ -327,40 +368,10 @@ def _read_json_safe(path: Path) -> Dict[str, Any]:
         return {}
 
 
-def _safe_write(path: Path, content: str) -> str:
-    """Atomic file write: tmp -> fsync -> os.replace. Returns resolved path.
-
-    Duplicated from _common/_filesystem.safe_write because init.py may run
-    before pip deps are installed and stays self-contained. Keep this body
-    structurally aligned with the canonical helper and with the peer
-    upgrade.py copy so future safe-write fixes are easy to mirror here.
-    """
-    target = os.path.realpath(str(path))
-    os.makedirs(os.path.dirname(target) or ".", exist_ok=True)
-    fd, tmp_path = tempfile.mkstemp(
-        prefix=os.path.basename(target) + ".",
-        suffix=".tmp",
-        dir=os.path.dirname(target) or ".",
-    )
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(content)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(tmp_path, target)
-    except BaseException:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-        raise
-    return target
-
-
-def _safe_write_json(path: Path, data: Dict[str, Any]) -> str:
-    """Atomic JSON write."""
-    content = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
-    return _safe_write(path, content)
+# `safe_write` / `safe_write_json` come from `_common` (imported at module
+# top). The previously-duplicated bodies here drifted from upgrade.py's
+# copy (init.py was text-only, upgrade.py supports bytes); using the
+# shared helpers keeps the kernel's behaviour single-sourced.
 
 
 def _delete_file_if_exists(path: Path) -> None:
@@ -390,7 +401,7 @@ def _config_cleanup_stop(path: Path) -> Path:
 
 def _cleanup_json_file(path: Path, data: Dict[str, Any], stop_at: Path) -> None:
     if data:
-        _safe_write_json(path, data)
+        safe_write_json(path, data)
         return
     _delete_file_if_exists(path)
     _remove_empty_parent_dirs(path, stop_at)
@@ -402,7 +413,7 @@ def _upsert_mcp_server(json_path: Path, server_config: Dict[str, Any]) -> None:
     if "mcpServers" not in existing or not isinstance(existing["mcpServers"], dict):
         existing["mcpServers"] = {}
     existing["mcpServers"][BRAIN_SERVER_NAME] = server_config
-    _safe_write_json(json_path, existing)
+    safe_write_json(json_path, existing)
     info(f"Wrote {BRAIN_SERVER_NAME} -> {json_path}")
 
 
@@ -701,7 +712,7 @@ def write_codex_config(server_config: Dict[str, Any], config_path: Path) -> None
         _toml_body_lines(server_config["env"]),
     )
 
-    _safe_write(config_path, _render_toml(preamble, sections))
+    safe_write(config_path, _render_toml(preamble, sections))
     info(f"Wrote {BRAIN_SERVER_NAME} -> {config_path}")
 
 
@@ -731,7 +742,7 @@ def _remove_codex_server(config_path: Path, server_config: Dict[str, Any]) -> bo
 
     rendered = _render_toml(preamble, kept_sections)
     if rendered:
-        _safe_write(config_path, rendered)
+        safe_write(config_path, rendered)
     else:
         _delete_file_if_exists(config_path)
         _remove_empty_parent_dirs(config_path, _config_cleanup_stop(config_path))
@@ -756,7 +767,7 @@ def ensure_claude_md(target_dir: Path, local: bool = False) -> Path:
         existing = ""
 
     if not existing:
-        _safe_write(claude_md, f"{bootstrap}\n")
+        safe_write(claude_md, f"{bootstrap}\n")
         info(f"Created {rel_path} with brain bootstrap")
         return claude_md
 
@@ -765,7 +776,7 @@ def ensure_claude_md(target_dir: Path, local: bool = False) -> Path:
         return claude_md
 
     separator = "\n" if existing.endswith("\n") else "\n\n"
-    _safe_write(claude_md, f"{existing}{separator}{bootstrap}\n")
+    safe_write(claude_md, f"{existing}{separator}{bootstrap}\n")
     info(f"Appended brain bootstrap to {rel_path}")
     return claude_md
 
@@ -787,7 +798,7 @@ def _remove_bootstrap_line(path: Path, bootstrap: str) -> None:
         return
 
     if kept:
-        _safe_write(path, "\n".join(kept) + "\n")
+        safe_write(path, "\n".join(kept) + "\n")
     else:
         _delete_file_if_exists(path)
 
@@ -838,7 +849,7 @@ def ensure_workspace_manifest(target_dir: Path) -> None:
         "  tags:\n"
         f"    - workspace/{slug}\n"
     )
-    _safe_write(manifest_path, content)
+    safe_write(manifest_path, content)
     info(f"Created {WORKSPACE_MANIFEST_FILE}")
 
 
@@ -872,7 +883,7 @@ def ensure_session_start_hook(target_dir: Path, vault_root: Path) -> Path:
         ]
     }
     settings["hooks"].setdefault("SessionStart", []).append(new_entry)
-    _safe_write_json(settings_path, settings)
+    safe_write_json(settings_path, settings)
     info("Added SessionStart hook for brain_session")
     return settings_path
 
@@ -953,7 +964,7 @@ def _save_init_state(vault_root: Path, state: Dict[str, Any]) -> None:
     path = _state_path(vault_root)
     records = state.get("records", [])
     if records:
-        _safe_write_json(path, {"version": INIT_STATE_VERSION, "records": records})
+        safe_write_json(path, {"version": INIT_STATE_VERSION, "records": records})
         return
     _delete_file_if_exists(path)
 

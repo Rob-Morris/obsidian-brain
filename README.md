@@ -1,6 +1,6 @@
 # Obsidian Brain
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.36.8-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.12-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.37.0-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.12-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
 
 A self-evolving knowledge base for agents and humans working together on what matters.
 
@@ -39,13 +39,15 @@ The [Getting Started guide](docs/user/getting-started.md) walks through all of t
 bash <(curl -fsSL https://raw.githubusercontent.com/rob-morris/obsidian-brain/main/install.sh)
 ```
 
-This downloads the repo, creates the vault in the current directory, and then attempts project-scope MCP setup for Claude Code and Codex. Pass a path to install elsewhere. If you want the vault scaffold without `.venv` / MCP setup, pass `--skip-mcp` (or add `--non-interactive` for non-interactive agent installs). From a local clone, use `bash install.sh` instead.
+This downloads the repo, creates the vault in the current directory, and then attempts project-scope MCP setup for Claude Code and Codex. Pass a path to install elsewhere. If you want the vault scaffold without the managed runtime / MCP setup, pass `--skip-mcp` (or add `--non-interactive` for non-interactive agent installs). From a local clone, use `bash install.sh` instead.
+
+Brain installs the managed Python runtime to `~/.brain/venvs/py<X.Y>-<sha16>/`, content-addressed by `requirements.txt`. Vaults sharing the same dependencies share one venv on disk. See [DD-048](docs/architecture/decisions/dd-048-central-managed-runtime.md) for rationale.
 
 Semantic retrieval remains explicit opt-in. Enable it later from inside the
 vault with `python3 .brain-core/scripts/configure.py semantic --enable`. That
 flow writes the local semantic-retrieval flag first, installs the pinned
-semantic Python stack into the vault-local `.venv`, snapshots the pinned model
-under `.brain/local/semantic-models/`, records
+semantic Python stack into the central managed runtime, snapshots the pinned
+model under `.brain/local/semantic-models/`, records
 `.brain/local/semantic-model-manifest.json`, and refreshes the embeddings
 sidecars so ordinary semantic search stays fully local.
 
@@ -67,7 +69,7 @@ If you want a convenience wrapper that fetches the repo or prompts for confirmat
 bash install.sh /path/to/brain
 ```
 
-The wrapper detects the existing installation, shows the version change, and then runs `upgrade.py`. When `.brain-core/brain_mcp/requirements.txt` changes and the vault already has a local `.venv`, the upgrader syncs that environment directly; project MCP registration is left in place and is not re-run. If semantic retrieval is already configured for the vault, `upgrade.py` also re-runs semantic repair after the file update so the pinned local model snapshot, manifest, and embeddings sidecars converge intentionally. Same-version re-apply, downgrade, and migration rerun flows remain explicit `upgrade.py --force` operations.
+The wrapper detects the existing installation, shows the version change, and then runs `upgrade.py`. When `.brain-core/brain_mcp/requirements.txt` changes, `upgrade.py` provisions the matching central runtime at `~/.brain/venvs/py<X.Y>-<sha16>/` (creating or reusing); existing project MCP registrations are left in place. Vaults that still point at a legacy per-vault `.venv/` get a one-line migration command in the upgrade output. If semantic retrieval is already configured for the vault, `upgrade.py` also re-runs semantic repair after the file update so the pinned local model snapshot, manifest, and embeddings sidecars converge intentionally. Same-version re-apply, downgrade, and migration rerun flows remain explicit `upgrade.py --force` operations.
 
 #### Repair
 
@@ -82,7 +84,7 @@ python3.12 .brain-core/scripts/repair.py semantic
 ```
 
 For most users, `repair.py mcp` is the main recovery path. Use it when the
-vault-local `.venv`, MCP dependencies, or installed current-vault project MCP
+central managed runtime, MCP dependencies, or installed current-vault project MCP
 registration have drifted. It repairs the clients that are already installed
 for the vault; it does not act as a first-time installer. `repair.py semantic`
 is the semantic equivalent after a vault has been opted in with
@@ -99,8 +101,9 @@ python3 .brain-core/scripts/check.py --actionable
 When `check.py --actionable` detects router, MCP, semantic-runtime, or local
 workspace-registry drift, it prints the exact `repair.py` command to run.
 `repair.py` may be launched from any compatible Python 3.12+ interpreter, but
-packageful repair converges into the vault-local `.venv`; it does not install
-packages into your wider Python environment.
+packageful repair converges into the central managed runtime at
+`~/.brain/venvs/py<X.Y>-<sha16>/`; it does not install packages into your
+wider Python environment.
 
 #### Existing vault
 
@@ -116,7 +119,7 @@ bash install.sh ~/my-existing-vault
 bash install.sh --uninstall /path/to/brain
 ```
 
-Removes brain system files (`.brain-core/`, `.brain/`, `.venv/`), removes the Brain bootstrap line from `CLAUDE.md` (deleting the file only if it becomes empty), removes only recorded Brain-managed project MCP entries from `.mcp.json` / `.codex/config.toml`, and removes recorded Brain-managed Claude local state in `.claude/`. Your notes are not affected. User-scope MCP cleanup stays explicit. Optionally offers to delete the entire vault with a multi-stage confirmation.
+Removes brain system files (`.brain-core/`, `.brain/`, and the legacy `.venv/` if present), removes the Brain bootstrap line from `CLAUDE.md` (deleting the file only if it becomes empty), removes only recorded Brain-managed project MCP entries from `.mcp.json` / `.codex/config.toml`, and removes recorded Brain-managed Claude local state in `.claude/`. The central runtime at `~/.brain/venvs/` is **not** removed — other vaults may share it. Your notes are not affected. User-scope MCP cleanup stays explicit. Optionally offers to delete the entire vault with a multi-stage confirmation.
 
 #### Non-interactive mode
 
@@ -126,7 +129,7 @@ bash install.sh --non-interactive --skip-mcp /path/to/brain
 bash install.sh --uninstall --non-interactive /path/to/brain
 ```
 
-Skips all prompts. Useful for scripted or agent-driven installs. Add `--skip-mcp` to scaffold the vault without creating `.venv` or registering Claude/Codex MCP — useful in network-restricted agent sandboxes. If MCP dependency install or registration fails, the installer now leaves the vault in place and prints manual retry steps instead of aborting the whole install. On uninstall, `--non-interactive` removes system files without prompting and skips the vault-deletion offer entirely. On upgrade, `install.sh` just delegates to `upgrade.py`; it does not own upgrade override semantics or re-run MCP setup. If you need same-version re-apply, downgrade, or migration rerun behaviour, call `upgrade.py --force` directly.
+Skips all prompts. Useful for scripted or agent-driven installs. Add `--skip-mcp` to scaffold the vault without provisioning the central runtime or registering Claude/Codex MCP — useful in network-restricted agent sandboxes. If MCP dependency install or registration fails, the installer now leaves the vault in place and prints manual retry steps instead of aborting the whole install. On uninstall, `--non-interactive` removes system files without prompting and skips the vault-deletion offer entirely. On upgrade, `install.sh` just delegates to `upgrade.py`; it does not own upgrade override semantics or re-run MCP setup. If you need same-version re-apply, downgrade, or migration rerun behaviour, call `upgrade.py --force` directly.
 
 > **Full reference:** [Scripts — install.sh](docs/functional/scripts.md#installsh) covers all flags, safety guards, and edge-case behaviour.
 
@@ -138,8 +141,8 @@ If you prefer to do it yourself:
 1. Clone this repo: `git clone https://github.com/rob-morris/obsidian-brain.git`
 2. Copy `template-vault/` to your preferred location: `cp -R template-vault /path/to/brain`
 3. Copy brain-core into the vault: `cp -R src/brain-core /path/to/brain/.brain-core`
-4. Create a vault-local venv and install Brain MCP dependencies: `cd /path/to/brain && python3.12 -m venv .venv && .venv/bin/python -m pip install -r .brain-core/brain_mcp/requirements.txt`
-5. Register the MCP server: `.venv/bin/python .brain-core/scripts/init.py --client all` (or `--user --client all` for all projects)
+4. Provision the central managed runtime: `cd /path/to/brain && python3.12 .brain-core/scripts/_common/_venv.py ensure --vault . --launcher python3.12`. This creates `~/.brain/venvs/py3.12-<sha16>/` if missing and installs `requirements.txt` into it.
+5. Register the MCP server: run `.brain-core/scripts/init.py` with the central venv's python, e.g. `"$(python3.12 .brain-core/scripts/_common/_venv.py python --vault .)" .brain-core/scripts/init.py --client all` (or add `--user --client all` for all projects)
    For project scope, the file write is not the whole story: Claude still needs `/mcp` approval for `brain`, and Codex still needs the project trusted with `brain` enabled.
 6. Open the folder as an Obsidian vault
 7. Enable the CSS snippet in **Settings > Appearance > CSS Snippets** (`brain-folder-colours`)
@@ -148,17 +151,17 @@ If you prefer to do it yourself:
 
 ### Connecting from Other Projects
 
-When MCP setup is enabled, the install script registers the server for the vault directory at project scope for Claude Code and Codex. To use the brain from other directories, run one of these from inside the vault with the vault-local managed runtime:
+When MCP setup is enabled, the install script registers the server for the vault directory at project scope for Claude Code and Codex. To use the brain from other directories, run one of these from inside the vault with the central managed runtime — `init.py` resolves the right python automatically:
 
 ```bash
 # Make the brain available to all projects for both clients
-.venv/bin/python .brain-core/scripts/init.py --user --client all
+python3.12 .brain-core/scripts/init.py --user --client all
 
 # Or link a specific project for both clients
-.venv/bin/python .brain-core/scripts/init.py --project /path/to/project --client all
+python3.12 .brain-core/scripts/init.py --project /path/to/project --client all
 
 # Claude-only local scope (gitignored; Codex has no local scope)
-.venv/bin/python .brain-core/scripts/init.py --client claude --local
+python3.12 .brain-core/scripts/init.py --client claude --local
 ```
 
 Use `--user` if you want the brain everywhere. Use `--project` to connect a single project without affecting others. Use `--client claude --local` when you want Claude-only local config in `.claude/settings.local.json` without committing it. For project scope, the project-scoped MCP still outranks the user-scoped one once it is active, but registration alone is not enough: in Claude, approve `brain` via `/mcp`; in Codex, trust the project and ensure `brain` is enabled. Until then, either client may keep using the user-scoped `brain`.
