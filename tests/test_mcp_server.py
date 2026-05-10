@@ -16,7 +16,7 @@ from mcp.types import CallToolResult
 
 import _semantic.model as semantic_model
 import _semantic.runtime as semantic_runtime
-from brain_mcp import server
+from brain_mcp import _server_content, _server_reading, server
 import build_index
 import compile_router
 import obsidian_cli
@@ -234,6 +234,24 @@ def gated_router_warmup(monkeypatch):
     yield types.SimpleNamespace(release=release, entered=entered)
     release.set()
     server._wait_for_warmup(timeout=5.0)
+
+
+@pytest.fixture
+def gated_semantic_warmup(monkeypatch):
+    """Patch semantic warmup disk load to block until released."""
+    release = threading.Event()
+    entered = threading.Event()
+    real = retrieval_embeddings.load_embeddings_state
+
+    def slow_load(vault_root):
+        entered.set()
+        assert release.wait(timeout=2.0), "semantic warmup gate did not release"
+        return real(vault_root)
+
+    monkeypatch.setattr(retrieval_embeddings, "load_embeddings_state", slow_load)
+    yield types.SimpleNamespace(release=release, entered=entered)
+    release.set()
+    server._wait_for_semantic_warmup(timeout=5.0)
 
 
 # ---------------------------------------------------------------------------
@@ -966,16 +984,9 @@ class TestBrainSearch:
         monkeypatch.setattr(
             search_index, "_encode_query", lambda _vault, _query: np.array([1.0, 0.0])
         )
-        monkeypatch.setattr(
-            search_index._semantic,
-            "semantic_engine_available",
-            lambda *args, **kwargs: True,
-        )
-        monkeypatch.setattr(
-            retrieval_embeddings,
-            "semantic_engine_available",
-            lambda *args, **kwargs: True,
-        )
+        monkeypatch.setattr(retrieval_embeddings, "semantic_engine_available", lambda *_args, **_kwargs: True)
+        monkeypatch.setattr(_server_reading._retrieval_embeddings, "semantic_engine_available", lambda *_args, **_kwargs: True)
+        monkeypatch.setattr(search_index._semantic, "semantic_engine_available", lambda *_args, **_kwargs: True)
 
         def fake_ensure_embeddings_fresh():
             server._doc_embeddings = vectors
@@ -1003,16 +1014,9 @@ class TestBrainSearch:
         monkeypatch.setattr(
             search_index, "_encode_query", lambda _vault, _query: np.array([1.0, 0.0])
         )
-        monkeypatch.setattr(
-            search_index._semantic,
-            "semantic_engine_available",
-            lambda *args, **kwargs: True,
-        )
-        monkeypatch.setattr(
-            retrieval_embeddings,
-            "semantic_engine_available",
-            lambda *args, **kwargs: True,
-        )
+        monkeypatch.setattr(retrieval_embeddings, "semantic_engine_available", lambda *_args, **_kwargs: True)
+        monkeypatch.setattr(_server_reading._retrieval_embeddings, "semantic_engine_available", lambda *_args, **_kwargs: True)
+        monkeypatch.setattr(search_index._semantic, "semantic_engine_available", lambda *_args, **_kwargs: True)
 
         def fake_ensure_embeddings_fresh():
             server._doc_embeddings = vectors
@@ -1046,16 +1050,9 @@ class TestBrainSearch:
         monkeypatch.setattr(
             search_index, "_encode_query", lambda _vault, _query: np.array([1.0, 0.0])
         )
-        monkeypatch.setattr(
-            search_index._semantic,
-            "semantic_engine_available",
-            lambda *args, **kwargs: True,
-        )
-        monkeypatch.setattr(
-            retrieval_embeddings,
-            "semantic_engine_available",
-            lambda *args, **kwargs: True,
-        )
+        monkeypatch.setattr(retrieval_embeddings, "semantic_engine_available", lambda *_args, **_kwargs: True)
+        monkeypatch.setattr(_server_reading._retrieval_embeddings, "semantic_engine_available", lambda *_args, **_kwargs: True)
+        monkeypatch.setattr(search_index._semantic, "semantic_engine_available", lambda *_args, **_kwargs: True)
 
         def fake_ensure_embeddings_fresh():
             server._doc_embeddings = vectors
@@ -1079,11 +1076,7 @@ class TestBrainSearch:
     ):
         self._enable_semantic_retrieval()
         monkeypatch.setattr(server, "_ensure_embeddings_fresh", lambda: None)
-        monkeypatch.setattr(
-            search_index._semantic,
-            "semantic_engine_available",
-            lambda *args, **kwargs: False,
-        )
+        monkeypatch.setattr(retrieval_embeddings, "semantic_engine_available", lambda *args, **kwargs: False)
 
         text = _search_text(server.brain_search("brain"))
         assert "bm25" in text
@@ -1109,43 +1102,28 @@ class TestBrainSearch:
             def encode(self, texts, normalize_embeddings=True):
                 return np.array([[1.0, 0.0]])
 
-        monkeypatch.setattr(
-            search_index._semantic,
-            "semantic_engine_available",
-            lambda *args, **kwargs: True,
-        )
-        monkeypatch.setattr(
-            retrieval_embeddings,
-            "semantic_engine_available",
-            lambda *args, **kwargs: True,
-        )
-
-        manifest = semantic_model.ModelManifest(
-            model_name=semantic_model.SHIPPED_MODEL_NAME,
-            revision=semantic_model.SHIPPED_MODEL_REVISION,
-            provisioned_at="2026-05-10T00:00:00+10:00",
-        )
-        snapshot_path = semantic_model.model_snapshot_path(
-            initialized,
-            semantic_model.SHIPPED_MODEL_NAME,
-            semantic_model.SHIPPED_MODEL_REVISION,
-        )
-        snapshot_path.mkdir(parents=True, exist_ok=True)
-
-        def fake_load_query_encoder(_snapshot_path):
+        def fake_load_query_encoder(_vault_root):
             load_calls.append("load")
             return FakeEncoder()
 
         monkeypatch.setattr(server, "_ensure_embeddings_fresh", lambda: None)
+        monkeypatch.setattr(retrieval_embeddings, "semantic_engine_available", lambda *_args, **_kwargs: True)
+        monkeypatch.setattr(_server_reading._retrieval_embeddings, "semantic_engine_available", lambda *_args, **_kwargs: True)
+        monkeypatch.setattr(search_index._semantic, "semantic_engine_available", lambda *_args, **_kwargs: True)
+        monkeypatch.setattr(_server_content._retrieval_embeddings, "semantic_engine_available", lambda *_args, **_kwargs: True)
         monkeypatch.setattr(
             semantic_model,
-            "read_manifest",
-            lambda _vault_root: manifest,
+            "load_local_model",
+            fake_load_query_encoder,
         )
         monkeypatch.setattr(
             semantic_model,
-            "_load_sentence_transformer",
-            fake_load_query_encoder,
+            "read_manifest",
+            lambda _vault_root: semantic_model.ModelManifest(
+                model_name=semantic_model.SHIPPED_MODEL_NAME,
+                revision=semantic_model.SHIPPED_MODEL_REVISION,
+                provisioned_at="2026-05-06T00:00:00+10:00",
+            ),
         )
 
         semantic_runtime.clear_query_encoder()
@@ -3638,6 +3616,394 @@ class TestWarmupBoundary:
         assert payload["needs"] == ["router"]
 
 
+class TestSemanticWarmup:
+    def test_startup_skips_semantic_warmup_when_embeddings_disabled(self, initialized):
+        assert server._semantic_warmup_state == "disabled"
+        assert server._wait_for_semantic_warmup(timeout=0.1)
+
+    def test_semantic_warmup_loads_current_sidecars_from_disk(self, vault, monkeypatch):
+        expected_type_embeddings = object()
+        expected_doc_embeddings = object()
+        calls = []
+
+        def fake_load(vault_root):
+            calls.append(str(vault_root))
+            return (
+                expected_type_embeddings,
+                expected_doc_embeddings,
+                {
+                    retrieval_embeddings.ROUTER_SOURCE_HASH_KEY: server._router["meta"]["source_hash"],
+                    "documents": [],
+                    "types": [],
+                },
+            )
+
+        monkeypatch.setattr(server, "_embeddings_enabled", lambda: True)
+        monkeypatch.setattr(retrieval_embeddings, "load_embeddings_state", fake_load)
+        monkeypatch.setattr(
+            build_index,
+            "refresh_embeddings_outputs",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError("refresh_embeddings_outputs should not run during semantic warmup load")
+            ),
+        )
+
+        server.startup(vault_root=str(vault))
+
+        assert server._wait_for_warmup(timeout=5.0), "warmup did not complete"
+        assert server._wait_for_semantic_warmup(timeout=5.0), "semantic warmup did not complete"
+        assert calls == [str(vault)]
+        assert server._semantic_warmup_state == "ready"
+        assert server._type_embeddings is expected_type_embeddings
+        assert server._doc_embeddings is expected_doc_embeddings
+        assert (
+            server._embeddings_meta[retrieval_embeddings.ROUTER_SOURCE_HASH_KEY]
+            == server._router["meta"]["source_hash"]
+        )
+        assert server._doc_embeddings_dirty is False
+        assert server._type_embeddings_dirty is False
+
+    def test_semantic_warmup_marks_corrupt_sidecars_dirty_until_first_lazy_refresh(
+        self, vault, monkeypatch
+    ):
+        rebuilt_type_embeddings = object()
+        rebuilt_doc_embeddings = object()
+        rebuilt_meta = {
+            retrieval_embeddings.ROUTER_SOURCE_HASH_KEY: "sha256:rebuilt-router-hash",
+            "documents": [],
+            "types": [],
+        }
+        refresh_calls = []
+
+        def fake_refresh(vault_root, router, documents, *, enable_embeddings=None, config=None):
+            refresh_calls.append((str(vault_root), enable_embeddings, len(documents)))
+            return (
+                rebuilt_type_embeddings,
+                rebuilt_doc_embeddings,
+                {
+                    **rebuilt_meta,
+                    retrieval_embeddings.ROUTER_SOURCE_HASH_KEY: router["meta"]["source_hash"],
+                },
+            )
+
+        monkeypatch.setattr(server, "_embeddings_enabled", lambda: True)
+        monkeypatch.setattr(
+            retrieval_embeddings,
+            "load_embeddings_state",
+            lambda _vault_root: (_ for _ in ()).throw(
+                retrieval_embeddings.SemanticEmbeddingsLoadError("corrupt sidecars")
+            ),
+        )
+        monkeypatch.setattr(build_index, "refresh_embeddings_outputs", fake_refresh)
+
+        server.startup(vault_root=str(vault))
+
+        assert server._wait_for_warmup(timeout=5.0), "warmup did not complete"
+        assert server._wait_for_semantic_warmup(timeout=5.0), "semantic warmup did not complete"
+        assert server._semantic_warmup_state == "ready"
+        assert server._type_embeddings is None
+        assert server._doc_embeddings is None
+        assert server._embeddings_meta is None
+        assert server._doc_embeddings_dirty is True
+        assert server._type_embeddings_dirty is True
+
+        server._ensure_embeddings_fresh()
+
+        assert refresh_calls == [(str(vault), True, len(server._index["documents"]))]
+        assert server._type_embeddings is rebuilt_type_embeddings
+        assert server._doc_embeddings is rebuilt_doc_embeddings
+        assert (
+            server._embeddings_meta[retrieval_embeddings.ROUTER_SOURCE_HASH_KEY]
+            == server._router["meta"]["source_hash"]
+        )
+        assert server._doc_embeddings_dirty is False
+        assert server._type_embeddings_dirty is False
+
+    def test_semantic_warmup_defers_to_lazy_refresh_on_unexpected_exception(self, vault, monkeypatch):
+        monkeypatch.setattr(server, "_embeddings_enabled", lambda: True)
+        monkeypatch.setattr(
+            retrieval_embeddings,
+            "load_embeddings_state",
+            lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("boom")),
+        )
+
+        server.startup(vault_root=str(vault))
+
+        assert server._wait_for_warmup(timeout=5.0), "warmup did not complete"
+        assert server._wait_for_semantic_warmup(timeout=5.0), "semantic warmup did not complete"
+        assert server._semantic_warmup_state == "deferred"
+        assert server._semantic_ready() is False
+
+        server._config.setdefault("defaults", {}).setdefault("flags", {})["semantic_retrieval"] = True
+        server._config["defaults"].setdefault("local_runtime", {})["semantic_engine_installed"] = True
+        monkeypatch.setattr(search_index._semantic, "semantic_engine_available", lambda *_a, **_k: True)
+
+        result = server.brain_search("brain", mode="hybrid")
+
+        _assert_error(result, "semantic warmup failed unexpectedly: boom")
+
+    def test_semantic_warmup_reports_startup_failure_before_serving_semantic_requests(
+        self, initialized, monkeypatch
+    ):
+        monkeypatch.setattr(server, "_embeddings_enabled", lambda: True)
+
+        with server._warmup_lock:
+            server._warmup_state = "failed"
+            server._last_warmup_error = "workspace_registry_load: registry broken"
+
+        server._run_semantic_warmup(server._warmup_generation, str(initialized))
+
+        assert server._semantic_warmup_state == "deferred"
+
+        result = server._ensure_semantic_ready("brain_search")
+
+        _assert_error(result, "startup warmup failed")
+        assert "workspace_registry_load: registry broken" in result.content[0].text
+
+    def test_semantic_warmup_marks_missing_or_stale_sidecars_dirty_until_first_lazy_refresh(
+        self, vault, monkeypatch
+    ):
+        rebuilt_type_embeddings = object()
+        rebuilt_doc_embeddings = object()
+        refresh_calls = []
+
+        def fake_refresh(vault_root, router, documents, *, enable_embeddings=None, config=None):
+            refresh_calls.append((str(vault_root), enable_embeddings, len(documents)))
+            return (
+                rebuilt_type_embeddings,
+                rebuilt_doc_embeddings,
+                {
+                    retrieval_embeddings.ROUTER_SOURCE_HASH_KEY: router["meta"]["source_hash"],
+                    "documents": [],
+                    "types": [],
+                },
+            )
+
+        monkeypatch.setattr(server, "_embeddings_enabled", lambda: True)
+        monkeypatch.setattr(
+            retrieval_embeddings,
+            "load_embeddings_state",
+            lambda *_a, **_k: (None, None, None),
+        )
+        monkeypatch.setattr(build_index, "refresh_embeddings_outputs", fake_refresh)
+
+        server.startup(vault_root=str(vault))
+
+        assert server._wait_for_warmup(timeout=5.0), "warmup did not complete"
+        assert server._wait_for_semantic_warmup(timeout=5.0), "semantic warmup did not complete"
+        assert server._semantic_warmup_state == "ready"
+        assert server._type_embeddings is None
+        assert server._doc_embeddings is None
+        assert server._embeddings_meta is None
+        assert server._doc_embeddings_dirty is True
+        assert server._type_embeddings_dirty is True
+
+        server._ensure_embeddings_fresh()
+
+        assert refresh_calls == [(str(vault), True, len(server._index["documents"]))]
+        assert server._type_embeddings is rebuilt_type_embeddings
+        assert server._doc_embeddings is rebuilt_doc_embeddings
+        assert (
+            server._embeddings_meta[retrieval_embeddings.ROUTER_SOURCE_HASH_KEY]
+            == server._router["meta"]["source_hash"]
+        )
+        assert server._doc_embeddings_dirty is False
+        assert server._type_embeddings_dirty is False
+
+    def test_semantic_warmup_preserves_pending_mutations(self, vault, monkeypatch):
+        release = threading.Event()
+        entered = threading.Event()
+        expected_type_embeddings = object()
+        expected_doc_embeddings = object()
+
+        def slow_load_embeddings_state(_vault_root):
+            entered.set()
+            assert release.wait(timeout=2.0), "semantic warmup gate did not release"
+            return (
+                expected_type_embeddings,
+                expected_doc_embeddings,
+                {
+                    retrieval_embeddings.ROUTER_SOURCE_HASH_KEY: server._router["meta"]["source_hash"],
+                    "documents": [],
+                    "types": [],
+                },
+            )
+
+        monkeypatch.setattr(server, "_embeddings_enabled", lambda: True)
+        monkeypatch.setattr(
+            retrieval_embeddings,
+            "load_embeddings_state",
+            slow_load_embeddings_state,
+        )
+
+        server.startup(vault_root=str(vault))
+
+        assert entered.wait(timeout=2.0), "semantic warmup did not reach sidecar load"
+        assert server._wait_for_warmup(timeout=5.0), "warmup did not complete"
+
+        rel_path = "Wiki/brain-overview-abc123.md"
+        server._mark_index_pending(rel_path, "living/wiki")
+
+        release.set()
+        assert server._wait_for_semantic_warmup(timeout=5.0), "semantic warmup did not complete"
+
+        assert rel_path in server._doc_embeddings_pending
+        assert server._type_embeddings is None
+        assert server._doc_embeddings is None
+        assert server._embeddings_meta is None
+        assert server._doc_embeddings_dirty is True
+        assert server._type_embeddings_dirty is True
+
+    def test_set_router_clears_loaded_embeddings_state(self, initialized):
+        server._type_embeddings = object()
+        server._doc_embeddings = object()
+        server._embeddings_meta = {
+            retrieval_embeddings.ROUTER_SOURCE_HASH_KEY: server._router["meta"]["source_hash"],
+            "documents": [],
+            "types": [],
+        }
+
+        new_router = json.loads(json.dumps(server._router))
+        new_router["meta"]["source_hash"] = "sha256:replacement-router-hash"
+
+        server._set_router(new_router)
+
+        assert server._router["meta"]["source_hash"] == "sha256:replacement-router-hash"
+        assert server._type_embeddings is None
+        assert server._doc_embeddings is None
+        assert server._embeddings_meta is None
+
+    def test_semantic_warmup_rejects_snapshot_for_replaced_router(self, vault, monkeypatch):
+        release = threading.Event()
+        entered = threading.Event()
+        expected_type_embeddings = object()
+        expected_doc_embeddings = object()
+        router_source_hash = {"value": None}
+
+        def slow_load_embeddings_state(_vault_root):
+            entered.set()
+            assert release.wait(timeout=2.0), "semantic warmup gate did not release"
+            return (
+                expected_type_embeddings,
+                expected_doc_embeddings,
+                {
+                    retrieval_embeddings.ROUTER_SOURCE_HASH_KEY: router_source_hash["value"],
+                    "documents": [],
+                    "types": [],
+                },
+            )
+
+        monkeypatch.setattr(server, "_embeddings_enabled", lambda: True)
+        monkeypatch.setattr(
+            retrieval_embeddings,
+            "load_embeddings_state",
+            slow_load_embeddings_state,
+        )
+
+        server.startup(vault_root=str(vault))
+
+        assert entered.wait(timeout=2.0), "semantic warmup did not reach sidecar load"
+        assert server._wait_for_warmup(timeout=5.0), "warmup did not complete"
+
+        router_source_hash["value"] = server._router["meta"]["source_hash"]
+        replacement_router = json.loads(json.dumps(server._router))
+        replacement_router["meta"]["source_hash"] = "sha256:replacement-router-hash"
+        server._set_router(replacement_router)
+
+        release.set()
+        assert server._wait_for_semantic_warmup(timeout=5.0), "semantic warmup did not complete"
+
+        assert server._router["meta"]["source_hash"] == "sha256:replacement-router-hash"
+        assert server._type_embeddings is None
+        assert server._doc_embeddings is None
+        assert server._embeddings_meta is None
+        assert server._doc_embeddings_dirty is True
+        assert server._type_embeddings_dirty is True
+
+    def test_apply_loaded_embeddings_snapshot_ignores_stale_generation(self, initialized):
+        stale_generation = server._warmup_generation
+        current_router = json.loads(json.dumps(server._router))
+        current_router_source_hash = current_router["meta"]["source_hash"]
+        loaded = (
+            object(),
+            object(),
+            {
+                retrieval_embeddings.ROUTER_SOURCE_HASH_KEY: current_router_source_hash,
+                "documents": [],
+                "types": [],
+            },
+        )
+
+        server._reset_runtime_state_for_startup()
+        server._set_router(current_router)
+
+        applied = server._apply_loaded_embeddings_snapshot(
+            loaded,
+            generation=stale_generation,
+            expected_router_source_hash=current_router_source_hash,
+        )
+
+        assert applied is False
+        assert server._type_embeddings is None
+        assert server._doc_embeddings is None
+        assert server._embeddings_meta is None
+
+    def test_lexical_search_succeeds_while_semantic_warmup_is_still_running(
+        self, vault, gated_semantic_warmup, monkeypatch
+    ):
+        monkeypatch.setattr(server, "_embeddings_enabled", lambda: True)
+        monkeypatch.setattr(search_index._semantic, "semantic_engine_available", lambda *_a, **_k: True)
+
+        server.startup(vault_root=str(vault))
+
+        assert gated_semantic_warmup.entered.wait(timeout=2.0), "semantic warmup did not reach disk load"
+        assert server._wait_for_warmup(timeout=5.0), "warmup did not complete"
+        server._config.setdefault("defaults", {}).setdefault("flags", {})["semantic_retrieval"] = True
+        server._config["defaults"].setdefault("local_runtime", {})["semantic_engine_installed"] = True
+
+        lexical = _search_text(server.brain_search("brain", mode="lexical"))
+        payload = _progress_payload(server.brain_search("brain", mode="hybrid"))
+
+        assert server._warmup_state == "complete"
+        assert server._semantic_warmup_state == "warming"
+        assert "bm25" in lexical
+        assert payload["needs"] == ["semantic"]
+
+    def test_process_context_assembly_bypasses_semantic_gate_while_auto_waits(
+        self, vault, gated_semantic_warmup, monkeypatch
+    ):
+        monkeypatch.setattr(server, "_embeddings_enabled", lambda: True)
+        monkeypatch.setattr(
+            _server_content._retrieval_embeddings,
+            "semantic_engine_available",
+            lambda *_a, **_k: True,
+        )
+
+        server.startup(vault_root=str(vault))
+
+        assert gated_semantic_warmup.entered.wait(timeout=2.0), "semantic warmup did not reach disk load"
+        assert server._wait_for_warmup(timeout=5.0), "warmup did not complete"
+        server._config.setdefault("defaults", {}).setdefault("flags", {})["semantic_processing"] = True
+        server._config["defaults"].setdefault("local_runtime", {})["semantic_engine_installed"] = True
+
+        degraded = server.brain_process(
+            operation="classify",
+            content="some content",
+            mode="context_assembly",
+        )
+        payload = _progress_payload(
+            server.brain_process(
+                operation="classify",
+                content="some content",
+                mode="auto",
+            )
+        )
+
+        assert server._semantic_warmup_state == "warming"
+        assert "context_assembly" in degraded
+        assert payload["needs"] == ["semantic"]
+
+
 # ---------------------------------------------------------------------------
 # brain_session tests
 # ---------------------------------------------------------------------------
@@ -4766,6 +5132,86 @@ class TestIndexStaleness:
         assert (local_dir / "doc-embeddings.npy").exists()
         assert (local_dir / "embeddings-meta.json").exists()
 
+    def test_ensure_embeddings_fresh_loads_current_sidecars_before_rebuild(self, initialized, monkeypatch):
+        expected_type_embeddings = object()
+        expected_doc_embeddings = object()
+        expected_meta = {
+            retrieval_embeddings.ROUTER_SOURCE_HASH_KEY: server._router["meta"]["source_hash"],
+            "documents": [],
+            "types": [],
+        }
+
+        monkeypatch.setattr(server, "_embeddings_enabled", lambda: True)
+        monkeypatch.setattr(
+            retrieval_embeddings,
+            "load_embeddings_state",
+            lambda _vault: (expected_type_embeddings, expected_doc_embeddings, expected_meta),
+        )
+        monkeypatch.setattr(
+            build_index,
+            "refresh_embeddings_outputs",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError("refresh_embeddings_outputs should not run on a fast-path hit")
+            ),
+        )
+
+        server._type_embeddings = None
+        server._doc_embeddings = None
+        server._embeddings_meta = None
+        server._doc_embeddings_dirty = False
+        server._type_embeddings_dirty = False
+        with server._doc_embeddings_pending_lock:
+            server._doc_embeddings_pending.clear()
+
+        server._ensure_embeddings_fresh()
+
+        assert server._type_embeddings is expected_type_embeddings
+        assert server._doc_embeddings is expected_doc_embeddings
+        assert server._embeddings_meta is expected_meta
+        assert server._doc_embeddings_dirty is False
+        assert server._type_embeddings_dirty is False
+
+    def test_ensure_embeddings_fresh_rebuilds_when_sidecars_are_corrupt(self, initialized, monkeypatch):
+        rebuilt_type_embeddings = object()
+        rebuilt_doc_embeddings = object()
+        rebuilt_meta = {
+            retrieval_embeddings.ROUTER_SOURCE_HASH_KEY: server._router["meta"]["source_hash"],
+            "documents": [],
+            "types": [],
+        }
+        refresh_calls = []
+
+        def fake_refresh(vault_root, router, documents, *, enable_embeddings=None, config=None):
+            refresh_calls.append((str(vault_root), enable_embeddings, len(documents)))
+            return (rebuilt_type_embeddings, rebuilt_doc_embeddings, rebuilt_meta)
+
+        monkeypatch.setattr(server, "_embeddings_enabled", lambda: True)
+        monkeypatch.setattr(
+            retrieval_embeddings,
+            "load_embeddings_state",
+            lambda _vault: (_ for _ in ()).throw(
+                retrieval_embeddings.SemanticEmbeddingsLoadError("corrupt sidecars")
+            ),
+        )
+        monkeypatch.setattr(build_index, "refresh_embeddings_outputs", fake_refresh)
+
+        server._type_embeddings = None
+        server._doc_embeddings = None
+        server._embeddings_meta = None
+        server._doc_embeddings_dirty = False
+        server._type_embeddings_dirty = False
+        with server._doc_embeddings_pending_lock:
+            server._doc_embeddings_pending.clear()
+
+        server._ensure_embeddings_fresh()
+
+        assert refresh_calls == [(str(initialized), True, len(server._index["documents"]))]
+        assert server._type_embeddings is rebuilt_type_embeddings
+        assert server._doc_embeddings is rebuilt_doc_embeddings
+        assert server._embeddings_meta is rebuilt_meta
+        assert server._doc_embeddings_dirty is False
+        assert server._type_embeddings_dirty is False
+
     def test_ensure_embeddings_fresh_rebuilds_router_stale_sidecars(self, initialized, monkeypatch):
         np = pytest.importorskip("numpy")
         stale_meta = {
@@ -4801,17 +5247,17 @@ class TestIndexStaleness:
             "semantic_engine_installed"
         ] = True
 
+        replacement_router = json.loads(json.dumps(server._router))
+        replacement_router["meta"]["source_hash"] = "sha256:current-router-hash"
+        server._set_router(replacement_router)
+
         router_path = initialized / ".brain" / "local" / "compiled-router.json"
-        server._router["meta"]["source_hash"] = "sha256:current-router-hash"
         router_path.write_text(json.dumps(server._router, indent=2), encoding="utf-8")
 
         meta_path = initialized / retrieval_embeddings.EMBEDDINGS_META_REL
         meta_path.parent.mkdir(parents=True, exist_ok=True)
         meta_path.write_text(json.dumps(stale_meta), encoding="utf-8")
 
-        server._type_embeddings = np.zeros((0, 1), dtype=float)
-        server._doc_embeddings = np.zeros((0, 1), dtype=float)
-        server._embeddings_meta = stale_meta
         server._doc_embeddings_dirty = False
         server._type_embeddings_dirty = False
 
@@ -4824,6 +5270,7 @@ class TestIndexStaleness:
         assert server._embeddings_meta == refreshed_meta
         assert server._doc_embeddings_dirty is False
         assert server._type_embeddings_dirty is False
+
     def test_process_context_assembly_skips_embeddings_refresh(self, initialized, monkeypatch):
         server._config["defaults"]["flags"]["semantic_processing"] = True
         server._config["defaults"].setdefault("local_runtime", {})["semantic_engine_installed"] = True
@@ -4878,6 +5325,11 @@ class TestIndexStaleness:
             retrieval_embeddings,
             "semantic_engine_available",
             lambda *args, **kwargs: True,
+        )
+        monkeypatch.setattr(
+            _server_content._retrieval_embeddings,
+            "semantic_engine_available",
+            lambda *_args, **_kwargs: True,
         )
         monkeypatch.setattr(
             process,

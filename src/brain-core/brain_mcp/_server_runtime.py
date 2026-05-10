@@ -33,6 +33,7 @@ class ServerRuntime:
     enforce_profile: Callable[[str], Any]
     refresh_cli_available: Callable[[], bool]
     ensure_warmup_started: Callable[[str | None], None]
+    ensure_semantic_ready: Callable[[str], Any | None]
     ensure_router_fresh: Callable[[], None]
     ensure_index_fresh: Callable[[], None]
     ensure_mutation_index_ready: Callable[[], None]

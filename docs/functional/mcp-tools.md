@@ -80,7 +80,8 @@ coordinate their own parallel writes.
 Warmup-dependent tools may return a structured `isError=true` progress payload
 while background warmup is still running or has failed. The payload includes
 coarse readiness state, retry guidance, and the capability still needed
-(`router` or `index`) instead of relying on silence or long blocking waits.
+(`router`, `index`, or `semantic`) instead of relying on silence or long
+blocking waits.
 
 ## Tool Specifications
 

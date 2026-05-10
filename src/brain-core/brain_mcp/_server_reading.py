@@ -263,7 +263,9 @@ def handle_brain_search(
         return runtime.fmt_error(str(e))
 
     if resolved_mode in {"semantic", "hybrid"}:
-        runtime.ensure_embeddings_fresh()
+        gated = runtime.ensure_semantic_ready("brain_search")
+        if gated is not None:
+            return gated
         state = runtime.get_state()
         if not _retrieval_embeddings.semantic_engine_available(
             state.vault_root,

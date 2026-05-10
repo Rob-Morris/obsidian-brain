@@ -29,20 +29,19 @@ def _classify_may_use_index(
     return mode != "context_assembly"
 
 
-def _maybe_warm_embeddings(
-    runtime: ServerRuntime,
+def _semantic_embeddings_requested(
     state,
     operation: Literal["classify", "resolve", "ingest"],
     mode: Literal["auto", "embedding", "bm25_only", "context_assembly"] | None,
-):
-    """Warm embeddings when the current brain_process request may need them."""
+) -> bool:
+    """Return True when this request expects semantic embeddings to be available."""
     if not _needs_embeddings(operation, mode):
-        return
+        return False
     if not _retrieval_embeddings.semantic_processing_enabled(
         state.vault_root,
         config=state.config,
     ):
-        return
+        return False
     if not _retrieval_embeddings.semantic_engine_available(
         state.vault_root,
         config=state.config,
@@ -50,8 +49,13 @@ def _maybe_warm_embeddings(
         embeddings_meta=state.embeddings_meta,
         skip_sidecar_check=True,
     ):
-        return
-    runtime.ensure_embeddings_fresh()
+        return False
+    return True
+
+
+def _ensure_semantic_ready(runtime: ServerRuntime, tool_name: str):
+    """Return a progress/error response until semantic embeddings are usable."""
+    return runtime.ensure_semantic_ready(tool_name)
 
 
 PROCESS_SPECS: dict[str, Spec] = {
@@ -164,13 +168,21 @@ def handle_brain_process(
             runtime.ensure_index_fresh()
             state = runtime.get_state()
         if state.index is not None:
-            _maybe_warm_embeddings(runtime, state, operation, mode)
+            needs_semantic = _semantic_embeddings_requested(state, operation, mode)
+            if needs_semantic:
+                gated = _ensure_semantic_ready(runtime, "brain_process")
+                if gated is not None:
+                    return gated
     else:
         runtime.ensure_index_fresh()
         state = runtime.get_state()
         if state.index is None:
             return runtime.fmt_progress("brain_process", ("index",))
-        _maybe_warm_embeddings(runtime, state, operation, mode)
+        needs_semantic = _semantic_embeddings_requested(state, operation, mode)
+        if needs_semantic:
+            gated = _ensure_semantic_ready(runtime, "brain_process")
+            if gated is not None:
+                return gated
 
     state = runtime.get_state()
     if state.router is None or state.vault_root is None:

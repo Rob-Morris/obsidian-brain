@@ -138,12 +138,16 @@ _loaded_version: str | None = None
 _workspace_registry: dict | None = None
 _readiness: str = "cold"
 _warmup_state: str = "not_started"
+_semantic_warmup_state: str = "disabled"
 _warmup_active_phase: str | None = None
 _last_warmup_error: str | None = None
 _last_warmup_reason: str | None = None
+_last_semantic_warmup_error: str | None = None
 _warmup_generation: int = 0
 _warmup_thread: threading.Thread | None = None
+_semantic_warmup_thread: threading.Thread | None = None
 _warmup_lock = threading.Lock()
+_router_ready_event = threading.Event()
 _type_embeddings = None
 _embeddings_meta = None
 _doc_embeddings = None
@@ -271,11 +275,13 @@ def _reset_runtime_state_for_startup() -> int:
     global _session_profile, _router, _index, _workspace_registry
     global _index_dirty, _router_dirty, _router_checked_at, _index_checked_at
     global _resource_mtime_cache, _warmup_generation, _warmup_thread
-    global _readiness, _warmup_state, _warmup_active_phase
-    global _last_warmup_error, _last_warmup_reason
+    global _semantic_warmup_thread, _readiness, _warmup_state
+    global _semantic_warmup_state, _warmup_active_phase
+    global _last_warmup_error, _last_warmup_reason, _last_semantic_warmup_error
+    global _doc_embeddings_dirty, _type_embeddings_dirty
+    global _router_ready_event
 
     _session_profile = None
-    _router = None
     _index = None
     _workspace_registry = None
     _index_dirty = False
@@ -283,17 +289,29 @@ def _reset_runtime_state_for_startup() -> int:
     _router_checked_at = 0.0
     _index_checked_at = 0.0
     _resource_mtime_cache = None
-    with _index_pending_lock:
-        _index_pending.clear()
     with _warmup_lock:
+        old_router_ready_event = _router_ready_event
         _warmup_generation += 1
+        _router_ready_event = threading.Event()
         _warmup_thread = None
+        _semantic_warmup_thread = None
         _readiness = "cold"
         _warmup_state = "not_started"
+        _semantic_warmup_state = "disabled"
         _warmup_active_phase = None
         _last_warmup_error = None
         _last_warmup_reason = None
-        return _warmup_generation
+        _last_semantic_warmup_error = None
+        generation = _warmup_generation
+    old_router_ready_event.set()
+    _set_router(None)
+    _doc_embeddings_dirty = False
+    _type_embeddings_dirty = False
+    with _index_pending_lock:
+        _index_pending.clear()
+    with _doc_embeddings_pending_lock:
+        _doc_embeddings_pending.clear()
+    return generation
 
 
 def _warmup_generation_matches(generation: int) -> bool:
@@ -330,6 +348,7 @@ def _finish_warmup(generation: int, *, success: bool) -> None:
         else:
             _readiness = "failed"
             _warmup_state = "failed"
+            _router_ready_event.set()
 
 
 def _ensure_warmup_started(reason: str | None = None) -> None:
@@ -362,6 +381,66 @@ def _ensure_warmup_started(reason: str | None = None) -> None:
             _logger.info("warmup started (%s)", reason or "unspecified")
 
 
+def _ensure_semantic_warmup_started(reason: str | None = None) -> None:
+    """Ensure the background semantic warmup track is running when enabled."""
+    global _semantic_warmup_state, _semantic_warmup_thread, _last_semantic_warmup_error
+
+    if _vault_root is None:
+        return
+
+    if not _embeddings_enabled():
+        with _warmup_lock:
+            _semantic_warmup_state = "disabled"
+            _semantic_warmup_thread = None
+            _last_semantic_warmup_error = None
+        return
+
+    with _warmup_lock:
+        if _semantic_warmup_state == "ready":
+            return
+        if _semantic_warmup_thread is not None and _semantic_warmup_thread.is_alive():
+            return
+        generation = _warmup_generation
+        _semantic_warmup_state = "warming"
+        _last_semantic_warmup_error = None
+        _semantic_warmup_thread = threading.Thread(
+            target=_run_semantic_warmup,
+            args=(generation, _vault_root),
+            daemon=True,
+            name="brain-semantic-warmup",
+        )
+        _semantic_warmup_thread.start()
+        if _logger:
+            _logger.info("semantic warmup started (%s)", reason or "unspecified")
+
+
+def _semantic_ready() -> bool:
+    """Return True when semantic work should proceed instead of reporting progress."""
+    with _warmup_lock:
+        return _semantic_warmup_state == "ready"
+
+
+def _semantic_warmup_restart_message(detail: str) -> str:
+    """Return a consistent operator-facing recovery hint for warmup failures."""
+    return f"{detail}; restart the server to retry semantic warmup"
+
+
+def _ensure_semantic_ready(tool_name: str) -> CallToolResult | None:
+    """Return progress/error until semantic requests are safe to serve."""
+    with _warmup_lock:
+        state = _semantic_warmup_state
+        last_error = _last_semantic_warmup_error
+    if state == "warming":
+        return _fmt_progress(tool_name, ("semantic",))
+    if state == "deferred":
+        return _fmt_error(
+            last_error
+            or _semantic_warmup_restart_message("semantic warmup failed unexpectedly")
+        )
+    _ensure_embeddings_fresh()
+    return None
+
+
 def _wait_for_warmup(timeout: float = 5.0) -> bool:
     """Join the current warmup thread for tests and bounded shutdown paths."""
     thread = _warmup_thread
@@ -369,6 +448,30 @@ def _wait_for_warmup(timeout: float = 5.0) -> bool:
         return True
     thread.join(timeout=timeout)
     return not thread.is_alive()
+
+
+def _wait_for_semantic_warmup(timeout: float = 5.0) -> bool:
+    """Join the current semantic warmup thread for tests and bounded shutdown paths."""
+    thread = _semantic_warmup_thread
+    if thread is None:
+        return True
+    thread.join(timeout=timeout)
+    return not thread.is_alive()
+
+
+def _finish_semantic_warmup(
+    generation: int,
+    *,
+    state: Literal["disabled", "ready", "deferred"],
+    error: str | None = None,
+) -> None:
+    global _semantic_warmup_state, _semantic_warmup_thread, _last_semantic_warmup_error
+    with _warmup_lock:
+        if generation != _warmup_generation:
+            return
+        _semantic_warmup_state = state
+        _semantic_warmup_thread = None
+        _last_semantic_warmup_error = error
 
 
 def _readiness_next_action(
@@ -425,6 +528,7 @@ def _readiness_snapshot(debug: bool = False, *, tool_name: str | None = None) ->
             "router_ready": state.router is not None,
             "index_ready": state.index is not None,
             "workspace_registry_ready": state.workspace_registry is not None,
+            "semantic_warmup_state": _semantic_warmup_state,
         }
     return payload
 
@@ -541,7 +645,7 @@ def _load_router_for_warmup(vault_root: str, generation: int) -> dict | None:
         if _logger:
             _logger.info("router compile (stale) %.1fs", time.monotonic() - t0)
         if _warmup_generation_matches(generation):
-            _router = compiled
+            _set_router(compiled)
             _router_checked_at = time.monotonic()
             _router_dirty = False
         return compiled
@@ -549,7 +653,7 @@ def _load_router_for_warmup(vault_root: str, generation: int) -> dict | None:
     if _logger:
         _logger.info("router compile (fresh)")
     if _warmup_generation_matches(generation):
-        _router = data
+        _set_router(data)
         _router_checked_at = time.monotonic()
         _router_dirty = False
     return data
@@ -618,6 +722,101 @@ def _run_warmup(generation: int, vault_root: str) -> None:
         and phase_results.get("workspace_registry_load") is not None
     )
     _finish_warmup(generation, success=success)
+
+
+def _run_semantic_warmup(generation: int, vault_root: str) -> None:
+    """Warm semantic embeddings state in parallel with the main warmup track."""
+    if not _warmup_generation_matches(generation):
+        return
+
+    if not _embeddings_enabled():
+        _finish_semantic_warmup(generation, state="disabled")
+        return
+
+    with _warmup_lock:
+        router_ready_event = _router_ready_event
+    if not router_ready_event.wait(timeout=_STARTUP_OP_TIMEOUT):
+        if _logger:
+            _logger.error(
+                "semantic warmup timed out waiting for router readiness after %.1fs",
+                _STARTUP_OP_TIMEOUT,
+            )
+        if _warmup_generation_matches(generation):
+            _mark_embeddings_dirty()
+        _finish_semantic_warmup(
+            generation,
+            state="deferred",
+            error=_semantic_warmup_restart_message(
+                "semantic warmup timed out waiting for router readiness"
+            ),
+        )
+        return
+    if not _warmup_generation_matches(generation):
+        return
+
+    with _warmup_lock:
+        main_warmup_state = _warmup_state
+        router = _router
+        last_warmup_error = _last_warmup_error
+    if main_warmup_state == "failed":
+        detail = "semantic warmup could not start because startup warmup failed"
+        if last_warmup_error:
+            detail = f"{detail}: {last_warmup_error}"
+        _finish_semantic_warmup(
+            generation,
+            state="deferred",
+            error=_semantic_warmup_restart_message(detail),
+        )
+        return
+    if router is None:
+        _finish_semantic_warmup(
+            generation,
+            state="deferred",
+            error=_semantic_warmup_restart_message(
+                "semantic warmup could not start because the router never became available"
+            ),
+        )
+        return
+
+    expected_router_source_hash = _retrieval_embeddings.router_source_hash(router)
+
+    try:
+        loaded = _load_current_embeddings_from_disk(vault_root, router)
+    except _retrieval_embeddings.SemanticEmbeddingsLoadError as exc:
+        if _logger:
+            _logger.warning(
+                "semantic embeddings sidecars are unreadable during warmup; scheduling rebuild: %s",
+                exc,
+            )
+        if _warmup_generation_matches(generation):
+            _mark_embeddings_dirty()
+    except Exception as exc:
+        if _logger:
+            _logger.error("semantic warmup failed: %s", exc, exc_info=True)
+        if _warmup_generation_matches(generation):
+            _mark_embeddings_dirty()
+        _finish_semantic_warmup(
+            generation,
+            state="deferred",
+            error=_semantic_warmup_restart_message(
+                f"semantic warmup failed unexpectedly: {exc}"
+            ),
+        )
+        return
+    else:
+        if _warmup_generation_matches(generation):
+            if loaded is None:
+                _mark_embeddings_dirty()
+            else:
+                applied = _apply_loaded_embeddings_snapshot(
+                    loaded,
+                    generation=generation,
+                    expected_router_source_hash=expected_router_source_hash,
+                )
+                if not applied:
+                    _mark_embeddings_dirty()
+
+    _finish_semantic_warmup(generation, state="ready")
 
 
 def _refresh_cli_available() -> bool:
@@ -1050,7 +1249,7 @@ def _ensure_router_fresh() -> None:
         return
     if _router_dirty:
         try:
-            _router = _compile_and_save(_vault_root)
+            _compile_and_save(_vault_root)
         except Exception as e:
             if _logger:
                 _logger.error("router recompile failed: %s", e, exc_info=True)
@@ -1067,7 +1266,7 @@ def _ensure_router_fresh() -> None:
     if not stale and not _check_router_resource_counts(_vault_root, _router):
         return
     try:
-        _router = _compile_and_save(_vault_root)
+        _compile_and_save(_vault_root)
     except Exception as e:
         if _logger:
             _logger.error("router recompile failed: %s", e, exc_info=True)
@@ -1146,6 +1345,62 @@ def _mark_embeddings_dirty() -> None:
     _clear_loaded_embeddings()
 
 
+def _apply_loaded_embeddings_snapshot(
+    loaded,
+    *,
+    generation: int | None = None,
+    expected_router_source_hash: str | None = None,
+) -> bool:
+    """Apply a fully-loaded embeddings snapshot when it still matches runtime state.
+
+    Returns ``True`` when the snapshot was published to in-memory state.
+    Returns ``False`` when the active warmup generation, current router, or
+    pending per-path mutations no longer match the snapshot's assumptions.
+    """
+    global _type_embeddings, _doc_embeddings, _embeddings_meta
+    global _doc_embeddings_dirty, _type_embeddings_dirty
+
+    with _warmup_lock:
+        if generation is not None and generation != _warmup_generation:
+            return False
+        if _router is None:
+            return False
+        if expected_router_source_hash is not None:
+            current_router_source_hash = _retrieval_embeddings.router_source_hash(_router)
+            if current_router_source_hash != expected_router_source_hash:
+                return False
+        with _doc_embeddings_pending_lock:
+            if _doc_embeddings_pending:
+                return False
+            _type_embeddings, _doc_embeddings, _embeddings_meta = loaded
+            _doc_embeddings_dirty = False
+            _type_embeddings_dirty = False
+            _doc_embeddings_pending.clear()
+    return True
+
+
+def _load_current_embeddings_from_disk(vault_root: str, router: dict):
+    """Return a complete current embeddings snapshot from disk when available.
+
+    Returns `(type_embeddings, doc_embeddings, meta)` only when all three are
+    present and the persisted metadata matches the current router fingerprint.
+    Returns `None` when sidecars are missing, partial, or stale. Propagates
+    `SemanticEmbeddingsLoadError` for present-but-unreadable sidecars so the
+    caller can choose between rebuild or deferred recovery.
+    """
+    type_embeddings, doc_embeddings, meta = _retrieval_embeddings.load_embeddings_state(
+        vault_root
+    )
+    if (
+        meta is None
+        or type_embeddings is None
+        or doc_embeddings is None
+        or not _retrieval_embeddings.embeddings_meta_matches_router(meta, router)
+    ):
+        return None
+    return (type_embeddings, doc_embeddings, meta)
+
+
 def _ensure_embeddings_fresh() -> None:
     """Rebuild doc embeddings if they're out of sync with the index.
 
@@ -1169,25 +1424,25 @@ def _ensure_embeddings_fresh() -> None:
         return
     with _doc_embeddings_pending_lock:
         has_pending = bool(_doc_embeddings_pending)
-    # Every writer of `_router` should clear `_embeddings_meta` first.
-    # Keep this guard so a future writer that forgets still forces a rebuild
-    # instead of serving sidecars stamped for an older router fingerprint.
-    if (
-        _embeddings_meta is not None
-        and not _retrieval_embeddings.embeddings_meta_matches_router(
-            _embeddings_meta,
-            _router,
-        )
-    ):
-        _mark_embeddings_dirty()
-    needs_build = (
-        _doc_embeddings_dirty
-        or _type_embeddings_dirty
-        or has_pending
-        or any(value is None for value in (_type_embeddings, _embeddings_meta, _doc_embeddings))
+    has_missing_loaded_embeddings = any(
+        value is None for value in (_type_embeddings, _embeddings_meta, _doc_embeddings)
     )
-    if not needs_build:
+    needs_rebuild = _doc_embeddings_dirty or _type_embeddings_dirty or has_pending
+    if not needs_rebuild and not has_missing_loaded_embeddings:
         return
+    if not needs_rebuild:
+        try:
+            loaded = _load_current_embeddings_from_disk(_vault_root, _router)
+        except _retrieval_embeddings.SemanticEmbeddingsLoadError as exc:
+            if _logger:
+                _logger.warning(
+                    "semantic embeddings sidecars are unreadable; rebuilding lazily: %s",
+                    exc,
+                )
+        else:
+            if loaded is not None:
+                if _apply_loaded_embeddings_snapshot(loaded):
+                    return
     result = build_index.refresh_embeddings_outputs(
         _vault_root,
         _router,
@@ -1195,13 +1450,13 @@ def _ensure_embeddings_fresh() -> None:
         enable_embeddings=True,
     )
     if result is not None:
-        _type_embeddings, _doc_embeddings, _embeddings_meta = result
+        _apply_loaded_embeddings_snapshot(result)
     else:
         _clear_loaded_embeddings()
-    _doc_embeddings_dirty = False
-    _type_embeddings_dirty = False
-    with _doc_embeddings_pending_lock:
-        _doc_embeddings_pending.clear()
+        _doc_embeddings_dirty = False
+        _type_embeddings_dirty = False
+        with _doc_embeddings_pending_lock:
+            _doc_embeddings_pending.clear()
 
 
 def _mark_index_pending(rel_path: str, type_hint: str | None = None) -> None:
@@ -1347,7 +1602,6 @@ def _compile_and_save(vault_root: str) -> dict:
     global _doc_embeddings_dirty, _type_embeddings_dirty
     compiled = compile_router.compile(vault_root)
     compile_router.persist_compiled_router(vault_root, compiled)
-    _clear_loaded_embeddings()
     _set_router(compiled)
     _router_checked_at = time.monotonic()
     _router_dirty = False
@@ -1434,6 +1688,7 @@ def startup(vault_root: str | None = None) -> None:
     _vault_name = config_brain_name or os.environ.get("BRAIN_VAULT_NAME") or os.path.basename(_vault_root)
 
     _ensure_warmup_started("startup")
+    _ensure_semantic_warmup_started("startup")
     if _logger:
         _logger.info("startup warmup enqueued (generation %s)", generation)
     _logger.info("startup complete")
@@ -1463,7 +1718,13 @@ def _get_state() -> ServerState:
 
 def _set_router(router: dict | None) -> None:
     global _router
-    _router = router
+    with _warmup_lock:
+        _clear_loaded_embeddings()
+        _router = router
+        if router is None:
+            _router_ready_event.clear()
+        else:
+            _router_ready_event.set()
 
 
 def _set_index(index: dict | None) -> None:
@@ -1493,6 +1754,7 @@ def _runtime() -> ServerRuntime:
         enforce_profile=_enforce_profile,
         refresh_cli_available=_refresh_cli_available,
         ensure_warmup_started=_ensure_warmup_started,
+        ensure_semantic_ready=_ensure_semantic_ready,
         ensure_router_fresh=_ensure_router_fresh,
         ensure_index_fresh=_ensure_index_fresh,
         ensure_mutation_index_ready=_ensure_mutation_index_ready,
