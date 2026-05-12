@@ -37,6 +37,7 @@ from typing import Any, Dict, List, NoReturn, Optional, Tuple
 # third-party packages. See `_common/__init__.py`.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _common import safe_write, safe_write_json  # noqa: E402
+from _lifecycle_common import find_repair_launcher, is_compatible_python  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -298,11 +299,34 @@ def bootstrap_line_for_target(target_dir: Path) -> str:
     return CLAUDE_MD_BOOTSTRAP_VAULT if _is_vault_root(target_dir) else CLAUDE_MD_BOOTSTRAP_PROJECT
 
 
+def _resolve_session_launcher() -> str:
+    """Resolve a Python 3.12+ launcher path to embed in the SessionStart hook.
+
+    Prefers PATH-resolved `python3.13` / `python3.12` / `python3` binaries —
+    those paths are stable across the lifetime of the embedded hook command.
+    Falls back to `find_repair_launcher()` (which may prefer `sys.executable`)
+    only if no PATH binary qualifies, then `sys.executable` as a last resort.
+    The order matters because the hook is persisted into a long-lived
+    settings file; if `init.py` is invoked from a temporary interpreter,
+    `sys.executable` would bake in a path that disappears once the caller
+    exits, breaking the hook. Bare `python3` is never embedded — on asdf
+    shims with no configured version it fails with "No version is set for
+    command python3". session.py is stdlib-only beyond `_common`, so any
+    compatible launcher suffices.
+    """
+    for name in ("python3.13", "python3.12", "python3"):
+        path = shutil.which(name)
+        if path and is_compatible_python(path):
+            return path
+    return find_repair_launcher() or sys.executable
+
+
 def build_session_hook_command(vault_root: Path, target_dir: Path) -> str:
     session_script = str(vault_root / ".brain-core" / "scripts" / "session.py")
+    launcher = _resolve_session_launcher()
     return (
         "echo 'brain_session called:' "
-        f"&& python3 {shlex.quote(session_script)} "
+        f"&& {shlex.quote(launcher)} {shlex.quote(session_script)} "
         f"--vault {shlex.quote(str(vault_root))} "
         f"--workspace-dir {shlex.quote(str(target_dir))} --json"
     )
@@ -888,13 +912,27 @@ def ensure_session_start_hook(target_dir: Path, vault_root: Path) -> Path:
     return settings_path
 
 
-def _remove_session_start_hook(settings_path: Path, vault_root: Path, target_dir: Path) -> None:
+def _remove_session_start_hook(
+    settings_path: Path,
+    vault_root: Path,
+    target_dir: Path,
+    recorded_command: Optional[str] = None,
+) -> None:
     settings = _read_json_safe(settings_path)
     hooks = settings.get("hooks")
     if not isinstance(hooks, dict):
         return
 
-    hook_command = build_session_hook_command(vault_root, target_dir)
+    # Match either the freshly-computed command or the one recorded at install
+    # time. The launcher path inside the command is environment-dependent (PATH
+    # ordering, sys.executable, etc.), so write-time and remove-time may resolve
+    # different launchers; the recorded value is the authoritative match when
+    # init-state.json has one.
+    fresh_command = build_session_hook_command(vault_root, target_dir)
+    valid_commands = {fresh_command}
+    if recorded_command:
+        valid_commands.add(recorded_command)
+
     changed = False
     session_entries = hooks.get("SessionStart", [])
     kept_entries = []
@@ -911,7 +949,7 @@ def _remove_session_start_hook(settings_path: Path, vault_root: Path, target_dir
 
         kept_hooks = []
         for hook in hook_items:
-            if isinstance(hook, dict) and hook.get("command") == hook_command:
+            if isinstance(hook, dict) and hook.get("command") in valid_commands:
                 changed = True
                 continue
             kept_hooks.append(hook)
@@ -1142,6 +1180,7 @@ def _remove_record(vault_root: Path, record: Dict[str, Any]) -> bool:
                 Path(record.get("hook_path", target_dir / CLAUDE_LOCAL_SETTINGS_FILE)),
                 vault_root,
                 target_dir,
+                recorded_command=record.get("hook_command"),
             )
         return removed
 

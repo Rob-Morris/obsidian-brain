@@ -2,6 +2,8 @@
 
 Operational reference for scripts in `.brain-core/scripts/`. Most scripts expose both importable functions and a CLI entry point; a few are library modules used by other scripts or the MCP server.
 
+The optional [`brain` CLI](cli.md) provides ergonomic shortcuts that dispatch directly to these scripts — `brain repair mcp` is exactly `python3 .brain-core/scripts/repair.py mcp` under the hood. Scripts remain the authoritative implementation; the CLI is chrome. See [DD-049](../architecture/decisions/dd-049-brain-cli-thin-dispatch.md).
+
 ## Script Table
 
 | Script | Purpose | CLI usage |
@@ -97,7 +99,7 @@ python3 compile_router.py           # write .brain/local/compiled-router.json
 python3 compile_router.py --json    # output JSON to stdout
 ```
 
-**Constraints:** Python 3.8+ stdlib only (`_common` imports), self-locating via `find_vault_root()`, deterministic (same inputs → same output, aside from timestamp).
+**Constraints:** stdlib only (`_common` imports), self-locating via `find_vault_root()`, deterministic (same inputs → same output, aside from timestamp).
 
 ## check.py
 
@@ -130,7 +132,7 @@ python3 compile_router.py --json    # output JSON to stdout
 | `workspace_registry` | warning | Current-vault local workspace registry (`.brain/local/workspaces.json`) is malformed or needs normalisation |
 | `mcp_registration` | warning | Installed current-vault project MCP state is drifted or incomplete |
 
-**Constraints:** Python 3.8+ stdlib only, self-locating, stateless, idempotent, stdout-only.
+**Constraints:** stdlib only, self-locating, stateless, idempotent, stdout-only.
 
 When `check.py` detects repairable router, MCP, or local workspace-registry drift, normal human output now prints the exact `repair.py` command to run. Structured JSON/compliance output includes a `repair` object with `scope`, `description`, and `command` so agents can surface the same remediation path without scraping prose.
 
@@ -375,7 +377,7 @@ All writes are atomic (tmp + fsync + rename). `init.py` records client, scope, c
 
 For folder-scoped installs, `init.py` also scaffolds `.brain/local/workspace.yaml` when absent (except when targeting the vault root itself). If a legacy manifest exists at `.brain/workspace.yaml`, it is migrated to the new location automatically. The scaffold is intentionally minimal: it gives the workspace a stable slug and a default `workspace/{slug}` tag, but leaves richer metadata and links for humans or agents to evolve later.
 
-**Dependencies:** Python 3.8+ stdlib only. Detects a Python with `mcp` package for the server config — prefers the central managed runtime resolved via `_common/_venv.py` (`~/.brain/venvs/py<X.Y>-<sha16>/`), falls back to a legacy vault-local `.venv` if present, then to the current Python and a PATH search. See [DD-048](../architecture/decisions/dd-048-central-managed-runtime.md).
+**Dependencies:** stdlib only. Detects a Python with `mcp` package for the server config — prefers the central managed runtime resolved via `_common/_venv.py` (`~/.brain/venvs/py<X.Y>-<sha16>/`), falls back to a legacy vault-local `.venv` if present, then to the current Python and a PATH search. See [DD-048](../architecture/decisions/dd-048-central-managed-runtime.md).
 
 ## session.py
 

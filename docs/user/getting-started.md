@@ -217,6 +217,11 @@ packageful repair always converges back into the central managed runtime at
 `~/.brain/venvs/`. It does not install packages into your wider Python
 environment.
 
+If you installed the optional [`brain` CLI](../functional/cli.md), the same
+operations are available as `brain check --actionable`, `brain repair mcp`,
+`brain repair router`, and so on. The CLI dispatches directly to the scripts
+above; it adds no behaviour.
+
 ---
 
 ## Going Deeper

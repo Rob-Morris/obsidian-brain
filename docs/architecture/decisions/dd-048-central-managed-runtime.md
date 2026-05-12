@@ -2,6 +2,8 @@
 
 **Status:** Accepted (v0.37.0)
 **Supersedes:** DD-043 (in part — see below)
+**Extended by:** DD-049
+**Lookup clarification (v0.38.0):** creation remains keyed strictly by `(python_minor, requirements_hash)` — a brand-new install lands at the exact-match path. Lookup is softer: when the exact-tag path is missing, `find_existing_central_venv` returns any other central venv for the same `requirements_hash` whose minor is >= 3.12 (highest compatible minor wins). This keeps Brain useful across Python-minor churn (Homebrew bumping `python3.12` → `python3.13` is the common trigger) without re-provisioning. Pre-3.12 venvs are never picked. The broader "launcher selection duplicated across entry points" follow-up remains open — direct script entry points (`upgrade.py`, `init.py`) can still pick different launchers, which only matters during creation now that lookup is unified.
 
 ## Context
 

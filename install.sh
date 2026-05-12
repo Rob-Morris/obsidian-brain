@@ -8,6 +8,8 @@
 # From a clone:
 #   bash install.sh ~/my-brain
 #   bash install.sh --skip-mcp ~/my-brain
+#   bash install.sh --skip-cli ~/my-brain
+#   bash install.sh --system ~/my-brain          # install brain CLI to /usr/local/bin
 #   bash install.sh --enable-semantic ~/my-brain
 #   bash install.sh --non-interactive ~/my-brain
 #   bash install.sh              # prompts for path
@@ -19,9 +21,10 @@
 #   1. Clones the repo to a temp directory (or uses existing clone)
 #   2. Copies template-vault to your chosen location
 #   3. Copies brain-core into the vault as .brain-core
-#   4. Installs Python dependencies into a vault-local .venv (unless skipped)
+#   4. Installs Python dependencies into the central managed runtime under ~/.brain/venvs/ (unless skipped)
 #   5. Registers the Brain MCP server for Claude Code and Codex (unless skipped)
 #   6. Optionally delegates semantic setup to configure.py
+#   7. Installs the `brain` CLI to ~/.local/bin (or /usr/local/bin with --system) unless --skip-cli
 #
 # Requirements: git, python3 (basic preflight), python3.12+ for upgrade + MCP setup
 # Safe to re-run with a new path.
@@ -83,6 +86,8 @@ warn()  { printf '\033[33mWarning: %s\033[0m\n' "$*" >&2; }
 parse_flags() {
     NON_INTERACTIVE=false
     SKIP_MCP=false
+    SKIP_CLI=false
+    INSTALL_SYSTEM=false
     ENABLE_SEMANTIC=false
     VAULT_PATH=""
     for arg in "$@"; do
@@ -95,6 +100,12 @@ parse_flags() {
                 ;;
             --skip-mcp|--no-mcp)
                 SKIP_MCP=true
+                ;;
+            --skip-cli|--no-cli)
+                SKIP_CLI=true
+                ;;
+            --system)
+                INSTALL_SYSTEM=true
                 ;;
             --enable-semantic)
                 ENABLE_SEMANTIC=true
@@ -241,13 +252,54 @@ spin() {
     return $exit_code
 }
 
+# Find a Python that can actually run the target script. Probes by invoking
+# `<python> <script> <probe-arg>` rather than just `-c 'pass'` — the weaker
+# probe only proves the interpreter can start, not that it can import the
+# script's dependencies. A stub or stripped interpreter that succeeds on
+# `pass` can still fail on `import _common` (or any modern-Python feature
+# the script relies on). Probing with the actual call shape eliminates that
+# false-positive class. The default probe arg is `--list`, which every
+# registry-style helper supports and which is read-only.
+find_python_for_script() {
+    local script="$1"
+    local probe_arg="${2:---list}"
+    local candidate path
+    for candidate in python3.13 python3.12 python3 python; do
+        path=$(command -v "$candidate" 2>/dev/null) || continue
+        if "$path" "$script" "$probe_arg" >/dev/null 2>&1; then
+            printf '%s\n' "$path"
+            return 0
+        fi
+    done
+    return 1
+}
+
 # Best-effort vault registry update. Never blocks install.
+#
+# Prefers the version-probed `_PY312_PATH` when available — that's the
+# canonical interpreter the rest of the install/upgrade flow uses. Falls back
+# to any Python that can actually execute `vault_registry.py` (probed via
+# `--list`) because the script is stdlib + `_common`-only; a 3.10/3.11 host
+# doing a scaffold-only install (`install.sh --skip-mcp`) still gets its
+# registry updated even though it lacks the 3.12 floor everything else
+# enforces. The probe matches the actual invocation shape we're about to
+# make, so we never accept an interpreter that can start but cannot import
+# the script's dependencies.
+#
+# Bare `python3` is never invoked directly: on machines where `python3` is an
+# asdf shim with no configured version the shim fails to run anything, the
+# registry update silently no-ops, and the resulting registry drift makes the
+# "last vault" uninstall hint and `brain doctor` cross-vault discovery wrong.
 registry_update() {
     local action="$1"
     local path="$2"
     local script="${3:-$REPO_DIR/src/brain-core/scripts/vault_registry.py}"
     [ -f "$script" ] || return 0
-    python3 "$script" "$action" "$path" >/dev/null 2>&1 || true
+    local py="${_PY312_PATH:-}"
+    if [ -z "$py" ]; then
+        py=$(find_python_for_script "$script") || return 0
+    fi
+    "$py" "$script" "$action" "$path" >/dev/null 2>&1 || true
 }
 
 # Print the path of the single non-stale registered vault, or empty.
@@ -314,6 +366,7 @@ if [ "${1:-}" = "--uninstall" ]; then
     info "  - recorded Brain-managed Claude local MCP state in .claude/"
     printf '\n'
     info "Brain runtimes at ~/.brain/venvs/ are kept — they may be shared with other vaults."
+    info "The brain CLI binary (e.g. ~/.local/bin/brain) is kept — other vaults may rely on it."
     printf '\n'
     info "User-scope Claude/Codex cleanup is explicit and is not run automatically."
     info "If this vault owns a user-scope registration, remove it before uninstalling:"
@@ -363,6 +416,34 @@ if [ "${1:-}" = "--uninstall" ]; then
         rm -rf "$1/.brain"
         rm -rf "$1/.venv"
     ' _ "$VAULT_PATH"
+
+    # If no other vaults remain registered, hint at manual CLI cleanup.
+    if [ -z "$(registry_single_valid_vault)" ]; then
+        config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+        registry_file="$config_home/brain/vaults"
+        remaining=0
+        if [ -f "$registry_file" ]; then
+            while IFS=$'\t' read -r alias path; do
+                case "$alias" in ''|\#*) continue ;; esac
+                path="${path%$'\r'}"
+                [ -z "$path" ] && continue
+                if [ -d "$path" ] && { [ -f "$path/.brain-core/VERSION" ] || [ -f "$path/AGENTS.md" ] || [ -f "$path/Agents.md" ]; }; then
+                    remaining=$((remaining + 1))
+                fi
+            done < "$registry_file"
+        fi
+        if [ "$remaining" -eq 0 ]; then
+            printf '\n' >&2
+            info "This was the last registered brain vault."
+            info "If no other machines or projects use it, you may also remove:"
+            info "  rm -rf ~/.brain/venvs/    # central managed runtimes"
+            for cli_path in "$HOME/.local/bin/brain" "/usr/local/bin/brain"; do
+                if [ -f "$cli_path" ]; then
+                    info "  rm \"$cli_path\"           # brain CLI"
+                fi
+            done
+        fi
+    fi
 
     if [ "$NON_INTERACTIVE" = false ]; then
         printf '\n' >&2
@@ -732,24 +813,46 @@ if [ -n "$PYTHON" ] && { [ "${CONFIGURE_SEMANTIC:-}" = "y" ] || [ "${CONFIGURE_S
 fi
 
 # ---------------------------------------------------------------------------
-# Optional: Obsidian CLI (uncomment when ready)
+# brain CLI install (~/.local/bin/brain, or /usr/local/bin/brain with --system)
 # ---------------------------------------------------------------------------
 
-# if [ "$NON_INTERACTIVE" = false ]; then
-#     printf '\n' >&2
-#     printf '  \033[1mInstall the Obsidian CLI?\033[0m Optional — improves search and rename. [y/N]: ' >&2
-#     read -r INSTALL_CLI
-#     if [ "$INSTALL_CLI" = "y" ] || [ "$INSTALL_CLI" = "Y" ]; then
-#         printf '\n' >&2
-#         if command -v npm >/dev/null 2>&1; then
-#             spin "Installing Obsidian CLI" npm install -g obsidian-cli-rest 2>/dev/null
-#         else
-#             info "npm not found. Install Node.js, then run: npm install -g obsidian-cli-rest"
-#         fi
-#     fi
-# fi
-
-# TODO: Add prompt for brain CLI when implemented
+if [ "$UPGRADE_MODE" != true ] && [ "$SKIP_CLI" != true ]; then
+    if [ -f "$REPO_DIR/cli/brain" ]; then
+        if [ "$INSTALL_SYSTEM" = true ]; then
+            CLI_TARGET_DIR="/usr/local/bin"
+        else
+            CLI_TARGET_DIR="$HOME/.local/bin"
+        fi
+        CLI_TARGET="$CLI_TARGET_DIR/brain"
+        mkdir -p "$CLI_TARGET_DIR" 2>/dev/null || true
+        if cp "$REPO_DIR/cli/brain" "$CLI_TARGET" 2>/dev/null && chmod +x "$CLI_TARGET" 2>/dev/null; then
+            printf '\n' >&2
+            info "Installed brain CLI: $CLI_TARGET"
+            case ":${PATH}:" in
+                *":${CLI_TARGET_DIR}:"*) ;;
+                *)
+                    warn "$CLI_TARGET_DIR is not on your PATH."
+                    info "Add this to your shell profile (~/.zshrc, ~/.bashrc):"
+                    info "  export PATH=\"$CLI_TARGET_DIR:\$PATH\""
+                    ;;
+            esac
+        else
+            printf '\n' >&2
+            warn "Could not install brain CLI to $CLI_TARGET."
+            if [ "$INSTALL_SYSTEM" = true ]; then
+                info "Retry with sudo, or install to user scope:"
+                info "  sudo install -m 0755 \"$REPO_DIR/cli/brain\" \"$CLI_TARGET\""
+                info "  # or (no sudo):"
+                info "  install -m 0755 \"$REPO_DIR/cli/brain\" \"$HOME/.local/bin/brain\""
+            else
+                info "Install manually with:"
+                info "  install -m 0755 \"$REPO_DIR/cli/brain\" \"$CLI_TARGET\""
+            fi
+        fi
+    fi
+elif [ "$UPGRADE_MODE" != true ] && [ "$SKIP_CLI" = true ]; then
+    info "brain CLI install skipped (--skip-cli)."
+fi
 
 # ---------------------------------------------------------------------------
 # Done

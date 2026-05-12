@@ -1,0 +1,295 @@
+#!/usr/bin/env bash
+#
+# brain — thin dispatch CLI for Obsidian Brain.
+#
+# Resolves the active vault, finds its central managed runtime (DD-048),
+# and exec's into a brain-core script. The dispatch contract is DD-049.
+#
+# Vault resolution order:  --vault <path>  →  $BRAIN_VAULT_ROOT  →  CWD walk
+# All args pass through to the script unchanged, except --vault which is
+# consumed and re-injected as an absolute path.
+
+set -euo pipefail
+
+BRAIN_CLI_VERSION="1.0.0"
+
+# Dispatch contract (DD-049 v1). hyphens here become underscores on disk.
+DISPATCH_SUBCOMMANDS=(
+    check create edit rename configure repair init upgrade
+    session read migrate-naming fix-links
+)
+
+INSTALL_URL="https://raw.githubusercontent.com/rob-morris/obsidian-brain/main/install.sh"
+
+# ---------------------------------------------------------------------------
+# Output helpers
+# ---------------------------------------------------------------------------
+
+err() { printf '%s\n' "$*" >&2; }
+die() { err "$*"; exit 1; }
+
+# ---------------------------------------------------------------------------
+# CLI-only subcommands
+# ---------------------------------------------------------------------------
+
+print_help() {
+    cat <<EOF
+brain — dispatch CLI for Obsidian Brain (v${BRAIN_CLI_VERSION})
+
+Usage:
+  brain <subcommand> [args...]
+  brain <subcommand> --vault <path> [args...]
+
+Vault subcommands (dispatched to .brain-core/scripts/):
+  check          create         edit           rename
+  configure      repair         init           upgrade
+  session        read           migrate-naming fix-links
+
+CLI subcommands (machine-level):
+  install <path> Scaffold a new vault at <path> (wraps install.sh).
+  doctor         Machine-level health checks (+ vault check if inside one).
+  version        Print CLI version (also: --version).
+  --help, -h     This message.
+
+Vault resolution order: --vault, then \$BRAIN_VAULT_ROOT, then CWD walk for
+the nearest .brain-core/VERSION. --vault is forwarded as an absolute path.
+
+Scripts in .brain-core/scripts/ remain authoritative; this CLI adds no
+behaviour to dispatched subcommands. See docs/architecture/decisions/dd-049.
+EOF
+}
+
+print_version() {
+    printf 'brain %s\n' "$BRAIN_CLI_VERSION"
+}
+
+cli_install() {
+    local target=${1:-}
+    [[ -n "$target" ]] || die "usage: brain install <path>"
+    shift
+    command -v curl >/dev/null 2>&1 || die "brain install requires curl"
+    bash <(curl -fsSL "$INSTALL_URL") "$target" "$@"
+}
+
+cli_doctor() {
+    local rc=0
+    printf 'brain CLI: %s\n' "$BRAIN_CLI_VERSION"
+    printf '  binary:  %s\n' "${BASH_SOURCE[0]}"
+
+    # Report the directory the running brain binary lives in, and verify *that*
+    # directory is on PATH. Both supported install modes — `~/.local/bin/brain`
+    # (default) and `/usr/local/bin/brain` (`install.sh --system`) — are
+    # honoured because we ask the binary where it lives rather than assuming
+    # the user-scope location.
+    local brain_dir
+    brain_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd -P) \
+        || brain_dir=$(dirname "${BASH_SOURCE[0]}")
+    case ":${PATH}:" in
+        *":${brain_dir}:"*) printf '  PATH:    ok (%s on PATH)\n' "$brain_dir" ;;
+        *) printf '  PATH:    WARN (%s not on PATH)\n' "$brain_dir"; rc=1 ;;
+    esac
+
+    local py
+    py=$(find_launcher_python || true)
+    if [[ -n "$py" ]]; then
+        printf 'python:    %s (%s)\n' "$py" "$($py --version 2>&1)"
+    else
+        printf 'python:    MISSING (need python3.12+ on PATH)\n'
+        rc=1
+    fi
+
+    local venvs_root="$HOME/.brain/venvs"
+    if [[ -d "$venvs_root" ]]; then
+        local count
+        count=$(find "$venvs_root" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')
+        printf 'venvs:     %s (%s present)\n' "$venvs_root" "$count"
+    else
+        printf 'venvs:     not yet provisioned (%s)\n' "$venvs_root"
+    fi
+
+    local vault
+    vault=$(resolve_vault_silent || true)
+    if [[ -n "$vault" ]]; then
+        printf '\nvault:     %s\n' "$vault"
+        local check_py="$vault/.brain-core/scripts/check.py"
+        if [[ -f "$check_py" ]]; then
+            local vault_python
+            vault_python=$(resolve_vault_python "$vault") || { rc=1; return $rc; }
+            "$vault_python" "$check_py" --vault "$vault" || rc=$?
+        else
+            printf '  check.py missing — vault may be on an older brain-core\n'
+            rc=1
+        fi
+    else
+        printf '\nvault:     none in scope (run inside a vault or pass --vault)\n'
+    fi
+    return $rc
+}
+
+# ---------------------------------------------------------------------------
+# Vault + runtime resolution
+# ---------------------------------------------------------------------------
+
+# Walk upward from $1 looking for .brain-core/VERSION. Print path on success.
+walk_for_vault() {
+    local dir=$1
+    while [[ "$dir" != "/" && -n "$dir" ]]; do
+        if [[ -f "$dir/.brain-core/VERSION" ]]; then
+            printf '%s\n' "$dir"
+            return 0
+        fi
+        dir=$(dirname "$dir")
+    done
+    return 1
+}
+
+# Resolve to absolute path without realpath (which is non-portable).
+absolute_path() {
+    local p=$1
+    if [[ -d "$p" ]]; then
+        (cd "$p" && pwd -P)
+    else
+        local d
+        d=$(dirname "$p")
+        (cd "$d" && printf '%s/%s\n' "$(pwd -P)" "$(basename "$p")")
+    fi
+}
+
+resolve_vault_silent() {
+    local candidate=${BRAIN_VAULT_ROOT:-}
+    if [[ -n "$candidate" ]]; then
+        absolute_path "$candidate"
+        return 0
+    fi
+    walk_for_vault "$(pwd -P)"
+}
+
+find_launcher_python() {
+    # Return an absolute path to a Python 3.12+ interpreter, or fail.
+    # `command -v` resolves PATH tokens like 'python3.12' to absolute paths;
+    # we then probe each candidate's version. `python3` in particular may be
+    # anything from 3.0 to 3.13, so probing is the only honest accept.
+    # DD-048 makes 3.12 the contract; running scripts under older interpreters
+    # corrupts the central-venv tag and silently produces wrong results.
+    if [[ -n "${BRAIN_VENV_LAUNCHER:-}" ]]; then
+        printf '%s\n' "$BRAIN_VENV_LAUNCHER"
+        return 0
+    fi
+    local candidate resolved
+    for candidate in python3.13 python3.12 python3; do
+        resolved=$(command -v "$candidate" 2>/dev/null) || continue
+        if "$resolved" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 12) else 1)' >/dev/null 2>&1; then
+            printf '%s\n' "$resolved"
+            return 0
+        fi
+    done
+    return 1
+}
+
+resolve_vault_python() {
+    local vault=$1
+    local venv_helper="$vault/.brain-core/scripts/_common/_venv.py"
+    [[ -f "$venv_helper" ]] || die "brain: vault has no _venv.py helper — upgrade brain-core (path: $venv_helper)"
+    local launcher
+    launcher=$(find_launcher_python) || die "brain: no python3.12+ launcher on PATH (need python3.12 or python3.13)"
+    # Use runnable-python so dispatch works in supported no-runtime states
+    # (e.g. `install.sh --skip-mcp`): central venv → legacy → launcher.
+    local resolved
+    if ! resolved=$("$launcher" "$venv_helper" runnable-python --vault "$vault" --launcher "$launcher"); then
+        die "brain: no runnable python for vault $vault — run 'brain repair mcp --vault $vault' or 'bash install.sh $vault'"
+    fi
+    printf '%s\n' "$resolved"
+}
+
+# ---------------------------------------------------------------------------
+# Dispatch
+# ---------------------------------------------------------------------------
+
+is_dispatch_subcommand() {
+    local needle=$1
+    local s
+    for s in "${DISPATCH_SUBCOMMANDS[@]}"; do
+        [[ "$s" == "$needle" ]] && return 0
+    done
+    return 1
+}
+
+# Split argv around --vault. Sets globals VAULT_ARG and FORWARDED_ARGS.
+extract_vault_arg() {
+    VAULT_ARG=""
+    FORWARDED_ARGS=()
+    while (( $# > 0 )); do
+        case "$1" in
+            --vault)
+                [[ $# -ge 2 ]] || die "brain: --vault requires a value"
+                VAULT_ARG=$2
+                shift 2
+                ;;
+            --vault=*)
+                VAULT_ARG=${1#--vault=}
+                shift
+                ;;
+            *)
+                FORWARDED_ARGS+=("$1")
+                shift
+                ;;
+        esac
+    done
+}
+
+dispatch() {
+    local subcommand=$1
+    shift
+    extract_vault_arg "$@"
+
+    local vault
+    if [[ -n "$VAULT_ARG" ]]; then
+        [[ -d "$VAULT_ARG" ]] || die "brain: --vault path does not exist: $VAULT_ARG"
+        vault=$(absolute_path "$VAULT_ARG")
+    else
+        vault=$(resolve_vault_silent || true)
+        [[ -n "$vault" ]] || die "brain: no vault found — pass --vault <path>, set BRAIN_VAULT_ROOT, or run from inside a vault"
+    fi
+
+    local script_name=${subcommand//-/_}.py
+    local script_path="$vault/.brain-core/scripts/$script_name"
+    [[ -f "$script_path" ]] || die "brain: this brain-core version does not ship $script_name (vault: $vault)"
+
+    local vault_python
+    vault_python=$(resolve_vault_python "$vault")
+
+    exec "$vault_python" "$script_path" --vault "$vault" ${FORWARDED_ARGS[@]+"${FORWARDED_ARGS[@]}"}
+}
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
+main() {
+    if (( $# == 0 )); then
+        print_help
+        exit 0
+    fi
+
+    local subcommand=$1
+    shift
+
+    case "$subcommand" in
+        --help|-h|help) print_help ;;
+        --version|version) print_version ;;
+        install) cli_install "$@" ;;
+        doctor) cli_doctor ;;
+        *)
+            if is_dispatch_subcommand "$subcommand"; then
+                dispatch "$subcommand" "$@"
+            else
+                err "brain: unknown subcommand: $subcommand"
+                err ""
+                print_help >&2
+                exit 2
+            fi
+            ;;
+    esac
+}
+
+main "$@"

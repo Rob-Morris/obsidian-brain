@@ -1,0 +1,510 @@
+"""Integration tests for `cli/brain` — the thin dispatch layer (DD-049)."""
+
+import os
+import re
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+CLI_PATH = REPO_ROOT / "cli" / "brain"
+SCRIPTS_DIR = REPO_ROOT / "src" / "brain-core" / "scripts"
+
+# Dispatch contract — kept in sync with cli/brain's DISPATCH_SUBCOMMANDS array
+# and DD-049's documented v1 surface. Tests fail if these drift.
+DISPATCH_CONTRACT = [
+    "check", "create", "edit", "rename",
+    "configure", "repair", "init", "upgrade",
+    "session", "read", "migrate-naming", "fix-links",
+]
+
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+def _build_fake_vault(root: Path) -> Path:
+    """Build a minimal vault that satisfies the CLI's discovery and dispatch."""
+    vault = root / "vault"
+    scripts = vault / ".brain-core" / "scripts"
+    common = scripts / "_common"
+    common.mkdir(parents=True)
+    (vault / ".brain-core" / "VERSION").write_text("0.99.0\n")
+
+    # _venv.py stub: support `python` and `runnable-python` subcommands by
+    # printing the running interpreter, matching the contract the CLI uses.
+    (common / "_venv.py").write_text(
+        "#!/usr/bin/env python3\n"
+        "import sys\n"
+        "# Echo the running interpreter regardless of subcommand or args.\n"
+        "print(sys.executable)\n"
+    )
+
+    # Echo script — every dispatched subcommand can point at this body.
+    echo_body = (
+        "#!/usr/bin/env python3\n"
+        "import json, sys\n"
+        "print(json.dumps({'argv': sys.argv[1:]}))\n"
+    )
+    for name in DISPATCH_CONTRACT:
+        script = scripts / f"{name.replace('-', '_')}.py"
+        script.write_text(echo_body)
+    return vault
+
+
+def _run_cli(*args, cwd=None, env_extra=None, set_launcher_override=True):
+    env = os.environ.copy()
+    if set_launcher_override:
+        # Most tests pin the launcher to keep dispatch deterministic regardless
+        # of the test machine's PATH. Tests that exercise the CLI's own PATH
+        # discovery pass set_launcher_override=False.
+        env["BRAIN_VENV_LAUNCHER"] = sys.executable
+    else:
+        env.pop("BRAIN_VENV_LAUNCHER", None)
+    if env_extra:
+        env.update(env_extra)
+    return subprocess.run(
+        ["bash", str(CLI_PATH), *args],
+        cwd=str(cwd) if cwd else None,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Contract verification (DD-049): no silent drift between CLI list and scripts.
+# ---------------------------------------------------------------------------
+
+def test_dispatch_contract_matches_existing_scripts():
+    for sub in DISPATCH_CONTRACT:
+        script = SCRIPTS_DIR / f"{sub.replace('-', '_')}.py"
+        assert script.is_file(), (
+            f"Dispatch contract names '{sub}' but {script} does not exist. "
+            "Either rename the CLI subcommand (CLI major bump) or restore the script."
+        )
+
+
+def test_cli_dispatch_array_matches_test_contract():
+    """The CLI script's hard-coded list must match this test's list, byte-for-byte."""
+    body = CLI_PATH.read_text()
+    match = re.search(r"DISPATCH_SUBCOMMANDS=\(([^)]*)\)", body)
+    assert match, "Could not locate DISPATCH_SUBCOMMANDS in cli/brain"
+    declared = match.group(1).split()
+    assert declared == DISPATCH_CONTRACT
+
+
+# ---------------------------------------------------------------------------
+# CLI-only surface
+# ---------------------------------------------------------------------------
+
+def test_version_long_form():
+    result = _run_cli("--version")
+    assert result.returncode == 0
+    assert result.stdout.strip() == "brain 1.0.0"
+
+
+def test_version_subcommand():
+    result = _run_cli("version")
+    assert result.returncode == 0
+    assert result.stdout.strip() == "brain 1.0.0"
+
+
+def test_help_lists_dispatch_subcommands():
+    result = _run_cli("--help")
+    assert result.returncode == 0
+    for sub in DISPATCH_CONTRACT:
+        assert sub in result.stdout
+
+
+def test_no_args_prints_help():
+    result = _run_cli()
+    assert result.returncode == 0
+    assert "Usage:" in result.stdout
+
+
+def test_unknown_subcommand_fails():
+    result = _run_cli("frobnicate")
+    assert result.returncode == 2
+    assert "unknown subcommand" in result.stderr
+
+
+# ---------------------------------------------------------------------------
+# Vault discovery
+# ---------------------------------------------------------------------------
+
+def test_dispatch_with_explicit_vault_absolute(tmp_path):
+    vault = _build_fake_vault(tmp_path)
+    result = _run_cli("check", "--vault", str(vault), "--foo", "bar")
+    assert result.returncode == 0, result.stderr
+    assert f'"--vault", "{vault}"' in result.stdout or f"'--vault', '{vault}'" in result.stdout
+    assert "--foo" in result.stdout and "bar" in result.stdout
+
+
+def test_dispatch_with_explicit_vault_relative_resolves_to_absolute(tmp_path):
+    vault = _build_fake_vault(tmp_path)
+    # Run from tmp_path, pass --vault as a relative path.
+    result = _run_cli("check", "--vault", "vault", cwd=tmp_path)
+    assert result.returncode == 0, result.stderr
+    # The script must see an absolute path, not 'vault'.
+    assert str(vault) in result.stdout
+    assert '"--vault", "vault"' not in result.stdout
+
+
+def test_dispatch_with_vault_equals_form(tmp_path):
+    vault = _build_fake_vault(tmp_path)
+    result = _run_cli("check", f"--vault={vault}")
+    assert result.returncode == 0, result.stderr
+    assert str(vault) in result.stdout
+
+
+def test_dispatch_via_cwd_walk(tmp_path):
+    vault = _build_fake_vault(tmp_path)
+    nested = vault / "Daily Notes" / "2026-05"
+    nested.mkdir(parents=True)
+    result = _run_cli("check", cwd=nested)
+    assert result.returncode == 0, result.stderr
+    assert str(vault) in result.stdout
+
+
+def test_dispatch_via_brain_vault_root_env(tmp_path):
+    vault = _build_fake_vault(tmp_path)
+    other_cwd = tmp_path / "elsewhere"
+    other_cwd.mkdir()
+    result = _run_cli("check", cwd=other_cwd, env_extra={"BRAIN_VAULT_ROOT": str(vault)})
+    assert result.returncode == 0, result.stderr
+    assert str(vault) in result.stdout
+
+
+def test_no_vault_found_fails_clearly(tmp_path):
+    elsewhere = tmp_path / "no-vault"
+    elsewhere.mkdir()
+    # Clear BRAIN_VAULT_ROOT in case the test environment has it.
+    env = {"BRAIN_VAULT_ROOT": ""}
+    result = _run_cli("check", cwd=elsewhere, env_extra=env)
+    assert result.returncode != 0
+    assert "no vault found" in result.stderr
+
+
+def test_missing_script_fails_clearly(tmp_path):
+    vault = _build_fake_vault(tmp_path)
+    # Remove the check.py to simulate a brain-core that does not ship it.
+    (vault / ".brain-core" / "scripts" / "check.py").unlink()
+    result = _run_cli("check", "--vault", str(vault))
+    assert result.returncode != 0
+    assert "does not ship check.py" in result.stderr
+
+
+def test_vault_path_does_not_exist(tmp_path):
+    missing = tmp_path / "does-not-exist"
+    result = _run_cli("check", "--vault", str(missing))
+    assert result.returncode != 0
+    assert "does not exist" in result.stderr
+
+
+# ---------------------------------------------------------------------------
+# Argument forwarding
+# ---------------------------------------------------------------------------
+
+def test_arguments_pass_through_unchanged(tmp_path):
+    vault = _build_fake_vault(tmp_path)
+    result = _run_cli(
+        "repair",
+        "--vault", str(vault),
+        "mcp",
+        "--json",
+        "--max-age", "30",
+        "positional-arg",
+    )
+    assert result.returncode == 0, result.stderr
+    # Echo script prints JSON: {"argv": [...]}
+    import json
+    body = json.loads(result.stdout)
+    argv = body["argv"]
+    # --vault appears first (CLI re-injection) followed by other args in user order.
+    assert argv[0] == "--vault"
+    assert argv[1] == str(vault)
+    assert argv[2:] == ["mcp", "--json", "--max-age", "30", "positional-arg"]
+
+
+def test_hyphenated_subcommand_dispatches_to_underscored_script(tmp_path):
+    vault = _build_fake_vault(tmp_path)
+    result = _run_cli("migrate-naming", "--vault", str(vault), "--check")
+    assert result.returncode == 0, result.stderr
+    # The fake migrate_naming.py is the one that ran.
+    import json
+    body = json.loads(result.stdout)
+    assert "--check" in body["argv"]
+
+
+# ---------------------------------------------------------------------------
+# Doctor
+# ---------------------------------------------------------------------------
+
+def test_doctor_outside_vault_runs_machine_checks(tmp_path):
+    elsewhere = tmp_path / "no-vault"
+    elsewhere.mkdir()
+    result = _run_cli("doctor", cwd=elsewhere, env_extra={"BRAIN_VAULT_ROOT": ""})
+    # doctor's exit code reflects whether checks passed; we only require it ran.
+    assert "brain CLI:" in result.stdout
+    assert "vault:" in result.stdout
+    assert "none in scope" in result.stdout
+
+
+def test_doctor_inside_vault_dispatches_check(tmp_path):
+    vault = _build_fake_vault(tmp_path)
+    # Replace check.py with one that prints a sentinel so we can confirm dispatch.
+    (vault / ".brain-core" / "scripts" / "check.py").write_text(
+        "#!/usr/bin/env python3\n"
+        "print('DOCTOR_DISPATCHED_CHECK')\n"
+    )
+    result = _run_cli("doctor", cwd=vault)
+    assert "DOCTOR_DISPATCHED_CHECK" in result.stdout
+
+
+def _doctor_from_dir(install_dir: Path, on_path: bool, tmp_path: Path):
+    """Run a copy of cli/brain installed at install_dir; control whether it's on PATH."""
+    install_dir.mkdir(parents=True, exist_ok=True)
+    brain_copy = install_dir / "brain"
+    brain_copy.write_text(CLI_PATH.read_text())
+    brain_copy.chmod(0o755)
+
+    env = os.environ.copy()
+    env["BRAIN_VENV_LAUNCHER"] = sys.executable
+    env["BRAIN_VAULT_ROOT"] = ""
+    if on_path:
+        env["PATH"] = f"{install_dir}:{env['PATH']}"
+    else:
+        # Strip install_dir if it happens to be on PATH (defensive).
+        env["PATH"] = ":".join(p for p in env["PATH"].split(":") if p != str(install_dir))
+    no_vault = tmp_path / "no-vault"
+    no_vault.mkdir(exist_ok=True)
+    return subprocess.run(
+        ["bash", str(brain_copy), "doctor"],
+        cwd=str(no_vault),
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_doctor_path_check_ok_when_binary_dir_on_path(tmp_path):
+    """Regression: --system installs ship to /usr/local/bin.
+
+    Doctor must report OK whenever the dir holding the running brain binary is
+    on PATH — not only when that dir is `~/.local/bin`.
+    """
+    result = _doctor_from_dir(tmp_path / "usr-local-bin", on_path=True, tmp_path=tmp_path)
+    assert "PATH:    ok" in result.stdout
+    assert str(tmp_path / "usr-local-bin") in result.stdout
+    assert "WARN" not in result.stdout.split("PATH:")[1].splitlines()[0]
+
+
+def test_doctor_path_check_warns_when_binary_dir_not_on_path(tmp_path):
+    """Doctor reports WARN with the binary's actual directory when off PATH."""
+    result = _doctor_from_dir(tmp_path / "elsewhere", on_path=False, tmp_path=tmp_path)
+    assert "PATH:    WARN" in result.stdout
+    assert str(tmp_path / "elsewhere") in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# Runtime fallback (regression: brain CLI must work in --skip-mcp installs)
+# ---------------------------------------------------------------------------
+
+def _build_real_venv_vault(root: Path) -> Path:
+    """Vault carrying the REAL _venv.py — exercises the runnable-python chain."""
+    vault = root / "vault"
+    scripts = vault / ".brain-core" / "scripts"
+    common = scripts / "_common"
+    common.mkdir(parents=True)
+    (vault / ".brain-core" / "VERSION").write_text("0.99.0\n")
+    bc_req = vault / ".brain-core" / "brain_mcp"
+    bc_req.mkdir(parents=True)
+    (bc_req / "requirements.txt").write_text("mcp==1.0.0\n")
+
+    real_venv_py = REPO_ROOT / "src" / "brain-core" / "scripts" / "_common" / "_venv.py"
+    (common / "_venv.py").write_text(real_venv_py.read_text())
+
+    # Echo script for dispatch verification.
+    (scripts / "check.py").write_text(
+        "#!/usr/bin/env python3\n"
+        "import json, sys\n"
+        "print(json.dumps({'argv': sys.argv[1:]}))\n"
+    )
+    return vault
+
+
+def test_dispatch_falls_back_to_launcher_via_explicit_override(tmp_path):
+    """Regression: --skip-mcp installs ship the CLI but no central venv. Dispatch must still work."""
+    vault = _build_real_venv_vault(tmp_path)
+    # No central venv. Point HOME at an empty dir so the resolver can't find one.
+    env_extra = {"HOME": str(tmp_path / "empty-home"), "BRAIN_VENV_LAUNCHER": sys.executable}
+    (tmp_path / "empty-home").mkdir()
+    result = _run_cli("check", "--vault", str(vault), env_extra=env_extra)
+    assert result.returncode == 0, result.stderr
+    # check.py ran under the launcher fallback (sys.executable).
+    assert "argv" in result.stdout
+
+
+def test_dispatch_falls_back_to_launcher_via_path_discovery(tmp_path):
+    """Regression: the PATH-token flow must work too.
+
+    `cli/brain` `find_launcher_python` returns PATH-discovered binaries like
+    `python3.12`. The earlier implementation left those as bare tokens, which then failed
+    `Path(launcher).exists()` in `_venv.py` and collapsed the fallback chain.
+    This test exercises the PATH flow explicitly — no `BRAIN_VENV_LAUNCHER`
+    override. A stub `python3.12` on PATH delegates to `sys.executable`,
+    keeping the test environment-independent (asdf shims, custom PATHs etc.).
+    """
+    vault = _build_real_venv_vault(tmp_path)
+
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    fake_py = fake_bin / "python3.12"
+    fake_py.write_text("#!/bin/sh\nexec " + sys.executable + " \"$@\"\n")
+    fake_py.chmod(0o755)
+
+    env_extra = {
+        "HOME": str(tmp_path / "empty-home"),
+        # Keep /usr/bin + /bin so bash / coreutils still work.
+        "PATH": f"{fake_bin}:/usr/bin:/bin",
+    }
+    (tmp_path / "empty-home").mkdir()
+    result = _run_cli(
+        "check", "--vault", str(vault),
+        env_extra=env_extra,
+        set_launcher_override=False,
+    )
+    assert result.returncode == 0, result.stderr
+    # `cli/brain` must resolve the bare `python3.12` token to the absolute
+    # fake-bin path, not the bare name, before passing it to `_venv.py`.
+    assert "argv" in result.stdout
+
+
+def test_dispatch_falls_back_to_legacy_vault_venv(tmp_path):
+    """Pre-D2 vaults have <vault>/.venv. Dispatch must reach it before the launcher."""
+    vault = _build_real_venv_vault(tmp_path)
+    legacy_bin = vault / ".venv" / "bin"
+    legacy_bin.mkdir(parents=True)
+    legacy_py = legacy_bin / "python"
+    # Make the legacy python a symlink to the real interpreter so dispatch actually runs.
+    legacy_py.symlink_to(sys.executable)
+
+    env_extra = {"HOME": str(tmp_path / "empty-home")}
+    (tmp_path / "empty-home").mkdir()
+    result = _run_cli("check", "--vault", str(vault), env_extra=env_extra)
+    assert result.returncode == 0, result.stderr
+    assert "argv" in result.stdout
+
+
+def test_path_launcher_below_3_12_is_rejected(tmp_path):
+    """Regression: cli/brain must honour DD-048's 3.12+ floor.
+
+    `python3` on PATH may be any version from 3.0 to 3.13. The earlier CLI resolved
+    PATH tokens to absolute paths but did not probe the version; a 3.9
+    interpreter would be silently accepted, corrupt the central-venv tag, and
+    fail at import time. The fixed CLI probes the version before accepting it.
+
+    Fake `python3` here reports <3.12 via the probe script's exit status.
+    Both `python3.13` and `python3.12` are absent from the isolated PATH.
+    The CLI must surface the launcher-missing error, not dispatch.
+    """
+    vault = _build_real_venv_vault(tmp_path)
+
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    fake_py = fake_bin / "python3"
+    fake_py.write_text(
+        "#!/bin/sh\n"
+        "case \"$1\" in\n"
+        "  -c)\n"
+        "    if echo \"$2\" | grep -q 'version_info'; then\n"
+        "      # Probe checks >= (3, 12); exit 1 = not OK.\n"
+        "      exit 1\n"
+        "    fi\n"
+        "    ;;\n"
+        "esac\n"
+        "exit 0\n"
+    )
+    fake_py.chmod(0o755)
+
+    env_extra = {
+        "HOME": str(tmp_path / "empty-home"),
+        "PATH": f"{fake_bin}:/usr/bin:/bin",
+    }
+    (tmp_path / "empty-home").mkdir()
+    result = _run_cli(
+        "check", "--vault", str(vault),
+        env_extra=env_extra,
+        set_launcher_override=False,
+    )
+    assert result.returncode != 0
+    assert "no python3.12+" in result.stderr.lower()
+
+
+def test_doctor_reports_missing_when_no_compatible_launcher(tmp_path):
+    """brain doctor must say MISSING rather than presenting an incompatible Python.
+
+    Same fake `python3` stub as the dispatch-rejection test above. Outside
+    a vault, doctor runs machine checks only — the python: line must report
+    MISSING.
+    """
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    fake_py = fake_bin / "python3"
+    fake_py.write_text(
+        "#!/bin/sh\n"
+        "case \"$1\" in\n"
+        "  -c)\n"
+        "    if echo \"$2\" | grep -q 'version_info'; then\n"
+        "      exit 1\n"
+        "    fi\n"
+        "    ;;\n"
+        "esac\n"
+        "exit 0\n"
+    )
+    fake_py.chmod(0o755)
+
+    no_vault = tmp_path / "elsewhere"
+    no_vault.mkdir()
+    env_extra = {
+        "HOME": str(tmp_path / "empty-home"),
+        "PATH": f"{fake_bin}:/usr/bin:/bin",
+        "BRAIN_VAULT_ROOT": "",
+    }
+    (tmp_path / "empty-home").mkdir()
+    result = _run_cli(
+        "doctor",
+        cwd=no_vault,
+        env_extra=env_extra,
+        set_launcher_override=False,
+    )
+    assert "MISSING" in result.stdout
+    assert "python3.12+" in result.stdout
+
+
+def test_dispatch_fails_clearly_when_launcher_unresolvable(tmp_path):
+    """No central venv, no legacy venv, no compatible launcher → clear error.
+
+    Sets BRAIN_VENV_LAUNCHER to a nonexistent path; CLI honours the override
+    so find_launcher_python returns the bogus path, then runnable-python
+    rejects it and the CLI surfaces an error. PATH keeps /bin so the test
+    can still spawn bash.
+    """
+    vault = _build_real_venv_vault(tmp_path)
+    env_extra = {
+        "HOME": str(tmp_path / "empty-home"),
+        "PATH": "/bin",
+        "BRAIN_VENV_LAUNCHER": str(tmp_path / "does-not-exist" / "python"),
+    }
+    (tmp_path / "empty-home").mkdir()
+    result = _run_cli("check", "--vault", str(vault), env_extra=env_extra)
+    assert result.returncode != 0
+    err = result.stderr.lower()
+    assert ("no runnable python" in err
+            or "no python3.12+" in err
+            or "no such file" in err)

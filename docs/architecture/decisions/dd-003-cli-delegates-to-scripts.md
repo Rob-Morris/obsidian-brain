@@ -1,6 +1,7 @@
 # DD-003: CLI Delegates to Scripts, Never Contains Unique Logic
 
 **Status:** Accepted
+**Extended by:** DD-049
 
 ## Context
 

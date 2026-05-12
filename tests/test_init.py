@@ -293,6 +293,46 @@ class TestEnsureWorkspaceManifest:
         assert not legacy.is_file()
 
 
+class TestBuildSessionHookCommand:
+    def test_does_not_embed_bare_python3(self, vault):
+        """Regression: bare `python3` fails on asdf-shimmed machines."""
+        command = init.build_session_hook_command(vault, vault)
+        # The hook must embed a resolved absolute launcher, not a shim name.
+        # Allow paths whose basename happens to be python3 — what we forbid is
+        # the unresolved `python3` token sitting on its own.
+        assert " python3 " not in command, command
+        assert not command.startswith("python3 ")
+        assert not command.endswith(" python3")
+
+    def test_prefers_path_resolved_launcher_over_sys_executable(self, vault, monkeypatch):
+        """The hook is persisted; prefer stable PATH binaries to sys.executable
+        because the caller may be a temporary interpreter whose path won't survive."""
+        def fake_which(name):
+            return "/usr/bin/python3.12" if name == "python3.12" else None
+        monkeypatch.setattr(init.shutil, "which", fake_which)
+        monkeypatch.setattr(init, "is_compatible_python", lambda p: True)
+        # find_repair_launcher would return sys.executable, but the PATH lookup
+        # must win first.
+        monkeypatch.setattr(init, "find_repair_launcher", lambda: sys.executable)
+        command = init.build_session_hook_command(vault, vault)
+        assert "/usr/bin/python3.12" in command
+        assert sys.executable not in command
+
+    def test_falls_back_to_find_repair_launcher_when_path_lacks_compatible_python(
+        self, vault, monkeypatch
+    ):
+        monkeypatch.setattr(init.shutil, "which", lambda name: None)
+        monkeypatch.setattr(init, "find_repair_launcher", lambda: "/opt/fallback/python")
+        command = init.build_session_hook_command(vault, vault)
+        assert "/opt/fallback/python" in command
+
+    def test_last_resort_is_sys_executable(self, vault, monkeypatch):
+        monkeypatch.setattr(init.shutil, "which", lambda name: None)
+        monkeypatch.setattr(init, "find_repair_launcher", lambda: None)
+        command = init.build_session_hook_command(vault, vault)
+        assert sys.executable in command
+
+
 class TestEnsureSessionStartHook:
     def test_creates_hook(self, project, vault):
         init.ensure_session_start_hook(project, vault)
@@ -306,6 +346,9 @@ class TestEnsureSessionStartHook:
         assert str(vault) in command
         assert "--workspace-dir" in command
         assert str(project) in command
+        # Hook must use a resolved launcher path, not bare `python3`.
+        assert " python3 " not in command
+        assert not command.startswith("python3 ")
 
     def test_idempotent(self, project, vault):
         init.ensure_session_start_hook(project, vault)

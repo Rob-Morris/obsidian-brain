@@ -193,7 +193,7 @@ The MCP server writes persistent logs to `.brain/local/mcp-server.log` (2 MB max
 
 ### Scripts
 
-Available in `.brain-core/scripts/`. Scripts are the source of truth for all vault operations — the MCP server imports from them.
+Available in `.brain-core/scripts/`. Scripts are the source of truth for all vault operations — the MCP server imports from them. The optional [`brain` CLI](../functional/cli.md) provides ergonomic shortcuts that dispatch directly to these scripts (`brain repair mcp` ≡ `python3 .brain-core/scripts/repair.py mcp`).
 
 | Script | Purpose |
 |---|---|

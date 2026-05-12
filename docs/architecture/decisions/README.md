@@ -88,6 +88,7 @@ Each DD captures the reasoning behind an architectural decision at the time it w
 | DD-046 | Park unfinished `brain_process` / embeddings work off-main until it is ready to ship | Implemented (v0.33.0) | [dd-046](dd-046-park-brain-process-off-main.md) |
 | DD-047 | Keep the parked `brain_process` branch explicitly unreleased while aligning with `v0.33.0` conventions | Accepted | [dd-047](dd-047-brain-process-parked-branch-conventions.md) |
 | DD-048 | Central managed runtime, content-addressed by `requirements.txt` (`~/.brain/venvs/<py>-<sha>/`) | Accepted (v0.37.0) | [dd-048](dd-048-central-managed-runtime.md) |
+| DD-049 | Brain CLI as thin dispatch layer (versioned independently from brain-core) | Accepted (v0.38.0) | [dd-049](dd-049-brain-cli-thin-dispatch.md) |
 
 ---
 
@@ -96,7 +97,7 @@ Each DD captures the reasoning behind an architectural decision at the time it w
 Related decisions grouped by domain. Arrows show supersede/extend chains.
 
 - **MCP tool surface:** DD-010 → DD-044, DD-010 → DD-045 → DD-046 → DD-047, DD-011 → DD-020 → DD-025 → DD-045, DD-026, DD-027, DD-028
-- **Config & install:** DD-015, DD-023 → DD-039 → DD-043 → DD-048, DD-032, DD-033
+- **Config & install:** DD-003 → DD-049, DD-015, DD-023 → DD-039 → DD-043 → DD-048 → DD-049, DD-032, DD-033
 - **Router & bootstrap:** DD-008, DD-009, DD-012, DD-013, DD-014, DD-017, DD-019, DD-038, DD-042
 - **Security & integrity:** DD-031, DD-036, DD-043
 - **Plugins & platforms:** DD-004, DD-005, DD-006, DD-007, DD-021, DD-022

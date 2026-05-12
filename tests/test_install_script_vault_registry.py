@@ -99,6 +99,121 @@ def test_same_version_rerun_backfills_registry(tmp_path, install_source):
     assert len(_entries(registry)) == 1
 
 
+def _extract_bash_function(install_sh: Path, function_name: str) -> str:
+    """Extract a single bash function definition from install.sh.
+
+    Used by the focused unit tests below so we can exercise individual helpers
+    without spinning up the full install.sh flow. Relies on the canonical
+    `<name>()` / `}` opening + closing format used throughout the script.
+    """
+    body = install_sh.read_text().splitlines()
+    in_fn = False
+    out = []
+    for line in body:
+        if line.startswith(f"{function_name}()"):
+            in_fn = True
+        if in_fn:
+            out.append(line)
+            if line == "}":
+                break
+    return "\n".join(out) + "\n"
+
+
+def test_find_python_for_script_picks_interpreter_that_can_run_script(tmp_path):
+    """Registry fallback must probe the actual call shape, not just liveness.
+
+    The earlier helper probed `-c 'pass'`, which only proved the
+    interpreter could start. A stub or stripped interpreter that succeeds on
+    `pass` can still fail on `import _common` (or any modern-Python feature
+    the target script relies on). The fixed helper probes by actually invoking the
+    target script with a read-only argument (`--list`), so the helper only
+    accepts interpreters that can in fact run the upcoming call.
+    """
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    # python3 that succeeds when invoked as `<py> <script> --list`.
+    fake_py = fake_bin / "python3"
+    fake_py.write_text(
+        "#!/bin/sh\n"
+        "# Succeed on `<py> <anything> --list`, fail otherwise.\n"
+        "for arg in \"$@\"; do\n"
+        "  if [ \"$arg\" = \"--list\" ]; then exit 0; fi\n"
+        "done\n"
+        "exit 1\n"
+    )
+    fake_py.chmod(0o755)
+    script = tmp_path / "vault_registry.py"
+    script.write_text("# placeholder; the fake python doesn't actually parse it\n")
+
+    install_sh = Path(__file__).resolve().parents[1] / "install.sh"
+    fn = _extract_bash_function(install_sh, "find_python_for_script")
+
+    cmd = f"{fn}\nfind_python_for_script {script}\n"
+    result = subprocess.run(
+        ["bash", "-c", cmd],
+        env={"PATH": f"{fake_bin}:/bin:/usr/bin"},
+        capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == str(fake_py)
+
+
+def test_find_python_for_script_rejects_stub_passing_pass_but_failing_script(tmp_path):
+    """Reviewer's exact repro: a stub that passes `-c 'pass'` but cannot run the script.
+
+    Before the fix the helper would accept this and the subsequent registry
+    update would fail silently. After the fix the helper rejects it because
+    the actual script invocation fails.
+    """
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    fake_py = fake_bin / "python3"
+    fake_py.write_text(
+        "#!/bin/sh\n"
+        "# Pass on `-c 'pass'` (the earlier liveness-only probe).\n"
+        "if [ \"$1\" = \"-c\" ] && [ \"$2\" = \"pass\" ]; then exit 0; fi\n"
+        "# Fail on any other invocation, including the actual script call.\n"
+        "exit 1\n"
+    )
+    fake_py.chmod(0o755)
+    script = tmp_path / "vault_registry.py"
+    script.write_text("# placeholder\n")
+
+    install_sh = Path(__file__).resolve().parents[1] / "install.sh"
+    fn = _extract_bash_function(install_sh, "find_python_for_script")
+
+    cmd = f"{fn}\nfind_python_for_script {script}\n"
+    result = subprocess.run(
+        ["bash", "-c", cmd],
+        env={"PATH": f"{fake_bin}:/bin:/usr/bin"},
+        capture_output=True, text=True,
+    )
+    # The stub passes -c 'pass' but fails the actual script probe → rejected.
+    assert result.returncode == 1
+
+
+def test_find_python_for_script_skips_broken_candidates(tmp_path):
+    """A python that fails any invocation (asdf shim with no version, etc.) is skipped."""
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    broken = fake_bin / "python3"
+    broken.write_text("#!/bin/sh\nexit 1\n")
+    broken.chmod(0o755)
+    script = tmp_path / "vault_registry.py"
+    script.write_text("# placeholder\n")
+
+    install_sh = Path(__file__).resolve().parents[1] / "install.sh"
+    fn = _extract_bash_function(install_sh, "find_python_for_script")
+
+    cmd = f"{fn}\nfind_python_for_script {script}\n"
+    result = subprocess.run(
+        ["bash", "-c", cmd],
+        env={"PATH": f"{fake_bin}:/bin:/usr/bin"},
+        capture_output=True, text=True,
+    )
+    assert result.returncode == 1
+
+
 def test_uninstall_removes_entry(tmp_path, install_source):
     fake_home = tmp_path / "home"
     fake_home.mkdir()

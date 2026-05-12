@@ -76,6 +76,11 @@ IGNORE_DIRS = {"__pycache__"}
 IGNORE_FILES = {".DS_Store", "upgrade.py"}
 REQ_FILE_REL = os.path.join("brain_mcp", "requirements.txt")
 VENV_HELPER_REL = os.path.join(".brain-core", "scripts", "_common", "_venv.py")
+CLI_SOURCE_REL = os.path.join("cli", "brain")
+CLI_TARGET_LOCATIONS = (
+    Path.home() / ".local" / "bin" / "brain",
+    Path("/usr/local/bin/brain"),
+)
 DEPENDENCY_SYNC_TIMEOUT = 300
 SEMANTIC_REPAIR_TIMEOUT = 1800
 
@@ -1130,6 +1135,42 @@ def _ensure_central_runtime(
     return summary
 
 
+def _refresh_brain_cli(source: str) -> Optional[dict]:
+    """Refresh the `brain` CLI binary at known locations from the upgrade source.
+
+    Idempotent. Refreshes any existing `~/.local/bin/brain` and `/usr/local/bin/brain`
+    binaries from `<source>/../../cli/brain`. If neither exists, installs to
+    `~/.local/bin/brain` so this upgrade also delivers the CLI to vaults that
+    pre-date the CLI's introduction. Returns a summary or None when the source
+    clone does not ship `cli/brain` (older sources).
+    """
+    cli_source = Path(source).parent.parent / CLI_SOURCE_REL
+    if not cli_source.is_file():
+        return None
+
+    existing = [t for t in CLI_TARGET_LOCATIONS if t.is_file()]
+    targets = existing if existing else [CLI_TARGET_LOCATIONS[0]]
+
+    refreshed: list[str] = []
+    errors: list[dict] = []
+    for target in targets:
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(str(cli_source), str(target))
+            os.chmod(str(target), 0o755)
+            refreshed.append(str(target))
+        except OSError as e:
+            errors.append({"target": str(target), "message": str(e)})
+
+    summary: dict = {"source": str(cli_source), "refreshed": refreshed}
+    if errors:
+        summary["outcome"] = "error"
+        summary["errors"] = errors
+    else:
+        summary["outcome"] = "created" if not existing else "refreshed"
+    return summary
+
+
 def _load_post_upgrade_semantic_config(vault_root: Path):
     """Load the upgraded vault's semantic config helper from its scripts tree."""
     scripts_dir = vault_root / ".brain-core" / "scripts"
@@ -1591,6 +1632,9 @@ def main() -> None:
         )
         if runtime is not None:
             result["central_runtime"] = runtime
+        cli_refresh = _refresh_brain_cli(source)
+        if cli_refresh is not None:
+            result["cli_refresh"] = cli_refresh
         _write_upgrade_log(str(vault_root), result)
 
     if args.json_output:
@@ -1666,6 +1710,20 @@ def main() -> None:
                 info(f"    {shlex.quote(sys.executable)} "
                      f"{shlex.quote(str(vault_root / '.brain-core' / 'scripts' / 'init.py'))} "
                      f"--vault {shlex.quote(str(vault_root))} --client all")
+            print(file=sys.stderr)
+
+        cli_refresh = result.get("cli_refresh")
+        if cli_refresh is not None:
+            outcome = cli_refresh["outcome"]
+            if outcome == "created":
+                for target in cli_refresh.get("refreshed", []):
+                    info(f"Installed brain CLI: {target}")
+            elif outcome == "refreshed":
+                for target in cli_refresh.get("refreshed", []):
+                    info(f"Refreshed brain CLI: {target}")
+            elif outcome == "error":
+                for err in cli_refresh.get("errors", []):
+                    info(f"Could not refresh brain CLI at {err['target']}: {err['message']}")
             print(file=sys.stderr)
 
         semantic_repair = result.get("semantic_repair")

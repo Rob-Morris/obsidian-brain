@@ -325,8 +325,20 @@ def probe_python(python_path: str, *, modules: tuple[str, ...] = ()) -> dict:
 
 
 def is_compatible_python(python_path: str) -> bool:
-    """Return True when the path is a usable Python 3.12+ launcher."""
-    return bool(probe_python(python_path).get("compatible"))
+    """Return True when the path is a usable Python 3.12+ launcher.
+
+    Defensive against probe payloads that are not the expected dict shape
+    (e.g. a stub binary that prints a bare version string parseable as JSON
+    but lacking the "compatible" field). Anything we cannot affirmatively
+    verify as compatible is treated as incompatible.
+    """
+    try:
+        probe = probe_python(python_path)
+    except RuntimeError:
+        return False
+    if not isinstance(probe, dict):
+        return False
+    return bool(probe.get("compatible"))
 
 
 @functools.lru_cache(maxsize=1)

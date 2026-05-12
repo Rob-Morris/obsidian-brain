@@ -6,6 +6,7 @@ Version-by-version release history for Obsidian Brain. Every shipped version has
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.38.0](changelog/v0.38.0.md) | 2026-05-11 | Ship brain CLI and harden launcher/install fallback |
 | [v0.37.0](changelog/v0.37.0.md) | 2026-05-11 | Relocate Python managed runtime to ~/.brain/venvs |
 | [v0.36.8](changelog/v0.36.8.md) | 2026-05-10 | Record vault-local upgrade stage progress before CLI follow-up work |
 | [v0.36.7](changelog/v0.36.7.md) | 2026-05-10 | Restore semantic warmup as a parallel background track |

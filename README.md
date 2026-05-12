@@ -1,6 +1,6 @@
 # Obsidian Brain
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.37.0-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.12-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.38.0-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.12-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
 
 A self-evolving knowledge base for agents and humans working together on what matters.
 
@@ -82,6 +82,8 @@ python3.12 .brain-core/scripts/repair.py index
 python3.12 .brain-core/scripts/repair.py registry
 python3.12 .brain-core/scripts/repair.py semantic
 ```
+
+Or, with the optional [`brain` CLI](docs/functional/cli.md): `brain repair mcp`, `brain repair router`, etc. The CLI is a thin dispatcher — scripts remain authoritative.
 
 For most users, `repair.py mcp` is the main recovery path. Use it when the
 central managed runtime, MCP dependencies, or installed current-vault project MCP
