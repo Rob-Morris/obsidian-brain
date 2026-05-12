@@ -17,8 +17,10 @@ from typing import Any
 from _common import (
     REQUIREMENTS_REL,
     ensure_central_venv,
+    resolve_or_provision_central_venv,
     resolve_vault_venv_python,
 )
+from _common import _venv as _venv_module
 
 
 DEFAULT_MANAGED_RUNTIME_LAUNCHER = "python3.12"
@@ -142,105 +144,146 @@ def bootstrap_managed_runtime(
     dry_run: bool = False,
     timeout: int = 300,
 ) -> dict:
-    """Ensure the central managed runtime exists and has the requested modules.
+    """Ensure the central managed runtime is ready, reusing a compatible-minor
+    venv before creating a new exact-tag one.
 
-    Path rule comes from `_common._venv` — see DD-048. Callers see a uniform
-    envelope with named steps regardless of whether the venv is created here
-    or already exists.
+    Delegates the entire resolve/reuse/sync/create decision to
+    `_common._venv.resolve_or_provision_central_venv` so every lifecycle
+    entry point — repair, configure, upgrade, the `brain` CLI dispatch
+    helper — picks the same runtime for the same vault. Callers see a
+    uniform envelope with named ``managed_runtime`` and
+    ``managed_dependencies`` steps regardless of whether the venv was
+    reused, synced in place, or freshly created.
+
+    Path rule comes from `_common._venv` — see DD-048 plus the v0.38.7
+    lookup clarification. The convergence here closes the residual
+    duplicate-venv risk: pre-v0.38.8 each direct-script entry point
+    resolved an exact-tag path of its own choosing, so after Python minor
+    churn `repair.py` / `configure.py` / `upgrade.py` could each plan or
+    create a new runtime even when an existing compatible one already
+    served the vault.
     """
     launcher_path = Path(launcher_python) if launcher_python else None
-    managed_python = resolve_vault_venv_python(vault_root, launcher=launcher_path)
-    requirements = vault_root / REQUIREMENTS_REL
-    steps: list[dict] = []
-
-    runtime_probe = probe_python(str(managed_python))
-    managed_exists = managed_python.is_file()
-
-    if managed_exists and runtime_probe.get("compatible"):
-        steps.append(step(
-            "managed_runtime",
-            "noop",
-            "Central managed runtime is already present.",
-            python=str(managed_python),
-        ))
-    elif dry_run:
-        steps.append(step(
-            "managed_runtime",
-            "planned",
-            "Would create or repair the central managed runtime.",
-            python=str(managed_python),
-        ))
-    else:
-        launcher = launcher_python or find_repair_launcher()
-        if not launcher:
+    if launcher_path is None:
+        launcher_str = find_repair_launcher()
+        if not launcher_str:
             raise RuntimeError(
                 "No compatible Python 3.12+ launcher was found. "
                 "Install Python 3.12 or 3.13 and rerun."
             )
-        ensure_central_venv(
-            requirements,
-            launcher=Path(launcher),
-            install_requirements=bool(required_modules),
-            timeout=timeout,
-        )
-        managed_python = resolve_vault_venv_python(vault_root, launcher=Path(launcher))
-        runtime_probe = probe_python(str(managed_python))
-        if not runtime_probe.get("compatible"):
-            raise AssertionError("Created central managed runtime is not Python 3.12+")
+        launcher_path = Path(launcher_str)
+
+    requirements = vault_root / REQUIREMENTS_REL
+    result = resolve_or_provision_central_venv(
+        vault_root,
+        launcher=launcher_path,
+        required_modules=required_modules,
+        dry_run=dry_run,
+        timeout=timeout,
+    )
+
+    outcome = result["outcome"]
+    managed_python_str = result.get("python") or ""
+    steps: list[dict] = []
+
+    # ------- managed_runtime step ----------------------------------------
+    if outcome == _venv_module.RUNTIME_REUSED:
         steps.append(step(
-            "managed_runtime",
-            "changed",
+            "managed_runtime", "noop",
+            "Central managed runtime is already present.",
+            python=managed_python_str,
+        ))
+    elif outcome == _venv_module.RUNTIME_SYNCED:
+        # The venv already existed; only deps were touched. The runtime step
+        # itself is a noop from the caller's perspective.
+        steps.append(step(
+            "managed_runtime", "noop",
+            "Central managed runtime is already present.",
+            python=managed_python_str,
+        ))
+    elif outcome == _venv_module.RUNTIME_CREATED:
+        steps.append(step(
+            "managed_runtime", "changed",
             "Created or repaired the central managed runtime.",
-            python=str(managed_python),
+            python=managed_python_str,
+        ))
+    elif outcome == _venv_module.RUNTIME_PLANNED:
+        if result.get("planned_action") == "create":
+            steps.append(step(
+                "managed_runtime", "planned",
+                "Would create or repair the central managed runtime.",
+                python=managed_python_str,
+            ))
+        else:
+            # planned_action == "sync" — runtime itself is fine
+            steps.append(step(
+                "managed_runtime", "noop",
+                "Central managed runtime is already present.",
+                python=managed_python_str,
+            ))
+    elif outcome == _venv_module.RUNTIME_ERROR:
+        steps.append(step(
+            "managed_runtime", "error",
+            result.get("message", "Failed to resolve or provision central managed runtime."),
+            python=managed_python_str or "",
         ))
 
+    # ------- managed_dependencies step -----------------------------------
+    owner_sentence = dependency_owner[0].upper() + dependency_owner[1:]
     if not required_modules:
-        owner_sentence = dependency_owner[0].upper() + dependency_owner[1:]
         steps.append(step(
-            "managed_dependencies",
-            "noop",
+            "managed_dependencies", "noop",
             f"{owner_sentence} does not require additional managed runtime dependencies.",
             requirements=str(requirements),
         ))
-        ready = managed_python.is_file() and runtime_probe.get("compatible", False)
-    else:
-        dependency_probe = probe_python(str(managed_python), modules=required_modules)
-        missing = tuple(dependency_probe.get("missing", []))
-        if not missing:
+    elif outcome == _venv_module.RUNTIME_REUSED:
+        steps.append(step(
+            "managed_dependencies", "noop",
+            f"Managed runtime dependencies required by {dependency_owner} are already available.",
+            requirements=str(requirements),
+        ))
+    elif outcome == _venv_module.RUNTIME_CREATED:
+        # `ensure_central_venv` ran pip during creation when modules were required.
+        steps.append(step(
+            "managed_dependencies", "noop",
+            f"Managed runtime dependencies required by {dependency_owner} are already available.",
+            requirements=str(requirements),
+        ))
+    elif outcome == _venv_module.RUNTIME_SYNCED:
+        steps.append(step(
+            "managed_dependencies", "changed",
+            f"Synced the managed runtime dependencies required by {dependency_owner}.",
+            requirements=str(requirements),
+            synced=list(result.get("synced_modules", ())),
+        ))
+    elif outcome == _venv_module.RUNTIME_PLANNED:
+        action = result.get("planned_action")
+        if action == "create":
             steps.append(step(
-                "managed_dependencies",
-                "noop",
-                f"Managed runtime dependencies required by {dependency_owner} are already available.",
-                requirements=str(requirements),
-            ))
-        elif dry_run:
-            steps.append(step(
-                "managed_dependencies",
-                "planned",
+                "managed_dependencies", "planned",
                 f"Would sync the managed runtime dependencies required by {dependency_owner}.",
                 requirements=str(requirements),
-                missing=list(missing),
+                missing=list(result.get("missing_modules", ())),
             ))
-        else:
-            subprocess.run(
-                [str(managed_python), "-m", "pip", "install", "--quiet", "-r", str(requirements)],
-                check=True,
-                timeout=timeout,
-            )
-            dependency_probe = probe_python(str(managed_python), modules=required_modules)
-            if not dependency_probe.get("ok"):
-                raise RuntimeError(
-                    "Central runtime dependency sync completed, but required modules are still unavailable."
-                )
+        elif action == "sync":
             steps.append(step(
-                "managed_dependencies",
-                "changed",
-                f"Synced the managed runtime dependencies required by {dependency_owner}.",
+                "managed_dependencies", "planned",
+                f"Would sync the managed runtime dependencies required by {dependency_owner}.",
                 requirements=str(requirements),
+                missing=list(result.get("missing_modules", ())),
             ))
-        ready = managed_python.is_file() and dependency_probe.get("ok", False)
+    elif outcome == _venv_module.RUNTIME_ERROR:
+        steps.append(step(
+            "managed_dependencies", "error",
+            f"Could not sync managed runtime dependencies required by {dependency_owner}: "
+            + result.get("message", "unknown error"),
+            requirements=str(requirements),
+            missing=list(result.get("missing_modules", ())),
+        ))
 
-    if dry_run and any(current["status"] == "planned" for current in steps):
+    ready = outcome in (_venv_module.RUNTIME_REUSED, _venv_module.RUNTIME_SYNCED, _venv_module.RUNTIME_CREATED) \
+        and bool(managed_python_str)
+    if outcome == _venv_module.RUNTIME_PLANNED:
         status = "planned"
     elif ready:
         status = "ready"
@@ -250,7 +293,7 @@ def bootstrap_managed_runtime(
     return {
         "checked_at": iso_now(),
         "launcher_python": launcher_python,
-        "managed_python": str(managed_python),
+        "managed_python": managed_python_str,
         "status": status,
         "steps": steps,
         "managed_runtime_ready": ready,

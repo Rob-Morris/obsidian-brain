@@ -14,7 +14,6 @@ install: venv
 install-semantic: install
 	$(PYTHON) -c "import platform, sys; sys.exit('semantic retrieval dependencies are unsupported on Intel macOS in this branch; use lexical mode only' if platform.system() == 'Darwin' and platform.machine() == 'x86_64' else 0)"
 	$(PIP) install "numpy==2.4.4" "torch==2.11.0" "transformers==5.5.4" "sentence-transformers==5.4.1"
-	$(PYTHON) -c "import sys; from pathlib import Path; sys.path.insert(0, 'src/brain-core/scripts'); import _semantic.runtime as semantic; semantic.set_semantic_engine_installed(Path('.'))"
 
 dev-link:
 	@[ -e template-vault/.brain-core ] || ln -s ../src/brain-core template-vault/.brain-core

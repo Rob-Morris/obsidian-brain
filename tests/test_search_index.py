@@ -4,7 +4,6 @@ import json
 import math
 import os
 
-import numpy as np
 import pytest
 
 import _semantic.model as semantic_model
@@ -90,6 +89,7 @@ class TestTokenise:
 
 class TestSemanticRuntime:
     def test_rank_against_requires_matrix_and_metadata_lengths_to_match(self):
+        np = pytest.importorskip("numpy")
         matrix = np.array([[1.0, 0.0], [0.0, 1.0]])
         query_vec = np.array([1.0, 0.0])
 
@@ -387,6 +387,8 @@ class TestSemanticSearch:
             si.load_doc_embeddings_or_unavailable(vault)
 
     def test_semantic_search_wraps_semantic_model_errors(self, vault, monkeypatch):
+        np = pytest.importorskip("numpy")
+
         def boom(_vault, _query, *, query_encoder=None):
             raise semantic_model.SemanticModelMissingError("missing model snapshot")
 

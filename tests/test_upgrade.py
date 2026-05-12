@@ -868,3 +868,34 @@ class TestUpgradeCliCentralRuntime:
         )
         assert second.returncode == 0, second.stderr
         assert "Reused central runtime" in second.stderr
+
+    def test_refresh_brain_cli_does_not_install_when_cli_is_absent(self, tmp_path, monkeypatch):
+        source = Path(__file__).resolve().parents[1] / "src" / "brain-core"
+        fake_home = tmp_path / "home"
+        user_cli = fake_home / ".local" / "bin" / "brain"
+        system_cli = fake_home / "usr-local" / "bin" / "brain"
+        monkeypatch.setattr(upgrade, "CLI_TARGET_LOCATIONS", (user_cli, system_cli))
+
+        result = upgrade._refresh_brain_cli(str(source))
+
+        assert result is None
+        assert not user_cli.exists()
+        assert not system_cli.exists()
+
+    def test_refresh_brain_cli_updates_existing_install_only(self, tmp_path, monkeypatch):
+        source = Path(__file__).resolve().parents[1] / "src" / "brain-core"
+        cli_source = Path(__file__).resolve().parents[1] / "cli" / "brain"
+        fake_home = tmp_path / "home"
+        user_cli = fake_home / ".local" / "bin" / "brain"
+        system_cli = fake_home / "usr-local" / "bin" / "brain"
+        user_cli.parent.mkdir(parents=True)
+        user_cli.write_text("stale\n")
+        monkeypatch.setattr(upgrade, "CLI_TARGET_LOCATIONS", (user_cli, system_cli))
+
+        result = upgrade._refresh_brain_cli(str(source))
+
+        assert result is not None
+        assert result["outcome"] == "refreshed"
+        assert result["refreshed"] == [str(user_cli)]
+        assert user_cli.read_text() == cli_source.read_text()
+        assert not system_cli.exists()

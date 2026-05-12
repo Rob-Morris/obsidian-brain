@@ -128,49 +128,35 @@ def test_configure_semantic_enable_unsupported_platform_keeps_flags_enabled(tmp_
 
 
 def test_bootstrap_summary_creates_runtime_and_syncs_dependencies(tmp_path, monkeypatch):
-    """`_bootstrap_summary` orchestrates probe → ensure → re-probe correctly.
+    """`_bootstrap_summary` produces the correct envelope when a brand-new runtime is created.
 
-    The ensure path now delegates to `_common._venv.ensure_central_venv`, so
-    we patch that helper directly. `probe_python` returns "missing" first
-    (drives the create branch) then "ok" (post-create re-probe).
+    Post-v0.39.0, `bootstrap_managed_runtime` delegates all resolve/reuse/sync/create
+    logic to `_common._venv.resolve_or_provision_central_venv` — the single
+    owner across entry points. We patch that owner directly to assert the
+    envelope-building behaviour in isolation.
     """
     vault = _make_vault(tmp_path)
-    calls: list[tuple[str, tuple[str, ...]]] = []
-
     fake_home = tmp_path / "home"
     fake_home.mkdir()
     monkeypatch.setenv("HOME", str(fake_home))
 
     central_python = fake_home / ".brain" / "venvs" / "py3.12-fake" / "bin" / "python"
+    central_python.parent.mkdir(parents=True, exist_ok=True)
+    central_python.write_text("#!/usr/bin/env python\n")
 
-    def fake_probe(_python_path, *, modules=()):
-        calls.append(("probe", tuple(modules)))
-        if len(calls) == 1:
-            return {"compatible": False, "ok": False, "missing": list(modules)}
-        if modules:
-            return {"compatible": True, "ok": True, "missing": []}
-        return {"compatible": True, "ok": True, "missing": []}
-
-    def fake_ensure(*args, **kwargs):
-        calls.append(("ensure", tuple(str(a) for a in args)))
-        central_python.parent.mkdir(parents=True, exist_ok=True)
-        central_python.write_text("#!/usr/bin/env python\n")
+    def fake_provision(*_args, **_kwargs):
+        from _common import _venv as _venv_module
         return {
-            "venv_dir": str(central_python.parent.parent),
+            "outcome": _venv_module.RUNTIME_CREATED,
             "python": str(central_python),
-            "created": True,
+            "venv_dir": str(central_python.parent.parent),
             "python_tag": "py3.12",
             "hash": "fake",
+            "missing_modules": (),
         }
 
     monkeypatch.setattr(configure, "find_repair_launcher", lambda: "/fake/python3.12")
-    monkeypatch.setattr(lifecycle_common, "probe_python", fake_probe)
-    monkeypatch.setattr(lifecycle_common, "ensure_central_venv", fake_ensure)
-    monkeypatch.setattr(
-        lifecycle_common,
-        "resolve_vault_venv_python",
-        lambda _vault, **_kwargs: central_python,
-    )
+    monkeypatch.setattr(lifecycle_common, "resolve_or_provision_central_venv", fake_provision)
 
     summary = configure._bootstrap_summary(vault)
 

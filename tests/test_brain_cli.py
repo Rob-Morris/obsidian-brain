@@ -127,6 +127,44 @@ def test_no_args_prints_help():
     assert "Usage:" in result.stdout
 
 
+def test_install_uses_pinned_release_installer(tmp_path):
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    curl_path = fake_bin / "curl"
+    curl_path.write_text(
+        "#!/bin/sh\n"
+        "printf '%s\\n' \"$@\" > \"$BRAIN_CURL_ARGS_FILE\"\n"
+        "cat <<'EOF'\n"
+        "#!/bin/sh\n"
+        "printf '%s\\n' \"$@\" > \"$BRAIN_INSTALL_ARGS_FILE\"\n"
+        "EOF\n"
+    )
+    curl_path.chmod(0o755)
+
+    curl_args_file = tmp_path / "curl-args.txt"
+    install_args_file = tmp_path / "install-args.txt"
+    target = tmp_path / "new-vault"
+
+    result = _run_cli(
+        "install",
+        str(target),
+        "--skip-mcp",
+        env_extra={
+            "PATH": f"{fake_bin}:/usr/bin:/bin",
+            "BRAIN_CURL_ARGS_FILE": str(curl_args_file),
+            "BRAIN_INSTALL_ARGS_FILE": str(install_args_file),
+        },
+        set_launcher_override=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    curl_args = curl_args_file.read_text().splitlines()
+    assert "-fsSL" in curl_args
+    assert any("/v0.39.0/install.sh" in arg for arg in curl_args)
+    assert not any("/main/install.sh" in arg for arg in curl_args)
+    assert install_args_file.read_text().splitlines() == [str(target), "--skip-mcp"]
+
+
 def test_unknown_subcommand_fails():
     result = _run_cli("frobnicate")
     assert result.returncode == 2

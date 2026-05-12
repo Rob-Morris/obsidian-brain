@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import os
 import shutil
 import subprocess
@@ -337,6 +338,263 @@ def ensure_central_venv(
         "created": created,
         "python_tag": tag,
         "hash": rhash,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Runtime orchestration
+# ---------------------------------------------------------------------------
+
+# Outcomes for resolve_or_provision_central_venv. Named so producer and
+# consumer cannot drift.
+RUNTIME_REUSED = "reused"
+RUNTIME_SYNCED = "synced"
+RUNTIME_CREATED = "created"
+RUNTIME_PLANNED = "planned"
+RUNTIME_ERROR = "error"
+
+
+def _probe_runtime(python_path: str, *, modules: tuple[str, ...] = ()) -> dict:
+    """Probe a Python interpreter for compatibility and required modules.
+
+    Returns a dict with keys ``major``, ``minor``, ``missing``, ``compatible``,
+    and ``ok``. Defensive against non-functional binaries (asdf shims, stubs)
+    and non-dict probe payloads — anything that isn't an affirmative success
+    becomes ``compatible=False`` / ``ok=False``.
+
+    Duplicated narrow shape of `_lifecycle_common.probe_python` to keep
+    `_venv.py` free of any import on `_lifecycle_common` (which imports back
+    from this module).
+    """
+    code = (
+        "import importlib.util, json, sys; "
+        f"mods = {modules!r}; "
+        "missing = [name for name in mods if importlib.util.find_spec(name) is None]; "
+        "payload = {"
+        "  'major': sys.version_info[0],"
+        "  'minor': sys.version_info[1],"
+        "  'missing': missing,"
+        "}; "
+        "payload['compatible'] = (payload['major'], payload['minor']) >= (3, 12); "
+        "payload['ok'] = payload['compatible'] and not missing; "
+        "print(json.dumps(payload))"
+    )
+    try:
+        result = subprocess.run(
+            [python_path, "-c", code],
+            capture_output=True, text=True, timeout=15,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return {"ok": False, "compatible": False, "missing": list(modules)}
+    if result.returncode != 0:
+        return {"ok": False, "compatible": False, "missing": list(modules)}
+    try:
+        payload = json.loads(result.stdout.strip() or "{}")
+    except json.JSONDecodeError:
+        return {"ok": False, "compatible": False, "missing": list(modules)}
+    if not isinstance(payload, dict):
+        return {"ok": False, "compatible": False, "missing": list(modules)}
+    return payload
+
+
+def resolve_or_provision_central_venv(
+    vault_root: Path,
+    *,
+    launcher: Path,
+    required_modules: tuple[str, ...] = (),
+    install_requirements: Optional[bool] = None,
+    dry_run: bool = False,
+    timeout: int = _DEFAULT_VENV_TIMEOUT,
+) -> dict:
+    """Single owner of "find a usable central managed runtime for this vault".
+
+    All lifecycle entry points — the `brain` CLI's dispatch helper, `repair.py`,
+    `configure.py`, `upgrade.py` — should delegate to this function instead of
+    resolving an exact-tag path themselves. Convergence: the same vault never
+    routes to different `~/.brain/venvs/<tag>-<hash>/` directories depending
+    on which entry point triggered the lookup.
+
+    Order of operations:
+
+    1. **Find existing.** `find_existing_central_venv` tries the exact-tag
+       path first (DD-048 strict tuple), then any other compatible-minor
+       venv (>= 3.12) sharing the same requirements hash.
+    2. **Probe.** If an existing runtime is found, probe it for compatibility
+       and the caller's required modules.
+    3. **Sync in place when possible.** If the existing runtime is compatible
+       but modules are missing, run `pip install -r requirements.txt` against
+       *that* runtime. No new directory created. The `DEPS_SENTINEL_NAME`
+       sentinel is refreshed.
+    4. **Create exact-tag only when no compatible runtime exists.** Falls
+       through to `ensure_central_venv(launcher=launcher)`, which lands the
+       new venv at the exact `(python_tag(launcher), requirements_hash)`
+       path. Creation stays strict so brand-new installs are deterministic.
+    5. **Dry-run.** When `dry_run=True`, no mutation happens. The result
+       describes what would be done.
+
+    Returns a result dict with these keys:
+
+      - ``outcome``: ``RUNTIME_REUSED`` | ``RUNTIME_SYNCED`` |
+        ``RUNTIME_CREATED`` | ``RUNTIME_PLANNED`` | ``RUNTIME_ERROR``.
+      - ``python``: absolute path to the chosen interpreter, or ``None`` on
+        error.
+      - ``venv_dir``: absolute path to the venv directory, or ``None`` on
+        error.
+      - ``python_tag``: tag of the chosen runtime (e.g. ``py3.13``) — *not*
+        necessarily the same as the launcher's tag when a compatible-minor
+        runtime was reused.
+      - ``hash``: requirements hash.
+      - ``missing_modules``: tuple of modules that were missing on probe
+        (always present when ``required_modules`` is non-empty; empty tuple
+        when the runtime had everything).
+      - ``synced_modules``: tuple (only when ``outcome == RUNTIME_SYNCED``).
+      - ``planned_action``: ``"create"`` | ``"sync"`` (only when ``outcome
+        == RUNTIME_PLANNED``).
+      - ``message``: human-readable note for ``RUNTIME_ERROR`` and
+        ``RUNTIME_PLANNED``.
+    """
+    requirements = vault_requirements_path(vault_root)
+    if not requirements.is_file():
+        return {
+            "outcome": RUNTIME_ERROR,
+            "python": None,
+            "venv_dir": None,
+            "message": f"requirements not found: {requirements}",
+        }
+
+    rhash = requirements_hash(requirements)
+    should_install_requirements = (
+        install_requirements if install_requirements is not None else bool(required_modules)
+    )
+
+    # Step 1: find existing compatible runtime.
+    existing = find_existing_central_venv(vault_root, launcher=launcher)
+    if existing is not None:
+        venv_dir = existing.parent.parent
+        tag = venv_dir.name.rsplit("-", 1)[0]
+        sentinel = venv_dir / DEPS_SENTINEL_NAME
+
+        # Step 2: probe.
+        probe = _probe_runtime(str(existing), modules=required_modules)
+        if not probe.get("compatible"):
+            # Existing python file exists but is not a working 3.12+ — treat
+            # as if no compatible runtime is present and fall through to
+            # creation. This handles corrupted venvs.
+            existing = None
+        else:
+            missing = tuple(probe.get("missing", []))
+            sentinel_matches = sentinel.is_file() and sentinel.read_text().strip() == rhash
+            force_sync_existing = should_install_requirements and not sentinel_matches
+            if not missing and not force_sync_existing:
+                return {
+                    "outcome": RUNTIME_REUSED,
+                    "python": str(existing),
+                    "venv_dir": str(venv_dir),
+                    "python_tag": tag,
+                    "hash": rhash,
+                    "missing_modules": (),
+                }
+            # Step 3: sync in place.
+            if dry_run:
+                if missing:
+                    message = f"Would sync missing modules into {venv_dir}: {', '.join(missing)}"
+                else:
+                    message = (
+                        f"Would sync requirements into existing runtime at {venv_dir} "
+                        f"because {DEPS_SENTINEL_NAME} is missing or stale"
+                    )
+                return {
+                    "outcome": RUNTIME_PLANNED,
+                    "python": str(existing),
+                    "venv_dir": str(venv_dir),
+                    "python_tag": tag,
+                    "hash": rhash,
+                    "missing_modules": missing,
+                    "planned_action": "sync",
+                    "message": message,
+                }
+            try:
+                subprocess.run(
+                    [str(existing), "-m", "pip", "install", "--quiet",
+                     "--upgrade", "pip", "-r", str(requirements)],
+                    check=True, timeout=timeout,
+                )
+            except subprocess.SubprocessError as exc:
+                return {
+                    "outcome": RUNTIME_ERROR,
+                    "python": str(existing),
+                    "venv_dir": str(venv_dir),
+                    "python_tag": tag,
+                    "hash": rhash,
+                    "missing_modules": missing,
+                    "message": f"pip install failed against existing runtime: {exc}",
+                }
+            verify = _probe_runtime(str(existing), modules=required_modules)
+            still_missing = tuple(verify.get("missing", []))
+            if still_missing:
+                return {
+                    "outcome": RUNTIME_ERROR,
+                    "python": str(existing),
+                    "venv_dir": str(venv_dir),
+                    "python_tag": tag,
+                    "hash": rhash,
+                    "missing_modules": still_missing,
+                    "message": f"sync completed but modules still missing: {', '.join(still_missing)}",
+                }
+            sentinel.write_text(rhash)
+            return {
+                "outcome": RUNTIME_SYNCED,
+                "python": str(existing),
+                "venv_dir": str(venv_dir),
+                "python_tag": tag,
+                "hash": rhash,
+                "missing_modules": (),
+                "synced_modules": missing,
+            }
+
+    # Step 4/5: no compatible runtime exists — create the exact-tag venv.
+    new_tag = python_tag(launcher)
+    new_dir = central_venvs_root() / f"{new_tag}-{rhash}"
+    new_py = venv_python(new_dir)
+    if dry_run:
+        return {
+            "outcome": RUNTIME_PLANNED,
+            "python": str(new_py),
+            "venv_dir": str(new_dir),
+            "python_tag": new_tag,
+            "hash": rhash,
+            "missing_modules": tuple(required_modules),
+            "planned_action": "create",
+            "message": f"Would create a new central managed runtime at {new_dir}",
+        }
+    try:
+        created = ensure_central_venv(
+            requirements,
+            launcher=launcher,
+            install_requirements=should_install_requirements,
+            timeout=timeout,
+        )
+    except subprocess.SubprocessError as exc:
+        return {
+            "outcome": RUNTIME_ERROR,
+            "python": None,
+            "venv_dir": None,
+            "message": f"ensure_central_venv failed: {exc}",
+        }
+    except OSError as exc:
+        return {
+            "outcome": RUNTIME_ERROR,
+            "python": None,
+            "venv_dir": None,
+            "message": f"ensure_central_venv failed: {exc}",
+        }
+    return {
+        "outcome": RUNTIME_CREATED if created["created"] else RUNTIME_REUSED,
+        "python": created["python"],
+        "venv_dir": created["venv_dir"],
+        "python_tag": created["python_tag"],
+        "hash": created["hash"],
+        "missing_modules": (),
     }
 
 

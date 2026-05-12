@@ -112,11 +112,15 @@ make test      # runs pytest
 ```
 
 If you touch semantic retrieval, embeddings, or the evaluation harness, also
-install the pinned optional runtime first:
+install the pinned optional repo-local dependencies first:
 
 ```bash
 make install-semantic
 ```
+
+This target only extends the repo's `.venv` with the optional semantic stack.
+It does not enable semantic retrieval inside a Brain vault; the user-facing
+vault flow remains `python3 .brain-core/scripts/configure.py semantic --enable`.
 
 If you change artefact-library definitions or template-vault defaults, also run:
 

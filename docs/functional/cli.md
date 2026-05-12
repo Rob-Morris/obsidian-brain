@@ -6,7 +6,7 @@ A thin, optional dispatch CLI for Brain. Resolves the active vault, finds its ce
 
 ## Install
 
-The CLI is installed automatically by `install.sh` to `~/.local/bin/brain` (user scope) or `/usr/local/bin/brain` (with `--system`). `upgrade.py` refreshes any installed CLI binary on each upgrade.
+The CLI is installed automatically by `install.sh` to `~/.local/bin/brain` (user scope) or `/usr/local/bin/brain` (with `--system`). `upgrade.py` refreshes any installed CLI binary on each upgrade; it does not install a new CLI where none existed.
 
 To skip the CLI: `bash install.sh --skip-cli <path>`.
 
@@ -15,6 +15,8 @@ To install only the CLI to an additional vault on a machine that already has it:
 ```bash
 brain install <path>
 ```
+
+`brain install` downloads the `install.sh` pinned to the Brain release ref bundled into the CLI binary, not a floating `main` branch script.
 
 ## Subcommands
 

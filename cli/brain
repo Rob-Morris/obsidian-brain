@@ -12,6 +12,7 @@
 set -euo pipefail
 
 BRAIN_CLI_VERSION="1.0.0"
+BRAIN_INSTALL_REF="v0.39.0"
 
 # Dispatch contract (DD-049 v1). hyphens here become underscores on disk.
 DISPATCH_SUBCOMMANDS=(
@@ -19,7 +20,7 @@ DISPATCH_SUBCOMMANDS=(
     session read migrate-naming fix-links
 )
 
-INSTALL_URL="https://raw.githubusercontent.com/rob-morris/obsidian-brain/main/install.sh"
+INSTALL_URL="${BRAIN_INSTALL_URL:-https://raw.githubusercontent.com/rob-morris/obsidian-brain/${BRAIN_INSTALL_REF}/install.sh}"
 
 # ---------------------------------------------------------------------------
 # Output helpers

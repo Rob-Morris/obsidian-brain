@@ -1108,29 +1108,45 @@ def _ensure_central_runtime(
         "requirements_changed": requirements_changed,
         "venvs_root": str(venv_mod.central_venvs_root()),
     }
+    # Delegate to the orchestrator so upgrade picks up any existing
+    # compatible-minor runtime (Brew-churn etc) instead of always creating
+    # a new exact-tag venv. The orchestrator's vocabulary is richer than
+    # ensure_central_venv's `created` flag — translate to upgrade.py's
+    # legacy RUNTIME_CREATED / RUNTIME_REUSED outcomes for the human and
+    # JSON output, treating "synced in place" as a reuse from upgrade's
+    # perspective (the venv dir wasn't created, only pip ran).
     try:
-        result = venv_mod.ensure_central_venv(
-            venv_mod.vault_requirements_path(vault_root),
+        provision = venv_mod.resolve_or_provision_central_venv(
+            vault_root,
             launcher=Path(sys.executable),
+            required_modules=(),
+            install_requirements=True,
+            dry_run=False,
             timeout=DEPENDENCY_SYNC_TIMEOUT,
         )
     except subprocess.TimeoutExpired:
         return {**summary, "outcome": RUNTIME_ERROR, "message": f"timed out after {DEPENDENCY_SYNC_TIMEOUT}s"}
-    except subprocess.CalledProcessError as e:
-        return {**summary, "outcome": RUNTIME_ERROR, "message": f"venv setup failed: {e}"}
-    except OSError as e:
-        return {**summary, "outcome": RUNTIME_ERROR, "message": str(e)}
+
+    if provision["outcome"] == venv_mod.RUNTIME_ERROR:
+        return {**summary, "outcome": RUNTIME_ERROR, "message": provision.get("message", "unknown provision error")}
 
     legacy = venv_mod.legacy_vault_venv_dir(vault_root)
     if legacy.is_dir():
         summary["legacy_vault_venv"] = str(legacy)
 
+    # RUNTIME_REUSED + RUNTIME_SYNCED both mean "no new venv directory
+    # was created" — collapse to the existing RUNTIME_REUSED outcome
+    # so the upgrade output stays stable across the v0.38.7 + v0.39.0
+    # lookup-softening / convergence work.
+    upgrade_outcome = (
+        RUNTIME_CREATED if provision["outcome"] == venv_mod.RUNTIME_CREATED else RUNTIME_REUSED
+    )
     summary.update({
-        "outcome": RUNTIME_CREATED if result["created"] else RUNTIME_REUSED,
-        "venv_dir": result["venv_dir"],
-        "python": result["python"],
-        "python_tag": result["python_tag"],
-        "hash": result["hash"],
+        "outcome": upgrade_outcome,
+        "venv_dir": provision["venv_dir"],
+        "python": provision["python"],
+        "python_tag": provision["python_tag"],
+        "hash": provision["hash"],
     })
     return summary
 
@@ -1139,17 +1155,20 @@ def _refresh_brain_cli(source: str) -> Optional[dict]:
     """Refresh the `brain` CLI binary at known locations from the upgrade source.
 
     Idempotent. Refreshes any existing `~/.local/bin/brain` and `/usr/local/bin/brain`
-    binaries from `<source>/../../cli/brain`. If neither exists, installs to
-    `~/.local/bin/brain` so this upgrade also delivers the CLI to vaults that
-    pre-date the CLI's introduction. Returns a summary or None when the source
-    clone does not ship `cli/brain` (older sources).
+    binaries from `<source>/../../cli/brain`. Does nothing when no CLI is
+    already installed: CLI install remains an explicit installer/user choice,
+    not a side effect of vault upgrade. Returns a summary or None when the
+    source clone does not ship `cli/brain` (older sources) or when no CLI
+    targets exist.
     """
     cli_source = Path(source).parent.parent / CLI_SOURCE_REL
     if not cli_source.is_file():
         return None
 
     existing = [t for t in CLI_TARGET_LOCATIONS if t.is_file()]
-    targets = existing if existing else [CLI_TARGET_LOCATIONS[0]]
+    if not existing:
+        return None
+    targets = existing
 
     refreshed: list[str] = []
     errors: list[dict] = []
@@ -1167,7 +1186,7 @@ def _refresh_brain_cli(source: str) -> Optional[dict]:
         summary["outcome"] = "error"
         summary["errors"] = errors
     else:
-        summary["outcome"] = "created" if not existing else "refreshed"
+        summary["outcome"] = "refreshed"
     return summary
 
 
@@ -1715,10 +1734,7 @@ def main() -> None:
         cli_refresh = result.get("cli_refresh")
         if cli_refresh is not None:
             outcome = cli_refresh["outcome"]
-            if outcome == "created":
-                for target in cli_refresh.get("refreshed", []):
-                    info(f"Installed brain CLI: {target}")
-            elif outcome == "refreshed":
+            if outcome == "refreshed":
                 for target in cli_refresh.get("refreshed", []):
                     info(f"Refreshed brain CLI: {target}")
             elif outcome == "error":

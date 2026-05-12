@@ -213,12 +213,17 @@ class TestBootstrapSummary:
         central_python.parent.mkdir(parents=True)
         central_python.write_text("")
 
-        def fake_probe(_python_path, *, modules=()):
-            if modules:
-                return {"compatible": True, "ok": False, "missing": list(modules)}
-            return {"compatible": True, "ok": True, "missing": []}
+        def fake_provision(*_args, **_kwargs):
+            return {
+                "outcome": _venv.RUNTIME_REUSED,
+                "python": str(central_python),
+                "venv_dir": str(central_python.parent.parent),
+                "python_tag": "py3.12",
+                "hash": "fake",
+                "missing_modules": (),
+            }
 
-        monkeypatch.setattr(lifecycle_common, "probe_python", fake_probe)
+        monkeypatch.setattr(lifecycle_common, "resolve_or_provision_central_venv", fake_provision)
 
         summary = repair._bootstrap_summary(
             repair_vault,
