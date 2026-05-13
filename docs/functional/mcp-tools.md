@@ -79,7 +79,7 @@ coordinate their own parallel writes.
 
 Warmup-dependent tools may return a structured `isError=true` progress payload
 while background warmup is still running or has failed. The payload includes
-coarse readiness state, retry guidance, and the capability still needed
+coarse readiness state, tool-specific retry guidance, and the capability still needed
 (`router`, `index`, or `semantic`) instead of relying on silence or long
 blocking waits.
 
@@ -98,7 +98,7 @@ It does not replace the canonical bootstrap line yet — callers still use
 - `warmup` (optional) — when `true`, ensure shared background warmup is running or already complete, then return immediately
 - `debug` (optional) — include only already-known cheap diagnostics such as active phase and capability readiness; never triggers deep inspection or forced rebuilds
 
-**Response format:** Single JSON string, no indentation. Includes version/vault identity, `readiness`, `warmup_state`, `next_action`, and optional cheap debug diagnostics.
+**Response format:** Single JSON string, no indentation. Includes version/vault identity, `readiness`, `warmup_state`, `bootstrap_hint`, `next_action`, and optional cheap debug diagnostics.
 
 ---
 

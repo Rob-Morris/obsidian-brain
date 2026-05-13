@@ -92,7 +92,7 @@ from . import _server_actions
 from . import _server_artefacts
 from . import _server_init
 from . import _server_content
-from . import _server_init
+from . import _server_readiness
 from . import _server_reading
 from . import _server_session
 from ._server_contracts import (
@@ -103,7 +103,7 @@ from ._server_contracts import (
     validate_spec,
 )
 from _resource_contract import CREATE_SPECS, EDIT_SPECS, READ_SPECS, LIST_SPECS
-from ._server_runtime import ServerRuntime, ServerState
+from ._server_runtime import ReadinessInfo, ServerRuntime, ServerState
 
 # Path constants — read from script modules (single source of truth).
 def _router_rel() -> str:
@@ -427,18 +427,7 @@ def _semantic_warmup_restart_message(detail: str) -> str:
 
 def _ensure_semantic_ready(tool_name: str) -> CallToolResult | None:
     """Return progress/error until semantic requests are safe to serve."""
-    with _warmup_lock:
-        state = _semantic_warmup_state
-        last_error = _last_semantic_warmup_error
-    if state == "warming":
-        return _fmt_progress(tool_name, ("semantic",))
-    if state == "deferred":
-        return _fmt_error(
-            last_error
-            or _semantic_warmup_restart_message("semantic warmup failed unexpectedly")
-        )
-    _ensure_embeddings_fresh()
-    return None
+    return _server_readiness.require_semantic(_runtime(), tool_name)
 
 
 def _wait_for_warmup(timeout: float = 5.0) -> bool:
@@ -474,67 +463,38 @@ def _finish_semantic_warmup(
         _last_semantic_warmup_error = error
 
 
-def _readiness_next_action(
-    readiness: str,
-    warmup_state: str,
-    *,
-    tool_name: str | None = None,
-) -> str:
-    next_tool = tool_name or "brain_session"
-    if readiness == "ready":
-        return "Call `brain_session` when you start real Brain work."
-    if warmup_state == "failed":
-        return (
-            f"Retry `{next_tool}` or call `brain_init(warmup=true, debug=true)` "
-            "to restart warmup and inspect cheap diagnostics."
+def _get_readiness_info() -> ReadinessInfo:
+    with _warmup_lock:
+        return ReadinessInfo(
+            readiness=_readiness,
+            warmup_state=_warmup_state,
+            semantic_warmup_state=_semantic_warmup_state,
+            active_phase=_warmup_active_phase,
+            last_error=_last_warmup_error,
+            last_reason=_last_warmup_reason,
+            last_semantic_error=_last_semantic_warmup_error,
         )
-    if warmup_state == "not_started":
-        return (
-            f"Call `{next_tool}` or `brain_init(warmup=true)` to start background warmup."
-        )
-    return f"Retry `{next_tool}` shortly while Brain warmup continues."
 
 
 def _readiness_snapshot(debug: bool = False, *, tool_name: str | None = None) -> dict:
-    with _warmup_lock:
-        readiness = _readiness
-        warmup_state = _warmup_state
-        active_phase = _warmup_active_phase
-        last_error = _last_warmup_error
-        last_reason = _last_warmup_reason
     state = _get_state()
-    payload = {
-        "version": "1",
-        "brain_core_version": state.loaded_version,
-        "vault_root": state.vault_root,
-        "vault_name": state.vault_name,
-        "readiness": readiness,
-        "warmup_state": warmup_state,
-        "next_action": _readiness_next_action(
-            readiness,
-            warmup_state,
-            tool_name=tool_name,
-        ),
-    }
-    if active_phase:
-        payload["active_phase"] = active_phase
-    if last_error:
-        payload["last_error"] = last_error
-    if debug:
-        payload["debug"] = {
-            "active_phase": active_phase,
-            "last_error": last_error,
-            "last_reason": last_reason,
-            "router_ready": state.router is not None,
-            "index_ready": state.index is not None,
-            "workspace_registry_ready": state.workspace_registry is not None,
-            "semantic_warmup_state": _semantic_warmup_state,
-        }
-    return payload
+    info = _get_readiness_info()
+    return _server_readiness.build_snapshot(
+        state=state,
+        info=info,
+        debug=debug,
+        tool_name=tool_name,
+    )
 
 
 def _fmt_progress(tool_name: str, needs: tuple[str, ...] = ()) -> CallToolResult:
-    snapshot = _readiness_snapshot(debug=False, tool_name=tool_name)
+    snapshot = _server_readiness.build_snapshot(
+        state=_get_state(),
+        info=_get_readiness_info(),
+        debug=False,
+        tool_name=tool_name,
+        needs=needs,
+    )
     snapshot["status"] = "failed" if snapshot["warmup_state"] == "failed" else "starting"
     snapshot["tool"] = tool_name
     snapshot["retry_after_ms"] = _PROGRESS_RETRY_AFTER_MS
@@ -1745,6 +1705,7 @@ def _set_session_profile(profile: str | None) -> None:
 def _runtime() -> ServerRuntime:
     return ServerRuntime(
         get_state=_get_state,
+        get_readiness_info=_get_readiness_info,
         set_router=_set_router,
         set_index=_set_index,
         set_workspace_registry=_set_workspace_registry,
@@ -1754,7 +1715,6 @@ def _runtime() -> ServerRuntime:
         enforce_profile=_enforce_profile,
         refresh_cli_available=_refresh_cli_available,
         ensure_warmup_started=_ensure_warmup_started,
-        ensure_semantic_ready=_ensure_semantic_ready,
         ensure_router_fresh=_ensure_router_fresh,
         ensure_index_fresh=_ensure_index_fresh,
         ensure_mutation_index_ready=_ensure_mutation_index_ready,

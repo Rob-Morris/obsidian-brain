@@ -160,7 +160,7 @@ def test_install_uses_pinned_release_installer(tmp_path):
     assert result.returncode == 0, result.stderr
     curl_args = curl_args_file.read_text().splitlines()
     assert "-fsSL" in curl_args
-    assert any("/v0.39.0/install.sh" in arg for arg in curl_args)
+    assert any("/v0.39.1/install.sh" in arg for arg in curl_args)
     assert not any("/main/install.sh" in arg for arg in curl_args)
     assert install_args_file.read_text().splitlines() == [str(target), "--skip-mcp"]
 

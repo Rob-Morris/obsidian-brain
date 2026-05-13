@@ -6,6 +6,7 @@ import os
 import config as config_mod
 import session
 
+from . import _server_readiness
 from ._server_runtime import ServerRuntime
 
 
@@ -29,12 +30,9 @@ def handle_brain_session(
     else:
         runtime.set_session_profile(None)
 
-    runtime.ensure_warmup_started("brain_session")
-    state = runtime.get_state()
-    if state.router is None:
-        return runtime.fmt_progress("brain_session", ("router",))
-
-    runtime.ensure_router_fresh()
+    state, progress = _server_readiness.require_router(runtime, "brain_session")
+    if progress is not None:
+        return progress
     runtime.refresh_cli_available()
     state = runtime.get_state()
     result = session.build_session_model(

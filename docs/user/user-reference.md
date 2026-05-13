@@ -101,7 +101,7 @@ If your vault runs the Brain MCP server (`.brain-core/brain_mcp/server.py`), nin
 
 **brain_init** (safe, auto-approvable)
 - Additive bootstrap/orientation snapshot for the Brain runtime
-- Returns vault identity plus coarse readiness/warmup state, `next_action`, and optional cheap debug diagnostics
+- Returns vault identity plus coarse readiness/warmup state, `bootstrap_hint`, `next_action`, and optional cheap debug diagnostics
 - Optional `warmup` parameter ensures shared background warmup is running or already complete, then returns immediately
 
 **brain_session** (safe, auto-approvable)

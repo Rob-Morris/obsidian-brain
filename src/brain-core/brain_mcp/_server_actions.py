@@ -14,6 +14,7 @@ import shape_printable
 import shape_presentation
 import start_shaping
 
+from . import _server_readiness
 from ._server_runtime import ServerRuntime
 from ._server_contracts import contract_hint, validate_spec
 
@@ -374,11 +375,9 @@ def handle_brain_move(op: str, params: dict | None, runtime: ServerRuntime):
         )
 
     if spec.requires_router_refresh:
-        runtime.ensure_warmup_started("brain_move")
-        state = runtime.get_state()
-        if state.router is None:
-            return runtime.fmt_progress("brain_move", ("router",))
-        runtime.ensure_router_fresh()
+        _state, progress = _server_readiness.require_router(runtime, "brain_move")
+        if progress is not None:
+            return progress
 
     return spec.handler(runtime, params or {})
 
@@ -406,10 +405,8 @@ def handle_brain_action(action: str, params: dict | None, runtime: ServerRuntime
         return runtime.fmt_error(str(e))
 
     if spec.requires_router_refresh:
-        runtime.ensure_warmup_started("brain_action")
-        state = runtime.get_state()
-        if state.router is None:
-            return runtime.fmt_progress("brain_action", ("router",))
-        runtime.ensure_router_fresh()
+        _state, progress = _server_readiness.require_router(runtime, "brain_action")
+        if progress is not None:
+            return progress
 
     return spec.handler(runtime, validated_params)

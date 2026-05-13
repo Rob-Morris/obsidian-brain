@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 
+from . import _server_readiness
 from ._server_runtime import ServerRuntime
 
 
@@ -16,7 +17,5 @@ def handle_brain_init(
         runtime.ensure_warmup_started("brain_init")
 
     payload = runtime.get_readiness_snapshot(debug=debug)
-    payload["bootstrap_hint"] = (
-        "Call `brain_session` when you start real Brain work."
-    )
+    payload["bootstrap_hint"] = _server_readiness.bootstrap_hint()
     return json.dumps(payload, ensure_ascii=False)

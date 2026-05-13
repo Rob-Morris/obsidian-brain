@@ -16,6 +16,7 @@ import retrieval_embeddings as _retrieval_embeddings
 import search_index
 import workspace_registry
 
+from . import _server_readiness
 from ._server_runtime import ServerRuntime
 
 
@@ -152,14 +153,9 @@ def handle_brain_read(
     if denied:
         return denied
 
-    runtime.ensure_warmup_started("brain_read")
-
-    state = runtime.get_state()
-    if state.router is None:
-        return runtime.fmt_progress("brain_read", ("router",))
-
-    runtime.ensure_router_fresh()
-    state = runtime.get_state()
+    state, progress = _server_readiness.require_router(runtime, "brain_read")
+    if progress is not None:
+        return progress
 
     name = params.get("name")
 
@@ -216,16 +212,10 @@ def handle_brain_search(
     if denied:
         return denied
 
-    runtime.ensure_warmup_started("brain_search")
-
-    state = runtime.get_state()
-    if state.router is None:
-        return runtime.fmt_progress("brain_search", ("router",))
-
-    runtime.ensure_router_fresh()
-    state = runtime.get_state()
-
     if resource != "artefact":
+        state, progress = _server_readiness.require_router(runtime, "brain_search")
+        if progress is not None:
+            return progress
         if mode not in (None, "lexical"):
             return runtime.fmt_error(
                 "brain_search mode applies only to artefact search; "
@@ -240,10 +230,9 @@ def handle_brain_search(
         )
         return _fmt_search("text", results)
 
-    runtime.ensure_index_fresh()
-    state = runtime.get_state()
-    if state.index is None:
-        return runtime.fmt_progress("brain_search", ("index",))
+    state, progress = _server_readiness.require_index(runtime, "brain_search")
+    if progress is not None:
+        return progress
 
     type_filter = type
     if type_filter and state.router:
@@ -263,7 +252,7 @@ def handle_brain_search(
         return runtime.fmt_error(str(e))
 
     if resolved_mode in {"semantic", "hybrid"}:
-        gated = runtime.ensure_semantic_ready("brain_search")
+        gated = _server_readiness.require_semantic(runtime, "brain_search")
         if gated is not None:
             return gated
         state = runtime.get_state()
@@ -353,15 +342,6 @@ def handle_brain_list(
     if denied:
         return denied
 
-    runtime.ensure_warmup_started("brain_list")
-
-    state = runtime.get_state()
-    if state.router is None:
-        return runtime.fmt_progress("brain_list", ("router",))
-
-    runtime.ensure_router_fresh()
-    state = runtime.get_state()
-
     query = params.get("query")
     type_filter = params.get("type")
     parent = params.get("parent")
@@ -371,6 +351,13 @@ def handle_brain_list(
     top_k = params.get("top_k", 500)
     sort = params.get("sort", "date_desc")
 
+    if resource == "artefact":
+        state, progress = _server_readiness.require_index(runtime, "brain_list")
+    else:
+        state, progress = _server_readiness.require_router(runtime, "brain_list")
+    if progress is not None:
+        return progress
+
     if resource == "workspace":
         registry = _reload_workspace_registry(runtime)
         results = workspace_registry.list_workspaces(
@@ -378,12 +365,6 @@ def handle_brain_list(
             registry=registry,
         )
         return _fmt_workspace_list(results)
-
-    if resource == "artefact":
-        runtime.ensure_index_fresh()
-        state = runtime.get_state()
-        if state.index is None:
-            return runtime.fmt_progress("brain_list", ("index",))
 
     results = list_artefacts.list_resources(
         state.index,

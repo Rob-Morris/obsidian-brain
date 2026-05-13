@@ -10,6 +10,7 @@ from _common import (
 import create
 import edit
 
+from . import _server_readiness
 from ._server_runtime import ServerRuntime
 
 
@@ -35,10 +36,9 @@ def require_fix_links_file_index(tool_name, fix_links, runtime):
     if not fix_links:
         return None, None
 
-    runtime.ensure_mutation_index_ready()
-    state = runtime.get_state()
-    if state.index is None:
-        return None, runtime.fmt_progress(tool_name, ("index",))
+    state, progress = _server_readiness.require_mutation_index(runtime, tool_name)
+    if progress is not None:
+        return None, progress
     return file_index_from_state(state), None
 
 
@@ -116,14 +116,11 @@ def handle_brain_create(
     if denied:
         return denied
 
-    runtime.ensure_warmup_started("brain_create")
-
-    state = runtime.get_state()
-    if state.router is None or state.vault_root is None:
+    state, progress = _server_readiness.require_router(runtime, "brain_create")
+    if progress is not None:
+        return progress
+    if state.vault_root is None:
         return runtime.fmt_progress("brain_create", ("router",))
-
-    runtime.ensure_router_fresh()
-    state = runtime.get_state()
 
     fix_links = bool(params.get("fix_links"))
     file_index, progress = require_fix_links_file_index(
@@ -202,14 +199,11 @@ def handle_brain_edit(
     if denied:
         return denied
 
-    runtime.ensure_warmup_started("brain_edit")
-
-    state = runtime.get_state()
-    if state.router is None or state.vault_root is None:
+    state, progress = _server_readiness.require_router(runtime, "brain_edit")
+    if progress is not None:
+        return progress
+    if state.vault_root is None:
         return runtime.fmt_progress("brain_edit", ("router",))
-
-    runtime.ensure_router_fresh()
-    state = runtime.get_state()
 
     path = params.get("path") or ""
     body = params.get("body") or ""

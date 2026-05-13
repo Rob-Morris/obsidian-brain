@@ -3570,6 +3570,7 @@ class TestBrainInit:
         assert result["warmup_state"] == "complete"
         assert "bootstrap_hint" in result
         assert "next_action" in result
+        assert result["bootstrap_hint"] == result["next_action"]
 
     def test_debug_adds_only_cheap_diagnostics(self, initialized):
         result = json.loads(server.brain_init(debug=True))
@@ -3606,6 +3607,7 @@ class TestWarmupBoundary:
         assert payload["tool"] == "brain_session"
         assert payload["needs"] == ["router"]
         assert payload["warmup_state"] == "running"
+        assert payload["next_action"] == "Retry `brain_session` shortly while Brain warmup continues."
 
     def test_brain_read_returns_progress_while_warming(self, vault, gated_router_warmup):
         server.startup(vault_root=str(vault))
@@ -3614,6 +3616,94 @@ class TestWarmupBoundary:
         assert payload["status"] == "starting"
         assert payload["tool"] == "brain_read"
         assert payload["needs"] == ["router"]
+        assert payload["next_action"] == "Retry `brain_read` shortly while Brain warmup continues."
+
+    @pytest.mark.parametrize(
+        ("tool_name", "call"),
+        [
+            (
+                "brain_list",
+                lambda: server.brain_list(resource="skill"),
+            ),
+            (
+                "brain_action",
+                lambda: server.brain_action(
+                    "delete",
+                    params={"path": "Wiki/python-guide-def456.md"},
+                ),
+            ),
+            (
+                "brain_move",
+                lambda: server.brain_move(
+                    op="rename",
+                    source="Wiki/python-guide-def456.md",
+                    dest="Wiki/python-guide-def456-renamed.md",
+                ),
+            ),
+        ],
+    )
+    def test_multiple_handlers_share_router_progress_contract_while_warming(
+        self,
+        vault,
+        gated_router_warmup,
+        tool_name,
+        call,
+    ):
+        server.startup(vault_root=str(vault))
+        assert gated_router_warmup.entered.wait(timeout=2.0), "warmup did not start router loading"
+
+        payload = _progress_payload(call())
+
+        assert payload["status"] == "starting"
+        assert payload["tool"] == tool_name
+        assert payload["needs"] == ["router"]
+        assert payload["warmup_state"] == "running"
+        assert payload["next_action"] == f"Retry `{tool_name}` shortly while Brain warmup continues."
+
+    @pytest.mark.parametrize(
+        ("tool_name", "call"),
+        [
+            (
+                "brain_search",
+                lambda: server.brain_search("brain"),
+            ),
+            (
+                "brain_list",
+                lambda: server.brain_list(resource="artefact"),
+            ),
+            (
+                "brain_process",
+                lambda: server.brain_process(
+                    operation="resolve",
+                    content="some content",
+                    type="wiki",
+                    title="Some Title",
+                ),
+            ),
+        ],
+    )
+    def test_multiple_handlers_share_index_progress_contract_when_index_missing(
+        self,
+        initialized,
+        monkeypatch,
+        tool_name,
+        call,
+    ):
+        monkeypatch.setattr(server, "_ensure_warmup_started", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr(server, "_ensure_index_fresh", lambda: None)
+
+        server._index = None
+        with server._warmup_lock:
+            server._readiness = "warming"
+            server._warmup_state = "running"
+
+        payload = _progress_payload(call())
+
+        assert payload["status"] == "starting"
+        assert payload["tool"] == tool_name
+        assert payload["needs"] == ["index"]
+        assert payload["warmup_state"] == "running"
+        assert payload["next_action"] == f"Retry `{tool_name}` shortly while Brain warmup continues."
 
 
 class TestSemanticWarmup:
@@ -4002,6 +4092,44 @@ class TestSemanticWarmup:
         assert server._semantic_warmup_state == "warming"
         assert "context_assembly" in degraded
         assert payload["needs"] == ["semantic"]
+
+    def test_multiple_handlers_share_semantic_progress_contract_while_warming(
+        self, vault, gated_semantic_warmup, monkeypatch
+    ):
+        monkeypatch.setattr(server, "_embeddings_enabled", lambda: True)
+        monkeypatch.setattr(search_index._semantic, "semantic_engine_available", lambda *_a, **_k: True)
+        monkeypatch.setattr(
+            _server_content._retrieval_embeddings,
+            "semantic_engine_available",
+            lambda *_a, **_k: True,
+        )
+
+        server.startup(vault_root=str(vault))
+
+        assert gated_semantic_warmup.entered.wait(timeout=2.0), "semantic warmup did not reach disk load"
+        assert server._wait_for_warmup(timeout=5.0), "warmup did not complete"
+        server._config.setdefault("defaults", {}).setdefault("flags", {})["semantic_retrieval"] = True
+        server._config["defaults"].setdefault("local_runtime", {})["semantic_engine_installed"] = True
+        server._config["defaults"]["flags"]["semantic_processing"] = True
+
+        search_payload = _progress_payload(server.brain_search("brain", mode="hybrid"))
+        process_payload = _progress_payload(
+            server.brain_process(
+                operation="classify",
+                content="some content",
+                mode="auto",
+            )
+        )
+
+        for tool_name, payload in (
+            ("brain_search", search_payload),
+            ("brain_process", process_payload),
+        ):
+            assert payload["status"] == "starting"
+            assert payload["tool"] == tool_name
+            assert payload["needs"] == ["semantic"]
+            assert payload["warmup_state"] == "complete"
+            assert payload["next_action"] == f"Retry `{tool_name}` shortly while Brain warmup continues."
 
 
 # ---------------------------------------------------------------------------

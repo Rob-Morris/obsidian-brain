@@ -22,8 +22,20 @@ class ServerState:
 
 
 @dataclass(frozen=True)
+class ReadinessInfo:
+    readiness: str
+    warmup_state: str
+    semantic_warmup_state: str
+    active_phase: str | None
+    last_error: str | None
+    last_reason: str | None
+    last_semantic_error: str | None
+
+
+@dataclass(frozen=True)
 class ServerRuntime:
     get_state: Callable[[], ServerState]
+    get_readiness_info: Callable[[], ReadinessInfo]
     set_router: Callable[[dict | None], None]
     set_index: Callable[[dict | None], None]
     set_workspace_registry: Callable[[dict | None], None]
@@ -33,7 +45,6 @@ class ServerRuntime:
     enforce_profile: Callable[[str], Any]
     refresh_cli_available: Callable[[], bool]
     ensure_warmup_started: Callable[[str | None], None]
-    ensure_semantic_ready: Callable[[str], Any | None]
     ensure_router_fresh: Callable[[], None]
     ensure_index_fresh: Callable[[], None]
     ensure_mutation_index_ready: Callable[[], None]
