@@ -309,11 +309,23 @@ class TestRepairScopes:
         assert result["status"] == "ok"
         assert (repair_vault / ".brain" / "local" / "compiled-router.json").is_file()
 
-    def test_index_repair_builds_retrieval_index(self, repair_vault):
-        result = repair_runtime.repair_index(repair_vault, dry_run=False)
+    def test_lexical_repair_builds_retrieval_index(self, repair_vault):
+        result = repair_runtime.repair_lexical(repair_vault, dry_run=False)
 
         assert result["status"] == "ok"
         assert (repair_vault / ".brain" / "local" / "retrieval-index.json").is_file()
+
+    def test_lexical_repair_dry_run_plans_rebuild(self, repair_vault):
+        result = repair_runtime.repair_lexical(repair_vault, dry_run=True)
+
+        assert result["status"] == "planned"
+        assert result["steps"] == [
+            {
+                "name": "lexical",
+                "status": "planned",
+                "message": "Would rebuild the lexical retrieval index (missing).",
+            }
+        ]
 
     def test_registry_repair_normalises_bare_string_entries(self, repair_vault):
         registry_path = repair_vault / ".brain" / "local" / "workspaces.json"
@@ -712,6 +724,13 @@ class TestCheckRepairHints:
         hit = next(f for f in result["findings"] if f["check"] == "workspace_registry")
         assert hit["repair"]["scope"] == "registry"
         assert "repair.py registry" in hit["repair"]["command"]
+
+    def test_legacy_index_scope_errors_with_rename_hint(self, repair_vault, capsys):
+        with pytest.raises(SystemExit) as exc:
+            repair.parse_args(["index", "--vault", str(repair_vault)])
+
+        assert exc.value.code == 2
+        assert "renamed to 'lexical'" in capsys.readouterr().err
 
     def test_mcp_drift_adds_mcp_repair_guidance(self, repair_vault):
         _register_project_client(repair_vault, "claude")

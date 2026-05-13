@@ -6,6 +6,7 @@ Version-by-version release history for Obsidian Brain. Every shipped version has
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.40.0](changelog/v0.40.0.md) | 2026-05-14 | Rename repair.py index to lexical and let upgrade.py own repair |
 | [v0.39.1](changelog/v0.39.1.md) | 2026-05-13 | Route MCP warmup progress and guidance through _server_readiness |
 | [v0.39.0](changelog/v0.39.0.md) | 2026-05-11 | Converge central-runtime resolution across every entry point |
 | [v0.38.0](changelog/v0.38.0.md) | 2026-05-11 | Ship brain CLI and harden launcher/install fallback |

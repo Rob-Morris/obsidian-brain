@@ -27,7 +27,7 @@ DEFAULT_MANAGED_RUNTIME_LAUNCHER = "python3.12"
 BOOTSTRAP_SCOPE_MODULES = {
     "mcp": ("mcp", "yaml"),
     "router": (),
-    "index": (),
+    "lexical": (),
     "registry": (),
     "semantic": ("yaml",),
 }

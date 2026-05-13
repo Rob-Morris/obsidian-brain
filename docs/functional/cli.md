@@ -29,7 +29,7 @@ brain install <path>
 | `brain edit edit\|append\|prepend\|delete_section [...]` | `edit.py` | Edit existing artefacts. |
 | `brain rename "source" "dest"` | `rename.py` | Rename + update wikilinks. |
 | `brain configure semantic --enable [...]` | `configure.py` | Vault lifecycle configuration. |
-| `brain repair {mcp\|router\|index\|registry\|semantic}` | `repair.py` | Infrastructure repair. |
+| `brain repair {mcp\|router\|lexical\|registry\|semantic}` | `repair.py` | Infrastructure repair. |
 | `brain init [--client {claude,codex,all}] [...]` | `init.py` | MCP registration. |
 | `brain upgrade --source P [...]` | `upgrade.py` | In-place brain-core upgrade. |
 | `brain session [--json]` | `session.py` | Build the session bootstrap model. |

@@ -511,20 +511,20 @@ def repair_router(vault_root: Path, dry_run: bool, bootstrap_steps: list[dict] |
     return _finalise_result("router", vault_root, dry_run, steps)
 
 
-def repair_index(vault_root: Path, dry_run: bool, bootstrap_steps: list[dict] | None = None) -> dict:
+def repair_lexical(vault_root: Path, dry_run: bool, bootstrap_steps: list[dict] | None = None) -> dict:
     steps = list(bootstrap_steps or [])
     stale, reason = _index_is_stale(vault_root)
     if not stale:
-        steps.append(_step("index", "noop", "Retrieval index is already fresh."))
-        return _finalise_result("index", vault_root, dry_run, steps)
+        steps.append(_step("lexical", "noop", "Lexical retrieval index is already fresh."))
+        return _finalise_result("lexical", vault_root, dry_run, steps)
     if dry_run:
-        steps.append(_step("index", "planned", f"Would rebuild the retrieval index ({reason})."))
-        return _finalise_result("index", vault_root, dry_run, steps)
+        steps.append(_step("lexical", "planned", f"Would rebuild the lexical retrieval index ({reason})."))
+        return _finalise_result("lexical", vault_root, dry_run, steps)
 
     index = build_index.build_index(str(vault_root))
     build_index.persist_retrieval_index(str(vault_root), index)
-    steps.append(_step("index", "changed", f"Rebuilt the retrieval index ({reason})."))
-    return _finalise_result("index", vault_root, dry_run, steps)
+    steps.append(_step("lexical", "changed", f"Rebuilt the lexical retrieval index ({reason})."))
+    return _finalise_result("lexical", vault_root, dry_run, steps)
 
 
 def repair_registry(vault_root: Path, dry_run: bool, bootstrap_steps: list[dict] | None = None) -> dict:
@@ -729,8 +729,8 @@ def run_scope(
         return repair_mcp(vault_root, dry_run, bootstrap_steps)
     if scope == "router":
         return repair_router(vault_root, dry_run, bootstrap_steps)
-    if scope == "index":
-        return repair_index(vault_root, dry_run, bootstrap_steps)
+    if scope == "lexical":
+        return repair_lexical(vault_root, dry_run, bootstrap_steps)
     if scope == "registry":
         return repair_registry(vault_root, dry_run, bootstrap_steps)
     if scope == "semantic":

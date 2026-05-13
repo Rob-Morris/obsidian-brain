@@ -537,7 +537,7 @@ class TestPostUpgradeSyncOverrides:
         assert "sync_preview" not in result
 
 
-class TestUpgradeSemanticRepair:
+class TestUpgradeSearchAssetRepair:
     @pytest.mark.parametrize(
         "config_text",
         [
@@ -569,9 +569,11 @@ class TestUpgradeSemanticRepair:
         result = upgrade.upgrade(str(vault), str(source))
 
         assert result["status"] == "ok"
-        assert result["semantic_repair"]["outcome"] == "ok"
-        assert result["semantic_repair"]["result"]["status"] == "noop"
+        assert result["search_asset_repair"]["scope"] == "semantic"
+        assert result["search_asset_repair"]["outcome"] == "ok"
+        assert result["search_asset_repair"]["result"]["status"] == "noop"
         assert calls[0][0][0] == sys.executable
+        assert calls[0][0][2] == "semantic"
         assert calls[0][0][-1] == "--json"
         assert "repair.py" in calls[0][0][1]
 
@@ -645,13 +647,20 @@ class TestUpgradeSemanticRepair:
         with pytest.raises(PermissionError, match="denied"):
             upgrade._semantic_intent_active(vault)
 
-    def test_upgrade_skips_semantic_repair_for_lexical_only_vault(self, source_and_vault, monkeypatch):
+    def test_upgrade_runs_lexical_repair_for_lexical_only_vault(self, source_and_vault, monkeypatch):
         source, vault = source_and_vault
         real_run = upgrade.subprocess.run
+        calls = []
 
         def fake_run(args, **kwargs):
             if any(str(arg).endswith("repair.py") for arg in args):
-                raise AssertionError("semantic repair should not run without semantic intent")
+                calls.append((args, kwargs))
+                return subprocess.CompletedProcess(
+                    args=args,
+                    returncode=0,
+                    stdout=json.dumps({"status": "ok", "steps": []}),
+                    stderr="",
+                )
             return real_run(args, **kwargs)
 
         monkeypatch.setattr(upgrade.subprocess, "run", fake_run)
@@ -659,10 +668,59 @@ class TestUpgradeSemanticRepair:
         result = upgrade.upgrade(str(vault), str(source))
 
         assert result["status"] == "ok"
-        assert "semantic_repair" not in result
+        assert result["search_asset_repair"]["scope"] == "lexical"
+        assert result["search_asset_repair"]["outcome"] == "ok"
+        assert result["search_asset_repair"]["result"]["status"] == "ok"
+        assert calls[0][0][2] == "lexical"
+
+    def test_search_asset_repair_returns_structured_error_when_scope_detection_fails(self, source_and_vault, monkeypatch):
+        _source, vault = source_and_vault
+
+        monkeypatch.setattr(
+            upgrade,
+            "_post_upgrade_search_scope",
+            lambda _vault: (_ for _ in ()).throw(PermissionError("denied")),
+        )
+
+        result = upgrade._repair_search_assets_after_upgrade(vault)
+
+        assert result["scope"] == "search-assets"
+        assert result["command"] == []
+        assert result["outcome"] == "error"
+        assert "denied" in result["message"]
 
 
 class TestUpgradeProgressLogging:
+    def test_upgrade_records_search_asset_repair_stage_before_follow_up(self, source_and_vault, monkeypatch):
+        source, vault = source_and_vault
+        log_path = vault / ".brain" / "local" / "last-upgrade.json"
+        seen = []
+
+        def fake_repair(vault_root):
+            entry = json.loads(log_path.read_text())
+            seen.append(entry)
+            assert vault_root == vault
+            return {
+                "scope": "lexical",
+                "command": [sys.executable, str(vault / ".brain-core" / "scripts" / "repair.py"), "lexical"],
+                "outcome": "ok",
+                "result": {"status": "noop", "steps": []},
+            }
+
+        monkeypatch.setattr(upgrade, "_repair_search_assets_after_upgrade", fake_repair)
+
+        result = upgrade.upgrade(str(vault), str(source), sync=False)
+
+        assert result["status"] == "ok"
+        assert seen
+        assert seen[0]["status"] == "running"
+        assert seen[0]["stage"] == "search_asset_repair"
+        assert seen[0]["message"] == "Reconciling search asset state after upgrade"
+
+        final = json.loads(log_path.read_text())
+        assert final["status"] == "ok"
+        assert final["search_asset_repair"]["scope"] == "lexical"
+
     def test_upgrade_records_running_stage_before_compile_validation(self, tmp_path, monkeypatch):
         source = _make_real_compile_source(tmp_path)
         vault = _make_minimal_upgrade_vault(tmp_path)
@@ -689,7 +747,52 @@ class TestUpgradeProgressLogging:
         assert final["status"] == "error"
         assert "compile failed for test" in final["message"]
 
-    def test_cli_records_dependency_sync_stage_before_follow_up(self, tmp_path, monkeypatch, capsys):
+    def test_upgrade_records_dependency_sync_stage_before_search_asset_repair(self, source_and_vault, monkeypatch):
+        source, vault = source_and_vault
+        log_path = vault / ".brain" / "local" / "last-upgrade.json"
+        seen = []
+
+        def fake_runtime(vault_root, *, requirements_changed, sync_deps):
+            entry = json.loads(log_path.read_text())
+            seen.append(entry)
+            assert entry["status"] == "running"
+            assert entry["stage"] == "dependency_sync"
+            assert entry["message"] == "Provisioning central managed runtime"
+            assert vault_root == vault
+            assert requirements_changed is False
+            assert sync_deps is None
+            return {
+                "outcome": upgrade.RUNTIME_REUSED,
+                "requirements_changed": False,
+                "venv_dir": "/fake/venv",
+                "python": "/fake/venv/bin/python",
+                "python_tag": "py3.12",
+                "hash": "deadbeefdeadbeef",
+                "venvs_root": "/fake",
+            }
+
+        monkeypatch.setattr(upgrade, "_ensure_central_runtime", fake_runtime)
+        monkeypatch.setattr(
+            upgrade,
+            "_repair_search_assets_after_upgrade",
+            lambda _vault_root: {
+                "scope": "lexical",
+                "command": [sys.executable, str(vault / ".brain-core" / "scripts" / "repair.py"), "lexical"],
+                "outcome": "ok",
+                "result": {"status": "noop", "steps": []},
+            },
+        )
+
+        result = upgrade.upgrade(str(vault), str(source), sync=False)
+
+        assert result["status"] == "ok"
+        assert seen
+        final = json.loads(log_path.read_text())
+        assert final["status"] == "ok"
+        assert final["central_runtime"]["outcome"] == upgrade.RUNTIME_REUSED
+        assert final["search_asset_repair"]["scope"] == "lexical"
+
+    def test_cli_passes_sync_deps_through_to_upgrade(self, tmp_path, monkeypatch, capsys):
         source = _make_real_compile_source(tmp_path)
         brain_mcp = source / "brain_mcp"
         brain_mcp.mkdir()
@@ -701,7 +804,7 @@ class TestUpgradeProgressLogging:
         (old_requirements / "requirements.txt").write_text("mcp==1.0.0\n")
         log_path = vault / ".brain" / "local" / "last-upgrade.json"
 
-        def fake_upgrade(vault_root, source_arg, *, force=False, dry_run=False, sync=None):
+        def fake_upgrade(vault_root, source_arg, *, force=False, dry_run=False, sync=None, sync_deps=None):
             result = {
                 "status": "ok",
                 "old_version": "0.35.9",
@@ -712,28 +815,59 @@ class TestUpgradeProgressLogging:
                 "files_unchanged": 0,
                 "dry_run": False,
                 "message": "Upgraded 0.35.9 → 0.36.7",
+                "central_runtime": {"outcome": upgrade.RUNTIME_REUSED},
+                "search_asset_repair": {"scope": "lexical", "outcome": "ok", "command": ["repair.py", "lexical"]},
             }
+            assert sync_deps is True
             upgrade._write_upgrade_log(vault_root, result)
             return result
 
-        def fake_runtime(vault_root, *, requirements_changed, sync_deps):
-            entry = json.loads(log_path.read_text())
-            assert entry["status"] == "running"
-            assert entry["stage"] == "dependency_sync"
-            assert entry["message"] == "Provisioning central managed runtime"
-            assert requirements_changed is True
+        monkeypatch.setattr(upgrade, "upgrade", fake_upgrade)
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "upgrade.py",
+                "--source",
+                str(source),
+                "--vault",
+                str(vault),
+                "--sync-deps",
+                "--json",
+            ],
+        )
+
+        upgrade.main()
+
+        result = json.loads(capsys.readouterr().out)
+        assert result["central_runtime"]["outcome"] == upgrade.RUNTIME_REUSED
+        final = json.loads(log_path.read_text())
+        assert final["status"] == "ok"
+        assert final["central_runtime"]["outcome"] == upgrade.RUNTIME_REUSED
+
+    def test_main_rewrites_log_after_cli_refresh_probe_without_cli_binary(self, tmp_path, monkeypatch, capsys):
+        source = _make_real_compile_source(tmp_path)
+        vault = _make_minimal_upgrade_vault(tmp_path)
+        log_path = vault / ".brain" / "local" / "last-upgrade.json"
+
+        def fake_upgrade(vault_root, source_arg, *, force=False, dry_run=False, sync=None, sync_deps=None):
+            assert sync_deps is None
             return {
-                "outcome": upgrade.RUNTIME_REUSED,
-                "requirements_changed": True,
-                "venv_dir": "/fake/venv",
-                "python": "/fake/venv/bin/python",
-                "python_tag": "py3.12",
-                "hash": "deadbeefdeadbeef",
-                "venvs_root": "/fake",
+                "status": "ok",
+                "old_version": "0.35.9",
+                "new_version": "0.40.0",
+                "files_added": [],
+                "files_modified": [],
+                "files_removed": [],
+                "files_unchanged": 0,
+                "dry_run": False,
+                "message": "Upgraded 0.35.9 → 0.40.0",
+                "central_runtime": {"outcome": upgrade.RUNTIME_REUSED},
+                "search_asset_repair": {"scope": "lexical", "outcome": "ok", "command": ["repair.py", "lexical"]},
             }
 
         monkeypatch.setattr(upgrade, "upgrade", fake_upgrade)
-        monkeypatch.setattr(upgrade, "_ensure_central_runtime", fake_runtime)
+        monkeypatch.setattr(upgrade, "_refresh_brain_cli", lambda _source: None)
         monkeypatch.setattr(
             sys,
             "argv",
@@ -750,10 +884,10 @@ class TestUpgradeProgressLogging:
         upgrade.main()
 
         result = json.loads(capsys.readouterr().out)
-        assert result["central_runtime"]["outcome"] == upgrade.RUNTIME_REUSED
+        assert result["search_asset_repair"]["scope"] == "lexical"
         final = json.loads(log_path.read_text())
         assert final["status"] == "ok"
-        assert final["central_runtime"]["outcome"] == upgrade.RUNTIME_REUSED
+        assert final["search_asset_repair"]["scope"] == "lexical"
 
 
 class TestUpgradeCliCentralRuntime:
@@ -790,6 +924,11 @@ class TestUpgradeCliCentralRuntime:
             "  printf '%s\\n' \"$*\" >> \"$venv_dir/pip-args.txt\"\n"
             "  exit 0\n"
             "fi\n"
+            "case \"$1\" in\n"
+            "  *.py)\n"
+            f"    exec {shlex.quote(sys.executable)} \"$@\"\n"
+            "    ;;\n"
+            "esac\n"
             "printf 'unexpected fake-launcher args: %s\\n' \"$*\" >&2\n"
             "exit 1\n",
         )
@@ -831,7 +970,8 @@ class TestUpgradeCliCentralRuntime:
         assert "install --quiet --upgrade pip -r" in pip_args
         assert str(vault / ".brain-core" / "brain_mcp" / "requirements.txt") in pip_args
         assert f"Created central runtime at {venv_dir}" in result.stderr
-        assert str(vault / ".brain-core" / "scripts" / "build_index.py") in result.stderr
+        assert "Lexical retrieval state reconciled after upgrade." in result.stderr
+        assert str(vault / ".brain-core" / "scripts" / "build_index.py") not in result.stderr
 
     def test_cli_forced_sync_deps_reuses_existing_central_runtime(self, tmp_path):
         source = _make_real_compile_source(tmp_path)

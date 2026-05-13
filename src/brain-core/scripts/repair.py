@@ -10,7 +10,7 @@ Bootstrap layer:
 
 Runtime layer:
   - runs inside the central managed runtime
-  - performs named repair scopes: mcp, router, index, registry, semantic
+  - performs named repair scopes: mcp, router, lexical, registry, semantic
 """
 
 from __future__ import annotations
@@ -41,6 +41,9 @@ from _repair_common import BOOTSTRAP_SUMMARY_ENV, MANAGED_RUNTIME_ENV, REPAIR_SC
 
 
 BOOTSTRAP_TIMEOUT = 300
+LEGACY_SCOPE_RENAMES = {
+    "index": "lexical",
+}
 
 
 def _bootstrap_summary(
@@ -101,7 +104,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "scope",
-        choices=tuple(REPAIR_SCOPES.keys()),
         help="Repair scope to run.",
     )
     parser.add_argument(
@@ -110,7 +112,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--dry-run", action="store_true", help="Preview the planned mutations without applying them.")
     parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.scope in LEGACY_SCOPE_RENAMES:
+        replacement = LEGACY_SCOPE_RENAMES[args.scope]
+        parser.error(f"repair scope '{args.scope}' was renamed to '{replacement}'")
+    if args.scope not in REPAIR_SCOPES:
+        choices = ", ".join(REPAIR_SCOPES.keys())
+        parser.error(f"invalid choice: {args.scope!r} (choose from {choices})")
+    return args
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -13,6 +13,17 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CLI_PATH = REPO_ROOT / "cli" / "brain"
 SCRIPTS_DIR = REPO_ROOT / "src" / "brain-core" / "scripts"
+CLI_BODY = CLI_PATH.read_text()
+BRAIN_CORE_VERSION = (REPO_ROOT / "src" / "brain-core" / "VERSION").read_text().strip()
+
+
+def _cli_shell_var(name: str) -> str:
+    match = re.search(rf'{name}="([^"]+)"', CLI_BODY)
+    assert match, f"Could not locate {name} in cli/brain"
+    return match.group(1)
+
+
+BRAIN_CLI_VERSION = _cli_shell_var("BRAIN_CLI_VERSION")
 
 # Dispatch contract — kept in sync with cli/brain's DISPATCH_SUBCOMMANDS array
 # and DD-049's documented v1 surface. Tests fail if these drift.
@@ -91,11 +102,14 @@ def test_dispatch_contract_matches_existing_scripts():
 
 def test_cli_dispatch_array_matches_test_contract():
     """The CLI script's hard-coded list must match this test's list, byte-for-byte."""
-    body = CLI_PATH.read_text()
-    match = re.search(r"DISPATCH_SUBCOMMANDS=\(([^)]*)\)", body)
+    match = re.search(r"DISPATCH_SUBCOMMANDS=\(([^)]*)\)", CLI_BODY)
     assert match, "Could not locate DISPATCH_SUBCOMMANDS in cli/brain"
     declared = match.group(1).split()
     assert declared == DISPATCH_CONTRACT
+
+
+def test_install_ref_matches_brain_core_version():
+    assert _cli_shell_var("BRAIN_INSTALL_REF") == f"v{BRAIN_CORE_VERSION}"
 
 
 # ---------------------------------------------------------------------------
@@ -105,13 +119,13 @@ def test_cli_dispatch_array_matches_test_contract():
 def test_version_long_form():
     result = _run_cli("--version")
     assert result.returncode == 0
-    assert result.stdout.strip() == "brain 1.0.0"
+    assert result.stdout.strip() == f"brain {BRAIN_CLI_VERSION}"
 
 
 def test_version_subcommand():
     result = _run_cli("version")
     assert result.returncode == 0
-    assert result.stdout.strip() == "brain 1.0.0"
+    assert result.stdout.strip() == f"brain {BRAIN_CLI_VERSION}"
 
 
 def test_help_lists_dispatch_subcommands():
@@ -160,7 +174,7 @@ def test_install_uses_pinned_release_installer(tmp_path):
     assert result.returncode == 0, result.stderr
     curl_args = curl_args_file.read_text().splitlines()
     assert "-fsSL" in curl_args
-    assert any("/v0.39.1/install.sh" in arg for arg in curl_args)
+    assert any(f"/v{BRAIN_CORE_VERSION}/install.sh" in arg for arg in curl_args)
     assert not any("/main/install.sh" in arg for arg in curl_args)
     assert install_args_file.read_text().splitlines() == [str(target), "--skip-mcp"]
 

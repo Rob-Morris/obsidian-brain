@@ -22,9 +22,9 @@ REPAIR_SCOPES = {
         "description": "Rebuild the compiled router cache.",
         "check_message": "Compiled router is missing, stale, or unreadable.",
     },
-    "index": {
-        "description": "Rebuild the retrieval index cache.",
-        "check_message": "Retrieval index is missing, stale, or unreadable.",
+    "lexical": {
+        "description": "Rebuild the lexical retrieval index cache.",
+        "check_message": "Lexical retrieval index is missing, stale, or unreadable.",
     },
     "registry": {
         "description": "Repair the current vault's local workspace registry state.",

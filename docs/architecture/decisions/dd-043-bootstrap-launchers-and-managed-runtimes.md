@@ -28,7 +28,7 @@ Brain distinguishes between **bootstrap launchers** and **managed runtimes**.
 - Brain bootstrap flows may start either from the shell installer (`install.sh`) or, for Python lifecycle CLIs, from a compatible native Python 3.12+ interpreter when the managed runtime is missing or broken.
 - The vault-local `.venv` is the canonical managed runtime for packageful Brain execution.
 - Automatic dependency installation targets the vault-local `.venv`, never the user's wider Python environment.
-- Each repair scope declares its own dependency requirements. Only scopes that need third-party packages (currently `mcp`) sync `.brain-core/brain_mcp/requirements.txt`; stdlib-only scopes (`router`, `index`, `registry`) require a compatible managed-runtime interpreter but skip the package sync, so they remain usable in offline or restricted environments.
+- Each repair scope declares its own dependency requirements. Only scopes that need third-party packages (currently `mcp`) sync `.brain-core/brain_mcp/requirements.txt`; stdlib-only scopes (`router`, `lexical`, `registry`) require a compatible managed-runtime interpreter but skip the package sync, so they remain usable in offline or restricted environments.
 - Successful packageful recovery converges execution back into the vault-local `.venv`; a global/native interpreter is a launcher of last resort, not the intended steady state.
 
 `repair.py` is the first explicit CLI surface built around that split:

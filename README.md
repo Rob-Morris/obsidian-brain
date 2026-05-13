@@ -1,6 +1,6 @@
 # Obsidian Brain
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.39.1-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.12-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.40.0-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.12-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
 
 A self-evolving knowledge base for agents and humans working together on what matters.
 
@@ -69,7 +69,7 @@ If you want a convenience wrapper that fetches the repo or prompts for confirmat
 bash install.sh /path/to/brain
 ```
 
-The wrapper detects the existing installation, shows the version change, and then runs `upgrade.py`. When `.brain-core/brain_mcp/requirements.txt` changes, `upgrade.py` provisions the matching central runtime at `~/.brain/venvs/py<X.Y>-<sha16>/` (creating or reusing); existing project MCP registrations are left in place. Vaults that still point at a legacy per-vault `.venv/` get a one-line migration command in the upgrade output. If semantic retrieval is already configured for the vault, `upgrade.py` also re-runs semantic repair after the file update so the pinned local model snapshot, manifest, and embeddings sidecars converge intentionally. Same-version re-apply, downgrade, and migration rerun flows remain explicit `upgrade.py --force` operations.
+The wrapper detects the existing installation, shows the version change, and then runs `upgrade.py`. When `.brain-core/brain_mcp/requirements.txt` changes, `upgrade.py` provisions the matching central runtime at `~/.brain/venvs/py<X.Y>-<sha16>/` (creating or reusing); existing project MCP registrations are left in place. Vaults that still point at a legacy per-vault `.venv/` get a one-line migration command in the upgrade output. After the file update, `upgrade.py` now reconciles search assets through the supported repair lifecycle too: lexical-only vaults run `repair.py lexical`, while semantic-enabled vaults run `repair.py semantic`, which already refreshes router, lexical index, and embeddings sidecars together. Same-version re-apply, downgrade, and migration rerun flows remain explicit `upgrade.py --force` operations.
 
 #### Repair
 
@@ -78,7 +78,7 @@ If the local Brain runtime or generated state drifts, use the explicit repair en
 ```bash
 python3.12 .brain-core/scripts/repair.py mcp
 python3.12 .brain-core/scripts/repair.py router
-python3.12 .brain-core/scripts/repair.py index
+python3.12 .brain-core/scripts/repair.py lexical
 python3.12 .brain-core/scripts/repair.py registry
 python3.12 .brain-core/scripts/repair.py semantic
 ```

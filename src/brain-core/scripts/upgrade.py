@@ -82,7 +82,7 @@ CLI_TARGET_LOCATIONS = (
     Path("/usr/local/bin/brain"),
 )
 DEPENDENCY_SYNC_TIMEOUT = 300
-SEMANTIC_REPAIR_TIMEOUT = 1800
+SEARCH_ASSET_REPAIR_TIMEOUT = 1800
 
 # Outcome tags for `_ensure_central_runtime` (named so producer + consumer cannot drift).
 RUNTIME_CREATED = "created"
@@ -1243,32 +1243,45 @@ def _semantic_intent_active(vault_root: Path) -> bool:
     )
 
 
-def _maybe_repair_semantic_model(vault_root: Path) -> Optional[dict]:
-    """Run semantic repair after upgrade when semantic intent is active."""
-    if not _semantic_intent_active(vault_root):
-        return None
+def _post_upgrade_search_scope(vault_root: Path) -> str:
+    """Return the repair scope that should reconcile search assets after upgrade."""
+    return "semantic" if _semantic_intent_active(vault_root) else "lexical"
 
-    repair_script = vault_root / ".brain-core" / "scripts" / "repair.py"
-    command = [
-        sys.executable,
-        str(repair_script),
-        "semantic",
-        "--vault",
-        str(vault_root),
-        "--json",
-    ]
+
+def _repair_search_assets_after_upgrade(vault_root: Path) -> dict:
+    """Reconcile the vault's supported search assets after upgrade.
+
+    Lexical-only vaults route through `repair.py lexical`. Vaults with
+    semantic intent route through `repair.py semantic`, which already owns
+    the broader router + lexical index + embeddings-sidecar refresh path.
+    """
     summary = {
-        "command": command,
+        "scope": "search-assets",
+        "command": [],
     }
     try:
+        scope = _post_upgrade_search_scope(vault_root)
+        repair_script = vault_root / ".brain-core" / "scripts" / "repair.py"
+        command = [
+            sys.executable,
+            str(repair_script),
+            scope,
+            "--vault",
+            str(vault_root),
+            "--json",
+        ]
+        summary = {
+            "scope": scope,
+            "command": command,
+        }
         proc = subprocess.run(
             command,
             capture_output=True,
             text=True,
-            timeout=SEMANTIC_REPAIR_TIMEOUT,
+            timeout=SEARCH_ASSET_REPAIR_TIMEOUT,
         )
     except subprocess.TimeoutExpired:
-        return {**summary, "outcome": "error", "message": f"timed out after {SEMANTIC_REPAIR_TIMEOUT}s"}
+        return {**summary, "outcome": "error", "message": f"timed out after {SEARCH_ASSET_REPAIR_TIMEOUT}s"}
     except OSError as e:
         return {**summary, "outcome": "error", "message": str(e)}
 
@@ -1293,12 +1306,23 @@ def _maybe_repair_semantic_model(vault_root: Path) -> Optional[dict]:
 # Core upgrade function
 # ---------------------------------------------------------------------------
 
-def upgrade(vault_root: str, source: str, *, force: bool = False, dry_run: bool = False, sync: Optional[bool] = None) -> dict:
+def upgrade(
+    vault_root: str,
+    source: str,
+    *,
+    force: bool = False,
+    dry_run: bool = False,
+    sync: Optional[bool] = None,
+    sync_deps: Optional[bool] = None,
+) -> dict:
     """Upgrade .brain-core/ in a vault from a source directory.
 
     Flow: backup → copy → compile (validate) → migrate → sync definitions.
     If copy or compile fails, .brain-core/ is restored from the backup.
-    Migrations only run after compile succeeds.
+    Migrations only run after compile succeeds. On non-dry-run success,
+    the upgrader also orchestrates central-runtime sync (when applicable)
+    and post-upgrade search-asset repair via `repair.py lexical` or
+    `repair.py semantic`.
 
     Args:
         vault_root: Path to the vault root.
@@ -1306,7 +1330,9 @@ def upgrade(vault_root: str, source: str, *, force: bool = False, dry_run: bool 
         force: Allow same-version or downgrade upgrades.
         dry_run: Report changes without modifying files.
         sync: Override artefact_sync preference (True=force, False=skip,
-              None=follow preference).
+            None=follow preference).
+        sync_deps: Override post-upgrade central-runtime sync behaviour
+            (True=force, False=skip, None=follow requirements change).
 
     Returns:
         Dict with status, version info, and file change lists.
@@ -1477,7 +1503,7 @@ def upgrade(vault_root: str, source: str, *, force: bool = False, dry_run: bool 
                 context=compile_context,
                 raise_on_error=True,
             )
-        except Exception as e:
+        except RuntimeError as e:
             return _rollback(f"pre-compile patch failed: {e}")
         if precompile_patches:
             result["precompile_patch_migrations"] = precompile_patches
@@ -1485,15 +1511,19 @@ def upgrade(vault_root: str, source: str, *, force: bool = False, dry_run: bool 
         if compile_err:
             return _rollback(compile_err)
 
-    except Exception as e:
+    except (OSError, shutil.Error, RuntimeError) as e:
         return _rollback(f"copy failed: {e}")
 
     compiled_router_path = os.path.join(vault_root, ".brain", "local", "compiled-router.json")
     try:
         with open(compiled_router_path, "r", encoding="utf-8") as f:
             compiled_router = json.load(f)
-    except (OSError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError) as e:
         compiled_router = {}
+        result.setdefault("warnings", []).append({
+            "stage": "post_compile_snapshot_seed",
+            "message": f"Could not read compiled router for post-compile rollback snapshots: {e}",
+        })
 
     for art in compiled_router.get("artefacts", []):
         path = art.get("path")
@@ -1517,7 +1547,7 @@ def upgrade(vault_root: str, source: str, *, force: bool = False, dry_run: bool 
         migrations, ledger = _run_migrations(
             vault_root, old_version, new_version, force=force, raise_on_error=True,
         )
-    except Exception as e:
+    except RuntimeError as e:
         return _rollback(f"post-compile migration failed: {e}")
     if migrations:
         result["migrations"] = migrations
@@ -1539,17 +1569,34 @@ def upgrade(vault_root: str, source: str, *, force: bool = False, dry_run: bool 
     if sync_info is not None:
         result.update(sync_info)
 
+    requirements_changed = REQ_FILE_REL in (
+        result.get("files_added", []) + result.get("files_modified", [])
+    )
     _write_upgrade_progress(
         vault_root,
         old_version=old_version,
         new_version=new_version,
         dry_run=False,
-        stage="semantic_repair",
-        message="Reconciling semantic runtime state after upgrade",
+        stage="dependency_sync",
+        message="Provisioning central managed runtime",
     )
-    semantic_repair = _maybe_repair_semantic_model(Path(vault_root))
-    if semantic_repair is not None:
-        result["semantic_repair"] = semantic_repair
+    runtime = _ensure_central_runtime(
+        Path(vault_root),
+        requirements_changed=requirements_changed,
+        sync_deps=sync_deps,
+    )
+    if runtime is not None:
+        result["central_runtime"] = runtime
+
+    _write_upgrade_progress(
+        vault_root,
+        old_version=old_version,
+        new_version=new_version,
+        dry_run=False,
+        stage="search_asset_repair",
+        message="Reconciling search asset state after upgrade",
+    )
+    result["search_asset_repair"] = _repair_search_assets_after_upgrade(Path(vault_root))
 
     result["message"] = f"Upgraded {old_version or '(none)'} → {new_version}"
     _write_upgrade_log(vault_root, result)
@@ -1631,26 +1678,15 @@ def main() -> None:
         fatal(str(e))
 
     source = str(Path(args.source).resolve())
-    result = upgrade(str(vault_root), source, force=args.force, dry_run=args.dry_run, sync=args.sync)
+    result = upgrade(
+        str(vault_root),
+        source,
+        force=args.force,
+        dry_run=args.dry_run,
+        sync=args.sync,
+        sync_deps=args.sync_deps,
+    )
     if result["status"] == "ok" and not args.dry_run:
-        requirements_changed = REQ_FILE_REL in (
-            result.get("files_added", []) + result.get("files_modified", [])
-        )
-        _write_upgrade_progress(
-            str(vault_root),
-            old_version=result.get("old_version"),
-            new_version=result["new_version"],
-            dry_run=False,
-            stage="dependency_sync",
-            message="Provisioning central managed runtime",
-        )
-        runtime = _ensure_central_runtime(
-            vault_root,
-            requirements_changed=requirements_changed,
-            sync_deps=args.sync_deps,
-        )
-        if runtime is not None:
-            result["central_runtime"] = runtime
         cli_refresh = _refresh_brain_cli(source)
         if cli_refresh is not None:
             result["cli_refresh"] = cli_refresh
@@ -1742,18 +1778,32 @@ def main() -> None:
                     info(f"Could not refresh brain CLI at {err['target']}: {err['message']}")
             print(file=sys.stderr)
 
-        semantic_repair = result.get("semantic_repair")
-        if semantic_repair is not None:
-            command = shlex.join(semantic_repair["command"])
-            if semantic_repair["outcome"] == "ok":
-                info("Semantic model state reconciled after upgrade.")
+        search_asset_repair = result.get("search_asset_repair")
+        if search_asset_repair is not None:
+            command = shlex.join(search_asset_repair["command"])
+            scope = search_asset_repair["scope"]
+            if search_asset_repair["outcome"] == "ok":
+                if scope == "semantic":
+                    info("Semantic search asset state reconciled after upgrade.")
+                else:
+                    info("Lexical retrieval state reconciled after upgrade.")
             else:
-                info(f"Semantic model repair after upgrade failed: {semantic_repair['message']}")
-                info(f"  {command}")
+                if scope == "semantic":
+                    info(f"Semantic search asset repair after upgrade failed: {search_asset_repair['message']}")
+                elif scope == "lexical":
+                    info(f"Lexical retrieval repair after upgrade failed: {search_asset_repair['message']}")
+                else:
+                    info(f"Search asset repair after upgrade failed: {search_asset_repair['message']}")
+                if command:
+                    info(f"  Retry: {command}")
             print(file=sys.stderr)
 
-        info("Post-upgrade: rebuild the search index.")
-        info(f"  {shlex.quote(sys.executable)} {shlex.quote(str(vault_root / '.brain-core' / 'scripts' / 'build_index.py'))}")
+        for warning in result.get("warnings", []):
+            message = warning.get("message")
+            if message:
+                info(f"Warning: {message}")
+        if result.get("warnings"):
+            print(file=sys.stderr)
 
         # Sync results
         if "sync_error" in result:

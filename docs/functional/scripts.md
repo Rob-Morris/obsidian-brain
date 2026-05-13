@@ -21,12 +21,12 @@ The optional [`brain` CLI](cli.md) provides ergonomic shortcuts that dispatch di
 | `rename.py` | Rename/delete file + update wikilinks (full-path and filename-only), refusing existing-destination collisions | `python3 rename.py "source" "dest" [--json]` |
 | `check.py` | Structural compliance checks, including exact repair commands for repairable infrastructure drift such as semantic runtime/model/sidecar drift | `python3 check.py [--json] [--actionable] [--severity S] [--vault V]` |
 | `configure.py` | Explicit installed-vault lifecycle entry point for local semantic opt-in and runtime/model provisioning | `python3 configure.py semantic --enable [--no-provision] [--json] [--vault V]` |
-| `repair.py` | Explicit infrastructure repair entry point with bootstrap-to-managed-runtime handoff, including semantic runtime/model/sidecar recovery | `python3 repair.py {mcp,router,index,registry,semantic} [--vault V] [--dry-run] [--json]` |
+| `repair.py` | Explicit infrastructure repair entry point with bootstrap-to-managed-runtime handoff, including semantic runtime/model/sidecar recovery | `python3 repair.py {mcp,router,lexical,registry,semantic} [--vault V] [--dry-run] [--json]` |
 | `_common/_venv.py` | Resolve and create the central managed runtime under `~/.brain/venvs/py<X.Y>-<sha16>/`. Importable helper plus a CLI surface used by `install.sh` | `python3 _common/_venv.py {python,ensure} --vault V [--launcher PY]` |
 | `shape_printable.py` | Create printable + render PDF | `python3 shape_printable.py --source P --slug S [--no-render] [--pdf-engine E]` |
 | `shape_presentation.py` | Create presentation + render PDF + launch preview | `python3 shape_presentation.py --source P --slug S [--no-render] [--no-preview]` |
 | `start_shaping.py` | Bootstrap a shaping session for an existing artefact | `python3 start_shaping.py --target P [--title T] [--vault V]` |
-| `upgrade.py` | In-place brain-core upgrade with local migration ledger, running stage snapshots in `.brain/local/last-upgrade.json`, provisions the central managed runtime at `~/.brain/venvs/` when requirements change, and keeps direct bootstrap writes self-contained and atomic | `python3 upgrade.py --source P [--vault V] [--dry-run] [--force] [--sync\|--no-sync] [--sync-deps\|--no-sync-deps] [--json]` |
+| `upgrade.py` | In-place brain-core upgrade with local migration ledger, running stage snapshots in `.brain/local/last-upgrade.json`, provisions the central managed runtime at `~/.brain/venvs/` when requirements change, reconciles post-upgrade search assets through `repair.py lexical` or `repair.py semantic`, and keeps direct bootstrap writes self-contained and atomic | `python3 upgrade.py --source P [--vault V] [--dry-run] [--force] [--sync\|--no-sync] [--sync-deps\|--no-sync-deps] [--json]` |
 | `vault_registry.py` | User-home registry of installed Brain vaults | `python3 vault_registry.py [--register PATH\|--backfill PATH\|--unregister PATH\|--list [--json]\|--prune\|--resolve ALIAS]` |
 | `workspace_registry.py` | Workspace slug-path resolution | `python3 workspace_registry.py [--register SLUG PATH] [--unregister SLUG] [--resolve SLUG] [--json]` |
 | `migrate_naming.py` | Migrate filenames to generous conventions | `python3 migrate_naming.py [--vault V] [--dry-run] [--json]` |
@@ -144,7 +144,7 @@ Explicit infrastructure repair entry point at `.brain-core/scripts/repair.py`. F
 
 - `mcp` — repair the central managed runtime at `~/.brain/venvs/py<X.Y>-<sha16>/` and current-vault project MCP registration state
 - `router` — rebuild `.brain/local/compiled-router.json`
-- `index` — rebuild `.brain/local/retrieval-index.json`
+- `lexical` — rebuild `.brain/local/retrieval-index.json`
 - `registry` — repair or normalise current-vault `.brain/local/workspaces.json`
 - `semantic` — converge the optional semantic runtime, provisioning marker, and generated retrieval sidecars for a vault that has already opted in
 
@@ -153,7 +153,7 @@ Explicit infrastructure repair entry point at `.brain-core/scripts/repair.py`. F
 ```bash
 python3 repair.py mcp
 python3 repair.py router --dry-run
-python3 repair.py index --json
+python3 repair.py lexical --json
 python3 repair.py registry --vault /path/to/vault
 python3 repair.py semantic --vault /path/to/vault
 ```
@@ -165,13 +165,13 @@ python3 repair.py semantic --vault /path/to/vault
 - The bootstrap path is dependency-light and may be launched from any compatible Python 3.12+ interpreter.
 - Packageful repair converges execution into the central managed runtime at `~/.brain/venvs/py<X.Y>-<sha16>/`, resolved via `_common/_venv.py`.
 - Dependency installation targets that runtime, not the user's wider Python environment.
-- Each scope declares its own runtime requirements. The `mcp` scope syncs `.brain-core/brain_mcp/requirements.txt`; `router`, `index`, and `registry` use only stdlib + Brain scripts, so they require a compatible managed-runtime interpreter but skip the package sync — they stay usable offline or in restricted environments.
+- Each scope declares its own runtime requirements. The `mcp` scope syncs `.brain-core/brain_mcp/requirements.txt`; `router`, `lexical`, and `registry` use only stdlib + Brain scripts, so they require a compatible managed-runtime interpreter but skip the package sync — they stay usable offline or in restricted environments.
 - `repair.py` is the explicit recovery surface. Other scripts should detect, explain, and point to `repair.py` rather than silently broadening their own repair semantics.
 
 **Scope semantics:**
 
 - `mcp` is the proving slice and owns the managed-runtime recovery path. It repairs or creates the central venv via `_common/_venv.py`, syncs `.brain-core/brain_mcp/requirements.txt` into it, then repairs installed current-vault project MCP state in `.mcp.json`, `.codex/config.toml`, `CLAUDE.md`, `.claude/settings.local.json`, and `.brain/local/init-state.json`. It does not touch user-scope Claude/Codex config, it does not create first-time project registrations on a bare scaffold, and it does not add a second client that is not already installed for the vault.
-- `router` and `index` use internal freshness checks and are no-ops when their generated caches are already healthy.
+- `router` and `lexical` use internal freshness checks and are no-ops when their generated caches are already healthy.
 - `registry` is intentionally narrow in the first cut: it only mutates the current vault's `.brain/local/workspaces.json`. It does not prune or rewrite `~/.config/brain/vaults`, and it does not touch user-scope MCP config.
 - `semantic` is the explicit follow-up after a vault has opted in via `configure.py semantic --enable`. It bootstraps the managed runtime if needed, provisions or re-syncs the pinned semantic packages into the central managed runtime, restores the pinned local model snapshot/manifest, refreshes the semantic engine marker in local config, and rebuilds router/index/embeddings sidecars so semantic retrieval converges intentionally.
 
@@ -412,7 +412,8 @@ Canonical upgrade script at `src/brain-core/scripts/upgrade.py`. It is shipped i
 - **Per-migration ledger** — each migration recorded as successful or skipped is written to `.brain/local/migrations.json`, and a coarse `.brain/local/.migrated-version` fast-path marker is refreshed once all `post_compile` migrations up to the installed version are accounted for. Target-specific entries are keyed as `VERSION@TARGET` (for example `0.29.0@pre_compile_patch`). This prevents historical migrations from replaying just because `.brain-core/` was deleted and reinstalled. `--force` bypasses the ledger and re-runs migrations up to the target version
 - **Standard migration targets** — `post_compile` is the default versioned migration stage; `pre_compile_patch` is the standard patch stage for compatibility fixes that must land before the compile gate. Migrations declare non-default targets via `TARGET_HANDLERS`
 - **Dependency management** — MCP server dependencies are declared in `.brain-core/brain_mcp/requirements.txt`. When this file changes during an upgrade, `_ensure_central_runtime` resolves the new content-addressed venv path under `~/.brain/venvs/` via `_common/_venv.py` and provisions it (existing venvs are reused — see [DD-048](../architecture/decisions/dd-048-central-managed-runtime.md)). `--no-sync-deps` skips that step and prints the exact absolute retry command instead. The `install.sh` wrapper delegates this behavior to `upgrade.py`, and `install.sh --skip-mcp` passes through the opt-out.
-- **Running stage diagnostics** — `.brain/local/last-upgrade.json` is no longer only a final success/failure log. Before each long-running phase, `upgrade.py` records a `"running"` snapshot with the current `stage` so operators can still see whether the upgrade was in backup, copy, compile validation, migration replay, definition sync, semantic repair, or dependency-sync follow-up if the caller loses stdout/stderr or never receives the final JSON payload.
+- **Search asset reconciliation** — after a successful copy / compile / migration / definition-sync pass, `upgrade.py` now runs one supported repair scope instead of printing a raw `build_index.py` follow-up. Lexical-only vaults route through `repair.py lexical`; vaults with semantic intent route through `repair.py semantic`, which already owns the broader router + lexical index + embeddings-sidecar refresh path. On failure, upgrade surfaces the exact retry command for that scope.
+- **Running stage diagnostics** — `.brain/local/last-upgrade.json` is no longer only a final success/failure log. Before each long-running phase, `upgrade.py` records a `"running"` snapshot with the current `stage` so operators can still see whether the upgrade was in backup, copy, compile validation, migration replay, definition sync, search asset repair, or dependency-sync follow-up if the caller loses stdout/stderr or never receives the final JSON payload.
 - **Not exposed via MCP** — self-upgrading MCP servers are an anti-pattern (a prompt-injected agent could point upgrade at a crafted directory). The MCP server detects version drift and exits cleanly; the client restarts it with the new code
 - **Post-upgrade definition sync** — after a successful upgrade, `sync_definitions` runs automatically. Safe updates (upstream changed, no local changes) always apply, and tracked files whose current local content already matches upstream also self-heal as safe updates even if their stored `source_hash` is stale. Conflicts (both upstream and local changed) are returned as warnings for the caller to present. For markdown files, harmless line-ending or pipe-table padding rewrites do not count as local drift. If `artefact_sync` is `"skip"` in `.brain/preferences.json`, no sync runs. CLI flags `--sync` / `--no-sync` override the preference. Sync failures are captured in the result — they never crash the upgrade
 

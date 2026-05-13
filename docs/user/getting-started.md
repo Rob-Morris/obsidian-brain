@@ -197,7 +197,7 @@ exact `repair.py` command to run.
 ```bash
 python3.12 .brain-core/scripts/repair.py mcp
 python3.12 .brain-core/scripts/repair.py router
-python3.12 .brain-core/scripts/repair.py index
+python3.12 .brain-core/scripts/repair.py lexical
 python3.12 .brain-core/scripts/repair.py registry
 python3.12 .brain-core/scripts/repair.py semantic
 ```
