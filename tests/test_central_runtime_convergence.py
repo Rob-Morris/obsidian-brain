@@ -1,7 +1,7 @@
 """End-to-end convergence tests for v0.39.0's central-runtime orchestrator.
 
 Same fixture across every supported managed-runtime entry point — `brain`
-CLI dispatch, `repair.py mcp`, `repair.py registry --dry-run`,
+CLI dispatch, `repair.py runtime`, `repair.py registry --dry-run`,
 `configure.py semantic`, `upgrade.py` — to verify that all of them honour
 the same reuse-before-create invariant after Python minor churn (the
 Brew-churn scenario).

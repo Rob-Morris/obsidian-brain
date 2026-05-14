@@ -24,8 +24,18 @@ from _common import _venv as _venv_module
 
 
 DEFAULT_MANAGED_RUNTIME_LAUNCHER = "python3.12"
+MANAGED_RUNTIME_REQUIRED_MODULES = ("mcp", "yaml")
+# These tuples describe extra managed-runtime module requirements for each
+# lifecycle scope. An empty tuple does not bypass bootstrap or runtime repair:
+# every scope still goes through the shared managed-runtime owner so it can
+# recover a usable interpreter path before packageful work runs.
 BOOTSTRAP_SCOPE_MODULES = {
-    "mcp": ("mcp", "yaml"),
+    "runtime": MANAGED_RUNTIME_REQUIRED_MODULES,
+    # MCP repair writes config/state only, but those registrations must point
+    # at a usable managed Brain runtime that can actually host the MCP server.
+    # Keep the package requirement in lockstep with `runtime` so `mcp`
+    # composes runtime repair instead of silently assuming it already happened.
+    "mcp": MANAGED_RUNTIME_REQUIRED_MODULES,
     "router": (),
     "lexical": (),
     "registry": (),
@@ -257,21 +267,12 @@ def bootstrap_managed_runtime(
             synced=list(result.get("synced_modules", ())),
         ))
     elif outcome == _venv_module.RUNTIME_PLANNED:
-        action = result.get("planned_action")
-        if action == "create":
-            steps.append(step(
-                "managed_dependencies", "planned",
-                f"Would sync the managed runtime dependencies required by {dependency_owner}.",
-                requirements=str(requirements),
-                missing=list(result.get("missing_modules", ())),
-            ))
-        elif action == "sync":
-            steps.append(step(
-                "managed_dependencies", "planned",
-                f"Would sync the managed runtime dependencies required by {dependency_owner}.",
-                requirements=str(requirements),
-                missing=list(result.get("missing_modules", ())),
-            ))
+        steps.append(step(
+            "managed_dependencies", "planned",
+            f"Would sync the managed runtime dependencies required by {dependency_owner}.",
+            requirements=str(requirements),
+            missing=list(result.get("missing_modules", ())),
+        ))
     elif outcome == _venv_module.RUNTIME_ERROR:
         steps.append(step(
             "managed_dependencies", "error",

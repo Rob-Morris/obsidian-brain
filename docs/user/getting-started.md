@@ -195,6 +195,7 @@ exact `repair.py` command to run.
 `repair.py` repairs one named scope at a time:
 
 ```bash
+python3.12 .brain-core/scripts/repair.py runtime
 python3.12 .brain-core/scripts/repair.py mcp
 python3.12 .brain-core/scripts/repair.py router
 python3.12 .brain-core/scripts/repair.py lexical
@@ -202,14 +203,14 @@ python3.12 .brain-core/scripts/repair.py registry
 python3.12 .brain-core/scripts/repair.py semantic
 ```
 
-For most broken-tooling cases, `repair.py mcp` is the important one. It
-repairs or creates the shared managed runtime under `~/.brain/venvs/`, syncs
-Brain MCP dependencies there, and then repairs installed current-vault project
-MCP registration state. It does not act as a first-time installer or add a
-second client to the vault. `repair.py semantic` is the semantic equivalent
-after a vault has been opted in with `configure.py semantic --enable`. It
+For most broken-tooling cases, `repair.py runtime` is the important one when
+the shared managed runtime under `~/.brain/venvs/` is broken. `repair.py mcp`
+repairs installed current-vault project MCP registration state against that
+usable runtime. It does not act as a first-time installer or add a second
+client to the vault. `repair.py semantic` is the semantic equivalent after a
+vault has been opted in with `configure.py semantic --enable`. It
 restores the pinned runtime packages, local model snapshot/manifest, and
-embeddings sidecars together. `router`, `index`, and `registry` are narrower
+embeddings sidecars together. `router`, `lexical`, and `registry` are narrower
 generated-state repairs and are usually best run when `check.py` tells you to.
 
 `repair.py` may be launched from any compatible Python 3.12+ interpreter, but
@@ -218,7 +219,7 @@ packageful repair always converges back into the central managed runtime at
 environment.
 
 If you installed the optional [`brain` CLI](../functional/cli.md), the same
-operations are available as `brain check --actionable`, `brain repair mcp`,
+operations are available as `brain check --actionable`, `brain repair runtime`,
 `brain repair router`, and so on. The CLI dispatches directly to the scripts
 above; it adds no behaviour.
 

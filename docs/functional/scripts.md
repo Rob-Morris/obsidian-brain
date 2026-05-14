@@ -2,7 +2,7 @@
 
 Operational reference for scripts in `.brain-core/scripts/`. Most scripts expose both importable functions and a CLI entry point; a few are library modules used by other scripts or the MCP server.
 
-The optional [`brain` CLI](cli.md) provides ergonomic shortcuts that dispatch directly to these scripts — `brain repair mcp` is exactly `python3 .brain-core/scripts/repair.py mcp` under the hood. Scripts remain the authoritative implementation; the CLI is chrome. See [DD-049](../architecture/decisions/dd-049-brain-cli-thin-dispatch.md).
+The optional [`brain` CLI](cli.md) provides ergonomic shortcuts that dispatch directly to these scripts — `brain repair runtime` is exactly `python3 .brain-core/scripts/repair.py runtime` under the hood. Scripts remain the authoritative implementation; the CLI is chrome. See [DD-049](../architecture/decisions/dd-049-brain-cli-thin-dispatch.md).
 
 ## Script Table
 
@@ -21,7 +21,7 @@ The optional [`brain` CLI](cli.md) provides ergonomic shortcuts that dispatch di
 | `rename.py` | Rename/delete file + update wikilinks (full-path and filename-only), refusing existing-destination collisions | `python3 rename.py "source" "dest" [--json]` |
 | `check.py` | Structural compliance checks, including exact repair commands for repairable infrastructure drift such as semantic runtime/model/sidecar drift | `python3 check.py [--json] [--actionable] [--severity S] [--vault V]` |
 | `configure.py` | Explicit installed-vault lifecycle entry point for local semantic opt-in and runtime/model provisioning | `python3 configure.py semantic --enable [--no-provision] [--json] [--vault V]` |
-| `repair.py` | Explicit infrastructure repair entry point with bootstrap-to-managed-runtime handoff, including semantic runtime/model/sidecar recovery | `python3 repair.py {mcp,router,lexical,registry,semantic} [--vault V] [--dry-run] [--json]` |
+| `repair.py` | Explicit infrastructure repair entry point with bootstrap-to-managed-runtime handoff, including dedicated managed-runtime recovery plus semantic runtime/model/sidecar recovery | `python3 repair.py {runtime,mcp,router,lexical,registry,semantic} [--vault V] [--dry-run] [--json]` |
 | `_common/_venv.py` | Resolve and create the central managed runtime under `~/.brain/venvs/py<X.Y>-<sha16>/`. Importable helper plus a CLI surface used by `install.sh` | `python3 _common/_venv.py {python,ensure} --vault V [--launcher PY]` |
 | `shape_printable.py` | Create printable + render PDF | `python3 shape_printable.py --source P --slug S [--no-render] [--pdf-engine E]` |
 | `shape_presentation.py` | Create presentation + render PDF + launch preview | `python3 shape_presentation.py --source P --slug S [--no-render] [--no-preview]` |
@@ -134,7 +134,7 @@ python3 compile_router.py --json    # output JSON to stdout
 
 **Constraints:** stdlib only, self-locating, stateless, idempotent, stdout-only.
 
-When `check.py` detects repairable router, MCP, or local workspace-registry drift, normal human output now prints the exact `repair.py` command to run. Structured JSON/compliance output includes a `repair` object with `scope`, `description`, and `command` so agents can surface the same remediation path without scraping prose.
+When `check.py` detects repairable runtime, router, MCP, semantic, or local workspace-registry drift, normal human output now prints the exact `repair.py` command to run. Structured JSON/compliance output includes a `repair` object with `scope`, `description`, and `command` so agents can surface the same remediation path without scraping prose.
 
 **Relationship with `compliance_check.py`:** The vault-maintenance skill ships a separate `compliance_check.py` for **session hygiene** — quick checks like "did you log today? any transcripts? backups fresh?" It runs after each work block as a sanity check. `check.py` (this design) is **structural compliance** — "do all files have correct frontmatter? naming? month folders?" Deep scan, runs on demand or during maintenance. These are complementary tools, not competing ones.
 
@@ -142,7 +142,8 @@ When `check.py` detects repairable router, MCP, or local workspace-registry drif
 
 Explicit infrastructure repair entry point at `.brain-core/scripts/repair.py`. First-cut public scopes are:
 
-- `mcp` — repair the central managed runtime at `~/.brain/venvs/py<X.Y>-<sha16>/` and current-vault project MCP registration state
+- `runtime` — repair the central managed runtime at `~/.brain/venvs/py<X.Y>-<sha16>/` and its baseline packages
+- `mcp` — repair current-vault project MCP registration state against a usable managed runtime
 - `router` — rebuild `.brain/local/compiled-router.json`
 - `lexical` — rebuild `.brain/local/retrieval-index.json`
 - `registry` — repair or normalise current-vault `.brain/local/workspaces.json`
@@ -151,6 +152,7 @@ Explicit infrastructure repair entry point at `.brain-core/scripts/repair.py`. F
 **CLI:**
 
 ```bash
+python3 repair.py runtime
 python3 repair.py mcp
 python3 repair.py router --dry-run
 python3 repair.py lexical --json
@@ -165,12 +167,14 @@ python3 repair.py semantic --vault /path/to/vault
 - The bootstrap path is dependency-light and may be launched from any compatible Python 3.12+ interpreter.
 - Packageful repair converges execution into the central managed runtime at `~/.brain/venvs/py<X.Y>-<sha16>/`, resolved via `_common/_venv.py`.
 - Dependency installation targets that runtime, not the user's wider Python environment.
-- Each scope declares its own runtime requirements. The `mcp` scope syncs `.brain-core/brain_mcp/requirements.txt`; `router`, `lexical`, and `registry` use only stdlib + Brain scripts, so they require a compatible managed-runtime interpreter but skip the package sync — they stay usable offline or in restricted environments.
+- Each scope declares its own runtime requirements. The `runtime` scope owns the baseline managed-runtime package sync, and `mcp` composes that same baseline because its registrations must point at a usable Brain MCP host. `router`, `lexical`, and `registry` use only stdlib + Brain scripts, so they require a compatible managed-runtime interpreter but skip extra package sync — they stay usable offline or in restricted environments.
+- `dependency-light` does **not** mean “assume the runtime is already healthy” and does **not** mean “run `repair.py mcp` first”. Every scope still uses the shared managed-runtime bootstrap owner to recover or reuse a usable interpreter path; the difference is only whether that scope needs extra managed packages beyond the interpreter itself.
 - `repair.py` is the explicit recovery surface. Other scripts should detect, explain, and point to `repair.py` rather than silently broadening their own repair semantics.
 
 **Scope semantics:**
 
-- `mcp` is the proving slice and owns the managed-runtime recovery path. It repairs or creates the central venv via `_common/_venv.py`, syncs `.brain-core/brain_mcp/requirements.txt` into it, then repairs installed current-vault project MCP state in `.mcp.json`, `.codex/config.toml`, `CLAUDE.md`, `.claude/settings.local.json`, and `.brain/local/init-state.json`. It does not touch user-scope Claude/Codex config, it does not create first-time project registrations on a bare scaffold, and it does not add a second client that is not already installed for the vault.
+- `runtime` is the explicit command for “the central managed Brain runtime is broken”. It repairs or creates the central venv via `_common/_venv.py`, verifies the baseline managed packages, and leaves the vault with a usable packageful Brain runtime again.
+- `mcp` repairs installed current-vault project MCP state in `.mcp.json`, `.codex/config.toml`, `CLAUDE.md`, `.claude/settings.local.json`, and `.brain/local/init-state.json`. It composes runtime repair because those registrations must point at a working managed MCP host. It does not touch user-scope Claude/Codex config, it does not create first-time project registrations on a bare scaffold, and it does not add a second client that is not already installed for the vault.
 - `router` and `lexical` use internal freshness checks and are no-ops when their generated caches are already healthy.
 - `registry` is intentionally narrow in the first cut: it only mutates the current vault's `.brain/local/workspaces.json`. It does not prune or rewrite `~/.config/brain/vaults`, and it does not touch user-scope MCP config.
 - `semantic` is the explicit follow-up after a vault has opted in via `configure.py semantic --enable`. It bootstraps the managed runtime if needed, provisions or re-syncs the pinned semantic packages into the central managed runtime, restores the pinned local model snapshot/manifest, refreshes the semantic engine marker in local config, and rebuilds router/index/embeddings sidecars so semantic retrieval converges intentionally.
@@ -367,7 +371,7 @@ Registration strategy:
 - **Codex** — direct TOML file editing of native Codex config surfaces
 - **Removal** — `--remove` deletes only recorded Brain-managed entries from the requested client/scope; user-scope cleanup is explicit-only; project uninstall uses the same recorded removal path
 
-`init.py` remains the MCP registration owner, not the generic repair owner. For current-vault repair of the managed runtime or project MCP state, the explicit recovery entry point is `repair.py mcp`.
+`init.py` remains the MCP registration owner, not the generic repair owner. For current-vault repair of the managed runtime or project MCP state, the explicit recovery entry points are `repair.py runtime` and `repair.py mcp`.
 
 Claude project-scope installs still require Claude Code's own trust step for `.mcp.json`. `init.py` does not auto-approve that trust boundary. After a project install, open Claude Code in the target directory and run `/mcp` to approve `brain` if prompted. This matters most when `~/.claude.json` already contains a user-scoped `brain`: until the project entry is approved, Claude may route `mcp__brain__*` calls to the user-scoped server instead. `claude mcp list` is only a health check; it does not prove project approval.
 

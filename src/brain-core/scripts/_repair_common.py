@@ -14,8 +14,12 @@ BOOTSTRAP_SUMMARY_ENV = "BRAIN_REPAIR_BOOTSTRAP_SUMMARY"
 REPAIR_SCRIPT_REL = Path(".brain-core/scripts/repair.py")
 
 REPAIR_SCOPES = {
+    "runtime": {
+        "description": "Repair the central managed Brain runtime and its baseline packages via bootstrap, then verify the result.",
+        "check_message": "Central managed Brain runtime is missing, unusable, or missing required baseline packages.",
+    },
     "mcp": {
-        "description": "Repair the vault-local managed runtime and project MCP registrations.",
+        "description": "Repair current-vault Claude/Codex MCP registration state against a usable managed runtime.",
         "check_message": "Brain MCP project registration drift detected for this vault.",
     },
     "router": {

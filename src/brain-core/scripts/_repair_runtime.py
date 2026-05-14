@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import importlib.util
 import os
 import subprocess
 import sys
@@ -20,19 +21,37 @@ import _semantic.model as _semantic_model
 import _semantic.provision as _semantic_provision
 import _semantic.runtime as _semantic_runtime
 from _common import iter_artefact_paths, resolve_vault_venv_python
-from _lifecycle_common import iso_now, make_result_envelope, probe_python, step as _step
+from _lifecycle_common import (
+    iso_now,
+    make_result_envelope,
+    probe_python,
+    required_modules_for_scope,
+    step as _step,
+)
 from _repair_common import attach_repair_guidance
 
 ISSUE_CONFIG_LOAD_ERROR = "config-load-error"
 ISSUE_UNSUPPORTED_PLATFORM = "unsupported-platform"
 ISSUE_RUNTIME_NOT_PROVISIONED = "runtime-not-provisioned"
-ISSUE_RUNTIME_DEPENDENCIES_MISSING = "runtime-dependencies-missing"
+ISSUE_SEMANTIC_RUNTIME_DEPENDENCIES_MISSING = "runtime-dependencies-missing"
 ISSUE_SEMANTIC_MODEL_MANIFEST_MISSING = "semantic-model-manifest-missing"
 ISSUE_SEMANTIC_MODEL_PATH_MISSING = "semantic-model-path-missing"
 ISSUE_SEMANTIC_MODEL_REVISION_MISMATCH = "semantic-model-revision-mismatch"
 ISSUE_SEMANTIC_MODEL_LOAD_ERROR = "semantic-model-load-error"
 ISSUE_SEMANTIC_SIDECARS_MISSING = "semantic-sidecars-missing"
 ISSUE_SEMANTIC_SIDECARS_OUTDATED = "semantic-sidecars-outdated"
+ISSUE_RUNTIME_MISSING = "runtime-missing"
+ISSUE_RUNTIME_UNUSABLE = "runtime-unusable"
+ISSUE_MANAGED_RUNTIME_DEPENDENCIES_MISSING = "managed-runtime-dependencies-missing"
+
+
+def _runtime_issue_message(issue: str) -> str:
+    messages = {
+        ISSUE_RUNTIME_MISSING: "Central managed runtime is missing for this vault.",
+        ISSUE_RUNTIME_UNUSABLE: "Central managed runtime is present but unusable.",
+        ISSUE_MANAGED_RUNTIME_DEPENDENCIES_MISSING: "Central managed runtime is present but missing required baseline packages.",
+    }
+    return messages.get(issue, "Central managed runtime is unhealthy.")
 
 
 def _finalise_result(
@@ -53,6 +72,65 @@ def _finalise_result(
     )
 
 
+def _runtime_state_from_probe(python_path: str, probe: dict) -> dict:
+    """Normalise runtime probe results into one structured state payload."""
+    missing = list(probe.get("missing", []))
+    if not probe.get("compatible"):
+        return {
+            "healthy": False,
+            "python": python_path,
+            "issues": [ISSUE_RUNTIME_UNUSABLE],
+            "missing_modules": missing,
+            "message": _runtime_issue_message(ISSUE_RUNTIME_UNUSABLE),
+        }
+    if missing:
+        module_list = ", ".join(sorted(missing))
+        return {
+            "healthy": False,
+            "python": python_path,
+            "issues": [ISSUE_MANAGED_RUNTIME_DEPENDENCIES_MISSING],
+            "missing_modules": missing,
+            "message": _runtime_issue_message(
+                ISSUE_MANAGED_RUNTIME_DEPENDENCIES_MISSING
+            ).rstrip(".")
+            + f": {module_list}.",
+        }
+    return {
+        "healthy": True,
+        "python": python_path,
+        "issues": [],
+        "missing_modules": [],
+        "message": "Central managed runtime is ready for packageful Brain work.",
+    }
+
+
+def inspect_runtime(vault_root: Path) -> dict:
+    """Inspect the central managed runtime for this vault."""
+    managed_python = resolve_vault_venv_python(vault_root)
+    runtime_modules = required_modules_for_scope("runtime")
+    managed_python_str = os.path.realpath(str(managed_python))
+    if not managed_python.is_file():
+        return {
+            "healthy": False,
+            "python": managed_python_str,
+            "issues": [ISSUE_RUNTIME_MISSING],
+            "missing_modules": list(runtime_modules),
+            "message": "Central managed runtime is missing for this vault.",
+        }
+
+    if os.path.realpath(sys.executable) == managed_python_str:
+        probe = {
+            "compatible": sys.version_info >= (3, 12),
+            "missing": [
+                name for name in runtime_modules if importlib.util.find_spec(name) is None
+            ],
+        }
+        return _runtime_state_from_probe(managed_python_str, probe)
+
+    probe = probe_python(managed_python_str, modules=runtime_modules)
+    return _runtime_state_from_probe(managed_python_str, probe)
+
+
 def _semantic_message(configured: bool, supported: bool, unsupported_message: str | None, issues: list[str]) -> str:
     if not configured:
         return "Semantic retrieval is not configured on for this vault."
@@ -68,9 +146,9 @@ def _semantic_message(configured: bool, supported: bool, unsupported_message: st
         return "Semantic retrieval is configured on, but the provisioned semantic model snapshot is missing from disk."
     if ISSUE_SEMANTIC_MODEL_MANIFEST_MISSING in issue_set:
         return "Semantic retrieval is configured on, but the local semantic model manifest is missing or unreadable."
-    if ISSUE_RUNTIME_NOT_PROVISIONED in issue_set and ISSUE_RUNTIME_DEPENDENCIES_MISSING in issue_set:
+    if ISSUE_RUNTIME_NOT_PROVISIONED in issue_set and ISSUE_SEMANTIC_RUNTIME_DEPENDENCIES_MISSING in issue_set:
         return "Semantic retrieval is configured on, but the local semantic runtime has not been provisioned."
-    if ISSUE_RUNTIME_DEPENDENCIES_MISSING in issue_set:
+    if ISSUE_SEMANTIC_RUNTIME_DEPENDENCIES_MISSING in issue_set:
         return "Semantic retrieval is configured on, but the local semantic runtime dependencies are unavailable."
     if ISSUE_RUNTIME_NOT_PROVISIONED in issue_set:
         return "Semantic retrieval is configured on, but the local semantic runtime marker is not set."
@@ -87,7 +165,7 @@ def _semantic_issue_message(issue: str) -> str:
         ISSUE_CONFIG_LOAD_ERROR: "Semantic config could not be loaded for this vault.",
         ISSUE_UNSUPPORTED_PLATFORM: "Semantic runtime is unsupported on this platform.",
         ISSUE_RUNTIME_NOT_PROVISIONED: "Semantic retrieval is configured on, but the local semantic runtime marker is not set.",
-        ISSUE_RUNTIME_DEPENDENCIES_MISSING: "Semantic retrieval is configured on, but the local semantic runtime dependencies are unavailable.",
+        ISSUE_SEMANTIC_RUNTIME_DEPENDENCIES_MISSING: "Semantic retrieval is configured on, but the local semantic runtime dependencies are unavailable.",
         ISSUE_SEMANTIC_MODEL_MANIFEST_MISSING: "Semantic retrieval is configured on, but the local semantic model manifest is missing or unreadable.",
         ISSUE_SEMANTIC_MODEL_PATH_MISSING: "Semantic retrieval is configured on, but the provisioned semantic model snapshot is missing from disk.",
         ISSUE_SEMANTIC_MODEL_REVISION_MISMATCH: "Semantic retrieval is configured on, but the provisioned semantic model revision no longer matches the shipped pin.",
@@ -470,6 +548,14 @@ def _repair_codex(vault_root: Path, server_config: dict, codex_state: dict, dry_
 
 def repair_mcp(vault_root: Path, dry_run: bool, bootstrap_steps: list[dict] | None = None) -> dict:
     steps = list(bootstrap_steps or [])
+    # `repair.py main()` already repaired/bootstraped the managed runtime before
+    # re-exec. Keep this guard for direct library/test callers that bypass the
+    # bootstrap layer entirely.
+    runtime_state = inspect_runtime(vault_root)
+    if not runtime_state["healthy"]:
+        steps.append(_step("runtime", "error", runtime_state["message"]))
+        return _finalise_result("mcp", vault_root, dry_run, steps)
+
     state = inspect_mcp(vault_root)
     server_config = state["server_config"]
 
@@ -484,6 +570,18 @@ def repair_mcp(vault_root: Path, dry_run: bool, bootstrap_steps: list[dict] | No
 
     notes = init.claude_project_followup_notes(vault_root) if state["claude"]["present"] else []
     return _finalise_result("mcp", vault_root, dry_run, steps, notes=notes)
+
+
+def verify_runtime_post_bootstrap(vault_root: Path, dry_run: bool, bootstrap_steps: list[dict] | None = None) -> dict:
+    """Verify the runtime scope after bootstrap has repaired/re-synced it."""
+    steps = list(bootstrap_steps or [])
+    state = inspect_runtime(vault_root)
+    if not state["healthy"]:
+        steps.append(_step("runtime", "error", state["message"]))
+        return _finalise_result("runtime", vault_root, dry_run, steps)
+
+    steps.append(_step("runtime", "noop", state["message"]))
+    return _finalise_result("runtime", vault_root, dry_run, steps)
 
 
 def repair_router(vault_root: Path, dry_run: bool, bootstrap_steps: list[dict] | None = None) -> dict:
@@ -612,7 +710,7 @@ def inspect_semantic(vault_root: Path) -> dict:
     if not marker:
         issues.append(ISSUE_RUNTIME_NOT_PROVISIONED)
     if not dependencies_ok:
-        issues.append(ISSUE_RUNTIME_DEPENDENCIES_MISSING)
+        issues.append(ISSUE_SEMANTIC_RUNTIME_DEPENDENCIES_MISSING)
     if model_state.load_error:
         issues.append(ISSUE_SEMANTIC_MODEL_LOAD_ERROR)
     elif model_state.manifest_missing:
@@ -725,6 +823,8 @@ def run_scope(
     dry_run: bool = False,
     bootstrap_steps: list[dict] | None = None,
 ) -> dict:
+    if scope == "runtime":
+        return verify_runtime_post_bootstrap(vault_root, dry_run, bootstrap_steps)
     if scope == "mcp":
         return repair_mcp(vault_root, dry_run, bootstrap_steps)
     if scope == "router":
@@ -765,6 +865,17 @@ def collect_check_findings(vault_root: str | Path) -> list[dict]:
         findings.append(attach_repair_guidance(finding, vault_root, "registry"))
 
     if _local_mcp_state_present(vault_root):
+        runtime = inspect_runtime(vault_root)
+        if not runtime["healthy"]:
+            for issue in runtime["issues"]:
+                finding = {
+                    "check": f"runtime:{issue}",
+                    "severity": "warning",
+                    "file": None,
+                    "message": _runtime_issue_message(issue),
+                }
+                findings.append(attach_repair_guidance(finding, vault_root, "runtime"))
+
         mcp = inspect_mcp(vault_root)
         unhealthy = [
             client

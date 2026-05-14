@@ -94,7 +94,7 @@ The compiled router (`.brain/local/compiled-router.json`) is the interface betwe
 
 The MCP server is a thin wrapper. All vault operation logic lives in `.brain-core/scripts/` as importable Python modules, each with a CLI entry point. The server imports functions from scripts and adds MCP transport, in-memory caching, process-local mutation serialization for mutating tool calls, and Obsidian CLI delegation. This means agents without MCP use the scripts directly and get identical results. New operations are always implemented as scripts first, then exposed via MCP — never the reverse.
 
-The optional [`brain` CLI](../functional/cli.md) (installed to `~/.local/bin/brain` by `install.sh`) is a thin dispatch layer on top of these scripts — `brain repair mcp` is exactly `python3 .brain-core/scripts/repair.py mcp` against the active vault's central managed runtime. The CLI versions independently from `brain-core`; its dispatch surface is the contract. See [DD-049](decisions/dd-049-brain-cli-thin-dispatch.md).
+The optional [`brain` CLI](../functional/cli.md) (installed to `~/.local/bin/brain` by `install.sh`) is a thin dispatch layer on top of these scripts — `brain repair runtime` is exactly `python3 .brain-core/scripts/repair.py runtime` against the active vault's central managed runtime. The CLI versions independently from `brain-core`; its dispatch surface is the contract. See [DD-049](decisions/dd-049-brain-cli-thin-dispatch.md).
 
 ### Three-layer config merge
 

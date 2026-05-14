@@ -149,12 +149,27 @@ def _model_state(
     )
 
 
+def _mock_healthy_runtime(monkeypatch):
+    monkeypatch.setattr(
+        repair_runtime,
+        "inspect_runtime",
+        lambda _vault: {
+            "healthy": True,
+            "python": sys.executable,
+            "issues": [],
+            "missing_modules": [],
+            "message": "Central managed runtime is ready for packageful Brain work.",
+        },
+    )
+
+
 class TestBootstrapSummary:
-    def test_plans_runtime_and_dependency_repair_when_managed_runtime_missing(self, repair_vault):
+    @pytest.mark.parametrize("scope", ["runtime", "mcp"])
+    def test_plans_runtime_and_dependency_repair_when_managed_runtime_missing(self, repair_vault, scope):
         launcher = sys.executable
         summary = repair._bootstrap_summary(
             repair_vault,
-            scope="mcp",
+            scope=scope,
             launcher_python=launcher,
             dry_run=True,
         )
@@ -247,7 +262,93 @@ class TestBootstrapSummary:
 
 
 class TestRepairScopes:
+    def test_runtime_verification_is_noop_when_runtime_is_healthy(self, repair_vault, monkeypatch):
+        runtime_python = repair_vault / ".brain" / "managed-runtime" / "bin" / "python"
+        runtime_python.parent.mkdir(parents=True)
+        runtime_python.write_text("")
+        monkeypatch.setattr(repair_runtime, "resolve_vault_venv_python", lambda _vault: runtime_python)
+        monkeypatch.setattr(
+            repair_runtime,
+            "probe_python",
+            lambda _python_path, *, modules=(): {"compatible": True, "ok": True, "missing": []},
+        )
+
+        result = repair_runtime.verify_runtime_post_bootstrap(repair_vault, dry_run=False)
+
+        assert result["status"] == "noop"
+        assert result["steps"][-1]["name"] == "runtime"
+        assert result["steps"][-1]["status"] == "noop"
+
+    def test_runtime_verification_reports_error_when_runtime_is_missing(self, repair_vault, monkeypatch):
+        missing_python = repair_vault / ".brain" / "missing-runtime" / "bin" / "python"
+        monkeypatch.setattr(repair_runtime, "resolve_vault_venv_python", lambda _vault: missing_python)
+
+        result = repair_runtime.verify_runtime_post_bootstrap(repair_vault, dry_run=False)
+
+        assert result["status"] == "error"
+        assert result["steps"][-1] == {
+            "name": "runtime",
+            "status": "error",
+            "message": "Central managed runtime is missing for this vault.",
+        }
+
+    def test_inspect_runtime_reports_unusable_when_probe_is_incompatible(self, repair_vault, monkeypatch):
+        runtime_python = repair_vault / ".brain" / "venv" / "bin" / "python"
+        runtime_python.parent.mkdir(parents=True)
+        runtime_python.write_text("")
+        monkeypatch.setattr(repair_runtime, "resolve_vault_venv_python", lambda _vault: runtime_python)
+        monkeypatch.setattr(
+            repair_runtime,
+            "probe_python",
+            lambda _python_path, *, modules=(): {"compatible": False, "ok": False, "missing": list(modules)},
+        )
+
+        state = repair_runtime.inspect_runtime(repair_vault)
+
+        assert state["healthy"] is False
+        assert state["issues"] == [repair_runtime.ISSUE_RUNTIME_UNUSABLE]
+
+    def test_inspect_runtime_reports_missing_baseline_packages(self, repair_vault, monkeypatch):
+        runtime_python = repair_vault / ".brain" / "venv" / "bin" / "python"
+        runtime_python.parent.mkdir(parents=True)
+        runtime_python.write_text("")
+        monkeypatch.setattr(repair_runtime, "resolve_vault_venv_python", lambda _vault: runtime_python)
+        monkeypatch.setattr(
+            repair_runtime,
+            "probe_python",
+            lambda _python_path, *, modules=(): {"compatible": True, "ok": False, "missing": ["mcp"]},
+        )
+
+        state = repair_runtime.inspect_runtime(repair_vault)
+
+        assert state["healthy"] is False
+        assert state["issues"] == [repair_runtime.ISSUE_MANAGED_RUNTIME_DEPENDENCIES_MISSING]
+        assert state["missing_modules"] == ["mcp"]
+
+    def test_mcp_repair_returns_error_when_runtime_is_unhealthy(self, repair_vault, monkeypatch):
+        monkeypatch.setattr(
+            repair_runtime,
+            "inspect_runtime",
+            lambda _vault: {
+                "healthy": False,
+                "python": str(repair_vault / ".brain" / "missing-runtime" / "bin" / "python"),
+                "issues": [repair_runtime.ISSUE_RUNTIME_MISSING],
+                "missing_modules": ["mcp", "yaml"],
+                "message": "Central managed runtime is missing for this vault.",
+            },
+        )
+
+        result = repair_runtime.repair_mcp(repair_vault, dry_run=False)
+
+        assert result["status"] == "error"
+        assert result["steps"][-1] == {
+            "name": "runtime",
+            "status": "error",
+            "message": "Central managed runtime is missing for this vault.",
+        }
+
     def test_mcp_repair_is_noop_when_no_project_state_is_present(self, repair_vault, monkeypatch):
+        _mock_healthy_runtime(monkeypatch)
         monkeypatch.setattr(repair_runtime.init, "claude_project_followup_notes", lambda _target: [])
 
         result = repair_runtime.repair_mcp(repair_vault, dry_run=False)
@@ -261,6 +362,7 @@ class TestRepairScopes:
 
     @pytest.mark.parametrize("client", ["claude", "codex"])
     def test_mcp_repair_is_noop_for_healthy_single_client_install(self, repair_vault, monkeypatch, client):
+        _mock_healthy_runtime(monkeypatch)
         monkeypatch.setattr(repair_runtime.init, "claude_project_followup_notes", lambda _target: [])
         _register_project_client(repair_vault, client)
 
@@ -270,6 +372,7 @@ class TestRepairScopes:
         assert all(step["status"] == "noop" for step in result["steps"])
 
     def test_mcp_repair_repairs_only_recorded_claude_project_state(self, repair_vault, monkeypatch):
+        _mock_healthy_runtime(monkeypatch)
         monkeypatch.setattr(repair_runtime.init, "claude_project_followup_notes", lambda _target: [])
         _register_project_client(repair_vault, "claude")
         (repair_vault / ".mcp.json").unlink()
@@ -285,6 +388,7 @@ class TestRepairScopes:
         assert [record["client"] for record in state["records"]] == ["claude"]
 
     def test_mcp_repair_propagates_programmer_errors(self, repair_vault, monkeypatch):
+        _mock_healthy_runtime(monkeypatch)
         monkeypatch.setattr(
             repair_runtime,
             "inspect_mcp",
@@ -693,6 +797,40 @@ class TestRepairSubprocessIntegration:
         assert "This repair scope does not require additional managed runtime dependencies." in result.stdout
         assert "Rebuilt the compiled router" in result.stdout
 
+    def test_lexical_repair_runs_from_bare_launcher_without_mcp_deps(self, repair_vault, tmp_path):
+        launcher_venv = tmp_path / "launcher-venv"
+        subprocess.run(
+            [sys.executable, "-m", "venv", str(launcher_venv)],
+            check=True,
+            timeout=60,
+        )
+        launcher_python = launcher_venv / "bin" / "python"
+
+        (repair_vault / ".brain-core" / "brain_mcp" / "requirements.txt").write_text(
+            "definitely-not-a-real-package-for-brain-repair==0.0\n"
+        )
+
+        env = os.environ.copy()
+        env["PIP_NO_INDEX"] = "1"
+        result = subprocess.run(
+            [
+                str(launcher_python),
+                str(Path(repair.__file__).resolve()),
+                "lexical",
+                "--vault",
+                str(repair_vault),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            env=env,
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert (repair_vault / ".brain" / "local" / "retrieval-index.json").is_file()
+        assert "This repair scope does not require additional managed runtime dependencies." in result.stdout
+        assert "Rebuilt the lexical retrieval index" in result.stdout
+
 
 class TestCheckRepairHints:
     def test_missing_router_uses_detected_launcher_in_repair_guidance(self, tmp_path, monkeypatch):
@@ -741,6 +879,26 @@ class TestCheckRepairHints:
         hit = next(f for f in result["findings"] if f["check"] == "mcp_registration")
         assert hit["repair"]["scope"] == "mcp"
         assert "repair.py mcp" in hit["repair"]["command"]
+
+    def test_runtime_drift_adds_runtime_repair_guidance(self, repair_vault, monkeypatch):
+        _register_project_client(repair_vault, "claude")
+        monkeypatch.setattr(
+            repair_runtime,
+            "inspect_runtime",
+            lambda _vault: {
+                "healthy": False,
+                "python": str(repair_vault / ".brain" / "missing-runtime" / "bin" / "python"),
+                "issues": [repair_runtime.ISSUE_RUNTIME_MISSING],
+                "missing_modules": ["mcp", "yaml"],
+                "message": "Central managed runtime is missing for this vault.",
+            },
+        )
+
+        result = check.run_checks(str(repair_vault), _wiki_router())
+
+        hit = next(f for f in result["findings"] if f["check"] == "runtime:runtime-missing")
+        assert hit["repair"]["scope"] == "runtime"
+        assert "repair.py runtime" in hit["repair"]["command"]
 
     @pytest.mark.parametrize("client", ["claude", "codex"])
     def test_valid_single_client_project_install_does_not_report_mcp_drift(self, repair_vault, client):

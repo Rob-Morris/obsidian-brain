@@ -1,6 +1,6 @@
 # Obsidian Brain
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.40.0-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.12-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.40.1-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.12-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
 
 A self-evolving knowledge base for agents and humans working together on what matters.
 
@@ -76,6 +76,7 @@ The wrapper detects the existing installation, shows the version change, and the
 If the local Brain runtime or generated state drifts, use the explicit repair entry point:
 
 ```bash
+python3.12 .brain-core/scripts/repair.py runtime
 python3.12 .brain-core/scripts/repair.py mcp
 python3.12 .brain-core/scripts/repair.py router
 python3.12 .brain-core/scripts/repair.py lexical
@@ -83,16 +84,18 @@ python3.12 .brain-core/scripts/repair.py registry
 python3.12 .brain-core/scripts/repair.py semantic
 ```
 
-Or, with the optional [`brain` CLI](docs/functional/cli.md): `brain repair mcp`, `brain repair router`, etc. The CLI is a thin dispatcher — scripts remain authoritative.
+Or, with the optional [`brain` CLI](docs/functional/cli.md): `brain repair runtime`, `brain repair mcp`, `brain repair router`, and so on. The CLI is a thin dispatcher — scripts remain authoritative.
 
-For most users, `repair.py mcp` is the main recovery path. Use it when the
-central managed runtime, MCP dependencies, or installed current-vault project MCP
-registration have drifted. It repairs the clients that are already installed
-for the vault; it does not act as a first-time installer. `repair.py semantic`
-is the semantic equivalent after a vault has been opted in with
-`configure.py semantic --enable`: it repairs the pinned runtime packages, the
-local model snapshot/manifest, and the embeddings sidecars together. The other
-scopes repair generated router/index state or the local workspace registry.
+For most users, `repair.py runtime` is the main recovery path. Use it when the
+central managed runtime or its baseline packages have drifted. `repair.py mcp`
+is the MCP-specific follow-up scope for repairing current-vault project MCP
+registration against that working runtime; it repairs only the clients that are
+already installed for the vault, and it does not act as a first-time installer.
+`repair.py semantic` is the semantic equivalent after a vault has been opted in
+with `configure.py semantic --enable`: it repairs the pinned runtime packages,
+the local model snapshot/manifest, and the embeddings sidecars together. The
+other scopes repair generated router/index state or the local workspace
+registry.
 
 If you do not know what is broken, start with:
 

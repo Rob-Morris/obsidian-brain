@@ -73,8 +73,8 @@ Starting version: `1.0.0`. See DD-049 §"The dispatch surface is a versioned API
 ## Examples
 
 ```bash
-# Repair MCP for the vault in the current directory.
-brain repair mcp
+# Repair the managed runtime for the vault in the current directory.
+brain repair runtime
 
 # Run check.py against a specific vault.
 brain check --vault ~/Documents/Brain --actionable
@@ -86,5 +86,5 @@ brain doctor
 cd ~/Documents/Brain && brain doctor
 
 # Equivalent without the CLI (still supported, always).
-python3 ~/Documents/Brain/.brain-core/scripts/repair.py mcp --vault ~/Documents/Brain
+python3 ~/Documents/Brain/.brain-core/scripts/repair.py runtime --vault ~/Documents/Brain
 ```

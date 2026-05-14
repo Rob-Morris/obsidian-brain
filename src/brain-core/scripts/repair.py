@@ -10,7 +10,11 @@ Bootstrap layer:
 
 Runtime layer:
   - runs inside the central managed runtime
-  - performs named repair scopes: mcp, router, lexical, registry, semantic
+  - performs named repair scopes: runtime, mcp, router, lexical, registry,
+    semantic
+  - every scope may rely on the shared managed-runtime owner to recover a
+    usable managed interpreter path; scope-specific requirements only control
+    extra managed-package needs beyond that bootstrap
 """
 
 from __future__ import annotations
@@ -87,6 +91,14 @@ def _exec_managed_runtime(args: argparse.Namespace, vault_root: Path, summary: d
         managed_runtime_env=MANAGED_RUNTIME_ENV,
         bootstrap_summary_env=BOOTSTRAP_SUMMARY_ENV,
     )
+
+
+def _planned_scope_message(scope: str) -> str:
+    if scope == "runtime":
+        return "Would repair and verify the central managed runtime."
+    if scope == "mcp":
+        return "Would continue current-vault MCP registration repair after the managed runtime is ready."
+    return "Would continue the named repair scope after the managed runtime is ready."
 
 
 def _render_human(result: dict) -> str:
@@ -170,7 +182,7 @@ def main(argv: list[str] | None = None) -> int:
                     _step(
                         args.scope,
                         "planned",
-                        "Would continue the named repair scope after the managed runtime is ready.",
+                        _planned_scope_message(args.scope),
                     )
                 ],
                 status="planned",

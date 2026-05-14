@@ -193,7 +193,7 @@ The MCP server writes persistent logs to `.brain/local/mcp-server.log` (2 MB max
 
 ### Scripts
 
-Available in `.brain-core/scripts/`. Scripts are the source of truth for all vault operations — the MCP server imports from them. The optional [`brain` CLI](../functional/cli.md) provides ergonomic shortcuts that dispatch directly to these scripts (`brain repair mcp` ≡ `python3 .brain-core/scripts/repair.py mcp`).
+Available in `.brain-core/scripts/`. Scripts are the source of truth for all vault operations — the MCP server imports from them. The optional [`brain` CLI](../functional/cli.md) provides ergonomic shortcuts that dispatch directly to these scripts (`brain repair runtime` ≡ `python3 .brain-core/scripts/repair.py runtime`).
 
 | Script | Purpose |
 |---|---|
@@ -209,7 +209,7 @@ Available in `.brain-core/scripts/`. Scripts are the source of truth for all vau
 | `create.py` | Create a new artefact with template/naming resolution |
 | `edit.py` | Edit artefacts via explicit `target + selector + scope`; the importable helpers also back editable `_Config/` resources |
 | `rename.py` | Rename a file with automatic wikilink updates; refuses existing-destination collisions before touching links |
-| `repair.py` | Explicit infrastructure repair entry point. Bootstraps from any compatible Python 3.12+ launcher, converges into the central managed runtime at `~/.brain/venvs/py<X.Y>-<sha16>/`, and then repairs one named scope: `mcp`, `router`, `lexical`, `registry`, or `semantic`. |
+| `repair.py` | Explicit infrastructure repair entry point. Bootstraps from any compatible Python 3.12+ launcher, converges into the central managed runtime at `~/.brain/venvs/py<X.Y>-<sha16>/`, and then repairs one named scope: `runtime`, `mcp`, `router`, `lexical`, `registry`, or `semantic`. |
 | `session.py` | Build the canonical session model and refresh `.brain/local/session.md` |
 | `obsidian_cli.py` | IPC client for native Obsidian CLI (library module used by MCP) |
 | `process.py` | Experimental content classification, duplicate resolution, ingestion |
@@ -246,9 +246,10 @@ python3.12 .brain-core/scripts/configure.py semantic --enable
 python3.12 .brain-core/scripts/configure.py semantic --enable --no-provision --json
 ```
 
-**`repair.py`** (infrastructure recovery) — explicit repair surface for current-vault operational drift. It bootstraps from any compatible Python 3.12+ launcher, repairs the central managed runtime at `~/.brain/venvs/py<X.Y>-<sha16>/` when needed, then hands off into it for packageful work. First-cut scopes are `mcp`, `router`, `lexical`, `registry`, and `semantic`; the semantic scope restores the pinned runtime packages, local model snapshot/manifest, and sidecars together for an already-configured vault. Missing sidecars degrade cleanly at runtime; present-but-corrupt sidecars now fail explicitly so the owning entry point can rebuild or point you at repair.
+**`repair.py`** (infrastructure recovery) — explicit repair surface for current-vault operational drift. It bootstraps from any compatible Python 3.12+ launcher, repairs the central managed runtime at `~/.brain/venvs/py<X.Y>-<sha16>/` when needed, then hands off into it for packageful work. First-cut scopes are `runtime`, `mcp`, `router`, `lexical`, `registry`, and `semantic`; the semantic scope restores the pinned runtime packages, local model snapshot/manifest, and sidecars together for an already-configured vault. Missing sidecars degrade cleanly at runtime; present-but-corrupt sidecars now fail explicitly so the owning entry point can rebuild or point you at repair.
 
 ```bash
+python3.12 .brain-core/scripts/repair.py runtime
 python3.12 .brain-core/scripts/repair.py mcp
 python3.12 .brain-core/scripts/repair.py router --dry-run
 python3.12 .brain-core/scripts/repair.py lexical
@@ -257,7 +258,8 @@ python3.12 .brain-core/scripts/repair.py semantic
 ```
 
 If you are unsure which scope applies, run `check.py` first. For most broken
-tooling cases, `repair.py mcp` is the right recovery path. It repairs installed
+tooling cases, `repair.py runtime` is the right recovery path when the central
+managed Brain runtime itself is broken. `repair.py mcp` repairs installed
 current-vault project MCP state for the clients already present; it does not
 create a first-time project registration. `repair.py semantic` is the semantic
 equivalent after a vault has been opted in with
