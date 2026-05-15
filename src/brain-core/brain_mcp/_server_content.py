@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from typing import Literal
 
-import build_index
 import process
 import retrieval_embeddings as _retrieval_embeddings
 from _resource_contract import Spec

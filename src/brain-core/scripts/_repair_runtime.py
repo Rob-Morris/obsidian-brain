@@ -12,10 +12,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import build_index
 import compile_router
 import init
 import workspace_registry
+import _search.index as search_index
 import _semantic.config as _semantic_config
 import _semantic.model as _semantic_model
 import _semantic.provision as _semantic_provision
@@ -241,7 +241,7 @@ def _router_is_stale(vault_root: Path) -> tuple[bool, str]:
 
 
 def _index_is_stale(vault_root: Path) -> tuple[bool, str]:
-    index_path = vault_root / build_index.OUTPUT_PATH
+    index_path = vault_root / search_index.OUTPUT_PATH
     if not index_path.is_file():
         return True, "missing"
 
@@ -252,7 +252,7 @@ def _index_is_stale(vault_root: Path) -> tuple[bool, str]:
     if not isinstance(data, dict):
         return True, "invalid-payload"
 
-    if data.get("meta", {}).get("index_version") != build_index.INDEX_VERSION:
+    if data.get("meta", {}).get("index_version") != search_index.INDEX_VERSION:
         return True, "version-drift"
 
     built_at = data.get("meta", {}).get("built_at")
@@ -619,8 +619,8 @@ def repair_lexical(vault_root: Path, dry_run: bool, bootstrap_steps: list[dict] 
         steps.append(_step("lexical", "planned", f"Would rebuild the lexical retrieval index ({reason})."))
         return _finalise_result("lexical", vault_root, dry_run, steps)
 
-    index = build_index.build_index(str(vault_root))
-    build_index.persist_retrieval_index(str(vault_root), index)
+    index = search_index.build_index(str(vault_root))
+    search_index.persist_retrieval_index(str(vault_root), index)
     steps.append(_step("lexical", "changed", f"Rebuilt the lexical retrieval index ({reason})."))
     return _finalise_result("lexical", vault_root, dry_run, steps)
 

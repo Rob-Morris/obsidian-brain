@@ -69,7 +69,8 @@ SCRIPTS_DIR = os.path.join(os.path.dirname(__file__), "..", "scripts")
 sys.path.insert(0, os.path.abspath(SCRIPTS_DIR))
 
 import compile_router
-import build_index
+import _search.assets as search_assets
+import _search.index as search_index
 from _common import (
     SELECTOR_OCCURRENCE_DESCRIPTION,
     SELECTOR_WITHIN_DESCRIPTION,
@@ -110,7 +111,7 @@ def _router_rel() -> str:
     return compile_router.OUTPUT_PATH
 
 def _index_rel() -> str:
-    return build_index.OUTPUT_PATH
+    return search_index.OUTPUT_PATH
 
 # ---------------------------------------------------------------------------
 # Server state
@@ -626,8 +627,11 @@ def _load_index_for_warmup(vault_root: str, generation: int) -> dict | None:
     stale, data = _check_index(vault_root)
     if stale:
         t0 = time.monotonic()
-        index = _run_with_timeout("index build", lambda: build_index.build_index(vault_root))
-        build_index.persist_retrieval_index(vault_root, index)
+        index = _run_with_timeout(
+            "index build",
+            lambda: search_index.build_index(vault_root),
+        )
+        search_index.persist_retrieval_index(vault_root, index)
         if _logger:
             _logger.info("index build (stale) %.1fs", time.monotonic() - t0)
         if _warmup_generation_matches(generation):
@@ -1072,7 +1076,7 @@ def _check_index(vault_root: str) -> tuple[bool, dict | None]:
     if not isinstance(data, dict):
         return True, None
 
-    if data.get("meta", {}).get("index_version") != build_index.INDEX_VERSION:
+    if data.get("meta", {}).get("index_version") != search_index.INDEX_VERSION:
         return True, None
 
     built_at = data.get("meta", {}).get("built_at")
@@ -1403,7 +1407,7 @@ def _ensure_embeddings_fresh() -> None:
             if loaded is not None:
                 if _apply_loaded_embeddings_snapshot(loaded):
                     return
-    result = build_index.refresh_embeddings_outputs(
+    result = search_assets.refresh_embeddings_outputs(
         _vault_root,
         _router,
         _index["documents"],
@@ -1450,7 +1454,12 @@ def _apply_pending_index_updates() -> None:
 
     try:
         for rel_path, type_hint in pending:
-            build_index.index_update(_index, _vault_root, rel_path, type_hint=type_hint)
+            search_index.index_update(
+                _index,
+                _vault_root,
+                rel_path,
+                type_hint=type_hint,
+            )
         _save_json(_index, _vault_root, _index_rel())
         _index_checked_at = time.monotonic()
     except Exception as e:
@@ -1579,8 +1588,8 @@ def _build_index_and_save(vault_root: str) -> dict:
     """
     global _index_dirty, _index_checked_at, _embeddings_meta, _type_embeddings, _doc_embeddings
     global _doc_embeddings_dirty, _type_embeddings_dirty
-    index = build_index.build_index(vault_root)
-    result = build_index.persist_retrieval_outputs(
+    index = search_index.build_index(vault_root)
+    result = search_assets.persist_retrieval_outputs(
         vault_root,
         index,
         router=_router,

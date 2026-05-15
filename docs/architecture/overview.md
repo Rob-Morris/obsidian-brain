@@ -97,9 +97,9 @@ The MCP server is a thin wrapper. All vault operation logic lives in `.brain-cor
 Within that script layer, retrieval ownership now lives under `scripts/_search/`.
 The top-level `build_index.py` and `search_index.py` files remain supported
 script entrypoints, but they are now thin wrappers over `_search` rather than
-the canonical internal owners. Some MCP and lifecycle paths still route through
-those wrappers during staged caller convergence, so the wrappers remain part of
-the current runtime surface until that later cleanup lands.
+the canonical internal owners. Live runtime retrieval code now depends on
+`_search` directly; the wrappers remain as supported script surfaces rather
+than part of the internal runtime dependency graph.
 
 The optional [`brain` CLI](../functional/cli.md) (installed to `~/.local/bin/brain` by `install.sh`) is a thin dispatch layer on top of these scripts — `brain repair runtime` is exactly `python3 .brain-core/scripts/repair.py runtime` against the active vault's central managed runtime. The CLI versions independently from `brain-core`; its dispatch surface is the contract. See [DD-049](decisions/dd-049-brain-cli-thin-dispatch.md).
 

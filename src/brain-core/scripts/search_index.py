@@ -4,11 +4,9 @@ search_index.py — Brain-core retrieval search
 
 CLI entry wrapper over the `_search` domain owners.
 
-Internal Python callers should prefer `_search.query` directly where they are
-already converged onto the new owner. Some lifecycle-facing callers still
-route through this wrapper until the later caller-convergence phases land.
-This module is retained as a stable script surface, not as the long-term
-canonical internal import boundary.
+Internal Python callers should prefer `_search.query` directly. Live runtime
+retrieval code has converged onto that owner; this module is retained as a
+stable script surface, not as the canonical internal import boundary.
 """
 
 from __future__ import annotations

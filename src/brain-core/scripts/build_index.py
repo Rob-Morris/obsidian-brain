@@ -5,10 +5,9 @@ build_index.py — Brain-core BM25 retrieval index builder
 CLI entry wrapper over the `_search` domain owners.
 
 Internal Python callers should prefer `_search.index` / `_search.assets`
-directly where they are already converged onto the new owners. Some
-lifecycle-facing callers still route through this wrapper until the later
-caller-convergence phases land. This module is retained as a stable script
-surface, not as the long-term canonical internal import boundary.
+directly. Live runtime retrieval code has converged onto those owners; this
+module is retained as a stable script surface, not as the canonical internal
+import boundary.
 """
 
 from __future__ import annotations

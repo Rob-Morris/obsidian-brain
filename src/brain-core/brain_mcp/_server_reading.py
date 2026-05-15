@@ -7,13 +7,12 @@ from typing import Literal
 from mcp.types import TextContent
 
 import _common
+import _search.query as search_query
 from _common import is_archived_path
-import build_index
 import list_artefacts
 import obsidian_cli
 import read as read_mod
 import retrieval_embeddings as _retrieval_embeddings
-import search_index
 import workspace_registry
 
 from . import _server_readiness
@@ -221,7 +220,7 @@ def handle_brain_search(
                 "brain_search mode applies only to artefact search; "
                 "non-artefact resources support lexical text matching only"
             )
-        results = search_index.search_resource(
+        results = search_query.search_resource(
             state.router,
             state.vault_root,
             resource,
@@ -241,14 +240,14 @@ def handle_brain_search(
             type_filter = art["frontmatter_type"]
 
     try:
-        resolved_mode = search_index.resolve_search_mode(
+        resolved_mode = search_query.resolve_search_mode(
             state.vault_root,
             mode,
             config=state.config,
             doc_embeddings=state.doc_embeddings,
             embeddings_meta=state.embeddings_meta,
         )
-    except search_index.SearchModeUnavailableError as e:
+    except search_query.SearchModeUnavailableError as e:
         return runtime.fmt_error(str(e))
 
     if resolved_mode in {"semantic", "hybrid"}:
@@ -283,7 +282,7 @@ def handle_brain_search(
                 )
                 return _fmt_search("obsidian_cli", results)
 
-        results = search_index.search(
+        results = search_query.search(
             state.index,
             query,
             state.vault_root,
@@ -296,7 +295,7 @@ def handle_brain_search(
 
     try:
         if resolved_mode == "semantic":
-            results = search_index.search_semantic(
+            results = search_query.search_semantic(
                 query,
                 state.vault_root,
                 type_filter=type_filter,
@@ -308,7 +307,7 @@ def handle_brain_search(
             )
             return _fmt_search("semantic", results)
 
-        results = search_index.search_hybrid(
+        results = search_query.search_hybrid(
             state.index,
             query,
             state.vault_root,
@@ -320,7 +319,7 @@ def handle_brain_search(
             embeddings_meta=state.embeddings_meta,
         )
         return _fmt_search("hybrid", results)
-    except search_index.SearchModeUnavailableError as e:
+    except search_query.SearchModeUnavailableError as e:
         return runtime.fmt_error(str(e))
 
 

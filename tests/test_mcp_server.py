@@ -19,12 +19,10 @@ import _search.query as search_query
 import _semantic.model as semantic_model
 import _semantic.runtime as semantic_runtime
 from brain_mcp import _server_content, _server_reading, server
-import build_index
 import compile_router
 import obsidian_cli
 import process
 import retrieval_embeddings
-import search_index
 import workspace_registry
 import config as config_mod
 
@@ -1575,7 +1573,7 @@ class TestEnsureFreshRobustness:
         server._index_dirty = False
         server._mark_index_pending("Wiki/brain-overview-abc123.md", "wiki")
 
-        with patch("brain_mcp.server.build_index.index_update", side_effect=OSError("boom")):
+        with patch.object(server.search_index, "index_update", side_effect=OSError("boom")):
             server._ensure_index_fresh()
 
         assert server._index_dirty, "Index should be marked dirty after incremental failure"
@@ -3733,7 +3731,7 @@ class TestSemanticWarmup:
         monkeypatch.setattr(server, "_embeddings_enabled", lambda: True)
         monkeypatch.setattr(retrieval_embeddings, "load_embeddings_state", fake_load)
         monkeypatch.setattr(
-            build_index,
+            search_assets,
             "refresh_embeddings_outputs",
             lambda *args, **kwargs: (_ for _ in ()).throw(
                 AssertionError("refresh_embeddings_outputs should not run during semantic warmup load")
@@ -3786,7 +3784,7 @@ class TestSemanticWarmup:
                 retrieval_embeddings.SemanticEmbeddingsLoadError("corrupt sidecars")
             ),
         )
-        monkeypatch.setattr(build_index, "refresh_embeddings_outputs", fake_refresh)
+        monkeypatch.setattr(search_assets, "refresh_embeddings_outputs", fake_refresh)
 
         server.startup(vault_root=str(vault))
 
@@ -3877,7 +3875,7 @@ class TestSemanticWarmup:
             "load_embeddings_state",
             lambda *_a, **_k: (None, None, None),
         )
-        monkeypatch.setattr(build_index, "refresh_embeddings_outputs", fake_refresh)
+        monkeypatch.setattr(search_assets, "refresh_embeddings_outputs", fake_refresh)
 
         server.startup(vault_root=str(vault))
 
@@ -5278,7 +5276,7 @@ class TestIndexStaleness:
             lambda _vault: (expected_type_embeddings, expected_doc_embeddings, expected_meta),
         )
         monkeypatch.setattr(
-            build_index,
+            search_assets,
             "refresh_embeddings_outputs",
             lambda *args, **kwargs: (_ for _ in ()).throw(
                 AssertionError("refresh_embeddings_outputs should not run on a fast-path hit")
@@ -5323,7 +5321,7 @@ class TestIndexStaleness:
                 retrieval_embeddings.SemanticEmbeddingsLoadError("corrupt sidecars")
             ),
         )
-        monkeypatch.setattr(build_index, "refresh_embeddings_outputs", fake_refresh)
+        monkeypatch.setattr(search_assets, "refresh_embeddings_outputs", fake_refresh)
 
         server._type_embeddings = None
         server._doc_embeddings = None
@@ -5414,7 +5412,7 @@ class TestIndexStaleness:
             calls.append((str(vault_root), enable_embeddings, len(documents)))
             return (object(), object(), {"documents": [], "types": []})
 
-        monkeypatch.setattr(build_index, "refresh_embeddings_outputs", fake_refresh)
+        monkeypatch.setattr(search_assets, "refresh_embeddings_outputs", fake_refresh)
 
         result = server.brain_process(
             operation="classify",
@@ -5450,7 +5448,7 @@ class TestIndexStaleness:
             calls.append((str(vault_root), enable_embeddings, len(documents)))
             return (object(), object(), {"documents": [], "types": []})
 
-        monkeypatch.setattr(build_index, "refresh_embeddings_outputs", fake_refresh)
+        monkeypatch.setattr(search_assets, "refresh_embeddings_outputs", fake_refresh)
         monkeypatch.setattr(
             retrieval_embeddings,
             "semantic_engine_available",
@@ -5536,7 +5534,7 @@ class TestIndexStaleness:
         assert not stale
 
         # Patch INDEX_VERSION to simulate drift
-        with patch.object(build_index, "INDEX_VERSION", "99.0.0"):
+        with patch.object(server.search_index, "INDEX_VERSION", "99.0.0"):
             stale, _ = server._check_index(str(initialized))
             assert stale
 

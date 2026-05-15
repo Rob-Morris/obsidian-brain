@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import os
 from pathlib import Path
 import subprocess
@@ -274,3 +275,36 @@ import _search.query
     )
 
     assert result.returncode == 0, result.stderr
+
+
+def test_live_runtime_modules_do_not_import_search_wrappers():
+    """Live runtime code should depend on `_search`, not CLI wrapper scripts.
+
+    See docs/architecture/overview.md for the post-convergence layering rule.
+    """
+    repo_root = Path(__file__).resolve().parents[1]
+    source_roots = [
+        repo_root / "src" / "brain-core" / "brain_mcp",
+        repo_root / "src" / "brain-core" / "scripts",
+    ]
+    excluded = {
+        repo_root / "src" / "brain-core" / "scripts" / "build_index.py",
+        repo_root / "src" / "brain-core" / "scripts" / "search_index.py",
+    }
+    banned = {"build_index", "search_index"}
+
+    for root in source_roots:
+        for path in root.rglob("*.py"):
+            if path in excluded:
+                continue
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            imported = set()
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    imported.update(alias.name for alias in node.names)
+                elif isinstance(node, ast.ImportFrom) and node.module:
+                    imported.add(node.module)
+
+            assert imported.isdisjoint(
+                banned
+            ), f"{path} still imports wrapper modules: {imported & banned}"
