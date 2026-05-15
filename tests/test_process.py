@@ -4,8 +4,8 @@ import os
 
 import pytest
 
+import _search.index as search_index
 import _semantic.model as semantic_model
-import build_index
 import compile_router
 import process
 
@@ -89,7 +89,7 @@ def router(vault):
 @pytest.fixture
 def index(vault):
     """Build a retrieval index for the vault."""
-    return build_index.build_index(str(vault))
+    return search_index.build_index(str(vault))
 
 
 @pytest.fixture
@@ -113,7 +113,7 @@ def populated_router(populated_vault):
 
 @pytest.fixture
 def populated_index(populated_vault):
-    return build_index.build_index(str(populated_vault))
+    return search_index.build_index(str(populated_vault))
 
 
 class TestInferTitle:
@@ -388,7 +388,7 @@ class TestIngest:
             "---\ntype: living/ideas\ntags: [hardware]\nstatus: shaping\n---\n\n"
             "# Solar Keyboard Idea\n\nSolar powered keyboard concept.\n"
         )
-        index = build_index.build_index(str(populated_vault))
+        index = search_index.build_index(str(populated_vault))
         from unittest.mock import patch
 
         with patch("process.resolve_content") as mock_resolve:

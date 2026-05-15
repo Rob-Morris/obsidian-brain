@@ -1,17 +1,15 @@
 """Tests for search_index.py — BM25 retrieval search."""
 
 import json
-import math
 import os
 
 import pytest
 
+import _search.index as search_index_mod
 import _search.lexical as lexical
 import _search.query as search_query
 import _semantic.model as semantic_model
 import _semantic.runtime as semantic_runtime
-import build_index as bi
-import search_index as si
 
 
 # ---------------------------------------------------------------------------
@@ -74,7 +72,21 @@ def vault(tmp_path):
 @pytest.fixture
 def index(vault):
     """Build and return an index for the test vault."""
-    return bi.build_index(vault)
+    return search_index_mod.build_index(vault)
+
+
+def build_and_persist_index(vault):
+    """Build and persist the retrieval index for CLI wrapper tests."""
+    index = search_index_mod.build_index(vault)
+    search_index_mod.persist_retrieval_index(vault, index)
+    return index
+
+
+def write_local_config(vault, body):
+    """Write a local config override for CLI wrapper tests."""
+    config_path = vault / ".brain" / "local" / "config.yaml"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(body, encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -104,13 +116,13 @@ class TestSemanticRuntime:
 
 class TestSearch:
     def test_basic_search(self, index, vault):
-        results = si.search(index, "python programming", vault)
+        results = search_query.search(index, "python programming", vault)
         assert len(results) > 0
         # Python basics should rank high — has "python" multiple times
         assert results[0]["path"].endswith("python-basics.md") or "python" in results[0]["title"].lower()
 
     def test_result_fields(self, index, vault):
-        results = si.search(index, "python", vault)
+        results = search_query.search(index, "python", vault)
         assert len(results) > 0
         r = results[0]
         assert "path" in r
@@ -122,59 +134,59 @@ class TestSearch:
         assert r["score"] > 0
 
     def test_no_results(self, index, vault):
-        results = si.search(index, "xyznonexistent", vault)
+        results = search_query.search(index, "xyznonexistent", vault)
         assert results == []
 
     def test_empty_query(self, index, vault):
-        results = si.search(index, "", vault)
+        results = search_query.search(index, "", vault)
         assert results == []
 
     def test_top_k_limit(self, index, vault):
-        results = si.search(index, "python", vault, top_k=1)
+        results = search_query.search(index, "python", vault, top_k=1)
         assert len(results) <= 1
 
     def test_type_filter(self, index, vault):
-        results = si.search(index, "python", vault, type_filter="temporal/logs")
+        results = search_query.search(index, "python", vault, type_filter="temporal/logs")
         assert len(results) > 0
         assert all(r["type"] == "temporal/logs" for r in results)
 
     def test_type_filter_no_match(self, index, vault):
-        results = si.search(index, "python", vault, type_filter="living/nonexistent")
+        results = search_query.search(index, "python", vault, type_filter="living/nonexistent")
         assert results == []
 
     def test_tag_filter(self, index, vault):
-        results = si.search(index, "programming", vault, tag_filter="python")
+        results = search_query.search(index, "programming", vault, tag_filter="python")
         assert len(results) > 0
         # Should only include docs tagged with python
 
     def test_status_filter(self, index, vault):
-        results = si.search(index, "python", vault, status_filter="active")
+        results = search_query.search(index, "python", vault, status_filter="active")
         assert len(results) > 0
         assert all(r["status"] == "active" for r in results)
 
     def test_status_filter_no_match(self, index, vault):
-        results = si.search(index, "python", vault, status_filter="nonexistent")
+        results = search_query.search(index, "python", vault, status_filter="nonexistent")
         assert results == []
 
     def test_ranking_order(self, index, vault):
-        results = si.search(index, "python", vault)
+        results = search_query.search(index, "python", vault)
         if len(results) >= 2:
             assert results[0]["score"] >= results[1]["score"]
 
     def test_multi_term_query(self, index, vault):
-        results = si.search(index, "rust ownership memory", vault)
+        results = search_query.search(index, "rust ownership memory", vault)
         assert len(results) > 0
         # Rust ownership doc should rank highest
         assert "rust" in results[0]["path"].lower() or "rust" in results[0]["title"].lower()
 
     def test_snippet_present(self, index, vault):
-        results = si.search(index, "python", vault)
+        results = search_query.search(index, "python", vault)
         assert len(results) > 0
         # At least one result should have a non-empty snippet
         assert any(r["snippet"] for r in results)
 
     def test_scores_are_positive(self, index, vault):
-        results = si.search(index, "programming language", vault)
+        results = search_query.search(index, "programming language", vault)
         for r in results:
             assert r["score"] > 0
 
@@ -190,19 +202,19 @@ class TestSearch:
             "# Wind Patterns\n\nThe zephyr is a gentle western wind. "
             "Zephyr winds are common in spring. The zephyr brings warm air.\n"
         )
-        index = bi.build_index(vault)
-        results = si.search(index, "zephyr", vault)
+        index = search_index_mod.build_index(vault)
+        results = search_query.search(index, "zephyr", vault)
         assert len(results) >= 2
         # Title match should rank first despite fewer body occurrences
         assert "zephyr-guide" in results[0]["path"]
 
     def test_title_boost_backward_compatible(self, vault):
         """Index without title_tf still works (graceful fallback)."""
-        index = bi.build_index(vault)
+        index = search_index_mod.build_index(vault)
         # Strip title_tf from all docs to simulate old index
         for doc in index["documents"]:
             doc.pop("title_tf", None)
-        results = si.search(index, "python", vault)
+        results = search_query.search(index, "python", vault)
         assert len(results) > 0
 
 
@@ -266,7 +278,7 @@ class TestSemanticSearch:
             lambda *_args, **kwargs: kwargs.get("skip_sidecar_check", False),
         )
 
-        assert si.default_search_mode(vault, config=cfg) == "hybrid"
+        assert search_query.default_search_mode(vault, config=cfg) == "hybrid"
 
     def test_default_mode_falls_back_to_lexical_when_semantic_disabled(self, vault):
         cfg = {
@@ -275,7 +287,7 @@ class TestSemanticSearch:
                 "local_runtime": {"semantic_engine_installed": True},
             }
         }
-        assert si.default_search_mode(vault, config=cfg) == "lexical"
+        assert search_query.default_search_mode(vault, config=cfg) == "lexical"
 
     def test_default_mode_prefers_hybrid_when_semantic_engine_is_provisioned(
         self,
@@ -294,7 +306,7 @@ class TestSemanticSearch:
             lambda *_args, **kwargs: kwargs.get("skip_sidecar_check", False),
         )
 
-        assert si.default_search_mode(vault, config=cfg) == "hybrid"
+        assert search_query.default_search_mode(vault, config=cfg) == "hybrid"
 
     def test_semantic_search_uses_document_vectors(self, index, vault, monkeypatch):
         np = pytest.importorskip("numpy")
@@ -311,7 +323,7 @@ class TestSemanticSearch:
         )
         meta = self._doc_meta(index)
 
-        results = si.search_semantic(
+        results = search_query.search_semantic(
             "brain tooling architecture",
             vault,
             top_k=3,
@@ -337,7 +349,7 @@ class TestSemanticSearch:
         )
         meta = self._doc_meta(index)
 
-        results = si.search_semantic(
+        results = search_query.search_semantic(
             "python",
             vault,
             tag_filter="brain-core",
@@ -349,8 +361,8 @@ class TestSemanticSearch:
         assert [result["path"] for result in results] == ["Designs/brain-tooling.md"]
 
     def test_semantic_search_errors_without_sidecars(self, vault):
-        with pytest.raises(si.SearchModeUnavailableError):
-            si.search_semantic("brain", vault)
+        with pytest.raises(search_query.SearchModeUnavailableError):
+            search_query.search_semantic("brain", vault)
 
     def test_semantic_search_reports_corrupt_sidecars(self, vault, monkeypatch):
         def boom(_vault):
@@ -358,8 +370,8 @@ class TestSemanticSearch:
 
         monkeypatch.setattr(search_query._semantic, "load_doc_embeddings", boom)
 
-        with pytest.raises(si.SearchModeUnavailableError, match="corrupt sidecars"):
-            si.search_semantic("brain", vault)
+        with pytest.raises(search_query.SearchModeUnavailableError, match="corrupt sidecars"):
+            search_query.search_semantic("brain", vault)
 
     def test_load_doc_embeddings_reports_stale_router_sidecars(self, vault):
         np = pytest.importorskip("numpy")
@@ -382,10 +394,10 @@ class TestSemanticSearch:
         )
 
         with pytest.raises(
-            si.SearchModeUnavailableError,
+            search_query.SearchModeUnavailableError,
             match="built for a different compiled router",
         ):
-            si.load_doc_embeddings_or_unavailable(vault)
+            search_query.load_doc_embeddings_or_unavailable(vault)
 
     def test_semantic_search_wraps_semantic_model_errors(self, vault, monkeypatch):
         np = pytest.importorskip("numpy")
@@ -395,8 +407,8 @@ class TestSemanticSearch:
 
         monkeypatch.setattr(search_query._semantic, "encode_query", boom)
 
-        with pytest.raises(si.SearchModeUnavailableError, match="missing model snapshot"):
-            si.search_semantic(
+        with pytest.raises(search_query.SearchModeUnavailableError, match="missing model snapshot"):
+            search_query.search_semantic(
                 "brain",
                 vault,
                 doc_embeddings=np.array([[1.0, 0.0]]),
@@ -418,7 +430,7 @@ class TestSemanticSearch:
         )
         meta = self._doc_meta(index)
 
-        results = si.search_hybrid(
+        results = search_query.search_hybrid(
             index,
             "python programming",
             vault,
@@ -456,7 +468,7 @@ class TestSemanticSearch:
         monkeypatch.setattr(search_query, "search_semantic", fake_search_semantic)
         monkeypatch.setattr(search_query, "_attach_snippets", lambda *_args, **_kwargs: None)
 
-        results = si.search_hybrid(index, "v0.16 release notes", vault, top_k=1)
+        results = search_query.search_hybrid(index, "v0.16 release notes", vault, top_k=1)
 
         assert not semantic_called
         assert results == lexical_results
@@ -493,7 +505,7 @@ class TestSemanticSearch:
                 "focusing on docking abstractions."
             ),
         )
-        index = bi.build_index(vault)
+        index = search_index_mod.build_index(vault)
         path_vectors = self._default_vectors(index, [0.0, 1.0])
         path_vectors.update(
             {
@@ -510,7 +522,7 @@ class TestSemanticSearch:
         no_bonus = pytest.MonkeyPatch()
         no_bonus.setattr(search_query, "SEMANTIC_CHAMPION_BONUS", 0.0)
         try:
-            baseline = si.search_hybrid(
+            baseline = search_query.search_hybrid(
                 index,
                 "lattice harbour",
                 vault,
@@ -521,7 +533,7 @@ class TestSemanticSearch:
         finally:
             no_bonus.undo()
 
-        boosted = si.search_hybrid(
+        boosted = search_query.search_hybrid(
             index,
             "lattice harbour",
             vault,
@@ -564,7 +576,7 @@ class TestSemanticSearch:
             ),
             tags=["brain-core", "logging"],
         )
-        index = bi.build_index(vault)
+        index = search_index_mod.build_index(vault)
         path_vectors = self._default_vectors(index, [0.0, 1.0])
         path_vectors.update(
             {
@@ -582,7 +594,7 @@ class TestSemanticSearch:
         no_bonus = pytest.MonkeyPatch()
         no_bonus.setattr(search_query, "LEXICAL_TITLE_CHAMPION_BONUS", 0.0)
         try:
-            baseline = si.search_hybrid(
+            baseline = search_query.search_hybrid(
                 index,
                 query,
                 vault,
@@ -593,7 +605,7 @@ class TestSemanticSearch:
         finally:
             no_bonus.undo()
 
-        boosted = si.search_hybrid(
+        boosted = search_query.search_hybrid(
             index,
             query,
             vault,
@@ -655,7 +667,7 @@ class TestSemanticSearch:
             "Ambient Operations",
             "Ambient operational notes for background coordination flows.",
         )
-        index = bi.build_index(vault)
+        index = search_index_mod.build_index(vault)
         path_vectors = self._default_vectors(index, [0.0, 1.0])
         path_vectors.update(
             {
@@ -680,7 +692,7 @@ class TestSemanticSearch:
         no_bonus = pytest.MonkeyPatch()
         no_bonus.setattr(search_query, "SEMANTIC_RESCUE_BONUS", 0.0)
         try:
-            baseline = si.search_hybrid(
+            baseline = search_query.search_hybrid(
                 index,
                 query,
                 vault,
@@ -691,7 +703,7 @@ class TestSemanticSearch:
         finally:
             no_bonus.undo()
 
-        boosted = si.search_hybrid(
+        boosted = search_query.search_hybrid(
             index,
             query,
             vault,
@@ -925,7 +937,7 @@ class TestSemanticSearch:
         monkeypatch.setattr(search_query, "search_semantic", lambda *_args, **_kwargs: semantic_results)
         monkeypatch.setattr(search_query, "_attach_snippets", lambda *_args, **_kwargs: None)
 
-        results = si.search_hybrid(
+        results = search_query.search_hybrid(
             index,
             "conversational exploration of collaborative application framework with event propagation architecture",
             vault,
@@ -948,7 +960,7 @@ class TestSemanticSearch:
         monkeypatch.setattr(search_query, "search_semantic", lambda *_args, **_kwargs: semantic_results)
         monkeypatch.setattr(search_query, "_attach_snippets", lambda *_args, **_kwargs: None)
 
-        results = si.search_hybrid(
+        results = search_query.search_hybrid(
             index,
             "skills for auditing docs so they are actually usable by agents",
             vault,
@@ -964,19 +976,19 @@ class TestSemanticSearch:
 
 class TestSnippet:
     def test_snippet_length(self, vault):
-        snippet = si.extract_snippet(vault, "Wiki/python-basics.md", ["python"])
+        snippet = search_query.extract_snippet(vault, "Wiki/python-basics.md", ["python"])
         assert len(snippet) <= 300  # Some slack for word boundaries + ellipsis
 
     def test_snippet_contains_term(self, vault):
-        snippet = si.extract_snippet(vault, "Wiki/python-basics.md", ["python"])
+        snippet = search_query.extract_snippet(vault, "Wiki/python-basics.md", ["python"])
         assert "python" in snippet.lower() or "Python" in snippet
 
     def test_snippet_missing_file(self, vault):
-        snippet = si.extract_snippet(vault, "nonexistent.md", ["test"])
+        snippet = search_query.extract_snippet(vault, "nonexistent.md", ["test"])
         assert snippet == ""
 
     def test_snippet_no_match_returns_start(self, vault):
-        snippet = si.extract_snippet(vault, "Wiki/python-basics.md", ["xyznotfound"])
+        snippet = search_query.extract_snippet(vault, "Wiki/python-basics.md", ["xyznotfound"])
         # Should return start of body
         assert len(snippet) > 0
 
@@ -996,7 +1008,7 @@ class TestDispatchSearch:
         monkeypatch.setattr(search_query, "search", fake_search)
         index = {"documents": []}
 
-        results = si.dispatch_search(
+        results = search_query.dispatch_search(
             index,
             "query",
             tmp_path,
@@ -1033,7 +1045,7 @@ class TestDispatchSearch:
 
         monkeypatch.setattr(search_query, "search_semantic", fake_search_semantic)
 
-        results = si.dispatch_search(
+        results = search_query.dispatch_search(
             {"documents": []},
             "query",
             tmp_path,
@@ -1076,7 +1088,7 @@ class TestDispatchSearch:
         monkeypatch.setattr(search_query, "search_hybrid", fake_search_hybrid)
         index = {"documents": []}
 
-        results = si.dispatch_search(
+        results = search_query.dispatch_search(
             index,
             "query",
             tmp_path,
@@ -1111,154 +1123,85 @@ class TestDispatchSearch:
 
     def test_dispatch_search_rejects_unknown_mode(self, tmp_path):
         with pytest.raises(ValueError, match="unknown search mode 'bogus'"):
-            si.dispatch_search({}, "query", tmp_path, "bogus")
+            search_query.dispatch_search({}, "query", tmp_path, "bogus")
 
 
 # ---------------------------------------------------------------------------
-# CLI argument parsing
-# ---------------------------------------------------------------------------
-
-class TestParseArgs:
-    def test_query_only(self):
-        q, t, tag, s, k, j, m = si.parse_args(["prog", "hello world"])
-        assert q == "hello world"
-        assert t is None
-        assert tag is None
-        assert s is None
-        assert k == 10
-        assert j is False
-        assert m is None
-
-    def test_type_filter(self):
-        q, t, tag, s, k, j, _m = si.parse_args(["prog", "query", "--type", "living/wiki"])
-        assert q == "query"
-        assert t == "living/wiki"
-
-    def test_tag_filter(self):
-        q, t, tag, s, k, j, _m = si.parse_args(["prog", "query", "--tag", "python"])
-        assert tag == "python"
-
-    def test_status_filter(self):
-        q, t, tag, s, k, j, _m = si.parse_args(["prog", "query", "--status", "shaping"])
-        assert s == "shaping"
-
-    def test_top_k(self):
-        q, t, tag, s, k, j, _m = si.parse_args(["prog", "query", "--top-k", "5"])
-        assert k == 5
-
-    def test_json_mode(self):
-        q, t, tag, s, k, j, _m = si.parse_args(["prog", "query", "--json"])
-        assert j is True
-
-    def test_mode(self):
-        q, t, tag, s, k, j, m = si.parse_args(["prog", "query", "--mode", "hybrid"])
-        assert q == "query"
-        assert m == "hybrid"
-
-    def test_all_flags(self):
-        q, t, tag, s, k, j, m = si.parse_args([
-            "prog", "query", "--type", "temporal/logs", "--tag", "ai",
-            "--status", "done", "--top-k", "3", "--mode", "semantic", "--json"
-        ])
-        assert q == "query"
-        assert t == "temporal/logs"
-        assert tag == "ai"
-        assert s == "done"
-        assert k == 3
-        assert j is True
-        assert m == "semantic"
-
-
-# ---------------------------------------------------------------------------
-# CLI mode handling
-# ---------------------------------------------------------------------------
-
 class TestCliModes:
-    def test_main_errors_when_config_load_fails(self, vault, monkeypatch, capsys):
-        monkeypatch.setattr(si, "find_vault_root", lambda: vault)
-        monkeypatch.setattr(
-            si,
-            "load_index",
-            lambda _vault: {
-                "documents": [],
-                "corpus_stats": {"total_docs": 0, "avg_dl": 0, "df": {}},
-                "bm25_params": {"k1": 1.5, "b": 0.75},
-            },
+    def test_main_errors_when_config_load_fails(self, vault, wrapper_cli):
+        config_path = vault / ".brain" / "config.yaml"
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        config_path.mkdir()
+
+        result = wrapper_cli(vault, "search_index.py", "brain")
+
+        assert result.returncode == 1
+        assert "failed to load config" in result.stderr
+
+    def test_main_returns_json_results_for_lexical_query(self, vault, wrapper_cli):
+        build_and_persist_index(vault)
+
+        result = wrapper_cli(vault, "search_index.py", "python", "--json")
+
+        assert result.returncode == 0
+        payload = json.loads(result.stdout)
+        assert payload
+        assert payload[0]["path"].endswith("python-basics.md")
+
+    def test_main_errors_without_query(self, vault, wrapper_cli):
+        build_and_persist_index(vault)
+
+        result = wrapper_cli(vault, "search_index.py")
+
+        assert result.returncode == 1
+        assert "Usage: search_index.py" in result.stderr
+
+    def test_main_respects_filters_and_top_k_via_cli(self, vault, wrapper_cli):
+        build_and_persist_index(vault)
+
+        result = wrapper_cli(
+            vault,
+            "search_index.py",
+            "python",
+            "--type",
+            "temporal/logs",
+            "--tag",
+            "log",
+            "--status",
+            "done",
+            "--top-k",
+            "1",
+            "--json",
         )
-        monkeypatch.setattr(
-            si._semantic_config,
-            "load_config_checked",
-            lambda _vault: (_ for _ in ()).throw(
-                search_query._semantic_config.SemanticConfigLoadError(
-                    "failed to load config: bad config"
-                )
-            ),
+
+        assert result.returncode == 0
+        payload = json.loads(result.stdout)
+        assert len(payload) == 1
+        assert payload[0]["path"] == "_Temporal/Logs/2026-03/20260315-python-log.md"
+
+    def test_main_errors_when_semantic_mode_disabled(self, vault, wrapper_cli):
+        build_and_persist_index(vault)
+
+        result = wrapper_cli(vault, "search_index.py", "brain", "--mode", "semantic")
+
+        assert result.returncode == 1
+        assert "semantic retrieval is disabled" in result.stderr
+
+    def test_main_errors_when_hybrid_mode_unavailable(self, vault, wrapper_cli):
+        build_and_persist_index(vault)
+        write_local_config(
+            vault,
+            "defaults:\n"
+            "  flags:\n"
+            "    semantic_retrieval: true\n"
+            "  local_runtime:\n"
+            "    semantic_engine_installed: false\n",
         )
-        monkeypatch.setattr(si.sys, "argv", ["search_index.py", "brain"])
 
-        with pytest.raises(SystemExit) as exc:
-            si.main()
+        result = wrapper_cli(vault, "search_index.py", "brain", "--mode", "hybrid")
 
-        assert exc.value.code == 1
-        assert "failed to load config: bad config" in capsys.readouterr().err
-
-    def test_main_errors_when_semantic_mode_disabled(self, vault, monkeypatch, capsys):
-        monkeypatch.setattr(si, "find_vault_root", lambda: vault)
-        monkeypatch.setattr(
-            si,
-            "load_index",
-            lambda _vault: {
-                "documents": [],
-                "corpus_stats": {"total_docs": 0, "avg_dl": 0, "df": {}},
-                "bm25_params": {"k1": 1.5, "b": 0.75},
-            },
-        )
-        monkeypatch.setattr(
-            search_query._semantic_config,
-            "semantic_retrieval_enabled",
-            lambda _vault, **_: False,
-        )
-        monkeypatch.setattr(si.sys, "argv", ["search_index.py", "brain", "--mode", "semantic"])
-
-        with pytest.raises(SystemExit) as exc:
-            si.main()
-
-        assert exc.value.code == 1
-        assert "semantic retrieval is disabled" in capsys.readouterr().err
-
-    def test_main_errors_when_hybrid_mode_unavailable(
-        self,
-        vault,
-        monkeypatch,
-        capsys,
-    ):
-        monkeypatch.setattr(si, "find_vault_root", lambda: vault)
-        monkeypatch.setattr(
-            si,
-            "load_index",
-            lambda _vault: {
-                "documents": [],
-                "corpus_stats": {"total_docs": 0, "avg_dl": 0, "df": {}},
-                "bm25_params": {"k1": 1.5, "b": 0.75},
-            },
-        )
-        monkeypatch.setattr(
-            search_query._semantic_config,
-            "semantic_retrieval_enabled",
-            lambda _vault, **_: True,
-        )
-        monkeypatch.setattr(
-            search_query._semantic,
-            "semantic_engine_available",
-            lambda *_args, **_kwargs: False,
-        )
-        monkeypatch.setattr(si.sys, "argv", ["search_index.py", "brain", "--mode", "hybrid"])
-
-        with pytest.raises(SystemExit) as exc:
-            si.main()
-
-        assert exc.value.code == 1
-        assert "semantic retrieval is unavailable" in capsys.readouterr().err
+        assert result.returncode == 1
+        assert "semantic retrieval is unavailable" in result.stderr
 
 
 # ---------------------------------------------------------------------------
@@ -1338,60 +1281,60 @@ class TestSearchResource:
 
     def test_search_skill_by_name(self, router_with_resources):
         vault, router = router_with_resources
-        results = si.search_resource(router, vault, "skill", "vault")
+        results = search_query.search_resource(router, vault, "skill", "vault")
         assert len(results) >= 1
         assert results[0]["title"] == "vault-maintenance"
 
     def test_search_skill_by_content(self, router_with_resources):
         vault, router = router_with_resources
-        results = si.search_resource(router, vault, "skill", "archive")
+        results = search_query.search_resource(router, vault, "skill", "archive")
         assert len(results) >= 1
         assert results[0]["title"] == "vault-maintenance"
 
     def test_search_skill_no_match(self, router_with_resources):
         vault, router = router_with_resources
-        results = si.search_resource(router, vault, "skill", "xyznonexistent")
+        results = search_query.search_resource(router, vault, "skill", "xyznonexistent")
         assert results == []
 
     def test_search_memory_by_trigger(self, router_with_resources):
         vault, router = router_with_resources
-        results = si.search_resource(router, vault, "memory", "python")
+        results = search_query.search_resource(router, vault, "memory", "python")
         assert len(results) >= 1
         assert results[0]["title"] == "python-setup"
 
     def test_search_memory_by_content(self, router_with_resources):
         vault, router = router_with_resources
-        results = si.search_resource(router, vault, "memory", "venv")
+        results = search_query.search_resource(router, vault, "memory", "venv")
         assert len(results) >= 1
         assert results[0]["title"] == "python-setup"
 
     def test_search_style_by_content(self, router_with_resources):
         vault, router = router_with_resources
-        results = si.search_resource(router, vault, "style", "concise")
+        results = search_query.search_resource(router, vault, "style", "concise")
         assert len(results) >= 1
         assert results[0]["title"] == "writing"
 
     def test_search_trigger_by_condition(self, router_with_resources):
         vault, router = router_with_resources
-        results = si.search_resource(router, vault, "trigger", "meaningful")
+        results = search_query.search_resource(router, vault, "trigger", "meaningful")
         assert len(results) >= 1
         assert results[0]["title"] == "after-work"
 
     def test_search_trigger_by_target(self, router_with_resources):
         vault, router = router_with_resources
-        results = si.search_resource(router, vault, "trigger", "router")
+        results = search_query.search_resource(router, vault, "trigger", "router")
         assert len(results) >= 1
         assert results[0]["title"] == "session-start"
 
     def test_search_plugin_by_content(self, router_with_resources):
         vault, router = router_with_resources
-        results = si.search_resource(router, vault, "plugin", "task management")
+        results = search_query.search_resource(router, vault, "plugin", "task management")
         assert len(results) >= 1
         assert results[0]["title"] == "Undertask"
 
     def test_search_result_fields(self, router_with_resources):
         vault, router = router_with_resources
-        results = si.search_resource(router, vault, "skill", "vault")
+        results = search_query.search_resource(router, vault, "skill", "vault")
         assert len(results) > 0
         r = results[0]
         assert "path" in r
@@ -1404,22 +1347,22 @@ class TestSearchResource:
 
     def test_search_top_k(self, router_with_resources):
         vault, router = router_with_resources
-        results = si.search_resource(router, vault, "skill", "brain", top_k=1)
+        results = search_query.search_resource(router, vault, "skill", "brain", top_k=1)
         assert len(results) <= 1
 
     def test_search_artefact_raises(self, router_with_resources):
         vault, router = router_with_resources
         with pytest.raises(ValueError, match="Use search"):
-            si.search_resource(router, vault, "artefact", "test")
+            search_query.search_resource(router, vault, "artefact", "test")
 
     def test_search_invalid_resource_raises(self, router_with_resources):
         vault, router = router_with_resources
         with pytest.raises(ValueError, match="not searchable"):
-            si.search_resource(router, vault, "workspace", "test")
+            search_query.search_resource(router, vault, "workspace", "test")
 
     def test_search_ranking(self, router_with_resources):
         """Results should be ranked by score descending."""
         vault, router = router_with_resources
-        results = si.search_resource(router, vault, "skill", "brain")
+        results = search_query.search_resource(router, vault, "skill", "brain")
         if len(results) >= 2:
             assert results[0]["score"] >= results[1]["score"]

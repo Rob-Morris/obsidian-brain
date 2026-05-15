@@ -6,6 +6,7 @@ Version-by-version release history for Obsidian Brain. Every shipped version has
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.40.4](changelog/v0.40.4.md) | 2026-05-15 | Make build_index.py and search_index.py CLI-only wrappers |
 | [v0.40.3](changelog/v0.40.3.md) | 2026-05-15 | Converge MCP and repair runtime callers onto canonical `_search` |
 | [v0.40.2](changelog/v0.40.2.md) | 2026-05-15 | Consolidate retrieval under `_search` and harden semantic refresh |
 | [v0.40.1](changelog/v0.40.1.md) | 2026-05-14 | Add repair.py runtime and narrow mcp to MCP state repair |

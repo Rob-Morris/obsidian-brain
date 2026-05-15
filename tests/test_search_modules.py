@@ -277,15 +277,15 @@ import _search.query
     assert result.returncode == 0, result.stderr
 
 
-def test_live_runtime_modules_do_not_import_search_wrappers():
-    """Live runtime code should depend on `_search`, not CLI wrapper scripts.
+def test_no_module_imports_search_wrappers():
+    """No Python module should import the CLI wrapper modules directly.
 
     See docs/architecture/overview.md for the post-convergence layering rule.
     """
     repo_root = Path(__file__).resolve().parents[1]
     source_roots = [
-        repo_root / "src" / "brain-core" / "brain_mcp",
-        repo_root / "src" / "brain-core" / "scripts",
+        repo_root / "src" / "brain-core",
+        repo_root / "tests",
     ]
     excluded = {
         repo_root / "src" / "brain-core" / "scripts" / "build_index.py",
@@ -301,9 +301,9 @@ def test_live_runtime_modules_do_not_import_search_wrappers():
             imported = set()
             for node in ast.walk(tree):
                 if isinstance(node, ast.Import):
-                    imported.update(alias.name for alias in node.names)
+                    imported.update(alias.name.split(".")[-1] for alias in node.names)
                 elif isinstance(node, ast.ImportFrom) and node.module:
-                    imported.add(node.module)
+                    imported.add(node.module.split(".")[-1])
 
             assert imported.isdisjoint(
                 banned

@@ -1,6 +1,8 @@
 """Shared test fixtures and helpers for brain-core tests."""
 
 import os
+from pathlib import Path
+import subprocess
 import sys
 
 import pytest
@@ -15,6 +17,7 @@ import pytest
 # files skip their own boilerplate sys.path manipulation.
 # ---------------------------------------------------------------------------
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS_DIR = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "src", "brain-core", "scripts")
 )
@@ -134,6 +137,31 @@ def fake_home(tmp_path, monkeypatch):
     """Redirect ``Path.home()`` to ``tmp_path`` so tests can write fake user configs."""
     monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
     return tmp_path
+
+
+@pytest.fixture
+def wrapper_cli():
+    """Run a top-level wrapper script as a subprocess against *vault*."""
+
+    def run(vault, script_name, *args, env=None):
+        merged_env = os.environ.copy()
+        existing = merged_env.get("PYTHONPATH")
+        merged_env["PYTHONPATH"] = (
+            SCRIPTS_DIR if not existing else f"{SCRIPTS_DIR}{os.pathsep}{existing}"
+        )
+        if env:
+            merged_env.update(env)
+        script_path = REPO_ROOT / "src" / "brain-core" / "scripts" / script_name
+        return subprocess.run(
+            [sys.executable, str(script_path), *map(str, args)],
+            cwd=vault,
+            capture_output=True,
+            text=True,
+            env=merged_env,
+            timeout=30,
+        )
+
+    return run
 
 
 @pytest.fixture

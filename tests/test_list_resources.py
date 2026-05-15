@@ -101,7 +101,8 @@ def vault(tmp_path):
     compiled = compile_router(str(tmp_path))
 
     # Build the index
-    from build_index import build_index
+    from _search.index import build_index
+
     index = build_index(str(tmp_path))
 
     return tmp_path, compiled, index

@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
+import _search.index as search_index
 import _search.query as search_query
-import build_index as bi
 import evaluate_search as es
 
 
@@ -69,7 +69,7 @@ def vault(tmp_path):
 @pytest.fixture
 def index(vault):
     """Build and return an index for the test vault."""
-    return bi.build_index(vault)
+    return search_index.build_index(vault)
 
 
 class TestLoadBenchmark:

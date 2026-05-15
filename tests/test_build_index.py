@@ -14,7 +14,14 @@ import _search.lexical as lexical
 import _semantic.config as _semantic_config
 import _semantic.model as _semantic_model
 import _semantic.runtime as _semantic
-import build_index as bi
+from _search.assets import persist_retrieval_outputs
+from _search.index import (
+    OUTPUT_PATH,
+    build_index,
+    extract_title,
+    index_update,
+    persist_retrieval_index,
+)
 from _common import (
     is_system_dir,
     iter_artefact_paths,
@@ -208,13 +215,13 @@ class TestFrontmatter:
         assert fields["created"] == "2026-01-01T00:00:00.000Z"
 
     def test_extract_title_uses_filename_stem(self):
-        assert bi.extract_title("file.md") == "file"
+        assert extract_title("file.md") == "file"
 
     def test_extract_title_strips_extension(self):
-        assert bi.extract_title("my-file.md") == "my-file"
+        assert extract_title("my-file.md") == "my-file"
 
     def test_extract_title_with_path(self):
-        assert bi.extract_title("Wiki/fallback.md") == "fallback"
+        assert extract_title("Wiki/fallback.md") == "fallback"
 
 
 # ---------------------------------------------------------------------------
@@ -248,7 +255,7 @@ class TestTokenise:
 
 class TestBuildIndex:
     def test_index_structure(self, vault):
-        index = bi.build_index(vault)
+        index = build_index(vault)
         assert "meta" in index
         assert "bm25_params" in index
         assert "corpus_stats" in index
@@ -256,7 +263,7 @@ class TestBuildIndex:
 
     def test_in_memory_index_retains_build_local_body_fields(self, vault):
         """Documents carry retained body slice + headings in memory."""
-        index = bi.build_index(vault)
+        index = build_index(vault)
         for doc in index["documents"]:
             assert "_body_head" in doc
             assert "_headings" in doc
@@ -265,17 +272,17 @@ class TestBuildIndex:
 
     def test_persisted_index_strips_build_local_body_fields(self, vault):
         """Build-local body fields must not land in retrieval-index.json."""
-        index = bi.build_index(vault)
+        index = build_index(vault)
         assert any("_body_head" in doc for doc in index["documents"])
-        bi.persist_retrieval_index(vault, index)
-        with open(vault / bi.OUTPUT_PATH, encoding="utf-8") as f:
+        persist_retrieval_index(vault, index)
+        with open(vault / OUTPUT_PATH, encoding="utf-8") as f:
             data = json.load(f)
         for doc in data["documents"]:
             assert "_body_head" not in doc
             assert "_headings" not in doc
 
     def test_meta_fields(self, vault):
-        index = bi.build_index(vault)
+        index = build_index(vault)
         meta = index["meta"]
         assert meta["brain_core_version"] == "1.0.0"
         assert meta["index_version"] == "1.0.0"
@@ -283,16 +290,16 @@ class TestBuildIndex:
         assert meta["document_count"] == 4
 
     def test_bm25_params(self, vault):
-        index = bi.build_index(vault)
+        index = build_index(vault)
         assert index["bm25_params"]["k1"] == 1.5
         assert index["bm25_params"]["b"] == 0.75
 
     def test_document_count(self, vault):
-        index = bi.build_index(vault)
+        index = build_index(vault)
         assert len(index["documents"]) == 4
 
     def test_document_fields(self, vault):
-        index = bi.build_index(vault)
+        index = build_index(vault)
         doc = next(d for d in index["documents"] if "python" in d["path"])
         assert doc["title"] == "python-basics"
         assert doc["type"] == "living/wiki"
@@ -303,7 +310,7 @@ class TestBuildIndex:
         assert doc["tf"].get("python", 0) > 0
 
     def test_corpus_stats(self, vault):
-        index = bi.build_index(vault)
+        index = build_index(vault)
         stats = index["corpus_stats"]
         assert stats["total_docs"] == 4
         assert stats["avg_dl"] > 0
@@ -311,20 +318,20 @@ class TestBuildIndex:
         assert stats["df"].get("python", 0) >= 1
 
     def test_empty_vault(self, empty_vault):
-        index = bi.build_index(empty_vault)
+        index = build_index(empty_vault)
         assert index["meta"]["document_count"] == 0
         assert index["documents"] == []
         assert index["corpus_stats"]["total_docs"] == 0
 
     def test_relative_paths(self, vault):
-        index = bi.build_index(vault)
+        index = build_index(vault)
         for doc in index["documents"]:
             assert not os.path.isabs(doc["path"])
 
     def test_idempotent(self, vault):
         """Two builds produce same output except timestamp."""
-        idx1 = bi.build_index(vault)
-        idx2 = bi.build_index(vault)
+        idx1 = build_index(vault)
+        idx2 = build_index(vault)
         # Remove timestamps for comparison
         idx1["meta"].pop("built_at")
         idx2["meta"].pop("built_at")
@@ -337,19 +344,19 @@ class TestBuildIndex:
 
     def test_type_from_frontmatter_preferred(self, vault):
         """Type in frontmatter takes precedence over folder-derived type."""
-        index = bi.build_index(vault)
+        index = build_index(vault)
         doc = next(d for d in index["documents"] if "python" in d["path"])
         assert doc["type"] == "living/wiki"
 
     def test_title_tf_present(self, vault):
-        index = bi.build_index(vault)
+        index = build_index(vault)
         doc = next(d for d in index["documents"] if "python" in d["path"])
         assert "title_tf" in doc
         assert doc["title_tf"].get("python", 0) > 0
         assert doc["title_tf"].get("basics", 0) > 0
 
     def test_title_tf_includes_type_tokens(self, vault):
-        index = bi.build_index(vault)
+        index = build_index(vault)
         doc = next(d for d in index["documents"] if "python" in d["path"])
         # Type is "living/wiki" — both tokens should be in title_tf
         assert doc["title_tf"].get("living", 0) > 0
@@ -361,7 +368,7 @@ class TestBuildIndex:
         (vault / "Wiki" / "no-type.md").write_text(
             "---\nstatus: active\n---\n\n# No Type\n\nBody.\n"
         )
-        index = bi.build_index(vault)
+        index = build_index(vault)
         doc = next(d for d in index["documents"] if "no-type" in d["path"])
         assert doc["type"] == "living/wiki"
 
@@ -373,14 +380,14 @@ class TestBuildIndex:
 class TestIncrementalIndex:
     def test_index_update_new_document(self, vault):
         """index_update should add a new document and update corpus stats."""
-        index = bi.build_index(vault)
+        index = build_index(vault)
         old_count = index["meta"]["document_count"]
         # Write a new file
         (vault / "Wiki" / "new-topic.md").write_text(
             "---\ntype: living/wiki\ntags: []\nstatus: active\n---\n\n"
             "# New Topic\n\nUnique xylophonic content here.\n"
         )
-        doc = bi.index_update(index, vault, "Wiki/new-topic.md", type_hint="living/wiki")
+        doc = index_update(index, vault, "Wiki/new-topic.md", type_hint="living/wiki")
         assert doc is not None
         assert doc["title"] == "new-topic"
         assert index["meta"]["document_count"] == old_count + 1
@@ -391,22 +398,22 @@ class TestIncrementalIndex:
 
     def test_index_update_unreadable_returns_none(self, vault):
         """index_update returns None for a path that doesn't exist."""
-        index = bi.build_index(vault)
+        index = build_index(vault)
         old_count = index["meta"]["document_count"]
-        doc = bi.index_update(index, vault, "Wiki/nonexistent.md")
+        doc = index_update(index, vault, "Wiki/nonexistent.md")
         assert doc is None
         assert index["meta"]["document_count"] == old_count
 
     def test_index_update_existing_document(self, vault):
         """index_update should replace an existing document's data."""
-        index = bi.build_index(vault)
+        index = build_index(vault)
         old_count = index["meta"]["document_count"]
         # Overwrite an existing file with new content
         (vault / "Wiki" / "python-basics.md").write_text(
             "---\ntype: living/wiki\ntags: []\nstatus: active\n---\n\n"
             "# Python Basics\n\nCompletely rewritten with plumbiferous content.\n"
         )
-        doc = bi.index_update(index, vault, "Wiki/python-basics.md", type_hint="living/wiki")
+        doc = index_update(index, vault, "Wiki/python-basics.md", type_hint="living/wiki")
         assert doc is not None
         assert index["meta"]["document_count"] == old_count  # count unchanged
         assert "plumbiferous" in index["corpus_stats"]["df"]
@@ -414,51 +421,51 @@ class TestIncrementalIndex:
 
     def test_index_update_missing_path_falls_back_to_add(self, vault):
         """index_update should add the document if path not found in index."""
-        index = bi.build_index(vault)
+        index = build_index(vault)
         old_count = index["meta"]["document_count"]
         (vault / "Wiki" / "brand-new.md").write_text(
             "---\ntype: living/wiki\ntags: []\nstatus: active\n---\n\n# Brand New\n\nContent.\n"
         )
-        doc = bi.index_update(index, vault, "Wiki/brand-new.md", type_hint="living/wiki")
+        doc = index_update(index, vault, "Wiki/brand-new.md", type_hint="living/wiki")
         assert doc is not None
         assert index["meta"]["document_count"] == old_count + 1
         assert_corpus_stats_match_recompute(index)
 
     def test_index_update_drops_zero_df_terms(self, vault):
         """Replacing a doc must remove its now-orphaned terms from df entirely."""
-        index = bi.build_index(vault)
+        index = build_index(vault)
         # python-basics.md introduced 'plumbiferous'-free content. Inject a
         # truly unique term, then overwrite without that term.
         (vault / "Wiki" / "python-basics.md").write_text(
             "---\ntype: living/wiki\ntags: []\nstatus: active\n---\n\n"
             "# Python Basics\n\nA truly unique unobtainium reference here.\n"
         )
-        bi.index_update(index, vault, "Wiki/python-basics.md", type_hint="living/wiki")
+        index_update(index, vault, "Wiki/python-basics.md", type_hint="living/wiki")
         assert "unobtainium" in index["corpus_stats"]["df"]
 
         (vault / "Wiki" / "python-basics.md").write_text(
             "---\ntype: living/wiki\ntags: []\nstatus: active\n---\n\n"
             "# Python Basics\n\nReplaced content without that term.\n"
         )
-        bi.index_update(index, vault, "Wiki/python-basics.md", type_hint="living/wiki")
+        index_update(index, vault, "Wiki/python-basics.md", type_hint="living/wiki")
         assert "unobtainium" not in index["corpus_stats"]["df"]
         assert_corpus_stats_match_recompute(index)
 
     def test_index_update_repeated_no_drift(self, vault):
         """Many incremental updates must not drift from a full recompute."""
-        index = bi.build_index(vault)
+        index = build_index(vault)
         for i in range(20):
             (vault / "Wiki" / f"churn-{i}.md").write_text(
                 f"---\ntype: living/wiki\ntags: []\nstatus: active\n---\n\n"
                 f"# Churn {i}\n\nIteration {i} content with token-{i}.\n"
             )
-            bi.index_update(index, vault, f"Wiki/churn-{i}.md", type_hint="living/wiki")
+            index_update(index, vault, f"Wiki/churn-{i}.md", type_hint="living/wiki")
         for i in range(0, 20, 2):
             (vault / "Wiki" / f"churn-{i}.md").write_text(
                 f"---\ntype: living/wiki\ntags: []\nstatus: active\n---\n\n"
                 f"# Churn {i}\n\nRewritten with replacement-{i}.\n"
             )
-            bi.index_update(index, vault, f"Wiki/churn-{i}.md", type_hint="living/wiki")
+            index_update(index, vault, f"Wiki/churn-{i}.md", type_hint="living/wiki")
         assert_corpus_stats_match_recompute(index)
 
 # ---------------------------------------------------------------------------
@@ -548,7 +555,7 @@ class TestBuildEmbeddings:
             lambda path, writer, **kwargs: writer(io.BytesIO()),
         )
 
-        index = bi.build_index(vault)
+        index = build_index(vault)
         router = {
             "artefacts": [],
             "meta": {"source_hash": "sha256:test-source-hash"},
@@ -604,8 +611,8 @@ class TestEmbeddingsOutputs:
             abs_path.parent.mkdir(parents=True, exist_ok=True)
             abs_path.write_bytes(b"stale")
 
-        index = bi.build_index(vault)
-        result = bi.persist_retrieval_outputs(
+        index = build_index(vault)
+        result = persist_retrieval_outputs(
             vault,
             index,
             router={"artefacts": []},
@@ -639,8 +646,8 @@ class TestEmbeddingsOutputs:
                 "local_runtime": {"semantic_engine_installed": False},
             }
         }
-        index = bi.build_index(vault)
-        result = bi.persist_retrieval_outputs(
+        index = build_index(vault)
+        result = persist_retrieval_outputs(
             vault,
             index,
             router={"artefacts": []},
@@ -656,68 +663,29 @@ class TestEmbeddingsOutputs:
             assert not (vault / rel_path).exists()
 
 
-class TestBuildIndexMain:
-    def test_main_errors_when_config_load_fails(self, vault, monkeypatch, capsys):
-        monkeypatch.setattr(bi, "find_vault_root", lambda: vault)
-        monkeypatch.setattr(
-            bi._semantic_config,
-            "load_config_checked",
-            lambda _vault: (_ for _ in ()).throw(
-                _semantic_config.SemanticConfigLoadError("failed to load config: bad config")
-            ),
-        )
-        monkeypatch.setattr(bi.sys, "argv", ["build_index.py"])
+class TestBuildIndexCli:
+    def test_main_errors_when_config_load_fails(self, vault, wrapper_cli):
+        config_path = vault / ".brain" / "config.yaml"
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        config_path.mkdir()
 
-        with pytest.raises(SystemExit) as exc:
-            bi.main()
+        result = wrapper_cli(vault, "build_index.py")
 
-        assert exc.value.code == 1
-        assert "failed to load config: bad config" in capsys.readouterr().err
+        assert result.returncode == 1
+        assert "failed to load config" in result.stderr
 
-    def test_main_refreshes_embeddings_when_router_available(self, vault, monkeypatch, capsys):
-        calls = []
+    def test_main_builds_index_and_skips_embeddings_when_disabled(self, vault, wrapper_cli):
+        result = wrapper_cli(vault, "build_index.py")
 
-        def fake_build_embeddings(vault_root, router, documents):
-            calls.append((str(vault_root), router, documents))
-            return (object(), object(), {"documents": [], "types": []})
+        assert result.returncode == 0
+        assert (vault / OUTPUT_PATH).is_file()
+        assert "Built retrieval index:" in result.stderr
+        assert "embeddings refreshed" not in result.stderr
 
-        monkeypatch.setattr(bi, "find_vault_root", lambda: vault)
-        monkeypatch.setattr(search_assets._semantic_config, "embeddings_enabled", lambda *args, **kwargs: True)
-        monkeypatch.setattr(
-            search_assets._semantic,
-            "semantic_engine_available",
-            lambda *args, **kwargs: True,
-        )
-        monkeypatch.setattr(search_assets, "load_compiled_router", lambda _vault: {"artefacts": []})
-        monkeypatch.setattr(search_assets, "build_embeddings", fake_build_embeddings)
-        monkeypatch.setattr(bi.sys, "argv", ["build_index.py"])
+    def test_main_json_mode_prints_index_without_persisting_outputs(self, vault, wrapper_cli):
+        result = wrapper_cli(vault, "build_index.py", "--json")
 
-        bi.main()
-
-        captured = capsys.readouterr()
-        assert (vault / ".brain" / "local" / "retrieval-index.json").is_file()
-        assert len(calls) == 1
-        assert calls[0][0] == str(vault)
-        assert calls[0][1] == {"artefacts": []}
-        assert calls[0][2]
-        assert "embeddings refreshed" in captured.err
-
-    def test_main_skips_embeddings_when_flag_disabled(self, vault, monkeypatch, capsys):
-        calls = []
-
-        monkeypatch.setattr(bi, "find_vault_root", lambda: vault)
-        monkeypatch.setattr(search_assets._semantic_config, "embeddings_enabled", lambda *args, **kwargs: False)
-        monkeypatch.setattr(search_assets, "load_compiled_router", lambda _vault: {"artefacts": []})
-        monkeypatch.setattr(
-            search_assets,
-            "build_embeddings",
-            lambda *args, **kwargs: calls.append(args) or (object(), object(), {"documents": [], "types": []}),
-        )
-        monkeypatch.setattr(bi.sys, "argv", ["build_index.py"])
-
-        bi.main()
-
-        captured = capsys.readouterr()
-        assert (vault / ".brain" / "local" / "retrieval-index.json").is_file()
-        assert calls == []
-        assert "embeddings refreshed" not in captured.err
+        assert result.returncode == 0
+        payload = json.loads(result.stdout)
+        assert payload["meta"]["document_count"] == 4
+        assert not (vault / OUTPUT_PATH).exists()
