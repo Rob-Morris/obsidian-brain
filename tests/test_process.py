@@ -89,7 +89,7 @@ def router(vault):
 @pytest.fixture
 def index(vault):
     """Build a retrieval index for the vault."""
-    return search_index.build_index(str(vault))
+    return search_index.build_index(str(vault)).index
 
 
 @pytest.fixture
@@ -113,7 +113,7 @@ def populated_router(populated_vault):
 
 @pytest.fixture
 def populated_index(populated_vault):
-    return search_index.build_index(str(populated_vault))
+    return search_index.build_index(str(populated_vault)).index
 
 
 class TestInferTitle:
@@ -388,7 +388,7 @@ class TestIngest:
             "---\ntype: living/ideas\ntags: [hardware]\nstatus: shaping\n---\n\n"
             "# Solar Keyboard Idea\n\nSolar powered keyboard concept.\n"
         )
-        index = search_index.build_index(str(populated_vault))
+        index = search_index.build_index(str(populated_vault)).index
         from unittest.mock import patch
 
         with patch("process.resolve_content") as mock_resolve:

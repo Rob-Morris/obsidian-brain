@@ -7,7 +7,12 @@ from typing import Literal
 from mcp.types import TextContent
 
 import _common
-import _search.query as search_query
+from _search.filters import SearchFilters
+import _search.hybrid_query as hybrid_query
+import _search.lexical_query as lexical_query
+import _search.mode as search_mode
+import _search.resource as search_resource
+import _search.semantic_query as semantic_query
 from _common import is_archived_path
 import list_artefacts
 import obsidian_cli
@@ -53,9 +58,7 @@ def _reload_workspace_registry(runtime: ServerRuntime) -> dict:
 
 def _transform_cli_results(
     cli_results: list[str],
-    type_filter: str | None,
-    tag_filter: str | None,
-    status_filter: str | None,
+    filters: SearchFilters,
     top_k: int,
     index: dict | None,
 ) -> list[dict]:
@@ -70,14 +73,9 @@ def _transform_cli_results(
             continue
         doc_meta = index_by_path.get(path, {})
         doc_type = doc_meta.get("type", "")
-        doc_tags = doc_meta.get("tags", [])
         doc_status = doc_meta.get("status")
 
-        if type_filter and doc_type != type_filter:
-            continue
-        if tag_filter and tag_filter not in doc_tags:
-            continue
-        if status_filter and doc_status != status_filter:
+        if not filters.matches(doc_meta):
             continue
 
         transformed.append(
@@ -220,7 +218,7 @@ def handle_brain_search(
                 "brain_search mode applies only to artefact search; "
                 "non-artefact resources support lexical text matching only"
             )
-        results = search_query.search_resource(
+        results = search_resource.search_resource(
             state.router,
             state.vault_root,
             resource,
@@ -238,16 +236,17 @@ def handle_brain_search(
         art = _common.match_artefact(state.router.get("artefacts", []), type_filter)
         if art:
             type_filter = art["frontmatter_type"]
+    filters = SearchFilters(type=type_filter, tag=tag, status=status)
 
     try:
-        resolved_mode = search_query.resolve_search_mode(
+        resolved_mode = search_mode.resolve_search_mode(
             state.vault_root,
             mode,
             config=state.config,
             doc_embeddings=state.doc_embeddings,
             embeddings_meta=state.embeddings_meta,
         )
-    except search_query.SearchModeUnavailableError as e:
+    except search_mode.SearchModeUnavailableError as e:
         return runtime.fmt_error(str(e))
 
     if resolved_mode in {"semantic", "hybrid"}:
@@ -274,52 +273,44 @@ def handle_brain_search(
             if cli_results is not None:
                 results = _transform_cli_results(
                     cli_results,
-                    type_filter,
-                    tag,
-                    status,
+                    filters,
                     top_k,
                     state.index,
                 )
                 return _fmt_search("obsidian_cli", results)
 
-        results = search_query.search(
+        results = lexical_query.search(
             state.index,
             query,
             state.vault_root,
-            type_filter=type_filter,
-            tag_filter=tag,
-            status_filter=status,
+            filters=filters,
             top_k=top_k,
         )
         return _fmt_search("bm25", results)
 
     try:
         if resolved_mode == "semantic":
-            results = search_query.search_semantic(
+            results = semantic_query.search_semantic(
                 query,
                 state.vault_root,
-                type_filter=type_filter,
-                tag_filter=tag,
-                status_filter=status,
+                filters=filters,
                 top_k=top_k,
                 doc_embeddings=state.doc_embeddings,
                 embeddings_meta=state.embeddings_meta,
             )
             return _fmt_search("semantic", results)
 
-        results = search_query.search_hybrid(
+        results = hybrid_query.search_hybrid(
             state.index,
             query,
             state.vault_root,
-            type_filter=type_filter,
-            tag_filter=tag,
-            status_filter=status,
+            filters=filters,
             top_k=top_k,
             doc_embeddings=state.doc_embeddings,
             embeddings_meta=state.embeddings_meta,
         )
         return _fmt_search("hybrid", results)
-    except search_query.SearchModeUnavailableError as e:
+    except search_mode.SearchModeUnavailableError as e:
         return runtime.fmt_error(str(e))
 
 

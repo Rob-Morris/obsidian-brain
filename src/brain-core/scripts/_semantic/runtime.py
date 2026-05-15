@@ -6,6 +6,7 @@ import importlib.util
 import json
 import os
 
+from _common import load_compiled_router
 import _semantic.config as semantic_config
 import _semantic.model as semantic_model
 
@@ -25,6 +26,10 @@ class SemanticEmbeddingsLoadError(RuntimeError):
 
 class RouterMetadataError(RuntimeError):
     """Raised when compiled router metadata is malformed."""
+
+
+class CompiledRouterMissingError(RouterMetadataError):
+    """Raised when embeddings validation needs a compiled router that is missing."""
 
 
 def semantic_runtime_dependencies_available():
@@ -168,6 +173,22 @@ def embeddings_meta_matches_router(meta, router):
     if current_router_source_hash is None:
         return False
     return meta.get(ROUTER_SOURCE_HASH_KEY) == current_router_source_hash
+
+
+def embeddings_meta_matches_current_router(vault_root, meta, *, loader=None):
+    """Return True when embeddings metadata matches the current compiled router."""
+    load = loader or load_compiled_router
+    router = load(vault_root)
+    if not isinstance(router, dict):
+        raise RouterMetadataError(
+            "compiled router must load as a JSON object with metadata"
+        )
+    if "error" in router:
+        error = router["error"]
+        if isinstance(error, str) and error.startswith("Compiled router not found at "):
+            raise CompiledRouterMissingError(error)
+        raise RouterMetadataError(error)
+    return embeddings_meta_matches_router(meta, router)
 
 
 def load_embeddings_state(vault_root):

@@ -70,14 +70,15 @@ sys.path.insert(0, os.path.abspath(SCRIPTS_DIR))
 
 import compile_router
 import _search.assets as search_assets
+from _search.document_parts import EmbeddingParts
 import _search.index as search_index
+import _search.paths as search_paths
 from _common import (
     SELECTOR_OCCURRENCE_DESCRIPTION,
     SELECTOR_WITHIN_DESCRIPTION,
     SELECTOR_WITHIN_OCCURRENCE_DESCRIPTION,
     SELECTOR_WITHIN_TARGET_DESCRIPTION,
     cleanup_temp_body_file,
-    is_archived_path,
     iter_artefact_paths,
     safe_write_json,
     temp_body_file_cleanup_path,
@@ -111,7 +112,7 @@ def _router_rel() -> str:
     return compile_router.OUTPUT_PATH
 
 def _index_rel() -> str:
-    return search_index.OUTPUT_PATH
+    return search_paths.OUTPUT_PATH
 
 # ---------------------------------------------------------------------------
 # Server state
@@ -152,6 +153,7 @@ _router_ready_event = threading.Event()
 _type_embeddings = None
 _embeddings_meta = None
 _doc_embeddings = None
+_embedding_parts_by_path: dict[str, EmbeddingParts] | None = None
 # _doc_embeddings_pending tracks specific paths whose doc embeddings are stale.
 # _doc_embeddings_dirty is a full-rebuild signal that overrides the set.
 # _type_embeddings_dirty signals taxonomy churn (router change) requiring type re-encode.
@@ -622,20 +624,22 @@ def _load_router_for_warmup(vault_root: str, generation: int) -> dict | None:
 
 def _load_index_for_warmup(vault_root: str, generation: int) -> dict | None:
     """Load or build the retrieval index for the active warmup generation."""
-    global _index, _index_dirty, _index_checked_at
+    global _index, _index_dirty, _index_checked_at, _embedding_parts_by_path
 
     stale, data = _check_index(vault_root)
     if stale:
         t0 = time.monotonic()
-        index = _run_with_timeout(
+        build_result = _run_with_timeout(
             "index build",
             lambda: search_index.build_index(vault_root),
         )
+        index = build_result.index
         search_index.persist_retrieval_index(vault_root, index)
         if _logger:
             _logger.info("index build (stale) %.1fs", time.monotonic() - t0)
         if _warmup_generation_matches(generation):
             _index = index
+            _embedding_parts_by_path = build_result.embedding_parts_by_path
             _index_dirty = False
             with _index_pending_lock:
                 _index_pending.clear()
@@ -646,6 +650,7 @@ def _load_index_for_warmup(vault_root: str, generation: int) -> dict | None:
         _logger.info("index build (fresh)")
     if _warmup_generation_matches(generation):
         _index = data
+        _embedding_parts_by_path = None
         _index_dirty = False
         _index_checked_at = time.monotonic()
     return data
@@ -1076,7 +1081,7 @@ def _check_index(vault_root: str) -> tuple[bool, dict | None]:
     if not isinstance(data, dict):
         return True, None
 
-    if data.get("meta", {}).get("index_version") != search_index.INDEX_VERSION:
+    if data.get("meta", {}).get("index_version") != search_paths.INDEX_VERSION:
         return True, None
 
     built_at = data.get("meta", {}).get("built_at")
@@ -1411,6 +1416,7 @@ def _ensure_embeddings_fresh() -> None:
         _vault_root,
         _router,
         _index["documents"],
+        embedding_parts_by_path=_embedding_parts_by_path,
         enable_embeddings=True,
     )
     if result is not None:
@@ -1444,7 +1450,7 @@ def _apply_pending_index_updates() -> None:
     ``meta['built_at']`` untouched, so the external-change sweep still measures
     freshness against the last full build.
     """
-    global _index, _index_checked_at
+    global _index, _index_checked_at, _embedding_parts_by_path
     if _index is None or not _index_pending:
         return
 
@@ -1454,12 +1460,16 @@ def _apply_pending_index_updates() -> None:
 
     try:
         for rel_path, type_hint in pending:
-            search_index.index_update(
+            updated = search_index.index_update(
                 _index,
                 _vault_root,
                 rel_path,
                 type_hint=type_hint,
             )
+            if updated is None and _embedding_parts_by_path is not None:
+                _embedding_parts_by_path.pop(rel_path, None)
+            elif updated is not None and _embedding_parts_by_path is not None:
+                _embedding_parts_by_path[rel_path] = updated.embedding_parts
         _save_json(_index, _vault_root, _index_rel())
         _index_checked_at = time.monotonic()
     except Exception as e:
@@ -1587,12 +1597,15 @@ def _build_index_and_save(vault_root: str) -> dict:
     TTL so that callers don't need to remember to do it themselves.
     """
     global _index_dirty, _index_checked_at, _embeddings_meta, _type_embeddings, _doc_embeddings
+    global _embedding_parts_by_path
     global _doc_embeddings_dirty, _type_embeddings_dirty
-    index = search_index.build_index(vault_root)
+    build_result = search_index.build_index(vault_root)
+    index = build_result.index
     result = search_assets.persist_retrieval_outputs(
         vault_root,
         index,
         router=_router,
+        embedding_parts_by_path=build_result.embedding_parts_by_path,
         enable_embeddings=_embeddings_enabled(),
         config=_config,
     )
@@ -1604,6 +1617,7 @@ def _build_index_and_save(vault_root: str) -> dict:
     with _doc_embeddings_pending_lock:
         _doc_embeddings_pending.clear()
     _index_checked_at = time.monotonic()
+    _embedding_parts_by_path = build_result.embedding_parts_by_path
     if result is not None:
         _type_embeddings, _doc_embeddings, _embeddings_meta = result
     else:
@@ -1765,35 +1779,6 @@ def _fmt_error(msg):
         content=[TextContent(type="text", text=f"Error: {msg}")],
         isError=True,
     )
-
-
-def _fmt_environment(env):
-    """Format environment dict as key=value lines."""
-    return "\n".join(f"{k}={v}" for k, v in env.items())
-
-
-def _fmt_workspace_list(workspaces):
-    """Format workspace list as readable plain text."""
-    lines = []
-    for ws in workspaces:
-        status = ws.get("status", "")
-        status_part = f"\t[{status}]" if status else ""
-        lines.append(f"{ws['slug']}\t{ws['mode']}\t{ws['path']}{status_part}")
-    return "\n".join(lines)
-
-
-def _fmt_workspace_single(ws):
-    """Format a single workspace as plain text."""
-    return f"{ws['slug']}\t{ws['mode']}\t{ws['path']}"
-
-
-# Dispatch table for brain_read single-item resources
-_READ_FORMATTERS = {
-    "type": lambda result, name: json.dumps(result, indent=2, ensure_ascii=False),
-    "trigger": lambda result, name: json.dumps(result, indent=2, ensure_ascii=False),
-    "memory": lambda result, name: json.dumps(result, indent=2, ensure_ascii=False),
-    "environment": lambda result, name: _fmt_environment(result),
-}
 
 
 # ---------------------------------------------------------------------------
@@ -2292,74 +2277,6 @@ def brain_read(
             if _logger:
                 _logger.error("brain_read: %s", e, exc_info=True)
             return _fmt_error(f"Unexpected error: {e}")
-
-
-# ---------------------------------------------------------------------------
-# brain_search — safe, no side effects
-# ---------------------------------------------------------------------------
-
-def _transform_cli_results(cli_results: list[str], type_filter: str | None,
-                           tag_filter: str | None, status_filter: str | None,
-                           top_k: int) -> list[dict]:
-    """Transform Obsidian CLI search results (file paths) to match brain_search schema."""
-    index_by_path = {}
-    if _index:
-        index_by_path = {doc["path"]: doc for doc in _index.get("documents", []) if "path" in doc}
-    transformed = []
-    for path in cli_results:
-        if is_archived_path(path):
-            continue
-        doc_meta = index_by_path.get(path, {})
-        doc_type = doc_meta.get("type", "")
-        doc_tags = doc_meta.get("tags", [])
-        doc_status = doc_meta.get("status")
-
-        if type_filter and doc_type != type_filter:
-            continue
-        if tag_filter and tag_filter not in doc_tags:
-            continue
-        if status_filter and doc_status != status_filter:
-            continue
-
-        transformed.append({
-            "path": path,
-            "title": doc_meta.get("title", os.path.splitext(os.path.basename(path))[0]),
-            "type": doc_type,
-            "status": doc_status,
-        })
-
-    return transformed[:top_k]
-
-
-def _fmt_search(source, results):
-    """Format search results as multi-block TextContent."""
-    meta = f"**Searched:** {len(results)} results (source: {source})"
-    if not results:
-        return [TextContent(type="text", text=meta)]
-    lines = []
-    for r in results:
-        status_part = f"\t{r['status']}" if r.get("status") else ""
-        lines.append(f"{r['title']}\t{r['path']}\t{r['type']}{status_part}")
-    return [
-        TextContent(type="text", text=meta),
-        TextContent(type="text", text="\n".join(lines)),
-    ]
-
-
-def _fmt_list(results, type_filter=None):
-    """Format brain_list results as multi-block TextContent."""
-    type_part = f" (type: {type_filter})" if type_filter else ""
-    meta = f"**Listed:** {len(results)} results{type_part}"
-    if not results:
-        return [TextContent(type="text", text=meta)]
-    lines = []
-    for r in results:
-        status_part = f"\t{r['status']}" if r.get("status") else ""
-        lines.append(f"{r['date']}\t{r['title']}\t{r['path']}\t{r['type']}{status_part}")
-    return [
-        TextContent(type="text", text=meta),
-        TextContent(type="text", text="\n".join(lines)),
-    ]
 
 
 @mcp.tool()

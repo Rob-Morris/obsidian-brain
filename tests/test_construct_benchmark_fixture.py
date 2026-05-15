@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 import construct_benchmark_fixture as cbf
-import _search.query as search_query
+import _search.mode as search_mode
 import pytest
 
 
@@ -862,7 +862,7 @@ class TestRunMode:
     ):
         calls = []
 
-        def fake_search(_index, _query, _vault_root, **kwargs):
+        def fake_search(_index, _query, _vault_root, _mode, **kwargs):
             top_k = kwargs["top_k"]
             calls.append(top_k)
             if top_k == cbf.DEFAULT_TOP_K * cbf.AUDIT_RESULT_FETCH_MULTIPLIER:
@@ -895,7 +895,7 @@ class TestRunMode:
                 {"path": "Real/5.md"},
             ]
 
-        monkeypatch.setattr(search_query, "search", fake_search)
+        monkeypatch.setattr(search_mode, "dispatch_search", fake_search)
 
         results = cbf._run_mode(
             {},
@@ -922,7 +922,11 @@ class TestConstructFixture:
         vault = tmp_path / "vault"
         vault.mkdir()
 
-        monkeypatch.setattr(cbf, "_mode_available", lambda *_args, **_kwargs: (False, "semantic unavailable"))
+        monkeypatch.setattr(
+            cbf.search_mode,
+            "mode_available",
+            lambda *_args, **_kwargs: (False, "semantic unavailable"),
+        )
         monkeypatch.setattr(
             cbf,
             "mine_candidates",

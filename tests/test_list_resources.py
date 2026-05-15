@@ -103,7 +103,7 @@ def vault(tmp_path):
     # Build the index
     from _search.index import build_index
 
-    index = build_index(str(tmp_path))
+    index = build_index(str(tmp_path)).index
 
     return tmp_path, compiled, index
 

@@ -12,7 +12,7 @@
 set -euo pipefail
 
 BRAIN_CLI_VERSION="1.0.0"
-BRAIN_INSTALL_REF="v0.40.4"
+BRAIN_INSTALL_REF="v0.40.5"
 
 # Dispatch contract (DD-049 v1). hyphens here become underscores on disk.
 DISPATCH_SUBCOMMANDS=(

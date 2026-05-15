@@ -6,17 +6,11 @@ from datetime import datetime, timezone
 import os
 from pathlib import Path
 
-from _common import load_compiled_router, safe_write_via, safe_write_json
+from _common import load_compiled_router, read_artefact, safe_write_via, safe_write_json
+from _taxonomy_descriptions import extract_type_description
 
-from ._lazy import LazyModuleProxy
-from .index import (
-    EMBEDDING_BODY_CHARS,
-    EMBEDDING_HEADING_LIMIT,
-    _extract_heading_titles,
-    build_index,
-    extract_type_description,
-    persist_retrieval_index,
-)
+from .document_parts import embedding_parts_from_body
+from .index import build_index, persist_retrieval_index
 
 try:
     import numpy as np
@@ -26,9 +20,27 @@ except ImportError:
     _HAS_NUMPY = False
 
 
-_semantic_config = LazyModuleProxy("_semantic.config")
-_semantic_model = LazyModuleProxy("_semantic.model")
-_semantic = LazyModuleProxy("_semantic.runtime")
+semantic_config = None
+semantic_model = None
+semantic_runtime = None
+
+
+def _semantic_modules():
+    """Import semantic helpers lazily so `_search` stays acyclic at module load time."""
+    global semantic_config, semantic_model, semantic_runtime
+    if semantic_config is None:
+        import _semantic.config as semantic_config_mod
+
+        semantic_config = semantic_config_mod
+    if semantic_model is None:
+        import _semantic.model as semantic_model_mod
+
+        semantic_model = semantic_model_mod
+    if semantic_runtime is None:
+        import _semantic.runtime as semantic_runtime_mod
+
+        semantic_runtime = semantic_runtime_mod
+    return semantic_config, semantic_model, semantic_runtime
 
 
 def _safe_save_npy(path, array, *, bounds=None):
@@ -40,10 +52,27 @@ def _safe_save_npy(path, array, *, bounds=None):
     )
 
 
-def build_embeddings(vault_root, router, documents):
-    """Compute embeddings for type descriptions and documents."""
+def _load_embedding_parts(vault_root, rel_path, embedding_parts_by_path):
+    """Return embedding text fragments for one path, using cached parts when available."""
+    if embedding_parts_by_path is not None:
+        cached = embedding_parts_by_path.get(rel_path)
+        if cached is not None:
+            return cached
+
+    abs_path = os.path.join(str(vault_root), rel_path)
+    _, body = read_artefact(abs_path)
+    return embedding_parts_from_body(body)
+
+
+def build_embeddings(vault_root, router, documents, *, embedding_parts_by_path=None):
+    """Compute embeddings for type descriptions and documents.
+
+    Returns `None` when NumPy is unavailable so callers can clear stale
+    sidecars instead of leaving them to drift.
+    """
     if not _HAS_NUMPY:
         return None
+    _, _semantic_model, _semantic_runtime = _semantic_modules()
 
     vault_str = str(vault_root)
     artefacts = [a for a in router.get("artefacts", []) if a.get("configured")]
@@ -70,18 +99,13 @@ def build_embeddings(vault_root, router, documents):
     doc_texts = []
     doc_meta = []
     for i, doc in enumerate(documents):
-        body_head = doc.get("_body_head")
-        headings = doc.get("_headings")
-        if body_head is None or headings is None:
-            abs_path = os.path.join(vault_str, doc["path"])
-            try:
-                from _common import read_artefact
-
-                _, body = read_artefact(abs_path)
-            except (OSError, UnicodeDecodeError):
-                body = ""
-            body_head = body[:EMBEDDING_BODY_CHARS]
-            headings = _extract_heading_titles(body, limit=EMBEDDING_HEADING_LIMIT)
+        embedding_parts = _load_embedding_parts(
+            vault_root,
+            doc["path"],
+            embedding_parts_by_path,
+        )
+        body_head = embedding_parts.body_head
+        headings = embedding_parts.headings
         type_desc = type_desc_by_frontmatter.get(doc["type"], doc["type"])
         parts = [doc["title"], doc["type"], type_desc]
         if headings:
@@ -105,40 +129,40 @@ def build_embeddings(vault_root, router, documents):
     type_embeddings = (
         model.encode(type_texts, normalize_embeddings=True)
         if type_texts
-        else np.zeros((0, _semantic.EMBEDDING_DIM))
+        else np.zeros((0, _semantic_runtime.EMBEDDING_DIM))
     )
     doc_embeddings = (
         model.encode(doc_texts, normalize_embeddings=True)
         if doc_texts
-        else np.zeros((0, _semantic.EMBEDDING_DIM))
+        else np.zeros((0, _semantic_runtime.EMBEDDING_DIM))
     )
 
     os.makedirs(
-        os.path.join(vault_str, os.path.dirname(_semantic.TYPE_EMBEDDINGS_REL)),
+        os.path.join(vault_str, os.path.dirname(_semantic_runtime.TYPE_EMBEDDINGS_REL)),
         exist_ok=True,
     )
     _safe_save_npy(
-        os.path.join(vault_str, _semantic.TYPE_EMBEDDINGS_REL),
+        os.path.join(vault_str, _semantic_runtime.TYPE_EMBEDDINGS_REL),
         type_embeddings,
         bounds=vault_str,
     )
     _safe_save_npy(
-        os.path.join(vault_str, _semantic.DOC_EMBEDDINGS_REL),
+        os.path.join(vault_str, _semantic_runtime.DOC_EMBEDDINGS_REL),
         doc_embeddings,
         bounds=vault_str,
     )
 
-    router_hash = _semantic.router_source_hash(router)
+    router_hash = _semantic_runtime.router_source_hash(router)
     meta = {
         "model": manifest.model_name,
         "model_revision": manifest.revision,
-        _semantic.ROUTER_SOURCE_HASH_KEY: router_hash,
-        "dim": _semantic.EMBEDDING_DIM,
+        _semantic_runtime.ROUTER_SOURCE_HASH_KEY: router_hash,
+        "dim": _semantic_runtime.EMBEDDING_DIM,
         "built_at": datetime.now(timezone.utc).astimezone().isoformat(),
         "types": type_meta,
         "documents": doc_meta,
     }
-    meta_path = os.path.join(vault_str, _semantic.EMBEDDINGS_META_REL)
+    meta_path = os.path.join(vault_str, _semantic_runtime.EMBEDDINGS_META_REL)
     safe_write_json(meta_path, meta, bounds=vault_str)
 
     return (type_embeddings, doc_embeddings, meta)
@@ -149,26 +173,33 @@ def refresh_embeddings_outputs(
     router,
     documents,
     *,
+    embedding_parts_by_path=None,
     enable_embeddings=None,
     config=None,
 ):
     """Refresh embeddings sidecars, clearing stale files when unavailable."""
+    _semantic_config, _, _semantic_runtime = _semantic_modules()
     if enable_embeddings is None:
         enable_embeddings = (
             _semantic_config.embeddings_enabled(vault_root, config=config)
-            and _semantic.semantic_engine_available(
+            and _semantic_runtime.semantic_engine_available(
                 vault_root,
                 config=config,
                 skip_sidecar_check=True,
             )
         )
     if not enable_embeddings or router is None:
-        _semantic.clear_embeddings_outputs(vault_root)
+        _semantic_runtime.clear_embeddings_outputs(vault_root)
         return None
 
-    result = build_embeddings(vault_root, router, documents)
+    result = build_embeddings(
+        vault_root,
+        router,
+        documents,
+        embedding_parts_by_path=embedding_parts_by_path,
+    )
     if result is None:
-        _semantic.clear_embeddings_outputs(vault_root)
+        _semantic_runtime.clear_embeddings_outputs(vault_root)
         return None
     return result
 
@@ -178,31 +209,34 @@ def persist_retrieval_outputs(
     index,
     *,
     router=None,
+    embedding_parts_by_path=None,
     enable_embeddings=None,
     config=None,
 ):
     """Persist index JSON and refresh embeddings when enabled and available."""
+    _semantic_config, _, _semantic_runtime = _semantic_modules()
     persist_retrieval_index(vault_root, index)
     if enable_embeddings is None:
         enable_embeddings = (
             _semantic_config.embeddings_enabled(vault_root, config=config)
-            and _semantic.semantic_engine_available(
+            and _semantic_runtime.semantic_engine_available(
                 vault_root,
                 config=config,
                 skip_sidecar_check=True,
             )
         )
     if not enable_embeddings:
-        _semantic.clear_embeddings_outputs(vault_root)
+        _semantic_runtime.clear_embeddings_outputs(vault_root)
         return None
     if router is None:
         router = load_compiled_router(vault_root)
         if isinstance(router, dict) and router.get("error"):
-            router = None
+            raise ValueError(f"compiled router is unavailable: {router['error']}")
     return refresh_embeddings_outputs(
         vault_root,
         router,
         index["documents"],
+        embedding_parts_by_path=embedding_parts_by_path,
         enable_embeddings=True,
         config=config,
     )
@@ -216,9 +250,11 @@ def refresh_search_assets(
     """Refresh router, lexical retrieval assets, and semantic sidecars when requested.
 
     Generic search refresh honours the configured semantic flags and clears stale
-    sidecars when embeddings are unavailable or disabled. Semantic provisioning
-    and semantic repair pass ``force_embeddings=True`` because their contract is
-    stronger: sidecars must be rebuilt, not merely reconciled.
+    sidecars when embeddings are unavailable or disabled, including when the
+    semantic runtime cannot currently build embeddings (for example NumPy is
+    unavailable). Semantic provisioning and semantic repair pass
+    ``force_embeddings=True`` because their contract is stronger: sidecars must
+    be rebuilt, not merely reconciled.
     """
     import compile_router
 
@@ -229,12 +265,14 @@ def refresh_search_assets(
     compile_router.refresh_session_markdown(str(vault_root), compiled)
     notes.append("Compiled router refreshed.")
 
-    index = build_index(str(vault_root))
+    build_result = build_index(str(vault_root))
+    index = build_result.index
     notes.append("Lexical retrieval assets refreshed.")
     embeddings_result = persist_retrieval_outputs(
         str(vault_root),
         index,
         router=compiled,
+        embedding_parts_by_path=build_result.embedding_parts_by_path,
         enable_embeddings=True if force_embeddings else None,
     )
     if force_embeddings and embeddings_result is None:

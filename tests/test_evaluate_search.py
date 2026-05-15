@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 import _search.index as search_index
-import _search.query as search_query
+import _search.mode as search_mode
 import evaluate_search as es
 
 
@@ -69,7 +69,7 @@ def vault(tmp_path):
 @pytest.fixture
 def index(vault):
     """Build and return an index for the test vault."""
-    return search_index.build_index(vault)
+    return search_index.build_index(vault).index
 
 
 class TestLoadBenchmark:
@@ -136,10 +136,10 @@ class TestEvaluateMode:
             }
         ]
 
-        monkeypatch.setattr(es, "_mode_available", lambda *_args, **_kwargs: (True, None))
+        monkeypatch.setattr(es.search_mode, "mode_available", lambda *_args, **_kwargs: (True, None))
         monkeypatch.setattr(
-            es,
-            "_run_mode_search",
+            es.search_mode,
+            "dispatch_search",
             lambda *_args, **_kwargs: [
                 {"path": "A.md", "title": "A", "score": 3.0},
                 {"path": "X.md", "title": "X", "score": 2.0},
@@ -191,7 +191,7 @@ class TestEvaluateMode:
             },
         ]
 
-        monkeypatch.setattr(es, "_mode_available", lambda *_args, **_kwargs: (True, None))
+        monkeypatch.setattr(es.search_mode, "mode_available", lambda *_args, **_kwargs: (True, None))
 
         def fake_run(_index, query, _vault, _mode, **_kwargs):
             responses = {
@@ -201,7 +201,7 @@ class TestEvaluateMode:
             }
             return responses[query]
 
-        monkeypatch.setattr(es, "_run_mode_search", fake_run)
+        monkeypatch.setattr(es.search_mode, "dispatch_search", fake_run)
 
         summary = es.evaluate_mode(
             {"documents": []},
@@ -252,15 +252,20 @@ class TestBuildReport:
             )
         )
 
-        monkeypatch.setattr(es.search_query, "load_index", lambda _vault: {"documents": []})
+        monkeypatch.setattr(es.lexical_query, "load_index", lambda _vault: {"documents": []})
         monkeypatch.setattr(
             es._retrieval_embeddings,
             "load_config_checked",
             lambda _vault: {"defaults": {"flags": {"semantic_retrieval": True}}},
         )
-        monkeypatch.setattr(es, "_mode_available", lambda *_args, **_kwargs: (True, None))
+        monkeypatch.setattr(es.search_mode, "mode_available", lambda *_args, **_kwargs: (True, None))
         monkeypatch.setattr(
             es._retrieval_embeddings, "get_query_encoder", lambda _vault: object()
+        )
+        monkeypatch.setattr(
+            es.semantic_query,
+            "load_doc_embeddings_or_unavailable",
+            lambda *_args, **_kwargs: ("doc-vectors", {"documents": []}),
         )
 
         responses = {
@@ -282,7 +287,7 @@ class TestBuildReport:
         def fake_run(_index, query, _vault, mode, **_kwargs):
             return responses[(mode, query)]
 
-        monkeypatch.setattr(es, "_run_mode_search", fake_run)
+        monkeypatch.setattr(es.search_mode, "dispatch_search", fake_run)
 
         report = es.build_report(tmp_path, benchmark_path, modes=["lexical", "hybrid"])
 
@@ -318,13 +323,13 @@ class TestBuildReport:
             )
         )
 
-        monkeypatch.setattr(es.search_query, "load_index", lambda _vault: {"documents": []})
+        monkeypatch.setattr(es.lexical_query, "load_index", lambda _vault: {"documents": []})
         monkeypatch.setattr(
             es._retrieval_embeddings,
             "load_config_checked",
             lambda _vault: {"defaults": {"flags": {"semantic_retrieval": True}}},
         )
-        monkeypatch.setattr(es, "_mode_available", lambda *_args, **_kwargs: (True, None))
+        monkeypatch.setattr(es.search_mode, "mode_available", lambda *_args, **_kwargs: (True, None))
         monkeypatch.setattr(
             es._retrieval_embeddings,
             "load_doc_embeddings",
@@ -333,8 +338,62 @@ class TestBuildReport:
             ),
         )
 
-        with pytest.raises(search_query.SearchModeUnavailableError, match="corrupt sidecars"):
+        with pytest.raises(search_mode.SearchModeUnavailableError, match="corrupt sidecars"):
             es.build_report(tmp_path, benchmark_path, modes=["semantic"])
+
+    def test_marks_semantic_modes_unavailable_when_sidecars_are_missing(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        benchmark_path = tmp_path / "benchmark.json"
+        benchmark_path.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "cases": [
+                        {
+                            "id": "lexical-case",
+                            "query": "q1",
+                            "intent": "lexical-expected",
+                            "relevant_paths": ["A.md"],
+                        }
+                    ],
+                }
+            )
+        )
+
+        monkeypatch.setattr(es.lexical_query, "load_index", lambda _vault: {"documents": []})
+        monkeypatch.setattr(
+            es._retrieval_embeddings,
+            "load_config_checked",
+            lambda _vault: {"defaults": {"flags": {"semantic_retrieval": True}}},
+        )
+        monkeypatch.setattr(
+            es.semantic_query,
+            "load_doc_embeddings_or_unavailable",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                es.semantic_query.EmbeddingsSidecarsUnavailableError(
+                    "semantic retrieval is unavailable: semantic embeddings were "
+                    "built for a different compiled router"
+                )
+            ),
+        )
+        monkeypatch.setattr(es.search_mode, "mode_available", lambda *_args, **_kwargs: (True, None))
+
+        def fake_dispatch(_index, _query, _vault, mode, **_kwargs):
+            if mode != "lexical":
+                pytest.fail("semantic modes should be marked unavailable before dispatch")
+            return [{"path": "A.md", "title": "A", "score": 1.0}]
+
+        monkeypatch.setattr(es.search_mode, "dispatch_search", fake_dispatch)
+
+        report = es.build_report(tmp_path, benchmark_path, modes=["lexical", "hybrid"])
+
+        summaries = {summary["mode"]: summary for summary in report["modes"]}
+        assert summaries["lexical"]["status"] == "ok"
+        assert summaries["hybrid"]["status"] == "unavailable"
+        assert "different compiled router" in summaries["hybrid"]["error"]
 
     def test_builds_expected_winner_scorecard(self):
         mode_summaries = [

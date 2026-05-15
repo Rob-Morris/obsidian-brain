@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timezone
 import os
-import re
 from pathlib import Path
+from typing import Any
 
 from _common import (
     iter_artefact_paths,
@@ -16,20 +17,28 @@ from _common import (
     scan_living_types,
     scan_temporal_types,
 )
-from _common._markdown import collect_headings
 
+from .document_parts import EmbeddingParts, embedding_parts_from_body
 from .lexical import tokenise
-
-
-OUTPUT_PATH = os.path.join(".brain", "local", "retrieval-index.json")
-INDEX_VERSION = "1.0.0"
+from .paths import INDEX_VERSION, OUTPUT_PATH
 BM25_K1 = 1.5
 BM25_B = 0.75
-EMBEDDING_BODY_CHARS = 500
-EMBEDDING_HEADING_LIMIT = 3
 
-_TYPE_DESCRIPTION_CACHE_KEY = "_type_description_cache"
-_section_cache: dict[str, re.Pattern] = {}
+
+@dataclass(frozen=True)
+class ParsedDocument:
+    """One parsed retrieval document plus the embedding parts derived from its body."""
+
+    doc: dict[str, Any]
+    embedding_parts: EmbeddingParts
+
+
+@dataclass(frozen=True)
+class IndexBuildResult:
+    """A built lexical index plus the cached embedding parts for its documents."""
+
+    index: dict[str, Any]
+    embedding_parts_by_path: dict[str, EmbeddingParts]
 
 
 def extract_title(filename):
@@ -42,70 +51,8 @@ def extract_title(filename):
     return Path(filename).stem
 
 
-def extract_type_description(vault_root, artefact):
-    """Read taxonomy file and extract one-liner + Purpose + When To Use/Trigger."""
-    cached = artefact.get(_TYPE_DESCRIPTION_CACHE_KEY)
-    if cached is not None:
-        return cached
-
-    taxonomy_file = artefact.get("taxonomy_file")
-    if not taxonomy_file:
-        artefact[_TYPE_DESCRIPTION_CACHE_KEY] = ""
-        return ""
-
-    abs_path = os.path.join(str(vault_root), taxonomy_file)
-    try:
-        with open(abs_path, "r", encoding="utf-8") as f:
-            content = f.read()
-    except (OSError, UnicodeDecodeError):
-        artefact[_TYPE_DESCRIPTION_CACHE_KEY] = ""
-        return ""
-
-    parts = []
-
-    h1_match = re.search(r"^# .+\n\n(.+)", content, re.MULTILINE)
-    if h1_match:
-        parts.append(h1_match.group(1).strip())
-
-    for section_name in ("Purpose", "When To Use", "Trigger"):
-        body = _extract_section(content, section_name)
-        if body:
-            parts.append(body)
-
-    description = "\n\n".join(parts)
-    artefact[_TYPE_DESCRIPTION_CACHE_KEY] = description
-    return description
-
-
-def _extract_section(content, heading):
-    """Extract the body of a ## heading section, stopping at the next ## or EOF."""
-    pattern = _section_cache.get(heading)
-    if pattern is None:
-        pattern = re.compile(
-            rf"^## {re.escape(heading)}\s*\n(.*?)(?=^## |\Z)",
-            re.MULTILINE | re.DOTALL,
-        )
-        _section_cache[heading] = pattern
-    match = pattern.search(content)
-    if match:
-        return match.group(1).strip()
-    return ""
-
-
-def _extract_heading_titles(body, limit=3):
-    """Extract a few markdown heading titles for embedding context."""
-    titles = []
-    for _start, _level, text, _raw in collect_headings(body):
-        if not text:
-            continue
-        titles.append(text)
-        if len(titles) >= limit:
-            break
-    return titles
-
-
-def parse_doc(vault_root, rel_path, type_hint=None):
-    """Parse a single .md file into a document dict for the index."""
+def parse_doc(vault_root, rel_path, type_hint=None) -> ParsedDocument | None:
+    """Parse a single .md file into an index document and embedding text parts."""
     vault_str = str(vault_root)
     abs_path = os.path.join(vault_str, rel_path)
     try:
@@ -132,33 +79,22 @@ def parse_doc(vault_root, rel_path, type_hint=None):
     for token in title_tokens:
         title_tf[token] = title_tf.get(token, 0) + 1
 
-    return {
-        "path": rel_path,
-        "title": title,
-        "type": doc_type,
-        "tags": fields.get("tags", []),
-        "key": fields.get("key"),
-        "parent": normalize_artefact_key(fields.get("parent")),
-        "status": fields.get("status"),
-        "modified": modified,
-        "doc_length": len(tokens),
-        "tf": tf,
-        "title_tf": title_tf,
-        "_body_head": body[:EMBEDDING_BODY_CHARS],
-        "_headings": _extract_heading_titles(body, limit=EMBEDDING_HEADING_LIMIT),
-    }
-
-
-def _strip_build_local_fields(index):
-    """Return a shallow-copy index with underscore-prefixed doc fields stripped."""
-    if not isinstance(index, dict) or "documents" not in index:
-        return index
-    stripped = dict(index)
-    stripped["documents"] = [
-        {k: v for k, v in doc.items() if not k.startswith("_")}
-        for doc in index["documents"]
-    ]
-    return stripped
+    return ParsedDocument(
+        doc={
+            "path": rel_path,
+            "title": title,
+            "type": doc_type,
+            "tags": fields.get("tags", []),
+            "key": fields.get("key"),
+            "parent": normalize_artefact_key(fields.get("parent")),
+            "status": fields.get("status"),
+            "modified": modified,
+            "doc_length": len(tokens),
+            "tf": tf,
+            "title_tf": title_tf,
+        },
+        embedding_parts=embedding_parts_from_body(body),
+    )
 
 
 def _recompute_corpus_stats(index):
@@ -208,17 +144,23 @@ def _apply_doc_to_corpus_stats(index, doc, delta):
     index["meta"]["avg_doc_length"] = round(avg_dl, 1)
 
 
-def build_index(vault_root):
-    """Build the BM25 retrieval index for the vault."""
+def _build_index_result(vault_root) -> IndexBuildResult:
+    """Build the lexical index plus cached embedding parts for its documents."""
     version = read_version(vault_root)
     all_types = scan_living_types(vault_root) + scan_temporal_types(vault_root)
 
     documents = []
+    embedding_parts_by_path: dict[str, EmbeddingParts] = {}
     for type_info in all_types:
         for rel_path in iter_artefact_paths(vault_root, type_info):
-            doc = parse_doc(vault_root, rel_path, type_hint=type_info["type"])
-            if doc is not None:
-                documents.append(doc)
+            parsed = parse_doc(
+                vault_root,
+                rel_path,
+                type_hint=type_info["type"],
+            )
+            if parsed is not None:
+                documents.append(parsed.doc)
+                embedding_parts_by_path[rel_path] = parsed.embedding_parts
 
     index = {
         "meta": {
@@ -240,28 +182,38 @@ def build_index(vault_root):
         "documents": documents,
     }
     _recompute_corpus_stats(index)
-    return index
+    return IndexBuildResult(index=index, embedding_parts_by_path=embedding_parts_by_path)
 
 
-def persist_retrieval_index(vault_root, index):
+def build_index(vault_root) -> IndexBuildResult:
+    """Build the lexical index plus cached embedding parts for its documents."""
+    return _build_index_result(vault_root)
+
+
+def persist_retrieval_index(vault_root, index) -> None:
     """Persist the lexical retrieval index JSON to disk."""
     output_path = os.path.join(str(vault_root), OUTPUT_PATH)
-    safe_write_json(output_path, _strip_build_local_fields(index), bounds=str(vault_root))
+    safe_write_json(output_path, index, bounds=str(vault_root))
 
 
-def index_update(index, vault_root, rel_path, type_hint=None):
-    """Upsert a document in the index. Mutates index in-place."""
-    doc = parse_doc(vault_root, rel_path, type_hint=type_hint)
-    if doc is None:
+def index_update(index, vault_root, rel_path, type_hint=None) -> ParsedDocument | None:
+    """Upsert a document and return its parsed document plus embedding parts."""
+    parsed = parse_doc(
+        vault_root,
+        rel_path,
+        type_hint=type_hint,
+    )
+    if parsed is None:
         return None
+    doc = parsed.doc
 
     for i, existing in enumerate(index["documents"]):
         if existing["path"] == rel_path:
             _apply_doc_to_corpus_stats(index, existing, -1)
             index["documents"][i] = doc
             _apply_doc_to_corpus_stats(index, doc, +1)
-            return doc
+            return parsed
 
     index["documents"].append(doc)
     _apply_doc_to_corpus_stats(index, doc, +1)
-    return doc
+    return parsed

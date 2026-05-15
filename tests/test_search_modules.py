@@ -1,4 +1,4 @@
-"""Direct tests for internal `_search` domain modules."""
+"""Direct tests for canonical `_search` domain modules."""
 
 from __future__ import annotations
 
@@ -11,8 +11,14 @@ import sys
 import pytest
 
 import _search.assets as search_assets
+from _search.filters import SearchFilters
 import _search.index as search_index_mod
-import _search.query as search_query
+import _search.lexical_query as lexical_query
+import _search.mode as search_mode
+import _search.semantic_query as semantic_query
+import _semantic.model as semantic_model
+import _semantic.runtime as semantic_runtime
+import _taxonomy_descriptions as taxonomy_descriptions
 import compile_router
 
 
@@ -34,99 +40,161 @@ def vault(tmp_path):
 
 
 def test_search_index_module_builds_index_directly(vault):
-    index = search_index_mod.build_index(vault)
+    index = search_index_mod.build_index(vault).index
 
     assert index["meta"]["document_count"] == 1
     assert index["documents"][0]["path"] == "Wiki/python-basics.md"
 
 
-def test_search_query_dispatches_lexical_mode_directly(vault):
-    index = search_index_mod.build_index(vault)
+def test_mode_dispatches_lexical_search_directly(vault):
+    index = search_index_mod.build_index(vault).index
 
-    results = search_query.dispatch_search(index, "python", vault, "lexical")
+    results = search_mode.dispatch_search(index, "python", vault, "lexical")
 
     assert results
     assert results[0]["path"] == "Wiki/python-basics.md"
 
 
-def test_search_query_load_index_raises_named_error_when_missing(vault):
-    with pytest.raises(search_query.IndexNotFoundError, match="retrieval index not found"):
-        search_query.load_index(vault)
+def test_lexical_query_load_index_raises_named_error_when_missing(vault):
+    with pytest.raises(lexical_query.IndexNotFoundError, match="retrieval index not found"):
+        lexical_query.load_index(vault)
 
 
-def test_search_query_encode_query_wraps_runtime_importerror(vault, monkeypatch):
+def test_semantic_query_encode_query_wraps_runtime_importerror(vault, monkeypatch):
     monkeypatch.setattr(
-        search_query._semantic,
+        semantic_runtime,
         "encode_query",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(ImportError("missing runtime dep")),
     )
 
     with pytest.raises(
-        search_query.SearchModeUnavailableError,
+        search_mode.SearchModeUnavailableError,
         match="missing runtime dep",
     ):
-        search_query._encode_query(vault, "python")
+        semantic_query.encode_query_or_unavailable(vault, "python")
 
 
-def test_search_query_encode_query_reraises_original_error_when_proxy_class_unavailable(
-    vault,
-    monkeypatch,
-):
-    class MissingSemanticModelProxy:
-        def __getattr__(self, name):
-            raise AttributeError(name)
-
-    monkeypatch.setattr(
-        search_query._semantic,
-        "encode_query",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(ValueError("boom")),
-    )
-    monkeypatch.setattr(search_query, "_semantic_model", MissingSemanticModelProxy())
-
-    with pytest.raises(ValueError, match="boom"):
-        search_query._encode_query(vault, "python")
-
-
-def test_search_query_load_doc_embeddings_reraises_original_error_when_proxy_class_unavailable(
-    vault,
-    monkeypatch,
-):
-    class MissingSemanticProxy:
-        def __getattr__(self, name):
-            raise AttributeError(name)
-
-    monkeypatch.setattr(search_query, "_semantic", MissingSemanticProxy())
-
+def test_semantic_query_load_doc_embeddings_wraps_embeddings_load_error(vault):
     def boom(_vault):
-        raise ValueError("boom")
+        raise semantic_runtime.SemanticEmbeddingsLoadError("corrupt sidecars")
 
-    with pytest.raises(ValueError, match="boom"):
-        search_query.load_doc_embeddings_or_unavailable(vault, loader=boom)
+    with pytest.raises(
+        search_mode.SearchModeUnavailableError,
+        match="corrupt sidecars",
+    ):
+        semantic_query.load_doc_embeddings_or_unavailable(vault, loader=boom)
 
 
-def test_search_query_load_doc_embeddings_reraises_router_metadata_error_when_proxy_class_unavailable(
-    vault,
-    monkeypatch,
-):
-    class BrokenSemanticProxy:
-        def embeddings_meta_matches_router(self, _meta, _router):
-            raise ValueError("bad router metadata")
-
-        def __getattr__(self, name):
-            raise AttributeError(name)
-
-    monkeypatch.setattr(search_query, "_semantic", BrokenSemanticProxy())
+def test_semantic_query_load_doc_embeddings_reports_missing_compiled_router(vault, monkeypatch):
     monkeypatch.setattr(
-        search_query,
-        "load_compiled_router",
-        lambda _vault: {"meta": {"source_hash": "sha256:router"}},
+        semantic_runtime,
+        "embeddings_meta_matches_current_router",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            semantic_runtime.CompiledRouterMissingError(
+                "Compiled router not found at .brain/local/compiled-router.json. "
+                "Run compile_router.py first."
+            )
+        ),
     )
 
-    with pytest.raises(ValueError, match="bad router metadata"):
-        search_query.load_doc_embeddings_or_unavailable(
+    with pytest.raises(
+        semantic_query.EmbeddingsSidecarsUnavailableError,
+        match="Compiled router not found",
+    ):
+        semantic_query.load_doc_embeddings_or_unavailable(
             vault,
-            loader=lambda _vault: (object(), {"documents": []}),
+            loader=lambda _vault: ([0.1], {"documents": []}),
         )
+
+
+def test_semantic_query_encode_query_wraps_semantic_model_errors(vault, monkeypatch):
+    def boom(_vault, _query, *, query_encoder=None):
+        raise semantic_model.SemanticModelMissingError("missing model snapshot")
+
+    monkeypatch.setattr(semantic_runtime, "encode_query", boom)
+
+    with pytest.raises(
+        search_mode.SearchModeUnavailableError,
+        match="missing model snapshot",
+    ):
+        semantic_query.encode_query_or_unavailable(vault, "python")
+
+
+class TestSearchFiltersMatches:
+    def test_empty_filters_match_sparse_metadata(self):
+        assert SearchFilters().matches({})
+
+    def test_type_tag_and_status_filters_match_expected_metadata(self):
+        filters = SearchFilters(type="living/wiki", tag="python", status="active")
+        assert filters.matches(
+            {
+                "type": "living/wiki",
+                "tags": ["python", "programming"],
+                "status": "active",
+            }
+        )
+
+    def test_tag_filter_rejects_missing_tags_list(self):
+        assert not SearchFilters(tag="python").matches({})
+
+    def test_dataclass_equality_is_stable(self):
+        assert SearchFilters(tag="python") == SearchFilters(tag="python")
+
+
+def test_extract_type_description_does_not_mutate_artefact_metadata(vault):
+    taxonomy_file = vault / "taxonomy.md"
+    taxonomy_file.write_text(
+        "# Retrieval Type\n\nOne-line summary.\n\n## Purpose\nShared description.\n",
+        encoding="utf-8",
+    )
+    artefact = {"taxonomy_file": "taxonomy.md"}
+
+    first = taxonomy_descriptions.extract_type_description(vault, artefact)
+    second = taxonomy_descriptions.extract_type_description(vault, artefact)
+
+    assert "One-line summary." in first
+    assert first == second
+    assert artefact == {"taxonomy_file": "taxonomy.md"}
+
+
+def test_extract_type_description_invalidates_cache_when_taxonomy_changes(vault):
+    taxonomy_file = vault / "taxonomy.md"
+    taxonomy_file.write_text(
+        "# Retrieval Type\n\nFirst summary.\n",
+        encoding="utf-8",
+    )
+    artefact = {"taxonomy_file": "taxonomy.md"}
+
+    first = taxonomy_descriptions.extract_type_description(vault, artefact)
+
+    taxonomy_file.write_text(
+        "# Retrieval Type\n\nSecond summary.\n",
+        encoding="utf-8",
+    )
+    new_mtime = taxonomy_file.stat().st_mtime + 5
+    os.utime(taxonomy_file, (new_mtime, new_mtime))
+
+    second = taxonomy_descriptions.extract_type_description(vault, artefact)
+
+    assert "First summary." in first
+    assert "Second summary." in second
+
+
+def test_extract_type_description_cache_isolated_per_vault(tmp_path):
+    first_vault = tmp_path / "vault-a"
+    second_vault = tmp_path / "vault-b"
+    first_vault.mkdir()
+    second_vault.mkdir()
+
+    (first_vault / "taxonomy.md").write_text("# Retrieval Type\n\nFirst vault.\n", encoding="utf-8")
+    (second_vault / "taxonomy.md").write_text("# Retrieval Type\n\nSecond vault.\n", encoding="utf-8")
+    artefact = {"taxonomy_file": "taxonomy.md"}
+
+    first = taxonomy_descriptions.extract_type_description(first_vault, artefact)
+    second = taxonomy_descriptions.extract_type_description(second_vault, artefact)
+
+    assert "First vault." in first
+    assert "Second vault." in second
 
 
 def test_search_assets_refresh_search_assets_returns_note_list(vault, monkeypatch):
@@ -146,13 +214,16 @@ def test_search_assets_refresh_search_assets_returns_note_list(vault, monkeypatc
     monkeypatch.setattr(
         search_assets,
         "build_index",
-        lambda _vault: {"documents": []},
+        lambda _vault: search_index_mod.IndexBuildResult(
+            index={"documents": []},
+            embedding_parts_by_path={},
+        ),
     )
     monkeypatch.setattr(
         search_assets,
         "persist_retrieval_outputs",
-        lambda _vault, _index, *, router=None, enable_embeddings=None, config=None: calls.append(
-            ("persist_outputs", router, enable_embeddings)
+        lambda _vault, _index, *, router=None, embedding_parts_by_path=None, enable_embeddings=None, config=None: calls.append(
+            ("persist_outputs", router, embedding_parts_by_path, enable_embeddings)
         ),
     )
 
@@ -166,7 +237,7 @@ def test_search_assets_refresh_search_assets_returns_note_list(vault, monkeypatc
     assert calls == [
         "persist_router",
         "refresh_session",
-        ("persist_outputs", {"artefacts": []}, None),
+        ("persist_outputs", {"artefacts": []}, {}, None),
     ]
 
 
@@ -174,7 +245,14 @@ def test_search_assets_refresh_search_assets_reports_refreshed_sidecars(vault, m
     monkeypatch.setattr(compile_router, "compile", lambda _vault: {"artefacts": []})
     monkeypatch.setattr(compile_router, "persist_compiled_router", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(compile_router, "refresh_session_markdown", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(search_assets, "build_index", lambda _vault: {"documents": []})
+    monkeypatch.setattr(
+        search_assets,
+        "build_index",
+        lambda _vault: search_index_mod.IndexBuildResult(
+            index={"documents": []},
+            embedding_parts_by_path={},
+        ),
+    )
     monkeypatch.setattr(
         search_assets,
         "persist_retrieval_outputs",
@@ -196,12 +274,19 @@ def test_search_assets_refresh_search_assets_forces_embeddings_when_requested(va
     monkeypatch.setattr(compile_router, "compile", lambda _vault: {"artefacts": []})
     monkeypatch.setattr(compile_router, "persist_compiled_router", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(compile_router, "refresh_session_markdown", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(search_assets, "build_index", lambda _vault: {"documents": []})
+    monkeypatch.setattr(
+        search_assets,
+        "build_index",
+        lambda _vault: search_index_mod.IndexBuildResult(
+            index={"documents": []},
+            embedding_parts_by_path={},
+        ),
+    )
     monkeypatch.setattr(
         search_assets,
         "persist_retrieval_outputs",
-        lambda _vault, _index, *, router=None, enable_embeddings=None, config=None: calls.append(
-            ("persist_outputs", router, enable_embeddings)
+        lambda _vault, _index, *, router=None, embedding_parts_by_path=None, enable_embeddings=None, config=None: calls.append(
+            ("persist_outputs", router, embedding_parts_by_path, enable_embeddings)
         )
         or ("doc-embeddings", "meta"),
     )
@@ -213,7 +298,7 @@ def test_search_assets_refresh_search_assets_forces_embeddings_when_requested(va
         "Lexical retrieval assets refreshed.",
         "Semantic sidecars refreshed.",
     ]
-    assert calls == [("persist_outputs", {"artefacts": []}, True)]
+    assert calls == [("persist_outputs", {"artefacts": []}, {}, True)]
 
 
 def test_search_assets_refresh_search_assets_raises_when_forced_embeddings_are_not_rebuilt(
@@ -225,12 +310,19 @@ def test_search_assets_refresh_search_assets_raises_when_forced_embeddings_are_n
     monkeypatch.setattr(compile_router, "compile", lambda _vault: {"artefacts": []})
     monkeypatch.setattr(compile_router, "persist_compiled_router", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(compile_router, "refresh_session_markdown", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(search_assets, "build_index", lambda _vault: {"documents": []})
+    monkeypatch.setattr(
+        search_assets,
+        "build_index",
+        lambda _vault: search_index_mod.IndexBuildResult(
+            index={"documents": []},
+            embedding_parts_by_path={},
+        ),
+    )
     monkeypatch.setattr(
         search_assets,
         "persist_retrieval_outputs",
-        lambda _vault, _index, *, router=None, enable_embeddings=None, config=None: calls.append(
-            ("persist_outputs", router, enable_embeddings)
+        lambda _vault, _index, *, router=None, embedding_parts_by_path=None, enable_embeddings=None, config=None: calls.append(
+            ("persist_outputs", router, embedding_parts_by_path, enable_embeddings)
         ),
     )
 
@@ -240,7 +332,7 @@ def test_search_assets_refresh_search_assets_raises_when_forced_embeddings_are_n
     ):
         search_assets.refresh_search_assets(vault, force_embeddings=True)
 
-    assert calls == [("persist_outputs", {"artefacts": []}, True)]
+    assert calls == [("persist_outputs", {"artefacts": []}, {}, True)]
 
 
 def test_search_modules_import_without_semantic_imports():
@@ -262,16 +354,22 @@ class BlockSemantic(importlib.abc.MetaPathFinder):
 
 sys.meta_path.insert(0, BlockSemantic())
 
-import _search.assets
+import _search.filters
+import _search.document_parts
 import _search.index
 import _search.lexical
-import _search.query
+import _search.lexical_query
+import _search.mode
+import _search.paths
+import _search.resource
+import _search.snippet
 """
     result = subprocess.run(
         [sys.executable, "-c", code],
         capture_output=True,
         text=True,
         env=env,
+        timeout=30,
     )
 
     assert result.returncode == 0, result.stderr

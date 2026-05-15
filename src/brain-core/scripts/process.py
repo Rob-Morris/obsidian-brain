@@ -18,9 +18,10 @@ from _common import (
     title_to_filename,
     title_to_slug,
 )
-from _search.index import extract_type_description
+from _taxonomy_descriptions import extract_type_description
+from _search.filters import SearchFilters
 from _search.lexical import tokenise
-import _search.query as search_query
+import _search.lexical_query as lexical_query
 
 import create as create_mod
 import edit as edit_mod
@@ -267,11 +268,11 @@ def resolve_content(
         query = title
         if content:
             query = title + " " + content[:200]
-        results = search_query.search(
+        results = lexical_query.search(
             index,
             query,
             str(vault_root),
-            type_filter=resolved_type,
+            filters=SearchFilters(type=resolved_type),
             top_k=5,
         )
         for result in results:

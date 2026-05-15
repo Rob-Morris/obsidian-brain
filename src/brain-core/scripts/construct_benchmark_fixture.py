@@ -43,7 +43,10 @@ from _common import (
     title_to_slug,
 )
 from _search.lexical import LEXICAL_ANCHOR_RE, tokenise
-import _search.query as search_query
+from _search.filters import SearchFilters
+import _search.lexical_query as lexical_query
+import _search.mode as search_mode
+import _search.semantic_query as semantic_query
 
 
 HIT_KS = (1, 3, 5)
@@ -880,28 +883,25 @@ def _run_mode(
     vault_root,
     mode,
     *,
-    filters=None,
+    filters: SearchFilters = SearchFilters(),
     doc_embeddings=None,
     embeddings_meta=None,
     query_encoder=None,
     top_k=DEFAULT_TOP_K,
     exclude_predicate=None,
 ):
-    filters = filters or {}
-
     def fetch(raw_top_k):
-        return search_query.dispatch_search(
+        return search_mode.dispatch_search(
             index,
             query,
             vault_root,
             mode,
-            type_filter=filters.get("type"),
-            tag_filter=filters.get("tag"),
-            status_filter=filters.get("status"),
+            filters=filters,
             top_k=raw_top_k,
             doc_embeddings=doc_embeddings,
             embeddings_meta=embeddings_meta,
             query_encoder=query_encoder,
+            attach_snippets=False,
         )
 
     if not exclude_predicate:
@@ -921,20 +921,6 @@ def _run_mode(
         result for result in results if not exclude_predicate(result.get("path") or "")
     ]
     return filtered[:top_k]
-
-
-def _mode_available(vault_root, mode, *, config=None, doc_embeddings=None, embeddings_meta=None):
-    try:
-        search_query.resolve_search_mode(
-            vault_root,
-            mode,
-            config=config,
-            doc_embeddings=doc_embeddings,
-            embeddings_meta=embeddings_meta,
-        )
-    except search_query.SearchModeUnavailableError as exc:
-        return (False, str(exc))
-    return (True, None)
 
 
 def _candidate_quality_key(audit):
@@ -1288,7 +1274,7 @@ def _build_fixture(benchmark_name, admitted_cases):
 
 
 def _audit_candidate(index, vault_root, candidate, *, config=None, doc_embeddings=None, embeddings_meta=None, query_encoder=None, semantic_available=False):
-    filters = dict(candidate.get("filters", {}))
+    filters = SearchFilters(**candidate.get("filters", {}))
     relevant_set = set(candidate["relevant_paths"])
     ranks = {"lexical": None, "semantic": None, "hybrid": None}
     top_paths = {"lexical": [], "semantic": [], "hybrid": []}
@@ -1327,7 +1313,7 @@ def _audit_candidate(index, vault_root, candidate, *, config=None, doc_embedding
             candidate["query"],
             vault_root,
             "lexical",
-            filters={},
+            filters=SearchFilters(),
             doc_embeddings=doc_embeddings,
             embeddings_meta=embeddings_meta,
             query_encoder=query_encoder,
@@ -1703,11 +1689,11 @@ def construct_fixture(
         audit_out = Path(audit_out)
 
     if index is None:
-        index = search_query.load_index(vault_root)
+        index = lexical_query.load_index(vault_root)
     if config is None:
         config = _retrieval_embeddings.load_config_checked(vault_root)
 
-    semantic_available, semantic_error = _mode_available(
+    semantic_available, semantic_error = search_mode.mode_available(
         vault_root,
         "semantic",
         config=config,
@@ -1715,7 +1701,7 @@ def construct_fixture(
         embeddings_meta=embeddings_meta,
     )
     if semantic_available and (doc_embeddings is None or embeddings_meta is None):
-        doc_embeddings, embeddings_meta = search_query.load_doc_embeddings_or_unavailable(
+        doc_embeddings, embeddings_meta = semantic_query.load_doc_embeddings_or_unavailable(
             vault_root,
             loader=_retrieval_embeddings.load_doc_embeddings,
         )
@@ -1893,7 +1879,7 @@ def main():
             semantic_seed_file=semantic_seed_file,
             hybrid_seed_file=hybrid_seed_file,
         )
-    except (search_query.SearchModeUnavailableError, _retrieval_embeddings.SemanticConfigLoadError) as exc:
+    except (search_mode.SearchModeUnavailableError, _retrieval_embeddings.SemanticConfigLoadError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(1)
 

@@ -22,7 +22,10 @@ import time
 
 import retrieval_embeddings as _retrieval_embeddings
 from _common import RaisingArgumentParser, find_vault_root, require_option
-import _search.query as search_query
+from _search.filters import SearchFilters
+import _search.lexical_query as lexical_query
+import _search.mode as search_mode
+import _search.semantic_query as semantic_query
 
 
 DEFAULT_HIT_KS = (1, 3, 5)
@@ -56,8 +59,8 @@ def _normalise_modes(modes):
         return DEFAULT_MODES
     normalised = []
     for mode in modes:
-        if mode not in search_query.SEARCH_MODES:
-            valid = ", ".join(sorted(search_query.SEARCH_MODES))
+        if mode not in search_mode.SEARCH_MODES:
+            valid = ", ".join(sorted(search_mode.SEARCH_MODES))
             raise ValueError(f"unknown mode '{mode}'. Valid modes: {valid}")
         if mode not in normalised:
             normalised.append(mode)
@@ -130,58 +133,6 @@ def load_benchmark(path):
         "hit_ks": hit_ks,
         "cases": normalised_cases,
     }
-
-
-def _mode_available(
-    mode,
-    vault_root,
-    *,
-    config=None,
-    doc_embeddings=None,
-    embeddings_meta=None,
-):
-    """Return (available, error_message) for one evaluation mode."""
-    try:
-        search_query.resolve_search_mode(
-            vault_root,
-            mode,
-            config=config,
-            doc_embeddings=doc_embeddings,
-            embeddings_meta=embeddings_meta,
-        )
-    except search_query.SearchModeUnavailableError as exc:
-        return (False, str(exc))
-    return (True, None)
-
-
-def _run_mode_search(
-    index,
-    query,
-    vault_root,
-    mode,
-    *,
-    type_filter=None,
-    tag_filter=None,
-    status_filter=None,
-    top_k,
-    doc_embeddings=None,
-    embeddings_meta=None,
-    query_encoder=None,
-):
-    """Dispatch one query through the selected retrieval mode."""
-    return search_query.dispatch_search(
-        index,
-        query,
-        vault_root,
-        mode,
-        type_filter=type_filter,
-        tag_filter=tag_filter,
-        status_filter=status_filter,
-        top_k=top_k,
-        doc_embeddings=doc_embeddings,
-        embeddings_meta=embeddings_meta,
-        query_encoder=query_encoder,
-    )
 
 
 def _build_parser():
@@ -374,9 +325,9 @@ def evaluate_mode(
     query_encoder=None,
 ):
     """Run one retrieval mode over the benchmark cases."""
-    available, error = _mode_available(
-        mode,
+    available, error = search_mode.mode_available(
         vault_root,
+        mode,
         config=config,
         doc_embeddings=doc_embeddings,
         embeddings_meta=embeddings_meta,
@@ -394,20 +345,19 @@ def evaluate_mode(
     case_results = []
     elapsed_ms_total = 0.0
     for case in cases:
-        filters = case.get("filters", {})
+        filters = SearchFilters(**case.get("filters", {}))
         started = time.perf_counter()
-        results = _run_mode_search(
+        results = search_mode.dispatch_search(
             index,
             case["query"],
             vault_root,
             mode,
-            type_filter=filters.get("type"),
-            tag_filter=filters.get("tag"),
-            status_filter=filters.get("status"),
+            filters=filters,
             top_k=max_k,
             doc_embeddings=doc_embeddings,
             embeddings_meta=embeddings_meta,
             query_encoder=query_encoder,
+            attach_snippets=False,
         )
         elapsed_ms = (time.perf_counter() - started) * 1000
         elapsed_ms_total += elapsed_ms
@@ -547,20 +497,30 @@ def build_report(
     benchmark = load_benchmark(benchmark_path)
     modes = _normalise_modes(modes)
     if index is None:
-        index = search_query.load_index(vault_root)
+        index = lexical_query.load_index(vault_root)
     if config is None:
         config = _retrieval_embeddings.load_config_checked(vault_root)
 
     needs_semantic = any(mode in {"semantic", "hybrid"} for mode in modes)
+    semantic_sidecars_error = None
     if needs_semantic and (doc_embeddings is None or embeddings_meta is None):
-        doc_embeddings, embeddings_meta = search_query.load_doc_embeddings_or_unavailable(
+        try:
+            doc_embeddings, embeddings_meta = semantic_query.load_doc_embeddings_or_unavailable(
+                vault_root,
+                loader=_retrieval_embeddings.load_doc_embeddings,
+            )
+        except semantic_query.EmbeddingsSidecarsUnavailableError as exc:
+            semantic_sidecars_error = str(exc)
+            doc_embeddings, embeddings_meta = (None, None)
+    if (
+        needs_semantic
+        and doc_embeddings is not None
+        and embeddings_meta is not None
+        and query_encoder is None
+    ):
+        available, _error = search_mode.mode_available(
             vault_root,
-            loader=_retrieval_embeddings.load_doc_embeddings,
-        )
-    if needs_semantic and query_encoder is None:
-        available, _error = _mode_available(
             "semantic",
-            vault_root,
             config=config,
             doc_embeddings=doc_embeddings,
             embeddings_meta=embeddings_meta,
@@ -570,6 +530,17 @@ def build_report(
 
     mode_summaries = []
     for mode in modes:
+        if mode in {"semantic", "hybrid"} and semantic_sidecars_error is not None:
+            mode_summaries.append(
+                {
+                    "mode": mode,
+                    "status": "unavailable",
+                    "error": semantic_sidecars_error,
+                    "metrics": None,
+                    "cases": [],
+                }
+            )
+            continue
         mode_summaries.append(
             evaluate_mode(
                 index,
@@ -729,7 +700,7 @@ def main():
     except (
         OSError,
         ValueError,
-        search_query.SearchModeUnavailableError,
+        search_mode.SearchModeUnavailableError,
         _retrieval_embeddings.SemanticConfigLoadError,
     ) as exc:
         print(f"Error: {exc}", file=sys.stderr)

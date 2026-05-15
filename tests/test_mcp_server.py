@@ -15,7 +15,7 @@ import pytest
 from mcp.types import CallToolResult
 
 import _search.assets as search_assets
-import _search.query as search_query
+import _search.semantic_query as semantic_query
 import _semantic.model as semantic_model
 import _semantic.runtime as semantic_runtime
 from brain_mcp import _server_content, _server_reading, server
@@ -956,7 +956,7 @@ class TestBrainSearch:
         self._enable_semantic_retrieval()
         monkeypatch.setattr(server, "_ensure_embeddings_fresh", lambda: None)
         monkeypatch.setattr(
-            search_query._semantic,
+            semantic_runtime,
             "semantic_engine_available",
             lambda *args, **kwargs: False,
         )
@@ -982,11 +982,13 @@ class TestBrainSearch:
         )
         meta = self._semantic_meta()
         monkeypatch.setattr(
-            search_query, "_encode_query", lambda _vault, _query: np.array([1.0, 0.0])
+            semantic_query,
+            "encode_query_or_unavailable",
+            lambda _vault, _query, *, query_encoder=None: np.array([1.0, 0.0]),
         )
         monkeypatch.setattr(retrieval_embeddings, "semantic_engine_available", lambda *_args, **_kwargs: True)
         monkeypatch.setattr(_server_reading._retrieval_embeddings, "semantic_engine_available", lambda *_args, **_kwargs: True)
-        monkeypatch.setattr(search_query._semantic, "semantic_engine_available", lambda *_args, **_kwargs: True)
+        monkeypatch.setattr(semantic_runtime, "semantic_engine_available", lambda *_args, **_kwargs: True)
 
         def fake_ensure_embeddings_fresh():
             server._doc_embeddings = vectors
@@ -1012,11 +1014,13 @@ class TestBrainSearch:
         )
         meta = self._semantic_meta()
         monkeypatch.setattr(
-            search_query, "_encode_query", lambda _vault, _query: np.array([1.0, 0.0])
+            semantic_query,
+            "encode_query_or_unavailable",
+            lambda _vault, _query, *, query_encoder=None: np.array([1.0, 0.0]),
         )
         monkeypatch.setattr(retrieval_embeddings, "semantic_engine_available", lambda *_args, **_kwargs: True)
         monkeypatch.setattr(_server_reading._retrieval_embeddings, "semantic_engine_available", lambda *_args, **_kwargs: True)
-        monkeypatch.setattr(search_query._semantic, "semantic_engine_available", lambda *_args, **_kwargs: True)
+        monkeypatch.setattr(semantic_runtime, "semantic_engine_available", lambda *_args, **_kwargs: True)
 
         def fake_ensure_embeddings_fresh():
             server._doc_embeddings = vectors
@@ -1048,11 +1052,13 @@ class TestBrainSearch:
         )
         meta = self._semantic_meta()
         monkeypatch.setattr(
-            search_query, "_encode_query", lambda _vault, _query: np.array([1.0, 0.0])
+            semantic_query,
+            "encode_query_or_unavailable",
+            lambda _vault, _query, *, query_encoder=None: np.array([1.0, 0.0]),
         )
         monkeypatch.setattr(retrieval_embeddings, "semantic_engine_available", lambda *_args, **_kwargs: True)
         monkeypatch.setattr(_server_reading._retrieval_embeddings, "semantic_engine_available", lambda *_args, **_kwargs: True)
-        monkeypatch.setattr(search_query._semantic, "semantic_engine_available", lambda *_args, **_kwargs: True)
+        monkeypatch.setattr(semantic_runtime, "semantic_engine_available", lambda *_args, **_kwargs: True)
 
         def fake_ensure_embeddings_fresh():
             server._doc_embeddings = vectors
@@ -1109,7 +1115,7 @@ class TestBrainSearch:
         monkeypatch.setattr(server, "_ensure_embeddings_fresh", lambda: None)
         monkeypatch.setattr(retrieval_embeddings, "semantic_engine_available", lambda *_args, **_kwargs: True)
         monkeypatch.setattr(_server_reading._retrieval_embeddings, "semantic_engine_available", lambda *_args, **_kwargs: True)
-        monkeypatch.setattr(search_query._semantic, "semantic_engine_available", lambda *_args, **_kwargs: True)
+        monkeypatch.setattr(semantic_runtime, "semantic_engine_available", lambda *_args, **_kwargs: True)
         monkeypatch.setattr(_server_content._retrieval_embeddings, "semantic_engine_available", lambda *_args, **_kwargs: True)
         monkeypatch.setattr(
             semantic_model,
@@ -1573,7 +1579,11 @@ class TestEnsureFreshRobustness:
         server._index_dirty = False
         server._mark_index_pending("Wiki/brain-overview-abc123.md", "wiki")
 
-        with patch.object(server.search_index, "index_update", side_effect=OSError("boom")):
+        with patch.object(
+            server.search_index,
+            "index_update",
+            side_effect=OSError("boom"),
+        ):
             server._ensure_index_fresh()
 
         assert server._index_dirty, "Index should be marked dirty after incremental failure"
@@ -3765,7 +3775,15 @@ class TestSemanticWarmup:
         }
         refresh_calls = []
 
-        def fake_refresh(vault_root, router, documents, *, enable_embeddings=None, config=None):
+        def fake_refresh(
+            vault_root,
+            router,
+            documents,
+            *,
+            embedding_parts_by_path=None,
+            enable_embeddings=None,
+            config=None,
+        ):
             refresh_calls.append((str(vault_root), enable_embeddings, len(documents)))
             return (
                 rebuilt_type_embeddings,
@@ -3826,7 +3844,7 @@ class TestSemanticWarmup:
 
         server._config.setdefault("defaults", {}).setdefault("flags", {})["semantic_retrieval"] = True
         server._config["defaults"].setdefault("local_runtime", {})["semantic_engine_installed"] = True
-        monkeypatch.setattr(search_query._semantic, "semantic_engine_available", lambda *_a, **_k: True)
+        monkeypatch.setattr(semantic_runtime, "semantic_engine_available", lambda *_a, **_k: True)
 
         result = server.brain_search("brain", mode="hybrid")
 
@@ -3857,7 +3875,15 @@ class TestSemanticWarmup:
         rebuilt_doc_embeddings = object()
         refresh_calls = []
 
-        def fake_refresh(vault_root, router, documents, *, enable_embeddings=None, config=None):
+        def fake_refresh(
+            vault_root,
+            router,
+            documents,
+            *,
+            embedding_parts_by_path=None,
+            enable_embeddings=None,
+            config=None,
+        ):
             refresh_calls.append((str(vault_root), enable_embeddings, len(documents)))
             return (
                 rebuilt_type_embeddings,
@@ -4042,7 +4068,7 @@ class TestSemanticWarmup:
         self, vault, gated_semantic_warmup, monkeypatch
     ):
         monkeypatch.setattr(server, "_embeddings_enabled", lambda: True)
-        monkeypatch.setattr(search_query._semantic, "semantic_engine_available", lambda *_a, **_k: True)
+        monkeypatch.setattr(semantic_runtime, "semantic_engine_available", lambda *_a, **_k: True)
 
         server.startup(vault_root=str(vault))
 
@@ -4097,7 +4123,7 @@ class TestSemanticWarmup:
         self, vault, gated_semantic_warmup, monkeypatch
     ):
         monkeypatch.setattr(server, "_embeddings_enabled", lambda: True)
-        monkeypatch.setattr(search_query._semantic, "semantic_engine_available", lambda *_a, **_k: True)
+        monkeypatch.setattr(semantic_runtime, "semantic_engine_available", lambda *_a, **_k: True)
         monkeypatch.setattr(
             _server_content._retrieval_embeddings,
             "semantic_engine_available",
@@ -5309,7 +5335,15 @@ class TestIndexStaleness:
         }
         refresh_calls = []
 
-        def fake_refresh(vault_root, router, documents, *, enable_embeddings=None, config=None):
+        def fake_refresh(
+            vault_root,
+            router,
+            documents,
+            *,
+            embedding_parts_by_path=None,
+            enable_embeddings=None,
+            config=None,
+        ):
             refresh_calls.append((str(vault_root), enable_embeddings, len(documents)))
             return (rebuilt_type_embeddings, rebuilt_doc_embeddings, rebuilt_meta)
 
@@ -5363,8 +5397,9 @@ class TestIndexStaleness:
             "semantic_engine_available",
             lambda *_args, **_kwargs: True,
         )
+        _semantic_config, semantic_model_mod, _semantic_runtime = search_assets._semantic_modules()
         monkeypatch.setattr(
-            search_assets._semantic_model,
+            semantic_model_mod,
             "load_local_model_with_manifest",
             lambda _vault: (FakeModel(), manifest),
         )
@@ -5408,7 +5443,15 @@ class TestIndexStaleness:
 
         calls = []
 
-        def fake_refresh(vault_root, router, documents, *, enable_embeddings=None, config=None):
+        def fake_refresh(
+            vault_root,
+            router,
+            documents,
+            *,
+            embedding_parts_by_path=None,
+            enable_embeddings=None,
+            config=None,
+        ):
             calls.append((str(vault_root), enable_embeddings, len(documents)))
             return (object(), object(), {"documents": [], "types": []})
 
@@ -5444,7 +5487,15 @@ class TestIndexStaleness:
 
         calls = []
 
-        def fake_refresh(vault_root, router, documents, *, enable_embeddings=None, config=None):
+        def fake_refresh(
+            vault_root,
+            router,
+            documents,
+            *,
+            embedding_parts_by_path=None,
+            enable_embeddings=None,
+            config=None,
+        ):
             calls.append((str(vault_root), enable_embeddings, len(documents)))
             return (object(), object(), {"documents": [], "types": []})
 
@@ -5534,7 +5585,7 @@ class TestIndexStaleness:
         assert not stale
 
         # Patch INDEX_VERSION to simulate drift
-        with patch.object(server.search_index, "INDEX_VERSION", "99.0.0"):
+        with patch.object(server.search_paths, "INDEX_VERSION", "99.0.0"):
             stale, _ = server._check_index(str(initialized))
             assert stale
 
