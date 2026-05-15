@@ -30,9 +30,7 @@ from collections import defaultdict
 from pathlib import Path
 
 import retrieval_embeddings as _retrieval_embeddings
-import search_index as si
 from _common import (
-    LEXICAL_ANCHOR_RE,
     RaisingArgumentParser,
     build_vault_file_index,
     extract_wikilinks,
@@ -43,8 +41,9 @@ from _common import (
     resolve_artefact_path,
     safe_write_json,
     title_to_slug,
-    tokenise,
 )
+from _search.lexical import LEXICAL_ANCHOR_RE, tokenise
+import _search.query as search_query
 
 
 HIT_KS = (1, 3, 5)
@@ -891,7 +890,7 @@ def _run_mode(
     filters = filters or {}
 
     def fetch(raw_top_k):
-        return si.dispatch_search(
+        return search_query.dispatch_search(
             index,
             query,
             vault_root,
@@ -926,14 +925,14 @@ def _run_mode(
 
 def _mode_available(vault_root, mode, *, config=None, doc_embeddings=None, embeddings_meta=None):
     try:
-        si.resolve_search_mode(
+        search_query.resolve_search_mode(
             vault_root,
             mode,
             config=config,
             doc_embeddings=doc_embeddings,
             embeddings_meta=embeddings_meta,
         )
-    except si.SearchModeUnavailableError as exc:
+    except search_query.SearchModeUnavailableError as exc:
         return (False, str(exc))
     return (True, None)
 
@@ -1704,7 +1703,7 @@ def construct_fixture(
         audit_out = Path(audit_out)
 
     if index is None:
-        index = si.load_index(vault_root)
+        index = search_query.load_index(vault_root)
     if config is None:
         config = _retrieval_embeddings.load_config_checked(vault_root)
 
@@ -1716,7 +1715,7 @@ def construct_fixture(
         embeddings_meta=embeddings_meta,
     )
     if semantic_available and (doc_embeddings is None or embeddings_meta is None):
-        doc_embeddings, embeddings_meta = si.load_doc_embeddings_or_unavailable(
+        doc_embeddings, embeddings_meta = search_query.load_doc_embeddings_or_unavailable(
             vault_root,
             loader=_retrieval_embeddings.load_doc_embeddings,
         )
@@ -1894,7 +1893,7 @@ def main():
             semantic_seed_file=semantic_seed_file,
             hybrid_seed_file=hybrid_seed_file,
         )
-    except (si.SearchModeUnavailableError, _retrieval_embeddings.SemanticConfigLoadError) as exc:
+    except (search_query.SearchModeUnavailableError, _retrieval_embeddings.SemanticConfigLoadError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(1)
 

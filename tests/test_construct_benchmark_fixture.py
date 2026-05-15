@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import construct_benchmark_fixture as cbf
+import _search.query as search_query
 import pytest
 
 
@@ -894,7 +895,7 @@ class TestRunMode:
                 {"path": "Real/5.md"},
             ]
 
-        monkeypatch.setattr(cbf.si, "search", fake_search)
+        monkeypatch.setattr(search_query, "search", fake_search)
 
         results = cbf._run_mode(
             {},

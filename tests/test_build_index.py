@@ -8,18 +8,26 @@ from unittest.mock import patch
 
 import pytest
 
+import _search.assets as search_assets
+import _search.index as search_index_mod
+import _search.lexical as lexical
 import _semantic.config as _semantic_config
 import _semantic.model as _semantic_model
 import _semantic.runtime as _semantic
 import build_index as bi
-import config as config_mod
-from _common import is_system_dir, iter_artefact_paths, parse_frontmatter
+from _common import (
+    is_system_dir,
+    iter_artefact_paths,
+    parse_frontmatter,
+    scan_living_types,
+    scan_temporal_types,
+)
 
 
 def assert_corpus_stats_match_recompute(index):
     """Assert incremental corpus stats match a full recompute (modulo built_at)."""
     expected = copy.deepcopy(index)
-    bi._recompute_corpus_stats(expected)
+    search_index_mod._recompute_corpus_stats(expected)
     assert index["corpus_stats"]["df"] == expected["corpus_stats"]["df"]
     assert index["corpus_stats"]["total_docs"] == expected["corpus_stats"]["total_docs"]
     assert index["corpus_stats"]["avg_dl"] == expected["corpus_stats"]["avg_dl"]
@@ -116,7 +124,7 @@ class TestVaultDiscovery:
         assert is_system_dir("Wiki") is False
 
     def test_scan_living_types(self, vault):
-        types = bi.scan_living_types(vault)
+        types = scan_living_types(vault)
         folders = [t["folder"] for t in types]
         assert "Wiki" in folders
         assert "Designs" in folders
@@ -124,13 +132,13 @@ class TestVaultDiscovery:
         assert "_Temporal" not in folders
 
     def test_scan_temporal_types(self, vault):
-        types = bi.scan_temporal_types(vault)
+        types = scan_temporal_types(vault)
         assert len(types) == 1
         assert types[0]["type"] == "temporal/logs"
         assert types[0]["path"] == os.path.join("_Temporal", "Logs")
 
     def test_scan_temporal_empty(self, empty_vault):
-        types = bi.scan_temporal_types(empty_vault)
+        types = scan_temporal_types(empty_vault)
         assert types == []
 
 
@@ -200,13 +208,13 @@ class TestFrontmatter:
         assert fields["created"] == "2026-01-01T00:00:00.000Z"
 
     def test_extract_title_uses_filename_stem(self):
-        assert bi.extract_title("# My Title\n\nBody", "file.md") == "file"
+        assert bi.extract_title("file.md") == "file"
 
     def test_extract_title_strips_extension(self):
-        assert bi.extract_title("No heading here.", "my-file.md") == "my-file"
+        assert bi.extract_title("my-file.md") == "my-file"
 
     def test_extract_title_with_path(self):
-        assert bi.extract_title("## Not H1\n\nBody", "Wiki/fallback.md") == "fallback"
+        assert bi.extract_title("Wiki/fallback.md") == "fallback"
 
 
 # ---------------------------------------------------------------------------
@@ -215,23 +223,23 @@ class TestFrontmatter:
 
 class TestTokenise:
     def test_basic(self):
-        tokens = bi.tokenise("Hello World")
+        tokens = lexical.tokenise("Hello World")
         assert tokens == ["hello", "world"]
 
     def test_strips_short_tokens(self):
-        tokens = bi.tokenise("I am a big fan")
+        tokens = lexical.tokenise("I am a big fan")
         assert "i" not in tokens
         assert "am" in tokens
         assert "big" in tokens
 
     def test_handles_punctuation(self):
-        tokens = bi.tokenise("BM25 is great! (really)")
+        tokens = lexical.tokenise("BM25 is great! (really)")
         assert "bm25" in tokens
         assert "great" in tokens
         assert "really" in tokens
 
     def test_empty_string(self):
-        assert bi.tokenise("") == []
+        assert lexical.tokenise("") == []
 
 
 # ---------------------------------------------------------------------------
@@ -460,8 +468,8 @@ class TestIncrementalIndex:
 class TestBuildEmbeddings:
     def test_returns_none_without_deps(self, vault):
         """When sentence-transformers is unavailable, returns None."""
-        with patch.object(bi, "_HAS_NUMPY", False):
-            result = bi.build_embeddings(vault, {"artefacts": []}, [])
+        with patch.object(search_assets, "_HAS_NUMPY", False):
+            result = search_assets.build_embeddings(vault, {"artefacts": []}, [])
             assert result is None
 
     def test_routes_npy_writes_through_safe_save_wrapper(self, vault, monkeypatch):
@@ -488,16 +496,16 @@ class TestBuildEmbeddings:
             calls.append((path, kwargs.get("bounds"), handle.getvalue()))
             return str(path)
 
-        monkeypatch.setattr(bi, "_HAS_NUMPY", True)
-        monkeypatch.setattr(bi, "np", FakeNumpy(), raising=False)
+        monkeypatch.setattr(search_assets, "_HAS_NUMPY", True)
+        monkeypatch.setattr(search_assets, "np", FakeNumpy(), raising=False)
         monkeypatch.setattr(
-            bi._semantic_model,
+            search_assets._semantic_model,
             "load_local_model_with_manifest",
             lambda _vault: (FakeModel(), _model_manifest()),
         )
-        monkeypatch.setattr(bi, "safe_write_via", fake_safe_write_via)
+        monkeypatch.setattr(search_assets, "safe_write_via", fake_safe_write_via)
 
-        result = bi.build_embeddings(
+        result = search_assets.build_embeddings(
             vault,
             {"artefacts": [], "meta": {"source_hash": "sha256:test-source-hash"}},
             [],
@@ -527,15 +535,15 @@ class TestBuildEmbeddings:
             def encode(self, texts, normalize_embeddings=True):
                 return [[0.0] for _ in texts]
 
-        monkeypatch.setattr(bi, "_HAS_NUMPY", True)
-        monkeypatch.setattr(bi, "np", FakeNumpy(), raising=False)
+        monkeypatch.setattr(search_assets, "_HAS_NUMPY", True)
+        monkeypatch.setattr(search_assets, "np", FakeNumpy(), raising=False)
         monkeypatch.setattr(
-            bi._semantic_model,
+            search_assets._semantic_model,
             "load_local_model_with_manifest",
             lambda _vault: (FakeModel(), _model_manifest()),
         )
         monkeypatch.setattr(
-            bi,
+            search_assets,
             "safe_write_via",
             lambda path, writer, **kwargs: writer(io.BytesIO()),
         )
@@ -545,7 +553,7 @@ class TestBuildEmbeddings:
             "artefacts": [],
             "meta": {"source_hash": "sha256:test-source-hash"},
         }
-        result = bi.build_embeddings(vault, router, index["documents"])
+        result = search_assets.build_embeddings(vault, router, index["documents"])
 
         assert result is not None
         _type_emb, _doc_emb, meta = result
@@ -652,9 +660,11 @@ class TestBuildIndexMain:
     def test_main_errors_when_config_load_fails(self, vault, monkeypatch, capsys):
         monkeypatch.setattr(bi, "find_vault_root", lambda: vault)
         monkeypatch.setattr(
-            config_mod,
-            "load_config",
-            lambda _vault: (_ for _ in ()).throw(ValueError("bad config")),
+            bi._semantic_config,
+            "load_config_checked",
+            lambda _vault: (_ for _ in ()).throw(
+                _semantic_config.SemanticConfigLoadError("failed to load config: bad config")
+            ),
         )
         monkeypatch.setattr(bi.sys, "argv", ["build_index.py"])
 
@@ -672,14 +682,14 @@ class TestBuildIndexMain:
             return (object(), object(), {"documents": [], "types": []})
 
         monkeypatch.setattr(bi, "find_vault_root", lambda: vault)
-        monkeypatch.setattr(bi._semantic_config, "embeddings_enabled", lambda *args, **kwargs: True)
+        monkeypatch.setattr(search_assets._semantic_config, "embeddings_enabled", lambda *args, **kwargs: True)
         monkeypatch.setattr(
-            bi._semantic,
+            search_assets._semantic,
             "semantic_engine_available",
             lambda *args, **kwargs: True,
         )
-        monkeypatch.setattr(bi, "load_compiled_router", lambda _vault: {"artefacts": []})
-        monkeypatch.setattr(bi, "build_embeddings", fake_build_embeddings)
+        monkeypatch.setattr(search_assets, "load_compiled_router", lambda _vault: {"artefacts": []})
+        monkeypatch.setattr(search_assets, "build_embeddings", fake_build_embeddings)
         monkeypatch.setattr(bi.sys, "argv", ["build_index.py"])
 
         bi.main()
@@ -696,10 +706,10 @@ class TestBuildIndexMain:
         calls = []
 
         monkeypatch.setattr(bi, "find_vault_root", lambda: vault)
-        monkeypatch.setattr(bi._semantic_config, "embeddings_enabled", lambda *args, **kwargs: False)
-        monkeypatch.setattr(bi, "load_compiled_router", lambda _vault: {"artefacts": []})
+        monkeypatch.setattr(search_assets._semantic_config, "embeddings_enabled", lambda *args, **kwargs: False)
+        monkeypatch.setattr(search_assets, "load_compiled_router", lambda _vault: {"artefacts": []})
         monkeypatch.setattr(
-            bi,
+            search_assets,
             "build_embeddings",
             lambda *args, **kwargs: calls.append(args) or (object(), object(), {"documents": [], "types": []}),
         )

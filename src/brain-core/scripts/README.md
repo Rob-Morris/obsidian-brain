@@ -19,12 +19,13 @@ remains lexical-only.
 
 | Script | Purpose | CLI usage |
 |---|---|---|
-| `_common/` | Shared utilities package: vault discovery, frontmatter parsing, serialisation, CLI parser helpers, BM25 tokenisation | (library only) |
+| `_common/` | Shared utilities package: vault discovery, frontmatter parsing, serialisation, CLI parser helpers, and general script support | (library only) |
 | `_lifecycle_common.py` | Launcher-safe lifecycle helpers shared by configure/repair: managed-runtime bootstrap, probe helpers, result envelopes, and human/json rendering | (library only) |
 | `_repair_common.py` | Launcher-safe repair metadata, scope definitions, and exact command builders | (library only) |
 | `_repair_runtime.py` | Managed-runtime repair scope implementations plus additive compliance repair detectors | (library only) |
+| `_search/` | Internal retrieval package: lexical index ownership, query-mode policy, lexical/semantic/hybrid execution, and shared search-asset refresh orchestration | (library only) |
 | `_semantic/` | Internal semantic package: config flags, model/runtime provisioning, embeddings helpers, and vector-ranking/runtime utilities shared by build/search/configure/repair flows | (library only) |
-| `build_index.py` | Build retrieval index and refresh embeddings sidecars from the provisioned local semantic model when `semantic_processing` or `semantic_retrieval` is enabled and router data is available | `python3 build_index.py [--json]` |
+| `build_index.py` | Thin CLI/script wrapper over `_search`: build the lexical retrieval index and refresh embeddings sidecars from the provisioned local semantic model when `semantic_processing` or `semantic_retrieval` is enabled and router data is available. Converged internal code should prefer `_search.index` / `_search.assets` directly, but some MCP/lifecycle callers still route through this wrapper pending later caller-convergence phases. | `python3 build_index.py [--json]` |
 | `construct_benchmark_fixture.py` | Derive a vault-native retrieval benchmark fixture plus audit JSON from an existing vault, including semantic-variant audit diagnostics and optional externally seeded semantic or hybrid candidates | `python3 construct_benchmark_fixture.py --fixture-out PATH [--audit-out PATH] [--semantic-strategy S] [--semantic-seed-file PATH] [--hybrid-seed-file PATH] [--json]` |
 | `evaluate_search.py` | Benchmark lexical, semantic, and hybrid retrieval against a JSON query set | `python3 evaluate_search.py --benchmark PATH [--mode M]... [--json]` |
 | `check.py` | Router-driven structural compliance checks; human output now prints exact `repair.py` commands for repairable router/MCP/local-registry/semantic drift and structured results include `repair` metadata | `python3 check.py [--json] [--actionable] [--severity S] [--vault V]` |
@@ -44,7 +45,7 @@ remains lexical-only.
 | `repair.py` | Explicit infrastructure repair entry point; bootstraps from a compatible Python 3.12+ launcher, converges into the central managed runtime at `~/.brain/venvs/py<X.Y>-<sha16>/`, then runs one named repair scope. `runtime` repairs the managed runtime itself, `mcp` repairs installed current-vault project MCP state, and `semantic` repairs the pinned semantic runtime, local model snapshot/manifest, and sidecars after a vault has opted in. | `python3 repair.py {runtime,mcp,router,lexical,registry,semantic} [--vault V] [--dry-run] [--json]` |
 | `read.py` | Query compiled router resources | `python3 read.py RESOURCE [--name N]` |
 | `rename.py` | Rename/delete file + update wikilinks, refusing existing-destination collisions | `python3 rename.py "source" "dest" [--json]` |
-| `search_index.py` | Lexical, semantic, or hybrid local search with exact-anchor lexical wins, strong semantic champions, Brain-only title champions, and semantic-rescue fusion for disjoint leaders | `python3 search_index.py "query" [--type T] [--mode M] [--json]` |
+| `search_index.py` | Thin CLI/script wrapper over `_search`: lexical, semantic, or hybrid local search with exact-anchor lexical wins, strong semantic champions, Brain-only title champions, and semantic-rescue fusion for disjoint leaders. Converged internal code should prefer `_search.query` directly, but some MCP/lifecycle callers still route through this wrapper pending later caller-convergence phases. | `python3 search_index.py "query" [--type T] [--mode M] [--json]` |
 | `session.py` | Build the canonical session model and refresh `.brain/local/session.md` | `python3 session.py [--json] [--workspace-dir PATH]` |
 | `shape_printable.py` | Create printable + render PDF | `python3 shape_printable.py --source P --slug S [--no-render] [--pdf-engine E]` |
 | `shape_presentation.py` | Create presentation + render PDF + launch Marp preview | `python3 shape_presentation.py --source P --slug S [--no-render] [--no-preview]` |
@@ -63,7 +64,7 @@ The script layer is organised into 8 bounded contexts. This is an architectural 
 | Compilation | `compile_router.py`, `compile_colours.py`, `build_index.py`, `sync_definitions.py` |
 | Artefact Operations | `create.py`, `edit.py`, `read.py`, `rename.py`, `fix_links.py`, `start_shaping.py`, `shape_printable.py`, `shape_presentation.py` |
 | Compliance | `check.py` |
-| Content Intelligence | `search_index.py`, `evaluate_search.py`, `construct_benchmark_fixture.py`, `list_artefacts.py` |
+| Content Intelligence | `_search/`, `search_index.py`, `evaluate_search.py`, `construct_benchmark_fixture.py`, `list_artefacts.py` |
 | Session & Configuration | `session.py`, `config.py`, `workspace_registry.py`, `generate_key.py` |
 | Lifecycle Management | `init.py`, `repair.py`, `upgrade.py`, `vault_registry.py`, `migrate_naming.py`, `migrations/` |
 | MCP Integration | `brain_mcp/server.py`, `brain_mcp/proxy.py` |
@@ -133,7 +134,7 @@ Boundary rule:
 | `_wikilinks.py` | Wikilink extraction, file index, broken link resolution, region-aware text mutation | 15 |
 | `_markdown.py` | Heading/callout parsing, shared structural target resolution, and typed literal-text regions (fenced code, inline code, HTML comments, `$$` math, raw HTML) | 28 |
 | `_slugs.py` | Slug generation, validation, title/filename/slug conversions | 9 |
-| `_search.py` | BM25 tokenisation and exact-anchor query detection | 1 |
+| `_search/lexical.py` | Lexical tokenisation and exact-anchor query detection | 2 |
 | `_templates.py` | Timestamp utilities, template variable substitution | 3 |
 | `_coerce.py` | Type coercion helpers for MCP boundary | 1 |
 

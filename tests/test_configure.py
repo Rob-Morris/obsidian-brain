@@ -9,6 +9,7 @@ import pytest
 import config as config_module
 import configure
 import _lifecycle_common as lifecycle_common
+import _search.assets as search_assets
 import _semantic.config as semantic_config
 import _semantic.model as semantic_model
 import _semantic.provision as semantic_provision
@@ -125,6 +126,59 @@ def test_configure_semantic_enable_unsupported_platform_keeps_flags_enabled(tmp_
     assert semantic_config.semantic_engine_installed(vault, config=cfg) is False
     assert result["steps"][-1]["name"] == "semantic_runtime"
     assert result["steps"][-1]["status"] == "error"
+
+
+def test_refresh_semantic_assets_delegates_to_search_assets(tmp_path, monkeypatch):
+    vault = _make_vault(tmp_path)
+    calls = []
+
+    monkeypatch.setattr(
+        search_assets,
+        "refresh_search_assets",
+        lambda _vault, *, force_embeddings=False: calls.append((_vault, force_embeddings)) or ["refreshed"],
+    )
+
+    result = semantic_provision.refresh_semantic_assets(vault)
+
+    assert result == ["refreshed"]
+    assert calls == [(vault, True)]
+
+
+def test_provision_semantic_runtime_records_asset_error_when_forced_rebuild_fails(
+    tmp_path,
+    monkeypatch,
+):
+    vault = _make_vault(tmp_path)
+
+    monkeypatch.setattr(
+        semantic_provision,
+        "probe_python",
+        lambda _python_path, *, modules=(): {"compatible": True, "ok": True, "missing": []},
+    )
+    monkeypatch.setattr(
+        semantic_provision.semantic_model,
+        "provision_semantic_model",
+        lambda _vault: _model_outcome(vault, downloaded=False, manifest_changed=False),
+    )
+    monkeypatch.setattr(
+        semantic_provision,
+        "refresh_semantic_assets",
+        lambda _vault: (_ for _ in ()).throw(ValueError("forced refresh cleared sidecars")),
+    )
+
+    outcome = semantic_provision.provision_semantic_runtime(
+        vault,
+        python_executable="/managed/python",
+        runtime_ok=True,
+        refresh_assets=True,
+    )
+
+    assert outcome.assets_changed is False
+    assert outcome.assets_error == (
+        "Semantic runtime is ready, but retrieval asset refresh failed: "
+        "forced refresh cleared sidecars"
+    )
+    assert outcome.marker_installed is False
 
 
 def test_bootstrap_summary_creates_runtime_and_syncs_dependencies(tmp_path, monkeypatch):

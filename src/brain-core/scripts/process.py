@@ -17,15 +17,15 @@ from _common import (
     temporal_display_name,
     title_to_filename,
     title_to_slug,
-    tokenise,
 )
+from _search.index import extract_type_description
+from _search.lexical import tokenise
+import _search.query as search_query
 
-import build_index
 import create as create_mod
 import edit as edit_mod
 import _semantic.model as _semantic_model
 import _semantic.runtime as _semantic
-import search_index
 
 
 def infer_title(content):
@@ -147,7 +147,7 @@ def _classify_bm25(router, vault_root, content, index):
 
     scored = []
     for artefact in artefacts:
-        desc = build_index.extract_type_description(vault_root, artefact)
+        desc = extract_type_description(vault_root, artefact)
         if not desc:
             continue
 
@@ -203,7 +203,7 @@ def _classify_context_assembly(router, vault_root):
     type_descriptions = []
 
     for artefact in artefacts:
-        desc = build_index.extract_type_description(vault_root, artefact)
+        desc = extract_type_description(vault_root, artefact)
         if desc:
             type_descriptions.append({
                 "type": artefact["type"],
@@ -267,7 +267,7 @@ def resolve_content(
         query = title
         if content:
             query = title + " " + content[:200]
-        results = search_index.search(
+        results = search_query.search(
             index,
             query,
             str(vault_root),

@@ -2,7 +2,7 @@
 _common — Shared utilities for brain-core scripts.
 
 Provides vault root discovery, version reading, filesystem scanning,
-frontmatter parsing, serialisation, slug generation, and BM25 tokenisation.
+frontmatter parsing, serialisation, and slug generation.
 All brain-core scripts import from this module rather than duplicating
 these functions.
 
@@ -153,11 +153,6 @@ from ._slugs import (
     title_to_filename,
     title_to_slug,
     validate_key,
-)
-
-from ._search import (
-    LEXICAL_ANCHOR_RE,
-    tokenise,
 )
 
 from ._coerce import (

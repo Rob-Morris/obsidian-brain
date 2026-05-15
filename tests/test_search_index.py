@@ -6,10 +6,11 @@ import os
 
 import pytest
 
+import _search.lexical as lexical
+import _search.query as search_query
 import _semantic.model as semantic_model
 import _semantic.runtime as semantic_runtime
 import build_index as bi
-import config as config_mod
 import search_index as si
 
 
@@ -84,7 +85,7 @@ class TestTokenise:
     def test_matches_build_index(self):
         """Ensure search tokeniser matches build tokeniser."""
         text = "BM25 retrieval with Python 3.8"
-        assert si.tokenise(text) == bi.tokenise(text)
+        assert search_query.tokenise(text) == lexical.tokenise(text)
 
 
 class TestSemanticRuntime:
@@ -260,7 +261,7 @@ class TestSemanticSearch:
             }
         }
         monkeypatch.setattr(
-            si._semantic,
+            search_query._semantic,
             "semantic_engine_available",
             lambda *_args, **kwargs: kwargs.get("skip_sidecar_check", False),
         )
@@ -288,7 +289,7 @@ class TestSemanticSearch:
             }
         }
         monkeypatch.setattr(
-            si._semantic,
+            search_query._semantic,
             "semantic_engine_available",
             lambda *_args, **kwargs: kwargs.get("skip_sidecar_check", False),
         )
@@ -297,7 +298,7 @@ class TestSemanticSearch:
 
     def test_semantic_search_uses_document_vectors(self, index, vault, monkeypatch):
         np = pytest.importorskip("numpy")
-        monkeypatch.setattr(si, "_encode_query", lambda _vault, _query: np.array([1.0, 0.0]))
+        monkeypatch.setattr(search_query, "_encode_query", lambda _vault, _query: np.array([1.0, 0.0]))
         vectors = self._aligned_vectors(
             index,
             {
@@ -323,7 +324,7 @@ class TestSemanticSearch:
 
     def test_semantic_search_respects_filters(self, index, vault, monkeypatch):
         np = pytest.importorskip("numpy")
-        monkeypatch.setattr(si, "_encode_query", lambda _vault, _query: np.array([1.0, 0.0]))
+        monkeypatch.setattr(search_query, "_encode_query", lambda _vault, _query: np.array([1.0, 0.0]))
         vectors = self._aligned_vectors(
             index,
             {
@@ -355,7 +356,7 @@ class TestSemanticSearch:
         def boom(_vault):
             raise semantic_runtime.SemanticEmbeddingsLoadError("corrupt sidecars")
 
-        monkeypatch.setattr(si._semantic, "load_doc_embeddings", boom)
+        monkeypatch.setattr(search_query._semantic, "load_doc_embeddings", boom)
 
         with pytest.raises(si.SearchModeUnavailableError, match="corrupt sidecars"):
             si.search_semantic("brain", vault)
@@ -392,7 +393,7 @@ class TestSemanticSearch:
         def boom(_vault, _query, *, query_encoder=None):
             raise semantic_model.SemanticModelMissingError("missing model snapshot")
 
-        monkeypatch.setattr(si._semantic, "encode_query", boom)
+        monkeypatch.setattr(search_query._semantic, "encode_query", boom)
 
         with pytest.raises(si.SearchModeUnavailableError, match="missing model snapshot"):
             si.search_semantic(
@@ -404,7 +405,7 @@ class TestSemanticSearch:
 
     def test_hybrid_search_combines_lexical_and_semantic_results(self, index, vault, monkeypatch):
         np = pytest.importorskip("numpy")
-        monkeypatch.setattr(si, "_encode_query", lambda _vault, _query: np.array([1.0, 0.0]))
+        monkeypatch.setattr(search_query, "_encode_query", lambda _vault, _query: np.array([1.0, 0.0]))
         vectors = self._aligned_vectors(
             index,
             {
@@ -451,9 +452,9 @@ class TestSemanticSearch:
             semantic_called = True
             return []
 
-        monkeypatch.setattr(si, "search", fake_search)
-        monkeypatch.setattr(si, "search_semantic", fake_search_semantic)
-        monkeypatch.setattr(si, "_attach_snippets", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr(search_query, "search", fake_search)
+        monkeypatch.setattr(search_query, "search_semantic", fake_search_semantic)
+        monkeypatch.setattr(search_query, "_attach_snippets", lambda *_args, **_kwargs: None)
 
         results = si.search_hybrid(index, "v0.16 release notes", vault, top_k=1)
 
@@ -461,8 +462,8 @@ class TestSemanticSearch:
         assert results == lexical_results
 
     def test_core_title_tokens_strip_brain_product_prefix_only(self):
-        assert si._core_title_tokens("Brain MCP Server") == ["mcp", "server"]
-        assert si._core_title_tokens("Atlas MCP Server") == ["atlas", "mcp", "server"]
+        assert search_query._core_title_tokens("Brain MCP Server") == ["mcp", "server"]
+        assert search_query._core_title_tokens("Atlas MCP Server") == ["atlas", "mcp", "server"]
 
     def test_hybrid_search_end_to_end_promotes_semantic_champion(self, vault, monkeypatch):
         self._write_doc(
@@ -504,10 +505,10 @@ class TestSemanticSearch:
         vectors = self._aligned_vectors(index, path_vectors)
         meta = self._doc_meta(index)
         np = pytest.importorskip("numpy")
-        monkeypatch.setattr(si, "_encode_query", lambda _vault, _query: np.array([1.0, 0.0]))
+        monkeypatch.setattr(search_query, "_encode_query", lambda _vault, _query: np.array([1.0, 0.0]))
 
         no_bonus = pytest.MonkeyPatch()
-        no_bonus.setattr(si, "SEMANTIC_CHAMPION_BONUS", 0.0)
+        no_bonus.setattr(search_query, "SEMANTIC_CHAMPION_BONUS", 0.0)
         try:
             baseline = si.search_hybrid(
                 index,
@@ -575,11 +576,11 @@ class TestSemanticSearch:
         vectors = self._aligned_vectors(index, path_vectors)
         meta = self._doc_meta(index)
         np = pytest.importorskip("numpy")
-        monkeypatch.setattr(si, "_encode_query", lambda _vault, _query: np.array([1.0, 0.0]))
+        monkeypatch.setattr(search_query, "_encode_query", lambda _vault, _query: np.array([1.0, 0.0]))
         query = "authoritative design for the MCP server tool surface"
 
         no_bonus = pytest.MonkeyPatch()
-        no_bonus.setattr(si, "LEXICAL_TITLE_CHAMPION_BONUS", 0.0)
+        no_bonus.setattr(search_query, "LEXICAL_TITLE_CHAMPION_BONUS", 0.0)
         try:
             baseline = si.search_hybrid(
                 index,
@@ -669,15 +670,15 @@ class TestSemanticSearch:
         vectors = self._aligned_vectors(index, path_vectors)
         meta = self._doc_meta(index)
         np = pytest.importorskip("numpy")
-        monkeypatch.setattr(si, "_encode_query", lambda _vault, _query: np.array([1.0, 0.0]))
-        monkeypatch.setattr(si, "SEMANTIC_CHAMPION_BONUS", 0.0)
+        monkeypatch.setattr(search_query, "_encode_query", lambda _vault, _query: np.array([1.0, 0.0]))
+        monkeypatch.setattr(search_query, "SEMANTIC_CHAMPION_BONUS", 0.0)
         query = (
             "conversational exploration of collaborative application framework "
             "with event propagation orchestration"
         )
 
         no_bonus = pytest.MonkeyPatch()
-        no_bonus.setattr(si, "SEMANTIC_RESCUE_BONUS", 0.0)
+        no_bonus.setattr(search_query, "SEMANTIC_RESCUE_BONUS", 0.0)
         try:
             baseline = si.search_hybrid(
                 index,
@@ -714,13 +715,13 @@ class TestSemanticSearch:
         ]
 
         no_bonus = pytest.MonkeyPatch()
-        no_bonus.setattr(si, "SEMANTIC_CHAMPION_BONUS", 0.0)
+        no_bonus.setattr(search_query, "SEMANTIC_CHAMPION_BONUS", 0.0)
         try:
-            baseline = si._fuse_rrf(lexical_results, semantic_results, top_k=2)
+            baseline = search_query._fuse_rrf(lexical_results, semantic_results, top_k=2)
         finally:
             no_bonus.undo()
 
-        boosted = si._fuse_rrf(lexical_results, semantic_results, top_k=2)
+        boosted = search_query._fuse_rrf(lexical_results, semantic_results, top_k=2)
 
         assert baseline[0]["path"] == "A.md"
         assert boosted[0]["path"] == "B.md"
@@ -736,7 +737,7 @@ class TestSemanticSearch:
             {"path": "A.md", "title": "A", "type": "living/wiki", "status": "active", "score": 0.80},
         ]
 
-        boosted = si._fuse_rrf(lexical_results, semantic_results, top_k=2)
+        boosted = search_query._fuse_rrf(lexical_results, semantic_results, top_k=2)
 
         assert boosted[0]["path"] == "A.md"
 
@@ -782,24 +783,24 @@ class TestSemanticSearch:
         ]
 
         no_bonus = pytest.MonkeyPatch()
-        no_bonus.setattr(si, "LEXICAL_TITLE_CHAMPION_BONUS", 0.0)
+        no_bonus.setattr(search_query, "LEXICAL_TITLE_CHAMPION_BONUS", 0.0)
         try:
-            baseline = si._fuse_rrf(
+            baseline = search_query._fuse_rrf(
                 lexical_results,
                 semantic_results,
                 top_k=2,
-                query_tokens=si.tokenise(
+                query_tokens=lexical.tokenise(
                     "authoritative design for the MCP server tool surface"
                 ),
             )
         finally:
             no_bonus.undo()
 
-        boosted = si._fuse_rrf(
+        boosted = search_query._fuse_rrf(
             lexical_results,
             semantic_results,
             top_k=2,
-            query_tokens=si.tokenise(
+            query_tokens=lexical.tokenise(
                 "authoritative design for the MCP server tool surface"
             ),
         )
@@ -848,11 +849,11 @@ class TestSemanticSearch:
             },
         ]
 
-        boosted = si._fuse_rrf(
+        boosted = search_query._fuse_rrf(
             lexical_results,
             semantic_results,
             top_k=2,
-            query_tokens=si.tokenise(
+            query_tokens=lexical.tokenise(
                 "repair workflow for bootstrap and initialisation failures"
             ),
         )
@@ -900,11 +901,11 @@ class TestSemanticSearch:
             },
         ]
 
-        boosted = si._fuse_rrf(
+        boosted = search_query._fuse_rrf(
             lexical_results,
             semantic_results,
             top_k=2,
-            query_tokens=si.tokenise(
+            query_tokens=lexical.tokenise(
                 "authoritative design for the MCP server tool surface"
             ),
         )
@@ -920,9 +921,9 @@ class TestSemanticSearch:
             {"path": "B.md", "title": "Collaborative App Design Chat", "type": "living/wiki", "status": "active", "score": 0.39},
             {"path": "D.md", "title": "Three Level Context", "type": "living/wiki", "status": "active", "score": 0.378},
         ]
-        monkeypatch.setattr(si, "search", lambda *_args, **_kwargs: lexical_results)
-        monkeypatch.setattr(si, "search_semantic", lambda *_args, **_kwargs: semantic_results)
-        monkeypatch.setattr(si, "_attach_snippets", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr(search_query, "search", lambda *_args, **_kwargs: lexical_results)
+        monkeypatch.setattr(search_query, "search_semantic", lambda *_args, **_kwargs: semantic_results)
+        monkeypatch.setattr(search_query, "_attach_snippets", lambda *_args, **_kwargs: None)
 
         results = si.search_hybrid(
             index,
@@ -943,9 +944,9 @@ class TestSemanticSearch:
             {"path": "B.md", "title": "Implementation Plan", "type": "living/wiki", "status": "active", "score": 0.39},
             {"path": "D.md", "title": "Shared Supporting Doc", "type": "living/wiki", "status": "active", "score": 0.378},
         ]
-        monkeypatch.setattr(si, "search", lambda *_args, **_kwargs: lexical_results)
-        monkeypatch.setattr(si, "search_semantic", lambda *_args, **_kwargs: semantic_results)
-        monkeypatch.setattr(si, "_attach_snippets", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr(search_query, "search", lambda *_args, **_kwargs: lexical_results)
+        monkeypatch.setattr(search_query, "search_semantic", lambda *_args, **_kwargs: semantic_results)
+        monkeypatch.setattr(search_query, "_attach_snippets", lambda *_args, **_kwargs: None)
 
         results = si.search_hybrid(
             index,
@@ -992,7 +993,7 @@ class TestDispatchSearch:
             calls.append((index, query, vault_root, kwargs))
             return [{"path": "A.md"}]
 
-        monkeypatch.setattr(si, "search", fake_search)
+        monkeypatch.setattr(search_query, "search", fake_search)
         index = {"documents": []}
 
         results = si.dispatch_search(
@@ -1030,7 +1031,7 @@ class TestDispatchSearch:
             calls.append((query, vault_root, kwargs))
             return [{"path": "B.md"}]
 
-        monkeypatch.setattr(si, "search_semantic", fake_search_semantic)
+        monkeypatch.setattr(search_query, "search_semantic", fake_search_semantic)
 
         results = si.dispatch_search(
             {"documents": []},
@@ -1072,7 +1073,7 @@ class TestDispatchSearch:
             calls.append((index, query, vault_root, kwargs))
             return [{"path": "C.md"}]
 
-        monkeypatch.setattr(si, "search_hybrid", fake_search_hybrid)
+        monkeypatch.setattr(search_query, "search_hybrid", fake_search_hybrid)
         index = {"documents": []}
 
         results = si.dispatch_search(
@@ -1185,9 +1186,13 @@ class TestCliModes:
             },
         )
         monkeypatch.setattr(
-            config_mod,
-            "load_config",
-            lambda _vault: (_ for _ in ()).throw(ValueError("bad config")),
+            si._semantic_config,
+            "load_config_checked",
+            lambda _vault: (_ for _ in ()).throw(
+                search_query._semantic_config.SemanticConfigLoadError(
+                    "failed to load config: bad config"
+                )
+            ),
         )
         monkeypatch.setattr(si.sys, "argv", ["search_index.py", "brain"])
 
@@ -1209,7 +1214,7 @@ class TestCliModes:
             },
         )
         monkeypatch.setattr(
-            si._semantic_config,
+            search_query._semantic_config,
             "semantic_retrieval_enabled",
             lambda _vault, **_: False,
         )
@@ -1238,12 +1243,12 @@ class TestCliModes:
             },
         )
         monkeypatch.setattr(
-            si._semantic_config,
+            search_query._semantic_config,
             "semantic_retrieval_enabled",
             lambda _vault, **_: True,
         )
         monkeypatch.setattr(
-            si._semantic,
+            search_query._semantic,
             "semantic_engine_available",
             lambda *_args, **_kwargs: False,
         )

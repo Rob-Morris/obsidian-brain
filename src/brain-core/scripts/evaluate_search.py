@@ -21,8 +21,8 @@ import sys
 import time
 
 import retrieval_embeddings as _retrieval_embeddings
-import search_index as si
 from _common import RaisingArgumentParser, find_vault_root, require_option
+import _search.query as search_query
 
 
 DEFAULT_HIT_KS = (1, 3, 5)
@@ -56,8 +56,8 @@ def _normalise_modes(modes):
         return DEFAULT_MODES
     normalised = []
     for mode in modes:
-        if mode not in si.SEARCH_MODES:
-            valid = ", ".join(sorted(si.SEARCH_MODES))
+        if mode not in search_query.SEARCH_MODES:
+            valid = ", ".join(sorted(search_query.SEARCH_MODES))
             raise ValueError(f"unknown mode '{mode}'. Valid modes: {valid}")
         if mode not in normalised:
             normalised.append(mode)
@@ -142,14 +142,14 @@ def _mode_available(
 ):
     """Return (available, error_message) for one evaluation mode."""
     try:
-        si.resolve_search_mode(
+        search_query.resolve_search_mode(
             vault_root,
             mode,
             config=config,
             doc_embeddings=doc_embeddings,
             embeddings_meta=embeddings_meta,
         )
-    except si.SearchModeUnavailableError as exc:
+    except search_query.SearchModeUnavailableError as exc:
         return (False, str(exc))
     return (True, None)
 
@@ -169,7 +169,7 @@ def _run_mode_search(
     query_encoder=None,
 ):
     """Dispatch one query through the selected retrieval mode."""
-    return si.dispatch_search(
+    return search_query.dispatch_search(
         index,
         query,
         vault_root,
@@ -547,13 +547,13 @@ def build_report(
     benchmark = load_benchmark(benchmark_path)
     modes = _normalise_modes(modes)
     if index is None:
-        index = si.load_index(vault_root)
+        index = search_query.load_index(vault_root)
     if config is None:
         config = _retrieval_embeddings.load_config_checked(vault_root)
 
     needs_semantic = any(mode in {"semantic", "hybrid"} for mode in modes)
     if needs_semantic and (doc_embeddings is None or embeddings_meta is None):
-        doc_embeddings, embeddings_meta = si.load_doc_embeddings_or_unavailable(
+        doc_embeddings, embeddings_meta = search_query.load_doc_embeddings_or_unavailable(
             vault_root,
             loader=_retrieval_embeddings.load_doc_embeddings,
         )
@@ -729,7 +729,7 @@ def main():
     except (
         OSError,
         ValueError,
-        si.SearchModeUnavailableError,
+        search_query.SearchModeUnavailableError,
         _retrieval_embeddings.SemanticConfigLoadError,
     ) as exc:
         print(f"Error: {exc}", file=sys.stderr)

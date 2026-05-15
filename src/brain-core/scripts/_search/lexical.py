@@ -1,6 +1,9 @@
-"""BM25 tokenisation and exact-anchor query detection."""
+"""Lexical tokenisation and exact-anchor query helpers."""
+
+from __future__ import annotations
 
 import re
+
 
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
 
@@ -9,6 +12,6 @@ LEXICAL_ANCHOR_RE = re.compile(
 )
 
 
-def tokenise(text):
+def tokenise(text: str) -> list[str]:
     """Lowercase, split on non-alphanumeric, strip tokens < 2 chars."""
     return [t for t in _TOKEN_RE.findall(text.lower()) if len(t) >= 2]

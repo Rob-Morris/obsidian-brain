@@ -6,6 +6,7 @@ Version-by-version release history for Obsidian Brain. Every shipped version has
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.40.2](changelog/v0.40.2.md) | 2026-05-15 | Consolidate retrieval under `_search` and harden semantic refresh |
 | [v0.40.1](changelog/v0.40.1.md) | 2026-05-14 | Add repair.py runtime and narrow mcp to MCP state repair |
 | [v0.40.0](changelog/v0.40.0.md) | 2026-05-14 | Rename repair.py index to lexical and let upgrade.py own repair |
 | [v0.39.1](changelog/v0.39.1.md) | 2026-05-13 | Route MCP warmup progress and guidance through _server_readiness |

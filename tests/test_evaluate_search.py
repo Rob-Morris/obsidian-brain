@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
+import _search.query as search_query
 import build_index as bi
 import evaluate_search as es
-import search_index as si
 
 
 FIXTURE_BENCHMARK = Path(__file__).parent / "fixtures" / "inline_search_benchmark.json"
@@ -252,7 +252,7 @@ class TestBuildReport:
             )
         )
 
-        monkeypatch.setattr(es.si, "load_index", lambda _vault: {"documents": []})
+        monkeypatch.setattr(es.search_query, "load_index", lambda _vault: {"documents": []})
         monkeypatch.setattr(
             es._retrieval_embeddings,
             "load_config_checked",
@@ -318,7 +318,7 @@ class TestBuildReport:
             )
         )
 
-        monkeypatch.setattr(es.si, "load_index", lambda _vault: {"documents": []})
+        monkeypatch.setattr(es.search_query, "load_index", lambda _vault: {"documents": []})
         monkeypatch.setattr(
             es._retrieval_embeddings,
             "load_config_checked",
@@ -333,7 +333,7 @@ class TestBuildReport:
             ),
         )
 
-        with pytest.raises(si.SearchModeUnavailableError, match="corrupt sidecars"):
+        with pytest.raises(search_query.SearchModeUnavailableError, match="corrupt sidecars"):
             es.build_report(tmp_path, benchmark_path, modes=["semantic"])
 
     def test_builds_expected_winner_scorecard(self):

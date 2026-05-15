@@ -63,23 +63,14 @@ def sync_runtime_packages(python_executable: str) -> None:
 
 
 def refresh_semantic_assets(vault_root: str | Path) -> list[str]:
-    """Refresh router, retrieval index, and embeddings sidecars for semantic use."""
-    import build_index
-    import compile_router
+    """Refresh router, retrieval index, and semantic sidecars for semantic use.
 
-    vault_root = Path(vault_root)
-    compiled = compile_router.compile(str(vault_root))
-    compile_router.persist_compiled_router(str(vault_root), compiled)
-    compile_router.refresh_session_markdown(str(vault_root), compiled)
+    Unlike the generic search-refresh path, semantic provisioning requires
+    embeddings sidecars to be rebuilt rather than merely reconciled or cleared.
+    """
+    from _search.assets import refresh_search_assets
 
-    index = build_index.build_index(str(vault_root))
-    build_index.persist_retrieval_outputs(
-        str(vault_root),
-        index,
-        router=compiled,
-        enable_embeddings=True,
-    )
-    return []
+    return refresh_search_assets(vault_root, force_embeddings=True)
 
 
 def append_runtime_steps(steps: list[dict], outcome: SemanticProvisionOutcome) -> None:
