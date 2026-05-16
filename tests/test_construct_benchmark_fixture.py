@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import construct_benchmark_fixture as cbf
+import _search.errors as search_errors
 import _search.mode as search_mode
 import pytest
 
@@ -101,6 +102,45 @@ class TestParseArgs:
 
         assert exc.value.code == 1
         assert "Error: bad config" in capsys.readouterr().err
+
+    def test_main_exits_on_unreadable_retrieval_source(self, monkeypatch, capsys):
+        monkeypatch.setattr(
+            cbf.sys,
+            "argv",
+            ["construct_benchmark_fixture.py", "--fixture-out", "fixture.json"],
+        )
+        monkeypatch.setattr(cbf, "find_vault_root", lambda _vault: "/tmp/vault")
+
+        def boom(*_args, **_kwargs):
+            raise search_errors.UnreadableRetrievalSourceError(
+                "Wiki/broken.md",
+                "constructing retrieval benchmark fixtures",
+                UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte"),
+            )
+
+        monkeypatch.setattr(cbf, "construct_fixture", boom)
+
+        with pytest.raises(SystemExit) as exc:
+            cbf.main()
+
+        assert exc.value.code == 1
+        stderr = capsys.readouterr().err
+        assert "unreadable retrieval source 'Wiki/broken.md'" in stderr
+        assert "while constructing retrieval benchmark fixtures" in stderr
+
+
+def test_read_body_raises_unreadable_retrieval_source_for_invalid_utf8(tmp_path):
+    (tmp_path / "Wiki").mkdir()
+    broken = tmp_path / "Wiki" / "broken.md"
+    broken.write_bytes(b"\xff\xfe\x00\x00")
+
+    with pytest.raises(
+        search_errors.UnreadableRetrievalSourceError,
+        match="Wiki/broken.md",
+    ) as exc:
+        cbf._read_body(tmp_path, "Wiki/broken.md")
+
+    assert "while constructing retrieval benchmark fixtures" in str(exc.value)
 
 
 class TestSelection:
@@ -737,6 +777,74 @@ Designing them in isolation kept producing decisions that contradicted each othe
         assert candidates[0]["query_style"] is None
         assert candidates[1]["query_style"] == cbf.QUERY_STYLE_HYBRID_REWRITE
         assert candidates[1]["query"] == "completed on ddd token-efficient doc structure and brain-core current state"
+
+    @pytest.mark.parametrize(
+        ("miner", "index"),
+        [
+            (
+                lambda vault, docs: cbf._mine_semantic_candidates(vault, docs),
+                {
+                    "documents": [
+                        {
+                            "path": "People/Casey Rowan.md",
+                            "title": "Casey Rowan",
+                            "type": "living/person",
+                        }
+                    ]
+                },
+            ),
+            (
+                lambda vault, docs: cbf._mine_link_context_semantic_candidates(vault, docs),
+                {
+                    "documents": [
+                        {
+                            "path": "Designs/Source Design.md",
+                            "title": "Source Design",
+                            "type": "living/design",
+                        }
+                    ]
+                },
+            ),
+            (
+                lambda vault, docs: cbf._mine_hybrid_candidates(vault, docs),
+                {
+                    "documents": [
+                        {
+                            "path": "Wiki/Hybrid Design.md",
+                            "title": "Hybrid Design",
+                            "type": "living/wiki",
+                        }
+                    ]
+                },
+            ),
+        ],
+    )
+    def test_candidate_miners_propagate_unreadable_source_errors(
+        self,
+        monkeypatch,
+        tmp_path,
+        miner,
+        index,
+    ):
+        def raise_unreadable(*_args, **_kwargs):
+            raise search_errors.UnreadableRetrievalSourceError(
+                "Wiki/broken.md",
+                "constructing retrieval benchmark fixtures",
+                UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte"),
+            )
+
+        monkeypatch.setattr(
+            cbf,
+            "_read_body",
+            raise_unreadable,
+        )
+
+        with pytest.raises(
+            search_errors.UnreadableRetrievalSourceError,
+            match="Wiki/broken.md",
+        ) as exc:
+            miner(tmp_path, index)
+        assert "while constructing retrieval benchmark fixtures" in str(exc.value)
 
     def test_mine_link_context_semantic_candidates_uses_surrounding_context(
         self, tmp_path

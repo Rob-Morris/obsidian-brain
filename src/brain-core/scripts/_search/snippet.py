@@ -12,14 +12,20 @@ SNIPPET_LENGTH = 200
 
 
 def extract_snippet(vault_root, rel_path, query_tokens, length=SNIPPET_LENGTH, *, body=None):
-    """Extract a snippet centred on the first query-term match."""
+    """Extract a snippet centred on the first query-term match.
+
+    Returns ``None`` when the source file is unreadable so callers can surface
+    the degraded presentation path explicitly without failing the whole search.
+    """
     if body is None:
         abs_path = os.path.join(str(vault_root), rel_path)
         try:
             with open(abs_path, "r", encoding="utf-8") as handle:
                 text = handle.read()
         except (OSError, UnicodeDecodeError):
-            return ""
+            # Snippets are presentation-only; omit local detail rather than
+            # failing the whole search result.
+            return None
 
         fm_match = FM_RE.match(text)
         body = text[fm_match.end():] if fm_match else text

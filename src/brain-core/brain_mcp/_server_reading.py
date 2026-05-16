@@ -7,6 +7,7 @@ from typing import Literal
 from mcp.types import TextContent
 
 import _common
+import _search.errors as search_errors
 from _search.filters import SearchFilters
 import _search.hybrid_query as hybrid_query
 import _search.lexical_query as lexical_query
@@ -218,13 +219,16 @@ def handle_brain_search(
                 "brain_search mode applies only to artefact search; "
                 "non-artefact resources support lexical text matching only"
             )
-        results = search_resource.search_resource(
-            state.router,
-            state.vault_root,
-            resource,
-            query,
-            top_k=top_k,
-        )
+        try:
+            results = search_resource.search_resource(
+                state.router,
+                state.vault_root,
+                resource,
+                query,
+                top_k=top_k,
+            )
+        except search_errors.UnreadableRetrievalSourceError as exc:
+            return runtime.fmt_error(str(exc))
         return _fmt_search("text", results)
 
     state, progress = _server_readiness.require_index(runtime, "brain_search")

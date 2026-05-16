@@ -2,13 +2,16 @@
 
 import io
 import copy
+import importlib.util
 import json
 import os
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
 import _search.assets as search_assets
+import _search.errors as search_errors
 import _search.index as search_index_mod
 import _search.lexical as lexical
 import _semantic.config as _semantic_config
@@ -45,6 +48,16 @@ def assert_corpus_stats_match_recompute(index):
 def built_index(vault):
     """Build the canonical result and return just the lexical index payload."""
     return build_index(vault).index
+
+
+def _load_build_index_cli_module():
+    repo_root = Path(__file__).resolve().parents[1]
+    path = repo_root / "src" / "brain-core" / "scripts" / "build_index.py"
+    spec = importlib.util.spec_from_file_location("_test_build_index_cli", path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec is not None and spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
 
 
 # ---------------------------------------------------------------------------
@@ -283,6 +296,22 @@ class TestBuildIndex:
             assert "_body_head" not in doc
             assert "_headings" not in doc
 
+    def test_persist_retrieval_index_wraps_write_failures(self, vault, monkeypatch):
+        index = built_index(vault)
+
+        def fail(*_args, **_kwargs):
+            raise OSError("disk full")
+
+        monkeypatch.setattr(search_index_mod, "safe_write_json", fail)
+
+        with pytest.raises(
+            search_errors.RetrievalPersistenceError,
+            match=OUTPUT_PATH,
+        ) as exc:
+            persist_retrieval_index(vault, index)
+
+        assert "while persisting lexical retrieval state" in str(exc.value)
+
     def test_meta_fields(self, vault):
         index = built_index(vault)
         meta = index["meta"]
@@ -407,6 +436,16 @@ class TestIncrementalIndex:
         assert parsed is None
         assert index["meta"]["document_count"] == old_count
 
+    def test_build_index_raises_on_unreadable_document(self, vault):
+        (vault / "Wiki" / "broken.md").write_bytes(b"\xff\xfe\x00\x00")
+
+        with pytest.raises(
+            search_errors.UnreadableRetrievalSourceError,
+            match="Wiki/broken.md",
+        ) as exc:
+            build_index(vault)
+        assert "while building lexical retrieval state" in str(exc.value)
+
     def test_index_update_existing_document(self, vault):
         """index_update should replace an existing document's data."""
         index = built_index(vault)
@@ -433,6 +472,17 @@ class TestIncrementalIndex:
         assert parsed is not None
         assert index["meta"]["document_count"] == old_count + 1
         assert_corpus_stats_match_recompute(index)
+
+    def test_index_update_raises_on_unreadable_existing_document(self, vault):
+        index = built_index(vault)
+        (vault / "Wiki" / "python-basics.md").write_bytes(b"\xff\xfe\x00\x00")
+
+        with pytest.raises(
+            search_errors.UnreadableRetrievalSourceError,
+            match="Wiki/python-basics.md",
+        ) as exc:
+            index_update(index, vault, "Wiki/python-basics.md", type_hint="living/wiki")
+        assert "while building lexical retrieval state" in str(exc.value)
 
     def test_index_update_drops_zero_df_terms(self, vault):
         """Replacing a doc must remove its now-orphaned terms from df entirely."""
@@ -634,7 +684,10 @@ class TestEmbeddingsOutputs:
     def test_build_embeddings_propagates_missing_uncached_document_reads(self, vault, monkeypatch):
         monkeypatch.setattr(search_assets, "_HAS_NUMPY", True)
 
-        with pytest.raises(FileNotFoundError):
+        with pytest.raises(
+            search_errors.UnreadableRetrievalSourceError,
+            match="Wiki/missing.md",
+        ) as exc:
             search_assets.build_embeddings(
                 vault,
                 {"artefacts": [], "meta": {"source_hash": "sha256:test-source-hash"}},
@@ -649,6 +702,7 @@ class TestEmbeddingsOutputs:
                 ],
                 embedding_parts_by_path={},
             )
+        assert "while building semantic embeddings" in str(exc.value)
 
     def test_embeddings_follow_shared_feature_flags(self, vault):
         cfg = {
@@ -710,7 +764,10 @@ class TestEmbeddingsOutputs:
             lambda _vault: {"error": "compiled router missing"},
         )
 
-        with pytest.raises(ValueError, match="compiled router is unavailable: compiled router missing"):
+        with pytest.raises(
+            search_errors.CompiledRouterUnavailableError,
+            match="compiled router is unavailable: compiled router missing while building semantic embeddings",
+        ):
             persist_retrieval_outputs(
                 vault,
                 built_index(vault),
@@ -771,6 +828,41 @@ class TestBuildIndexCli:
         assert (vault / OUTPUT_PATH).is_file()
         assert "Built retrieval index:" in result.stderr
         assert "embeddings refreshed" not in result.stderr
+
+    def test_main_reports_unreadable_retrieval_sources(self, vault, wrapper_cli):
+        (vault / "Wiki" / "broken.md").write_bytes(b"\xff\xfe\x00\x00")
+
+        result = wrapper_cli(vault, "build_index.py")
+
+        assert result.returncode == 1
+        assert "unreadable retrieval source 'Wiki/broken.md'" in result.stderr
+        assert "while building lexical retrieval state" in result.stderr
+
+    def test_main_reports_retrieval_persistence_failures(self, vault, monkeypatch, capsys):
+        build_index_cli = _load_build_index_cli_module()
+        monkeypatch.setattr(build_index_cli, "find_vault_root", lambda: str(vault))
+        monkeypatch.setattr(
+            build_index_cli.semantic_config,
+            "load_config_checked",
+            lambda _vault: {},
+        )
+
+        def fail(*_args, **_kwargs):
+            raise search_errors.RetrievalPersistenceError(
+                OUTPUT_PATH,
+                "persisting lexical retrieval state",
+                OSError("disk full"),
+            )
+
+        monkeypatch.setattr(build_index_cli._assets, "persist_retrieval_outputs", fail)
+
+        with pytest.raises(SystemExit) as exc:
+            build_index_cli.main()
+
+        assert exc.value.code == 1
+        stderr = capsys.readouterr().err
+        assert "failed to persist retrieval output" in stderr
+        assert "while persisting lexical retrieval state" in stderr
 
     def test_main_json_mode_prints_index_without_persisting_outputs(self, vault, wrapper_cli):
         result = wrapper_cli(vault, "build_index.py", "--json")

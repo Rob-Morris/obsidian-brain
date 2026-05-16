@@ -12,6 +12,7 @@ class ServerState:
     session_profile: str | None
     router: dict | None
     index: dict | None
+    index_error: str | None
     cli_available: bool
     vault_name: str | None
     workspace_registry: dict | None

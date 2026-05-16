@@ -6,6 +6,7 @@ import os
 
 from _common import FM_RE
 
+from .errors import UnreadableRetrievalSourceError
 from .lexical import tokenise
 from .mode import DEFAULT_TOP_K
 from .snippet import extract_snippet
@@ -28,8 +29,12 @@ def _read_file_body(vault_root, rel_path):
     try:
         with open(abs_path, "r", encoding="utf-8") as handle:
             text = handle.read()
-    except (OSError, UnicodeDecodeError):
-        return ""
+    except (OSError, UnicodeDecodeError) as exc:
+        raise UnreadableRetrievalSourceError(
+            rel_path,
+            "searching non-artefact resource text",
+            exc,
+        ) from exc
     fm_match = FM_RE.match(text)
     return text[fm_match.end():] if fm_match else text
 

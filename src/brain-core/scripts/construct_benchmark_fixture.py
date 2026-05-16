@@ -42,6 +42,7 @@ from _common import (
     safe_write_json,
     title_to_slug,
 )
+from _search.errors import UnreadableRetrievalSourceError
 from _search.lexical import LEXICAL_ANCHOR_RE, tokenise
 from _search.filters import SearchFilters
 import _search.lexical_query as lexical_query
@@ -330,7 +331,14 @@ def _should_skip_doc(doc, *, bucket=None):
 
 
 def _read_body(vault_root, rel_path):
-    fields, body = read_artefact(os.path.join(str(vault_root), rel_path))
+    try:
+        fields, body = read_artefact(os.path.join(str(vault_root), rel_path))
+    except (OSError, UnicodeDecodeError) as exc:
+        raise UnreadableRetrievalSourceError(
+            rel_path,
+            "constructing retrieval benchmark fixtures",
+            exc,
+        ) from exc
     return fields, body
 
 
@@ -1383,10 +1391,7 @@ def _mine_semantic_candidates(
     for doc in index.get("documents", []):
         if _should_skip_doc(doc, bucket="semantic-expected"):
             continue
-        try:
-            _fields, body = _read_body(vault_root, doc["path"])
-        except (OSError, UnicodeDecodeError):
-            continue
+        _fields, body = _read_body(vault_root, doc["path"])
         question_queries = _question_style_semantic_queries(doc, body)
         if len(body) < 300 and not question_queries:
             continue
@@ -1444,10 +1449,7 @@ def _mine_link_context_semantic_candidates(vault_root, index):
     for doc in index.get("documents", []):
         if _should_skip_doc(doc, bucket="semantic-expected"):
             continue
-        try:
-            _fields, body = _read_body(vault_root, doc["path"])
-        except (OSError, UnicodeDecodeError):
-            continue
+        _fields, body = _read_body(vault_root, doc["path"])
         for line_index, raw_line in enumerate(body.splitlines(), start=1):
             if "[[" not in raw_line:
                 continue
@@ -1498,10 +1500,7 @@ def _mine_hybrid_candidates(vault_root, index):
     for doc in index.get("documents", []):
         if _should_skip_doc(doc, bucket="hybrid-expected"):
             continue
-        try:
-            _fields, body = _read_body(vault_root, doc["path"])
-        except (OSError, UnicodeDecodeError):
-            continue
+        _fields, body = _read_body(vault_root, doc["path"])
         if len(body) < 200:
             continue
         seen_queries = set()
@@ -1879,7 +1878,11 @@ def main():
             semantic_seed_file=semantic_seed_file,
             hybrid_seed_file=hybrid_seed_file,
         )
-    except (search_mode.SearchModeUnavailableError, _retrieval_embeddings.SemanticConfigLoadError) as exc:
+    except (
+        search_mode.SearchModeUnavailableError,
+        _retrieval_embeddings.SemanticConfigLoadError,
+        UnreadableRetrievalSourceError,
+    ) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(1)
 

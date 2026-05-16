@@ -19,6 +19,7 @@ from _common import (
 )
 
 from .document_parts import EmbeddingParts, embedding_parts_from_body
+from .errors import RetrievalPersistenceError, UnreadableRetrievalSourceError
 from .lexical import tokenise
 from .paths import INDEX_VERSION, OUTPUT_PATH
 BM25_K1 = 1.5
@@ -51,14 +52,36 @@ def extract_title(filename):
     return Path(filename).stem
 
 
-def parse_doc(vault_root, rel_path, type_hint=None) -> ParsedDocument | None:
-    """Parse a single .md file into an index document and embedding text parts."""
+def parse_doc(
+    vault_root,
+    rel_path,
+    type_hint=None,
+    *,
+    missing_ok: bool = False,
+) -> ParsedDocument | None:
+    """Parse a single .md file into an index document and embedding text parts.
+
+    Incremental updates may treat a vanished path as a deletion sentinel, but a
+    full rebuild must fail loudly when a discovered retrieval source cannot be read.
+    """
     vault_str = str(vault_root)
     abs_path = os.path.join(vault_str, rel_path)
     try:
         fields, body = read_artefact(abs_path)
-    except (OSError, UnicodeDecodeError):
-        return None
+    except FileNotFoundError as exc:
+        if missing_ok:
+            return None
+        raise UnreadableRetrievalSourceError(
+            rel_path,
+            "building lexical retrieval state",
+            exc,
+        ) from exc
+    except (OSError, UnicodeDecodeError) as exc:
+        raise UnreadableRetrievalSourceError(
+            rel_path,
+            "building lexical retrieval state",
+            exc,
+        ) from exc
 
     title = extract_title(rel_path)
 
@@ -158,9 +181,8 @@ def _build_index_result(vault_root) -> IndexBuildResult:
                 rel_path,
                 type_hint=type_info["type"],
             )
-            if parsed is not None:
-                documents.append(parsed.doc)
-                embedding_parts_by_path[rel_path] = parsed.embedding_parts
+            documents.append(parsed.doc)
+            embedding_parts_by_path[rel_path] = parsed.embedding_parts
 
     index = {
         "meta": {
@@ -193,7 +215,14 @@ def build_index(vault_root) -> IndexBuildResult:
 def persist_retrieval_index(vault_root, index) -> None:
     """Persist the lexical retrieval index JSON to disk."""
     output_path = os.path.join(str(vault_root), OUTPUT_PATH)
-    safe_write_json(output_path, index, bounds=str(vault_root))
+    try:
+        safe_write_json(output_path, index, bounds=str(vault_root))
+    except OSError as exc:
+        raise RetrievalPersistenceError(
+            OUTPUT_PATH,
+            "persisting lexical retrieval state",
+            exc,
+        ) from exc
 
 
 def index_update(index, vault_root, rel_path, type_hint=None) -> ParsedDocument | None:
@@ -202,6 +231,7 @@ def index_update(index, vault_root, rel_path, type_hint=None) -> ParsedDocument 
         vault_root,
         rel_path,
         type_hint=type_hint,
+        missing_ok=True,
     )
     if parsed is None:
         return None

@@ -6,6 +6,7 @@ import os
 import pytest
 
 from _search.filters import SearchFilters
+import _search.errors as search_errors
 import _search.hybrid_query as hybrid_query
 import _search.index as search_index_mod
 import _search.lexical as lexical
@@ -1060,12 +1061,22 @@ class TestSnippet:
 
     def test_snippet_missing_file(self, vault):
         snippet = snippet_mod.extract_snippet(vault, "nonexistent.md", ["test"])
-        assert snippet == ""
+        assert snippet is None
 
     def test_snippet_no_match_returns_start(self, vault):
         snippet = snippet_mod.extract_snippet(vault, "Wiki/python-basics.md", ["xyznotfound"])
         # Should return start of body
         assert len(snippet) > 0
+
+    def test_search_marks_snippet_unavailable_when_source_is_unreadable(self, vault):
+        index = search_index_mod.build_index(vault).index
+        (vault / "Wiki" / "python-basics.md").unlink()
+
+        results = lexical_query.search(index, "python", vault)
+
+        assert results
+        assert results[0]["path"] == "Wiki/python-basics.md"
+        assert results[0]["snippet"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -1438,3 +1449,14 @@ class TestSearchResource:
         results = search_resource_mod.search_resource(router, vault, "skill", "brain")
         if len(results) >= 2:
             assert results[0]["score"] >= results[1]["score"]
+
+    def test_search_raises_when_resource_source_is_unreadable(self, router_with_resources):
+        vault, router = router_with_resources
+        (vault / "_Config" / "Skills" / "vault-maintenance" / "SKILL.md").unlink()
+
+        with pytest.raises(
+            search_errors.UnreadableRetrievalSourceError,
+            match="_Config/Skills/vault-maintenance/SKILL.md",
+        ) as exc:
+            search_resource_mod.search_resource(router, vault, "skill", "vault")
+        assert "while searching non-artefact resource text" in str(exc.value)

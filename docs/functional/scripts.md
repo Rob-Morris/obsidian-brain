@@ -10,10 +10,10 @@ The optional [`brain` CLI](cli.md) provides ergonomic shortcuts that dispatch di
 |---|---|---|
 | `compile_router.py` | Compile router from source files and refresh the session mirror | `python3 compile_router.py [--json]` |
 | `compile_colours.py` | Generate folder colour CSS | (called by compile_router) |
-| `build_index.py` | Build retrieval index and optional embeddings sidecars from the provisioned local semantic model | `python3 build_index.py [--json]` |
+| `build_index.py` | Build retrieval index and optional embeddings sidecars from the provisioned local semantic model; unreadable retrieval sources and persistence failures now fail explicitly | `python3 build_index.py [--json]` |
 | `list_artefacts.py` | Enumerate vault artefacts and resources (unranked, no cap) | (library module, used by MCP server) |
 | `search_index.py` | Lexical, semantic, or hybrid local search | `python3 search_index.py "query" [--type T] [--mode M] [--json]` |
-| `construct_benchmark_fixture.py` | Derive a vault-native retrieval benchmark fixture plus audit JSON from an existing vault, including semantic-variant audit diagnostics and optional externally seeded semantic or hybrid candidates | `python3 construct_benchmark_fixture.py --fixture-out PATH [--audit-out PATH] [--semantic-strategy S] [--semantic-seed-file PATH] [--hybrid-seed-file PATH] [--json]` |
+| `construct_benchmark_fixture.py` | Derive a vault-native retrieval benchmark fixture plus audit JSON from an existing vault, including semantic-variant audit diagnostics and optional externally seeded semantic or hybrid candidates; unreadable source files now fail explicitly | `python3 construct_benchmark_fixture.py --fixture-out PATH [--audit-out PATH] [--semantic-strategy S] [--semantic-seed-file PATH] [--hybrid-seed-file PATH] [--json]` |
 | `evaluate_search.py` | Benchmark lexical, semantic, and hybrid retrieval against a JSON query set | `python3 evaluate_search.py --benchmark PATH [--mode M]... [--json]` |
 | `read.py` | Query compiled router resources | `python3 read.py RESOURCE [--name N]` |
 | `create.py` | Create new artefact | `python3 create.py --type T --title "Title" [--body B] [--body-file PATH] [--temp-path [SUFFIX]] [--json]` |
@@ -509,6 +509,15 @@ later drift, `check.py` will point to `repair.py semantic`. Missing sidecars
 still degrade cleanly; present-but-corrupt sidecars fail explicitly at the
 script entry points so the owning boundary can rebuild or repair them
 deliberately.
+
+Unreadable retrieval-source reads follow the same explicit policy. Snippet
+generation is presentation-only and omits `snippet` when a source file cannot
+be reread, but `build_index.py` and `construct_benchmark_fixture.py` now fail
+explicitly on unreadable source bodies or retrieval-index persistence failures
+instead of silently skipping coverage. In MCP, index-backed `brain_search`,
+`brain_list`, and `brain_process` calls block with the typed rebuild error
+until a successful rebuild clears it, rather than serving stale retrieval
+state.
 
 **CLI:**
 ```bash

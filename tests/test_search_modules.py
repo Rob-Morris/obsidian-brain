@@ -356,6 +356,7 @@ sys.meta_path.insert(0, BlockSemantic())
 
 import _search.filters
 import _search.document_parts
+import _search.errors
 import _search.index
 import _search.lexical
 import _search.lexical_query

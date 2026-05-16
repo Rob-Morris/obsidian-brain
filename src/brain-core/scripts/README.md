@@ -11,7 +11,11 @@ snapshots the pinned model under `.brain/local/semantic-models/`, records
 After provisioning, ordinary search/process/index paths load the local snapshot
 with no surprise Hugging Face fetches. Missing sidecars still degrade cleanly;
 present-but-corrupt sidecars now fail explicitly at search/evaluation entry
-points so the owning boundary can rebuild or repair them deliberately. The
+points so the owning boundary can rebuild or repair them deliberately. Query
+snippets remain a presentation-only soft-degrade path: unreadable snippet
+reads omit `snippet` instead of fabricating text, while persisted retrieval
+state builds now fail visibly instead of silently skipping files or serving
+stale state. The
 pinned stack targets current upstream wheel-supported platforms; Intel macOS
 remains lexical-only.
 
@@ -25,8 +29,8 @@ remains lexical-only.
 | `_repair_runtime.py` | Managed-runtime repair scope implementations plus additive compliance repair detectors | (library only) |
 | `_search/` | Internal retrieval package: lexical index ownership, query-mode policy, lexical/semantic/hybrid execution, and shared search-asset refresh orchestration | (library only) |
 | `_semantic/` | Internal semantic package: config flags, model/runtime provisioning, embeddings helpers, and vector-ranking/runtime utilities shared by build/search/configure/repair flows | (library only) |
-| `build_index.py` | Thin CLI/script wrapper over `_search`: build the lexical retrieval index and refresh embeddings sidecars from the provisioned local semantic model when `semantic_processing` or `semantic_retrieval` is enabled and router data is available. Use `_search.index` / `_search.assets` directly from Python; the wrapper remains only as a supported script entry surface. | `python3 build_index.py [--json]` |
-| `construct_benchmark_fixture.py` | Derive a vault-native retrieval benchmark fixture plus audit JSON from an existing vault, including semantic-variant audit diagnostics and optional externally seeded semantic or hybrid candidates | `python3 construct_benchmark_fixture.py --fixture-out PATH [--audit-out PATH] [--semantic-strategy S] [--semantic-seed-file PATH] [--hybrid-seed-file PATH] [--json]` |
+| `build_index.py` | Thin CLI/script wrapper over `_search`: build the lexical retrieval index and refresh embeddings sidecars from the provisioned local semantic model when `semantic_processing` or `semantic_retrieval` is enabled and router data is available. Unreadable source files, compiled-router embedding drift, and retrieval-index persistence failures now fail explicitly at this boundary. Use `_search.index` / `_search.assets` directly from Python; the wrapper remains only as a supported script entry surface. | `python3 build_index.py [--json]` |
+| `construct_benchmark_fixture.py` | Derive a vault-native retrieval benchmark fixture plus audit JSON from an existing vault, including semantic-variant audit diagnostics and optional externally seeded semantic or hybrid candidates. Unreadable source files now fail explicitly instead of being skipped silently. | `python3 construct_benchmark_fixture.py --fixture-out PATH [--audit-out PATH] [--semantic-strategy S] [--semantic-seed-file PATH] [--hybrid-seed-file PATH] [--json]` |
 | `evaluate_search.py` | Benchmark lexical, semantic, and hybrid retrieval against a JSON query set | `python3 evaluate_search.py --benchmark PATH [--mode M]... [--json]` |
 | `check.py` | Router-driven structural compliance checks; human output now prints exact `repair.py` commands for repairable router/MCP/local-registry/semantic drift and structured results include `repair` metadata | `python3 check.py [--json] [--actionable] [--severity S] [--vault V]` |
 | `configure.py` | Explicit installed-vault lifecycle entry point for semantic-retrieval opt-in and runtime/model provisioning | `python3 configure.py semantic --enable [--no-provision] [--json] [--vault V]` |

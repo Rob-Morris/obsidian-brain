@@ -71,6 +71,7 @@ sys.path.insert(0, os.path.abspath(SCRIPTS_DIR))
 import compile_router
 import _search.assets as search_assets
 from _search.document_parts import EmbeddingParts
+import _search.errors as search_errors
 import _search.index as search_index
 import _search.paths as search_paths
 from _common import (
@@ -125,6 +126,7 @@ _config: dict | None = None
 _session_profile: str | None = None
 _router: dict | None = None
 _index: dict | None = None
+_last_index_error: str | None = None
 _index_dirty: bool = False       # set True for full rebuild (e.g. version drift)
 # _index_pending queues (rel_path, type_hint) pairs from brain_create/brain_edit
 # for incremental index updates on the next search. _index_pending_lock MUST be
@@ -150,6 +152,12 @@ _warmup_thread: threading.Thread | None = None
 _semantic_warmup_thread: threading.Thread | None = None
 _warmup_lock = threading.Lock()
 _router_ready_event = threading.Event()
+
+_INDEX_STATE_ERROR_TYPES = (
+    search_errors.UnreadableRetrievalSourceError,
+    search_errors.CompiledRouterUnavailableError,
+    search_errors.RetrievalPersistenceError,
+)
 _type_embeddings = None
 _embeddings_meta = None
 _doc_embeddings = None
@@ -276,6 +284,7 @@ def _trace_tool(tool_name: str, **kwargs):
 def _reset_runtime_state_for_startup() -> int:
     """Reset warmup-owned state for a fresh startup cycle."""
     global _session_profile, _router, _index, _workspace_registry
+    global _last_index_error
     global _index_dirty, _router_dirty, _router_checked_at, _index_checked_at
     global _resource_mtime_cache, _warmup_generation, _warmup_thread
     global _semantic_warmup_thread, _readiness, _warmup_state
@@ -286,6 +295,7 @@ def _reset_runtime_state_for_startup() -> int:
 
     _session_profile = None
     _index = None
+    _last_index_error = None
     _workspace_registry = None
     _index_dirty = False
     _router_dirty = False
@@ -320,6 +330,13 @@ def _reset_runtime_state_for_startup() -> int:
 def _warmup_generation_matches(generation: int) -> bool:
     with _warmup_lock:
         return generation == _warmup_generation
+
+
+def _record_index_state_error(exc: BaseException) -> None:
+    """Record typed index state errors that should block index-backed reads."""
+    global _last_index_error
+    if isinstance(exc, _INDEX_STATE_ERROR_TYPES):
+        _last_index_error = str(exc)
 
 
 def _set_warmup_phase(generation: int, phase_key: str | None) -> None:
@@ -625,22 +642,29 @@ def _load_router_for_warmup(vault_root: str, generation: int) -> dict | None:
 def _load_index_for_warmup(vault_root: str, generation: int) -> dict | None:
     """Load or build the retrieval index for the active warmup generation."""
     global _index, _index_dirty, _index_checked_at, _embedding_parts_by_path
+    global _last_index_error
 
     stale, data = _check_index(vault_root)
     if stale:
         t0 = time.monotonic()
-        build_result = _run_with_timeout(
-            "index build",
-            lambda: search_index.build_index(vault_root),
-        )
-        index = build_result.index
-        search_index.persist_retrieval_index(vault_root, index)
+        try:
+            build_result = _run_with_timeout(
+                "index build",
+                lambda: search_index.build_index(vault_root),
+            )
+            index = build_result.index
+            search_index.persist_retrieval_index(vault_root, index)
+        except Exception as exc:
+            if _warmup_generation_matches(generation):
+                _record_index_state_error(exc)
+            raise
         if _logger:
             _logger.info("index build (stale) %.1fs", time.monotonic() - t0)
         if _warmup_generation_matches(generation):
             _index = index
             _embedding_parts_by_path = build_result.embedding_parts_by_path
             _index_dirty = False
+            _last_index_error = None
             with _index_pending_lock:
                 _index_pending.clear()
             _index_checked_at = time.monotonic()
@@ -652,6 +676,7 @@ def _load_index_for_warmup(vault_root: str, generation: int) -> dict | None:
         _index = data
         _embedding_parts_by_path = None
         _index_dirty = False
+        _last_index_error = None
         _index_checked_at = time.monotonic()
     return data
 
@@ -1450,7 +1475,7 @@ def _apply_pending_index_updates() -> None:
     ``meta['built_at']`` untouched, so the external-change sweep still measures
     freshness against the last full build.
     """
-    global _index, _index_checked_at, _embedding_parts_by_path
+    global _index, _index_checked_at, _embedding_parts_by_path, _last_index_error
     if _index is None or not _index_pending:
         return
 
@@ -1472,9 +1497,13 @@ def _apply_pending_index_updates() -> None:
                 _embedding_parts_by_path[rel_path] = updated.embedding_parts
         _save_json(_index, _vault_root, _index_rel())
         _index_checked_at = time.monotonic()
+        _last_index_error = None
     except Exception as e:
         if _logger:
             _logger.error("index incremental update failed: %s", e)
+        # Typed retrieval-state failures block reads with an explicit index error;
+        # untyped failures still mark the index dirty so the next refresh can retry.
+        _record_index_state_error(e)
         _mark_index_dirty()
 
 
@@ -1484,13 +1513,17 @@ def _try_rebuild_index(
     clear_dirty_on_failure: bool,
 ) -> bool:
     """Run a full index rebuild and apply shared failure semantics."""
-    global _index, _index_checked_at, _index_dirty
+    global _index, _index_checked_at, _index_dirty, _last_index_error
     try:
         _index = _build_index_and_save(_vault_root)
+        _last_index_error = None
         return True
     except Exception as e:
         if _logger:
             _logger.error("%s: %s", error_message, e)
+        # Typed retrieval-state failures surface immediately; everything else
+        # stays on the generic dirty/retry path instead of becoming user-facing.
+        _record_index_state_error(e)
         if clear_dirty_on_failure:
             _index_dirty = False  # prevent tight retry loop; staleness TTL will re-detect
             _index_checked_at = time.monotonic()
@@ -1598,7 +1631,7 @@ def _build_index_and_save(vault_root: str) -> dict:
     """
     global _index_dirty, _index_checked_at, _embeddings_meta, _type_embeddings, _doc_embeddings
     global _embedding_parts_by_path
-    global _doc_embeddings_dirty, _type_embeddings_dirty
+    global _doc_embeddings_dirty, _type_embeddings_dirty, _last_index_error
     build_result = search_index.build_index(vault_root)
     index = build_result.index
     result = search_assets.persist_retrieval_outputs(
@@ -1618,6 +1651,7 @@ def _build_index_and_save(vault_root: str) -> dict:
         _doc_embeddings_pending.clear()
     _index_checked_at = time.monotonic()
     _embedding_parts_by_path = build_result.embedding_parts_by_path
+    _last_index_error = None
     if result is not None:
         _type_embeddings, _doc_embeddings, _embeddings_meta = result
     else:
@@ -1689,6 +1723,7 @@ def _get_state() -> ServerState:
         session_profile=_session_profile,
         router=_router,
         index=_index,
+        index_error=_last_index_error,
         cli_available=_cli_available,
         vault_name=_vault_name,
         workspace_registry=_workspace_registry,

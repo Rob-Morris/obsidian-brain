@@ -6,6 +6,7 @@ Version-by-version release history for Obsidian Brain. Every shipped version has
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.40.6](changelog/v0.40.6.md) | 2026-05-16 | Make unreadable retrieval sources fail explicitly and consistently |
 | [v0.40.5](changelog/v0.40.5.md) | 2026-05-16 | Split _search retrieval into focused modules and remove lazy seams |
 | [v0.40.4](changelog/v0.40.4.md) | 2026-05-15 | Make build_index.py and search_index.py CLI-only wrappers |
 | [v0.40.3](changelog/v0.40.3.md) | 2026-05-15 | Converge MCP and repair runtime callers onto canonical `_search` |

@@ -10,6 +10,7 @@ from _common import load_compiled_router, read_artefact, safe_write_via, safe_wr
 from _taxonomy_descriptions import extract_type_description
 
 from .document_parts import embedding_parts_from_body
+from .errors import CompiledRouterUnavailableError, UnreadableRetrievalSourceError
 from .index import build_index, persist_retrieval_index
 
 try:
@@ -60,7 +61,14 @@ def _load_embedding_parts(vault_root, rel_path, embedding_parts_by_path):
             return cached
 
     abs_path = os.path.join(str(vault_root), rel_path)
-    _, body = read_artefact(abs_path)
+    try:
+        _, body = read_artefact(abs_path)
+    except (OSError, UnicodeDecodeError) as exc:
+        raise UnreadableRetrievalSourceError(
+            rel_path,
+            "building semantic embeddings",
+            exc,
+        ) from exc
     return embedding_parts_from_body(body)
 
 
@@ -231,7 +239,10 @@ def persist_retrieval_outputs(
     if router is None:
         router = load_compiled_router(vault_root)
         if isinstance(router, dict) and router.get("error"):
-            raise ValueError(f"compiled router is unavailable: {router['error']}")
+            raise CompiledRouterUnavailableError(
+                f"compiled router is unavailable: {router['error']}",
+                operation="building semantic embeddings",
+            )
     return refresh_embeddings_outputs(
         vault_root,
         router,

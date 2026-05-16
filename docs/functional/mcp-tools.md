@@ -175,6 +175,7 @@ Safe, no side effects, auto-approvable. Relevance-ranked search — not exhausti
 - `mode="semantic"` uses persisted document vectors only
 - `mode="hybrid"` fuses BM25 + vectors with RRF and deliberately does not use Obsidian CLI as its lexical leg
 - Explicit `mode="semantic"` or `mode="hybrid"` fails clearly when `defaults.flags.semantic_retrieval` is off or when the configured vault is missing semantic runtime packages, the pinned local model snapshot/manifest, or embeddings sidecars; configure the local semantic runtime with `python3 .brain-core/scripts/configure.py semantic --enable`
+- If persisted retrieval state cannot be refreshed honestly because of an unreadable source file, compiled-router embeddings drift, or a retrieval-index persistence failure, index-backed artefact search returns that explicit error instead of silently serving stale results
 - For non-artefact resources: lexical text matching on name and file content only; `mode="semantic"` and `mode="hybrid"` are rejected
 
 **Response format:** Multi-block: bold past-tense metadata block (`**Searched:** N results (source)`) + results as a readable text list (one result per line: title, path, type, optional status). Includes `source` field (`"obsidian_cli"`, `"bm25"`, `"semantic"`, `"hybrid"`, or `"text"`).
@@ -193,6 +194,7 @@ Safe, no side effects, auto-approvable. Exhaustive enumeration — not relevance
 
 **Behaviour:**
 - For artefacts: filters the in-memory BM25 index directly — no filesystem walk
+- If index-backed retrieval state is blocked by an unreadable source file, compiled-router embeddings drift, or a retrieval-index persistence failure, artefact listing returns that explicit error instead of stale results
 - For other resources: reads from the compiled router's small collections with optional `query` substring filtering
 
 Use `resource` to list non-artefact collections — this replaces the previous `brain_read` listing behaviour.
@@ -340,6 +342,7 @@ embedding-backed `brain_process` behavior by itself.
 - **`classify`** — determines the best artefact type for content using three-tier fallback (embedding → BM25 → context_assembly); returns ranked type matches with confidence scores. Read-only.
 - **`resolve`** — checks if content should create a new artefact or update an existing one (requires `type` and `title`); matches against generous filenames, legacy slugs, BM25 search, and optional embeddings; returns create/update/ambiguous decision. Read-only.
 - **`ingest`** — runs the full pipeline: classify → infer title → resolve → create/update; optional `type`/`title` hints skip their respective steps. Can create or update files — treat like `brain_create`/`brain_edit` combined.
+- When `classify` or `resolve` needs the shared retrieval index and that index is blocked by an unreadable source file, compiled-router embeddings drift, or a retrieval-index persistence failure, `brain_process` returns the explicit rebuild error instead of stale retrieval state
 
 Successful mutations queue the shared incremental index refresh path used by
 other MCP writers.

@@ -108,6 +108,8 @@ def require_index(
 
     runtime.ensure_index_fresh()
     state = runtime.get_state()
+    if state.index_error:
+        return None, runtime.fmt_error(state.index_error)
     if state.index is None:
         return None, runtime.fmt_progress(tool_name, ("index",))
     return state, None

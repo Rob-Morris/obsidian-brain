@@ -123,11 +123,13 @@ If your vault runs the Brain MCP server (`.brain-core/brain_mcp/server.py`), nin
 - Artefact-specific filters: `type` (key, full type, or singular form), `tag`, `status`
 - Optional `mode` parameter for artefact search: `lexical`, `semantic`, `hybrid`. If omitted, Brain prefers `hybrid` when semantic retrieval is enabled and usable; otherwise it uses `lexical`
 - `lexical` may use Obsidian CLI when available; `semantic` uses persisted vectors only; `hybrid` fuses BM25 + vectors and does not use Obsidian CLI as its lexical leg
+- If persisted retrieval state cannot be refreshed honestly because of an unreadable source file, compiled-router embeddings drift, or a retrieval-index persistence failure, artefact search returns that explicit error instead of silently serving stale results
 - Non-artefact resources stay lexical-only and reject semantic/hybrid modes
 
 **brain_list** (safe, no side effects)
 - List vault artefacts exhaustively — not relevance-ranked
 - `resource="artefact"` supports `type`, `parent`, `since`/`until` (ISO dates e.g. `"2026-03-20"`), `tag`, `top_k` (default 500), and sort by `"date_desc"` (default), `"date_asc"`, or `"title"`
+- If index-backed retrieval state is blocked by an unreadable source file, compiled-router embeddings drift, or a retrieval-index persistence failure, artefact listing returns that explicit error instead of stale results
 - Non-artefact collections such as `skill`, `memory`, `template`, and `style` support only optional `query`; `workspace` and `archive` accept no filters
 - Use instead of `brain_search` when completeness matters (e.g. "all research from the last 2 weeks")
 
@@ -186,6 +188,7 @@ If your vault runs the Brain MCP server (`.brain-core/brain_mcp/server.py`), nin
 - `classify` — determine the best artefact type for content; returns ranked matches with confidence scores. Modes: `auto` (default), `embedding`, `bm25_only`, `context_assembly`
 - `resolve` — check if content should create a new artefact or update an existing one (requires `type` and `title`); returns create/update/ambiguous decision with candidate paths
 - `ingest` — full pipeline: classify → infer title → resolve → create/update. Optional `type`/`title` hints skip their respective steps
+- If `classify` or `resolve` needs the shared retrieval index and that index is blocked by an unreadable source file, compiled-router embeddings drift, or a retrieval-index persistence failure, the tool returns that explicit rebuild error instead of stale retrieval state
 
 ### Server Logging
 
@@ -199,10 +202,10 @@ Available in `.brain-core/scripts/`. Scripts are the source of truth for all vau
 |---|---|
 | `compile_router.py` | Compile router, taxonomy, skills, and styles into a single JSON file |
 | `compile_colours.py` | Generate folder colour CSS and graph colour groups |
-| `build_index.py` | Build the retrieval index for search and refresh embeddings sidecars when `semantic_processing` or `semantic_retrieval` is enabled, router data is available, and the optional semantic runtime has been installed |
+| `build_index.py` | Build the retrieval index for search and refresh embeddings sidecars when `semantic_processing` or `semantic_retrieval` is enabled, router data is available, and the optional semantic runtime has been installed; unreadable retrieval sources and persistence failures now fail explicitly |
 | `list_artefacts.py` | Enumerate vault artefacts and resources (library module used by MCP) |
 | `search_index.py` | Search the local retrieval index from the command line via lexical, semantic, or hybrid modes; hybrid preserves obvious exact-anchor lexical wins, gives a small tie-break boost to a clearly dominant semantic top result, preserves strong lexical title champions when the query literally contains their core title phrase (stripping only the shipped `Brain` product namespace from first-party titles), and can apply a stronger semantic rescue when lexical and semantic leaders are clearly disjoint |
-| `construct_benchmark_fixture.py` | Mine a real vault for lexical / semantic / hybrid / cluster / filter-sensitive benchmark cases and emit both a benchmark fixture JSON and an audit JSON |
+| `construct_benchmark_fixture.py` | Mine a real vault for lexical / semantic / hybrid / cluster / filter-sensitive benchmark cases and emit both a benchmark fixture JSON and an audit JSON; unreadable source files now fail explicitly |
 | `evaluate_search.py` | Benchmark lexical, semantic, and hybrid retrieval against a JSON query set |
 | `configure.py` | Explicit installed-vault semantic lifecycle entry point: enable semantic retrieval for the vault, optionally skip provisioning, and emit ordered step results for bootstrap, provisioning, and asset refresh work |
 | `read.py` | Query compiled router resources (artefacts, triggers, styles, templates, skills, etc.) |

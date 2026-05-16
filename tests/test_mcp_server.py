@@ -15,6 +15,8 @@ import pytest
 from mcp.types import CallToolResult
 
 import _search.assets as search_assets
+import _search.errors as search_errors
+import _search.paths as search_paths
 import _search.semantic_query as semantic_query
 import _semantic.model as semantic_model
 import _semantic.runtime as semantic_runtime
@@ -932,6 +934,21 @@ class TestBrainSearch:
         assert len(lines) >= 1
         assert "Vault Maintenance" in text or "vault-maintenance" in text.lower()
 
+    def test_search_resource_reports_unreadable_source(self, initialized):
+        with patch.object(
+            _server_reading.search_resource,
+            "search_resource",
+            side_effect=search_errors.UnreadableRetrievalSourceError(
+                "_Config/Skills/Vault Maintenance/SKILL.md",
+                "searching non-artefact resource text",
+                FileNotFoundError("missing"),
+            ),
+        ):
+            result = server.brain_search("vault", resource="skill")
+
+        _assert_error(result, "unreadable retrieval source")
+        assert "while searching non-artefact resource text" in result.content[0].text
+
     def test_search_resource_trigger(self, initialized):
         """brain_search(resource='trigger') searches triggers."""
         resp = server.brain_search("log", resource="trigger")
@@ -1588,6 +1605,103 @@ class TestEnsureFreshRobustness:
 
         assert server._index_dirty, "Index should be marked dirty after incremental failure"
 
+    def test_search_surfaces_unreadable_index_rebuild_failures(self, initialized):
+        old_index = server._index
+        server._mark_index_dirty()
+
+        with patch.object(
+            server,
+            "_build_index_and_save",
+            side_effect=search_errors.UnreadableRetrievalSourceError(
+                "Wiki/broken.md",
+                "building lexical retrieval state",
+                UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte"),
+            ),
+        ):
+            result = server.brain_search("brain")
+
+        assert server._index is old_index
+        _assert_error(result, "unreadable retrieval source 'Wiki/broken.md'")
+        assert "while building lexical retrieval state" in result.content[0].text
+
+    @pytest.mark.parametrize(
+        ("tool_name", "call"),
+        [
+            ("brain_search", lambda: server.brain_search("brain")),
+            ("brain_list", lambda: server.brain_list(resource="artefact")),
+            (
+                "brain_process",
+                lambda: server.brain_process(
+                    operation="resolve",
+                    content="Some content",
+                    type="wiki",
+                    title="Some Title",
+                ),
+            ),
+        ],
+    )
+    def test_index_state_errors_block_index_backed_tools(
+        self,
+        initialized,
+        tool_name,
+        call,
+    ):
+        old_index = server._index
+        server._mark_index_dirty()
+
+        with patch.object(
+            server,
+            "_build_index_and_save",
+            side_effect=search_errors.CompiledRouterUnavailableError(
+                "compiled router is unavailable",
+                operation="building semantic embeddings",
+            ),
+        ):
+            result = call()
+
+        assert server._index is old_index, f"{tool_name} should preserve the last good index"
+        _assert_error(result, "compiled router is unavailable while building semantic embeddings")
+
+    @pytest.mark.parametrize(
+        ("tool_name", "call"),
+        [
+            ("brain_search", lambda: server.brain_search("brain")),
+            ("brain_list", lambda: server.brain_list(resource="artefact")),
+            (
+                "brain_process",
+                lambda: server.brain_process(
+                    operation="resolve",
+                    content="Some content",
+                    type="wiki",
+                    title="Some Title",
+                ),
+            ),
+        ],
+    )
+    def test_index_persistence_failures_block_index_backed_tools(
+        self,
+        initialized,
+        tool_name,
+        call,
+    ):
+        old_index = server._index
+        server._mark_index_dirty()
+
+        with patch.object(
+            server,
+            "_build_index_and_save",
+            side_effect=search_errors.RetrievalPersistenceError(
+                search_paths.OUTPUT_PATH,
+                "persisting lexical retrieval state",
+                OSError("disk full"),
+            ),
+        ):
+            result = call()
+
+        assert server._index is old_index, f"{tool_name} should preserve the last good index"
+        _assert_error(result, "failed to persist retrieval output")
+        assert "while persisting lexical retrieval state" in result.content[0].text
+
     def test_ensure_mutation_index_ready_skips_staleness_sweep(self, initialized, monkeypatch):
         """Write-path readiness must not trigger the TTL-gated external scan."""
         server._index_checked_at = 0.0
@@ -1627,6 +1741,95 @@ class TestStartupRobustness:
 
         assert server._router is not None
         assert server._index is None
+
+    @pytest.mark.parametrize(
+        ("tool_name", "call"),
+        [
+            ("brain_search", lambda: server.brain_search("brain")),
+            ("brain_list", lambda: server.brain_list(resource="artefact")),
+            (
+                "brain_process",
+                lambda: server.brain_process(
+                    operation="resolve",
+                    content="Some content",
+                    type="wiki",
+                    title="Some Title",
+                ),
+            ),
+        ],
+    )
+    def test_startup_surfaces_typed_index_build_failures_to_index_backed_tools(
+        self,
+        vault,
+        monkeypatch,
+        tool_name,
+        call,
+    ):
+        real_run_with_timeout = server._run_with_timeout
+
+        def fail_index_build(label, fn, timeout=server._STARTUP_OP_TIMEOUT):
+            if label == "index build":
+                raise search_errors.UnreadableRetrievalSourceError(
+                    "Wiki/broken.md",
+                    "building lexical retrieval state",
+                    UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte"),
+                )
+            return real_run_with_timeout(label, fn, timeout=timeout)
+
+        with patch.object(server, "_run_with_timeout", side_effect=fail_index_build):
+            server.startup(vault_root=str(vault))
+            assert server._wait_for_warmup(timeout=5.0), "warmup did not complete"
+
+        assert server._index is None
+        monkeypatch.setattr(server, "_ensure_index_fresh", lambda: None)
+
+        result = call()
+
+        _assert_error(result, "unreadable retrieval source 'Wiki/broken.md'")
+        assert "while building lexical retrieval state" in result.content[0].text
+
+    @pytest.mark.parametrize(
+        ("tool_name", "call"),
+        [
+            ("brain_search", lambda: server.brain_search("brain")),
+            ("brain_list", lambda: server.brain_list(resource="artefact")),
+            (
+                "brain_process",
+                lambda: server.brain_process(
+                    operation="resolve",
+                    content="Some content",
+                    type="wiki",
+                    title="Some Title",
+                ),
+            ),
+        ],
+    )
+    def test_startup_surfaces_index_persistence_failures_to_index_backed_tools(
+        self,
+        vault,
+        monkeypatch,
+        tool_name,
+        call,
+    ):
+        with patch.object(
+            server.search_index,
+            "persist_retrieval_index",
+            side_effect=search_errors.RetrievalPersistenceError(
+                search_paths.OUTPUT_PATH,
+                "persisting lexical retrieval state",
+                OSError("disk full"),
+            ),
+        ):
+            server.startup(vault_root=str(vault))
+            assert server._wait_for_warmup(timeout=5.0), "warmup did not complete"
+
+        assert server._index is None
+        monkeypatch.setattr(server, "_ensure_index_fresh", lambda: None)
+
+        result = call()
+
+        _assert_error(result, "failed to persist retrieval output")
+        assert "while persisting lexical retrieval state" in result.content[0].text
 
     def test_main_exits_on_vault_discovery_failure(self):
         """If vault root discovery fails, main should exit with code 1."""
