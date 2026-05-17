@@ -7,7 +7,7 @@ from typing import Literal
 from mcp.types import TextContent
 
 import _common
-import _search.errors as search_errors
+import _lifecycle.retrieval_errors as retrieval_errors
 from _search.filters import SearchFilters
 import _search.hybrid_query as hybrid_query
 import _search.lexical_query as lexical_query
@@ -227,7 +227,7 @@ def handle_brain_search(
                 query,
                 top_k=top_k,
             )
-        except search_errors.UnreadableRetrievalSourceError as exc:
+        except retrieval_errors.UnreadableRetrievalSourceError as exc:
             return runtime.fmt_error(str(exc))
         return _fmt_search("text", results)
 

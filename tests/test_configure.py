@@ -9,7 +9,7 @@ import pytest
 import config as config_module
 import configure
 import _lifecycle_common as lifecycle_common
-import _search.assets as search_assets
+import _lifecycle.retrieval_assets as retrieval_assets
 import _semantic.config as semantic_config
 import _semantic.model as semantic_model
 import _semantic.provision as semantic_provision
@@ -128,22 +128,6 @@ def test_configure_semantic_enable_unsupported_platform_keeps_flags_enabled(tmp_
     assert result["steps"][-1]["status"] == "error"
 
 
-def test_refresh_semantic_assets_delegates_to_search_assets(tmp_path, monkeypatch):
-    vault = _make_vault(tmp_path)
-    calls = []
-
-    monkeypatch.setattr(
-        search_assets,
-        "refresh_search_assets",
-        lambda _vault, *, force_embeddings=False: calls.append((_vault, force_embeddings)) or ["refreshed"],
-    )
-
-    result = semantic_provision.refresh_semantic_assets(vault)
-
-    assert result == ["refreshed"]
-    assert calls == [(vault, True)]
-
-
 def test_provision_semantic_runtime_records_asset_error_when_forced_rebuild_fails(
     tmp_path,
     monkeypatch,
@@ -163,7 +147,12 @@ def test_provision_semantic_runtime_records_asset_error_when_forced_rebuild_fail
     monkeypatch.setattr(
         semantic_provision,
         "refresh_semantic_assets",
-        lambda _vault: (_ for _ in ()).throw(ValueError("forced refresh cleared sidecars")),
+        lambda _vault: (_ for _ in ()).throw(
+            semantic_provision.SemanticRuntimeUnavailableError(
+                "semantic runtime dependencies are unavailable: numpy is not installed",
+                operation="building semantic embeddings",
+            )
+        ),
     )
 
     outcome = semantic_provision.provision_semantic_runtime(
@@ -175,9 +164,82 @@ def test_provision_semantic_runtime_records_asset_error_when_forced_rebuild_fail
 
     assert outcome.assets_changed is False
     assert outcome.assets_error == (
-        "Semantic runtime is ready, but retrieval asset refresh failed: "
-        "forced refresh cleared sidecars"
+        "Semantic runtime is ready, but retrieval asset refresh failed because semantic runtime dependencies are unavailable: "
+        "semantic runtime dependencies are unavailable: numpy is not installed while building semantic embeddings"
     )
+    assert outcome.marker_installed is False
+
+
+@pytest.mark.parametrize(
+    ("error", "expected_message"),
+    [
+        (
+            semantic_provision.CompiledRouterUnavailableError(
+                "compiled router refresh failed: bad naming rule",
+                operation="refreshing retrieval assets",
+            ),
+            "Semantic runtime is ready, but retrieval asset refresh failed because the compiled router is unavailable: "
+            "compiled router refresh failed: bad naming rule while refreshing retrieval assets",
+        ),
+        (
+            semantic_provision.RetrievalPersistenceError(
+                ".brain/local/compiled-router.json",
+                "persisting compiled router",
+                ValueError("symlink refused"),
+            ),
+            "Semantic runtime is ready, but retrieval asset refresh failed because derived retrieval state could not be persisted: "
+            "failed to persist retrieval output '.brain/local/compiled-router.json' while persisting compiled router: symlink refused",
+        ),
+        (
+            semantic_provision.SemanticRuntimeUnavailableError(
+                "semantic runtime dependencies are unavailable: numpy is not installed",
+                operation="building semantic embeddings",
+            ),
+            "Semantic runtime is ready, but retrieval asset refresh failed because semantic runtime dependencies are unavailable: "
+            "semantic runtime dependencies are unavailable: numpy is not installed while building semantic embeddings",
+        ),
+        (
+            semantic_model.SemanticModelMissingError("semantic model snapshot is missing"),
+            "Semantic runtime is ready, but retrieval asset refresh failed because the local semantic model is unavailable or unusable: "
+            "semantic model snapshot is missing",
+        ),
+    ],
+)
+def test_provision_semantic_runtime_formats_typed_asset_errors(
+    tmp_path,
+    monkeypatch,
+    error,
+    expected_message,
+):
+    vault = _make_vault(tmp_path)
+
+    def raise_refresh(_vault, exc):
+        raise exc
+
+    monkeypatch.setattr(
+        semantic_provision,
+        "probe_python",
+        lambda _python_path, *, modules=(): {"compatible": True, "ok": True, "missing": []},
+    )
+    monkeypatch.setattr(
+        semantic_provision.semantic_model,
+        "provision_semantic_model",
+        lambda _vault: _model_outcome(vault, downloaded=False, manifest_changed=False),
+    )
+    monkeypatch.setattr(
+        semantic_provision,
+        "refresh_semantic_assets",
+        lambda _vault: raise_refresh(_vault, error),
+    )
+
+    outcome = semantic_provision.provision_semantic_runtime(
+        vault,
+        python_executable="/managed/python",
+        runtime_ok=True,
+        refresh_assets=True,
+    )
+
+    assert outcome.assets_error == expected_message
     assert outcome.marker_installed is False
 
 

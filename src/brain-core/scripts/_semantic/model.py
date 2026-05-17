@@ -11,6 +11,7 @@ import threading
 from typing import Any
 
 from _common import safe_write_json
+from _lifecycle.retrieval_errors import SemanticRuntimeUnavailableError
 
 
 SEMANTIC_MODEL_MANIFEST_REL = os.path.join(".brain", "local", "semantic-model-manifest.json")
@@ -339,8 +340,13 @@ def _download_snapshot(model_name: str, revision: str, snapshot_path: Path) -> N
 
 def _load_sentence_transformer(snapshot_path: Path):
     """Load a local semantic model snapshot without network access."""
-    from sentence_transformers import SentenceTransformer
-
+    try:
+        from sentence_transformers import SentenceTransformer
+    except ImportError as exc:
+        raise SemanticRuntimeUnavailableError(
+            f"semantic runtime dependencies are unavailable: {exc}",
+            operation="loading semantic model",
+        ) from exc
     try:
         return SentenceTransformer(str(snapshot_path), local_files_only=True)
     except (OSError, ValueError) as exc:

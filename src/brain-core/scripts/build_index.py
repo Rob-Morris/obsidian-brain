@@ -4,7 +4,7 @@ build_index.py — Brain-core BM25 retrieval index builder
 
 Thin CLI wrapper over `_search`.
 
-Import `_search.index` / `_search.assets` directly from Python; do not import
+Import `_search.index` / `_lifecycle.retrieval_assets` directly from Python; do not import
 this module.
 """
 
@@ -13,15 +13,17 @@ from __future__ import annotations
 import json
 import sys
 
-import _search.assets as _assets
-from _search.errors import (
+import _lifecycle.retrieval_assets as _retrieval_assets
+from _lifecycle.retrieval_errors import (
     CompiledRouterUnavailableError,
     RetrievalPersistenceError,
+    SemanticRuntimeUnavailableError,
     UnreadableRetrievalSourceError,
 )
 import _search.index as _index
 import _search.paths as _paths
 import _semantic.config as semantic_config
+import _semantic.model as semantic_model
 from _common import find_vault_root
 
 
@@ -41,7 +43,7 @@ def main():
             print(json_output)
             return
 
-        embeddings_result = _assets.persist_retrieval_outputs(
+        embeddings_result = _retrieval_assets.persist_retrieval_outputs(
             vault_root,
             index,
             config=cfg,
@@ -51,6 +53,8 @@ def main():
         UnreadableRetrievalSourceError,
         CompiledRouterUnavailableError,
         RetrievalPersistenceError,
+        SemanticRuntimeUnavailableError,
+        semantic_model.SemanticModelError,
     ) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(1)

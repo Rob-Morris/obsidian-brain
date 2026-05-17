@@ -18,8 +18,11 @@ from _common import (
     scan_temporal_types,
 )
 
-from .document_parts import EmbeddingParts, embedding_parts_from_body
-from .errors import RetrievalPersistenceError, UnreadableRetrievalSourceError
+from _lifecycle.document_parts import EmbeddingParts, embedding_parts_from_body
+from _lifecycle.retrieval_errors import (
+    RetrievalPersistenceError,
+    UnreadableRetrievalSourceError,
+)
 from .lexical import tokenise
 from .paths import INDEX_VERSION, OUTPUT_PATH
 BM25_K1 = 1.5
@@ -217,7 +220,7 @@ def persist_retrieval_index(vault_root, index) -> None:
     output_path = os.path.join(str(vault_root), OUTPUT_PATH)
     try:
         safe_write_json(output_path, index, bounds=str(vault_root))
-    except OSError as exc:
+    except (OSError, ValueError) as exc:
         raise RetrievalPersistenceError(
             OUTPUT_PATH,
             "persisting lexical retrieval state",

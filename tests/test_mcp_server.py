@@ -14,10 +14,11 @@ import pytest
 
 from mcp.types import CallToolResult
 
-import _search.assets as search_assets
-import _search.errors as search_errors
+import _lifecycle.retrieval_assets as retrieval_assets
+import _lifecycle.retrieval_errors as retrieval_errors
 import _search.paths as search_paths
 import _search.semantic_query as semantic_query
+import _semantic.assets as semantic_assets
 import _semantic.model as semantic_model
 import _semantic.runtime as semantic_runtime
 from brain_mcp import _server_content, _server_reading, server
@@ -938,7 +939,7 @@ class TestBrainSearch:
         with patch.object(
             _server_reading.search_resource,
             "search_resource",
-            side_effect=search_errors.UnreadableRetrievalSourceError(
+            side_effect=retrieval_errors.UnreadableRetrievalSourceError(
                 "_Config/Skills/Vault Maintenance/SKILL.md",
                 "searching non-artefact resource text",
                 FileNotFoundError("missing"),
@@ -1612,7 +1613,7 @@ class TestEnsureFreshRobustness:
         with patch.object(
             server,
             "_build_index_and_save",
-            side_effect=search_errors.UnreadableRetrievalSourceError(
+            side_effect=retrieval_errors.UnreadableRetrievalSourceError(
                 "Wiki/broken.md",
                 "building lexical retrieval state",
                 UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte"),
@@ -1652,7 +1653,7 @@ class TestEnsureFreshRobustness:
         with patch.object(
             server,
             "_build_index_and_save",
-            side_effect=search_errors.CompiledRouterUnavailableError(
+            side_effect=retrieval_errors.CompiledRouterUnavailableError(
                 "compiled router is unavailable",
                 operation="building semantic embeddings",
             ),
@@ -1690,7 +1691,7 @@ class TestEnsureFreshRobustness:
         with patch.object(
             server,
             "_build_index_and_save",
-            side_effect=search_errors.RetrievalPersistenceError(
+            side_effect=retrieval_errors.RetrievalPersistenceError(
                 search_paths.OUTPUT_PATH,
                 "persisting lexical retrieval state",
                 OSError("disk full"),
@@ -1769,7 +1770,7 @@ class TestStartupRobustness:
 
         def fail_index_build(label, fn, timeout=server._STARTUP_OP_TIMEOUT):
             if label == "index build":
-                raise search_errors.UnreadableRetrievalSourceError(
+                raise retrieval_errors.UnreadableRetrievalSourceError(
                     "Wiki/broken.md",
                     "building lexical retrieval state",
                     UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte"),
@@ -1814,7 +1815,7 @@ class TestStartupRobustness:
         with patch.object(
             server.search_index,
             "persist_retrieval_index",
-            side_effect=search_errors.RetrievalPersistenceError(
+            side_effect=retrieval_errors.RetrievalPersistenceError(
                 search_paths.OUTPUT_PATH,
                 "persisting lexical retrieval state",
                 OSError("disk full"),
@@ -2065,7 +2066,7 @@ class TestResourceMtimeCache:
                     "_Config/Skills", ".brain-core/skills", "_Plugins"):
             assert by_key[rel] is None
 
-    def test_index_count_failure_leaves_cache_untouched(self, initialized, monkeypatch):
+    def test_index_count_failure_propagates_and_leaves_cache_untouched(self, initialized, monkeypatch):
         server._check_router_resource_counts(str(initialized), server._router)
         cached_before = server._resource_mtime_cache
         assert cached_before is not None
@@ -2081,9 +2082,10 @@ class TestResourceMtimeCache:
         monkeypatch.setattr(
             compile_router, "count_living_artefact_index_entries", boom
         )
-        assert server._check_router_resource_counts(
-            str(initialized), server._router
-        ) is True
+        with pytest.raises(RuntimeError, match="index count blew up"):
+            server._check_router_resource_counts(
+                str(initialized), server._router
+            )
         assert server._resource_mtime_cache == cached_before
 
 
@@ -3944,10 +3946,10 @@ class TestSemanticWarmup:
         monkeypatch.setattr(server, "_embeddings_enabled", lambda: True)
         monkeypatch.setattr(retrieval_embeddings, "load_embeddings_state", fake_load)
         monkeypatch.setattr(
-            search_assets,
-            "refresh_embeddings_outputs",
+            retrieval_assets,
+            "refresh_embeddings_for_loaded_state",
             lambda *args, **kwargs: (_ for _ in ()).throw(
-                AssertionError("refresh_embeddings_outputs should not run during semantic warmup load")
+                AssertionError("refresh_embeddings_for_loaded_state should not run during semantic warmup load")
             ),
         )
 
@@ -3984,10 +3986,9 @@ class TestSemanticWarmup:
             documents,
             *,
             embedding_parts_by_path=None,
-            enable_embeddings=None,
             config=None,
         ):
-            refresh_calls.append((str(vault_root), enable_embeddings, len(documents)))
+            refresh_calls.append((str(vault_root), len(documents)))
             return (
                 rebuilt_type_embeddings,
                 rebuilt_doc_embeddings,
@@ -4005,7 +4006,7 @@ class TestSemanticWarmup:
                 retrieval_embeddings.SemanticEmbeddingsLoadError("corrupt sidecars")
             ),
         )
-        monkeypatch.setattr(search_assets, "refresh_embeddings_outputs", fake_refresh)
+        monkeypatch.setattr(retrieval_assets, "refresh_embeddings_for_loaded_state", fake_refresh)
 
         server.startup(vault_root=str(vault))
 
@@ -4020,7 +4021,7 @@ class TestSemanticWarmup:
 
         server._ensure_embeddings_fresh()
 
-        assert refresh_calls == [(str(vault), True, len(server._index["documents"]))]
+        assert refresh_calls == [(str(vault), len(server._index["documents"]))]
         assert server._type_embeddings is rebuilt_type_embeddings
         assert server._doc_embeddings is rebuilt_doc_embeddings
         assert (
@@ -4084,10 +4085,9 @@ class TestSemanticWarmup:
             documents,
             *,
             embedding_parts_by_path=None,
-            enable_embeddings=None,
             config=None,
         ):
-            refresh_calls.append((str(vault_root), enable_embeddings, len(documents)))
+            refresh_calls.append((str(vault_root), len(documents)))
             return (
                 rebuilt_type_embeddings,
                 rebuilt_doc_embeddings,
@@ -4104,7 +4104,7 @@ class TestSemanticWarmup:
             "load_embeddings_state",
             lambda *_a, **_k: (None, None, None),
         )
-        monkeypatch.setattr(search_assets, "refresh_embeddings_outputs", fake_refresh)
+        monkeypatch.setattr(retrieval_assets, "refresh_embeddings_for_loaded_state", fake_refresh)
 
         server.startup(vault_root=str(vault))
 
@@ -4119,7 +4119,7 @@ class TestSemanticWarmup:
 
         server._ensure_embeddings_fresh()
 
-        assert refresh_calls == [(str(vault), True, len(server._index["documents"]))]
+        assert refresh_calls == [(str(vault), len(server._index["documents"]))]
         assert server._type_embeddings is rebuilt_type_embeddings
         assert server._doc_embeddings is rebuilt_doc_embeddings
         assert (
@@ -5505,10 +5505,10 @@ class TestIndexStaleness:
             lambda _vault: (expected_type_embeddings, expected_doc_embeddings, expected_meta),
         )
         monkeypatch.setattr(
-            search_assets,
-            "refresh_embeddings_outputs",
+            retrieval_assets,
+            "refresh_embeddings_for_loaded_state",
             lambda *args, **kwargs: (_ for _ in ()).throw(
-                AssertionError("refresh_embeddings_outputs should not run on a fast-path hit")
+                AssertionError("refresh_embeddings_for_loaded_state should not run on a fast-path hit")
             ),
         )
 
@@ -5544,10 +5544,9 @@ class TestIndexStaleness:
             documents,
             *,
             embedding_parts_by_path=None,
-            enable_embeddings=None,
             config=None,
         ):
-            refresh_calls.append((str(vault_root), enable_embeddings, len(documents)))
+            refresh_calls.append((str(vault_root), len(documents)))
             return (rebuilt_type_embeddings, rebuilt_doc_embeddings, rebuilt_meta)
 
         monkeypatch.setattr(server, "_embeddings_enabled", lambda: True)
@@ -5558,7 +5557,7 @@ class TestIndexStaleness:
                 retrieval_embeddings.SemanticEmbeddingsLoadError("corrupt sidecars")
             ),
         )
-        monkeypatch.setattr(search_assets, "refresh_embeddings_outputs", fake_refresh)
+        monkeypatch.setattr(retrieval_assets, "refresh_embeddings_for_loaded_state", fake_refresh)
 
         server._type_embeddings = None
         server._doc_embeddings = None
@@ -5570,7 +5569,7 @@ class TestIndexStaleness:
 
         server._ensure_embeddings_fresh()
 
-        assert refresh_calls == [(str(initialized), True, len(server._index["documents"]))]
+        assert refresh_calls == [(str(initialized), len(server._index["documents"]))]
         assert server._type_embeddings is rebuilt_type_embeddings
         assert server._doc_embeddings is rebuilt_doc_embeddings
         assert server._embeddings_meta is rebuilt_meta
@@ -5600,9 +5599,13 @@ class TestIndexStaleness:
             "semantic_engine_available",
             lambda *_args, **_kwargs: True,
         )
-        _semantic_config, semantic_model_mod, _semantic_runtime = search_assets._semantic_modules()
         monkeypatch.setattr(
-            semantic_model_mod,
+            retrieval_assets.semantic_runtime,
+            "semantic_engine_available",
+            lambda *_args, **_kwargs: True,
+        )
+        monkeypatch.setattr(
+            semantic_assets.semantic_model,
             "load_local_model_with_manifest",
             lambda _vault: (FakeModel(), manifest),
         )
@@ -5652,13 +5655,12 @@ class TestIndexStaleness:
             documents,
             *,
             embedding_parts_by_path=None,
-            enable_embeddings=None,
             config=None,
         ):
-            calls.append((str(vault_root), enable_embeddings, len(documents)))
+            calls.append((str(vault_root), len(documents)))
             return (object(), object(), {"documents": [], "types": []})
 
-        monkeypatch.setattr(search_assets, "refresh_embeddings_outputs", fake_refresh)
+        monkeypatch.setattr(retrieval_assets, "refresh_embeddings_for_loaded_state", fake_refresh)
 
         result = server.brain_process(
             operation="classify",
@@ -5696,22 +5698,31 @@ class TestIndexStaleness:
             documents,
             *,
             embedding_parts_by_path=None,
-            enable_embeddings=None,
             config=None,
         ):
-            calls.append((str(vault_root), enable_embeddings, len(documents)))
+            calls.append((str(vault_root), len(documents)))
             return (object(), object(), {"documents": [], "types": []})
 
-        monkeypatch.setattr(search_assets, "refresh_embeddings_outputs", fake_refresh)
+        monkeypatch.setattr(retrieval_assets, "refresh_embeddings_for_loaded_state", fake_refresh)
         monkeypatch.setattr(
             retrieval_embeddings,
             "semantic_engine_available",
             lambda *args, **kwargs: True,
         )
         monkeypatch.setattr(
+            retrieval_assets.semantic_runtime,
+            "semantic_engine_available",
+            lambda *_args, **_kwargs: True,
+        )
+        monkeypatch.setattr(
             _server_content._retrieval_embeddings,
             "semantic_engine_available",
             lambda *_args, **_kwargs: True,
+        )
+        monkeypatch.setattr(
+            retrieval_embeddings,
+            "load_embeddings_state",
+            lambda *_args, **_kwargs: (None, None, None),
         )
         monkeypatch.setattr(
             process,
@@ -5729,7 +5740,7 @@ class TestIndexStaleness:
         )
 
         assert isinstance(result, str)
-        assert calls == [(str(initialized), True, len(server._index["documents"]))]
+        assert calls == [(str(initialized), len(server._index["documents"]))]
         assert server._type_embeddings is not None
         assert server._doc_embeddings is not None
 

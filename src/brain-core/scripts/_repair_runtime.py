@@ -697,9 +697,9 @@ def inspect_semantic(vault_root: Path) -> dict:
         modules=_semantic_provision.SEMANTIC_RUNTIME_MODULES,
     )
     dependencies_ok = bool(managed_probe.get("ok"))
-    model_state = _semantic_model.verify_local_model_load(
-        _semantic_model.inspect_model_state(vault_root)
-    )
+    model_state = _semantic_model.inspect_model_state(vault_root)
+    if dependencies_ok:
+        model_state = _semantic_model.verify_local_model_load(model_state)
     sidecars_present, sidecars_outdated = _semantic_runtime.embeddings_sidecars_match_manifest(
         vault_root,
         model_state.manifest,

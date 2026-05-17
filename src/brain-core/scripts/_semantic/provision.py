@@ -8,6 +8,13 @@ import subprocess
 from pathlib import Path
 
 from _lifecycle_common import probe_python, step as _step
+from _lifecycle.retrieval_assets import refresh_retrieval_assets
+from _lifecycle.retrieval_errors import (
+    CompiledRouterUnavailableError,
+    RetrievalPersistenceError,
+    SemanticRuntimeUnavailableError,
+    UnreadableRetrievalSourceError,
+)
 import _semantic.config as semantic_config
 import _semantic.model as semantic_model
 
@@ -21,7 +28,24 @@ SEMANTIC_RUNTIME_PACKAGES = (
 )
 SEMANTIC_RUNTIME_MODULES = ("huggingface_hub", "numpy", "sentence_transformers")
 SEMANTIC_RUNTIME_TIMEOUT = 900
-SEMANTIC_ASSET_REFRESH_ERRORS = (OSError, ValueError)
+_SEMANTIC_ASSET_REFRESH_SUMMARIES = {
+    UnreadableRetrievalSourceError: (
+        "Semantic runtime is ready, but retrieval asset refresh failed because a retrieval source is unreadable"
+    ),
+    CompiledRouterUnavailableError: (
+        "Semantic runtime is ready, but retrieval asset refresh failed because the compiled router is unavailable"
+    ),
+    RetrievalPersistenceError: (
+        "Semantic runtime is ready, but retrieval asset refresh failed because derived retrieval state could not be persisted"
+    ),
+    SemanticRuntimeUnavailableError: (
+        "Semantic runtime is ready, but retrieval asset refresh failed because semantic runtime dependencies are unavailable"
+    ),
+    semantic_model.SemanticModelError: (
+        "Semantic runtime is ready, but retrieval asset refresh failed because the local semantic model is unavailable or unusable"
+    ),
+}
+SEMANTIC_ASSET_REFRESH_ERRORS = tuple(_SEMANTIC_ASSET_REFRESH_SUMMARIES)
 
 
 class SemanticProvisionError(RuntimeError):
@@ -39,6 +63,11 @@ class SemanticProvisionOutcome:
     assets_changed: bool
     assets_error: str | None
     notes: list[str]
+
+
+def refresh_semantic_assets(vault_root: str | Path) -> list[str]:
+    """Refresh router, retrieval index, and semantic sidecars for semantic use."""
+    return refresh_retrieval_assets(vault_root, force_embeddings=True)
 
 
 def semantic_runtime_supported_platform(*, system: str | None = None, machine: str | None = None) -> tuple[bool, str | None]:
@@ -62,15 +91,12 @@ def sync_runtime_packages(python_executable: str) -> None:
     )
 
 
-def refresh_semantic_assets(vault_root: str | Path) -> list[str]:
-    """Refresh router, retrieval index, and semantic sidecars for semantic use.
-
-    Unlike the generic search-refresh path, semantic provisioning requires
-    embeddings sidecars to be rebuilt rather than merely reconciled or cleared.
-    """
-    from _search.assets import refresh_search_assets
-
-    return refresh_search_assets(vault_root, force_embeddings=True)
+def _format_asset_refresh_error(exc: BaseException) -> str:
+    """Return an operator-facing semantic refresh failure summary."""
+    for error_type, summary in _SEMANTIC_ASSET_REFRESH_SUMMARIES.items():
+        if isinstance(exc, error_type):
+            return f"{summary}: {exc}"
+    raise AssertionError(f"unexpected refresh error type: {type(exc).__name__}")
 
 
 def append_runtime_steps(steps: list[dict], outcome: SemanticProvisionOutcome) -> None:
@@ -241,7 +267,7 @@ def provision_semantic_runtime(
             notes.extend(refresh_semantic_assets(vault_root))
             assets_changed = True
         except SEMANTIC_ASSET_REFRESH_ERRORS as exc:
-            assets_error = f"Semantic runtime is ready, but retrieval asset refresh failed: {exc}"
+            assets_error = _format_asset_refresh_error(exc)
 
     marker_installed = assets_error is None
     marker_changed = semantic_config.set_semantic_engine_installed(

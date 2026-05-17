@@ -82,7 +82,7 @@ CLI_TARGET_LOCATIONS = (
     Path("/usr/local/bin/brain"),
 )
 DEPENDENCY_SYNC_TIMEOUT = 300
-SEARCH_ASSET_REPAIR_TIMEOUT = 1800
+RETRIEVAL_ASSET_REPAIR_TIMEOUT = 1800
 
 # Outcome tags for `_ensure_central_runtime` (named so producer + consumer cannot drift).
 RUNTIME_CREATED = "created"
@@ -1243,24 +1243,24 @@ def _semantic_intent_active(vault_root: Path) -> bool:
     )
 
 
-def _post_upgrade_search_scope(vault_root: Path) -> str:
-    """Return the repair scope that should reconcile search assets after upgrade."""
+def _post_upgrade_retrieval_scope(vault_root: Path) -> str:
+    """Return the repair scope that should reconcile retrieval assets after upgrade."""
     return "semantic" if _semantic_intent_active(vault_root) else "lexical"
 
 
-def _repair_search_assets_after_upgrade(vault_root: Path) -> dict:
-    """Reconcile the vault's supported search assets after upgrade.
+def _repair_retrieval_assets_after_upgrade(vault_root: Path) -> dict:
+    """Reconcile the vault's supported retrieval assets after upgrade.
 
     Lexical-only vaults route through `repair.py lexical`. Vaults with
     semantic intent route through `repair.py semantic`, which already owns
     the broader router + lexical index + embeddings-sidecar refresh path.
     """
     summary = {
-        "scope": "search-assets",
+        "scope": "retrieval-assets",
         "command": [],
     }
     try:
-        scope = _post_upgrade_search_scope(vault_root)
+        scope = _post_upgrade_retrieval_scope(vault_root)
         repair_script = vault_root / ".brain-core" / "scripts" / "repair.py"
         command = [
             sys.executable,
@@ -1278,10 +1278,10 @@ def _repair_search_assets_after_upgrade(vault_root: Path) -> dict:
             command,
             capture_output=True,
             text=True,
-            timeout=SEARCH_ASSET_REPAIR_TIMEOUT,
+            timeout=RETRIEVAL_ASSET_REPAIR_TIMEOUT,
         )
     except subprocess.TimeoutExpired:
-        return {**summary, "outcome": "error", "message": f"timed out after {SEARCH_ASSET_REPAIR_TIMEOUT}s"}
+        return {**summary, "outcome": "error", "message": f"timed out after {RETRIEVAL_ASSET_REPAIR_TIMEOUT}s"}
     except OSError as e:
         return {**summary, "outcome": "error", "message": str(e)}
 
@@ -1321,7 +1321,7 @@ def upgrade(
     If copy or compile fails, .brain-core/ is restored from the backup.
     Migrations only run after compile succeeds. On non-dry-run success,
     the upgrader also orchestrates central-runtime sync (when applicable)
-    and post-upgrade search-asset repair via `repair.py lexical` or
+    and post-upgrade retrieval-asset repair via `repair.py lexical` or
     `repair.py semantic`.
 
     Args:
@@ -1593,10 +1593,10 @@ def upgrade(
         old_version=old_version,
         new_version=new_version,
         dry_run=False,
-        stage="search_asset_repair",
-        message="Reconciling search asset state after upgrade",
+        stage="retrieval_asset_repair",
+        message="Reconciling retrieval asset state after upgrade",
     )
-    result["search_asset_repair"] = _repair_search_assets_after_upgrade(Path(vault_root))
+    result["retrieval_asset_repair"] = _repair_retrieval_assets_after_upgrade(Path(vault_root))
 
     result["message"] = f"Upgraded {old_version or '(none)'} → {new_version}"
     _write_upgrade_log(vault_root, result)
@@ -1778,22 +1778,22 @@ def main() -> None:
                     info(f"Could not refresh brain CLI at {err['target']}: {err['message']}")
             print(file=sys.stderr)
 
-        search_asset_repair = result.get("search_asset_repair")
-        if search_asset_repair is not None:
-            command = shlex.join(search_asset_repair["command"])
-            scope = search_asset_repair["scope"]
-            if search_asset_repair["outcome"] == "ok":
+        retrieval_asset_repair = result.get("retrieval_asset_repair")
+        if retrieval_asset_repair is not None:
+            command = shlex.join(retrieval_asset_repair["command"])
+            scope = retrieval_asset_repair["scope"]
+            if retrieval_asset_repair["outcome"] == "ok":
                 if scope == "semantic":
-                    info("Semantic search asset state reconciled after upgrade.")
+                    info("Semantic retrieval asset state reconciled after upgrade.")
                 else:
                     info("Lexical retrieval state reconciled after upgrade.")
             else:
                 if scope == "semantic":
-                    info(f"Semantic search asset repair after upgrade failed: {search_asset_repair['message']}")
+                    info(f"Semantic retrieval asset repair after upgrade failed: {retrieval_asset_repair['message']}")
                 elif scope == "lexical":
-                    info(f"Lexical retrieval repair after upgrade failed: {search_asset_repair['message']}")
+                    info(f"Lexical retrieval repair after upgrade failed: {retrieval_asset_repair['message']}")
                 else:
-                    info(f"Search asset repair after upgrade failed: {search_asset_repair['message']}")
+                    info(f"Retrieval asset repair after upgrade failed: {retrieval_asset_repair['message']}")
                 if command:
                     info(f"  Retry: {command}")
             print(file=sys.stderr)

@@ -10,14 +10,14 @@ from unittest.mock import patch
 
 import pytest
 
-import _search.assets as search_assets
-import _search.errors as search_errors
+import _lifecycle.retrieval_assets as retrieval_assets
+import _lifecycle.retrieval_errors as retrieval_errors
 import _search.index as search_index_mod
 import _search.lexical as lexical
+import _semantic.assets as semantic_assets
 import _semantic.config as _semantic_config
 import _semantic.model as _semantic_model
 import _semantic.runtime as _semantic
-from _search.assets import persist_retrieval_outputs
 from _search.index import (
     OUTPUT_PATH,
     build_index,
@@ -296,16 +296,17 @@ class TestBuildIndex:
             assert "_body_head" not in doc
             assert "_headings" not in doc
 
-    def test_persist_retrieval_index_wraps_write_failures(self, vault, monkeypatch):
+    @pytest.mark.parametrize("error", [OSError("disk full"), ValueError("symlink refused")])
+    def test_persist_retrieval_index_wraps_write_failures(self, vault, monkeypatch, error):
         index = built_index(vault)
 
         def fail(*_args, **_kwargs):
-            raise OSError("disk full")
+            raise error
 
         monkeypatch.setattr(search_index_mod, "safe_write_json", fail)
 
         with pytest.raises(
-            search_errors.RetrievalPersistenceError,
+            retrieval_errors.RetrievalPersistenceError,
             match=OUTPUT_PATH,
         ) as exc:
             persist_retrieval_index(vault, index)
@@ -440,7 +441,7 @@ class TestIncrementalIndex:
         (vault / "Wiki" / "broken.md").write_bytes(b"\xff\xfe\x00\x00")
 
         with pytest.raises(
-            search_errors.UnreadableRetrievalSourceError,
+            retrieval_errors.UnreadableRetrievalSourceError,
             match="Wiki/broken.md",
         ) as exc:
             build_index(vault)
@@ -478,7 +479,7 @@ class TestIncrementalIndex:
         (vault / "Wiki" / "python-basics.md").write_bytes(b"\xff\xfe\x00\x00")
 
         with pytest.raises(
-            search_errors.UnreadableRetrievalSourceError,
+            retrieval_errors.UnreadableRetrievalSourceError,
             match="Wiki/python-basics.md",
         ) as exc:
             index_update(index, vault, "Wiki/python-basics.md", type_hint="living/wiki")
@@ -526,11 +527,14 @@ class TestIncrementalIndex:
 # ---------------------------------------------------------------------------
 
 class TestBuildEmbeddings:
-    def test_returns_none_without_deps(self, vault):
-        """When sentence-transformers is unavailable, returns None."""
-        with patch.object(search_assets, "_HAS_NUMPY", False):
-            result = search_assets.build_embeddings(vault, {"artefacts": []}, [])
-            assert result is None
+    def test_raises_typed_runtime_error_without_numpy(self, vault):
+        """When NumPy is unavailable, semantic sidecar build fails explicitly."""
+        with patch.object(semantic_assets, "_HAS_NUMPY", False):
+            with pytest.raises(
+                retrieval_errors.SemanticRuntimeUnavailableError,
+                match="numpy is not installed",
+            ):
+                semantic_assets.build_embeddings(vault, {"artefacts": []}, [])
 
     def test_routes_npy_writes_through_safe_save_wrapper(self, vault, monkeypatch):
         """build_embeddings writes both arrays through the local atomic wrapper path."""
@@ -556,17 +560,16 @@ class TestBuildEmbeddings:
             calls.append((path, kwargs.get("bounds"), handle.getvalue()))
             return str(path)
 
-        _semantic_config, semantic_model_mod, _semantic_runtime = search_assets._semantic_modules()
-        monkeypatch.setattr(search_assets, "_HAS_NUMPY", True)
-        monkeypatch.setattr(search_assets, "np", FakeNumpy(), raising=False)
+        monkeypatch.setattr(semantic_assets, "_HAS_NUMPY", True)
+        monkeypatch.setattr(semantic_assets, "np", FakeNumpy(), raising=False)
         monkeypatch.setattr(
-            semantic_model_mod,
+            semantic_assets.semantic_model,
             "load_local_model_with_manifest",
             lambda _vault: (FakeModel(), _model_manifest()),
         )
-        monkeypatch.setattr(search_assets, "safe_write_via", fake_safe_write_via)
+        monkeypatch.setattr(semantic_assets, "safe_write_via", fake_safe_write_via)
 
-        result = search_assets.build_embeddings(
+        result = semantic_assets.build_embeddings(
             vault,
             {"artefacts": [], "meta": {"source_hash": "sha256:test-source-hash"}},
             [],
@@ -596,16 +599,15 @@ class TestBuildEmbeddings:
             def encode(self, texts, normalize_embeddings=True):
                 return [[0.0] for _ in texts]
 
-        _semantic_config, semantic_model_mod, _semantic_runtime = search_assets._semantic_modules()
-        monkeypatch.setattr(search_assets, "_HAS_NUMPY", True)
-        monkeypatch.setattr(search_assets, "np", FakeNumpy(), raising=False)
+        monkeypatch.setattr(semantic_assets, "_HAS_NUMPY", True)
+        monkeypatch.setattr(semantic_assets, "np", FakeNumpy(), raising=False)
         monkeypatch.setattr(
-            semantic_model_mod,
+            semantic_assets.semantic_model,
             "load_local_model_with_manifest",
             lambda _vault: (FakeModel(), _model_manifest()),
         )
         monkeypatch.setattr(
-            search_assets,
+            semantic_assets,
             "safe_write_via",
             lambda path, writer, **kwargs: writer(io.BytesIO()),
         )
@@ -615,7 +617,7 @@ class TestBuildEmbeddings:
             "artefacts": [],
             "meta": {"source_hash": "sha256:test-source-hash"},
         }
-        result = search_assets.build_embeddings(vault, router, index["documents"])
+        result = semantic_assets.build_embeddings(vault, router, index["documents"])
 
         assert result is not None
         _type_emb, _doc_emb, meta = result
@@ -644,16 +646,15 @@ class TestEmbeddingsOutputs:
             def encode(self, texts, normalize_embeddings=True):
                 return [[0.0] for _ in texts]
 
-        _semantic_config, semantic_model_mod, _semantic_runtime = search_assets._semantic_modules()
-        monkeypatch.setattr(search_assets, "_HAS_NUMPY", True)
-        monkeypatch.setattr(search_assets, "np", FakeNumpy(), raising=False)
+        monkeypatch.setattr(semantic_assets, "_HAS_NUMPY", True)
+        monkeypatch.setattr(semantic_assets, "np", FakeNumpy(), raising=False)
         monkeypatch.setattr(
-            semantic_model_mod,
+            semantic_assets.semantic_model,
             "load_local_model_with_manifest",
             lambda _vault: (FakeModel(), _model_manifest()),
         )
         monkeypatch.setattr(
-            search_assets,
+            semantic_assets,
             "safe_write_via",
             lambda path, writer, **kwargs: writer(io.BytesIO()),
         )
@@ -661,12 +662,12 @@ class TestEmbeddingsOutputs:
         build_result = build_index(vault)
         index = build_result.index
         monkeypatch.setattr(
-            search_assets,
+            semantic_assets,
             "read_artefact",
             lambda *_args, **_kwargs: pytest.fail("build_embeddings should use cached embedding parts"),
         )
 
-        result = search_assets.build_embeddings(
+        result = semantic_assets.build_embeddings(
             vault,
             {"artefacts": [], "meta": {"source_hash": "sha256:test-source-hash"}},
             index["documents"],
@@ -682,13 +683,13 @@ class TestEmbeddingsOutputs:
         }
 
     def test_build_embeddings_propagates_missing_uncached_document_reads(self, vault, monkeypatch):
-        monkeypatch.setattr(search_assets, "_HAS_NUMPY", True)
+        monkeypatch.setattr(semantic_assets, "_HAS_NUMPY", True)
 
         with pytest.raises(
-            search_errors.UnreadableRetrievalSourceError,
+            retrieval_errors.UnreadableRetrievalSourceError,
             match="Wiki/missing.md",
         ) as exc:
-            search_assets.build_embeddings(
+            semantic_assets.build_embeddings(
                 vault,
                 {"artefacts": [], "meta": {"source_hash": "sha256:test-source-hash"}},
                 [
@@ -703,6 +704,88 @@ class TestEmbeddingsOutputs:
                 embedding_parts_by_path={},
             )
         assert "while building semantic embeddings" in str(exc.value)
+
+    def test_build_embeddings_wraps_array_write_failures(self, vault, monkeypatch):
+        class FakeNumpy:
+            @staticmethod
+            def zeros(shape):
+                return {"shape": shape}
+
+            @staticmethod
+            def save(handle, array):
+                handle.write(repr(array).encode("utf-8"))
+
+        class FakeModel:
+            def encode(self, texts, normalize_embeddings=True):
+                return [[0.0] for _ in texts]
+
+        monkeypatch.setattr(semantic_assets, "_HAS_NUMPY", True)
+        monkeypatch.setattr(semantic_assets, "np", FakeNumpy(), raising=False)
+        monkeypatch.setattr(
+            semantic_assets.semantic_model,
+            "load_local_model_with_manifest",
+            lambda _vault: (FakeModel(), _model_manifest()),
+        )
+        def fail_write(*_args, **_kwargs):
+            raise ValueError("symlink refused")
+
+        monkeypatch.setattr(semantic_assets, "safe_write_via", fail_write)
+
+        with pytest.raises(
+            retrieval_errors.RetrievalPersistenceError,
+            match=_semantic.TYPE_EMBEDDINGS_REL,
+        ) as exc:
+            semantic_assets.build_embeddings(
+                vault,
+                {"artefacts": [], "meta": {"source_hash": "sha256:test-source-hash"}},
+                [],
+            )
+
+        assert "while writing semantic embeddings sidecar" in str(exc.value)
+
+    def test_build_embeddings_wraps_metadata_write_failures(self, vault, monkeypatch):
+        class FakeNumpy:
+            @staticmethod
+            def zeros(shape):
+                return {"shape": shape}
+
+            @staticmethod
+            def save(handle, array):
+                handle.write(repr(array).encode("utf-8"))
+
+        class FakeModel:
+            def encode(self, texts, normalize_embeddings=True):
+                return [[0.0] for _ in texts]
+
+        monkeypatch.setattr(semantic_assets, "_HAS_NUMPY", True)
+        monkeypatch.setattr(semantic_assets, "np", FakeNumpy(), raising=False)
+        monkeypatch.setattr(
+            semantic_assets.semantic_model,
+            "load_local_model_with_manifest",
+            lambda _vault: (FakeModel(), _model_manifest()),
+        )
+        monkeypatch.setattr(
+            semantic_assets,
+            "safe_write_via",
+            lambda path, writer, **kwargs: writer(io.BytesIO()),
+        )
+
+        def fail_meta(*_args, **_kwargs):
+            raise ValueError("symlink refused")
+
+        monkeypatch.setattr(semantic_assets, "safe_write_json", fail_meta)
+
+        with pytest.raises(
+            retrieval_errors.RetrievalPersistenceError,
+            match=_semantic.EMBEDDINGS_META_REL,
+        ) as exc:
+            semantic_assets.build_embeddings(
+                vault,
+                {"artefacts": [], "meta": {"source_hash": "sha256:test-source-hash"}},
+                [],
+            )
+
+        assert "while writing semantic embeddings metadata" in str(exc.value)
 
     def test_embeddings_follow_shared_feature_flags(self, vault):
         cfg = {
@@ -742,11 +825,10 @@ class TestEmbeddingsOutputs:
             abs_path.write_bytes(b"stale")
 
         index = built_index(vault)
-        result = persist_retrieval_outputs(
+        result = retrieval_assets.persist_retrieval_outputs(
             vault,
             index,
             router={"artefacts": []},
-            enable_embeddings=False,
         )
 
         assert result is None
@@ -759,19 +841,19 @@ class TestEmbeddingsOutputs:
 
     def test_persist_outputs_raises_when_loaded_router_reports_error(self, vault, monkeypatch):
         monkeypatch.setattr(
-            search_assets,
+            retrieval_assets,
             "load_compiled_router",
             lambda _vault: {"error": "compiled router missing"},
         )
 
         with pytest.raises(
-            search_errors.CompiledRouterUnavailableError,
+            retrieval_errors.CompiledRouterUnavailableError,
             match="compiled router is unavailable: compiled router missing while building semantic embeddings",
         ):
-            persist_retrieval_outputs(
+            retrieval_assets.persist_retrieval_outputs(
                 vault,
                 built_index(vault),
-                enable_embeddings=True,
+                force_embeddings=True,
             )
 
     def test_persist_outputs_clears_stale_sidecars_when_process_disabled(self, vault):
@@ -794,7 +876,7 @@ class TestEmbeddingsOutputs:
             }
         }
         index = built_index(vault)
-        result = persist_retrieval_outputs(
+        result = retrieval_assets.persist_retrieval_outputs(
             vault,
             index,
             router={"artefacts": []},
@@ -808,6 +890,55 @@ class TestEmbeddingsOutputs:
             _semantic.EMBEDDINGS_META_REL,
         ):
             assert not (vault / rel_path).exists()
+
+    def test_persist_outputs_raises_runtime_unavailable_in_generic_mode(
+        self, vault, monkeypatch
+    ):
+        """If the refresh predicate passes but the runtime vanishes mid-call, propagate."""
+        monkeypatch.setattr(retrieval_assets, "embeddings_should_refresh", lambda *_args, **_kwargs: True)
+        monkeypatch.setattr(
+            semantic_assets,
+            "refresh_embeddings_outputs",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                retrieval_errors.SemanticRuntimeUnavailableError(
+                    "semantic runtime dependencies are unavailable: numpy is not installed",
+                    operation="building semantic embeddings",
+                )
+            ),
+        )
+
+        with pytest.raises(
+            retrieval_errors.SemanticRuntimeUnavailableError,
+            match="numpy is not installed",
+        ):
+            retrieval_assets.persist_retrieval_outputs(
+                vault,
+                built_index(vault),
+                router={"artefacts": []},
+            )
+
+    def test_persist_outputs_raises_runtime_unavailable_in_strict_mode(self, vault, monkeypatch):
+        monkeypatch.setattr(
+            semantic_assets,
+            "refresh_embeddings_outputs",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                retrieval_errors.SemanticRuntimeUnavailableError(
+                    "semantic runtime dependencies are unavailable: numpy is not installed",
+                    operation="building semantic embeddings",
+                )
+            ),
+        )
+
+        with pytest.raises(
+            retrieval_errors.SemanticRuntimeUnavailableError,
+            match="numpy is not installed",
+        ):
+            retrieval_assets.persist_retrieval_outputs(
+                vault,
+                built_index(vault),
+                router={"artefacts": []},
+                force_embeddings=True,
+            )
 
 
 class TestBuildIndexCli:
@@ -848,13 +979,13 @@ class TestBuildIndexCli:
         )
 
         def fail(*_args, **_kwargs):
-            raise search_errors.RetrievalPersistenceError(
+            raise retrieval_errors.RetrievalPersistenceError(
                 OUTPUT_PATH,
                 "persisting lexical retrieval state",
                 OSError("disk full"),
             )
 
-        monkeypatch.setattr(build_index_cli._assets, "persist_retrieval_outputs", fail)
+        monkeypatch.setattr(build_index_cli._retrieval_assets, "persist_retrieval_outputs", fail)
 
         with pytest.raises(SystemExit) as exc:
             build_index_cli.main()

@@ -6,7 +6,7 @@ import os
 
 from _common import FM_RE
 
-from .errors import UnreadableRetrievalSourceError
+from _lifecycle.retrieval_errors import UnreadableRetrievalSourceError
 from .lexical import tokenise
 from .mode import DEFAULT_TOP_K
 from .snippet import extract_snippet

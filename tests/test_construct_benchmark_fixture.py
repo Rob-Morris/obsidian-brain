@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 import construct_benchmark_fixture as cbf
-import _search.errors as search_errors
+import _lifecycle.retrieval_errors as retrieval_errors
 import _search.mode as search_mode
 import pytest
 
@@ -112,7 +112,7 @@ class TestParseArgs:
         monkeypatch.setattr(cbf, "find_vault_root", lambda _vault: "/tmp/vault")
 
         def boom(*_args, **_kwargs):
-            raise search_errors.UnreadableRetrievalSourceError(
+            raise retrieval_errors.UnreadableRetrievalSourceError(
                 "Wiki/broken.md",
                 "constructing retrieval benchmark fixtures",
                 UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte"),
@@ -135,7 +135,7 @@ def test_read_body_raises_unreadable_retrieval_source_for_invalid_utf8(tmp_path)
     broken.write_bytes(b"\xff\xfe\x00\x00")
 
     with pytest.raises(
-        search_errors.UnreadableRetrievalSourceError,
+        retrieval_errors.UnreadableRetrievalSourceError,
         match="Wiki/broken.md",
     ) as exc:
         cbf._read_body(tmp_path, "Wiki/broken.md")
@@ -827,7 +827,7 @@ Designing them in isolation kept producing decisions that contradicted each othe
         index,
     ):
         def raise_unreadable(*_args, **_kwargs):
-            raise search_errors.UnreadableRetrievalSourceError(
+            raise retrieval_errors.UnreadableRetrievalSourceError(
                 "Wiki/broken.md",
                 "constructing retrieval benchmark fixtures",
                 UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte"),
@@ -840,7 +840,7 @@ Designing them in isolation kept producing decisions that contradicted each othe
         )
 
         with pytest.raises(
-            search_errors.UnreadableRetrievalSourceError,
+            retrieval_errors.UnreadableRetrievalSourceError,
             match="Wiki/broken.md",
         ) as exc:
             miner(tmp_path, index)

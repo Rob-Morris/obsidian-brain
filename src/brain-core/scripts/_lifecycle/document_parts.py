@@ -1,4 +1,4 @@
-"""Shared body/heading extraction for semantic embedding text."""
+"""Shared body/heading extraction for retrieval embedding text."""
 
 from __future__ import annotations
 

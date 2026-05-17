@@ -447,6 +447,41 @@ class TestRepairScopes:
         assert result["status"] == "noop"
         assert result["steps"][-1]["name"] == "semantic_config"
 
+    def test_inspect_semantic_skips_local_model_load_when_runtime_dependencies_are_missing(
+        self,
+        repair_vault,
+        monkeypatch,
+    ):
+        semantic_config.set_semantic_flags(repair_vault, retrieval=True)
+        semantic_config.set_semantic_engine_installed(repair_vault, installed=True)
+
+        monkeypatch.setattr(
+            repair_runtime,
+            "probe_python",
+            lambda _python_path, *, modules=(): {"compatible": True, "ok": False, "missing": list(modules)},
+        )
+        monkeypatch.setattr(
+            repair_runtime._semantic_model,
+            "inspect_model_state",
+            lambda _vault: _model_state(repair_vault),
+        )
+        monkeypatch.setattr(
+            repair_runtime._semantic_model,
+            "verify_local_model_load",
+            lambda _state: pytest.fail("local model load should be skipped when runtime dependencies are missing"),
+        )
+        monkeypatch.setattr(
+            repair_runtime._semantic_runtime,
+            "embeddings_sidecars_match_manifest",
+            lambda _vault, _manifest: (True, False),
+        )
+
+        state = repair_runtime.inspect_semantic(repair_vault)
+
+        assert state["dependencies_ok"] is False
+        assert repair_runtime.ISSUE_SEMANTIC_RUNTIME_DEPENDENCIES_MISSING in state["issues"]
+        assert state["model_state"].load_error is None
+
     def test_semantic_repair_surfaces_config_load_errors(self, repair_vault, monkeypatch):
         monkeypatch.setattr(
             repair_runtime._semantic_config,
@@ -664,7 +699,9 @@ class TestRepairScopes:
         monkeypatch.setattr(
             repair_runtime._semantic_provision,
             "refresh_semantic_assets",
-            lambda _vault: (_ for _ in ()).throw(ValueError("boom")),
+            lambda _vault: (_ for _ in ()).throw(
+                repair_runtime._semantic_provision.SemanticRuntimeUnavailableError("boom")
+            ),
         )
 
         result = repair_runtime.repair_semantic(repair_vault, dry_run=False)

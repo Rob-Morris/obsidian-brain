@@ -6,7 +6,7 @@ import os
 import pytest
 
 from _search.filters import SearchFilters
-import _search.errors as search_errors
+import _lifecycle.retrieval_errors as retrieval_errors
 import _search.hybrid_query as hybrid_query
 import _search.index as search_index_mod
 import _search.lexical as lexical
@@ -1455,7 +1455,7 @@ class TestSearchResource:
         (vault / "_Config" / "Skills" / "vault-maintenance" / "SKILL.md").unlink()
 
         with pytest.raises(
-            search_errors.UnreadableRetrievalSourceError,
+            retrieval_errors.UnreadableRetrievalSourceError,
             match="_Config/Skills/vault-maintenance/SKILL.md",
         ) as exc:
             search_resource_mod.search_resource(router, vault, "skill", "vault")

@@ -69,9 +69,10 @@ SCRIPTS_DIR = os.path.join(os.path.dirname(__file__), "..", "scripts")
 sys.path.insert(0, os.path.abspath(SCRIPTS_DIR))
 
 import compile_router
-import _search.assets as search_assets
-from _search.document_parts import EmbeddingParts
-import _search.errors as search_errors
+from _lifecycle.document_parts import EmbeddingParts
+import _lifecycle.retrieval_assets as retrieval_assets
+import _lifecycle.retrieval_errors as retrieval_errors
+import _semantic.model as semantic_model
 import _search.index as search_index
 import _search.paths as search_paths
 from _common import (
@@ -154,9 +155,11 @@ _warmup_lock = threading.Lock()
 _router_ready_event = threading.Event()
 
 _INDEX_STATE_ERROR_TYPES = (
-    search_errors.UnreadableRetrievalSourceError,
-    search_errors.CompiledRouterUnavailableError,
-    search_errors.RetrievalPersistenceError,
+    retrieval_errors.UnreadableRetrievalSourceError,
+    retrieval_errors.CompiledRouterUnavailableError,
+    retrieval_errors.RetrievalPersistenceError,
+    retrieval_errors.SemanticRuntimeUnavailableError,
+    semantic_model.SemanticModelError,
 )
 _type_embeddings = None
 _embeddings_meta = None
@@ -784,6 +787,17 @@ def _run_semantic_warmup(generation: int, vault_root: str) -> None:
             )
         if _warmup_generation_matches(generation):
             _mark_embeddings_dirty()
+    except _INDEX_STATE_ERROR_TYPES as exc:
+        if _logger:
+            _logger.error("semantic warmup failed: %s", exc, exc_info=True)
+        if _warmup_generation_matches(generation):
+            _mark_embeddings_dirty()
+        _finish_semantic_warmup(
+            generation,
+            state="deferred",
+            error=_semantic_warmup_restart_message(str(exc)),
+        )
+        return
     except Exception as exc:
         if _logger:
             _logger.error("semantic warmup failed: %s", exc, exc_info=True)
@@ -1218,12 +1232,9 @@ def _check_router_resource_counts(vault_root: str, router: dict) -> bool:
     for key, fs_count in compile_router.resource_counts(vault_root).items():
         if fs_count != len(router.get(key, [])):
             return True
-    try:
-        current_index_source_count = compile_router.count_living_artefact_index_entries(
-            vault_root, router.get("artefacts", [])
-        )
-    except Exception:
-        return True
+    current_index_source_count = compile_router.count_living_artefact_index_entries(
+        vault_root, router.get("artefacts", [])
+    )
     if current_index_source_count != len(router.get("artefact_index", {})):
         return True
     _resource_mtime_cache = signature
@@ -1247,6 +1258,8 @@ def _ensure_router_fresh() -> None:
         except Exception as e:
             if _logger:
                 _logger.error("router recompile failed: %s", e, exc_info=True)
+            if isinstance(e, _INDEX_STATE_ERROR_TYPES):
+                _record_index_state_error(e)
             _router_dirty = False  # prevent tight retry loop; staleness TTL will re-detect
             _router_checked_at = time.monotonic()
             return
@@ -1264,6 +1277,8 @@ def _ensure_router_fresh() -> None:
     except Exception as e:
         if _logger:
             _logger.error("router recompile failed: %s", e, exc_info=True)
+        if isinstance(e, _INDEX_STATE_ERROR_TYPES):
+            _record_index_state_error(e)
         return
     _refresh_session_mirror_best_effort()
 
@@ -1282,13 +1297,7 @@ def _embeddings_enabled() -> bool:
     """Return True when any enabled feature needs embedding sidecars."""
     if _vault_root is None:
         return False
-    if not _retrieval_embeddings.embeddings_enabled(_vault_root, config=_config):
-        return False
-    return _retrieval_embeddings.semantic_engine_available(
-        _vault_root,
-        config=_config,
-        skip_sidecar_check=True,
-    )
+    return retrieval_assets.embeddings_should_refresh(_vault_root, config=_config)
 
 
 def _clear_loaded_embeddings() -> None:
@@ -1437,12 +1446,12 @@ def _ensure_embeddings_fresh() -> None:
             if loaded is not None:
                 if _apply_loaded_embeddings_snapshot(loaded):
                     return
-    result = search_assets.refresh_embeddings_outputs(
+    result = retrieval_assets.refresh_embeddings_for_loaded_state(
         _vault_root,
         _router,
         _index["documents"],
         embedding_parts_by_path=_embedding_parts_by_path,
-        enable_embeddings=True,
+        config=_config,
     )
     if result is not None:
         _apply_loaded_embeddings_snapshot(result)
@@ -1634,12 +1643,11 @@ def _build_index_and_save(vault_root: str) -> dict:
     global _doc_embeddings_dirty, _type_embeddings_dirty, _last_index_error
     build_result = search_index.build_index(vault_root)
     index = build_result.index
-    result = search_assets.persist_retrieval_outputs(
+    result = retrieval_assets.persist_retrieval_outputs(
         vault_root,
         index,
         router=_router,
         embedding_parts_by_path=build_result.embedding_parts_by_path,
-        enable_embeddings=_embeddings_enabled(),
         config=_config,
     )
     _index_dirty = False

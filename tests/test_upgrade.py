@@ -537,7 +537,7 @@ class TestPostUpgradeSyncOverrides:
         assert "sync_preview" not in result
 
 
-class TestUpgradeSearchAssetRepair:
+class TestUpgradeRetrievalAssetRepair:
     @pytest.mark.parametrize(
         "config_text",
         [
@@ -569,9 +569,9 @@ class TestUpgradeSearchAssetRepair:
         result = upgrade.upgrade(str(vault), str(source))
 
         assert result["status"] == "ok"
-        assert result["search_asset_repair"]["scope"] == "semantic"
-        assert result["search_asset_repair"]["outcome"] == "ok"
-        assert result["search_asset_repair"]["result"]["status"] == "noop"
+        assert result["retrieval_asset_repair"]["scope"] == "semantic"
+        assert result["retrieval_asset_repair"]["outcome"] == "ok"
+        assert result["retrieval_asset_repair"]["result"]["status"] == "noop"
         assert calls[0][0][0] == sys.executable
         assert calls[0][0][2] == "semantic"
         assert calls[0][0][-1] == "--json"
@@ -668,30 +668,30 @@ class TestUpgradeSearchAssetRepair:
         result = upgrade.upgrade(str(vault), str(source))
 
         assert result["status"] == "ok"
-        assert result["search_asset_repair"]["scope"] == "lexical"
-        assert result["search_asset_repair"]["outcome"] == "ok"
-        assert result["search_asset_repair"]["result"]["status"] == "ok"
+        assert result["retrieval_asset_repair"]["scope"] == "lexical"
+        assert result["retrieval_asset_repair"]["outcome"] == "ok"
+        assert result["retrieval_asset_repair"]["result"]["status"] == "ok"
         assert calls[0][0][2] == "lexical"
 
-    def test_search_asset_repair_returns_structured_error_when_scope_detection_fails(self, source_and_vault, monkeypatch):
+    def test_retrieval_asset_repair_returns_structured_error_when_scope_detection_fails(self, source_and_vault, monkeypatch):
         _source, vault = source_and_vault
 
         monkeypatch.setattr(
             upgrade,
-            "_post_upgrade_search_scope",
+            "_post_upgrade_retrieval_scope",
             lambda _vault: (_ for _ in ()).throw(PermissionError("denied")),
         )
 
-        result = upgrade._repair_search_assets_after_upgrade(vault)
+        result = upgrade._repair_retrieval_assets_after_upgrade(vault)
 
-        assert result["scope"] == "search-assets"
+        assert result["scope"] == "retrieval-assets"
         assert result["command"] == []
         assert result["outcome"] == "error"
         assert "denied" in result["message"]
 
 
 class TestUpgradeProgressLogging:
-    def test_upgrade_records_search_asset_repair_stage_before_follow_up(self, source_and_vault, monkeypatch):
+    def test_upgrade_records_retrieval_asset_repair_stage_before_follow_up(self, source_and_vault, monkeypatch):
         source, vault = source_and_vault
         log_path = vault / ".brain" / "local" / "last-upgrade.json"
         seen = []
@@ -707,19 +707,19 @@ class TestUpgradeProgressLogging:
                 "result": {"status": "noop", "steps": []},
             }
 
-        monkeypatch.setattr(upgrade, "_repair_search_assets_after_upgrade", fake_repair)
+        monkeypatch.setattr(upgrade, "_repair_retrieval_assets_after_upgrade", fake_repair)
 
         result = upgrade.upgrade(str(vault), str(source), sync=False)
 
         assert result["status"] == "ok"
         assert seen
         assert seen[0]["status"] == "running"
-        assert seen[0]["stage"] == "search_asset_repair"
-        assert seen[0]["message"] == "Reconciling search asset state after upgrade"
+        assert seen[0]["stage"] == "retrieval_asset_repair"
+        assert seen[0]["message"] == "Reconciling retrieval asset state after upgrade"
 
         final = json.loads(log_path.read_text())
         assert final["status"] == "ok"
-        assert final["search_asset_repair"]["scope"] == "lexical"
+        assert final["retrieval_asset_repair"]["scope"] == "lexical"
 
     def test_upgrade_records_running_stage_before_compile_validation(self, tmp_path, monkeypatch):
         source = _make_real_compile_source(tmp_path)
@@ -747,7 +747,7 @@ class TestUpgradeProgressLogging:
         assert final["status"] == "error"
         assert "compile failed for test" in final["message"]
 
-    def test_upgrade_records_dependency_sync_stage_before_search_asset_repair(self, source_and_vault, monkeypatch):
+    def test_upgrade_records_dependency_sync_stage_before_retrieval_asset_repair(self, source_and_vault, monkeypatch):
         source, vault = source_and_vault
         log_path = vault / ".brain" / "local" / "last-upgrade.json"
         seen = []
@@ -774,7 +774,7 @@ class TestUpgradeProgressLogging:
         monkeypatch.setattr(upgrade, "_ensure_central_runtime", fake_runtime)
         monkeypatch.setattr(
             upgrade,
-            "_repair_search_assets_after_upgrade",
+            "_repair_retrieval_assets_after_upgrade",
             lambda _vault_root: {
                 "scope": "lexical",
                 "command": [sys.executable, str(vault / ".brain-core" / "scripts" / "repair.py"), "lexical"],
@@ -790,7 +790,7 @@ class TestUpgradeProgressLogging:
         final = json.loads(log_path.read_text())
         assert final["status"] == "ok"
         assert final["central_runtime"]["outcome"] == upgrade.RUNTIME_REUSED
-        assert final["search_asset_repair"]["scope"] == "lexical"
+        assert final["retrieval_asset_repair"]["scope"] == "lexical"
 
     def test_cli_passes_sync_deps_through_to_upgrade(self, tmp_path, monkeypatch, capsys):
         source = _make_real_compile_source(tmp_path)
@@ -816,7 +816,7 @@ class TestUpgradeProgressLogging:
                 "dry_run": False,
                 "message": "Upgraded 0.35.9 → 0.36.7",
                 "central_runtime": {"outcome": upgrade.RUNTIME_REUSED},
-                "search_asset_repair": {"scope": "lexical", "outcome": "ok", "command": ["repair.py", "lexical"]},
+                "retrieval_asset_repair": {"scope": "lexical", "outcome": "ok", "command": ["repair.py", "lexical"]},
             }
             assert sync_deps is True
             upgrade._write_upgrade_log(vault_root, result)
@@ -863,7 +863,7 @@ class TestUpgradeProgressLogging:
                 "dry_run": False,
                 "message": "Upgraded 0.35.9 → 0.40.0",
                 "central_runtime": {"outcome": upgrade.RUNTIME_REUSED},
-                "search_asset_repair": {"scope": "lexical", "outcome": "ok", "command": ["repair.py", "lexical"]},
+                "retrieval_asset_repair": {"scope": "lexical", "outcome": "ok", "command": ["repair.py", "lexical"]},
             }
 
         monkeypatch.setattr(upgrade, "upgrade", fake_upgrade)
@@ -884,10 +884,10 @@ class TestUpgradeProgressLogging:
         upgrade.main()
 
         result = json.loads(capsys.readouterr().out)
-        assert result["search_asset_repair"]["scope"] == "lexical"
+        assert result["retrieval_asset_repair"]["scope"] == "lexical"
         final = json.loads(log_path.read_text())
         assert final["status"] == "ok"
-        assert final["search_asset_repair"]["scope"] == "lexical"
+        assert final["retrieval_asset_repair"]["scope"] == "lexical"
 
 
 class TestUpgradeCliCentralRuntime:

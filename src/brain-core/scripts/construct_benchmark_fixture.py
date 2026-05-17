@@ -42,7 +42,7 @@ from _common import (
     safe_write_json,
     title_to_slug,
 )
-from _search.errors import UnreadableRetrievalSourceError
+from _lifecycle.retrieval_errors import UnreadableRetrievalSourceError
 from _search.lexical import LEXICAL_ANCHOR_RE, tokenise
 from _search.filters import SearchFilters
 import _search.lexical_query as lexical_query
