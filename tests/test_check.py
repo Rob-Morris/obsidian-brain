@@ -460,6 +460,62 @@ class TestCheckFrontmatterRequired:
 
 
 # ---------------------------------------------------------------------------
+# TestCheckDuplicateFrontmatter
+# ---------------------------------------------------------------------------
+
+class TestCheckDuplicateFrontmatter:
+    def test_duplicate_frontmatter_flagged(self, vault):
+        tmp_path, router = vault
+        (tmp_path / "Wiki" / "dup.md").write_text(
+            "---\n"
+            "type: living/wiki\n"
+            "tags:\n"
+            "  - wiki\n"
+            "key: dup\n"
+            "---\n"
+            "---\n"
+            "status: shaping\n"
+            "---\n"
+            "# Dup\n"
+        )
+
+        findings = check.check_duplicate_frontmatter(str(tmp_path), router)
+
+        hits = [f for f in findings if f.get("file") == "Wiki/dup.md"]
+        assert len(hits) == 1
+        assert hits[0]["severity"] == "warning"
+        assert hits[0]["check"] == "duplicate_frontmatter"
+
+    def test_run_checks_keeps_outer_authority_for_other_checks(self, vault):
+        tmp_path, router = vault
+        (tmp_path / "Designs" / "dup.md").write_text(
+            "---\n"
+            "type: living/design\n"
+            "tags:\n"
+            "  - design\n"
+            "key: dup\n"
+            "---\n"
+            "---\n"
+            "status: shaping\n"
+            "---\n"
+            "# Dup\n"
+        )
+
+        result = check.run_checks(str(tmp_path), router)
+
+        assert any(
+            f["check"] == "duplicate_frontmatter"
+            and f.get("file") == "Designs/dup.md"
+            for f in result["findings"]
+        )
+        assert any(
+            f["check"] == "frontmatter_required"
+            and f.get("file") == "Designs/dup.md"
+            for f in result["findings"]
+        )
+
+
+# ---------------------------------------------------------------------------
 # TestCheckMonthFolders
 # ---------------------------------------------------------------------------
 

@@ -11,6 +11,7 @@ import sys
 
 import pytest
 
+import _lifecycle.frontmatter_repairs as frontmatter_repairs
 import _lifecycle_common as lifecycle_common
 import _semantic.config as semantic_config
 import _semantic.model as semantic_model
@@ -440,6 +441,70 @@ class TestRepairScopes:
         assert result["status"] == "ok"
         repaired = json.loads(registry_path.read_text())
         assert repaired == {"workspaces": {"ext": {"path": "/tmp/ext"}}}
+
+    def test_frontmatter_repair_merges_nested_frontmatter_blocks(self, repair_vault, monkeypatch):
+        bad = repair_vault / "Wiki" / "Duplicate Frontmatter.md"
+        bad.write_text(
+            "---\n"
+            "type: living/wiki\n"
+            "tags:\n"
+            "  - wiki\n"
+            "key: duplicate-frontmatter\n"
+            "status: active\n"
+            "---\n\n"
+            "---\n"
+            "status: shaping\n"
+            "tags:\n"
+            "  - bug\n"
+            "---\n"
+            "# Body\n"
+        )
+
+        repair_time = "2026-05-19T12:34:56+10:00"
+        monkeypatch.setattr(frontmatter_repairs, "now_iso", lambda: repair_time)
+        result = repair_runtime.repair_frontmatter(repair_vault, dry_run=False)
+
+        assert result["status"] == "ok"
+        assert result["steps"][-1]["name"] == "frontmatter"
+        assert result["steps"][-1]["status"] == "changed"
+        assert "Duplicate Frontmatter.md" in "\n".join(result["notes"])
+        assert bad.read_text() == (
+            "---\n"
+            "type: living/wiki\n"
+            "tags:\n"
+            "  - wiki\n"
+            "  - bug\n"
+            "key: duplicate-frontmatter\n"
+            "status: active\n"
+            "modified: 2026-05-19T12:34:56+10:00\n"
+            "---\n"
+            "# Body\n"
+        )
+
+    def test_frontmatter_repair_dry_run_does_not_mutate_files(self, repair_vault):
+        bad = repair_vault / "Wiki" / "Dry Run.md"
+        original = (
+            "---\n"
+            "type: living/wiki\n"
+            "tags:\n"
+            "  - wiki\n"
+            "key: dry-run\n"
+            "modified: 2026-05-01T09:00:00+10:00\n"
+            "---\n"
+            "---\n"
+            "status: active\n"
+            "modified: 2026-04-01T09:00:00+10:00\n"
+            "---\n"
+            "# Body\n"
+        )
+        bad.write_text(original)
+
+        result = repair_runtime.repair_frontmatter(repair_vault, dry_run=True)
+
+        assert result["status"] == "planned"
+        assert result["steps"][-1]["name"] == "frontmatter"
+        assert result["steps"][-1]["status"] == "planned"
+        assert bad.read_text() == original
 
     def test_semantic_repair_is_noop_when_not_configured(self, repair_vault):
         result = repair_runtime.repair_semantic(repair_vault, dry_run=False)
@@ -899,6 +964,26 @@ class TestCheckRepairHints:
         hit = next(f for f in result["findings"] if f["check"] == "workspace_registry")
         assert hit["repair"]["scope"] == "registry"
         assert "repair.py registry" in hit["repair"]["command"]
+
+    def test_duplicate_frontmatter_adds_frontmatter_repair_guidance(self, repair_vault):
+        (repair_vault / "Wiki" / "Broken.md").write_text(
+            "---\n"
+            "type: living/wiki\n"
+            "tags:\n"
+            "  - wiki\n"
+            "key: broken\n"
+            "---\n"
+            "---\n"
+            "status: shaping\n"
+            "---\n"
+            "# Broken\n"
+        )
+
+        result = check.run_checks(str(repair_vault), _wiki_router())
+
+        hit = next(f for f in result["findings"] if f["check"] == "duplicate_frontmatter")
+        assert hit["repair"]["scope"] == "frontmatter"
+        assert "repair.py frontmatter" in hit["repair"]["command"]
 
     def test_legacy_index_scope_errors_with_rename_hint(self, repair_vault, capsys):
         with pytest.raises(SystemExit) as exc:

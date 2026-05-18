@@ -135,6 +135,7 @@ If your vault runs the Brain MCP server (`.brain-core/brain_mcp/server.py`), nin
 
 **brain_create** (additive, safe to auto-approve)
 - Create a new vault resource. Default `resource="artefact"` for artefact creation from type, title, and optional body/frontmatter/parent. Also creates `skill`, `memory`, `style`, and `template` resources in `_Config/` (use `name` instead of `type`/`title`)
+- Body contract is explicit: artefacts plus `skill` / `memory` / `style` take markdown body content after frontmatter; `template` takes a full markdown document with its own frontmatter block. Separate `frontmatter` input is rejected for `template`
 - Artefacts: resolves template and naming pattern from the compiled router
 - Non-artefact resources: `skill` → `_Config/Skills/{name}/SKILL.md`, `memory` → `_Config/Memories/{name}.md`, `style` → `_Config/Styles/{name}.md`, `template` → `_Config/Templates/{classification}/{Type}.md`
 - Resource-specific fields are enforced strictly: artefact creation requires `type` + `title`, non-artefact creation requires `name`, and cross-resource extras are rejected
@@ -145,6 +146,7 @@ If your vault runs the Brain MCP server (`.brain-core/brain_mcp/server.py`), nin
 - `edit` — replace body content, optionally merge frontmatter changes (overwrites fields)
 - `append` — add content to end of existing body
 - `prepend` — insert content before existing body or before a target section's heading
+- Body input is always post-frontmatter markdown content. To change frontmatter, use the `frontmatter` parameter rather than embedding a leading frontmatter block in `body`
 - Optional `frontmatter` parameter — `edit` overwrites fields; `append`/`prepend` extend list fields (with dedup) and overwrite scalars. Set a field to `null` to delete it. All operations support frontmatter-only mutations (omit body)
 - Memory trigger edits refresh `brain_read(resource="memory", ...)` immediately; editing `_Config/` resources does not make them appear in `brain_search(resource="artefact")`
 - `target` identifies the structural node:
@@ -212,7 +214,7 @@ Available in `.brain-core/scripts/`. Scripts are the source of truth for all vau
 | `create.py` | Create a new artefact with template/naming resolution |
 | `edit.py` | Edit artefacts via explicit `target + selector + scope`; the importable helpers also back editable `_Config/` resources |
 | `rename.py` | Rename a file with automatic wikilink updates; refuses existing-destination collisions before touching links |
-| `repair.py` | Explicit infrastructure repair entry point. Bootstraps from any compatible Python 3.12+ launcher, converges into the central managed runtime at `~/.brain/venvs/py<X.Y>-<sha16>/`, and then repairs one named scope: `runtime`, `mcp`, `router`, `lexical`, `registry`, or `semantic`. |
+| `repair.py` | Explicit Brain repair entry point. Bootstraps from any compatible Python 3.12+ launcher, converges into the central managed runtime at `~/.brain/venvs/py<X.Y>-<sha16>/`, and then repairs one named scope: `runtime`, `mcp`, `router`, `lexical`, `registry`, `frontmatter`, or `semantic`. |
 | `session.py` | Build the canonical session model and refresh `.brain/local/session.md` |
 | `obsidian_cli.py` | IPC client for native Obsidian CLI (library module used by MCP) |
 | `process.py` | Experimental content classification, duplicate resolution, ingestion |
@@ -223,7 +225,7 @@ Available in `.brain-core/scripts/`. Scripts are the source of truth for all vau
 | `vault_registry.py` | User-home registry of installed Brain vaults |
 | `workspace_registry.py` | Workspace key→path resolution and registration |
 | `init.py` | Set up Claude Code and/or Codex to use this vault's MCP server; requires a Python 3.12+ runtime with the `mcp` package, folder-scoped installs also scaffold `.brain/local/workspace.yaml` (migrates legacy `.brain/workspace.yaml` automatically), and direct config writes stay atomic with unique sibling temp files. Project scope outranks user scope once the client activates the project entry: approve via `/mcp` in Claude, or trust/enable the project-scoped server in Codex. |
-| `check.py` | Structural compliance checker — validates naming, frontmatter, month folders, archives, status values, and now prints exact `repair.py` commands when it detects repairable router/MCP/local-registry drift |
+| `check.py` | Structural compliance checker — validates naming, frontmatter, month folders, archives, status values, and now prints exact `repair.py` commands when it detects repairable router/MCP/local-registry drift or duplicate artefact frontmatter |
 | `migrate_naming.py` | Migrate vault filenames from old aggressive slugs to generous naming conventions |
 | `fix_links.py` | Auto-repair broken wikilinks using naming convention heuristics |
 | `sync_definitions.py` | Sync artefact library definitions to vault `_Config/` using tracked source hashes plus markdown-aware comparison for `.md` files, so harmless pipe-table rewrites do not surface as conflicts |
@@ -234,7 +236,7 @@ Available in `.brain-core/scripts/`. Scripts are the source of truth for all vau
 
 Two complementary tools:
 
-**`check.py`** (structural compliance) — deep scan that validates all files against the compiled router: naming patterns, frontmatter type and required fields, month folders for temporal files, archive metadata, status values, and broken or ambiguous wikilinks (including YAML frontmatter property-links like `parent: "[[foo]]"`; wikilinks inside code, HTML comments, `$$` math, and raw HTML blocks are treated as literal text). When router, MCP, or local workspace-registry drift is detected, normal output prints the exact `repair.py` command to run and JSON/compliance output includes structured `repair` metadata. Run on demand or during maintenance. Flags: `--json` (structured output), `--actionable` (fix suggestions), `--severity <level>` (filter). Also available via MCP: `brain_read(resource="compliance")`.
+**`check.py`** (structural compliance) — deep scan that validates all files against the compiled router: naming patterns, frontmatter type and required fields, month folders for temporal files, archive metadata, status values, duplicate frontmatter corruption, and broken or ambiguous wikilinks (including YAML frontmatter property-links like `parent: "[[foo]]"`; wikilinks inside code, HTML comments, `$$` math, and raw HTML blocks are treated as literal text). When router, MCP, local workspace-registry drift, or duplicate artefact frontmatter is detected, normal output prints the exact `repair.py` command to run and JSON/compliance output includes structured `repair` metadata. Run on demand or during maintenance. Flags: `--json` (structured output), `--actionable` (fix suggestions), `--severity <level>` (filter). Also available via MCP: `brain_read(resource="compliance")`.
 
 ```bash
 python3 .brain-core/scripts/check.py                    # human-readable

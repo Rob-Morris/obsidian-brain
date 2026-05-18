@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-repair.py — explicit Brain infrastructure repair entry point.
+repair.py — explicit Brain repair entry point.
 
 Bootstrap layer:
   - self-contained and dependency-light
@@ -10,7 +10,7 @@ Bootstrap layer:
 
 Runtime layer:
   - runs inside the central managed runtime
-  - performs named repair scopes: runtime, mcp, router, lexical, registry,
+  - performs named repair scopes: runtime, mcp, router, lexical, registry, frontmatter,
     semantic
   - every scope may rely on the shared managed-runtime owner to recover a
     usable managed interpreter path; scope-specific requirements only control
@@ -112,7 +112,7 @@ def fatal(message: str) -> NoReturn:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Repair a named Brain infrastructure scope.",
+        description="Repair a named Brain scope.",
     )
     parser.add_argument(
         "scope",

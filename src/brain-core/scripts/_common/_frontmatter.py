@@ -56,6 +56,99 @@ def parse_frontmatter(text):
     return _parse_yaml_lines(m.group(1)), text[m.end():]
 
 
+def has_leading_frontmatter(text):
+    """Return whether ``text`` begins with a frontmatter block."""
+    if not text:
+        return False
+    return FM_RE.match(text) is not None
+
+
+def parse_leading_frontmatter(text, *, allow_leading_blank_lines=False):
+    """Parse one leading frontmatter block when present.
+
+    Returns ``(fields, body)`` when a frontmatter block is found, otherwise
+    ``None``. When ``allow_leading_blank_lines`` is true, leading blank lines
+    are ignored before matching the block.
+    """
+    if not text:
+        return None
+
+    candidate = text.lstrip("\r\n") if allow_leading_blank_lines else text
+    m = FM_RE.match(candidate)
+    if not m:
+        return None
+    return _parse_yaml_lines(m.group(1)), candidate[m.end():]
+
+
+def _coerce_frontmatter_list(value):
+    """Normalise a frontmatter field into a list for additive union rules."""
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return list(value)
+    return [value]
+
+
+def _ordered_union(outer, nested):
+    """Preserve outer order, then append unique items from nested."""
+    merged = []
+    seen = set()
+    for item in _coerce_frontmatter_list(outer) + _coerce_frontmatter_list(nested):
+        if item in seen:
+            continue
+        seen.add(item)
+        merged.append(item)
+    return merged
+
+
+def _merge_duplicate_frontmatter_fields(outer_fields, nested_fields):
+    """Normalize duplicate frontmatter using the conservative repair policy.
+
+    The outer block remains authoritative for every field except ``tags``,
+    which use ordered additive union with dedup.
+    """
+    merged_fields = dict(outer_fields)
+
+    # Preserve the absence of tags entirely rather than synthesising `tags: []`
+    # on repaired files that never had tags in either block.
+    if "tags" in outer_fields or "tags" in nested_fields:
+        merged_fields["tags"] = _ordered_union(
+            outer_fields.get("tags"),
+            nested_fields.get("tags"),
+        )
+
+    return merged_fields
+
+
+def inspect_duplicate_frontmatter_document(text):
+    """Inspect a full markdown document for an accidental second frontmatter block.
+
+    Returns ``None`` when the document has zero or one frontmatter block.
+    When a duplicate block is found at the start of the body, returns a dict
+    containing the outer fields, nested fields, normalized fields, and body.
+    """
+    outer = parse_leading_frontmatter(text)
+    if outer is None:
+        return None
+
+    outer_fields, outer_body = outer
+    nested = parse_leading_frontmatter(
+        outer_body,
+        allow_leading_blank_lines=True,
+    )
+    if nested is None:
+        return None
+
+    nested_fields, nested_body = nested
+    merged_fields = _merge_duplicate_frontmatter_fields(outer_fields, nested_fields)
+    return {
+        "outer_fields": outer_fields,
+        "nested_fields": nested_fields,
+        "merged_fields": merged_fields,
+        "body": nested_body,
+    }
+
+
 def read_frontmatter(path):
     """Read frontmatter from a markdown file, stopping at the closing ``---``.
 

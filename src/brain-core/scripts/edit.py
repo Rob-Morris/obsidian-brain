@@ -39,6 +39,7 @@ from _common import (
     make_temp_path,
     normalize_artefact_key,
     now_iso,
+    parse_leading_frontmatter,
     parse_frontmatter,
     read_file_content,
     replace_artefact_key_references,
@@ -97,6 +98,17 @@ _VALID_SCOPES = {
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
+
+def _reject_leading_body_frontmatter(body, *, resource_label):
+    """Reject full-document content where a body-only payload is required."""
+    if not body:
+        return
+
+    if parse_leading_frontmatter(body, allow_leading_blank_lines=True) is not None:
+        raise ValueError(
+            f"{resource_label} body must not start with a frontmatter block. "
+            "Pass frontmatter via the dedicated frontmatter field and body content separately."
+        )
 
 def _open_artefact(vault_root, router, path):
     """Validate, read, and parse an artefact. Returns (path, abs_path, fields, body, artefact)."""
@@ -700,6 +712,9 @@ def edit_resource(vault_root, router, resource="artefact", operation="edit",
         selector,
         scope,
     )
+    _reject_leading_body_frontmatter(
+        body, resource_label=f"{resource.capitalize()} resource"
+    )
     fm_mode = "edit" if operation in ("edit", "delete_section") else operation
     _merge_frontmatter(fields, frontmatter_changes, fm_mode)
 
@@ -1171,6 +1186,7 @@ def apply_to_artefact(operation, vault_root, router, path, body="",
         selector,
         scope,
     )
+    _reject_leading_body_frontmatter(body, resource_label="Artefact")
     path, abs_path, fields, existing_body, art = _open_artefact(vault_root, router, path)
     old_fields = dict(fields)
     frontmatter_changes = _normalise_ownership_changes(

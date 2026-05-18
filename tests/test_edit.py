@@ -324,6 +324,14 @@ class TestEditArtefact:
         assert fields["status"] == "active"
         assert "brain-core" in fields["tags"]
 
+    def test_edit_rejects_body_with_frontmatter_block(self, vault, router):
+        with pytest.raises(ValueError, match="must not start with a frontmatter block"):
+            edit.edit_artefact(
+                str(vault), router, "Wiki/test-page.md",
+                "---\nstatus: shaping\n---\n\n# Body\n",
+                target=":body", scope="section",
+            )
+
     def test_edit_merges_frontmatter_changes(self, vault, router):
         edit.edit_artefact(
             str(vault), router, "Wiki/test-page.md", "# New\n",
@@ -2822,6 +2830,16 @@ class TestEditResource:
         )
         assert "_Config/Templates/" in result["path"]
         assert result["operation"] == "edit"
+
+    def test_edit_resource_rejects_body_with_frontmatter_block(self, vault, router):
+        self._create_skill(vault)
+        with pytest.raises(ValueError, match="must not start with a frontmatter block"):
+            edit.edit_resource(
+                str(vault), router, resource="skill",
+                operation="edit", name="test-skill",
+                body="---\ndescription: updated\n---\n\n# Skill\n",
+                target=":body", scope="section",
+            )
 
     def test_targeted_edit_on_resource(self, vault, router):
         """Target parameter works for resource editing too."""

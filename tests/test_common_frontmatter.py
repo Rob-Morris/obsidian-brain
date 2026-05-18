@@ -1,6 +1,7 @@
 """Tests for _common._frontmatter — parsing and serialisation."""
 
 import _common as common
+from _common import _frontmatter as frontmatter_common
 
 
 # ---------------------------------------------------------------------------
@@ -52,6 +53,107 @@ class TestParseFrontmatter:
         text = "---\ntitle: 'Hello World'\n---\nBody"
         fields, _ = common.parse_frontmatter(text)
         assert fields["title"] == "Hello World"
+
+    def test_has_leading_frontmatter_detects_document_frontmatter(self):
+        text = "---\ntype: living/wiki\n---\n\n# Title\n"
+        assert common.has_leading_frontmatter(text) is True
+
+    def test_has_leading_frontmatter_ignores_plain_body(self):
+        text = "# Title\n\nBody\n"
+        assert common.has_leading_frontmatter(text) is False
+
+    def test_parse_leading_frontmatter_allows_leading_blank_lines_when_requested(self):
+        text = "\n\n---\nstatus: active\n---\nBody\n"
+        parsed = common.parse_leading_frontmatter(
+            text,
+            allow_leading_blank_lines=True,
+        )
+        assert parsed == ({"status": "active"}, "Body\n")
+
+    def test_inspect_duplicate_frontmatter_document_keeps_outer_fields_and_unions_tags(self):
+        text = (
+            "---\n"
+            "type: living/wiki\n"
+            "tags:\n"
+            "  - wiki\n"
+            "aliases:\n"
+            "  - canonical\n"
+            "status: active\n"
+            "---\n\n"
+            "---\n"
+            "type: living/idea\n"
+            "aliases:\n"
+            "  - stale\n"
+            "status: shaping\n"
+            "tags:\n"
+            "  - bug\n"
+            "  - wiki\n"
+            "---\n"
+            "# Body\n"
+        )
+        duplicate = common.inspect_duplicate_frontmatter_document(text)
+        assert duplicate is not None
+        assert duplicate["outer_fields"] == {
+            "type": "living/wiki",
+            "tags": ["wiki"],
+            "aliases": ["canonical"],
+            "status": "active",
+        }
+        assert duplicate["nested_fields"] == {
+            "type": "living/idea",
+            "aliases": ["stale"],
+            "status": "shaping",
+            "tags": ["bug", "wiki"],
+        }
+        assert duplicate["merged_fields"] == {
+            "type": "living/wiki",
+            "tags": ["wiki", "bug"],
+            "aliases": ["canonical"],
+            "status": "active",
+        }
+        assert common.serialize_frontmatter(duplicate["merged_fields"], body=duplicate["body"]) == (
+            "---\n"
+            "type: living/wiki\n"
+            "tags:\n"
+            "  - wiki\n"
+            "  - bug\n"
+            "aliases:\n"
+            "  - canonical\n"
+            "status: active\n"
+            "---\n"
+            "# Body\n"
+        )
+
+    def test_merge_duplicate_frontmatter_fields_preserves_outer_modified(self):
+        merged = frontmatter_common._merge_duplicate_frontmatter_fields(
+            {"type": "living/wiki", "modified": "2026-05-19T10:00:00+10:00"},
+            {"modified": "2026-05-01T09:00:00+10:00"},
+        )
+        assert merged == {
+            "type": "living/wiki",
+            "modified": "2026-05-19T10:00:00+10:00",
+        }
+
+    def test_merge_duplicate_frontmatter_fields_keeps_outer_only_tags(self):
+        merged = frontmatter_common._merge_duplicate_frontmatter_fields(
+            {"tags": ["outer"]},
+            {},
+        )
+        assert merged == {"tags": ["outer"]}
+
+    def test_merge_duplicate_frontmatter_fields_lifts_nested_only_tags(self):
+        merged = frontmatter_common._merge_duplicate_frontmatter_fields(
+            {},
+            {"tags": ["nested"]},
+        )
+        assert merged == {"tags": ["nested"]}
+
+    def test_merge_duplicate_frontmatter_fields_does_not_synthesise_empty_tags(self):
+        merged = frontmatter_common._merge_duplicate_frontmatter_fields(
+            {"type": "living/wiki"},
+            {"status": "active"},
+        )
+        assert merged == {"type": "living/wiki"}
 
 
 # ---------------------------------------------------------------------------

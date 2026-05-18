@@ -21,6 +21,7 @@ import _semantic.config as _semantic_config
 import _semantic.model as _semantic_model
 import _semantic.provision as _semantic_provision
 import _semantic.runtime as _semantic_runtime
+from _lifecycle.frontmatter_repairs import normalize_duplicate_frontmatter_documents
 from _common import iter_artefact_paths, resolve_vault_venv_python
 from _lifecycle_common import (
     iso_now,
@@ -655,6 +656,32 @@ def repair_registry(vault_root: Path, dry_run: bool, bootstrap_steps: list[dict]
     return _finalise_result("registry", vault_root, dry_run, steps)
 
 
+def repair_frontmatter(vault_root: Path, dry_run: bool, bootstrap_steps: list[dict] | None = None) -> dict:
+    steps = list(bootstrap_steps or [])
+    result = normalize_duplicate_frontmatter_documents(vault_root, dry_run=dry_run)
+    if result["updated"] == 0:
+        steps.append(
+            _step(
+                "frontmatter",
+                "noop",
+                "No duplicate frontmatter blocks were found in vault artefacts.",
+            )
+        )
+        return _finalise_result("frontmatter", vault_root, dry_run, steps)
+
+    status = "planned" if dry_run else "changed"
+    verb = "Would normalise" if dry_run else "Normalised"
+    steps.append(
+        _step(
+            "frontmatter",
+            status,
+            f"{verb} duplicate frontmatter in {result['updated']} artefact(s).",
+        )
+    )
+    notes = [f"{verb}: {rel_path}" for rel_path in result["files"]]
+    return _finalise_result("frontmatter", vault_root, dry_run, steps, notes=notes)
+
+
 def inspect_semantic(vault_root: Path) -> dict:
     """Inspect semantic config/runtime health for this vault."""
     try:
@@ -834,6 +861,8 @@ def run_scope(
         return repair_lexical(vault_root, dry_run, bootstrap_steps)
     if scope == "registry":
         return repair_registry(vault_root, dry_run, bootstrap_steps)
+    if scope == "frontmatter":
+        return repair_frontmatter(vault_root, dry_run, bootstrap_steps)
     if scope == "semantic":
         return repair_semantic(vault_root, dry_run, bootstrap_steps)
     raise ValueError(f"Unknown repair scope: {scope}")

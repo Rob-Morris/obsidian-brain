@@ -85,6 +85,9 @@ from ._filesystem import (
 
 from ._frontmatter import (
     FM_RE,
+    has_leading_frontmatter,
+    inspect_duplicate_frontmatter_document,
+    parse_leading_frontmatter,
     parse_frontmatter,
     read_artefact,
     read_frontmatter,

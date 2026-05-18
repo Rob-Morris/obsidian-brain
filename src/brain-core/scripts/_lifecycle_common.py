@@ -39,6 +39,7 @@ BOOTSTRAP_SCOPE_MODULES = {
     "router": (),
     "lexical": (),
     "registry": (),
+    "frontmatter": (),
     "semantic": ("yaml",),
 }
 

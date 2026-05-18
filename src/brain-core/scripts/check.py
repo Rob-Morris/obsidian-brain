@@ -2,9 +2,10 @@
 """
 check.py — Router-driven vault compliance checker (DD-009)
 
-Reads the compiled router JSON and validates vault files against 9 structural
-rules. Never parses taxonomy markdown — all per-type rules come from the
-compiled router. The compiler is the single adaptation point.
+Reads the compiled router JSON and validates vault files against structural
+and repair-oriented content rules. Never parses taxonomy markdown — all
+per-type rules come from the compiled router. The compiler is the single
+adaptation point.
 
 Usage:
     python3 check.py                     # human-readable output
@@ -37,6 +38,7 @@ from _common import (
     check_wikilinks_in_file,
     discover_temporal_prefixes,
     INDEX_SKIP_DIRS,
+    inspect_duplicate_frontmatter_document,
     iter_artefact_markdown_files,
     iter_artefact_paths,
     iter_living_markdown_files,
@@ -48,6 +50,7 @@ from _common import (
     validate_filename,
     resolve_and_validate_folder,
 )
+from _lifecycle.frontmatter_repairs import iter_candidate_artefact_markdown_files
 from _repair_common import attach_repair_guidance
 from _repair_runtime import collect_check_findings
 
@@ -82,21 +85,33 @@ class CheckContext:
     object is discarded at exit, so there is no staleness concern.
     """
 
-    __slots__ = ("vault_root", "router", "_fm_cache", "_file_index")
+    __slots__ = ("vault_root", "router", "_document_cache", "_file_index")
 
     def __init__(self, vault_root, router):
         self.vault_root = vault_root
         self.router = router
-        self._fm_cache = {}
+        self._document_cache = {}
         self._file_index = None
 
-    def read_frontmatter(self, path):
-        cache = self._fm_cache
+    def _document_state(self, path):
+        cache = self._document_cache
         if path in cache:
             return cache[path]
-        fields = read_frontmatter(path)
-        cache[path] = fields
-        return fields
+        fields = globals()["read_frontmatter"](path)
+        with open(path, "r", encoding="utf-8") as handle:
+            text = handle.read()
+        duplicate = inspect_duplicate_frontmatter_document(text)
+        if duplicate is not None:
+            fields = duplicate["merged_fields"]
+        state = {"fields": fields, "duplicate": duplicate}
+        cache[path] = state
+        return state
+
+    def read_frontmatter(self, path):
+        return self._document_state(path)["fields"]
+
+    def duplicate_frontmatter(self, path):
+        return self._document_state(path)["duplicate"]
 
     @property
     def file_index(self):
@@ -255,6 +270,35 @@ def check_frontmatter_required(vault_root, router, *, ctx=None):
                         "message": f"Missing required field: {field}",
                         "fix": f"Add '{field}' to frontmatter",
                     })
+
+    return findings
+
+
+def check_duplicate_frontmatter(vault_root, router, *, ctx=None):
+    """Flag artefacts whose body starts with a second frontmatter block."""
+    findings = []
+    for rel_path in iter_candidate_artefact_markdown_files(vault_root):
+        abs_path = os.path.join(vault_root, rel_path)
+        try:
+            duplicate = (
+                ctx.duplicate_frontmatter(abs_path)
+                if ctx is not None
+                else None
+            )
+            if ctx is None:
+                with open(abs_path, "r", encoding="utf-8") as handle:
+                    duplicate = inspect_duplicate_frontmatter_document(handle.read())
+        except (OSError, UnicodeDecodeError):
+            continue
+        if duplicate is None:
+            continue
+        finding = {
+            "check": "duplicate_frontmatter",
+            "severity": "warning",
+            "file": rel_path,
+            "message": "Duplicate frontmatter block detected at the start of the artefact body.",
+        }
+        findings.append(attach_repair_guidance(finding, vault_root, "frontmatter"))
 
     return findings
 
@@ -748,6 +792,7 @@ def check_broken_wikilinks(vault_root, router, file_index=None, *, ctx=None):
 ALL_CHECKS = [
     check_root_files,
     check_naming,
+    check_duplicate_frontmatter,
     check_frontmatter_type,
     check_frontmatter_required,
     check_missing_timestamps,

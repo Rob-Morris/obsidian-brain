@@ -19,9 +19,9 @@ The optional [`brain` CLI](cli.md) provides ergonomic shortcuts that dispatch di
 | `create.py` | Create new artefact | `python3 create.py --type T --title "Title" [--body B] [--body-file PATH] [--temp-path [SUFFIX]] [--json]` |
 | `edit.py` | Edit artefacts via CLI; importable helpers also back `brain_edit` for editable `_Config/` resources | `python3 edit.py edit\|append\|prepend\|delete_section --path P [--body B\|--body-file PATH] [--frontmatter JSON] [--target T] [--scope S] [--occurrence N] [--within T --within-occurrence N]... [--vault V] [--json]` |
 | `rename.py` | Rename/delete file + update wikilinks (full-path and filename-only), refusing existing-destination collisions | `python3 rename.py "source" "dest" [--json]` |
-| `check.py` | Structural compliance checks, including exact repair commands for repairable infrastructure drift such as semantic runtime/model/sidecar drift | `python3 check.py [--json] [--actionable] [--severity S] [--vault V]` |
+| `check.py` | Structural compliance checks, including exact repair commands for repairable infrastructure drift and duplicate artefact frontmatter | `python3 check.py [--json] [--actionable] [--severity S] [--vault V]` |
 | `configure.py` | Explicit installed-vault lifecycle entry point for local semantic opt-in and runtime/model provisioning | `python3 configure.py semantic --enable [--no-provision] [--json] [--vault V]` |
-| `repair.py` | Explicit infrastructure repair entry point with bootstrap-to-managed-runtime handoff, including dedicated managed-runtime recovery plus semantic runtime/model/sidecar recovery | `python3 repair.py {runtime,mcp,router,lexical,registry,semantic} [--vault V] [--dry-run] [--json]` |
+| `repair.py` | Explicit Brain repair entry point with bootstrap-to-managed-runtime handoff, including dedicated managed-runtime recovery, duplicate-frontmatter normalisation, and semantic runtime/model/sidecar recovery | `python3 repair.py {runtime,mcp,router,lexical,registry,frontmatter,semantic} [--vault V] [--dry-run] [--json]` |
 | `_common/_venv.py` | Resolve and create the central managed runtime under `~/.brain/venvs/py<X.Y>-<sha16>/`. Importable helper plus a CLI surface used by `install.sh` | `python3 _common/_venv.py {python,ensure} --vault V [--launcher PY]` |
 | `shape_printable.py` | Create printable + render PDF | `python3 shape_printable.py --source P --slug S [--no-render] [--pdf-engine E]` |
 | `shape_presentation.py` | Create presentation + render PDF + launch preview | `python3 shape_presentation.py --source P --slug S [--no-render] [--no-preview]` |
@@ -117,6 +117,7 @@ python3 compile_router.py --json    # output JSON to stdout
 | `naming` | warning | Files match naming pattern from taxonomy |
 | `frontmatter_type` | warning | `type` field matches folder-derived type |
 | `frontmatter_required` | warning | Required frontmatter fields present |
+| `duplicate_frontmatter` | warning | Artefact body does not start with a second accidental frontmatter block |
 | `month_folders` | warning | Temporal files in correct `yyyy-mm/` subfolder |
 | `archive_metadata` | warning | Files in `_Archive/` (top-level and legacy per-type archives) have `archiveddate` field, `yyyymmdd-` filename prefix, and a terminal status from `frontmatter.terminal_statuses` |
 | `status_values` | warning | Status field values match `frontmatter.status_enum` from compiled router |
@@ -134,19 +135,20 @@ python3 compile_router.py --json    # output JSON to stdout
 
 **Constraints:** stdlib only, self-locating, stateless, idempotent, stdout-only.
 
-When `check.py` detects repairable runtime, router, MCP, semantic, or local workspace-registry drift, normal human output now prints the exact `repair.py` command to run. Structured JSON/compliance output includes a `repair` object with `scope`, `description`, and `command` so agents can surface the same remediation path without scraping prose.
+When `check.py` detects repairable runtime, router, MCP, semantic, local workspace-registry drift, or duplicate artefact frontmatter, normal human output now prints the exact `repair.py` command to run. Structured JSON/compliance output includes a `repair` object with `scope`, `description`, and `command` so agents can surface the same remediation path without scraping prose.
 
 **Relationship with `compliance_check.py`:** The vault-maintenance skill ships a separate `compliance_check.py` for **session hygiene** — quick checks like "did you log today? any transcripts? backups fresh?" It runs after each work block as a sanity check. `check.py` (this design) is **structural compliance** — "do all files have correct frontmatter? naming? month folders?" Deep scan, runs on demand or during maintenance. These are complementary tools, not competing ones.
 
 ## repair.py
 
-Explicit infrastructure repair entry point at `.brain-core/scripts/repair.py`. First-cut public scopes are:
+Explicit Brain repair entry point at `.brain-core/scripts/repair.py`. Current public scopes are:
 
 - `runtime` — repair the central managed runtime at `~/.brain/venvs/py<X.Y>-<sha16>/` and its baseline packages
 - `mcp` — repair current-vault project MCP registration state against a usable managed runtime
 - `router` — rebuild `.brain/local/compiled-router.json`
 - `lexical` — rebuild `.brain/local/retrieval-index.json`
 - `registry` — repair or normalise current-vault `.brain/local/workspaces.json`
+- `frontmatter` — merge duplicate nested artefact frontmatter blocks into canonical document frontmatter
 - `semantic` — converge the optional semantic runtime, provisioning marker, and generated retrieval sidecars for a vault that has already opted in
 
 **CLI:**
@@ -157,6 +159,7 @@ python3 repair.py mcp
 python3 repair.py router --dry-run
 python3 repair.py lexical --json
 python3 repair.py registry --vault /path/to/vault
+python3 repair.py frontmatter --vault /path/to/vault
 python3 repair.py semantic --vault /path/to/vault
 ```
 
@@ -167,7 +170,7 @@ python3 repair.py semantic --vault /path/to/vault
 - The bootstrap path is dependency-light and may be launched from any compatible Python 3.12+ interpreter.
 - Packageful repair converges execution into the central managed runtime at `~/.brain/venvs/py<X.Y>-<sha16>/`, resolved via `_common/_venv.py`.
 - Dependency installation targets that runtime, not the user's wider Python environment.
-- Each scope declares its own runtime requirements. The `runtime` scope owns the baseline managed-runtime package sync, and `mcp` composes that same baseline because its registrations must point at a usable Brain MCP host. `router`, `lexical`, and `registry` use only stdlib + Brain scripts, so they require a compatible managed-runtime interpreter but skip extra package sync — they stay usable offline or in restricted environments.
+- Each scope declares its own runtime requirements. The `runtime` scope owns the baseline managed-runtime package sync, and `mcp` composes that same baseline because its registrations must point at a usable Brain MCP host. `router`, `lexical`, `registry`, and `frontmatter` use only stdlib + Brain scripts, so they require a compatible managed-runtime interpreter but skip extra package sync — they stay usable offline or in restricted environments.
 - `dependency-light` does **not** mean “assume the runtime is already healthy” and does **not** mean “run `repair.py mcp` first”. Every scope still uses the shared managed-runtime bootstrap owner to recover or reuse a usable interpreter path; the difference is only whether that scope needs extra managed packages beyond the interpreter itself.
 - `repair.py` is the explicit recovery surface. Other scripts should detect, explain, and point to `repair.py` rather than silently broadening their own repair semantics.
 
@@ -177,6 +180,7 @@ python3 repair.py semantic --vault /path/to/vault
 - `mcp` repairs installed current-vault project MCP state in `.mcp.json`, `.codex/config.toml`, `CLAUDE.md`, `.claude/settings.local.json`, and `.brain/local/init-state.json`. It composes runtime repair because those registrations must point at a working managed MCP host. It does not touch user-scope Claude/Codex config, it does not create first-time project registrations on a bare scaffold, and it does not add a second client that is not already installed for the vault.
 - `router` and `lexical` use internal freshness checks and are no-ops when their generated caches are already healthy.
 - `registry` is intentionally narrow in the first cut: it only mutates the current vault's `.brain/local/workspaces.json`. It does not prune or rewrite `~/.config/brain/vaults`, and it does not touch user-scope MCP config.
+- `frontmatter` repairs content corruption rather than infrastructure drift: it scans artefact markdown under the vault's content roots, merges accidental body-level frontmatter blocks into the canonical document frontmatter, and strips the duplicate block from the body. It is idempotent and safe to run repeatedly.
 - `semantic` is the explicit follow-up after a vault has opted in via `configure.py semantic --enable`. It bootstraps the managed runtime if needed, provisions or re-syncs the pinned semantic packages into the central managed runtime, restores the pinned local model snapshot/manifest, refreshes the semantic engine marker in local config, and rebuilds router/index/embeddings sidecars so semantic retrieval converges intentionally.
 
 If you do not know what is broken, start with `check.py`. Compliance findings now point to the exact `repair.py` command when a shaped repair scope applies.

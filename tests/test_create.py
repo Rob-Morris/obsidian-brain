@@ -205,6 +205,16 @@ class TestCreateArtefact:
             content = f.read()
         assert "My custom content." in content
 
+    def test_create_rejects_body_with_frontmatter_block(self, vault, router):
+        with pytest.raises(ValueError, match="must not start with a frontmatter block"):
+            create.create_artefact(
+                str(vault),
+                router,
+                "wiki",
+                "Bad Body",
+                body="---\nstatus: shaping\n---\n\n# Body\n",
+            )
+
     def test_template_body_when_no_body(self, vault, router):
         result = create.create_artefact(str(vault), router, "ideas", "Some Idea")
         abs_path = os.path.join(str(vault), result["path"])
@@ -644,15 +654,35 @@ class TestCreateResource:
             )
 
     def test_create_template(self, vault, router):
+        body = "---\ntype: living/wiki\ntags: []\n---\n\n# New Template\n"
         result = create.create_resource(
             str(vault), router, resource="template",
             name="wiki",
-            body="---\ntype: living/wiki\ntags: []\n---\n\n# New Template\n",
+            body=body,
         )
         # Templates resolve via artefact type — overwrites the existing template
         assert result["resource"] == "template"
         assert result["name"] == "wiki"
         assert "_Config/Templates/" in result["path"]
+        abs_path = os.path.join(str(vault), result["path"])
+        assert open(abs_path).read() == body
+
+    def test_create_template_requires_full_document_frontmatter(self, vault, router):
+        with pytest.raises(ValueError, match="must be a full markdown document starting with a frontmatter block"):
+            create.create_resource(
+                str(vault), router, resource="template",
+                name="wiki",
+                body="# New Template\n",
+            )
+
+    def test_create_template_rejects_separate_frontmatter(self, vault, router):
+        with pytest.raises(ValueError, match="Pass template frontmatter inside body"):
+            create.create_resource(
+                str(vault), router, resource="template",
+                name="wiki",
+                body="---\ntype: living/wiki\ntags: []\n---\n\n# New Template\n",
+                frontmatter={"audience": "devs"},
+            )
 
     def test_create_template_unknown_type(self, vault, router):
         with pytest.raises(ValueError, match="Unknown artefact type"):
@@ -707,6 +737,16 @@ class TestCreateResource:
         content = open(abs_path).read()
         fields, _ = parse_frontmatter(content)
         assert fields["audience"] == "technical"
+
+    def test_create_skill_rejects_body_with_frontmatter_block(self, vault, router):
+        with pytest.raises(ValueError, match="must not start with a frontmatter block"):
+            create.create_resource(
+                str(vault),
+                router,
+                resource="skill",
+                name="bad-skill",
+                body="---\naudience: devs\n---\n\n# Skill\n",
+            )
 
     def test_create_skill_name_with_spaces_slugified(self, vault, router):
         """Skill names should be slugified for directory names."""

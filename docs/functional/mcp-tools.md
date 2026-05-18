@@ -214,16 +214,16 @@ Additive, safe to auto-approve. Creates a new vault resource. Write-guarded: rej
 - `type` (required for artefacts) — key, full type, or singular form (e.g. `"ideas"`, `"living/ideas"`, or `"idea"`)
 - `title` (required for artefacts)
 - `name` (required for non-artefact resources) — slugified for filesystem paths; for templates, name is the artefact type key
-- `body` (optional; required for non-artefact resources)
+- `body` (optional; required for non-artefact resources) — for artefacts and body-only config resources (`skill`, `memory`, `style`), this is markdown body content after frontmatter; for `template`, this is the full markdown document, including its own frontmatter block
 - `body_file` (optional) — absolute path to a file containing body content; must be inside the vault or system temp directory; temp files deleted after reading, vault files left in place; mutually exclusive with `body`; use for large content to keep MCP call displays compact; to stage content, run `mktemp /tmp/brain-body-XXXXXX` to get a safe temp path, write content there, then pass that path here
-- `frontmatter` (optional overrides) — for memories, use `{"triggers": ["keyword1", "keyword2"]}`
+- `frontmatter` (optional overrides) — for memories, use `{"triggers": ["keyword1", "keyword2"]}`; not accepted for `resource="template"` because template bodies carry their own frontmatter
 - `parent` (optional) — parent artefact reference for child artefacts. Accepts canonical artefact key form (`"project/brain"`), or a resolvable name/path; persisted canonically as `{type}/{key}` for artefacts. Living children project it into same-type `{key}/` folders or cross-type `{scope}/` folders; temporal children keep their normal `yyyy-mm/` folder layout. Ignored for non-artefact resources
 - `key` (optional) — explicit key override for living artefacts; must be lowercase ASCII alnum plus single hyphens
 - `fix_links` (optional, default `false`) — when `true`, resolvable broken wikilinks in the written artefact are auto-rewritten to their canonical target immediately after creation; remaining unresolvable or ambiguous links are still reported as warnings
 
 **Behaviour:**
 - For artefacts: resolves type from compiled router, reads template, generates filename from naming pattern, writes file with merged frontmatter; naming patterns can also consume matching frontmatter/template values such as `{Version}`; unresolved placeholders return an error instead of writing a broken filename; auto-injects `created` and `modified` ISO 8601 timestamps (respects overrides); living artefacts also get a platform-owned `key`; any resolved `parent` is persisted canonically and stamped into tags, with same-type `{key}/` or cross-type `{scope}/` placement for living children only; temporal children keep date-based filing; auto-disambiguates basename collisions by appending `(type)`
-- For non-artefact resources: creates in the appropriate `_Config/` subfolder — skills at `_Config/Skills/{name}/SKILL.md`, memories at `_Config/Memories/{name}.md`, styles at `_Config/Styles/{name}.md`, templates at `_Config/Templates/{classification}/{Type}.md`
+- For non-artefact resources: creates in the appropriate `_Config/` subfolder — skills at `_Config/Skills/{name}/SKILL.md`, memories at `_Config/Memories/{name}.md`, styles at `_Config/Styles/{name}.md`, templates at `_Config/Templates/{classification}/{Type}.md`. `skill` / `memory` / `style` bodies are serialized with separate frontmatter; template bodies are written as supplied full documents and must begin with frontmatter
 - Every artefact write runs a per-file wikilink check; broken, resolvable, and ambiguous links are appended to the response as `⚠` warning lines (and auto-applied fixes as a `✔` block when `fix_links=true`)
 - Resource-specific request validation is strict: artefact-only fields (`type`, `title`, `parent`, `key`, `fix_links`) are rejected for non-artefact resources, and `name` is rejected for artefact creation
 
@@ -240,7 +240,7 @@ Single-file mutation. Write-guarded: same folder restrictions as `brain_create`.
 - `operation` (required) — `"edit"`, `"append"`, `"prepend"`, or `"delete_section"`
 - `path` (required when `resource="artefact"`) — canonical artefact key (e.g. `"design/brain"`), vault-relative path, or filename basename. For temporal artefacts the display-name portion of the dated filename also resolves (e.g. `"Colour Theory"` → `20260404-research~Colour Theory.md`)
 - `name` (required when resource is `skill`, `memory`, `style`, or `template`) — for templates, name is the artefact type key
-- `body` — omit for frontmatter-only changes; ignored for `delete_section`
+- `body` — omit for frontmatter-only changes; ignored for `delete_section`. When supplied, this is always body content after frontmatter, not a full markdown document
 - `body_file` (optional) — same semantics as `brain_create`'s `body_file`
 - `frontmatter` (optional) — merge strategy depends on operation: edit overwrites fields; append/prepend extend list fields with dedup and overwrite scalars; set a field to `null` to delete it
 - `target` (optional for frontmatter-only edits; required for structural mutations and `delete_section`) — one of:

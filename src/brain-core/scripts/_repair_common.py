@@ -34,6 +34,10 @@ REPAIR_SCOPES = {
         "description": "Repair the current vault's local workspace registry state.",
         "check_message": "Local workspace registry state is malformed or needs normalisation.",
     },
+    "frontmatter": {
+        "description": "Repair duplicate artefact frontmatter blocks by merging nested frontmatter into the document frontmatter.",
+        "check_message": "Artefact frontmatter is malformed and needs duplicate-frontmatter normalisation.",
+    },
     "semantic": {
         "description": "Repair semantic runtime provisioning and embeddings sidecars for this vault.",
         "check_message": "Semantic retrieval is configured on but the local semantic runtime is unavailable or stale.",

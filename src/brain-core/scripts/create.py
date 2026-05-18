@@ -33,11 +33,13 @@ from _common import (
     find_duplicate_basenames,
     find_vault_root,
     generate_contextual_slug,
+    has_leading_frontmatter,
     living_key_set,
     load_compiled_router,
     make_temp_path,
     make_artefact_key,
     normalize_artefact_key,
+    parse_leading_frontmatter,
     parse_frontmatter,
     read_file_content,
     reconcile_fields_for_render,
@@ -56,6 +58,26 @@ from _common import (
     validate_key,
 )
 import fix_links as _fix_links
+
+
+def _reject_leading_body_frontmatter(body, *, resource_label):
+    """Reject full-document content where a body-only payload is required."""
+    if not body:
+        return
+
+    if parse_leading_frontmatter(body, allow_leading_blank_lines=True) is not None:
+        raise ValueError(
+            f"{resource_label} body must not start with a frontmatter block. "
+            "Pass frontmatter via the dedicated frontmatter field and body content separately."
+        )
+
+
+def _require_full_document_frontmatter(body, *, resource_label):
+    """Require a full-document markdown payload with leading frontmatter."""
+    if not has_leading_frontmatter(body):
+        raise ValueError(
+            f"{resource_label} body must be a full markdown document starting with a frontmatter block."
+        )
 
 
 def _generate_key(vault_root, router, artefact, title, explicit=None):
@@ -152,6 +174,7 @@ def create_artefact(vault_root, router, type_key, title, body="", frontmatter_ov
         ValueError: If type is not found, not configured, or file already exists.
     """
     vault_root = str(vault_root)
+    _reject_leading_body_frontmatter(body, resource_label="Artefact")
 
     overrides = dict(frontmatter_overrides or {})
     if key is None and "key" in overrides:
@@ -301,8 +324,11 @@ def _create_config_resource(vault_root, resource, rel_path, name, body, frontmat
     """Shared logic for creating a _Config/ resource file.
 
     Handles write-guard, content serialisation, and safe_write.
-    All _Config/ resources are always serialised with frontmatter.
+    Body-only config resources are serialised with separate frontmatter.
     """
+    _reject_leading_body_frontmatter(
+        body, resource_label=f"{resource.capitalize()} resource"
+    )
     check_write_allowed(rel_path)
     abs_path = os.path.join(vault_root, rel_path)
     content = serialize_frontmatter(dict(frontmatter) if frontmatter else {}, body=body)
@@ -342,10 +368,16 @@ def _create_template(vault_root, router, name, body, frontmatter):
     and folder from the router to place the template at the correct path.
     """
     rel_path = config_resource_rel_path(router, "template", name)
-    # Templates may be overwritten (updating an existing template)
-    return _create_config_resource(
-        vault_root, "template", rel_path, name, body, frontmatter, exclusive=False,
-    )
+    if frontmatter:
+        raise ValueError(
+            "Template resource create expects a full markdown document in body. "
+            "Pass template frontmatter inside body, not via the frontmatter field."
+        )
+    _require_full_document_frontmatter(body, resource_label="Template resource")
+    check_write_allowed(rel_path)
+    abs_path = os.path.join(vault_root, rel_path)
+    safe_write(abs_path, body, bounds=vault_root, exclusive=False)
+    return {"path": rel_path, "resource": "template", "name": name}
 
 
 _RESOURCE_CREATORS = {

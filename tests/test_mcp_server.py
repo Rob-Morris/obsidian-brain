@@ -2156,6 +2156,14 @@ class TestBrainCreate:
         fields, _ = parse_frontmatter(content)
         assert fields["status"] == "shaping"
 
+    def test_create_rejects_body_with_frontmatter_block(self, initialized):
+        result = server.brain_create(
+            type="wiki",
+            title="Bad Body",
+            body="---\nstatus: shaping\n---\n\n# Body\n",
+        )
+        _assert_error(result, "must not start with a frontmatter block")
+
     def test_create_living_with_explicit_key(self, initialized):
         result = server.brain_create(type="wiki", title="Slugged Page", key="slugged-page")
         path = _extract_create_path(result)
@@ -2207,6 +2215,24 @@ class TestBrainCreate:
         assert "**Created** style:" in result
         path = _extract_create_path(result)
         assert path == "_Config/Styles/test-style.md"
+
+    def test_create_template_resource_preserves_full_document(self, initialized):
+        body = "---\ntype: living/wiki\ntags: []\n---\n\n# Template Body\n"
+        result = server.brain_create(
+            resource="template", name="wiki", body=body,
+        )
+        assert "**Created** template:" in result
+        path = _extract_create_path(result)
+        assert (initialized / path).read_text() == body
+
+    def test_create_template_resource_rejects_separate_frontmatter(self, initialized):
+        result = server.brain_create(
+            resource="template",
+            name="wiki",
+            body="---\ntype: living/wiki\ntags: []\n---\n\n# Template Body\n",
+            frontmatter={"audience": "devs"},
+        )
+        _assert_error(result, "Pass template frontmatter inside body")
 
     def test_create_resource_not_creatable(self, initialized):
         result = server.brain_create(
@@ -2351,6 +2377,16 @@ class TestBrainEdit:
         from _common import parse_frontmatter
         fields, _ = parse_frontmatter(content)
         assert fields["type"] == "living/wiki"
+
+    def test_edit_rejects_body_with_frontmatter_block(self, initialized):
+        result = server.brain_edit(
+            operation="edit",
+            path="Wiki/brain-overview-abc123.md",
+            body="---\nstatus: shaping\n---\n\n# Body\n",
+            target=":body",
+            scope="section",
+        )
+        _assert_error(result, "must not start with a frontmatter block")
 
     def test_edit_merges_frontmatter(self, initialized):
         server.brain_edit(
