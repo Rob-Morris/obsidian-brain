@@ -18,6 +18,7 @@ import os
 import sys
 from datetime import datetime, timezone
 
+from _portable.links import check_broken_wikilinks
 from _common import (
     build_vault_file_index,
     build_wikilink_pattern,
@@ -32,7 +33,6 @@ from _common import (
     resolve_broken_link,
     safe_write,
 )
-from check import check_broken_wikilinks
 
 
 def _resolvable_fixes(findings):

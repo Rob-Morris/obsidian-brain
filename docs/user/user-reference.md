@@ -113,8 +113,8 @@ If your vault runs the Brain MCP server (`.brain-core/brain_mcp/server.py`), nin
 - If router warmup is still in progress, returns a structured progress/retry payload instead of blocking blindly
 
 **brain_read** (safe, no side effects)
-- Look up artefacts, triggers, styles, templates, skills, plugins, memories, workspaces, environment info, the compiled router, structural compliance results, or read artefact files by path
-- `name` is required for named resources such as `skill`, `memory`, `workspace`, `artefact`, and `file`; optional for `compliance`; rejected for `environment` and `router`. For temporal artefacts, the display name works without the dated prefix — e.g. "Colour Theory" finds `20260404-research~Colour Theory.md`
+- Look up artefacts, triggers, styles, templates, skills, plugins, memories, workspaces, environment info, the compiled router, or read artefact files by path
+- `name` is required for named resources such as `skill`, `memory`, `workspace`, `artefact`, and `file`; rejected for `environment` and `router`. For temporal artefacts, the display name works without the dated prefix — e.g. "Colour Theory" finds `20260404-research~Colour Theory.md`
 - `resource="file"` can also read `.brain-core/` docs by vault-relative path when the agent is operating over MCP, e.g. `brain_read(resource="file", name=".brain-core/standards/provenance.md")`
 
 **brain_search** (safe, no side effects)
@@ -209,7 +209,7 @@ The same is now true for the managed operational wrappers: `build_index.py`, `se
 | `compile_router.py` | Compile router, taxonomy, skills, and styles into a single JSON file |
 | `compile_colours.py` | Generate folder colour CSS and graph colour groups |
 | `build_index.py` | Build the retrieval index for search and refresh embeddings sidecars when `semantic_processing` or `semantic_retrieval` is enabled, router data is available, and the optional semantic runtime has been installed; unreadable retrieval sources and persistence failures now fail explicitly |
-| `list_artefacts.py` | Enumerate vault artefacts and resources (library module used by MCP) |
+| `list_artefacts.py` | Enumerate vault artefacts and resources via the direct script surface aligned to `brain_list` |
 | `search_index.py` | Search the local retrieval index from the command line via lexical, semantic, or hybrid modes; hybrid preserves obvious exact-anchor lexical wins, gives a small tie-break boost to a clearly dominant semantic top result, preserves strong lexical title champions when the query literally contains their core title phrase (stripping only the shipped `Brain` product namespace from first-party titles), and can apply a stronger semantic rescue when lexical and semantic leaders are clearly disjoint |
 | `construct_benchmark_fixture.py` | Mine a real vault for lexical / semantic / hybrid / cluster / filter-sensitive benchmark cases and emit both a benchmark fixture JSON and an audit JSON; unreadable source files now fail explicitly |
 | `evaluate_search.py` | Benchmark lexical, semantic, and hybrid retrieval against a JSON query set |

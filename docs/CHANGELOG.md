@@ -6,6 +6,7 @@ Version-by-version release history for Obsidian Brain. Every shipped version has
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.42.0](changelog/v0.42.0.md) | 2026-05-19 | Restore portable artefact surfaces and remove compliance from brain_read |
 | [v0.41.2](changelog/v0.41.2.md) | 2026-05-19 | Replace PyYAML with the shared Brain-owned YAML seam |
 | [v0.41.1](changelog/v0.41.1.md) | 2026-05-19 | Converge managed operational wrappers on the shared runtime handoff |
 | [v0.41.0](changelog/v0.41.0.md) | 2026-05-19 | Extract shared `_bootstrap` runtime seams for lifecycle entrypoints |

@@ -99,11 +99,21 @@ def vault(tmp_path):
     # Compile the router
     from compile_router import compile as compile_router
     compiled = compile_router(str(tmp_path))
+    brain_local = tmp_path / ".brain" / "local"
+    brain_local.mkdir(parents=True, exist_ok=True)
+    (brain_local / "compiled-router.json").write_text(
+        json.dumps(compiled, indent=2),
+        encoding="utf-8",
+    )
 
     # Build the index
     from _search.index import build_index
 
     index = build_index(str(tmp_path)).index
+    (brain_local / "retrieval-index.json").write_text(
+        json.dumps(index, indent=2),
+        encoding="utf-8",
+    )
 
     return tmp_path, compiled, index
 
@@ -187,6 +197,13 @@ class TestListResources:
         assert isinstance(results, list)
         assert any("old-page" in r["title"] for r in results)
 
+    def test_workspace_list(self, vault):
+        tmp_path, router, index = vault
+        (tmp_path / "_Workspaces" / "proj").mkdir(parents=True)
+        results = la.list_resources(index, router, str(tmp_path), resource="workspace")
+        assert isinstance(results, list)
+        assert any(result["slug"] == "proj" for result in results)
+
     def test_invalid_resource_raises(self, vault):
         tmp_path, router, index = vault
         with pytest.raises(ValueError, match="not listable"):
@@ -198,3 +215,27 @@ class TestListResources:
         assert len(results) >= 1
         results_none = la.list_resources(index, router, str(tmp_path), resource="type", query="zzzzz")
         assert len(results_none) == 0
+
+
+class TestListArtefactsCli:
+    def test_cli_lists_artefacts_by_default(self, vault, capsys):
+        tmp_path, _router, _index = vault
+        la.main(["--vault", str(tmp_path)])
+        output = capsys.readouterr().out
+        assert "Listed: " in output
+        assert "Wiki/test-page.md" in output
+
+    def test_cli_lists_workspaces(self, vault, capsys):
+        tmp_path, _router, _index = vault
+        (tmp_path / "_Workspaces" / "proj").mkdir(parents=True)
+        la.main(["workspace", "--vault", str(tmp_path)])
+        output = capsys.readouterr().out
+        assert "Listed: 1 workspace(s)" in output
+        assert "proj\tembedded" in output
+
+    def test_cli_rejects_query_for_artefacts(self, vault, capsys):
+        tmp_path, _router, _index = vault
+        with pytest.raises(SystemExit) as exc:
+            la.main(["artefact", "--query", "wiki", "--vault", str(tmp_path)])
+        assert exc.value.code == 2
+        assert "resource='artefact' does not accept --query" in capsys.readouterr().err

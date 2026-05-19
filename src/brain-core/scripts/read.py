@@ -4,7 +4,6 @@ read.py — Read Brain vault resources from the compiled router.
 
 Queries the compiled router JSON for artefact types, triggers, styles,
 templates, skills, plugins, memories, environment, and router metadata.
-Also runs structural compliance checks.
 
 The MCP server imports these functions directly (with its in-memory router),
 avoiding JSON parsing overhead. Standalone CLI reads from disk.
@@ -19,7 +18,6 @@ Usage:
     python3 read.py memory --name "brain core"
     python3 read.py environment
     python3 read.py router
-    python3 read.py compliance --name error
     python3 read.py artefact --name "Designs/brain-master-design.md"
     python3 read.py file --name "obsidian-brain-dev"
 """
@@ -262,20 +260,6 @@ def read_file(router, vault_root, name=None):
     return {"error": f"No vault file found matching '{name}'"}
 
 
-def read_compliance(router, vault_root, name=None):
-    """Run structural compliance checks. name = severity filter."""
-    from check import run_checks
-    result = run_checks(str(vault_root), router)
-    if name:  # name parameter doubles as severity filter
-        result["findings"] = [f for f in result["findings"] if f["severity"] == name]
-        result["summary"] = {
-            "errors": sum(1 for f in result["findings"] if f["severity"] == "error"),
-            "warnings": sum(1 for f in result["findings"] if f["severity"] == "warning"),
-            "info": sum(1 for f in result["findings"] if f["severity"] == "info"),
-        }
-    return result
-
-
 # ---------------------------------------------------------------------------
 # Archive resource
 # ---------------------------------------------------------------------------
@@ -306,7 +290,6 @@ RESOURCES = {
     "memory": read_memory,
     "environment": read_environment,
     "router": read_router_meta,
-    "compliance": read_compliance,
     "artefact": read_artefact,
     "file": read_file,
     "archive": read_archive,

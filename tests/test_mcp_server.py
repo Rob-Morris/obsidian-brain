@@ -536,17 +536,10 @@ class TestBrainReadSpecValidation:
         result = server.brain_read("router", name="anything")
         _assert_error(result, "does not accept top-level field 'name'")
 
-    def test_read_compliance_accepts_no_name(self, initialized):
-        """brain_read(resource='compliance') works without a name."""
+    def test_read_compliance_is_not_a_read_resource(self, initialized):
+        """brain_read(resource='compliance') is rejected."""
         result = server.brain_read("compliance")
-        # Should not be an error — returns compliance report
-        assert result is not None
-        assert not (isinstance(result, list) and result and getattr(result[0], "isError", False))
-
-    def test_read_compliance_accepts_severity_name(self, initialized):
-        """brain_read(resource='compliance', name='error') is valid."""
-        result = server.brain_read("compliance", name="error")
-        assert result is not None
+        _assert_error(result, "not readable via brain_read")
 
 
 class TestBrainListSpecValidation:

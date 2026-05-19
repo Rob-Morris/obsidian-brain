@@ -30,6 +30,7 @@ from _bootstrap.runtime import (
     exec_managed_runtime,
     required_modules_for_scope,
 )
+from _portable.links import check_broken_wikilinks as _portable_check_broken_wikilinks
 from _common import (
     BOOTSTRAP_VARIANTS,
     LOCAL_OVERRIDE_VARIANTS,
@@ -43,9 +44,6 @@ from _common import (
     normalize_artefact_key,
     read_frontmatter,
     build_vault_file_index,
-    check_wikilinks_in_file,
-    discover_temporal_prefixes,
-    INDEX_SKIP_DIRS,
     inspect_duplicate_frontmatter_document,
     iter_artefact_markdown_files,
     iter_artefact_paths,
@@ -731,65 +729,13 @@ def check_taxonomy_type_consistency(vault_root, router, *, ctx=None):
 # ---------------------------------------------------------------------------
 
 def check_broken_wikilinks(vault_root, router, file_index=None, *, ctx=None):
-    """Check for wikilinks that target non-existent or ambiguous files.
-
-    Infrastructure folders (``_Config``) are excluded from the walk because
-    template and taxonomy files contain intentional placeholder wikilinks
-    that generate false positives. Those files remain in the file index so
-    they stay valid link targets — they are just not themselves checked.
-    """
-    findings = []
-    if file_index is None:
-        file_index = ctx.file_index if ctx is not None else build_vault_file_index(vault_root)
-    temporal_prefixes = discover_temporal_prefixes(file_index["md_basenames"])
-
-    for dirpath, dirnames, filenames in os.walk(vault_root):
-        dirnames[:] = [
-            d for d in dirnames
-            if d not in INDEX_SKIP_DIRS and d not in {"_Archive", "_Config"}
-        ]
-        for fname in filenames:
-            if not fname.endswith(".md"):
-                continue
-            rel_path = os.path.relpath(os.path.join(dirpath, fname), vault_root)
-
-            file_findings = check_wikilinks_in_file(
-                vault_root, rel_path,
-                file_index=file_index,
-                temporal_prefixes=temporal_prefixes,
-            )
-            for f in file_findings:
-                stem = f["stem"]
-                # Direct-basename ambiguity (stem itself matches multiple files)
-                # is surfaced as a distinct info-level check. Resolution-strategy
-                # ambiguity (e.g. slug_to_title hitting multiple titles) and
-                # resolvable-via-heuristic links both report as broken — the
-                # link as written is broken; fix-links surfaces the distinction.
-                if f["status"] == "ambiguous" and f["strategy"] == "ambiguous":
-                    matches = f["candidates"]
-                    file_list = ", ".join(matches[:5])
-                    if len(matches) > 5:
-                        file_list += f", ... and {len(matches) - 5} more"
-                    findings.append({
-                        "check": "ambiguous_wikilinks",
-                        "severity": "info",
-                        "file": rel_path,
-                        "stem": stem,
-                        "message": (
-                            f"Ambiguous wikilink: [[{stem}]] matches "
-                            f"{len(matches)} files: {file_list}"
-                        ),
-                    })
-                else:
-                    findings.append({
-                        "check": "broken_wikilinks",
-                        "severity": "warning",
-                        "file": rel_path,
-                        "stem": stem,
-                        "message": f"Broken wikilink: [[{stem}]]",
-                    })
-
-    return findings
+    """Portable broken-wikilink seam wrapped for the full compliance surface."""
+    return _portable_check_broken_wikilinks(
+        vault_root,
+        router,
+        file_index=file_index,
+        ctx=ctx,
+    )
 
 
 # ---------------------------------------------------------------------------

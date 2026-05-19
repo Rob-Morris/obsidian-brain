@@ -1,5 +1,6 @@
 """Tests for start_shaping.py — shaping session bootstrap."""
 
+import inspect
 import json
 import os
 from datetime import datetime, timezone
@@ -132,6 +133,21 @@ def _write_compiled_router(vault, router):
 # ---------------------------------------------------------------------------
 
 class TestStartShaping:
+    def test_module_stays_on_portable_shared_seams(self):
+        source = inspect.getsource(start_shaping)
+        forbidden = (
+            "from check import",
+            "import check",
+            "from _semantic",
+            "import _semantic",
+            "from config import",
+            "import config",
+            "from session import",
+            "import session",
+            "from _repair_runtime",
+        )
+        for needle in forbidden:
+            assert needle not in source
 
     def test_cli_main_bootstraps_transcript_creation(self, vault, router, monkeypatch, capsys):
         _write_compiled_router(vault, router)

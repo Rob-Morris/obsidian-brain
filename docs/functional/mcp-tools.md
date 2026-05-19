@@ -138,21 +138,20 @@ Delegates to `session.py`.
 Safe, no side effects, auto-approvable. Reads a specific resource by name. Delegates to `read.py` resource handlers.
 
 **Parameters:**
-- `resource` (required) — one of: `type`, `trigger`, `style`, `template`, `skill`, `plugin`, `memory`, `workspace`, `environment`, `router`, `compliance`, `artefact`, `file`, `archive`
-- `name` — required for `type`, `trigger`, `style`, `template`, `skill`, `plugin`, `memory`, `workspace`, `artefact`, `file`, and `archive`; optional for `compliance`; rejected for `environment` and `router`
+- `resource` (required) — one of: `type`, `trigger`, `style`, `template`, `skill`, `plugin`, `memory`, `workspace`, `environment`, `router`, `artefact`, `file`, `archive`
+- `name` — required for `type`, `trigger`, `style`, `template`, `skill`, `plugin`, `memory`, `workspace`, `artefact`, `file`, and `archive`; rejected for `environment` and `router`
 
 **Resource behaviours:**
-- **Singletons** (`environment`, `router`, `compliance`) — no `name` required
+- **Singletons** (`environment`, `router`) — no `name` required
 - **Aliases** (`template`, `file`) — work as before; `file` is a smart resolver that delegates to the correct handler
 - **`file`** — can also read `.brain-core/` docs by vault-relative path, e.g. `brain_read(resource="file", name=".brain-core/standards/provenance.md")`
 - **`artefact`** — reads by canonical artefact key (e.g. `name="design/brain"`), relative path, or basename/display name. Canonical keys resolve via the compiled artefact index; full relative paths read directly; bare names resolve via wikilink-style lookup (case-insensitive, `.md`-optional) validated against the compiled router — for living artefacts the filename is the display name, and for temporal artefacts the display name works too (e.g. `name="Colour Theory"` resolves `20260404-research~Colour Theory.md`). Archive paths are rejected with a helpful error.
-- **`compliance`** — runs `check.py` checks; `name` filters by severity (`error`/`warning`/`info`). Repairable router/MCP/local-registry findings now include a structured `repair` object (`scope`, `description`, `command`) in the JSON payload.
 - **`environment`** — enriched server-side with `obsidian_cli_available`
 - **`workspace`** — resolves a specific slug to its data folder path (handled by server, not router state)
 
 Normal artefact/file resources reject archive paths with a helpful error. If a basename resolves to `_Config/`, the error suggests the correct dedicated resource (e.g. `memory`, `skill`).
 
-**Response format:** Resource-dependent. Artefact/file content returned as plain text. Single-item resources (`type`, `trigger`, `memory`) returned as JSON. Complex resources (`router`, `compliance`) remain JSON where structure aids comprehension. Compliance findings may now carry structured `repair` hints when a shaped repair scope applies. Environment returned as formatted `key=value` pairs.
+**Response format:** Resource-dependent. Artefact/file content returned as plain text. Single-item resources (`type`, `trigger`, `memory`) returned as JSON. Complex resources such as `router` remain JSON where structure aids comprehension. Environment returned as formatted `key=value` pairs.
 
 Resource-specific request validation is strict: missing required fields and resource-incompatible extras fail early with a contract hint. `brain_read(resource="workspace")` without `name`, for example, points callers at `brain_list(resource="workspace")`.
 
@@ -365,7 +364,7 @@ MCP tool results are displayed inline in agent UIs (Claude Code, Cursor, etc.). 
 
 - **Confirmations → plain text.** `brain_create`, `brain_edit`, simple `brain_move`, simple `brain_action` results. One line, human-scannable.
 - **Content retrieval → plain text.** `brain_read(resource="artefact")` returns the file content as-is. List resources use one item per line with tab-separated key fields.
-- **Structured data → JSON only when structure adds value.** Router dumps, compliance check arrays, upgrade file manifests. These are genuinely tabular/nested.
+- **Structured data → JSON only when structure adds value.** Router dumps and upgrade file manifests are genuinely tabular/nested.
 - **Errors → plain text.** `"Error: {message}"` — no JSON wrapper.
 - **Session → unchanged.** `brain_session` is agent-consumed, never human-read. Stays as compact JSON.
 - **Multi-block for mixed responses.** When a tool returns both metadata and content (e.g. search results with source attribution), use `list[TextContent]` — metadata in one block, results in another.

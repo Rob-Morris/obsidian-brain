@@ -207,6 +207,12 @@ class TestReadResource:
         assert "always_rules" in result
         assert "meta" in result
 
+    def test_compliance_is_not_a_read_resource(self, vault):
+        _, router = vault
+        result = read.read_resource(router, "", "compliance")
+        assert "error" in result
+        assert "Unknown resource" in result["error"]
+
     def test_memory_requires_name(self, vault):
         _, router = vault
         with pytest.raises(ValueError, match="requires name"):

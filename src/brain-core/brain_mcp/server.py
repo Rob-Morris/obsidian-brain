@@ -2283,7 +2283,7 @@ def brain_read(
     resource: Annotated[
         Literal[
             "type", "trigger", "style", "template", "skill", "plugin",
-            "memory", "workspace", "environment", "router", "compliance",
+            "memory", "workspace", "environment", "router",
             "artefact", "file", "archive",
         ],
         Field(description=(
@@ -2295,8 +2295,8 @@ def brain_read(
         Field(description=(
             "Resource identifier. Use the type key for 'type'/'template'; a "
             "trigger/name substring for 'memory'; the workspace slug for "
-            "'workspace'; optional severity for 'compliance'; an artefact key, "
-            "path, or basename for 'artefact'; and a vault-relative path for "
+            "'workspace'; an artefact key, path, or basename for 'artefact'; "
+            "and a vault-relative path for "
             "'file'/'archive'. Omit for 'environment'/'router'."
         )),
     ] = None,

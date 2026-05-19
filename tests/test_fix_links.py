@@ -1,5 +1,4 @@
 """Tests for fix_links.py — broken wikilink auto-repair."""
-
 import json
 import os
 
@@ -58,6 +57,9 @@ def router():
 # ---------------------------------------------------------------------------
 
 class TestScanAndResolve:
+    def test_uses_portable_broken_link_seam(self):
+        assert fix_links.check_broken_wikilinks.__module__ == "_portable.links"
+
     def test_no_broken_links(self, vault, router):
         write_md(vault / "Wiki" / "My Page.md",
                  {"type": "living/wiki", "tags": ["test"]},

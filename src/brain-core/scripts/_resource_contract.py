@@ -70,7 +70,6 @@ CREATE_SPECS: dict[str, Spec] = {
 # Per-resource field contracts for brain_read.
 #
 # All resources except 'environment' and 'router' require a name parameter.
-# 'compliance' accepts an optional name (used as severity filter).
 # 'environment' and 'router' accept no fields at all.
 READ_SPECS: dict[str, Spec] = {
     "type": Spec(required_fields=("name",)),
@@ -84,7 +83,6 @@ READ_SPECS: dict[str, Spec] = {
     "artefact": Spec(required_fields=("name",)),
     "file": Spec(required_fields=("name",)),
     "archive": Spec(required_fields=("name",)),
-    "compliance": Spec(required_fields=(), optional_fields=("name",)),
     "environment": Spec(required_fields=()),
     "router": Spec(required_fields=()),
 }

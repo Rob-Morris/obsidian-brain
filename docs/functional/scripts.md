@@ -29,7 +29,7 @@ That `python3.12` process is the launcher, not the managed runtime itself.
 | `compile_router.py` | Compile router from source files and refresh the session mirror | `python3 compile_router.py [--json]` |
 | `compile_colours.py` | Generate folder colour CSS | (called by compile_router) |
 | `build_index.py` | Build retrieval index and optional embeddings sidecars from the provisioned local semantic model; unreadable retrieval sources and persistence failures now fail explicitly | `python3 build_index.py [--json]` |
-| `list_artefacts.py` | Enumerate vault artefacts and resources (unranked, no cap) | (library module, used by MCP server) |
+| `list_artefacts.py` | Enumerate vault artefacts and resources (unranked, no cap) | `python3 list_artefacts.py [RESOURCE] [--query Q] [--type T] [--parent P] [--since D] [--until D] [--tag TAG] [--top-k N] [--sort S] [--vault V] [--json]` |
 | `search_index.py` | Lexical, semantic, or hybrid local search | `python3 search_index.py "query" [--type T] [--mode M] [--json]` |
 | `construct_benchmark_fixture.py` | Derive a vault-native retrieval benchmark fixture plus audit JSON from an existing vault, including semantic-variant audit diagnostics and optional externally seeded semantic or hybrid candidates; unreadable source files now fail explicitly | `python3 construct_benchmark_fixture.py --fixture-out PATH [--audit-out PATH] [--semantic-strategy S] [--semantic-seed-file PATH] [--hybrid-seed-file PATH] [--json]` |
 | `evaluate_search.py` | Benchmark lexical, semantic, and hybrid retrieval against a JSON query set | `python3 evaluate_search.py --benchmark PATH [--mode M]... [--json]` |
