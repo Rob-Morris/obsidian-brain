@@ -11,6 +11,8 @@ import sys
 
 import pytest
 
+import _bootstrap.diagnostics as bootstrap_diagnostics
+import _bootstrap.runtime as bootstrap_runtime
 import _lifecycle.frontmatter_repairs as frontmatter_repairs
 import _lifecycle_common as lifecycle_common
 import _semantic.config as semantic_config
@@ -90,7 +92,7 @@ def _wiki_router():
 
 
 def _register_project_client(vault: Path, client: str) -> dict:
-    server_config = repair_runtime._expected_project_server_config(vault)
+    server_config = bootstrap_diagnostics._expected_project_server_config(vault)
     if client == "claude":
         has_claude_cli = repair_runtime.init._has_claude_cli
         repair_runtime.init._has_claude_cli = lambda: False
@@ -188,7 +190,7 @@ class TestBootstrapSummary:
 
         monkeypatch.setattr(repair, "_bootstrap_summary", boom)
         monkeypatch.setattr(repair, "_find_launcher_python", lambda: sys.executable)
-        monkeypatch.delenv("BRAIN_REPAIR_MANAGED", raising=False)
+        monkeypatch.delenv(repair.MANAGED_RUNTIME_ENV, raising=False)
 
         exit_code = repair.main(["router", "--vault", str(repair_vault), "--json"])
 
@@ -205,7 +207,7 @@ class TestBootstrapSummary:
 
         monkeypatch.setattr(repair, "_bootstrap_summary", boom)
         monkeypatch.setattr(repair, "_find_launcher_python", lambda: sys.executable)
-        monkeypatch.delenv("BRAIN_REPAIR_MANAGED", raising=False)
+        monkeypatch.delenv(repair.MANAGED_RUNTIME_ENV, raising=False)
 
         exit_code = repair.main(["router", "--vault", str(repair_vault), "--json"])
 
@@ -239,7 +241,7 @@ class TestBootstrapSummary:
                 "missing_modules": (),
             }
 
-        monkeypatch.setattr(lifecycle_common, "resolve_or_provision_central_venv", fake_provision)
+        monkeypatch.setattr(bootstrap_runtime, "resolve_or_provision_central_venv", fake_provision)
 
         summary = repair._bootstrap_summary(
             repair_vault,
@@ -267,9 +269,9 @@ class TestRepairScopes:
         runtime_python = repair_vault / ".brain" / "managed-runtime" / "bin" / "python"
         runtime_python.parent.mkdir(parents=True)
         runtime_python.write_text("")
-        monkeypatch.setattr(repair_runtime, "resolve_vault_venv_python", lambda _vault: runtime_python)
+        monkeypatch.setattr(bootstrap_diagnostics, "resolve_vault_venv_python", lambda _vault: runtime_python)
         monkeypatch.setattr(
-            repair_runtime,
+            bootstrap_diagnostics,
             "probe_python",
             lambda _python_path, *, modules=(): {"compatible": True, "ok": True, "missing": []},
         )
@@ -282,7 +284,7 @@ class TestRepairScopes:
 
     def test_runtime_verification_reports_error_when_runtime_is_missing(self, repair_vault, monkeypatch):
         missing_python = repair_vault / ".brain" / "missing-runtime" / "bin" / "python"
-        monkeypatch.setattr(repair_runtime, "resolve_vault_venv_python", lambda _vault: missing_python)
+        monkeypatch.setattr(bootstrap_diagnostics, "resolve_vault_venv_python", lambda _vault: missing_python)
 
         result = repair_runtime.verify_runtime_post_bootstrap(repair_vault, dry_run=False)
 
@@ -297,9 +299,9 @@ class TestRepairScopes:
         runtime_python = repair_vault / ".brain" / "venv" / "bin" / "python"
         runtime_python.parent.mkdir(parents=True)
         runtime_python.write_text("")
-        monkeypatch.setattr(repair_runtime, "resolve_vault_venv_python", lambda _vault: runtime_python)
+        monkeypatch.setattr(bootstrap_diagnostics, "resolve_vault_venv_python", lambda _vault: runtime_python)
         monkeypatch.setattr(
-            repair_runtime,
+            bootstrap_diagnostics,
             "probe_python",
             lambda _python_path, *, modules=(): {"compatible": False, "ok": False, "missing": list(modules)},
         )
@@ -313,9 +315,9 @@ class TestRepairScopes:
         runtime_python = repair_vault / ".brain" / "venv" / "bin" / "python"
         runtime_python.parent.mkdir(parents=True)
         runtime_python.write_text("")
-        monkeypatch.setattr(repair_runtime, "resolve_vault_venv_python", lambda _vault: runtime_python)
+        monkeypatch.setattr(bootstrap_diagnostics, "resolve_vault_venv_python", lambda _vault: runtime_python)
         monkeypatch.setattr(
-            repair_runtime,
+            bootstrap_diagnostics,
             "probe_python",
             lambda _python_path, *, modules=(): {"compatible": True, "ok": False, "missing": ["mcp"]},
         )
@@ -1005,7 +1007,7 @@ class TestCheckRepairHints:
     def test_runtime_drift_adds_runtime_repair_guidance(self, repair_vault, monkeypatch):
         _register_project_client(repair_vault, "claude")
         monkeypatch.setattr(
-            repair_runtime,
+            bootstrap_diagnostics,
             "inspect_runtime",
             lambda _vault: {
                 "healthy": False,

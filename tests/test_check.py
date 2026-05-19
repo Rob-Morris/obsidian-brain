@@ -2,6 +2,7 @@
 
 import json
 import os
+import sys
 
 import pytest
 
@@ -1122,6 +1123,66 @@ class TestOutput:
             assert "severity" in f
             assert "message" in f
             # file can be None for folder-level checks
+
+
+class TestCheckCli:
+    def test_main_reexecs_into_managed_runtime_when_bootstrap_succeeds(
+        self, vault, monkeypatch
+    ):
+        tmp_path, _router = vault
+        monkeypatch.delenv("BRAIN_MANAGED_RUNTIME", raising=False)
+        monkeypatch.setattr(check, "current_process_in_managed_runtime", lambda _vault: False)
+        monkeypatch.setattr(
+            check,
+            "bootstrap_managed_runtime",
+            lambda *_args, **_kwargs: {
+                "managed_runtime_ready": True,
+                "managed_python": "/managed/python",
+                "steps": [],
+            },
+        )
+
+        captured = {}
+
+        def fake_exec(*, managed_python, script_path, forwarded_args, summary):
+            captured["managed_python"] = managed_python
+            captured["script_path"] = script_path
+            captured["forwarded_args"] = forwarded_args
+            captured["summary"] = summary
+            raise RuntimeError("reexec")
+
+        monkeypatch.setattr(check, "exec_managed_runtime", fake_exec)
+        monkeypatch.setattr(sys, "argv", ["check.py", "--vault", str(tmp_path)])
+
+        with pytest.raises(RuntimeError, match="reexec"):
+            check.main()
+
+        assert captured["managed_python"] == "/managed/python"
+        assert captured["forwarded_args"] == ["--vault", str(tmp_path)]
+
+    def test_main_emits_bootstrap_failure_result_when_runtime_bootstrap_fails(
+        self, vault, monkeypatch, capsys
+    ):
+        tmp_path, _router = vault
+        monkeypatch.delenv("BRAIN_MANAGED_RUNTIME", raising=False)
+        monkeypatch.setattr(check, "current_process_in_managed_runtime", lambda _vault: False)
+        monkeypatch.setattr(
+            check,
+            "bootstrap_managed_runtime",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("managed runtime unavailable")),
+        )
+        monkeypatch.setattr(sys, "argv", ["check.py", "--vault", str(tmp_path), "--json"])
+
+        with pytest.raises(SystemExit) as excinfo:
+            check.main()
+
+        assert excinfo.value.code == 2
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["summary"] == {"errors": 1, "warnings": 0, "info": 0}
+        assert payload["findings"][0]["check"] == "runtime:bootstrap-failed"
+        assert payload["findings"][0]["severity"] == "error"
+        assert payload["findings"][0]["message"] == "managed runtime unavailable"
+        assert payload["findings"][0]["repair"]["scope"] == "runtime"
 
 
 # ---------------------------------------------------------------------------

@@ -94,6 +94,8 @@ The compiled router (`.brain/local/compiled-router.json`) is the interface betwe
 
 The MCP server is a thin wrapper. All vault operation logic lives in `.brain-core/scripts/` as importable Python modules, each with a CLI entry point. The server imports functions from scripts and adds MCP transport, in-memory caching, process-local mutation serialization for mutating tool calls, and Obsidian CLI delegation. This means agents without MCP use the scripts directly and get identical results. New operations are always implemented as scripts first, then exposed via MCP — never the reverse.
 
+The lifecycle/bootstrap side of that script layer now has an explicit shared owner under `scripts/_bootstrap/`. `runtime.py` owns launcher discovery, managed-runtime handoff, and the shared `BRAIN_MANAGED_RUNTIME` / `BRAIN_BOOTSTRAP_SUMMARY` contract; `diagnostics.py` owns the launcher-safe runtime/MCP/registry checks needed before managed semantic work is available. Entry points such as `repair.py`, `configure.py`, `init.py`, `session.py`, and `check.py` now converge on that seam instead of carrying parallel launcher or env-var logic.
+
 Within that script layer, retrieval ownership is now split honestly by
 responsibility: lexical index and retrieval policy live under `scripts/_search/`,
 semantic sidecar mechanics live under `scripts/_semantic/`, and combined
@@ -104,7 +106,7 @@ those canonical module owners rather than the Python import surface.
 Internal production code and tests now depend on `_search`, `_semantic`, and
 `_lifecycle` directly; the wrappers remain as supported script surfaces only.
 
-The optional [`brain` CLI](../functional/cli.md) (installed to `~/.local/bin/brain` by `install.sh`) is a thin dispatch layer on top of these scripts — `brain repair runtime` is exactly `python3 .brain-core/scripts/repair.py runtime` against the active vault's central managed runtime. The CLI versions independently from `brain-core`; its dispatch surface is the contract. See [DD-049](decisions/dd-049-brain-cli-thin-dispatch.md).
+The optional [`brain` CLI](../functional/cli.md) (installed to `~/.local/bin/brain` by `install.sh`) is a thin dispatch layer on top of these scripts — `brain repair runtime` reaches the same `repair.py` entry surface against the active vault's central managed runtime. The CLI versions independently from `brain-core`; its dispatch surface is the contract. See [DD-049](decisions/dd-049-brain-cli-thin-dispatch.md).
 
 ### Three-layer config merge
 

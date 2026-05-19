@@ -18,10 +18,18 @@ Usage:
 
 import json
 import os
+from pathlib import Path
 import re
 import sys
 from datetime import datetime, timezone
 
+from _bootstrap.diagnostics import collect_bootstrap_check_findings
+from _bootstrap.runtime import (
+    bootstrap_managed_runtime,
+    current_process_in_managed_runtime,
+    exec_managed_runtime,
+    required_modules_for_scope,
+)
 from _common import (
     BOOTSTRAP_VARIANTS,
     LOCAL_OVERRIDE_VARIANTS,
@@ -52,7 +60,6 @@ from _common import (
 )
 from _lifecycle.frontmatter_repairs import iter_candidate_artefact_markdown_files
 from _repair_common import attach_repair_guidance
-from _repair_runtime import collect_check_findings
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -836,7 +843,10 @@ def run_checks(vault_root, router=None):
     findings = []
     for check_fn in ALL_CHECKS:
         findings.extend(check_fn(vault_root, router, ctx=ctx))
-    findings.extend(collect_check_findings(vault_root))
+    findings.extend(collect_bootstrap_check_findings(vault_root))
+    from _repair_runtime import collect_managed_check_findings
+
+    findings.extend(collect_managed_check_findings(vault_root))
 
     summary = {
         "errors": sum(1 for f in findings if f["severity"] == "error"),
@@ -877,6 +887,46 @@ def parse_args(argv):
 def main():
     json_mode, actionable, severity_filter, vault_path = parse_args(sys.argv)
     vault_root = vault_path if vault_path else str(find_vault_root())
+    if not current_process_in_managed_runtime(vault_root):
+        try:
+            summary = bootstrap_managed_runtime(
+                Path(vault_root),
+                required_modules=required_modules_for_scope("runtime"),
+                dependency_owner="check.py",
+            )
+        except (RuntimeError, AssertionError) as exc:
+            finding = attach_repair_guidance(
+                {
+                    "check": "runtime:bootstrap-failed",
+                    "severity": "error",
+                    "file": None,
+                    "message": str(exc),
+                },
+                vault_root,
+                "runtime",
+            )
+            result = {
+                "vault_root": vault_root,
+                "brain_core_version": None,
+                "checked_at": datetime.now(timezone.utc).astimezone().isoformat(),
+                "summary": {"errors": 1, "warnings": 0, "info": 0},
+                "findings": [finding],
+            }
+            if json_mode:
+                print(json.dumps(result, indent=2, ensure_ascii=False))
+            else:
+                print(f"  ERROR    (folder-level): {finding['message']} → Run `{finding['repair']['command']}`")
+                print("\n1 finding(s): 1 error(s), 0 warning(s), 0 info")
+            sys.exit(2)
+
+        if summary["managed_runtime_ready"]:
+            if os.path.realpath(sys.executable) != os.path.realpath(summary["managed_python"]):
+                exec_managed_runtime(
+                    managed_python=summary["managed_python"],
+                    script_path=os.path.abspath(__file__),
+                    forwarded_args=sys.argv[1:],
+                    summary=summary,
+                )
     result = run_checks(vault_root)
 
     # Apply severity filter

@@ -34,7 +34,7 @@ from _lifecycle_common import (
     bootstrap_managed_runtime,
     exit_code_for_result,
     exec_managed_runtime,
-    find_repair_launcher,
+    find_launcher_python,
     load_bootstrap_steps,
     make_result_envelope,
     render_human_result,
@@ -68,7 +68,7 @@ def _bootstrap_summary(
 
 
 def _find_launcher_python() -> str:
-    launcher = find_repair_launcher()
+    launcher = find_launcher_python()
     if launcher:
         return launcher
     fatal(
@@ -88,8 +88,6 @@ def _exec_managed_runtime(args: argparse.Namespace, vault_root: Path, summary: d
         script_path=str(Path(__file__).resolve()),
         forwarded_args=argv,
         summary=summary,
-        managed_runtime_env=MANAGED_RUNTIME_ENV,
-        bootstrap_summary_env=BOOTSTRAP_SUMMARY_ENV,
     )
 
 
@@ -195,7 +193,7 @@ def main(argv: list[str] | None = None) -> int:
         else:
             fatal("Managed runtime bootstrap did not produce a usable central venv.")
     else:
-        bootstrap_steps = load_bootstrap_steps(BOOTSTRAP_SUMMARY_ENV)
+        bootstrap_steps = load_bootstrap_steps()
 
     from _repair_runtime import run_scope
 

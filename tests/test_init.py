@@ -77,57 +77,39 @@ class TestBuildMcpConfig:
         assert config["env"]["BRAIN_WORKSPACE_DIR"] == str(project)
 
 
-class TestFindPythonFallbackChain:
-    """Cover the migration fallback ordering documented in DD-047.
+class TestFindPython:
+    def test_returns_canonical_managed_runtime_python(self, vault, monkeypatch):
+        monkeypatch.setattr(init, "find_launcher_python", lambda: "/usr/bin/python3.12")
+        monkeypatch.setattr(
+            init,
+            "bootstrap_managed_runtime",
+            lambda *_args, **_kwargs: {
+                "managed_runtime_ready": True,
+                "managed_python": "/home/.brain/venvs/py3.12-fake/bin/python",
+            },
+        )
 
-    `find_python` prefers the central managed runtime; if absent, falls back
-    to the legacy `<vault>/.venv/bin/python`; then `sys.executable`; then
-    PATH candidates. Each step requires the candidate Python to expose `mcp`.
-    """
+        assert init.find_python(vault) == "/home/.brain/venvs/py3.12-fake/bin/python"
 
-    def test_prefers_central_when_present(self, vault, monkeypatch, tmp_path):
-        fake_home = tmp_path / "home"
-        fake_home.mkdir()
-        monkeypatch.setenv("HOME", str(fake_home))
-        # Stage central + legacy pythons; ensure central wins.
-        from importlib import util as _util
-        helper_path = vault / ".brain-core" / "scripts" / "_common" / "_venv.py"
-        spec = _util.spec_from_file_location("_t_venv", str(helper_path))
-        helper = _util.module_from_spec(spec)
-        spec.loader.exec_module(helper)
-        central_py = helper.resolve_vault_venv_python(vault)
-        central_py.parent.mkdir(parents=True)
-        central_py.write_text("")
-        legacy_py = helper.legacy_vault_venv_python(vault)
-        legacy_py.parent.mkdir(parents=True)
-        legacy_py.write_text("")
+    def test_errors_when_no_compatible_launcher_exists(self, vault, monkeypatch):
+        monkeypatch.setattr(init, "find_launcher_python", lambda: None)
 
-        monkeypatch.setattr(init, "_python_has_mcp", lambda p: True)
-        assert init.find_python(vault) == str(central_py)
+        with pytest.raises(SystemExit):
+            init.find_python(vault)
 
-    def test_falls_back_to_legacy_when_central_absent(self, vault, monkeypatch, tmp_path):
-        fake_home = tmp_path / "home"
-        fake_home.mkdir()
-        monkeypatch.setenv("HOME", str(fake_home))
-        from importlib import util as _util
-        helper_path = vault / ".brain-core" / "scripts" / "_common" / "_venv.py"
-        spec = _util.spec_from_file_location("_t_venv", str(helper_path))
-        helper = _util.module_from_spec(spec)
-        spec.loader.exec_module(helper)
-        legacy_py = helper.legacy_vault_venv_python(vault)
-        legacy_py.parent.mkdir(parents=True)
-        legacy_py.write_text("")
+    def test_errors_when_bootstrap_cannot_produce_managed_runtime(self, vault, monkeypatch):
+        monkeypatch.setattr(init, "find_launcher_python", lambda: "/usr/bin/python3.12")
+        monkeypatch.setattr(
+            init,
+            "bootstrap_managed_runtime",
+            lambda *_args, **_kwargs: {
+                "managed_runtime_ready": False,
+                "managed_python": "",
+            },
+        )
 
-        monkeypatch.setattr(init, "_python_has_mcp", lambda p: True)
-        assert init.find_python(vault) == str(legacy_py)
-
-    def test_falls_back_to_sys_executable_when_no_venv(self, vault, monkeypatch, tmp_path):
-        fake_home = tmp_path / "home"
-        fake_home.mkdir()
-        monkeypatch.setenv("HOME", str(fake_home))
-        # Only sys.executable advertises mcp.
-        monkeypatch.setattr(init, "_python_has_mcp", lambda p: p == sys.executable)
-        assert init.find_python(vault) == sys.executable
+        with pytest.raises(SystemExit):
+            init.find_python(vault)
 
 
 class TestVaultMatching:
@@ -296,6 +278,7 @@ class TestEnsureWorkspaceManifest:
 class TestBuildSessionHookCommand:
     def test_does_not_embed_bare_python3(self, vault):
         """Regression: bare `python3` fails on asdf-shimmed machines."""
+        init.find_launcher_python.cache_clear()
         command = init.build_session_hook_command(vault, vault)
         # The hook must embed a resolved absolute launcher, not a shim name.
         # Allow paths whose basename happens to be python3 — what we forbid is
@@ -307,12 +290,7 @@ class TestBuildSessionHookCommand:
     def test_prefers_path_resolved_launcher_over_sys_executable(self, vault, monkeypatch):
         """The hook is persisted; prefer stable PATH binaries to sys.executable
         because the caller may be a temporary interpreter whose path won't survive."""
-        def fake_which(name):
-            return "/usr/bin/python3.12" if name == "python3.12" else None
-        monkeypatch.setattr(init.shutil, "which", fake_which)
-        monkeypatch.setattr(init, "is_compatible_python", lambda p: True)
-        # find_repair_launcher would return sys.executable, but the PATH lookup
-        # must win first.
+        monkeypatch.setattr(init, "find_launcher_python", lambda prefer_path_binaries=False: "/usr/bin/python3.12")
         monkeypatch.setattr(init, "find_repair_launcher", lambda: sys.executable)
         command = init.build_session_hook_command(vault, vault)
         assert "/usr/bin/python3.12" in command
@@ -321,13 +299,13 @@ class TestBuildSessionHookCommand:
     def test_falls_back_to_find_repair_launcher_when_path_lacks_compatible_python(
         self, vault, monkeypatch
     ):
-        monkeypatch.setattr(init.shutil, "which", lambda name: None)
+        monkeypatch.setattr(init, "find_launcher_python", lambda prefer_path_binaries=False: None)
         monkeypatch.setattr(init, "find_repair_launcher", lambda: "/opt/fallback/python")
         command = init.build_session_hook_command(vault, vault)
         assert "/opt/fallback/python" in command
 
     def test_last_resort_is_sys_executable(self, vault, monkeypatch):
-        monkeypatch.setattr(init.shutil, "which", lambda name: None)
+        monkeypatch.setattr(init, "find_launcher_python", lambda prefer_path_binaries=False: None)
         monkeypatch.setattr(init, "find_repair_launcher", lambda: None)
         command = init.build_session_hook_command(vault, vault)
         assert sys.executable in command

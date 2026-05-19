@@ -26,7 +26,10 @@ import os
 import sys
 from pathlib import Path
 
-from _common import is_vault_root, random_short_suffix, safe_write, title_to_slug
+from _common._filesystem import safe_write
+from _common._slugs import title_to_slug
+from _common._templates import random_short_suffix
+from _common._vault import is_vault_root
 
 
 HEADER = "# brain vault registry — one vault per line, <alias>\\t<absolute-path>\n"

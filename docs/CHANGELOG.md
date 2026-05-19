@@ -6,6 +6,7 @@ Version-by-version release history for Obsidian Brain. Every shipped version has
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.41.0](changelog/v0.41.0.md) | 2026-05-19 | Extract shared `_bootstrap` runtime seams for lifecycle entrypoints |
 | [v0.40.8](changelog/v0.40.8.md) | 2026-05-18 | Add duplicate-frontmatter detection, repair, and migration |
 | [v0.40.7](changelog/v0.40.7.md) | 2026-05-17 | Move semantic asset refresh into `_semantic` and `_lifecycle` |
 | [v0.40.6](changelog/v0.40.6.md) | 2026-05-16 | Make unreadable retrieval sources fail explicitly and consistently |

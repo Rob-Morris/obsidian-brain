@@ -13,22 +13,21 @@ from typing import NoReturn
 
 from init import find_vault_root
 
+from _bootstrap.runtime import BOOTSTRAP_SUMMARY_ENV, MANAGED_RUNTIME_ENV
 from _lifecycle_common import (
     bootstrap_managed_runtime,
     exit_code_for_result,
     exec_managed_runtime,
-    find_repair_launcher,
+    find_launcher_python,
     load_bootstrap_steps,
     make_result_envelope,
     render_human_result,
     required_modules_for_scope,
     step as _step,
 )
-
-
-CONFIGURE_MANAGED_ENV = "BRAIN_CONFIGURE_MANAGED"
-CONFIGURE_BOOTSTRAP_SUMMARY_ENV = "BRAIN_CONFIGURE_BOOTSTRAP_SUMMARY"
 BOOTSTRAP_TIMEOUT = 300
+CONFIGURE_MANAGED_ENV = MANAGED_RUNTIME_ENV
+CONFIGURE_BOOTSTRAP_SUMMARY_ENV = BOOTSTRAP_SUMMARY_ENV
 
 
 def _result_envelope(action: str, vault_root: Path, steps: list[dict], *, notes: list[str] | None = None) -> dict:
@@ -46,7 +45,7 @@ def _render_human(result: dict) -> str:
 
 
 def _bootstrap_summary(vault_root: Path) -> dict:
-    launcher = find_repair_launcher()
+    launcher = find_launcher_python()
     if not launcher:
         raise RuntimeError(
             "No compatible Python 3.12+ launcher was found. "
@@ -67,8 +66,6 @@ def _exec_managed_runtime(summary: dict) -> NoReturn:
         script_path=str(Path(__file__).resolve()),
         forwarded_args=sys.argv[1:],
         summary=summary,
-        managed_runtime_env=CONFIGURE_MANAGED_ENV,
-        bootstrap_summary_env=CONFIGURE_BOOTSTRAP_SUMMARY_ENV,
     )
 
 
@@ -171,7 +168,7 @@ def main(argv: list[str] | None = None) -> int:
     vault_root = find_vault_root(args.vault)
 
     bootstrap_steps: list[dict] = []
-    if os.environ.get(CONFIGURE_MANAGED_ENV) != "1":
+    if os.environ.get(MANAGED_RUNTIME_ENV) != "1":
         try:
             summary = _bootstrap_summary(vault_root)
         except (subprocess.CalledProcessError, RuntimeError, AssertionError) as exc:
@@ -190,7 +187,7 @@ def main(argv: list[str] | None = None) -> int:
         if os.path.realpath(sys.executable) != os.path.realpath(summary["managed_python"]):
             _exec_managed_runtime(summary)
     else:
-        bootstrap_steps = load_bootstrap_steps(CONFIGURE_BOOTSTRAP_SUMMARY_ENV)
+        bootstrap_steps = load_bootstrap_steps()
 
     result = _configure_semantic_enable(
         Path(vault_root),

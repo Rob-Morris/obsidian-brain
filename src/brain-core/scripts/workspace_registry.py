@@ -21,15 +21,11 @@ import json
 import os
 import sys
 
-from _common import (
-    find_vault_root,
-    is_system_dir,
-    is_valid_key,
-    iter_markdown_under,
-    read_frontmatter,
-    safe_write_json,
-    slug_to_title,
-)
+from _common._artefacts import iter_markdown_under
+from _common._filesystem import safe_write_json
+from _common._frontmatter import read_frontmatter
+from _common._slugs import is_valid_key, slug_to_title
+from _common._vault import find_vault_root, is_system_dir
 
 # ---------------------------------------------------------------------------
 # Constants

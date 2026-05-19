@@ -15,15 +15,24 @@ Usage:
 
 import json
 import os
+from pathlib import Path
 import re
 import sys
 
+from _bootstrap.runtime import (
+    bootstrap_managed_runtime,
+    current_process_in_managed_runtime,
+    exec_managed_runtime,
+    find_launcher_python,
+    required_modules_for_scope,
+)
 from _common import (
     find_vault_root,
     parse_frontmatter,
     resolve_structural_target,
     safe_write,
 )
+from _repair_common import build_repair_command
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -37,6 +46,7 @@ COMPILED_ROUTER_REL = os.path.join(".brain", "local", "compiled-router.json")
 WORKSPACE_MANIFEST_REL = os.path.join(".brain", "local", "workspace.yaml")
 WORKSPACE_MANIFEST_LEGACY_REL = os.path.join(".brain", "workspace.yaml")
 CORE_DOC_SECTION_HEADINGS = ("Core Docs", "Standards")
+BOOTSTRAP_TIMEOUT = 300
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -774,6 +784,37 @@ def persist_session_markdown(model, vault_root):
     safe_write(output_path, render_session_markdown(model), bounds=vault_root)
 
 
+def _bootstrap_summary(vault_root):
+    launcher = find_launcher_python()
+    if not launcher:
+        raise RuntimeError(
+            "No compatible Python 3.12+ launcher was found. "
+            "Install Python 3.12 or 3.13 and rerun session.py."
+        )
+    return bootstrap_managed_runtime(
+        Path(vault_root),
+        required_modules=required_modules_for_scope("runtime"),
+        dependency_owner="session.py",
+        launcher_python=launcher,
+        timeout=BOOTSTRAP_TIMEOUT,
+    )
+
+
+def _degraded_session_payload(vault_root, *, workspace_dir=None, message):
+    payload = {
+        "status": "degraded",
+        "vault_root": str(vault_root),
+        "message": message,
+        "recovery": {
+            "command": build_repair_command(vault_root, "runtime"),
+            "action": "Repair the canonical managed runtime, then rerun session.py.",
+        },
+    }
+    if workspace_dir:
+        payload["workspace_dir"] = str(workspace_dir)
+    return payload
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -804,15 +845,52 @@ def main():
         print("Error: could not find vault root", file=sys.stderr)
         sys.exit(1)
 
+    workspace_dir = args.workspace_dir or args.workspace_dir_deprecated
+    if not current_process_in_managed_runtime(vault_root):
+        try:
+            summary = _bootstrap_summary(vault_root)
+        except (RuntimeError, AssertionError) as exc:
+            payload = _degraded_session_payload(
+                vault_root,
+                workspace_dir=workspace_dir,
+                message=str(exc),
+            )
+            if args.json:
+                print(json.dumps(payload, indent=2, ensure_ascii=False))
+                return 0
+            print(f"Error: {payload['message']}", file=sys.stderr)
+            print(payload["recovery"]["command"], file=sys.stderr)
+            return 2
+
+        if summary["managed_runtime_ready"]:
+            if os.path.realpath(sys.executable) != os.path.realpath(summary["managed_python"]):
+                exec_managed_runtime(
+                    managed_python=summary["managed_python"],
+                    script_path=os.path.abspath(__file__),
+                    forwarded_args=sys.argv[1:],
+                    summary=summary,
+                )
+        else:
+            payload = _degraded_session_payload(
+                vault_root,
+                workspace_dir=workspace_dir,
+                message="Managed runtime bootstrap did not produce a usable central venv.",
+            )
+            if args.json:
+                print(json.dumps(payload, indent=2, ensure_ascii=False))
+                return 0
+            print(f"Error: {payload['message']}", file=sys.stderr)
+            print(payload["recovery"]["command"], file=sys.stderr)
+            return 2
+
     router_path = os.path.join(vault_root, COMPILED_ROUTER_REL)
     if not os.path.isfile(router_path):
         print("Error: compiled router not found — run compile_router.py first", file=sys.stderr)
-        sys.exit(1)
+        return 1
 
     with open(router_path, encoding="utf-8") as f:
         router = json.load(f)
 
-    workspace_dir = args.workspace_dir or args.workspace_dir_deprecated
     result = build_session_model(
         router,
         vault_root,
@@ -823,7 +901,8 @@ def main():
 
     indent = 2 if args.json else None
     print(json.dumps(result, indent=indent, ensure_ascii=False))
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

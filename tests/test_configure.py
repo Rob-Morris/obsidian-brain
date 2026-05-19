@@ -8,6 +8,7 @@ import pytest
 
 import config as config_module
 import configure
+import _bootstrap.runtime as bootstrap_runtime
 import _lifecycle_common as lifecycle_common
 import _lifecycle.retrieval_assets as retrieval_assets
 import _semantic.config as semantic_config
@@ -271,8 +272,8 @@ def test_bootstrap_summary_creates_runtime_and_syncs_dependencies(tmp_path, monk
             "missing_modules": (),
         }
 
-    monkeypatch.setattr(configure, "find_repair_launcher", lambda: "/fake/python3.12")
-    monkeypatch.setattr(lifecycle_common, "resolve_or_provision_central_venv", fake_provision)
+    monkeypatch.setattr(configure, "find_launcher_python", lambda: "/fake/python3.12")
+    monkeypatch.setattr(bootstrap_runtime, "resolve_or_provision_central_venv", fake_provision)
 
     summary = configure._bootstrap_summary(vault)
 
@@ -284,7 +285,7 @@ def test_bootstrap_summary_creates_runtime_and_syncs_dependencies(tmp_path, monk
 
 def test_bootstrap_summary_requires_compatible_launcher(tmp_path, monkeypatch):
     vault = _make_vault(tmp_path)
-    monkeypatch.setattr(configure, "find_repair_launcher", lambda: None)
+    monkeypatch.setattr(configure, "find_launcher_python", lambda: None)
 
     with pytest.raises(RuntimeError, match="Python 3.12\\+"):
         configure._bootstrap_summary(vault)
@@ -299,7 +300,7 @@ def test_probe_python_raises_on_zero_exit_invalid_json(monkeypatch):
             stderr="",
         )
 
-    monkeypatch.setattr(lifecycle_common.subprocess, "run", fake_run)
+    monkeypatch.setattr(bootstrap_runtime.subprocess, "run", fake_run)
 
     with pytest.raises(RuntimeError, match="produced invalid JSON"):
         lifecycle_common.probe_python("/fake/python")

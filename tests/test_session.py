@@ -11,6 +11,11 @@ import session
 MINIMAL_SESSION_CORE = "# Session Core\n\n## Core Docs\n\n## Standards\n"
 
 
+@pytest.fixture(autouse=True)
+def _managed_runtime_env(monkeypatch):
+    monkeypatch.setenv("BRAIN_MANAGED_RUNTIME", "1")
+
+
 def _minimal_router(vault_root):
     return {
         "meta": {
@@ -195,7 +200,7 @@ class TestSessionCli:
             ["session.py", "--vault", str(tmp_path), "--json"],
         )
 
-        session.main()
+        assert session.main() == 0
 
         stdout = capsys.readouterr().out
         payload = json.loads(stdout)
@@ -230,7 +235,7 @@ class TestSessionCli:
             ],
         )
 
-        session.main()
+        assert session.main() == 0
 
         payload = json.loads(capsys.readouterr().out)
         assert payload["workspace"] == {
@@ -278,7 +283,7 @@ class TestSessionCli:
             ],
         )
 
-        session.main()
+        assert session.main() == 0
 
         payload = json.loads(capsys.readouterr().out)
         assert payload["workspace_defaults"] == {
@@ -289,7 +294,7 @@ class TestSessionCli:
         assert "## Workspace Defaults" in content
         assert '`tags`: `["workspace/demo-workspace", "project/brain"]`' in content
 
-    def test_main_errors_when_compiled_router_missing(self, tmp_path, monkeypatch, capsys):
+    def test_main_returns_error_when_compiled_router_missing(self, tmp_path, monkeypatch, capsys):
         bc = tmp_path / ".brain-core"
         bc.mkdir()
         (bc / "session-core.md").write_text(MINIMAL_SESSION_CORE)
@@ -300,8 +305,36 @@ class TestSessionCli:
             ["session.py", "--vault", str(tmp_path)],
         )
 
-        with pytest.raises(SystemExit) as excinfo:
-            session.main()
-
-        assert excinfo.value.code == 1
+        assert session.main() == 1
         assert "compiled router not found" in capsys.readouterr().err
+
+    def test_main_emits_degraded_json_when_bootstrap_fails(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        monkeypatch.delenv("BRAIN_MANAGED_RUNTIME", raising=False)
+        monkeypatch.setattr(session, "current_process_in_managed_runtime", lambda _vault: False)
+        monkeypatch.setattr(
+            session,
+            "_bootstrap_summary",
+            lambda _vault: (_ for _ in ()).throw(RuntimeError("managed runtime unavailable")),
+        )
+
+        workspace_dir = tmp_path / "demo-workspace"
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "session.py",
+                "--vault", str(tmp_path),
+                "--workspace-dir", str(workspace_dir),
+                "--json",
+            ],
+        )
+
+        assert session.main() == 0
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["status"] == "degraded"
+        assert payload["vault_root"] == str(tmp_path)
+        assert payload["workspace_dir"] == str(workspace_dir)
+        assert payload["message"] == "managed runtime unavailable"
+        assert payload["recovery"]["action"] == "Repair the canonical managed runtime, then rerun session.py."

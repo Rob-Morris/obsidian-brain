@@ -198,7 +198,9 @@ The MCP server writes persistent logs to `.brain/local/mcp-server.log` (2 MB max
 
 ### Scripts
 
-Available in `.brain-core/scripts/`. Scripts are the source of truth for all vault operations — the MCP server imports from them. The optional [`brain` CLI](../functional/cli.md) provides ergonomic shortcuts that dispatch directly to these scripts (`brain repair runtime` ≡ `python3 .brain-core/scripts/repair.py runtime`).
+Available in `.brain-core/scripts/`. Scripts are the source of truth for all vault operations — the MCP server imports from them. The optional [`brain` CLI](../functional/cli.md) provides ergonomic shortcuts that dispatch to these same top-level script surfaces.
+
+Use direct script invocation from a compatible Python 3.12+ launcher as the baseline command-line path. Bootstrap entrypoints such as `repair.py`, `configure.py`, and `init.py` do their launcher-safe setup there; runtime-owning lifecycle entrypoints such as `repair.py`, `configure.py`, `session.py`, and `check.py` then hand substantive managed work into the canonical managed runtime automatically.
 
 | Script | Purpose |
 |---|---|
@@ -215,7 +217,7 @@ Available in `.brain-core/scripts/`. Scripts are the source of truth for all vau
 | `edit.py` | Edit artefacts via explicit `target + selector + scope`; the importable helpers also back editable `_Config/` resources |
 | `rename.py` | Rename a file with automatic wikilink updates; refuses existing-destination collisions before touching links |
 | `repair.py` | Explicit Brain repair entry point. Bootstraps from any compatible Python 3.12+ launcher, converges into the central managed runtime at `~/.brain/venvs/py<X.Y>-<sha16>/`, and then repairs one named scope: `runtime`, `mcp`, `router`, `lexical`, `registry`, `frontmatter`, or `semantic`. |
-| `session.py` | Build the canonical session model and refresh `.brain/local/session.md` |
+| `session.py` | Build the canonical session model and refresh `.brain/local/session.md`; keeps a launcher-safe SessionStart shim and hands substantive work into the managed runtime |
 | `obsidian_cli.py` | IPC client for native Obsidian CLI (library module used by MCP) |
 | `process.py` | Experimental content classification, duplicate resolution, ingestion |
 | `shape_printable.py` | Create printable + render PDF |
@@ -224,8 +226,8 @@ Available in `.brain-core/scripts/`. Scripts are the source of truth for all vau
 | `upgrade.py` | Canonical brain-core upgrade entry point from a source directory, including versioned pre-compile compatibility patches, binary-safe rollback snapshots for `.brain/` / `_Config/`, post-compile migration rollback of touched artefact roots, applied-migration tracking in `.brain/local/`, running stage snapshots in `.brain/local/last-upgrade.json`, self-contained atomic writes, provisioning of the central managed runtime at `~/.brain/venvs/` when requirements change, and post-upgrade retrieval-asset reconciliation through `repair.py lexical` or `repair.py semantic` |
 | `vault_registry.py` | User-home registry of installed Brain vaults |
 | `workspace_registry.py` | Workspace key→path resolution and registration |
-| `init.py` | Set up Claude Code and/or Codex to use this vault's MCP server; requires a Python 3.12+ runtime with the `mcp` package, folder-scoped installs also scaffold `.brain/local/workspace.yaml` (migrates legacy `.brain/workspace.yaml` automatically), and direct config writes stay atomic with unique sibling temp files. Project scope outranks user scope once the client activates the project entry: approve via `/mcp` in Claude, or trust/enable the project-scoped server in Codex. |
-| `check.py` | Structural compliance checker — validates naming, frontmatter, month folders, archives, status values, and now prints exact `repair.py` commands when it detects repairable router/MCP/local-registry drift or duplicate artefact frontmatter |
+| `init.py` | Set up Claude Code and/or Codex to use this vault's MCP server; resolves or provisions the canonical managed runtime before persisting bindings, folder-scoped installs also scaffold `.brain/local/workspace.yaml` (migrates legacy `.brain/workspace.yaml` automatically), and direct config writes stay atomic with unique sibling temp files. Project scope outranks user scope once the client activates the project entry: approve via `/mcp` in Claude, or trust/enable the project-scoped server in Codex. |
+| `check.py` | Structural compliance checker — validates naming, frontmatter, month folders, archives, status values, and now routes launcher-safe runtime/MCP/registry diagnostics through the shared bootstrap seam before adding managed semantic diagnostics |
 | `migrate_naming.py` | Migrate vault filenames from old aggressive slugs to generous naming conventions |
 | `fix_links.py` | Auto-repair broken wikilinks using naming convention heuristics |
 | `sync_definitions.py` | Sync artefact library definitions to vault `_Config/` using tracked source hashes plus markdown-aware comparison for `.md` files, so harmless pipe-table rewrites do not surface as conflicts |
@@ -251,7 +253,7 @@ python3.12 .brain-core/scripts/configure.py semantic --enable
 python3.12 .brain-core/scripts/configure.py semantic --enable --no-provision --json
 ```
 
-**`repair.py`** (infrastructure recovery) — explicit repair surface for current-vault operational drift. It bootstraps from any compatible Python 3.12+ launcher, repairs the central managed runtime at `~/.brain/venvs/py<X.Y>-<sha16>/` when needed, then hands off into it for packageful work. First-cut scopes are `runtime`, `mcp`, `router`, `lexical`, `registry`, and `semantic`; the semantic scope restores the pinned runtime packages, local model snapshot/manifest, and sidecars together for an already-configured vault. Missing sidecars degrade cleanly at runtime; present-but-corrupt sidecars now fail explicitly so the owning entry point can rebuild or point you at repair.
+**`repair.py`** (infrastructure recovery) — explicit repair surface for current-vault operational drift. It bootstraps from any compatible Python 3.12+ launcher, repairs the central managed runtime at `~/.brain/venvs/py<X.Y>-<sha16>/` when needed, then hands off into it for packageful work. First-cut scopes are `runtime`, `mcp`, `router`, `lexical`, `registry`, `frontmatter`, and `semantic`; the semantic scope restores the pinned runtime packages, local model snapshot/manifest, and sidecars together for an already-configured vault. Missing sidecars degrade cleanly at runtime; present-but-corrupt sidecars now fail explicitly so the owning entry point can rebuild or point you at repair.
 
 ```bash
 python3.12 .brain-core/scripts/repair.py runtime

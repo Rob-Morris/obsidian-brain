@@ -36,8 +36,9 @@ from typing import Any, Dict, List, NoReturn, Optional, Tuple
 # pulls in sibling submodules; that's fine because none of them depend on
 # third-party packages. See `_common/__init__.py`.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _bootstrap.runtime import bootstrap_managed_runtime, find_launcher_python, required_modules_for_scope  # noqa: E402
 from _common import safe_write, safe_write_json  # noqa: E402
-from _lifecycle_common import find_repair_launcher, is_compatible_python  # noqa: E402
+from _lifecycle_common import find_repair_launcher  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -141,35 +142,30 @@ def _load_venv_helper(vault_root: Path):
 
 
 def find_python(vault_root: Path) -> str:
-    """Find a Python 3.12+ interpreter with the mcp package available.
+    """Ensure and return the canonical managed-runtime Python for MCP bindings."""
+    launcher = find_launcher_python()
+    if not launcher:
+        fatal(
+            "No compatible Python 3.12+ launcher found.\n"
+            "Install Python 3.12+ with your preferred package manager and rerun init.py."
+        )
 
-    Prefers the central managed runtime at `~/.brain/venvs/<py-tag>-<hash>/`
-    so the registered MCP path lines up with the post-D2 layout. Falls back
-    to the legacy vault-local `.venv/`, the running interpreter, and PATH
-    candidates so existing vaults keep working until they are migrated.
-    """
-    helper = _load_venv_helper(vault_root)
-    if helper is not None:
-        for candidate in (
-            helper.resolve_vault_venv_python(vault_root),
-            helper.legacy_vault_venv_python(vault_root),
-        ):
-            if candidate.is_file() and _python_has_mcp(str(candidate)):
-                return str(candidate)
+    try:
+        summary = bootstrap_managed_runtime(
+            vault_root,
+            required_modules=required_modules_for_scope("mcp"),
+            dependency_owner="init.py",
+            launcher_python=launcher,
+        )
+    except (subprocess.CalledProcessError, RuntimeError, AssertionError) as exc:
+        fatal(str(exc))
 
-    if _python_has_mcp(sys.executable):
-        return sys.executable
-
-    for name in ("python3.13", "python3.12", "python3"):
-        path = shutil.which(name)
-        if path and _python_has_mcp(path):
-            return path
-
-    fatal(
-        "No Python 3.12+ with the 'mcp' package found.\n"
-        f"Run: bash install.sh {vault_root}\n"
-        "Or:  pip install 'mcp>=1.0.0' --break-system-packages"
-    )
+    if not summary["managed_runtime_ready"] or not summary["managed_python"]:
+        fatal(
+            "Could not provision the canonical managed runtime for MCP registration.\n"
+            f"Run: {launcher} {vault_root / '.brain-core' / 'scripts' / 'repair.py'} runtime --vault {vault_root}"
+        )
+    return summary["managed_python"]
 
 
 def _python_has_mcp(python_path: str) -> bool:
@@ -314,11 +310,7 @@ def _resolve_session_launcher() -> str:
     command python3". session.py is stdlib-only beyond `_common`, so any
     compatible launcher suffices.
     """
-    for name in ("python3.13", "python3.12", "python3"):
-        path = shutil.which(name)
-        if path and is_compatible_python(path):
-            return path
-    return find_repair_launcher() or sys.executable
+    return find_launcher_python(prefer_path_binaries=True) or find_repair_launcher() or sys.executable
 
 
 def build_session_hook_command(vault_root: Path, target_dir: Path) -> str:

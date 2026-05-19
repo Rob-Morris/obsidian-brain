@@ -6,11 +6,14 @@ from __future__ import annotations
 from pathlib import Path
 import shlex
 
-from _lifecycle_common import DEFAULT_MANAGED_RUNTIME_LAUNCHER, find_repair_launcher
+from _bootstrap.runtime import (
+    BOOTSTRAP_SUMMARY_ENV,
+    DEFAULT_MANAGED_RUNTIME_LAUNCHER,
+    MANAGED_RUNTIME_ENV,
+)
+from _lifecycle_common import find_repair_launcher
 
 
-MANAGED_RUNTIME_ENV = "BRAIN_REPAIR_MANAGED"
-BOOTSTRAP_SUMMARY_ENV = "BRAIN_REPAIR_BOOTSTRAP_SUMMARY"
 REPAIR_SCRIPT_REL = Path(".brain-core/scripts/repair.py")
 
 REPAIR_SCOPES = {
