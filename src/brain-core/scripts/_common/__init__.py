@@ -162,6 +162,10 @@ from ._coerce import (
     coerce_bool,
 )
 
+from ._auth import (
+    hash_key,
+)
+
 from ._cli import (
     RaisingArgumentParser,
     require_option,

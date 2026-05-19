@@ -5,9 +5,9 @@ import os
 import warnings
 
 import pytest
-import yaml
 
 import config as config_mod
+from _common._yaml import dump_mapping_text
 
 
 # ---------------------------------------------------------------------------
@@ -42,15 +42,13 @@ def vault(tmp_path):
 def _write_vault_config(vault, data):
     """Write a vault-level config.yaml."""
     path = vault / ".brain" / "config.yaml"
-    with open(path, "w") as f:
-        yaml.safe_dump(data, f, default_flow_style=False)
+    path.write_text(dump_mapping_text(data), encoding="utf-8")
 
 
 def _write_local_config(vault, data):
     """Write a machine-local config.yaml."""
     path = vault / ".brain" / "local" / "config.yaml"
-    with open(path, "w") as f:
-        yaml.safe_dump(data, f, default_flow_style=False)
+    path.write_text(dump_mapping_text(data), encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------

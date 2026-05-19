@@ -146,7 +146,7 @@ def brew_churn_env(tmp_path, monkeypatch):
         sys.path.pop(0)
 
     launcher = _make_3_12_launcher(tmp_path)
-    existing_py313 = _make_3_13_central_venv(fake_home, rhash, with_modules=("mcp", "yaml"))
+    existing_py313 = _make_3_13_central_venv(fake_home, rhash, with_modules=("mcp",))
     (existing_py313.parent.parent / ".brain-deps-installed").write_text(rhash)
     return vault, rhash, launcher, existing_py313, fake_home
 
@@ -168,7 +168,7 @@ def test_orchestrator_reuses_existing_compatible_minor_runtime(brew_churn_env):
     result = _venv.resolve_or_provision_central_venv(
         vault,
         launcher=launcher,
-        required_modules=("mcp", "yaml"),
+        required_modules=("mcp",),
     )
     assert result["outcome"] == _venv.RUNTIME_REUSED
     assert result["python"] == str(existing_py313)
@@ -192,7 +192,7 @@ def test_orchestrator_syncs_in_place_when_modules_missing(tmp_path, monkeypatch)
 
     launcher = _make_3_12_launcher(tmp_path)
     # Existing py3.13 runtime that does NOT have `mcp` available — orchestrator must sync.
-    existing_py313 = _make_3_13_central_venv(fake_home, rhash, with_modules=("yaml",))
+    existing_py313 = _make_3_13_central_venv(fake_home, rhash, with_modules=())
 
     sys.path.insert(0, str(REPO_ROOT / "src" / "brain-core" / "scripts"))
     try:
@@ -203,7 +203,7 @@ def test_orchestrator_syncs_in_place_when_modules_missing(tmp_path, monkeypatch)
     result = _v.resolve_or_provision_central_venv(
         vault,
         launcher=launcher,
-        required_modules=("mcp", "yaml"),
+        required_modules=("mcp",),
     )
     assert result["outcome"] == _v.RUNTIME_SYNCED
     assert result["python"] == str(existing_py313)
@@ -271,7 +271,7 @@ def test_bootstrap_managed_runtime_reports_reused_on_brew_churn(brew_churn_env):
 
     summary = lifecycle_common.bootstrap_managed_runtime(
         vault,
-        required_modules=("mcp", "yaml"),
+        required_modules=("mcp",),
         dependency_owner="convergence test",
         launcher_python=str(launcher),
     )
@@ -299,7 +299,7 @@ def test_bootstrap_managed_runtime_syncs_modules_in_place(tmp_path, monkeypatch)
         sys.path.pop(0)
 
     launcher = _make_3_12_launcher(tmp_path)
-    existing_py313 = _make_3_13_central_venv(fake_home, rhash, with_modules=("yaml",))
+    existing_py313 = _make_3_13_central_venv(fake_home, rhash, with_modules=())
 
     sys.path.insert(0, str(REPO_ROOT / "src" / "brain-core" / "scripts"))
     try:
@@ -333,7 +333,7 @@ def test_bootstrap_managed_runtime_dry_run_does_not_mutate(brew_churn_env):
 
     summary = lifecycle_common.bootstrap_managed_runtime(
         vault,
-        required_modules=("mcp", "yaml"),  # already available; should be noop dry-run-ish
+        required_modules=("mcp",),  # already available; should be noop dry-run-ish
         dependency_owner="dry-run test",
         launcher_python=str(launcher),
         dry_run=True,

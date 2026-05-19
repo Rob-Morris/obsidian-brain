@@ -13,19 +13,17 @@ Two-zone merge model:
     Booleans: either-true wins
     Lists:    additive (union)
 
-Requires PyYAML (server dependency — see brain_mcp/requirements.txt).
-
 Usage:
     from config import load_config
     cfg = load_config("/path/to/vault")
 """
 
-import hashlib
 import os
 import sys
 import warnings
 
-import yaml
+from _common import hash_key
+from _common._yaml import YamlError, load_mapping_file
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -66,12 +64,10 @@ def _find_template() -> str:
 def _read_yaml(path: str) -> dict:
     """Read a YAML file and return parsed dict. Returns {} if file missing."""
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            data = yaml.safe_load(f)
-        return data if isinstance(data, dict) else {}
+        return load_mapping_file(path)
     except FileNotFoundError:
         return {}
-    except yaml.YAMLError as e:
+    except YamlError as e:
         warnings.warn(f"config: failed to parse {path}: {e}")
         return {}
 
@@ -208,16 +204,6 @@ def _validate_config(config: dict) -> list[str]:
         )
 
     return warns
-
-
-# ---------------------------------------------------------------------------
-# Authentication helpers
-# ---------------------------------------------------------------------------
-
-def hash_key(key: str) -> str:
-    """SHA-256 hash of an operator key, formatted as 'sha256:<hexdigest>'."""
-    digest = hashlib.sha256(key.encode("utf-8")).hexdigest()
-    return f"sha256:{digest}"
 
 
 def authenticate_operator(key: str | None, config: dict) -> tuple[str, str | None]:

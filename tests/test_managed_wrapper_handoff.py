@@ -171,7 +171,7 @@ def test_managed_wrappers_attempt_handoff_before_substantive_work(
     assert captured["dependency_owner"] == script_name
     assert captured["forwarded_args"] == argv[1:]
     assert captured["script_path"].endswith(script_name)
-    assert captured["required_modules"] == ("mcp", "yaml")
+    assert captured["required_modules"] == ("mcp",)
 
 
 @pytest.mark.parametrize(

@@ -79,7 +79,7 @@ A type added directly to a vault by following steps 1–7 is a **local type**. I
 
 To add a new type to brain-core for distribution, create a bundle at `artefact-library/living/{key}/`:
 
-- **`manifest.yaml`** — file mappings and folders. Hand-rolled YAML (no PyYAML dependency); follow the schema exactly:
+- **`manifest.yaml`** — file mappings and folders. Parsed by Brain's shared standalone YAML subset; follow the schema exactly:
   ```yaml
   files:
     taxonomy:

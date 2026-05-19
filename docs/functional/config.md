@@ -36,6 +36,8 @@ defaults/config.yaml          # template (shipped with brain-core)
 
 The loader locates the template relative to the script file, so it works both from the dev repo (`src/brain-core/scripts/` → `src/brain-core/defaults/`) and from an installed vault (`.brain-core/scripts/` → `.brain-core/defaults/`).
 
+Brain uses a shared Brain-owned YAML subset for these standalone config/workspace files. It supports the shapes Brain actually uses (mappings, lists, booleans, integers, empty collections, quoted/plain strings) and rejects unsupported general-YAML features such as anchors, merge keys, tags, and block scalars.
+
 ### Local tool paths
 
 Tool-backed workflows can resolve machine-local binaries from the `defaults` zone before falling back to `PATH`. This is the current short-term contract for tools such as `pandoc` and TeX engines.
@@ -97,7 +99,7 @@ defaults:
 
 ### Startup behaviour
 
-On startup, the MCP server calls `load_config()`, which reads all three layers, runs the merge, validates the result (unknown profile tool names raise warnings), and returns a typed dict. If a layer's YAML is missing or unparseable, it is treated as `{}` with a warning — the server continues with the remaining layers.
+On startup, the MCP server calls `load_config()`, which reads all three layers through the shared Brain-owned YAML seam, runs the merge, validates the result (unknown profile tool names raise warnings), and returns a typed dict. If a layer's YAML is missing or unparseable, it is treated as `{}` with a warning — the server continues with the remaining layers.
 
 ---
 

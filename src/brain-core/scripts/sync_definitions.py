@@ -40,6 +40,7 @@ from _bootstrap.runtime import (
     required_modules_for_scope,
 )
 from _common import find_vault_root, read_version, safe_write_json
+from _common._yaml import YamlError, load_mapping_file
 from _repair_common import build_repair_command
 from compile_router import hash_file
 
@@ -135,77 +136,46 @@ def _comparison_hash(path: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Manifest parser (hand-rolled — no PyYAML dependency)
+# Manifest parser (shared Brain-owned YAML seam)
 # ---------------------------------------------------------------------------
 
 def parse_manifest(path: str) -> Optional[dict]:
     """Parse a manifest.yaml file into a dict.
 
     Returns None if the file doesn't exist or is malformed.
-    Handles the fixed manifest schema only:
-      files:
-        <role>:
-          source: <filename>
-          target: <vault-relative-path>
-      folders:
-        - <path>
-      router_trigger: "<text>"
     """
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            lines = f.readlines()
-    except OSError:
+        data = load_mapping_file(path)
+    except (OSError, YamlError):
+        return None
+
+    files = data.get("files")
+    if not isinstance(files, dict) or not files:
         return None
 
     result: dict = {"files": {}, "folders": []}
-    current_section = None  # "files" | "folders" | None
-    current_role = None
+    for role, meta in files.items():
+        if not isinstance(role, str) or not isinstance(meta, dict):
+            return None
+        source = meta.get("source")
+        target = meta.get("target")
+        if not isinstance(source, str) or not isinstance(target, str):
+            return None
+        result["files"][role] = {"source": source, "target": target}
 
-    for raw_line in lines:
-        line = raw_line.rstrip("\n")
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-
-        # Top-level keys
-        if not line[0].isspace():
-            if stripped == "files:":
-                current_section = "files"
-                current_role = None
-            elif stripped == "folders:":
-                current_section = "folders"
-                current_role = None
-            elif stripped.startswith("router_trigger:"):
-                current_section = None
-                current_role = None
-                value = stripped[len("router_trigger:"):].strip().strip('"')
-                result["router_trigger"] = value
-            else:
-                current_section = None
-                current_role = None
-            continue
-
-        # Inside files section
-        if current_section == "files":
-            # Role line (2-space indent): "  taxonomy:"
-            if line.startswith("  ") and not line.startswith("    "):
-                role = stripped.rstrip(":")
-                current_role = role
-                result["files"][role] = {}
-            # Property line (4-space indent): "    source: taxonomy.md"
-            elif line.startswith("    ") and current_role:
-                if ":" in stripped:
-                    key, _, value = stripped.partition(":")
-                    result["files"][current_role][key.strip()] = value.strip()
-
-        # Inside folders section
-        elif current_section == "folders":
-            if stripped.startswith("- "):
-                result["folders"].append(stripped[2:].strip())
-
-    # Validate: must have at least one file entry
-    if not result["files"]:
+    folders = data.get("folders", [])
+    if folders == []:
+        result["folders"] = []
+    elif isinstance(folders, list) and all(isinstance(item, str) for item in folders):
+        result["folders"] = list(folders)
+    else:
         return None
+
+    router_trigger = data.get("router_trigger")
+    if router_trigger is not None:
+        if not isinstance(router_trigger, str):
+            return None
+        result["router_trigger"] = router_trigger
 
     return result
 

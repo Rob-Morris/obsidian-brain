@@ -21,7 +21,7 @@ from _common import _venv as _venv_module
 DEFAULT_MANAGED_RUNTIME_LAUNCHER = "python3.12"
 MANAGED_RUNTIME_ENV = "BRAIN_MANAGED_RUNTIME"
 BOOTSTRAP_SUMMARY_ENV = "BRAIN_BOOTSTRAP_SUMMARY"
-MANAGED_RUNTIME_REQUIRED_MODULES = ("mcp", "yaml")
+MANAGED_RUNTIME_REQUIRED_MODULES = ("mcp",)
 BOOTSTRAP_SCOPE_MODULES = {
     "runtime": MANAGED_RUNTIME_REQUIRED_MODULES,
     "mcp": MANAGED_RUNTIME_REQUIRED_MODULES,
@@ -29,7 +29,7 @@ BOOTSTRAP_SCOPE_MODULES = {
     "lexical": (),
     "registry": (),
     "frontmatter": (),
-    "semantic": ("yaml",),
+    "semantic": MANAGED_RUNTIME_REQUIRED_MODULES,
 }
 
 

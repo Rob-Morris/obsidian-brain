@@ -26,7 +26,7 @@ def _make_vault(tmp_path):
     (bc / "VERSION").write_text("0.34.2\n")
     (bc / "session-core.md").write_text("# Session Core\n")
     (bc / "brain_mcp").mkdir()
-    (bc / "brain_mcp" / "requirements.txt").write_text("mcp>=1.0.0\npyyaml>=6.0\n")
+    (bc / "brain_mcp" / "requirements.txt").write_text("mcp>=1.0.0\n")
     (tmp_path / ".brain" / "local").mkdir(parents=True)
     return tmp_path
 

@@ -7,10 +7,9 @@ import subprocess
 import sys
 import textwrap
 
-import yaml
-
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src", "brain-core", "scripts"))
 import init
+from _common._yaml import load_mapping_text
 
 from conftest import (
     copy_install_source as _copy_source_checkout,
@@ -441,7 +440,7 @@ def test_install_enable_semantic_uses_real_configure_boundary(tmp_path):
     )
     assert "configure.py semantic --enable --vault" in (central_venv / "invocations.txt").read_text()
 
-    config = yaml.safe_load((target / ".brain" / "local" / "config.yaml").read_text(encoding="utf-8"))
+    config = load_mapping_text((target / ".brain" / "local" / "config.yaml").read_text(encoding="utf-8"))
     assert config["defaults"]["flags"]["semantic_retrieval"] is True
     assert config["defaults"]["local_runtime"]["semantic_engine_installed"] is True
 

@@ -13,7 +13,7 @@ Usage:
 import argparse
 import secrets
 
-from config import hash_key
+from _common import hash_key
 
 _WORDS = [
     "amber", "anchor", "anvil", "apple", "arrow", "aspen",

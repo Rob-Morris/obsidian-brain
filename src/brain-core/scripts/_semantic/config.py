@@ -6,6 +6,7 @@ import importlib
 import os
 
 from _common import safe_write_via
+from _common._yaml import YamlError, dump_mapping_text, load_mapping_file
 
 
 LOCAL_CONFIG_REL = os.path.join(".brain", "local", "config.yaml")
@@ -115,8 +116,6 @@ def _update_local_semantic_config(
     local_runtime_updates=None,
 ):
     """Persist semantic local-config updates if this is a vault."""
-    import yaml
-
     vault_root = str(vault_root)
     if not os.path.isdir(os.path.join(vault_root, ".brain")):
         return False
@@ -125,9 +124,10 @@ def _update_local_semantic_config(
     os.makedirs(os.path.dirname(config_path), exist_ok=True)
 
     try:
-        with open(config_path, "r", encoding="utf-8") as handle:
-            data = yaml.safe_load(handle) or {}
+        data = load_mapping_file(config_path)
     except FileNotFoundError:
+        data = {}
+    except YamlError:
         data = {}
     if not isinstance(data, dict):
         data = {}
@@ -166,7 +166,7 @@ def _update_local_semantic_config(
 
     safe_write_via(
         config_path,
-        lambda handle: yaml.safe_dump(data, handle, sort_keys=False),
+        lambda handle: handle.write(dump_mapping_text(data)),
         mode="w",
     )
     return True

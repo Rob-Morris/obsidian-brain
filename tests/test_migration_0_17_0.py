@@ -3,9 +3,9 @@
 import json
 
 import pytest
-import yaml
 
 from migrate_to_0_17_0 import migrate
+from _common._yaml import load_mapping_file
 
 
 @pytest.fixture
@@ -55,8 +55,7 @@ def test_migrate_nonempty_preferences(vault):
     # config.yaml created with migrated values
     config_path = vault / ".brain" / "config.yaml"
     assert config_path.exists()
-    with open(config_path) as f:
-        cfg = yaml.safe_load(f)
+    cfg = load_mapping_file(config_path)
 
     assert cfg["defaults"]["exclude"]["artefact_sync"] == ["temporal/cookies", "living/wiki"]
     assert cfg["defaults"]["artefact_sync"] == "skip"
@@ -72,8 +71,7 @@ def test_migrate_preferences_exclude_only(vault):
 
     config_path = vault / ".brain" / "config.yaml"
     assert config_path.exists()
-    with open(config_path) as f:
-        cfg = yaml.safe_load(f)
+    cfg = load_mapping_file(config_path)
 
     assert cfg["defaults"]["exclude"]["artefact_sync"] == ["temporal/cookies"]
     # No artefact_sync key (it was default "auto")

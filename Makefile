@@ -9,7 +9,7 @@ venv:
 	python3.12 -m venv $(VENV)
 
 install: venv
-	$(PIP) install "mcp>=1.0.0" "pyyaml>=6.0" "pytest>=9.0" "pytest-bdd>=8.0" "interrogate>=1.7" "pytest-cov>=6.0"
+	$(PIP) install "mcp>=1.0.0" "pytest>=9.0" "pytest-bdd>=8.0" "interrogate>=1.7" "pytest-cov>=6.0"
 
 install-semantic: install
 	$(PYTHON) -c "import platform, sys; sys.exit('semantic retrieval dependencies are unsupported on Intel macOS in this branch; use lexical mode only' if platform.system() == 'Darwin' and platform.machine() == 'x86_64' else 0)"

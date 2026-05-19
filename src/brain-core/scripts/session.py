@@ -128,7 +128,7 @@ def _load_session_core_body(vault_root):
 
 
 def _load_config_if_available(vault_root):
-    """Load merged config when PyYAML is available; degrade gracefully otherwise."""
+    """Load merged config when the config module is available; degrade gracefully otherwise."""
     try:
         import config as config_mod
     except ImportError:
@@ -178,7 +178,7 @@ def _load_workspace_manifest(workspace_dir):
     if not workspace_dir:
         return None
     try:
-        import yaml
+        from _common._yaml import YamlError, load_mapping_file
     except ImportError:
         return None
 
@@ -199,11 +199,8 @@ def _load_workspace_manifest(workspace_dir):
             return None
 
     try:
-        with open(manifest_path, encoding="utf-8") as f:
-            data = yaml.safe_load(f)
-    except OSError:
-        return None
-    except yaml.YAMLError:
+        data = load_mapping_file(manifest_path)
+    except (OSError, YamlError):
         return None
     return data if isinstance(data, dict) else None
 

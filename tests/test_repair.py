@@ -45,7 +45,7 @@ def repair_vault(tmp_path):
     (bc / "VERSION").write_text("0.32.5\n")
     (bc / "session-core.md").write_text("Always:\n- Keep types tidy.\n")
     (bc / "brain_mcp").mkdir()
-    (bc / "brain_mcp" / "requirements.txt").write_text("mcp>=1.0.0\npyyaml>=6.0\n")
+    (bc / "brain_mcp" / "requirements.txt").write_text("mcp>=1.0.0\n")
     # Repair loads the canonical venv path-resolver from the vault to avoid
     # duplicating the rule in repair.py — copy it from source so the fixture
     # mirrors a real vault layout.
@@ -336,7 +336,7 @@ class TestRepairScopes:
                 "healthy": False,
                 "python": str(repair_vault / ".brain" / "missing-runtime" / "bin" / "python"),
                 "issues": [repair_runtime.ISSUE_RUNTIME_MISSING],
-                "missing_modules": ["mcp", "yaml"],
+                "missing_modules": ["mcp"],
                 "message": "Central managed runtime is missing for this vault.",
             },
         )
@@ -1013,7 +1013,7 @@ class TestCheckRepairHints:
                 "healthy": False,
                 "python": str(repair_vault / ".brain" / "missing-runtime" / "bin" / "python"),
                 "issues": [repair_runtime.ISSUE_RUNTIME_MISSING],
-                "missing_modules": ["mcp", "yaml"],
+                "missing_modules": ["mcp"],
                 "message": "Central managed runtime is missing for this vault.",
             },
         )

@@ -463,7 +463,7 @@ When MCP is unavailable, scripts provide full functionality (read, search, renam
 
 - **Python** >=3.12
 - **`mcp` SDK** — MCP transport
-- **`pyyaml`** — config loader
+- **Brain-owned YAML seam** — standalone config/workspace/manifest loader for Brain's supported YAML subset
 - **`obsidian-cli`** (optional) — dsebastien/obsidian-cli-rest running on localhost:27124; used for CLI-first search and rename when available
 
 The server imports functions directly from scripts — never calls their `main()` (which may `sys.exit`).
