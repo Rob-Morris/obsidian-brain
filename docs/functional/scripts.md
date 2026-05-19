@@ -60,7 +60,7 @@ That `python3.12` process is the launcher, not the managed runtime itself.
 | `obsidian_cli.py` | IPC client for native Obsidian CLI | (library module, used by MCP server) |
 | `process.py` | Experimental content classification, duplicate resolution, ingestion | (library module, used by `brain_process` in the MCP server) |
 | `generate_key.py` | Generate operator key + hash for config.yaml | `python3 generate_key.py [--count N]` |
-| `init.py` | Claude/Codex MCP registration + recorded removal; now resolves or provisions the canonical managed runtime before persisting bindings | `python3 init.py [--client {claude,codex,all}] [--user] [--local] [--project PATH] [--remove] [--force]` |
+| `init.py` | Claude/Codex MCP registration + recorded removal; can also scaffold folder bootstrap without client config via `--skip-mcp`, while still managing workspace manifest and git-local Brain ignores for git-backed folders | `python3 init.py [--client {claude,codex,all}] [--user] [--local] [--project PATH] [--skip-mcp] [--remove] [--force]` |
 
 ## Architecture
 
@@ -376,12 +376,13 @@ User-scope cleanup remains explicit. The uninstall flow reminds you to run `init
 
 ## init.py
 
-Setup script at `.brain-core/scripts/init.py`. Configures Claude Code and Codex to use the brain MCP server. Self-contained (no `_common` imports), idempotent, and explicit about both client and scope:
+Setup script at `.brain-core/scripts/init.py`. Configures Claude Code and Codex to use the brain MCP server, or bootstraps a folder binding without MCP when requested. Launcher-safe / stdlib-only by contract, idempotent, and explicit about both client and scope:
 
 - **Client selector** — `--client claude|codex|all` (default: `all`)
 - **Project** (default): Claude writes `.mcp.json`; Codex writes `.codex/config.toml`; Claude also ensures `CLAUDE.md` and a SessionStart hook in `.claude/settings.local.json`
 - **Local** (`--local`): Claude only. Writes `.claude/settings.local.json` + `.claude/CLAUDE.local.md` in the target directory
 - **User** (`--user`): Claude writes `~/.claude.json`; Codex writes `~/.codex/config.toml`
+- **Bootstrap-only** (`--skip-mcp`): skips runtime discovery, MCP registration, SessionStart hooks, and client config writes; still scaffolds `.brain/local/workspace.yaml` for folder targets and adds Brain-owned machine-local ignore entries to tracked `.gitignore` (falling back to `.git/info/exclude` only when no `.gitignore` exists)
 
 `.mcp.json` and `.codex/config.toml` contain machine-local absolute paths (`command`, `BRAIN_VAULT_ROOT`, `PYTHONPATH`, `BRAIN_WORKSPACE_DIR`). Whether to commit these files is the vault or workspace's choice — Brain does not mandate. See [DD-040](../architecture/decisions/dd-040-workspace-architecture.md) for the scoping contract.
 
@@ -405,7 +406,7 @@ Codex project-scope installs have the same activation caveat in different words:
 
 All writes are atomic (tmp + fsync + rename). `init.py` records client, scope, config path, target path, and server config in `.brain/local/init-state.json` so later removal can compare the current entry against recorded ownership instead of guessing from file presence.
 
-For folder-scoped installs, `init.py` also scaffolds `.brain/local/workspace.yaml` when absent (except when targeting the vault root itself). If a legacy manifest exists at `.brain/workspace.yaml`, it is migrated to the new location automatically. The scaffold is intentionally minimal: it gives the workspace a stable slug and a default `workspace/{slug}` tag, but leaves richer metadata and links for humans or agents to evolve later.
+For folder-scoped installs, `init.py` also scaffolds `.brain/local/workspace.yaml` when absent (except when targeting the vault root itself). If a legacy manifest exists at `.brain/workspace.yaml`, it is migrated to the new location automatically. The scaffold is intentionally minimal: it gives the workspace a stable slug and a default `workspace/{slug}` tag, but leaves richer metadata and links for humans or agents to evolve later. In git-backed folders, `init.py` now also declares Brain-owned machine-local paths in the tracked `.gitignore` when one exists (falling back to `.git/info/exclude` only when no `.gitignore` exists) so `.brain/local/` and other Brain-managed local state do not get committed accidentally.
 
 **Dependencies:** stdlib only. Detects a Python with `mcp` package for the server config — prefers the central managed runtime resolved via `_common/_venv.py` (`~/.brain/venvs/py<X.Y>-<sha16>/`), falls back to a legacy vault-local `.venv` if present, then to the current Python and a PATH search. See [DD-048](../architecture/decisions/dd-048-central-managed-runtime.md).
 

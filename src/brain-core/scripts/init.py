@@ -61,6 +61,12 @@ CLAUDE_LOCAL_MD_FILE = os.path.join(".claude", "CLAUDE.local.md")
 CODEX_CONFIG_REL = os.path.join(".codex", "config.toml")
 WORKSPACE_MANIFEST_FILE = os.path.join(".brain", "local", "workspace.yaml")
 WORKSPACE_MANIFEST_LEGACY_FILE = os.path.join(".brain", "workspace.yaml")
+DEFAULT_BRAIN_IGNORE_ENTRIES = (".brain/local/",)
+CLAUDE_LOCAL_IGNORE_ENTRIES = (
+    ".claude/settings.local.json",
+    ".claude/CLAUDE.local.md",
+)
+CODEX_PROJECT_IGNORE_ENTRIES = (".codex/config.toml",)
 
 INIT_STATE_REL = os.path.join(".brain", "local", "init-state.json")
 INIT_STATE_VERSION = 1
@@ -869,6 +875,109 @@ def ensure_workspace_manifest(target_dir: Path) -> None:
     info(f"Created {WORKSPACE_MANIFEST_FILE}")
 
 
+def _git_repo_root(target_dir: Path) -> Optional[Path]:
+    if shutil.which("git") is None:
+        return None
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(target_dir), "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    root = result.stdout.strip()
+    return Path(root).resolve() if root else None
+
+
+def _git_dir(target_dir: Path) -> Optional[Path]:
+    if shutil.which("git") is None:
+        return None
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(target_dir), "rev-parse", "--path-format=absolute", "--git-dir"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    git_dir = result.stdout.strip()
+    return Path(git_dir).resolve() if git_dir else None
+
+
+def _brain_ignore_entries(
+    scope: str,
+    clients: List[str],
+    *,
+    skip_mcp: bool,
+) -> List[str]:
+    entries = list(DEFAULT_BRAIN_IGNORE_ENTRIES)
+    if skip_mcp:
+        return entries
+    if "claude" in clients:
+        entries.append(".claude/settings.local.json")
+        if scope == "local":
+            entries.append(".claude/CLAUDE.local.md")
+    if "codex" in clients and scope == "project":
+        entries.append(".codex/config.toml")
+    return entries
+
+
+def ensure_brain_ignore_rules(
+    target_dir: Path,
+    scope: str,
+    clients: List[str],
+    *,
+    skip_mcp: bool,
+) -> None:
+    repo_root = _git_repo_root(target_dir)
+    if repo_root is None or repo_root != target_dir.resolve():
+        return
+
+    gitignore_path = target_dir / ".gitignore"
+    destination = gitignore_path if gitignore_path.exists() else None
+    if destination is None:
+        git_dir = _git_dir(target_dir)
+        if git_dir is None:
+            return
+        destination = git_dir / "info" / "exclude"
+
+    entries = _brain_ignore_entries(scope, clients, skip_mcp=skip_mcp)
+    try:
+        existing = destination.read_text(encoding="utf-8") if destination.is_file() else ""
+    except OSError:
+        existing = ""
+
+    existing_entries = {line.strip() for line in existing.splitlines() if line.strip()}
+    missing = [entry for entry in entries if entry not in existing_entries]
+    if not missing:
+        info(f"{destination.relative_to(target_dir) if destination.is_relative_to(target_dir) else destination} already covers Brain local state")
+        return
+
+    prefix = ""
+    if existing and not existing.endswith("\n"):
+        prefix += "\n"
+    if existing_entries:
+        prefix += "\n"
+
+    comment = "# Brain local state\n"
+    if "# Brain local state" in existing_entries:
+        comment = ""
+
+    block = prefix + comment + "".join(f"{entry}\n" for entry in missing)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    safe_write(destination, existing + block)
+    info(f"Updated {destination}")
+
+
 # ---------------------------------------------------------------------------
 # SessionStart hook
 # ---------------------------------------------------------------------------
@@ -1230,6 +1339,8 @@ def main() -> None:
             "      Register as the default brain for all supported clients\n\n"
             "  python3 /vault/.brain-core/scripts/init.py --client codex --project /my/project\n"
             "      Configure Codex for a specific project without cd-ing into it\n\n"
+            "  python3 /vault/.brain-core/scripts/init.py --skip-mcp --project /my/project\n"
+            "      Scaffold Brain folder bootstrap only, without writing MCP/client config\n\n"
             "  python3 /vault/.brain-core/scripts/init.py --remove --client all --project /my/project\n"
             "      Remove only recorded Brain-managed project registrations for that folder\n"
         ),
@@ -1260,6 +1371,11 @@ def main() -> None:
         help="Target folder to configure (default: current directory)",
     )
     parser.add_argument(
+        "--skip-mcp",
+        action="store_true",
+        help="Scaffold folder bootstrap only; skip runtime discovery and MCP/client registration",
+    )
+    parser.add_argument(
         "--remove",
         action="store_true",
         help="Remove only recorded Brain-managed entries for the requested scope",
@@ -1278,6 +1394,10 @@ def main() -> None:
 
     if args.user and (args.local or args.project):
         fatal("--user cannot be combined with --local or --project")
+    if args.skip_mcp and args.user:
+        fatal("--skip-mcp cannot be combined with --user")
+    if args.skip_mcp and args.remove:
+        fatal("--skip-mcp cannot be combined with --remove")
 
     scope, target_dir, scope_label = _scope_from_args(args)
     clients, warnings = _resolve_clients(args.client, scope)
@@ -1325,6 +1445,22 @@ def main() -> None:
         print(file=sys.stderr)
         return
 
+    if args.skip_mcp:
+        header("Folder bootstrap")
+        if target_dir is None:
+            fatal("--skip-mcp requires a target directory")
+
+        if not _is_vault_root(target_dir):
+            ensure_workspace_manifest(target_dir)
+        ensure_brain_ignore_rules(target_dir, scope, clients, skip_mcp=True)
+
+        header("Done")
+        info(f"Vault:    {vault_root}")
+        info(f"Target:   {target_dir}")
+        info("MCP:      skipped (--skip-mcp)")
+        print(file=sys.stderr)
+        return
+
     python_path = find_python(vault_root)
     info(f"Python:  {python_path}")
     server_config = build_mcp_config(python_path, vault_root, workspace_dir=target_dir)
@@ -1345,6 +1481,9 @@ def main() -> None:
     if target_dir and not _is_vault_root(target_dir):
         header("Workspace manifest")
         ensure_workspace_manifest(target_dir)
+    if target_dir:
+        header("Git ignore rules")
+        ensure_brain_ignore_rules(target_dir, scope, clients, skip_mcp=False)
 
     header("Done")
     info(f"Vault:    {vault_root}")

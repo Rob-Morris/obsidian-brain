@@ -61,6 +61,14 @@ brain repair runtime
 
 A small portable script family also stays usable from a compatible launcher Python in restricted no-network environments, including the core artefact commands plus `build_lexical_index.py` and `search_lexical.py`. See [User Reference](user-reference.md#scripts) for the command-family breakdown and [Script Reference](../functional/scripts.md) for the exact per-script contract.
 
+When you already have a user-scoped Brain MCP setup and just want to bootstrap a specific folder, use `init.py --skip-mcp`:
+
+```bash
+python3.12 .brain-core/scripts/init.py --project /path/to/project --skip-mcp
+```
+
+That scaffolds `.brain/local/workspace.yaml` for the folder and adds Brain-owned machine-local ignore rules in git-backed targets without writing `.mcp.json`, `.codex/config.toml`, or SessionStart hooks.
+
 ---
 
 ## Two Kinds of Things

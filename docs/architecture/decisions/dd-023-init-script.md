@@ -9,10 +9,11 @@ Registering the MCP server with Claude Code requires writing to `.mcp.json` (pro
 
 ## Decision
 
-`init.py` is a self-contained setup script at `.brain-core/scripts/init.py`. It configures Claude Code to use the brain MCP server and supports three scopes:
+`init.py` is the setup/binding script at `.brain-core/scripts/init.py`. It configures Claude Code and Codex to use the brain MCP server and supports three registration scopes plus one bootstrap-only mode:
 - **Project** (default): `.mcp.json` + `CLAUDE.md` in the current or specified directory.
 - **Local** (`--local`): `.claude/settings.local.json` + `.claude/CLAUDE.local.md` — gitignored, for personal use.
 - **User** (`--user`): `~/.claude.json` — default brain for all projects.
+- **Bootstrap-only** (`--skip-mcp`): scaffold folder-owned Brain state without writing MCP/client config.
 
 Registration uses `claude mcp add-json` when the CLI is available, otherwise edits JSON directly. All writes are atomic (tmp + fsync + rename). The script is idempotent and warns on scope conflicts.
 
@@ -20,5 +21,6 @@ Registration uses `claude mcp add-json` when the CLI is available, otherwise edi
 
 - Users choose the appropriate scope for their workflow; the script handles the implementation details.
 - Idempotency means re-running after an upgrade is safe.
-- The script is stdlib-only (no `_common` imports) because it runs in contexts where `_common` may not yet be available (e.g. during the install process).
+- The script remains launcher-safe / stdlib-only by contract because it runs in contexts where the managed runtime may not yet be available.
 - `install.sh` calls `init.py` automatically when MCP setup is enabled and dependency installation succeeds; manual installs, retries, or scope changes call it directly.
+- `--skip-mcp` allows folder bootstrap without forcing project-scoped MCP registration when the user already has another Brain transport path, while still scaffolding workspace metadata and machine-local ignore rules for git-backed folders.

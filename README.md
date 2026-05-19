@@ -1,6 +1,6 @@
 # Obsidian Brain
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.42.1-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.12-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.42.2-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.12-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
 
 A self-evolving knowledge base for agents and humans working together on what matters.
 
@@ -167,11 +167,14 @@ python3.12 .brain-core/scripts/init.py --user --client all
 # Or link a specific project for both clients
 python3.12 .brain-core/scripts/init.py --project /path/to/project --client all
 
+# Or just scaffold the folder binding/workspace metadata without MCP
+python3.12 .brain-core/scripts/init.py --project /path/to/project --skip-mcp
+
 # Claude-only local scope (gitignored; Codex has no local scope)
 python3.12 .brain-core/scripts/init.py --client claude --local
 ```
 
-Use `--user` if you want the brain everywhere. Use `--project` to connect a single project without affecting others. Use `--client claude --local` when you want Claude-only local config in `.claude/settings.local.json` without committing it. For project scope, the project-scoped MCP still outranks the user-scoped one once it is active, but registration alone is not enough: in Claude, approve `brain` via `/mcp`; in Codex, trust the project and ensure `brain` is enabled. Until then, either client may keep using the user-scoped `brain`.
+Use `--user` if you want the brain everywhere. Use `--project` to connect a single project without affecting others. Use `--skip-mcp` when you only want the folder binding/workspace scaffold and the Brain-owned local ignore rules, not client config writes. Use `--client claude --local` when you want Claude-only local config in `.claude/settings.local.json` without committing it. For project scope, the project-scoped MCP still outranks the user-scoped one once it is active, but registration alone is not enough: in Claude, approve `brain` via `/mcp`; in Codex, trust the project and ensure `brain` is enabled. Until then, either client may keep using the user-scoped `brain`.
 
 ### Hello, Is It Me You're Looking For?
 

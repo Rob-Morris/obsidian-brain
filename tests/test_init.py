@@ -275,6 +275,34 @@ class TestEnsureWorkspaceManifest:
         assert not legacy.is_file()
 
 
+class TestEnsureBrainIgnoreRules:
+    def test_updates_gitignore_when_repo_has_tracked_ignore(self, project, monkeypatch):
+        gitignore = project / ".gitignore"
+        gitignore.write_text("node_modules/\n")
+        monkeypatch.setattr(init, "_git_repo_root", lambda _target: project)
+        monkeypatch.setattr(init, "_git_dir", lambda _target: project / ".git")
+
+        init.ensure_brain_ignore_rules(project, "project", ["claude", "codex"], skip_mcp=False)
+
+        content = gitignore.read_text()
+        assert "node_modules/" in content
+        assert ".brain/local/" in content
+        assert ".claude/settings.local.json" in content
+        assert ".codex/config.toml" in content
+
+    def test_falls_back_to_git_info_exclude_when_gitignore_missing(self, project, monkeypatch):
+        git_dir = project / ".git"
+        (git_dir / "info").mkdir(parents=True)
+        monkeypatch.setattr(init, "_git_repo_root", lambda _target: project)
+        monkeypatch.setattr(init, "_git_dir", lambda _target: git_dir)
+
+        init.ensure_brain_ignore_rules(project, "project", ["claude"], skip_mcp=True)
+
+        exclude = (git_dir / "info" / "exclude").read_text()
+        assert ".brain/local/" in exclude
+        assert ".claude/settings.local.json" not in exclude
+
+
 class TestBuildSessionHookCommand:
     def test_does_not_embed_bare_python3(self, vault):
         """Regression: bare `python3` fails on asdf-shimmed machines."""
@@ -522,3 +550,35 @@ class TestRemoval:
         assert removed is False
         assert config_path.is_file()
         assert init.read_codex_server_config(config_path) == other
+
+
+class TestSkipMcpMode:
+    def test_skip_mcp_scaffolds_folder_without_runtime_or_client_writes(
+        self, vault, project, monkeypatch
+    ):
+        monkeypatch.setattr(init, "find_python", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("should not resolve runtime")))
+        monkeypatch.setattr(init, "register_claude", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("should not register claude")))
+        monkeypatch.setattr(init, "register_codex", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("should not register codex")))
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            ["init.py", "--vault", str(vault), "--project", str(project), "--skip-mcp"],
+        )
+
+        init.main()
+
+        assert (project / ".brain" / "local" / "workspace.yaml").is_file()
+        assert not (project / ".mcp.json").exists()
+        assert not (project / ".codex" / "config.toml").exists()
+        assert not (project / "CLAUDE.md").exists()
+        assert not (project / ".claude" / "settings.local.json").exists()
+
+    def test_skip_mcp_rejects_user_scope(self, vault, monkeypatch):
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            ["init.py", "--vault", str(vault), "--user", "--skip-mcp"],
+        )
+
+        with pytest.raises(SystemExit):
+            init.main()
