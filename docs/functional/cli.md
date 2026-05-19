@@ -2,7 +2,7 @@
 
 A thin, optional dispatch CLI for Brain. Resolves the active vault, finds its central managed runtime ([DD-048](../architecture/decisions/dd-048-central-managed-runtime.md)), and exec's into a `.brain-core/scripts/<name>.py` script. The dispatch contract is [DD-049](../architecture/decisions/dd-049-brain-cli-thin-dispatch.md).
 
-**Scripts in `.brain-core/scripts/` remain authoritative.** The CLI adds no new command semantics — it resolves the active vault/runtime and dispatches to the same top-level script entrypoints users can invoke directly. Users who never install the CLI lose nothing; everything still works by invoking scripts directly from a compatible Python 3.12+ launcher.
+**Scripts in `.brain-core/scripts/` remain authoritative.** The CLI adds no new command semantics — it resolves the active vault/runtime and dispatches to the same top-level script entrypoints users can invoke directly. Users who never install the CLI lose nothing; everything still works by invoking scripts directly from a compatible Python 3.12+ launcher. See [Script Reference](scripts.md) for the canonical bootstrap / portable / managed command-family model; this page documents the optional `brain ...` shorthand only.
 
 ## Install
 

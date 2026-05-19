@@ -55,6 +55,8 @@ sidecars so ordinary semantic search stays fully local.
 
 **Start talking:** Open your agent in the vault folder (for example `cd /path/to/brain && claude` or `cd /path/to/brain && codex`). It reads the vault structure and knows what to do. See [Workflows](docs/user/workflows.md) for what working with the brain looks like in practice.
 
+**Command-line usage:** direct script invocation is the baseline command surface, for example `python3 .brain-core/scripts/check.py --actionable` or `python3 .brain-core/scripts/repair.py runtime`. The optional [`brain` CLI](docs/functional/cli.md) is shorthand over those same stable top-level scripts when installed. A small portable script subset also remains available for restricted no-network environments. See [Getting Started](docs/user/getting-started.md#command-line-usage), [User Reference](docs/user/user-reference.md#scripts), and the [Script Reference](docs/functional/scripts.md).
+
 #### Upgrade
 
 The canonical upgrade path is `upgrade.py` from a clone of this repo:

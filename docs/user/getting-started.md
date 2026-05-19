@@ -43,6 +43,24 @@ so semantic search stays local-only at query time.
 
 **Requirements:** git and `python3`. Python 3.12+ is required for install, init, upgrade, repair, and MCP server support. Brain installs its dependencies into a shared local runtime under `~/.brain/venvs/` rather than into your wider Python environment. Without Python 3.12+ the vault can still be scaffolded, but agent tools will not be available until you install Python 3.12+ and rerun `bash install.sh /path/to/brain`.
 
+## Command-line usage
+
+For command-line usage, direct script invocation is the canonical baseline:
+
+```bash
+python3 .brain-core/scripts/check.py --actionable
+python3 .brain-core/scripts/repair.py runtime
+```
+
+If you install the optional [`brain` CLI](../functional/cli.md), it is shorthand over those same stable top-level scripts:
+
+```bash
+brain check --actionable
+brain repair runtime
+```
+
+A small portable script family also stays usable from a compatible launcher Python in restricted no-network environments, including the core artefact commands plus `build_lexical_index.py` and `search_lexical.py`. See [User Reference](user-reference.md#scripts) for the command-family breakdown and [Script Reference](../functional/scripts.md) for the exact per-script contract.
+
 ---
 
 ## Two Kinds of Things
