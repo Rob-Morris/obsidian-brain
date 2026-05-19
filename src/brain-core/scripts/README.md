@@ -41,6 +41,8 @@ remains lexical-only.
 | `_search/` | Internal retrieval package: lexical index ownership plus retrieval query-mode policy and lexical/semantic/hybrid execution | (library only) |
 | `_semantic/` | Internal semantic package: config flags, model/runtime provisioning, semantic sidecar mechanics, and vector-ranking/runtime utilities shared by build/search/configure/repair flows | (library only) |
 | `_lifecycle/` | Internal lifecycle/orchestration package: retrieval document-part types, duplicate-frontmatter repair helpers, shared retrieval-state errors, and combined lexical+semantic refresh workflows above `_search` and `_semantic` | (library only) |
+| `_portable/` | Portable operational package: launcher-safe seams shared by portable script surfaces | (library only) |
+| `build_lexical_index.py` | Thin portable lexical-only wrapper over `_search.index`: build the shared lexical retrieval index without any semantic or managed-runtime assumptions. | `python3 build_lexical_index.py [--json]` |
 | `build_index.py` | Thin CLI/script wrapper over the retrieval lifecycle seam: build the lexical retrieval index and refresh embeddings sidecars from the provisioned local semantic model when `semantic_processing` or `semantic_retrieval` is enabled and router data is available. Unreadable source files, compiled-router embedding drift, and retrieval-index persistence failures now fail explicitly at this boundary. Use `_search.index` / `_lifecycle.retrieval_assets` directly from Python; the wrapper remains only as a supported script entry surface. | `python3 build_index.py [--json]` |
 | `construct_benchmark_fixture.py` | Derive a vault-native retrieval benchmark fixture plus audit JSON from an existing vault, including semantic-variant audit diagnostics and optional externally seeded semantic or hybrid candidates. Unreadable source files now fail explicitly instead of being skipped silently. | `python3 construct_benchmark_fixture.py --fixture-out PATH [--audit-out PATH] [--semantic-strategy S] [--semantic-seed-file PATH] [--hybrid-seed-file PATH] [--json]` |
 | `evaluate_search.py` | Benchmark lexical, semantic, and hybrid retrieval against a JSON query set | `python3 evaluate_search.py --benchmark PATH [--mode M]... [--json]` |
@@ -55,6 +57,7 @@ remains lexical-only.
 | `generate_key.py` | Generate operator key + hash for config.yaml via the dependency-free shared auth helper | `python3 generate_key.py [--count N]` |
 | `init.py` | Claude/Codex MCP server registration + recorded removal; now resolves or provisions the canonical managed runtime before persisting bindings, scaffolds `.brain/local/workspace.yaml` for folder-scoped installs (migrates legacy `.brain/workspace.yaml` automatically), and writes config atomically with unique sibling temp files. Project-scoped MCP still needs client-side activation before it outranks user scope: approve via `/mcp` in Claude, or trust/enable the project-scoped server in Codex. | `python3 init.py [--client {claude,codex,all}] [--user] [--local] [--project PATH] [--remove] [--force]` |
 | `list_artefacts.py` | Enumerate vault artefacts and resources (unranked, no cap) via the same resource/filter contract as `brain_list` | `python3 list_artefacts.py [RESOURCE] [--query Q] [--type T] [--parent P] [--since D] [--until D] [--tag TAG] [--top-k N] [--sort S] [--vault V] [--json]` |
+| `search_lexical.py` | Thin portable lexical-only wrapper over `_search.lexical_query`: query the shared lexical retrieval index with lexical filters only. | `python3 search_lexical.py "query" [--type T] [--tag TAG] [--status S] [--top-k N] [--json]` |
 | `migrate_naming.py` | Migrate filenames to generous naming conventions | `python3 migrate_naming.py [--vault V] [--dry-run] [--json]` |
 | `migrations/migrate_to_0_40_8.py` | v0.40.8 migration: merges duplicate nested artefact frontmatter blocks into canonical document frontmatter and strips the accidental body-level copy | `python3 migrations/migrate_to_0_40_8.py [--vault V] [--dry-run]` |
 | `obsidian_cli.py` | IPC client for native Obsidian CLI | (library module, used by MCP server) |
@@ -81,7 +84,7 @@ The script layer is organised into 8 bounded contexts. This is an architectural 
 | Compilation | `compile_router.py`, `compile_colours.py`, `build_index.py`, `sync_definitions.py` |
 | Artefact Operations | `create.py`, `edit.py`, `read.py`, `rename.py`, `fix_links.py`, `start_shaping.py`, `shape_printable.py`, `shape_presentation.py` |
 | Compliance | `check.py` |
-| Content Intelligence | `_search/`, `search_index.py`, `evaluate_search.py`, `construct_benchmark_fixture.py`, `list_artefacts.py` |
+| Content Intelligence | `_search/`, `search_lexical.py`, `search_index.py`, `evaluate_search.py`, `construct_benchmark_fixture.py`, `list_artefacts.py` |
 | Session & Configuration | `session.py`, `config.py`, `workspace_registry.py`, `generate_key.py` |
 | Lifecycle Management | `init.py`, `repair.py`, `upgrade.py`, `vault_registry.py`, `migrate_naming.py`, `migrations/` |
 | MCP Integration | `brain_mcp/server.py`, `brain_mcp/proxy.py` |

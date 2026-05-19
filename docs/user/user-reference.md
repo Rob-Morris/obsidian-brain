@@ -202,14 +202,16 @@ Available in `.brain-core/scripts/`. Scripts are the source of truth for all vau
 
 Use direct script invocation from a compatible Python 3.12+ launcher as the baseline command-line path. Bootstrap entrypoints such as `repair.py`, `configure.py`, and `init.py` do their launcher-safe setup there; runtime-owning lifecycle entrypoints such as `repair.py`, `configure.py`, `session.py`, and `check.py` then hand substantive managed work into the canonical managed runtime automatically.
 
-The same is now true for the managed operational wrappers: `build_index.py`, `search_index.py`, `construct_benchmark_fixture.py`, `evaluate_search.py`, `compile_router.py`, `compile_colours.py`, `sync_definitions.py`, `shape_printable.py`, `shape_presentation.py`, and `migrate_naming.py` all start in the launcher only long enough to enter the managed runtime. You do not need to activate the vault venv manually before using them.
+The same is now true for the managed operational wrappers: `build_index.py`, `search_index.py`, `construct_benchmark_fixture.py`, `evaluate_search.py`, `compile_router.py`, `compile_colours.py`, `sync_definitions.py`, `shape_printable.py`, `shape_presentation.py`, and `migrate_naming.py` all start in the launcher only long enough to enter the managed runtime. You do not need to activate the vault venv manually before using them. Portable lexical wrappers (`build_lexical_index.py`, `search_lexical.py`) stay in the launcher and use the same lexical index format without any semantic/runtime handoff.
 
 | Script | Purpose |
 |---|---|
 | `compile_router.py` | Compile router, taxonomy, skills, and styles into a single JSON file |
 | `compile_colours.py` | Generate folder colour CSS and graph colour groups |
+| `build_lexical_index.py` | Build the shared lexical retrieval index only, without semantic sidecar work or managed-runtime handoff |
 | `build_index.py` | Build the retrieval index for search and refresh embeddings sidecars when `semantic_processing` or `semantic_retrieval` is enabled, router data is available, and the optional semantic runtime has been installed; unreadable retrieval sources and persistence failures now fail explicitly |
 | `list_artefacts.py` | Enumerate vault artefacts and resources via the direct script surface aligned to `brain_list` |
+| `search_lexical.py` | Query the shared lexical retrieval index through the portable lexical-only wrapper |
 | `search_index.py` | Search the local retrieval index from the command line via lexical, semantic, or hybrid modes; hybrid preserves obvious exact-anchor lexical wins, gives a small tie-break boost to a clearly dominant semantic top result, preserves strong lexical title champions when the query literally contains their core title phrase (stripping only the shipped `Brain` product namespace from first-party titles), and can apply a stronger semantic rescue when lexical and semantic leaders are clearly disjoint |
 | `construct_benchmark_fixture.py` | Mine a real vault for lexical / semantic / hybrid / cluster / filter-sensitive benchmark cases and emit both a benchmark fixture JSON and an audit JSON; unreadable source files now fail explicitly |
 | `evaluate_search.py` | Benchmark lexical, semantic, and hybrid retrieval against a JSON query set |

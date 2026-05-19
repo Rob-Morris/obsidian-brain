@@ -28,8 +28,10 @@ That `python3.12` process is the launcher, not the managed runtime itself.
 | `_bootstrap/` | Shared bootstrap package: launcher discovery, managed-runtime handoff, and launcher-safe bootstrap diagnostics | (library only) |
 | `compile_router.py` | Compile router from source files and refresh the session mirror | `python3 compile_router.py [--json]` |
 | `compile_colours.py` | Generate folder colour CSS | (called by compile_router) |
+| `build_lexical_index.py` | Build the portable lexical retrieval index only | `python3 build_lexical_index.py [--json]` |
 | `build_index.py` | Build retrieval index and optional embeddings sidecars from the provisioned local semantic model; unreadable retrieval sources and persistence failures now fail explicitly | `python3 build_index.py [--json]` |
 | `list_artefacts.py` | Enumerate vault artefacts and resources (unranked, no cap) | `python3 list_artefacts.py [RESOURCE] [--query Q] [--type T] [--parent P] [--since D] [--until D] [--tag TAG] [--top-k N] [--sort S] [--vault V] [--json]` |
+| `search_lexical.py` | Run portable lexical-only retrieval search | `python3 search_lexical.py "query" [--type T] [--tag TAG] [--status S] [--top-k N] [--json]` |
 | `search_index.py` | Lexical, semantic, or hybrid local search | `python3 search_index.py "query" [--type T] [--mode M] [--json]` |
 | `construct_benchmark_fixture.py` | Derive a vault-native retrieval benchmark fixture plus audit JSON from an existing vault, including semantic-variant audit diagnostics and optional externally seeded semantic or hybrid candidates; unreadable source files now fail explicitly | `python3 construct_benchmark_fixture.py --fixture-out PATH [--audit-out PATH] [--semantic-strategy S] [--semantic-seed-file PATH] [--hybrid-seed-file PATH] [--json]` |
 | `evaluate_search.py` | Benchmark lexical, semantic, and hybrid retrieval against a JSON query set | `python3 evaluate_search.py --benchmark PATH [--mode M]... [--json]` |
@@ -494,7 +496,7 @@ Plus a separate `not_installable` bucket in `--status` output for library-side e
 
 **MCP surface:** no direct MCP wrapper. Use the CLI/script entry point for definition installs, syncs, and status classification.
 
-## build_index.py / search_index.py / construct_benchmark_fixture.py / evaluate_search.py
+## build_lexical_index.py / search_lexical.py / build_index.py / search_index.py / construct_benchmark_fixture.py / evaluate_search.py
 
 Retrieval search over all vault markdown files. BM25 remains the lexical
 backbone; optional semantic and hybrid modes reuse persisted document
@@ -502,9 +504,10 @@ embeddings built alongside the index.
 
 **Key properties:**
 - **Zero mandatory dependencies for BM25** — the retrieval index build itself is hand-rolled and stdlib-only. Optional embeddings refresh piggybacks on the same command only when `defaults.flags.semantic_processing` or `defaults.flags.semantic_retrieval` is enabled and the pinned semantic runtime is installed
+- **Portable lexical / managed full-search split** — `build_lexical_index.py` and `search_lexical.py` are the direct portable lexical wrappers; `build_index.py` and `search_index.py` remain the managed full-search wrappers that layer semantic/hybrid and sidecar behaviour on top of the same lexical engine
 - **Same folder discovery** — reuses `scan_living_types()` / `scan_temporal_types()` patterns, then recurses each type folder for `.md` files
 - **Whole-document indexing** — each note is one entry (sufficient at vault scale)
-- **Build/search/construct/evaluate split** — `build_index.py` builds the index, `search_index.py` queries it in lexical, semantic, or hybrid mode, `construct_benchmark_fixture.py` mines and audits vault-native benchmark fixtures, and `evaluate_search.py` compares those modes against a benchmark fixture without changing the underlying retrieval contract.
+- **Build/search/construct/evaluate split** — `build_lexical_index.py` and `search_lexical.py` own the portable lexical-only surfaces; `build_index.py` builds the same lexical index plus optional embeddings sidecars, `search_index.py` queries that shared lexical index in lexical, semantic, or hybrid mode, `construct_benchmark_fixture.py` mines and audits vault-native benchmark fixtures, and `evaluate_search.py` compares those modes against a benchmark fixture without changing the underlying retrieval contract.
 - **CLI wrapper boundary** — `build_index.py` and `search_index.py` remain supported script entrypoints, while internal Python code now uses the canonical retrieval owners directly: `_search.index`, `_search.lexical_query`, `_search.semantic_query`, `_search.hybrid_query`, `_search.resource`, `_search.mode`, `_search.filters`, `_search.snippet`, `_semantic.assets`, and `_lifecycle.retrieval_assets`. The wrappers are part of the public CLI surface only, not the internal Python import graph.
 
 **BM25 parameters:** `k1=1.5`, `b=0.75`. IDF: `log((N - df + 0.5) / (df + 0.5) + 1)`. Score: `sum IDF(t) * (tf(t,d) * (k1+1)) / (tf(t,d) + k1 * (1 - b + b * dl/avgdl))`. **Title boosting** (v0.11.3): terms appearing in the document title receive an additional `IDF(t) * 3.0` score contribution, stored as `title_tf` per document. Backward compatible — older indexes without `title_tf` still work.
@@ -545,8 +548,13 @@ state.
 
 **CLI:**
 ```bash
+python3 build_lexical_index.py   # write .brain/local/retrieval-index.json (portable lexical only)
+python3 build_lexical_index.py --json
 python3 build_index.py           # write .brain/local/retrieval-index.json (+ embeddings when enabled)
 python3 build_index.py --json    # output JSON to stdout
+python3 search_lexical.py "query"
+python3 search_lexical.py "query" --type living/design --tag brain-core --top-k 5
+python3 search_lexical.py "query" --json
 python3 search_index.py "query"  # search and print ranked results (best local default)
 python3 search_index.py "query" --type living/design --tag brain-core --top-k 5
 python3 search_index.py "query" --mode lexical
@@ -555,7 +563,7 @@ python3 search_index.py "query" --mode hybrid
 python3 search_index.py "query" --json  # structured output
 ```
 
-`search_index.py` defaults to `hybrid` when semantic retrieval is enabled and usable; otherwise it defaults to `lexical`. Explicit `--mode semantic` and `--mode hybrid` fail fast when embeddings sidecars are missing or corrupt, or when semantic dependencies are unavailable. Hybrid search applies four query-shape adjustments on top of RRF: exact-anchor queries (release versions, ticket-like IDs) return the lexical champion outright, a clearly dominant semantic top result receives a small tie-break bonus, a strong lexical leader receives a small bonus when the query literally contains its core title phrase, and a stronger semantic rescue applies only when lexical and semantic top candidates are disjoint while the lexical top title shows very little query overlap. The title-phrase rule strips only the shipped `Brain` product namespace from first-party titles like `Brain MCP Server`; it is not a general vault-prefix mechanism.
+`search_lexical.py` always uses the shared lexical engine only. `search_index.py` defaults to `hybrid` when semantic retrieval is enabled and usable; otherwise it defaults to `lexical`. Explicit `--mode semantic` and `--mode hybrid` fail fast when embeddings sidecars are missing or corrupt, or when semantic dependencies are unavailable. Hybrid search applies four query-shape adjustments on top of RRF: exact-anchor queries (release versions, ticket-like IDs) return the lexical champion outright, a clearly dominant semantic top result receives a small tie-break bonus, a strong lexical leader receives a small bonus when the query literally contains its core title phrase, and a stronger semantic rescue applies only when lexical and semantic top candidates are disjoint while the lexical top title shows very little query overlap. The title-phrase rule strips only the shipped `Brain` product namespace from first-party titles like `Brain MCP Server`; it is not a general vault-prefix mechanism.
 
 `evaluate_search.py` runs a benchmark JSON file against one or more explicit modes and reports hit@1 / hit@3 / hit@5, per-mode timing, per-intent summaries, a best-effort expected-winner scorecard for whichever primary lexical/semantic/hybrid buckets have the expected mode plus at least one comparison mode present, basic cluster-quality metrics, explicit filter-sensitive pass/fail output, and comparisons against lexical baseline behaviour. The benchmark schema is intentionally small:
 
