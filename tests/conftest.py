@@ -149,6 +149,9 @@ def wrapper_cli():
         merged_env["PYTHONPATH"] = (
             SCRIPTS_DIR if not existing else f"{SCRIPTS_DIR}{os.pathsep}{existing}"
         )
+        # CLI wrapper tests exercise wrapper behaviour after the managed-runtime
+        # handoff has already happened.
+        merged_env.setdefault("BRAIN_MANAGED_RUNTIME", "1")
         if env:
             merged_env.update(env)
         script_path = REPO_ROOT / "src" / "brain-core" / "scripts" / script_name

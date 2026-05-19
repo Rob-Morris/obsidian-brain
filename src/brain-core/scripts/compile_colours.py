@@ -25,7 +25,12 @@ import os
 import sys
 from datetime import datetime, timezone
 
+from _bootstrap.runtime import (
+    handoff_current_script_to_managed_runtime,
+    required_modules_for_scope,
+)
 from _common import find_vault_root, load_compiled_router, safe_write, safe_write_json
+from _repair_common import build_repair_command
 
 
 # ---------------------------------------------------------------------------
@@ -789,6 +794,19 @@ def _require_compiled_router(vault_root):
 def main():
     json_mode, dry_run, vault_path = parse_args(sys.argv)
     vault_root = find_vault_root(vault_path)
+    try:
+        handoff_current_script_to_managed_runtime(
+            vault_root,
+            dependency_owner="compile_colours.py",
+            required_modules=required_modules_for_scope("runtime"),
+            script_path=os.path.abspath(__file__),
+            forwarded_args=sys.argv[1:],
+        )
+    except RuntimeError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        print(build_repair_command(vault_root, "runtime"), file=sys.stderr)
+        sys.exit(1)
+
     router = _require_compiled_router(vault_root)
     assignments = compute_colours(router)
     color_groups = render_graph_color_groups(assignments)

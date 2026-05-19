@@ -1194,6 +1194,11 @@ class TestArtefactIndex:
 class TestCompileRouterMain:
     def test_main_writes_router_and_colour_outputs_and_preserves_embeddings(self, vault, monkeypatch):
         monkeypatch.setattr(cr, "find_vault_root", lambda: vault)
+        monkeypatch.setattr(
+            cr,
+            "handoff_current_script_to_managed_runtime",
+            lambda *_args, **_kwargs: {"managed_runtime_ready": True},
+        )
         monkeypatch.setattr(cr.sys, "argv", ["compile_router.py"])
 
         for rel_path in (
@@ -1216,6 +1221,11 @@ class TestCompileRouterMain:
 
     def test_main_json_mode_keeps_compile_side_effect_free(self, vault, monkeypatch, capsys):
         monkeypatch.setattr(cr, "find_vault_root", lambda: vault)
+        monkeypatch.setattr(
+            cr,
+            "handoff_current_script_to_managed_runtime",
+            lambda *_args, **_kwargs: {"managed_runtime_ready": True},
+        )
         monkeypatch.setattr(cr.sys, "argv", ["compile_router.py", "--json"])
 
         for rel_path in (

@@ -973,6 +973,11 @@ class TestBuildIndexCli:
         build_index_cli = _load_build_index_cli_module()
         monkeypatch.setattr(build_index_cli, "find_vault_root", lambda: str(vault))
         monkeypatch.setattr(
+            build_index_cli,
+            "handoff_current_script_to_managed_runtime",
+            lambda *_args, **_kwargs: {"managed_runtime_ready": True},
+        )
+        monkeypatch.setattr(
             build_index_cli.semantic_config,
             "load_config_checked",
             lambda _vault: {},

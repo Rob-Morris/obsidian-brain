@@ -83,6 +83,7 @@ CLI_TARGET_LOCATIONS = (
 )
 DEPENDENCY_SYNC_TIMEOUT = 300
 RETRIEVAL_ASSET_REPAIR_TIMEOUT = 1800
+MANAGED_RUNTIME_ENV = "BRAIN_MANAGED_RUNTIME"
 
 # Outcome tags for `_ensure_central_runtime` (named so producer + consumer cannot drift).
 RUNTIME_CREATED = "created"
@@ -963,12 +964,17 @@ def _validate_compile(vault_root: str) -> Optional[str]:
         return f"compile_router.py not found at {script}"
 
     try:
+        env = os.environ.copy()
+        # Internal upgrade validation is already running from a known-good
+        # Python environment; do not recurse into managed-runtime bootstrap.
+        env[MANAGED_RUNTIME_ENV] = "1"
         proc = subprocess.run(
             [sys.executable, script],
             cwd=vault_root,
             capture_output=True,
             text=True,
             timeout=_COMPILE_TIMEOUT,
+            env=env,
         )
         if proc.returncode != 0:
             stderr = proc.stderr.strip()

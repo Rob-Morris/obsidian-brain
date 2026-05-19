@@ -17,6 +17,8 @@ That `python3.12` process is the launcher, not the managed runtime itself.
 - launcher-safe bootstrap entrypoints such as `repair.py`, `configure.py`, and `init.py` may do meaningful bootstrap work there
 - shared bootstrap/runtime ownership now lives in `src/brain-core/scripts/_bootstrap/`
 - runtime-owning lifecycle entrypoints such as `repair.py`, `configure.py`, `session.py`, and `check.py` resolve or repair the canonical managed runtime and then hand off into it before substantive managed work continues
+- managed operational wrappers such as `build_index.py`, `search_index.py`, `construct_benchmark_fixture.py`, `evaluate_search.py`, `compile_router.py`, `compile_colours.py`, `sync_definitions.py`, `shape_printable.py`, `shape_presentation.py`, and `migrate_naming.py` now use that same launcher-to-managed-runtime handoff contract
+- if you are used to activating the vault venv manually first, that still works, but it is no longer the normal contract those wrappers document or rely on
 - the optional [`brain` CLI](cli.md) is shorthand over the same direct script surfaces, not a separate execution model
 
 ## Script Table

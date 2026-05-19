@@ -23,6 +23,10 @@ import sys
 import tempfile
 from datetime import datetime, timezone
 
+from _bootstrap.runtime import (
+    handoff_current_script_to_managed_runtime,
+    required_modules_for_scope,
+)
 from _common import (
     coerce_bool,
     find_vault_root,
@@ -33,6 +37,7 @@ from _common import (
     substitute_template_vars,
     title_to_filename,
 )
+from _repair_common import build_repair_command
 
 
 _WIKILINK_RE = re.compile(r"\[\[([^\]|]+)(?:\|([^\]]+))?\]\]")
@@ -376,6 +381,19 @@ def main():
         params["pdf_engine"] = pdf_engine
 
     vault_root = str(find_vault_root(vault_arg))
+    try:
+        handoff_current_script_to_managed_runtime(
+            vault_root,
+            dependency_owner="shape_printable.py",
+            required_modules=required_modules_for_scope("runtime"),
+            script_path=os.path.abspath(__file__),
+            forwarded_args=sys.argv[1:],
+        )
+    except RuntimeError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        print(build_repair_command(vault_root, "runtime"), file=sys.stderr)
+        sys.exit(1)
+
     result = shape(vault_root, params)
 
     if "error" in result:

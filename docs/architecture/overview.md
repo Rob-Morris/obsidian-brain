@@ -96,6 +96,8 @@ The MCP server is a thin wrapper. All vault operation logic lives in `.brain-cor
 
 The lifecycle/bootstrap side of that script layer now has an explicit shared owner under `scripts/_bootstrap/`. `runtime.py` owns launcher discovery, managed-runtime handoff, and the shared `BRAIN_MANAGED_RUNTIME` / `BRAIN_BOOTSTRAP_SUMMARY` contract; `diagnostics.py` owns the launcher-safe runtime/MCP/registry checks needed before managed semantic work is available. Entry points such as `repair.py`, `configure.py`, `init.py`, `session.py`, and `check.py` now converge on that seam instead of carrying parallel launcher or env-var logic.
 
+Managed operational wrappers now consume that same seam instead of assuming the caller already arranged the right interpreter. Retrieval wrappers (`build_index.py`, `search_index.py`, `construct_benchmark_fixture.py`, `evaluate_search.py`) and the remaining managed direct wrappers (`compile_router.py`, `compile_colours.py`, `sync_definitions.py`, `shape_printable.py`, `shape_presentation.py`, `migrate_naming.py`) all start in a compatible launcher Python only long enough to enter the canonical managed runtime, then continue substantive work there.
+
 Within that script layer, retrieval ownership is now split honestly by
 responsibility: lexical index and retrieval policy live under `scripts/_search/`,
 semantic sidecar mechanics live under `scripts/_semantic/`, and combined

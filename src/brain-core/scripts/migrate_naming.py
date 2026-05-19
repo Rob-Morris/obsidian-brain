@@ -21,6 +21,10 @@ import re
 import sys
 from datetime import datetime, timezone
 
+from _bootstrap.runtime import (
+    handoff_current_script_to_managed_runtime,
+    required_modules_for_scope,
+)
 from _common import (
     find_vault_root,
     iter_artefact_paths,
@@ -31,6 +35,7 @@ from _common import (
     slug_to_title,
     validate_filename,
 )
+from _repair_common import build_repair_command
 from rename import rename_and_update_links
 
 
@@ -262,6 +267,19 @@ def main():
             i += 1
 
     vault_root = str(find_vault_root(vault_arg))
+    try:
+        handoff_current_script_to_managed_runtime(
+            vault_root,
+            dependency_owner="migrate_naming.py",
+            required_modules=required_modules_for_scope("runtime"),
+            script_path=os.path.abspath(__file__),
+            forwarded_args=sys.argv[1:],
+        )
+    except RuntimeError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        print(build_repair_command(vault_root, "runtime"), file=sys.stderr)
+        sys.exit(1)
+
     result = migrate_vault(vault_root, dry_run=dry_run)
 
     if json_mode:

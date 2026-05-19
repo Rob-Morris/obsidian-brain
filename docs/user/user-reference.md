@@ -202,6 +202,8 @@ Available in `.brain-core/scripts/`. Scripts are the source of truth for all vau
 
 Use direct script invocation from a compatible Python 3.12+ launcher as the baseline command-line path. Bootstrap entrypoints such as `repair.py`, `configure.py`, and `init.py` do their launcher-safe setup there; runtime-owning lifecycle entrypoints such as `repair.py`, `configure.py`, `session.py`, and `check.py` then hand substantive managed work into the canonical managed runtime automatically.
 
+The same is now true for the managed operational wrappers: `build_index.py`, `search_index.py`, `construct_benchmark_fixture.py`, `evaluate_search.py`, `compile_router.py`, `compile_colours.py`, `sync_definitions.py`, `shape_printable.py`, `shape_presentation.py`, and `migrate_naming.py` all start in the launcher only long enough to enter the managed runtime. You do not need to activate the vault venv manually before using them.
+
 | Script | Purpose |
 |---|---|
 | `compile_router.py` | Compile router, taxonomy, skills, and styles into a single JSON file |
@@ -238,7 +240,7 @@ Use direct script invocation from a compatible Python 3.12+ launcher as the base
 
 Two complementary tools:
 
-**`check.py`** (structural compliance) — deep scan that validates all files against the compiled router: naming patterns, frontmatter type and required fields, month folders for temporal files, archive metadata, status values, duplicate frontmatter corruption, and broken or ambiguous wikilinks (including YAML frontmatter property-links like `parent: "[[foo]]"`; wikilinks inside code, HTML comments, `$$` math, and raw HTML blocks are treated as literal text). When router, MCP, local workspace-registry drift, or duplicate artefact frontmatter is detected, normal output prints the exact `repair.py` command to run and JSON/compliance output includes structured `repair` metadata. Run on demand or during maintenance. Flags: `--json` (structured output), `--actionable` (fix suggestions), `--severity <level>` (filter). Also available via MCP: `brain_read(resource="compliance")`.
+**`check.py`** (structural compliance) — deep scan that validates all files against the compiled router: naming patterns, frontmatter type and required fields, month folders for temporal files, archive metadata, status values, duplicate frontmatter corruption, and broken or ambiguous wikilinks (including YAML frontmatter property-links like `parent: "[[foo]]"`; wikilinks inside code, HTML comments, `$$` math, and raw HTML blocks are treated as literal text). When router, MCP, local workspace-registry drift, or duplicate artefact frontmatter is detected, normal output prints the exact `repair.py` command to run and JSON/compliance output includes structured `repair` metadata. Run on demand or during maintenance. Flags: `--json` (structured output), `--actionable` (fix suggestions), `--severity <level>` (filter).
 
 ```bash
 python3 .brain-core/scripts/check.py                    # human-readable

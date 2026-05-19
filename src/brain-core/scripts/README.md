@@ -10,6 +10,8 @@ python3.12 .brain-core/scripts/<script>.py ...
 
 That launcher process is not automatically the managed runtime. The shared bootstrap/runtime ownership now lives under `_bootstrap/`: bootstrap entrypoints do meaningful launcher-safe work there, and runtime-owning lifecycle entrypoints such as `repair.py`, `configure.py`, `session.py`, and `check.py` hand substantive managed work off into the canonical managed runtime before continuing.
 
+Managed operational wrappers now follow that same contract too: `build_index.py`, `search_index.py`, `construct_benchmark_fixture.py`, `evaluate_search.py`, `compile_router.py`, `compile_colours.py`, `sync_definitions.py`, `shape_printable.py`, `shape_presentation.py`, and `migrate_naming.py` start in the launcher only long enough to enter the managed runtime. Manually activating the vault venv still works for debugging, but it is no longer the normal direct-script contract these wrappers document or rely on.
+
 Semantic and hybrid retrieval remain optional. Enable them from an installed
 vault with `python3 .brain-core/scripts/configure.py semantic --enable`
 before using embedding-backed search or evaluation flows. That command writes

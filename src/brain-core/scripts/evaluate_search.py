@@ -20,12 +20,41 @@ import os
 import sys
 import time
 
-import retrieval_embeddings as _retrieval_embeddings
+from _bootstrap.runtime import (
+    handoff_current_script_to_managed_runtime,
+    required_modules_for_scope,
+)
 from _common import RaisingArgumentParser, find_vault_root, require_option
-from _search.filters import SearchFilters
-import _search.lexical_query as lexical_query
 import _search.mode as search_mode
-import _search.semantic_query as semantic_query
+from _repair_common import build_repair_command
+
+
+_retrieval_embeddings = None
+SemanticConfigLoadError = RuntimeError
+SearchFilters = None
+lexical_query = None
+semantic_query = None
+
+
+def _load_runtime_modules() -> None:
+    """Load retrieval modules only after wrapper handoff is settled."""
+    global _retrieval_embeddings, SemanticConfigLoadError, SearchFilters, lexical_query, semantic_query
+    if SearchFilters is not None:
+        return
+    import retrieval_embeddings as _retrieval_embeddings_mod
+    from _search.filters import SearchFilters as _SearchFilters
+    import _search.lexical_query as _lexical_query
+    import _search.semantic_query as _semantic_query
+
+    _retrieval_embeddings = _retrieval_embeddings_mod
+    SemanticConfigLoadError = _retrieval_embeddings_mod.SemanticConfigLoadError
+    SearchFilters = _SearchFilters
+    lexical_query = _lexical_query
+    semantic_query = _semantic_query
+
+
+if __name__ != "__main__":
+    _load_runtime_modules()
 
 
 DEFAULT_HIT_KS = (1, 3, 5)
@@ -696,14 +725,25 @@ def main():
     try:
         benchmark_path, vault_override, modes, json_mode = parse_args(sys.argv)
         vault_root = vault_override or find_vault_root()
+        handoff_current_script_to_managed_runtime(
+            vault_root,
+            dependency_owner="evaluate_search.py",
+            required_modules=required_modules_for_scope("runtime"),
+            script_path=os.path.abspath(__file__),
+            forwarded_args=sys.argv[1:],
+        )
+        _load_runtime_modules()
         report = build_report(vault_root, benchmark_path, modes=modes)
     except (
         OSError,
         ValueError,
+        RuntimeError,
         search_mode.SearchModeUnavailableError,
-        _retrieval_embeddings.SemanticConfigLoadError,
+        SemanticConfigLoadError,
     ) as exc:
         print(f"Error: {exc}", file=sys.stderr)
+        if isinstance(exc, RuntimeError):
+            print(build_repair_command(vault_root, "runtime"), file=sys.stderr)
         sys.exit(1)
 
     if json_mode:

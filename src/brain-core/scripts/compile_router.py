@@ -21,6 +21,10 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+from _bootstrap.runtime import (
+    handoff_current_script_to_managed_runtime,
+    required_modules_for_scope,
+)
 from _common import (
     PLACEHOLDER_TOKEN_RE,
     TEMPORAL_DIR,
@@ -38,6 +42,7 @@ from _common import (
     is_valid_key,
 )
 from _common._artefacts import pattern_has_date_tokens
+from _repair_common import build_repair_command
 import compile_colours
 import session
 
@@ -1076,6 +1081,19 @@ def refresh_session_markdown(vault_root, compiled):
 
 def main():
     vault_root = find_vault_root()
+    try:
+        handoff_current_script_to_managed_runtime(
+            vault_root,
+            dependency_owner="compile_router.py",
+            required_modules=required_modules_for_scope("runtime"),
+            script_path=os.path.abspath(__file__),
+            forwarded_args=sys.argv[1:],
+        )
+    except RuntimeError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        print(build_repair_command(vault_root, "runtime"), file=sys.stderr)
+        sys.exit(1)
+
     compiled = compile(vault_root)
 
     json_output = json.dumps(compiled, indent=2, ensure_ascii=False)

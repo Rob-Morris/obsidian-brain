@@ -290,6 +290,53 @@ def exec_managed_runtime(
     os.execve(managed_python, argv, env)
 
 
+def handoff_current_script_to_managed_runtime(
+    vault_root: str | Path,
+    *,
+    dependency_owner: str,
+    forwarded_args: list[str],
+    script_path: str,
+    required_modules: tuple[str, ...] = MANAGED_RUNTIME_REQUIRED_MODULES,
+    launcher_python: str | None = None,
+    timeout: int = 300,
+) -> dict:
+    """Ensure the current wrapper executes inside the canonical managed runtime.
+
+    The caller may continue only when this function returns. If the current
+    process is not already the managed runtime, this function either re-execs
+    into it or raises `RuntimeError` when bootstrap could not produce a usable
+    managed interpreter.
+    """
+    if current_process_in_managed_runtime(vault_root):
+        return {
+            "checked_at": iso_now(),
+            "managed_python": sys.executable,
+            "status": "ready",
+            "steps": load_bootstrap_steps(),
+            "managed_runtime_ready": True,
+        }
+
+    summary = bootstrap_managed_runtime(
+        Path(vault_root),
+        required_modules=required_modules,
+        dependency_owner=dependency_owner,
+        launcher_python=launcher_python,
+        timeout=timeout,
+    )
+    if not summary["managed_runtime_ready"]:
+        raise RuntimeError("Managed runtime bootstrap did not produce a usable central venv.")
+
+    managed_python = summary["managed_python"]
+    if os.path.realpath(sys.executable) != os.path.realpath(managed_python):
+        exec_managed_runtime(
+            managed_python=managed_python,
+            script_path=script_path,
+            forwarded_args=forwarded_args,
+            summary=summary,
+        )
+    return summary
+
+
 def load_bootstrap_steps() -> list[dict]:
     """Read bootstrap steps from the managed-runtime re-exec environment."""
     payload = os.environ.get(BOOTSTRAP_SUMMARY_ENV)
@@ -311,4 +358,3 @@ def runtime_dependency_missing(python_path: str, module: str) -> bool:
     """Return whether one named module is missing from a Python executable."""
     probe = probe_python(python_path, modules=(module,))
     return module in probe.get("missing", [])
-

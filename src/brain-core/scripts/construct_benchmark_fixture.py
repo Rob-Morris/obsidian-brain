@@ -29,7 +29,10 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
-import retrieval_embeddings as _retrieval_embeddings
+from _bootstrap.runtime import (
+    handoff_current_script_to_managed_runtime,
+    required_modules_for_scope,
+)
 from _common import (
     RaisingArgumentParser,
     build_vault_file_index,
@@ -47,7 +50,29 @@ from _search.lexical import LEXICAL_ANCHOR_RE, tokenise
 from _search.filters import SearchFilters
 import _search.lexical_query as lexical_query
 import _search.mode as search_mode
-import _search.semantic_query as semantic_query
+from _repair_common import build_repair_command
+
+
+_retrieval_embeddings = None
+SemanticConfigLoadError = RuntimeError
+semantic_query = None
+
+
+def _load_runtime_modules() -> None:
+    """Load retrieval modules only after wrapper handoff is settled."""
+    global _retrieval_embeddings, SemanticConfigLoadError, semantic_query
+    if _retrieval_embeddings is not None:
+        return
+    import retrieval_embeddings as _retrieval_embeddings_mod
+    import _search.semantic_query as _semantic_query
+
+    _retrieval_embeddings = _retrieval_embeddings_mod
+    SemanticConfigLoadError = _retrieval_embeddings_mod.SemanticConfigLoadError
+    semantic_query = _semantic_query
+
+
+if __name__ != "__main__":
+    _load_runtime_modules()
 
 
 HIT_KS = (1, 3, 5)
@@ -1869,6 +1894,14 @@ def main():
 
     vault_root = find_vault_root(vault_arg)
     try:
+        handoff_current_script_to_managed_runtime(
+            vault_root,
+            dependency_owner="construct_benchmark_fixture.py",
+            required_modules=required_modules_for_scope("runtime"),
+            script_path=os.path.abspath(__file__),
+            forwarded_args=sys.argv[1:],
+        )
+        _load_runtime_modules()
         result = construct_fixture(
             vault_root,
             fixture_out=fixture_out,
@@ -1879,11 +1912,14 @@ def main():
             hybrid_seed_file=hybrid_seed_file,
         )
     except (
+        RuntimeError,
         search_mode.SearchModeUnavailableError,
-        _retrieval_embeddings.SemanticConfigLoadError,
+        SemanticConfigLoadError,
         UnreadableRetrievalSourceError,
     ) as exc:
         print(f"Error: {exc}", file=sys.stderr)
+        if isinstance(exc, RuntimeError):
+            print(build_repair_command(vault_root, "runtime"), file=sys.stderr)
         sys.exit(1)
 
     if json_mode:

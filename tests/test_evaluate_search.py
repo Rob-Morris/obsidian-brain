@@ -525,6 +525,11 @@ class TestBuildReport:
         monkeypatch.setattr(es, "find_vault_root", lambda: "/tmp/vault")
         monkeypatch.setattr(
             es,
+            "handoff_current_script_to_managed_runtime",
+            lambda *_args, **_kwargs: {"managed_runtime_ready": True},
+        )
+        monkeypatch.setattr(
+            es,
             "build_report",
             lambda *_args, **_kwargs: (_ for _ in ()).throw(
                 es._retrieval_embeddings.SemanticConfigLoadError("bad config")

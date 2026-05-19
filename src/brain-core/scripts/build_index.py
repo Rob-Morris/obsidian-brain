@@ -11,24 +11,78 @@ this module.
 from __future__ import annotations
 
 import json
+import os
 import sys
 
-import _lifecycle.retrieval_assets as _retrieval_assets
-from _lifecycle.retrieval_errors import (
-    CompiledRouterUnavailableError,
-    RetrievalPersistenceError,
-    SemanticRuntimeUnavailableError,
-    UnreadableRetrievalSourceError,
+from _bootstrap.runtime import (
+    handoff_current_script_to_managed_runtime,
+    required_modules_for_scope,
 )
-import _search.index as _index
-import _search.paths as _paths
-import _semantic.config as semantic_config
-import _semantic.model as semantic_model
 from _common import find_vault_root
+from _repair_common import build_repair_command
+
+
+_retrieval_assets = None
+CompiledRouterUnavailableError = None
+RetrievalPersistenceError = None
+SemanticRuntimeUnavailableError = None
+UnreadableRetrievalSourceError = None
+_index = None
+_paths = None
+semantic_config = None
+semantic_model = None
+
+
+def _load_runtime_modules() -> None:
+    """Load retrieval modules only after wrapper handoff is settled."""
+    global _retrieval_assets, CompiledRouterUnavailableError, RetrievalPersistenceError
+    global SemanticRuntimeUnavailableError, UnreadableRetrievalSourceError
+    global _index, _paths, semantic_config, semantic_model
+    if _index is not None:
+        return
+    import _lifecycle.retrieval_assets as _retrieval_assets_mod
+    from _lifecycle.retrieval_errors import (
+        CompiledRouterUnavailableError as _CompiledRouterUnavailableError,
+        RetrievalPersistenceError as _RetrievalPersistenceError,
+        SemanticRuntimeUnavailableError as _SemanticRuntimeUnavailableError,
+        UnreadableRetrievalSourceError as _UnreadableRetrievalSourceError,
+    )
+    import _search.index as _index_mod
+    import _search.paths as _paths_mod
+    import _semantic.config as _semantic_config
+    import _semantic.model as _semantic_model
+
+    _retrieval_assets = _retrieval_assets_mod
+    CompiledRouterUnavailableError = _CompiledRouterUnavailableError
+    RetrievalPersistenceError = _RetrievalPersistenceError
+    SemanticRuntimeUnavailableError = _SemanticRuntimeUnavailableError
+    UnreadableRetrievalSourceError = _UnreadableRetrievalSourceError
+    _index = _index_mod
+    _paths = _paths_mod
+    semantic_config = _semantic_config
+    semantic_model = _semantic_model
+
+
+if __name__ != "__main__":
+    _load_runtime_modules()
 
 
 def main():
     vault_root = find_vault_root()
+    try:
+        handoff_current_script_to_managed_runtime(
+            vault_root,
+            dependency_owner="build_index.py",
+            required_modules=required_modules_for_scope("runtime"),
+            script_path=os.path.abspath(__file__),
+            forwarded_args=sys.argv[1:],
+        )
+    except RuntimeError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        print(build_repair_command(vault_root, "runtime"), file=sys.stderr)
+        sys.exit(1)
+
+    _load_runtime_modules()
     try:
         cfg = semantic_config.load_config_checked(vault_root)
     except semantic_config.SemanticConfigLoadError as exc:

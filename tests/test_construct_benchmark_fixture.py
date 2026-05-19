@@ -91,6 +91,11 @@ class TestParseArgs:
         monkeypatch.setattr(cbf, "find_vault_root", lambda _vault: "/tmp/vault")
         monkeypatch.setattr(
             cbf,
+            "handoff_current_script_to_managed_runtime",
+            lambda *_args, **_kwargs: {"managed_runtime_ready": True},
+        )
+        monkeypatch.setattr(
+            cbf,
             "construct_fixture",
             lambda *_args, **_kwargs: (_ for _ in ()).throw(
                 cbf._retrieval_embeddings.SemanticConfigLoadError("bad config")
@@ -110,6 +115,11 @@ class TestParseArgs:
             ["construct_benchmark_fixture.py", "--fixture-out", "fixture.json"],
         )
         monkeypatch.setattr(cbf, "find_vault_root", lambda _vault: "/tmp/vault")
+        monkeypatch.setattr(
+            cbf,
+            "handoff_current_script_to_managed_runtime",
+            lambda *_args, **_kwargs: {"managed_runtime_ready": True},
+        )
 
         def boom(*_args, **_kwargs):
             raise retrieval_errors.UnreadableRetrievalSourceError(
