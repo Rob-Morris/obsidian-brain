@@ -84,6 +84,7 @@ CLI_TARGET_LOCATIONS = (
 DEPENDENCY_SYNC_TIMEOUT = 300
 RETRIEVAL_ASSET_REPAIR_TIMEOUT = 1800
 MANAGED_RUNTIME_ENV = "BRAIN_MANAGED_RUNTIME"
+SKIP_BOOTSTRAP_ENV = "BRAIN_SKIP_BOOTSTRAP"
 
 # Outcome tags for `_ensure_central_runtime` (named so producer + consumer cannot drift).
 RUNTIME_CREATED = "created"
@@ -967,7 +968,7 @@ def _validate_compile(vault_root: str) -> Optional[str]:
         env = os.environ.copy()
         # Internal upgrade validation is already running from a known-good
         # Python environment; do not recurse into managed-runtime bootstrap.
-        env[MANAGED_RUNTIME_ENV] = "1"
+        env[SKIP_BOOTSTRAP_ENV] = "1"
         proc = subprocess.run(
             [sys.executable, script],
             cwd=vault_root,

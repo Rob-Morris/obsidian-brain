@@ -29,7 +29,7 @@ def load_config_checked(vault_root, config=None):
         raise SemanticConfigLoadError(f"failed to import config module: {exc}") from exc
     try:
         return config_mod.load_config(str(vault_root))
-    except (FileNotFoundError, OSError, ValueError) as exc:
+    except (FileNotFoundError, OSError, ValueError, YamlError) as exc:
         raise SemanticConfigLoadError(f"failed to load config: {exc}") from exc
 
 
@@ -127,8 +127,10 @@ def _update_local_semantic_config(
         data = load_mapping_file(config_path)
     except FileNotFoundError:
         data = {}
-    except YamlError:
-        data = {}
+    except YamlError as exc:
+        raise SemanticConfigLoadError(
+            f"failed to load local semantic config: {exc}"
+        ) from exc
     if not isinstance(data, dict):
         data = {}
 

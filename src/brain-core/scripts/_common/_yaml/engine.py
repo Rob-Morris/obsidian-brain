@@ -175,11 +175,8 @@ def _emit_string(value: str) -> str:
         return '""'
     if value in {"true", "false", "[]", "{}"}:
         return _emit_quoted(value)
+    # Integer-looking strings must stay strings on round-trip, not YAML ints.
     if _PLAIN_INT_RE.fullmatch(value):
-        if len(value) > 1 and value[0] == "0":
-            return _emit_quoted(value)
-        if len(value) > 2 and value.startswith("-0"):
-            return _emit_quoted(value)
         return _emit_quoted(value)
     if value[0] in {"[", "{", "!", "&", "*", "|", ">", "-", "?", "@", "`"}:
         return _emit_quoted(value)

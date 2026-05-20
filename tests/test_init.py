@@ -2,6 +2,7 @@
 
 import json
 import os
+import subprocess
 import sys
 
 import pytest
@@ -82,7 +83,7 @@ class TestFindPython:
         monkeypatch.setattr(init, "find_launcher_python", lambda: "/usr/bin/python3.12")
         monkeypatch.setattr(
             init,
-            "bootstrap_managed_runtime",
+            "ensure_managed_runtime",
             lambda *_args, **_kwargs: {
                 "managed_runtime_ready": True,
                 "managed_python": "/home/.brain/venvs/py3.12-fake/bin/python",
@@ -101,7 +102,7 @@ class TestFindPython:
         monkeypatch.setattr(init, "find_launcher_python", lambda: "/usr/bin/python3.12")
         monkeypatch.setattr(
             init,
-            "bootstrap_managed_runtime",
+            "ensure_managed_runtime",
             lambda *_args, **_kwargs: {
                 "managed_runtime_ready": False,
                 "managed_python": "",
@@ -110,6 +111,28 @@ class TestFindPython:
 
         with pytest.raises(SystemExit):
             init.find_python(vault)
+
+    def test_errors_gracefully_when_managed_runtime_bootstrap_subprocess_fails(
+        self, vault, monkeypatch, capsys
+    ):
+        monkeypatch.setattr(init, "find_launcher_python", lambda: "/usr/bin/python3.12")
+        monkeypatch.setattr(
+            init,
+            "ensure_managed_runtime",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                RuntimeError(
+                    "ensure_central_venv failed: command failed: pip install (exit 1)\n"
+                    "pip install failed"
+                )
+            ),
+        )
+
+        with pytest.raises(SystemExit):
+            init.find_python(vault)
+
+        err = capsys.readouterr().err
+        assert "command failed: pip install" in err
+        assert "pip install failed" in err
 
 
 class TestVaultMatching:
@@ -302,6 +325,24 @@ class TestEnsureBrainIgnoreRules:
         assert ".brain/local/" in exclude
         assert ".claude/settings.local.json" not in exclude
 
+    def test_raises_when_ignore_destination_is_unreadable(self, project, monkeypatch):
+        gitignore = project / ".gitignore"
+        gitignore.write_text("node_modules/\n")
+        monkeypatch.setattr(init, "_git_repo_root", lambda _target: project)
+        monkeypatch.setattr(init, "_git_dir", lambda _target: project / ".git")
+
+        original_read_text = type(gitignore).read_text
+
+        def fake_read_text(path, *args, **kwargs):
+            if path == gitignore:
+                raise OSError("permission denied")
+            return original_read_text(path, *args, **kwargs)
+
+        monkeypatch.setattr(type(gitignore), "read_text", fake_read_text)
+
+        with pytest.raises(init.GitInspectionError, match="failed to read ignore destination"):
+            init.ensure_brain_ignore_rules(project, "project", ["claude"], skip_mcp=False)
+
 
 class TestBuildSessionHookCommand:
     def test_does_not_embed_bare_python3(self, vault):
@@ -319,22 +360,14 @@ class TestBuildSessionHookCommand:
         """The hook is persisted; prefer stable PATH binaries to sys.executable
         because the caller may be a temporary interpreter whose path won't survive."""
         monkeypatch.setattr(init, "find_launcher_python", lambda prefer_path_binaries=False: "/usr/bin/python3.12")
-        monkeypatch.setattr(init, "find_repair_launcher", lambda: sys.executable)
         command = init.build_session_hook_command(vault, vault)
         assert "/usr/bin/python3.12" in command
         assert sys.executable not in command
 
-    def test_falls_back_to_find_repair_launcher_when_path_lacks_compatible_python(
+    def test_falls_back_to_sys_executable_when_path_lacks_compatible_python(
         self, vault, monkeypatch
     ):
         monkeypatch.setattr(init, "find_launcher_python", lambda prefer_path_binaries=False: None)
-        monkeypatch.setattr(init, "find_repair_launcher", lambda: "/opt/fallback/python")
-        command = init.build_session_hook_command(vault, vault)
-        assert "/opt/fallback/python" in command
-
-    def test_last_resort_is_sys_executable(self, vault, monkeypatch):
-        monkeypatch.setattr(init, "find_launcher_python", lambda prefer_path_binaries=False: None)
-        monkeypatch.setattr(init, "find_repair_launcher", lambda: None)
         command = init.build_session_hook_command(vault, vault)
         assert sys.executable in command
 

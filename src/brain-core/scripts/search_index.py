@@ -44,11 +44,6 @@ def _load_runtime_modules() -> None:
     search_mode = _search_mode
     semantic_config = _semantic_config
 
-
-if __name__ != "__main__":
-    _load_runtime_modules()
-
-
 def parse_args(argv):
     """Parse CLI arguments for `search_index.py`."""
     parser = argparse.ArgumentParser(prog=argv[0])

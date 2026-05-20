@@ -35,7 +35,7 @@ remains lexical-only.
 |---|---|---|
 | `_bootstrap/` | Shared bootstrap package: launcher discovery, managed-runtime handoff, and launcher-safe bootstrap diagnostics | (library only) |
 | `_common/` | Shared utilities package: vault discovery, frontmatter parsing, serialisation, CLI parser helpers, and general script support | (library only) |
-| `_lifecycle_common.py` | Shared lifecycle helpers that now wrap the canonical `_bootstrap` runtime seam plus result-envelope rendering | (library only) |
+| `_lifecycle_common.py` | Shared lifecycle result-envelope rendering and CLI emission helpers | (library only) |
 | `_repair_common.py` | Launcher-safe repair metadata, scope definitions, and exact command builders | (library only) |
 | `_repair_runtime.py` | Managed-runtime repair scope implementations plus the managed semantic diagnostic tail | (library only) |
 | `_search/` | Internal retrieval package: lexical index ownership plus retrieval query-mode policy and lexical/semantic/hybrid execution | (library only) |

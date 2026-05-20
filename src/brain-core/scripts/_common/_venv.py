@@ -322,13 +322,21 @@ def ensure_central_venv(
         created = False
     else:
         venv_dir.parent.mkdir(parents=True, exist_ok=True)
-        subprocess.run([str(launcher), "-m", "venv", str(venv_dir)], check=True, timeout=timeout)
+        subprocess.run(
+            [str(launcher), "-m", "venv", str(venv_dir)],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
         created = True
 
     if install_requirements:
         subprocess.run(
             [str(py), "-m", "pip", "install", "--quiet", "--upgrade", "pip", "-r", str(requirements_path)],
             check=True,
+            capture_output=True,
+            text=True,
             timeout=timeout,
         )
         sentinel.write_text(rhash)
@@ -362,9 +370,8 @@ def _probe_runtime(python_path: str, *, modules: tuple[str, ...] = ()) -> dict:
     and non-dict probe payloads — anything that isn't an affirmative success
     becomes ``compatible=False`` / ``ok=False``.
 
-    Duplicated narrow shape of `_lifecycle_common.probe_python` to keep
-    `_venv.py` free of any import on `_lifecycle_common` (which imports back
-    from this module).
+    Duplicated narrow shape of `_bootstrap.runtime.probe_python` to keep
+    `_venv.py` free of an import cycle through the runtime bootstrap seam.
     """
     code = (
         "import importlib.util, json, sys; "
@@ -397,10 +404,43 @@ def _probe_runtime(python_path: str, *, modules: tuple[str, ...] = ()) -> dict:
     return payload
 
 
+def _decode_subprocess_output(value: str | bytes | None) -> str:
+    """Normalise captured subprocess output to text."""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return value or ""
+
+
+def _format_subprocess_error(exc: subprocess.SubprocessError) -> str:
+    """Render a subprocess failure with command and captured output."""
+    if not isinstance(exc, (subprocess.CalledProcessError, subprocess.TimeoutExpired)):
+        return str(exc)
+
+    command = (
+        subprocess.list2cmdline([str(part) for part in exc.cmd])
+        if isinstance(exc.cmd, (list, tuple))
+        else str(exc.cmd)
+    )
+    stderr = _decode_subprocess_output(getattr(exc, "stderr", None))
+    stdout = _decode_subprocess_output(getattr(exc, "stdout", None))
+    if isinstance(exc, subprocess.TimeoutExpired):
+        details = [f"command timed out: {command} (after {exc.timeout}s)"]
+    else:
+        details = [f"command failed: {command} (exit {exc.returncode})"]
+    if stderr.strip():
+        details.append(stderr.strip())
+    elif stdout.strip():
+        details.append(stdout.strip())
+    else:
+        details.append(str(exc))
+    return "\n".join(details)
+
+
 def resolve_or_provision_central_venv(
     vault_root: Path,
     *,
     launcher: Path,
+    launcher_probe: Optional[dict] = None,
     required_modules: tuple[str, ...] = (),
     install_requirements: Optional[bool] = None,
     dry_run: bool = False,
@@ -475,7 +515,10 @@ def resolve_or_provision_central_venv(
         sentinel = venv_dir / DEPS_SENTINEL_NAME
 
         # Step 2: probe.
-        probe = _probe_runtime(str(existing), modules=required_modules)
+        if launcher_probe is not None and os.path.realpath(str(existing)) == os.path.realpath(str(launcher)):
+            probe = launcher_probe
+        else:
+            probe = _probe_runtime(str(existing), modules=required_modules)
         if not probe.get("compatible"):
             # Existing python file exists but is not a working 3.12+ — treat
             # as if no compatible runtime is present and fall through to
@@ -517,7 +560,7 @@ def resolve_or_provision_central_venv(
                 subprocess.run(
                     [str(existing), "-m", "pip", "install", "--quiet",
                      "--upgrade", "pip", "-r", str(requirements)],
-                    check=True, timeout=timeout,
+                    check=True, capture_output=True, text=True, timeout=timeout,
                 )
             except subprocess.SubprocessError as exc:
                 return {
@@ -527,7 +570,8 @@ def resolve_or_provision_central_venv(
                     "python_tag": tag,
                     "hash": rhash,
                     "missing_modules": missing,
-                    "message": f"pip install failed against existing runtime: {exc}",
+                    "message": "pip install failed against existing runtime: "
+                    + _format_subprocess_error(exc),
                 }
             verify = _probe_runtime(str(existing), modules=required_modules)
             still_missing = tuple(verify.get("missing", []))
@@ -579,7 +623,7 @@ def resolve_or_provision_central_venv(
             "outcome": RUNTIME_ERROR,
             "python": None,
             "venv_dir": None,
-            "message": f"ensure_central_venv failed: {exc}",
+            "message": "ensure_central_venv failed: " + _format_subprocess_error(exc),
         }
     except OSError as exc:
         return {

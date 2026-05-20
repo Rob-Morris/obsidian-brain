@@ -4,13 +4,13 @@
 from __future__ import annotations
 
 import json
-import importlib.util
 import os
 import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from types import SimpleNamespace
 
 import compile_router
 import init
@@ -26,19 +26,10 @@ from _bootstrap.diagnostics import (
     inspect_runtime as _bootstrap_inspect_runtime,
     local_mcp_state_present as _bootstrap_local_mcp_state_present,
 )
-import _semantic.config as _semantic_config
-import _semantic.model as _semantic_model
-import _semantic.provision as _semantic_provision
-import _semantic.runtime as _semantic_runtime
+from _bootstrap.runtime import iso_now, probe_python, required_modules_for_scope, step as _step
 from _lifecycle.frontmatter_repairs import normalize_duplicate_frontmatter_documents
 from _common import iter_artefact_paths, resolve_vault_venv_python
-from _lifecycle_common import (
-    iso_now,
-    make_result_envelope,
-    probe_python,
-    required_modules_for_scope,
-    step as _step,
-)
+from _lifecycle_common import make_result_envelope
 from _repair_common import attach_repair_guidance
 
 ISSUE_CONFIG_LOAD_ERROR = "config-load-error"
@@ -51,13 +42,37 @@ ISSUE_SEMANTIC_MODEL_REVISION_MISMATCH = "semantic-model-revision-mismatch"
 ISSUE_SEMANTIC_MODEL_LOAD_ERROR = "semantic-model-load-error"
 ISSUE_SEMANTIC_SIDECARS_MISSING = "semantic-sidecars-missing"
 ISSUE_SEMANTIC_SIDECARS_OUTDATED = "semantic-sidecars-outdated"
-def _runtime_issue_message(issue: str) -> str:
-    messages = {
-        ISSUE_RUNTIME_MISSING: "Central managed runtime is missing for this vault.",
-        ISSUE_RUNTIME_UNUSABLE: "Central managed runtime is present but unusable.",
-        ISSUE_MANAGED_RUNTIME_DEPENDENCIES_MISSING: "Central managed runtime is present but missing required baseline packages.",
-    }
-    return messages.get(issue, "Central managed runtime is unhealthy.")
+
+
+def _load_semantic_modules() -> SimpleNamespace:
+    # Production accessor for the semantic helper modules. The `_semantic_*`
+    # compatibility names layered on top exist only because tests/test_repair.py
+    # still patches them directly; do not add new callers that depend on those
+    # compat names.
+    import _semantic.config as semantic_config
+    import _semantic.model as semantic_model
+    import _semantic.provision as semantic_provision
+    import _semantic.runtime as semantic_runtime
+
+    return SimpleNamespace(
+        config=semantic_config,
+        model=semantic_model,
+        provision=semantic_provision,
+        runtime=semantic_runtime,
+    )
+
+
+def __getattr__(name: str):
+    """Provide lazy compatibility access to semantic helper modules for tests."""
+    if name == "_semantic_config":
+        return _load_semantic_modules().config
+    if name == "_semantic_model":
+        return _load_semantic_modules().model
+    if name == "_semantic_provision":
+        return _load_semantic_modules().provision
+    if name == "_semantic_runtime":
+        return _load_semantic_modules().runtime
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def _finalise_result(
@@ -79,7 +94,11 @@ def _finalise_result(
 
 
 def inspect_runtime(vault_root: Path) -> dict:
-    """Inspect the central managed runtime for this vault."""
+    """Inspect the central managed runtime for this vault.
+
+    Kept as a named wrapper because repair tests still patch this surface
+    directly while `_bootstrap.diagnostics` remains the canonical owner.
+    """
     return _bootstrap_inspect_runtime(vault_root)
 
 
@@ -234,18 +253,12 @@ def _index_is_stale(vault_root: Path) -> tuple[bool, str]:
     return False, "fresh"
 
 
-def _read_json_safe(path: Path) -> tuple[dict | None, str | None]:
-    if not path.is_file():
-        return None, None
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError) as exc:
-        return None, str(exc)
-    return data if isinstance(data, dict) else None, None
-
-
 def inspect_registry(vault_root: Path) -> dict:
-    """Inspect .brain/local/workspaces.json without mutating it."""
+    """Inspect .brain/local/workspaces.json without mutating it.
+
+    Kept as a named wrapper because repair tests still patch this surface
+    directly while `_bootstrap.diagnostics` remains the canonical owner.
+    """
     return _bootstrap_inspect_registry(vault_root)
 
 
@@ -255,7 +268,11 @@ def _backup_path(path: Path) -> Path:
 
 
 def inspect_mcp(vault_root: Path) -> dict:
-    """Inspect current-vault project MCP state without mutating user scope."""
+    """Stable seam for current-vault project MCP inspection.
+
+    Kept as a named wrapper because repair tests monkeypatch this surface
+    directly while `_bootstrap.diagnostics` remains the canonical owner.
+    """
     return _bootstrap_inspect_mcp(vault_root)
 
 
@@ -342,6 +359,7 @@ def verify_runtime_post_bootstrap(vault_root: Path, dry_run: bool, bootstrap_ste
 
 
 def repair_router(vault_root: Path, dry_run: bool, bootstrap_steps: list[dict] | None = None) -> dict:
+    semantic_runtime = _load_semantic_modules().runtime
     steps = list(bootstrap_steps or [])
     stale, reason = _router_is_stale(vault_root)
     if not stale:
@@ -353,7 +371,7 @@ def repair_router(vault_root: Path, dry_run: bool, bootstrap_steps: list[dict] |
 
     compiled = compile_router.compile(str(vault_root))
     compile_router.persist_compiled_router(str(vault_root), compiled)
-    _semantic_runtime.clear_embeddings_outputs(str(vault_root))
+    semantic_runtime.clear_embeddings_outputs(str(vault_root))
     steps.append(_step("router", "changed", f"Rebuilt the compiled router ({reason})."))
     try:
         compile_router.refresh_session_markdown(str(vault_root), compiled)
@@ -439,9 +457,10 @@ def repair_frontmatter(vault_root: Path, dry_run: bool, bootstrap_steps: list[di
 
 def inspect_semantic(vault_root: Path) -> dict:
     """Inspect semantic config/runtime health for this vault."""
+    semantic = _load_semantic_modules()
     try:
-        cfg = _semantic_config.load_config_checked(vault_root)
-    except _semantic_config.SemanticConfigLoadError as exc:
+        cfg = semantic.config.load_config_checked(vault_root)
+    except semantic.config.SemanticConfigLoadError as exc:
         return {
             "configured": False,
             "healthy": False,
@@ -455,11 +474,11 @@ def inspect_semantic(vault_root: Path) -> dict:
             "supported": True,
         }
 
-    retrieval_enabled = _semantic_config.semantic_retrieval_enabled(vault_root, config=cfg)
-    processing_enabled = _semantic_config.semantic_processing_enabled(vault_root, config=cfg)
-    configured = _semantic_config.is_semantic_intent_active(vault_root, config=cfg)
-    marker = _semantic_config.semantic_engine_installed(vault_root, config=cfg)
-    supported, unsupported_message = _semantic_provision.semantic_runtime_supported_platform()
+    retrieval_enabled = semantic.config.semantic_retrieval_enabled(vault_root, config=cfg)
+    processing_enabled = semantic.config.semantic_processing_enabled(vault_root, config=cfg)
+    configured = semantic.config.is_semantic_intent_active(vault_root, config=cfg)
+    marker = semantic.config.semantic_engine_installed(vault_root, config=cfg)
+    supported, unsupported_message = semantic.provision.semantic_runtime_supported_platform()
     if not configured:
         return {
             "configured": False,
@@ -476,13 +495,13 @@ def inspect_semantic(vault_root: Path) -> dict:
 
     managed_probe = probe_python(
         str(resolve_vault_venv_python(vault_root)),
-        modules=_semantic_provision.SEMANTIC_RUNTIME_MODULES,
+        modules=semantic.provision.SEMANTIC_RUNTIME_MODULES,
     )
     dependencies_ok = bool(managed_probe.get("ok"))
-    model_state = _semantic_model.inspect_model_state(vault_root)
+    model_state = semantic.model.inspect_model_state(vault_root)
     if dependencies_ok:
-        model_state = _semantic_model.verify_local_model_load(model_state)
-    sidecars_present, sidecars_outdated = _semantic_runtime.embeddings_sidecars_match_manifest(
+        model_state = semantic.model.verify_local_model_load(model_state)
+    sidecars_present, sidecars_outdated = semantic.runtime.embeddings_sidecars_match_manifest(
         vault_root,
         model_state.manifest,
     )
@@ -524,6 +543,7 @@ def inspect_semantic(vault_root: Path) -> dict:
 
 
 def repair_semantic(vault_root: Path, dry_run: bool, bootstrap_steps: list[dict] | None = None) -> dict:
+    semantic = _load_semantic_modules()
     steps = list(bootstrap_steps or [])
     state = inspect_semantic(vault_root)
 
@@ -561,39 +581,39 @@ def repair_semantic(vault_root: Path, dry_run: bool, bootstrap_steps: list[dict]
         return _finalise_result("semantic", vault_root, dry_run, steps)
 
     if dry_run:
-        _semantic_provision.plan_runtime_step(
+        semantic.provision.plan_runtime_step(
             steps,
             runtime_missing=dependencies_missing,
         )
-        _semantic_provision.plan_model_step(
+        semantic.provision.plan_model_step(
             steps,
             model_needs_provision=model_needs_provision,
         )
-        _semantic_provision.plan_asset_step(steps, assets_missing=sidecars_need_refresh)
+        semantic.provision.plan_asset_step(steps, assets_missing=sidecars_need_refresh)
         if marker_missing or dependencies_missing or model_needs_provision or sidecars_need_refresh:
-            _semantic_provision.plan_marker_step(
+            semantic.provision.plan_marker_step(
                 steps,
                 marker_missing=True,
             )
         return _finalise_result("semantic", vault_root, dry_run, steps)
 
     try:
-        outcome = _semantic_provision.provision_semantic_runtime(
+        outcome = semantic.provision.provision_semantic_runtime(
             vault_root,
             python_executable=sys.executable,
             runtime_ok=state["dependencies_ok"],
             refresh_assets=sidecars_need_refresh or model_needs_provision,
         )
-    except _semantic_provision.SemanticProvisionError as exc:
+    except semantic.provision.SemanticProvisionError as exc:
         steps.append(_step("semantic_runtime", "error", str(exc)))
         return _finalise_result("semantic", vault_root, dry_run, steps)
-    _semantic_provision.append_runtime_steps(
+    semantic.provision.append_runtime_steps(
         steps,
         outcome,
     )
     notes: list[str] = []
-    _semantic_provision.append_asset_step(steps, notes, outcome)
-    _semantic_provision.append_marker_step(steps, outcome)
+    semantic.provision.append_asset_step(steps, notes, outcome)
+    semantic.provision.append_marker_step(steps, outcome)
     if outcome.assets_changed or outcome.assets_error:
         return _finalise_result("semantic", vault_root, dry_run, steps, notes=notes or None)
     return _finalise_result("semantic", vault_root, dry_run, steps)

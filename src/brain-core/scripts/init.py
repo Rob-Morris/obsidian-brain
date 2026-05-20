@@ -9,9 +9,8 @@ Examples:
   4. Specific folder:    python3 /vault/.brain-core/scripts/init.py --project /path/to/project
   5. Explicit removal:   python3 /vault/.brain-core/scripts/init.py --remove --client all --project /path/to/project
 
-Imports only from `_common`, which is stdlib-only by contract; never from
-sibling modules that pull in third-party packages. Idempotent — safe to
-re-run. Never clobbers non-brain MCP config.
+Launcher-safe and dependency-light. Idempotent — safe to re-run. Never
+clobbers non-brain MCP config.
 
 Claude uses native project/local/user config surfaces.
 Codex uses native project/user config surfaces only.
@@ -31,14 +30,13 @@ import unicodedata
 from pathlib import Path
 from typing import Any, Dict, List, NoReturn, Optional, Tuple
 
-# init.py is invoked with the system Python at install time, so we import
-# only from `_common` (stdlib-only by contract). _common's package init
-# pulls in sibling submodules; that's fine because none of them depend on
-# third-party packages. See `_common/__init__.py`.
+# init.py is invoked from an ambient launcher Python at install/setup time.
+# Keep imports launcher-safe and dependency-light so MCP registration and
+# bootstrap-only folder binding remain available before any managed-runtime
+# handoff has happened.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _bootstrap.runtime import bootstrap_managed_runtime, find_launcher_python, required_modules_for_scope  # noqa: E402
+from _bootstrap.runtime import ensure_managed_runtime, find_launcher_python, required_modules_for_scope  # noqa: E402
 from _common import safe_write, safe_write_json  # noqa: E402
-from _lifecycle_common import find_repair_launcher  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -62,10 +60,8 @@ CODEX_CONFIG_REL = os.path.join(".codex", "config.toml")
 WORKSPACE_MANIFEST_FILE = os.path.join(".brain", "local", "workspace.yaml")
 WORKSPACE_MANIFEST_LEGACY_FILE = os.path.join(".brain", "workspace.yaml")
 DEFAULT_BRAIN_IGNORE_ENTRIES = (".brain/local/",)
-CLAUDE_LOCAL_IGNORE_ENTRIES = (
-    ".claude/settings.local.json",
-    ".claude/CLAUDE.local.md",
-)
+CLAUDE_LOCAL_SETTINGS_IGNORE = ".claude/settings.local.json"
+CLAUDE_LOCAL_MD_IGNORE = ".claude/CLAUDE.local.md"
 CODEX_PROJECT_IGNORE_ENTRIES = (".codex/config.toml",)
 
 INIT_STATE_REL = os.path.join(".brain", "local", "init-state.json")
@@ -78,6 +74,10 @@ CLAUDE_MD_BOOTSTRAP_PROJECT = "ALWAYS DO FIRST: Call brain_session"
 
 SUPPORTED_CLIENTS = ("claude", "codex")
 SUPPORTED_SCOPES = ("project", "local", "user")
+
+
+class GitInspectionError(RuntimeError):
+    """Raised when git metadata cannot be inspected reliably."""
 
 
 # ---------------------------------------------------------------------------
@@ -157,13 +157,13 @@ def find_python(vault_root: Path) -> str:
         )
 
     try:
-        summary = bootstrap_managed_runtime(
+        summary = ensure_managed_runtime(
             vault_root,
             required_modules=required_modules_for_scope("mcp"),
             dependency_owner="init.py",
             launcher_python=launcher,
         )
-    except (subprocess.CalledProcessError, RuntimeError, AssertionError) as exc:
+    except RuntimeError as exc:
         fatal(str(exc))
 
     if not summary["managed_runtime_ready"] or not summary["managed_python"]:
@@ -172,27 +172,6 @@ def find_python(vault_root: Path) -> str:
             f"Run: {launcher} {vault_root / '.brain-core' / 'scripts' / 'repair.py'} runtime --vault {vault_root}"
         )
     return summary["managed_python"]
-
-
-def _python_has_mcp(python_path: str) -> bool:
-    """Check if a Python 3.12+ interpreter has the mcp package."""
-    try:
-        result = subprocess.run(
-            [
-                python_path,
-                "-c",
-                (
-                    "import sys, mcp; "
-                    "print('ok' if sys.version_info >= (3, 12) else 'too-old')"
-                ),
-            ],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        return result.returncode == 0 and "ok" in result.stdout
-    except (OSError, subprocess.TimeoutExpired):
-        return False
 
 
 # ---------------------------------------------------------------------------
@@ -306,8 +285,7 @@ def _resolve_session_launcher() -> str:
 
     Prefers PATH-resolved `python3.13` / `python3.12` / `python3` binaries —
     those paths are stable across the lifetime of the embedded hook command.
-    Falls back to `find_repair_launcher()` (which may prefer `sys.executable`)
-    only if no PATH binary qualifies, then `sys.executable` as a last resort.
+    Falls back to `sys.executable` only if no PATH binary qualifies.
     The order matters because the hook is persisted into a long-lived
     settings file; if `init.py` is invoked from a temporary interpreter,
     `sys.executable` would bake in a path that disappears once the caller
@@ -316,7 +294,7 @@ def _resolve_session_launcher() -> str:
     command python3". session.py is stdlib-only beyond `_common`, so any
     compatible launcher suffices.
     """
-    return find_launcher_python(prefer_path_binaries=True) or find_repair_launcher() or sys.executable
+    return find_launcher_python(prefer_path_binaries=True) or sys.executable
 
 
 def build_session_hook_command(vault_root: Path, target_dir: Path) -> str:
@@ -875,42 +853,42 @@ def ensure_workspace_manifest(target_dir: Path) -> None:
     info(f"Created {WORKSPACE_MANIFEST_FILE}")
 
 
-def _git_repo_root(target_dir: Path) -> Optional[Path]:
+def _run_git_rev_parse(target_dir: Path, *args: str, error_label: str) -> Optional[Path]:
     if shutil.which("git") is None:
+        return None
+    if not (target_dir / ".git").exists():
         return None
     try:
         result = subprocess.run(
-            ["git", "-C", str(target_dir), "rev-parse", "--show-toplevel"],
+            ["git", "-C", str(target_dir), "rev-parse", *args],
             capture_output=True,
             text=True,
             timeout=10,
             check=False,
         )
-    except (OSError, subprocess.TimeoutExpired):
-        return None
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise GitInspectionError(f"failed to inspect {error_label}: {exc}") from exc
     if result.returncode != 0:
-        return None
-    root = result.stdout.strip()
-    return Path(root).resolve() if root else None
+        raise GitInspectionError(result.stderr.strip() or f"git rev-parse {' '.join(args)} failed")
+    resolved = result.stdout.strip()
+    return Path(resolved).resolve() if resolved else None
+
+
+def _git_repo_root(target_dir: Path) -> Optional[Path]:
+    return _run_git_rev_parse(
+        target_dir,
+        "--show-toplevel",
+        error_label="git repository root",
+    )
 
 
 def _git_dir(target_dir: Path) -> Optional[Path]:
-    if shutil.which("git") is None:
-        return None
-    try:
-        result = subprocess.run(
-            ["git", "-C", str(target_dir), "rev-parse", "--path-format=absolute", "--git-dir"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-    if result.returncode != 0:
-        return None
-    git_dir = result.stdout.strip()
-    return Path(git_dir).resolve() if git_dir else None
+    return _run_git_rev_parse(
+        target_dir,
+        "--path-format=absolute",
+        "--git-dir",
+        error_label="git directory",
+    )
 
 
 def _brain_ignore_entries(
@@ -923,11 +901,11 @@ def _brain_ignore_entries(
     if skip_mcp:
         return entries
     if "claude" in clients:
-        entries.append(".claude/settings.local.json")
+        entries.append(CLAUDE_LOCAL_SETTINGS_IGNORE)
         if scope == "local":
-            entries.append(".claude/CLAUDE.local.md")
+            entries.append(CLAUDE_LOCAL_MD_IGNORE)
     if "codex" in clients and scope == "project":
-        entries.append(".codex/config.toml")
+        entries.extend(CODEX_PROJECT_IGNORE_ENTRIES)
     return entries
 
 
@@ -938,14 +916,22 @@ def ensure_brain_ignore_rules(
     *,
     skip_mcp: bool,
 ) -> None:
-    repo_root = _git_repo_root(target_dir)
+    try:
+        repo_root = _git_repo_root(target_dir)
+    except GitInspectionError as exc:
+        info(f"Warning: skipped Brain ignore-rule installation: {exc}")
+        return
     if repo_root is None or repo_root != target_dir.resolve():
         return
 
     gitignore_path = target_dir / ".gitignore"
     destination = gitignore_path if gitignore_path.exists() else None
     if destination is None:
-        git_dir = _git_dir(target_dir)
+        try:
+            git_dir = _git_dir(target_dir)
+        except GitInspectionError as exc:
+            info(f"Warning: skipped Brain ignore-rule installation: {exc}")
+            return
         if git_dir is None:
             return
         destination = git_dir / "info" / "exclude"
@@ -953,8 +939,10 @@ def ensure_brain_ignore_rules(
     entries = _brain_ignore_entries(scope, clients, skip_mcp=skip_mcp)
     try:
         existing = destination.read_text(encoding="utf-8") if destination.is_file() else ""
-    except OSError:
-        existing = ""
+    except OSError as exc:
+        raise GitInspectionError(
+            f"failed to read ignore destination {destination}: {exc}"
+        ) from exc
 
     existing_entries = {line.strip() for line in existing.splitlines() if line.strip()}
     missing = [entry for entry in entries if entry not in existing_entries]
@@ -976,6 +964,19 @@ def ensure_brain_ignore_rules(
     destination.parent.mkdir(parents=True, exist_ok=True)
     safe_write(destination, existing + block)
     info(f"Updated {destination}")
+
+
+def _ensure_brain_ignore_rules_or_fatal(
+    target_dir: Path,
+    scope: str,
+    clients: List[str],
+    *,
+    skip_mcp: bool,
+) -> None:
+    try:
+        ensure_brain_ignore_rules(target_dir, scope, clients, skip_mcp=skip_mcp)
+    except GitInspectionError as exc:
+        fatal(f"Failed to install Brain ignore rules: {exc}")
 
 
 # ---------------------------------------------------------------------------
@@ -1452,7 +1453,7 @@ def main() -> None:
 
         if not _is_vault_root(target_dir):
             ensure_workspace_manifest(target_dir)
-        ensure_brain_ignore_rules(target_dir, scope, clients, skip_mcp=True)
+        _ensure_brain_ignore_rules_or_fatal(target_dir, scope, clients, skip_mcp=True)
 
         header("Done")
         info(f"Vault:    {vault_root}")
@@ -1483,7 +1484,7 @@ def main() -> None:
         ensure_workspace_manifest(target_dir)
     if target_dir:
         header("Git ignore rules")
-        ensure_brain_ignore_rules(target_dir, scope, clients, skip_mcp=False)
+        _ensure_brain_ignore_rules_or_fatal(target_dir, scope, clients, skip_mcp=False)
 
     header("Done")
     info(f"Vault:    {vault_root}")

@@ -8,6 +8,8 @@ import _lifecycle.retrieval_errors as retrieval_errors
 import _search.mode as search_mode
 import pytest
 
+cbf._load_runtime_modules()
+
 
 class TestParseArgs:
     def test_collects_paths_targets_and_json_mode(self):

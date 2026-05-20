@@ -52,11 +52,6 @@ def _load_runtime_modules() -> None:
     lexical_query = _lexical_query
     semantic_query = _semantic_query
 
-
-if __name__ != "__main__":
-    _load_runtime_modules()
-
-
 DEFAULT_HIT_KS = (1, 3, 5)
 DEFAULT_MODES = ("lexical", "semantic", "hybrid")
 VALID_FILTER_KEYS = {"type", "tag", "status"}

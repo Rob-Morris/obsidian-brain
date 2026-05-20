@@ -9,6 +9,7 @@ import _search.index as search_index
 import _search.mode as search_mode
 import evaluate_search as es
 
+es._load_runtime_modules()
 
 FIXTURE_BENCHMARK = Path(__file__).parent / "fixtures" / "inline_search_benchmark.json"
 

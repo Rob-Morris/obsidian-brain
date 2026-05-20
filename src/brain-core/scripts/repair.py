@@ -20,77 +20,34 @@ Runtime layer:
 from __future__ import annotations
 
 import argparse
-import json
-import os
 from pathlib import Path
-import subprocess
 import sys
 from typing import NoReturn
 
 from init import find_vault_root
 
 from _common import resolve_vault_venv_python
-from _lifecycle_common import (
-    bootstrap_managed_runtime,
-    exit_code_for_result,
+from _bootstrap.runtime import (
+    current_process_in_managed_runtime,
     exec_managed_runtime,
-    find_launcher_python,
-    load_bootstrap_steps,
-    make_result_envelope,
-    render_human_result,
+    handoff_current_script_to_managed_runtime,
+    preview_managed_runtime,
     required_modules_for_scope,
     step as _step,
 )
-from _repair_common import BOOTSTRAP_SUMMARY_ENV, MANAGED_RUNTIME_ENV, REPAIR_SCOPES
+from _lifecycle_common import (
+    emit_lifecycle_result,
+    exit_code_for_result,
+    make_result_envelope,
+    render_human_result,
+)
+from _repair_common import REPAIR_SCOPES
 
 
 BOOTSTRAP_TIMEOUT = 300
 LEGACY_SCOPE_RENAMES = {
     "index": "lexical",
 }
-
-
-def _bootstrap_summary(
-    vault_root: Path,
-    *,
-    scope: str,
-    launcher_python: str,
-    dry_run: bool,
-) -> dict:
-    return bootstrap_managed_runtime(
-        vault_root,
-        required_modules=required_modules_for_scope(scope),
-        dependency_owner="this repair scope",
-        launcher_python=launcher_python,
-        dry_run=dry_run,
-        timeout=BOOTSTRAP_TIMEOUT,
-    )
-
-
-def _find_launcher_python() -> str:
-    launcher = find_launcher_python()
-    if launcher:
-        return launcher
-    fatal(
-        "No compatible Python 3.12+ launcher was found.\n"
-        "Install Python 3.12 or 3.13 and rerun repair.py."
-    )
-
-
-def _exec_managed_runtime(args: argparse.Namespace, vault_root: Path, summary: dict) -> None:
-    argv = [args.scope, "--vault", str(vault_root)]
-    if args.dry_run:
-        argv.append("--dry-run")
-    if args.json:
-        argv.append("--json")
-    exec_managed_runtime(
-        managed_python=summary["managed_python"],
-        script_path=str(Path(__file__).resolve()),
-        forwarded_args=argv,
-        summary=summary,
-    )
-
-
 def _planned_scope_message(scope: str) -> str:
     if scope == "runtime":
         return "Would repair and verify the central managed runtime."
@@ -101,6 +58,28 @@ def _planned_scope_message(scope: str) -> str:
 
 def _render_human(result: dict) -> str:
     return render_human_result(result, subject_label="Repair scope", subject_key="scope")
+
+
+def _emit_result(result: dict, *, as_json: bool) -> int:
+    emit_lifecycle_result(result, as_json=as_json, render_human=_render_human)
+    return exit_code_for_result(result)
+
+
+def _managed_runtime_error_result(
+    scope: str,
+    vault_root: Path,
+    *,
+    dry_run: bool,
+    message: str,
+) -> dict:
+    return make_result_envelope(
+        scope=scope,
+        vault_root=vault_root,
+        dry_run=dry_run,
+        managed_python=str(resolve_vault_venv_python(vault_root)),
+        steps=[_step("managed_runtime", "error", message)],
+        status="error",
+    )
 
 
 def fatal(message: str) -> NoReturn:
@@ -135,65 +114,72 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     vault_root = find_vault_root(args.vault)
-    bootstrap_steps = []
-
-    if os.environ.get(MANAGED_RUNTIME_ENV) != "1":
-        launcher_python = _find_launcher_python()
+    forwarded_args = list(argv) if argv is not None else sys.argv[1:]
+    if args.dry_run:
         try:
-            summary = _bootstrap_summary(
+            summary = preview_managed_runtime(
                 vault_root,
-                scope=args.scope,
-                launcher_python=launcher_python,
-                dry_run=args.dry_run,
+                dependency_owner="this repair scope",
+                required_modules=required_modules_for_scope(args.scope),
+                timeout=BOOTSTRAP_TIMEOUT,
             )
-        except (subprocess.CalledProcessError, RuntimeError, AssertionError) as exc:
-            if isinstance(exc, subprocess.CalledProcessError):
-                message = f"Bootstrap command failed with exit code {exc.returncode}."
-            else:
-                message = str(exc)
-            managed_python = str(resolve_vault_venv_python(vault_root))
-            result = make_result_envelope(
-                scope=args.scope,
-                vault_root=vault_root,
-                dry_run=args.dry_run,
-                managed_python=managed_python,
-                steps=[_step("managed_runtime", "error", message)],
-                status="error",
-            )
-            if args.json:
-                print(json.dumps(result, indent=2, ensure_ascii=False))
-            else:
-                print(_render_human(result))
-            return exit_code_for_result(result)
-
-        bootstrap_steps = summary["steps"]
-        if summary["managed_runtime_ready"]:
-            if os.path.realpath(sys.executable) != os.path.realpath(summary["managed_python"]):
-                _exec_managed_runtime(args, vault_root, summary)
-        elif args.dry_run:
-            result = make_result_envelope(
-                scope=args.scope,
-                vault_root=vault_root,
+        except RuntimeError as exc:
+            result = _managed_runtime_error_result(
+                args.scope,
+                vault_root,
                 dry_run=True,
-                managed_python=summary["managed_python"],
-                steps=bootstrap_steps + [
+                message=str(exc),
+            )
+            return _emit_result(result, as_json=args.json)
+
+        if not summary["managed_runtime_ready"]:
+            status = "planned" if summary["status"] == "planned" else "error"
+            steps = list(summary["steps"])
+            if status == "planned":
+                steps.append(
                     _step(
                         args.scope,
                         "planned",
                         _planned_scope_message(args.scope),
                     )
-                ],
-                status="planned",
+                )
+            result = make_result_envelope(
+                scope=args.scope,
+                vault_root=vault_root,
+                dry_run=True,
+                managed_python=summary["managed_python"],
+                steps=steps,
+                status=status,
             )
-            if args.json:
-                print(json.dumps(result, indent=2, ensure_ascii=False))
-            else:
-                print(_render_human(result))
-            return 0
-        else:
-            fatal("Managed runtime bootstrap did not produce a usable central venv.")
+            return _emit_result(result, as_json=args.json)
+
+        if not current_process_in_managed_runtime(vault_root):
+            exec_managed_runtime(
+                managed_python=summary["managed_python"],
+                script_path=str(Path(__file__).resolve()),
+                forwarded_args=forwarded_args,
+                summary=summary,
+            )
+        bootstrap_steps = summary["steps"]
     else:
-        bootstrap_steps = load_bootstrap_steps()
+        try:
+            summary = handoff_current_script_to_managed_runtime(
+                vault_root,
+                dependency_owner="this repair scope",
+                required_modules=required_modules_for_scope(args.scope),
+                forwarded_args=forwarded_args,
+                script_path=str(Path(__file__).resolve()),
+                timeout=BOOTSTRAP_TIMEOUT,
+            )
+        except RuntimeError as exc:
+            result = _managed_runtime_error_result(
+                args.scope,
+                vault_root,
+                dry_run=False,
+                message=str(exc),
+            )
+            return _emit_result(result, as_json=args.json)
+        bootstrap_steps = summary["steps"]
 
     from _repair_runtime import run_scope
 
@@ -203,11 +189,7 @@ def main(argv: list[str] | None = None) -> int:
         dry_run=args.dry_run,
         bootstrap_steps=bootstrap_steps,
     )
-    if args.json:
-        print(json.dumps(result, indent=2, ensure_ascii=False))
-    else:
-        print(_render_human(result))
-    return exit_code_for_result(result)
+    return _emit_result(result, as_json=args.json)
 
 
 if __name__ == "__main__":

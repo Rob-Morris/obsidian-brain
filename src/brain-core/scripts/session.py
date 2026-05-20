@@ -17,13 +17,11 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import sys
 
 from _bootstrap.runtime import (
-    bootstrap_managed_runtime,
-    current_process_in_managed_runtime,
-    exec_managed_runtime,
-    find_launcher_python,
+    handoff_current_script_to_managed_runtime,
     required_modules_for_scope,
 )
 from _common import (
@@ -32,6 +30,7 @@ from _common import (
     resolve_structural_target,
     safe_write,
 )
+from _lifecycle_common import emit_lifecycle_result
 from _repair_common import build_repair_command
 
 # ---------------------------------------------------------------------------
@@ -51,6 +50,22 @@ BOOTSTRAP_TIMEOUT = 300
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+class SessionCoreStructureError(ValueError):
+    """Raised when the shipped authored bootstrap structure is malformed."""
+
+
+class SessionConfigLoadError(RuntimeError):
+    """Raised when the Brain config cannot be read safely for session bootstrap."""
+
+
+class SessionWorkspaceLoadError(RuntimeError):
+    """Raised when the active workspace manifest cannot be read safely."""
+
+    def __init__(self, manifest_path: str, message: str):
+        super().__init__(message)
+        self.manifest_path = manifest_path
 
 
 def _read_user_body(vault_root, rel_path):
@@ -102,7 +117,10 @@ def _extract_markdown_section(text, heading):
     Raises ValueError if the section is missing or duplicated — both indicate
     a malformed core install rather than a runtime data condition.
     """
-    resolved = resolve_structural_target(text, f"## {heading}")
+    try:
+        resolved = resolve_structural_target(text, f"## {heading}")
+    except ValueError as exc:
+        raise SessionCoreStructureError(str(exc)) from exc
     start, end = resolved["ranges"]["body"]
     return text[start:end].strip()
 
@@ -113,7 +131,10 @@ def _strip_markdown_section(text, heading):
     Raises ValueError if the section is missing or duplicated — both indicate
     a malformed core install rather than a runtime data condition.
     """
-    resolved = resolve_structural_target(text, f"## {heading}")
+    try:
+        resolved = resolve_structural_target(text, f"## {heading}")
+    except ValueError as exc:
+        raise SessionCoreStructureError(str(exc)) from exc
     start, end = resolved["ranges"]["section"]
     stripped = text[:start] + text[end:]
     return re.sub(r"\n{3,}", "\n\n", stripped).strip()
@@ -128,15 +149,17 @@ def _load_session_core_body(vault_root):
 
 
 def _load_config_if_available(vault_root):
-    """Load merged config when the config module is available; degrade gracefully otherwise."""
+    """Load merged config when the config module is available."""
     try:
         import config as config_mod
     except ImportError:
         return None
+    from _common._yaml import YamlError
+
     try:
         return config_mod.load_config(vault_root)
-    except Exception:
-        return None
+    except (OSError, YamlError) as exc:
+        raise SessionConfigLoadError(f"failed to load config for {vault_root}: {exc}") from exc
 
 
 def _workspace_summary(workspace_dir, vault_root):
@@ -177,10 +200,7 @@ def _load_workspace_manifest(workspace_dir):
     """
     if not workspace_dir:
         return None
-    try:
-        from _common._yaml import YamlError, load_mapping_file
-    except ImportError:
-        return None
+    from _common._yaml import YamlError, load_mapping_file
 
     ws_abs = os.path.abspath(os.path.expanduser(str(workspace_dir)))
     manifest_path = os.path.join(ws_abs, WORKSPACE_MANIFEST_REL)
@@ -200,8 +220,11 @@ def _load_workspace_manifest(workspace_dir):
 
     try:
         data = load_mapping_file(manifest_path)
-    except (OSError, YamlError):
-        return None
+    except (OSError, YamlError) as exc:
+        raise SessionWorkspaceLoadError(
+            manifest_path,
+            f"failed to load workspace manifest {manifest_path}: {exc}",
+        ) from exc
     return data if isinstance(data, dict) else None
 
 
@@ -242,7 +265,8 @@ def _resolve_workspace_record(vault_root, workspace, manifest):
     if workspace_registry is not None:
         try:
             entries = workspace_registry.list_workspaces(vault_root)
-        except Exception:
+        except (OSError, ValueError, RuntimeError) as exc:
+            print(f"Warning: failed to read linked workspace registry: {exc}", file=sys.stderr)
             entries = []
 
     directory = os.path.abspath(workspace["directory"])
@@ -781,35 +805,137 @@ def persist_session_markdown(model, vault_root):
     safe_write(output_path, render_session_markdown(model), bounds=vault_root)
 
 
-def _bootstrap_summary(vault_root):
-    launcher = find_launcher_python()
-    if not launcher:
-        raise RuntimeError(
-            "No compatible Python 3.12+ launcher was found. "
-            "Install Python 3.12 or 3.13 and rerun session.py."
-        )
-    return bootstrap_managed_runtime(
-        Path(vault_root),
-        required_modules=required_modules_for_scope("runtime"),
-        dependency_owner="session.py",
-        launcher_python=launcher,
-        timeout=BOOTSTRAP_TIMEOUT,
-    )
+def _bootstrap_reinstall_command(vault_root) -> str:
+    return f"bash install.sh --non-interactive --skip-mcp {shlex.quote(str(vault_root))}"
 
 
-def _degraded_session_payload(vault_root, *, workspace_dir=None, message):
+def _config_inspect_command(vault_root) -> str:
+    shared = shlex.quote(str(Path(vault_root) / ".brain" / "config.yaml"))
+    local = shlex.quote(str(Path(vault_root) / ".brain" / "local" / "config.yaml"))
+    return f"cat {shared} {local}"
+
+
+def _workspace_manifest_inspect_command(manifest_path: str) -> str:
+    return f"cat {shlex.quote(manifest_path)}"
+
+
+_RECOVERY_BY_CLASS = {
+    "runtime": {
+        "command": lambda vault_root, _detail=None: build_repair_command(vault_root, "runtime"),
+        "action": "Repair the canonical managed runtime, then rerun session.py.",
+    },
+    "router": {
+        "command": lambda vault_root, _detail=None: build_repair_command(vault_root, "router"),
+        "action": "Rebuild the compiled router, then rerun session.py.",
+    },
+    "session_core": {
+        "command": lambda vault_root, _detail=None: _bootstrap_reinstall_command(vault_root),
+        "action": "Reinstall or upgrade the shipped .brain-core files for this vault, then rerun session.py.",
+    },
+    "config": {
+        "command": lambda vault_root, _detail=None: _config_inspect_command(vault_root),
+        "action": "Inspect and fix the broken Brain config file, then rerun session.py.",
+    },
+    "workspace": {
+        "command": lambda _vault_root, detail=None: _workspace_manifest_inspect_command(str(detail)),
+        "action": "Inspect and fix the broken workspace manifest, then rerun session.py.",
+    },
+}
+
+
+def _session_error_payload(
+    vault_root,
+    *,
+    workspace_dir=None,
+    message,
+    recovery_class,
+    recovery_detail=None,
+):
+    recovery = _RECOVERY_BY_CLASS[recovery_class]
     payload = {
         "status": "degraded",
         "vault_root": str(vault_root),
         "message": message,
         "recovery": {
-            "command": build_repair_command(vault_root, "runtime"),
-            "action": "Repair the canonical managed runtime, then rerun session.py.",
+            "command": recovery["command"](vault_root, recovery_detail),
+            "action": recovery["action"],
         },
     }
     if workspace_dir:
         payload["workspace_dir"] = str(workspace_dir)
     return payload
+
+
+def _runtime_degraded_session_payload(vault_root, *, workspace_dir=None, message):
+    return _session_error_payload(
+        vault_root,
+        workspace_dir=workspace_dir,
+        message=message,
+        recovery_class="runtime",
+    )
+
+
+def _router_degraded_session_payload(vault_root, *, workspace_dir=None, message):
+    return _session_error_payload(
+        vault_root,
+        workspace_dir=workspace_dir,
+        message=message,
+        recovery_class="router",
+    )
+
+
+def _session_core_degraded_session_payload(vault_root, *, workspace_dir=None, message):
+    return _session_error_payload(
+        vault_root,
+        workspace_dir=workspace_dir,
+        message=message,
+        recovery_class="session_core",
+    )
+
+
+def _config_degraded_session_payload(vault_root, *, workspace_dir=None, message):
+    return _session_error_payload(
+        vault_root,
+        workspace_dir=workspace_dir,
+        message=message,
+        recovery_class="config",
+    )
+
+
+def _workspace_degraded_session_payload(
+    vault_root,
+    *,
+    workspace_dir=None,
+    message,
+    manifest_path: str,
+):
+    return _session_error_payload(
+        vault_root,
+        workspace_dir=workspace_dir,
+        message=message,
+        recovery_class="workspace",
+        recovery_detail=manifest_path,
+    )
+
+
+def _render_degraded_session_payload(payload: dict) -> str:
+    return "\n".join(
+        [
+            f"Error: {payload['message']}",
+            payload["recovery"]["action"],
+            payload["recovery"]["command"],
+        ]
+    )
+
+
+def _emit_degraded_session(payload: dict, *, as_json: bool) -> int:
+    emit_lifecycle_result(
+        payload,
+        as_json=as_json,
+        render_human=_render_degraded_session_payload,
+        stream=sys.stdout if as_json else sys.stderr,
+    )
+    return 2
 
 
 # ---------------------------------------------------------------------------
@@ -843,58 +969,89 @@ def main():
         sys.exit(1)
 
     workspace_dir = args.workspace_dir or args.workspace_dir_deprecated
-    if not current_process_in_managed_runtime(vault_root):
-        try:
-            summary = _bootstrap_summary(vault_root)
-        except (RuntimeError, AssertionError) as exc:
-            payload = _degraded_session_payload(
-                vault_root,
-                workspace_dir=workspace_dir,
-                message=str(exc),
-            )
-            if args.json:
-                print(json.dumps(payload, indent=2, ensure_ascii=False))
-                return 0
-            print(f"Error: {payload['message']}", file=sys.stderr)
-            print(payload["recovery"]["command"], file=sys.stderr)
-            return 2
-
-        if summary["managed_runtime_ready"]:
-            if os.path.realpath(sys.executable) != os.path.realpath(summary["managed_python"]):
-                exec_managed_runtime(
-                    managed_python=summary["managed_python"],
-                    script_path=os.path.abspath(__file__),
-                    forwarded_args=sys.argv[1:],
-                    summary=summary,
-                )
-        else:
-            payload = _degraded_session_payload(
-                vault_root,
-                workspace_dir=workspace_dir,
-                message="Managed runtime bootstrap did not produce a usable central venv.",
-            )
-            if args.json:
-                print(json.dumps(payload, indent=2, ensure_ascii=False))
-                return 0
-            print(f"Error: {payload['message']}", file=sys.stderr)
-            print(payload["recovery"]["command"], file=sys.stderr)
-            return 2
+    try:
+        handoff_current_script_to_managed_runtime(
+            vault_root,
+            dependency_owner="session.py",
+            required_modules=required_modules_for_scope("runtime"),
+            script_path=os.path.abspath(__file__),
+            forwarded_args=sys.argv[1:],
+            timeout=BOOTSTRAP_TIMEOUT,
+        )
+    except RuntimeError as exc:
+        payload = _runtime_degraded_session_payload(
+            vault_root,
+            workspace_dir=workspace_dir,
+            message=str(exc),
+        )
+        return _emit_degraded_session(payload, as_json=args.json)
 
     router_path = os.path.join(vault_root, COMPILED_ROUTER_REL)
     if not os.path.isfile(router_path):
-        print("Error: compiled router not found — run compile_router.py first", file=sys.stderr)
-        return 1
+        payload = _router_degraded_session_payload(
+            vault_root,
+            workspace_dir=workspace_dir,
+            message="compiled router not found — run compile_router.py first",
+        )
+        return _emit_degraded_session(payload, as_json=args.json)
 
-    with open(router_path, encoding="utf-8") as f:
-        router = json.load(f)
+    try:
+        with open(router_path, encoding="utf-8") as f:
+            router = json.load(f)
+    except (OSError, json.JSONDecodeError) as exc:
+        payload = _router_degraded_session_payload(
+            vault_root,
+            workspace_dir=workspace_dir,
+            message=str(exc),
+        )
+        return _emit_degraded_session(payload, as_json=args.json)
 
-    result = build_session_model(
-        router,
-        vault_root,
-        context=args.context,
-        workspace_dir=workspace_dir,
-    )
-    persist_session_markdown(result, vault_root)
+    try:
+        result = build_session_model(
+            router,
+            vault_root,
+            context=args.context,
+            workspace_dir=workspace_dir,
+        )
+    except SessionCoreStructureError as exc:
+        payload = _session_core_degraded_session_payload(
+            vault_root,
+            workspace_dir=workspace_dir,
+            message=str(exc),
+        )
+        return _emit_degraded_session(payload, as_json=args.json)
+    except SessionConfigLoadError as exc:
+        payload = _config_degraded_session_payload(
+            vault_root,
+            workspace_dir=workspace_dir,
+            message=str(exc),
+        )
+        return _emit_degraded_session(payload, as_json=args.json)
+    except SessionWorkspaceLoadError as exc:
+        payload = _workspace_degraded_session_payload(
+            vault_root,
+            workspace_dir=workspace_dir,
+            message=str(exc),
+            manifest_path=exc.manifest_path,
+        )
+        return _emit_degraded_session(payload, as_json=args.json)
+    except (OSError, RuntimeError) as exc:
+        payload = _runtime_degraded_session_payload(
+            vault_root,
+            workspace_dir=workspace_dir,
+            message=str(exc),
+        )
+        return _emit_degraded_session(payload, as_json=args.json)
+
+    try:
+        persist_session_markdown(result, vault_root)
+    except OSError as exc:
+        payload = _runtime_degraded_session_payload(
+            vault_root,
+            workspace_dir=workspace_dir,
+            message=str(exc),
+        )
+        return _emit_degraded_session(payload, as_json=args.json)
 
     indent = 2 if args.json else None
     print(json.dumps(result, indent=indent, ensure_ascii=False))

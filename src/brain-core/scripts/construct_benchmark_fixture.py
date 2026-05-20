@@ -70,11 +70,6 @@ def _load_runtime_modules() -> None:
     SemanticConfigLoadError = _retrieval_embeddings_mod.SemanticConfigLoadError
     semantic_query = _semantic_query
 
-
-if __name__ != "__main__":
-    _load_runtime_modules()
-
-
 HIT_KS = (1, 3, 5)
 SEMANTIC_STRATEGY_LOCAL = "local"
 SEMANTIC_STRATEGY_ASSISTED_ZERO_OVERLAP = "assisted-zero-overlap"

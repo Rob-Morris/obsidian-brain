@@ -4,30 +4,24 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 from pathlib import Path
-import subprocess
 import sys
-from typing import NoReturn
 
 from init import find_vault_root
 
-from _bootstrap.runtime import BOOTSTRAP_SUMMARY_ENV, MANAGED_RUNTIME_ENV
-from _lifecycle_common import (
-    bootstrap_managed_runtime,
-    exit_code_for_result,
-    exec_managed_runtime,
-    find_launcher_python,
-    load_bootstrap_steps,
-    make_result_envelope,
-    render_human_result,
+from _bootstrap.runtime import (
+    handoff_current_script_to_managed_runtime,
     required_modules_for_scope,
     step as _step,
 )
+from _lifecycle_common import (
+    emit_lifecycle_result,
+    exit_code_for_result,
+    make_result_envelope,
+    render_human_result,
+)
 BOOTSTRAP_TIMEOUT = 300
-CONFIGURE_MANAGED_ENV = MANAGED_RUNTIME_ENV
-CONFIGURE_BOOTSTRAP_SUMMARY_ENV = BOOTSTRAP_SUMMARY_ENV
 
 
 def _result_envelope(action: str, vault_root: Path, steps: list[dict], *, notes: list[str] | None = None) -> dict:
@@ -44,28 +38,16 @@ def _render_human(result: dict) -> str:
     return render_human_result(result, subject_label="Configure action", subject_key="action")
 
 
-def _bootstrap_summary(vault_root: Path) -> dict:
-    launcher = find_launcher_python()
-    if not launcher:
-        raise RuntimeError(
-            "No compatible Python 3.12+ launcher was found. "
-            "Install Python 3.12 or 3.13 and rerun configure.py."
-        )
-    return bootstrap_managed_runtime(
+def _emit_result(result: dict, *, as_json: bool) -> int:
+    emit_lifecycle_result(result, as_json=as_json, render_human=_render_human)
+    return exit_code_for_result(result)
+
+
+def _managed_runtime_error_result(action: str, vault_root: Path, message: str) -> dict:
+    return _result_envelope(
+        action,
         vault_root,
-        required_modules=required_modules_for_scope("semantic"),
-        dependency_owner="configure.py",
-        launcher_python=launcher,
-        timeout=BOOTSTRAP_TIMEOUT,
-    )
-
-
-def _exec_managed_runtime(summary: dict) -> NoReturn:
-    exec_managed_runtime(
-        managed_python=summary["managed_python"],
-        script_path=str(Path(__file__).resolve()),
-        forwarded_args=sys.argv[1:],
-        summary=summary,
+        [_step("managed_runtime", "error", message)],
     )
 
 
@@ -166,39 +148,27 @@ def _configure_semantic_enable(vault_root: Path, *, provision: bool, bootstrap_s
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     vault_root = find_vault_root(args.vault)
+    forwarded_args = list(argv) if argv is not None else sys.argv[1:]
 
-    bootstrap_steps: list[dict] = []
-    if os.environ.get(MANAGED_RUNTIME_ENV) != "1":
-        try:
-            summary = _bootstrap_summary(vault_root)
-        except (subprocess.CalledProcessError, RuntimeError, AssertionError) as exc:
-            result = _result_envelope(
-                "semantic_enable",
-                vault_root,
-                [_step("managed_runtime", "error", str(exc))],
-            )
-            if args.json:
-                print(json.dumps(result, indent=2, ensure_ascii=False))
-            else:
-                print(_render_human(result))
-            return exit_code_for_result(result)
-
-        bootstrap_steps = summary["steps"]
-        if os.path.realpath(sys.executable) != os.path.realpath(summary["managed_python"]):
-            _exec_managed_runtime(summary)
-    else:
-        bootstrap_steps = load_bootstrap_steps()
+    try:
+        summary = handoff_current_script_to_managed_runtime(
+            vault_root,
+            dependency_owner="configure.py",
+            required_modules=required_modules_for_scope("semantic"),
+            forwarded_args=forwarded_args,
+            script_path=str(Path(__file__).resolve()),
+            timeout=BOOTSTRAP_TIMEOUT,
+        )
+    except RuntimeError as exc:
+        result = _managed_runtime_error_result("semantic_enable", vault_root, str(exc))
+        return _emit_result(result, as_json=args.json)
 
     result = _configure_semantic_enable(
         Path(vault_root),
         provision=not args.no_provision,
-        bootstrap_steps=bootstrap_steps,
+        bootstrap_steps=summary["steps"],
     )
-    if args.json:
-        print(json.dumps(result, indent=2, ensure_ascii=False))
-    else:
-        print(_render_human(result))
-    return exit_code_for_result(result)
+    return _emit_result(result, as_json=args.json)
 
 
 if __name__ == "__main__":

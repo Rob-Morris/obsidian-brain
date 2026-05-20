@@ -1,39 +1,12 @@
 #!/usr/bin/env python3
-"""Shared lifecycle helpers for configure/repair-style CLI flows."""
+"""Shared lifecycle result helpers."""
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+import json
 from pathlib import Path
-from typing import Any
-
-from _bootstrap.runtime import (
-    BOOTSTRAP_SCOPE_MODULES,
-    BOOTSTRAP_SUMMARY_ENV,
-    DEFAULT_MANAGED_RUNTIME_LAUNCHER,
-    MANAGED_RUNTIME_ENV,
-    MANAGED_RUNTIME_REQUIRED_MODULES,
-    bootstrap_managed_runtime,
-    current_process_in_managed_runtime,
-    exec_managed_runtime,
-    find_launcher_python,
-    is_compatible_python,
-    load_bootstrap_steps,
-    probe_python,
-    required_modules_for_scope,
-)
-
-
-def iso_now() -> str:
-    """Return the current local timestamp in ISO 8601 form."""
-    return datetime.now(timezone.utc).astimezone().isoformat()
-
-
-def step(name: str, status: str, message: str, **extra: Any) -> dict:
-    """Build a structured lifecycle step record."""
-    payload = {"name": name, "status": status, "message": message}
-    payload.update(extra)
-    return payload
+import sys
+from typing import Callable, TextIO
 
 
 def make_result_envelope(
@@ -121,6 +94,18 @@ def exit_code_for_result(result: dict) -> int:
     return 0
 
 
-def find_repair_launcher() -> str | None:
-    """Return the best available Python launcher for lifecycle guidance."""
-    return find_launcher_python()
+def emit_lifecycle_result(
+    result: dict,
+    *,
+    as_json: bool,
+    render_human: Callable[[dict], str],
+    stream: TextIO | None = None,
+) -> None:
+    """Emit any result payload as JSON or human text to the chosen stream."""
+    if as_json:
+        target = stream or sys.stdout
+        print(json.dumps(result, indent=2, ensure_ascii=False), file=target)
+        return
+
+    target = stream or sys.stdout
+    print(render_human(result), file=target)

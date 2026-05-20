@@ -62,11 +62,6 @@ def _load_runtime_modules() -> None:
     semantic_config = _semantic_config
     semantic_model = _semantic_model
 
-
-if __name__ != "__main__":
-    _load_runtime_modules()
-
-
 def main():
     vault_root = find_vault_root()
     try:

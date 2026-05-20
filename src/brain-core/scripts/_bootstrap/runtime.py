@@ -21,6 +21,7 @@ from _common import _venv as _venv_module
 DEFAULT_MANAGED_RUNTIME_LAUNCHER = "python3.12"
 MANAGED_RUNTIME_ENV = "BRAIN_MANAGED_RUNTIME"
 BOOTSTRAP_SUMMARY_ENV = "BRAIN_BOOTSTRAP_SUMMARY"
+SKIP_BOOTSTRAP_ENV = "BRAIN_SKIP_BOOTSTRAP"
 MANAGED_RUNTIME_REQUIRED_MODULES = ("mcp",)
 BOOTSTRAP_SCOPE_MODULES = {
     "runtime": MANAGED_RUNTIME_REQUIRED_MODULES,
@@ -29,8 +30,16 @@ BOOTSTRAP_SCOPE_MODULES = {
     "lexical": (),
     "registry": (),
     "frontmatter": (),
+    # Semantic provisioning installs its own extra runtime packages after
+    # handoff, but it still relies on the baseline managed-runtime sync
+    # contract to ensure `requirements.txt` has been applied first.
     "semantic": MANAGED_RUNTIME_REQUIRED_MODULES,
 }
+
+
+def _is_self_executable(python_path: str | Path) -> bool:
+    """Return whether a Python path resolves to the current interpreter."""
+    return os.path.realpath(str(python_path)) == os.path.realpath(sys.executable)
 
 
 def iso_now() -> str:
@@ -52,6 +61,27 @@ def required_modules_for_scope(scope: str) -> tuple[str, ...]:
 
 def probe_python(python_path: str, *, modules: tuple[str, ...] = ()) -> dict:
     """Probe a Python path for compatibility and importable modules."""
+    if _is_self_executable(python_path):
+        try:
+            missing = [name for name in modules if importlib.util.find_spec(name) is None]
+        except (ImportError, ValueError, AttributeError) as exc:
+            return {
+                "major": sys.version_info[0],
+                "minor": sys.version_info[1],
+                "missing": [],
+                "compatible": False,
+                "ok": False,
+                "probe_error": str(exc),
+            }
+        return {
+            "major": sys.version_info[0],
+            "minor": sys.version_info[1],
+            "missing": missing,
+            "compatible": sys.version_info >= (3, 12),
+            "ok": sys.version_info >= (3, 12) and not missing,
+            "probe_error": None,
+        }
+
     code = (
         "import importlib.util, json, sys; "
         f"mods = {modules!r}; "
@@ -72,10 +102,20 @@ def probe_python(python_path: str, *, modules: tuple[str, ...] = ()) -> dict:
             text=True,
             timeout=15,
         )
-    except (OSError, subprocess.TimeoutExpired):
-        return {"ok": False, "compatible": False, "missing": list(modules)}
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return {
+            "ok": False,
+            "compatible": False,
+            "missing": [],
+            "probe_error": str(exc),
+        }
     if result.returncode != 0:
-        return {"ok": False, "compatible": False, "missing": list(modules)}
+        return {
+            "ok": False,
+            "compatible": False,
+            "missing": [],
+            "probe_error": result.stderr.strip() or f"probe exited {result.returncode}",
+        }
     try:
         return json.loads(result.stdout.strip() or "{}")
     except json.JSONDecodeError as exc:
@@ -86,6 +126,8 @@ def probe_python(python_path: str, *, modules: tuple[str, ...] = ()) -> dict:
 
 def is_compatible_python(python_path: str) -> bool:
     """Return True when the path is a usable Python 3.12+ launcher."""
+    if _is_self_executable(python_path):
+        return sys.version_info >= (3, 12)
     try:
         probe = probe_python(python_path)
     except RuntimeError:
@@ -134,7 +176,35 @@ def current_process_in_managed_runtime(vault_root: str | Path) -> bool:
     if os.environ.get(MANAGED_RUNTIME_ENV) == "1":
         return True
     managed_python = resolve_vault_venv_python(vault_root)
-    return os.path.realpath(sys.executable) == os.path.realpath(str(managed_python))
+    return _is_self_executable(managed_python)
+
+
+def _current_process_satisfies(required_modules: tuple[str, ...]) -> bool:
+    """Return whether the current interpreter satisfies the requested scope."""
+    return bool(probe_python(sys.executable, modules=required_modules).get("ok"))
+
+
+def _short_circuit_managed_runtime(
+    vault_root: str | Path,
+    *,
+    required_modules: tuple[str, ...],
+) -> dict | None:
+    """Return a ready summary when bootstrap can be skipped safely."""
+    if os.environ.get(SKIP_BOOTSTRAP_ENV) == "1" and _current_process_satisfies(required_modules):
+        return _ready_runtime_summary()
+    if current_process_in_managed_runtime(vault_root):
+        return _ready_runtime_summary()
+    return None
+
+
+def _ready_runtime_summary() -> dict:
+    return {
+        "checked_at": iso_now(),
+        "managed_python": sys.executable,
+        "status": "ready",
+        "steps": load_bootstrap_steps(),
+        "managed_runtime_ready": True,
+    }
 
 
 def bootstrap_managed_runtime(
@@ -156,11 +226,15 @@ def bootstrap_managed_runtime(
                 "Install Python 3.12 or 3.13 and rerun."
             )
         launcher_path = Path(launcher_str)
+    launcher_probe = None
+    if _is_self_executable(launcher_path):
+        launcher_probe = probe_python(str(launcher_path), modules=required_modules)
 
     requirements = vault_root / REQUIREMENTS_REL
     result = resolve_or_provision_central_venv(
         vault_root,
         launcher=launcher_path,
+        launcher_probe=launcher_probe,
         required_modules=required_modules,
         dry_run=dry_run,
         timeout=timeout,
@@ -169,26 +243,36 @@ def bootstrap_managed_runtime(
     outcome = result["outcome"]
     managed_python_str = result.get("python") or ""
     steps: list[dict] = []
+    summary_message = result.get("message")
 
-    if outcome == _venv_module.RUNTIME_REUSED:
-        steps.append(step(
-            "managed_runtime", "noop",
+    runtime_step = {
+        _venv_module.RUNTIME_REUSED: step(
+            "managed_runtime",
+            "noop",
             "Central managed runtime is already present.",
             python=managed_python_str,
-        ))
-    elif outcome == _venv_module.RUNTIME_SYNCED:
-        steps.append(step(
-            "managed_runtime", "noop",
+        ),
+        _venv_module.RUNTIME_SYNCED: step(
+            "managed_runtime",
+            "noop",
             "Central managed runtime is already present.",
             python=managed_python_str,
-        ))
-    elif outcome == _venv_module.RUNTIME_CREATED:
-        steps.append(step(
-            "managed_runtime", "changed",
+        ),
+        _venv_module.RUNTIME_CREATED: step(
+            "managed_runtime",
+            "changed",
             "Created or repaired the central managed runtime.",
             python=managed_python_str,
-        ))
-    elif outcome == _venv_module.RUNTIME_PLANNED:
+        ),
+        _venv_module.RUNTIME_ERROR: step(
+            "managed_runtime",
+            "error",
+            result.get("message", "Failed to resolve or provision central managed runtime."),
+            python=managed_python_str or "",
+        ),
+    }
+
+    if outcome == _venv_module.RUNTIME_PLANNED:
         if result.get("planned_action") == "create":
             steps.append(step(
                 "managed_runtime", "planned",
@@ -201,54 +285,61 @@ def bootstrap_managed_runtime(
                 "Central managed runtime is already present.",
                 python=managed_python_str,
             ))
-    elif outcome == _venv_module.RUNTIME_ERROR:
-        steps.append(step(
-            "managed_runtime", "error",
-            result.get("message", "Failed to resolve or provision central managed runtime."),
-            python=managed_python_str or "",
-        ))
+    else:
+        steps.append(runtime_step[outcome])
 
     owner_sentence = dependency_owner[0].upper() + dependency_owner[1:]
     if not required_modules:
-        steps.append(step(
-            "managed_dependencies", "noop",
-            f"{owner_sentence} does not require additional managed runtime dependencies.",
-            requirements=str(requirements),
-        ))
-    elif outcome == _venv_module.RUNTIME_REUSED:
-        steps.append(step(
-            "managed_dependencies", "noop",
-            f"Managed runtime dependencies required by {dependency_owner} are already available.",
-            requirements=str(requirements),
-        ))
-    elif outcome == _venv_module.RUNTIME_CREATED:
-        steps.append(step(
-            "managed_dependencies", "noop",
-            f"Managed runtime dependencies required by {dependency_owner} are already available.",
-            requirements=str(requirements),
-        ))
-    elif outcome == _venv_module.RUNTIME_SYNCED:
-        steps.append(step(
-            "managed_dependencies", "changed",
-            f"Synced the managed runtime dependencies required by {dependency_owner}.",
-            requirements=str(requirements),
-            synced=list(result.get("synced_modules", ())),
-        ))
-    elif outcome == _venv_module.RUNTIME_PLANNED:
-        steps.append(step(
-            "managed_dependencies", "planned",
-            f"Would sync the managed runtime dependencies required by {dependency_owner}.",
-            requirements=str(requirements),
-            missing=list(result.get("missing_modules", ())),
-        ))
-    elif outcome == _venv_module.RUNTIME_ERROR:
-        steps.append(step(
-            "managed_dependencies", "error",
-            f"Could not sync managed runtime dependencies required by {dependency_owner}: "
-            + result.get("message", "unknown error"),
-            requirements=str(requirements),
-            missing=list(result.get("missing_modules", ())),
-        ))
+        steps.append(
+            step(
+                "managed_dependencies",
+                "noop",
+                f"{owner_sentence} does not require additional managed runtime dependencies.",
+                requirements=str(requirements),
+            )
+        )
+    else:
+        dependency_step = {
+            _venv_module.RUNTIME_REUSED: step(
+                "managed_dependencies",
+                "noop",
+                f"Managed runtime dependencies required by {dependency_owner} are already available.",
+                requirements=str(requirements),
+            ),
+            _venv_module.RUNTIME_CREATED: step(
+                "managed_dependencies",
+                "noop",
+                f"Managed runtime dependencies required by {dependency_owner} are already available.",
+                requirements=str(requirements),
+            ),
+            _venv_module.RUNTIME_SYNCED: step(
+                "managed_dependencies",
+                "changed",
+                f"Synced the managed runtime dependencies required by {dependency_owner}.",
+                requirements=str(requirements),
+                synced=list(result.get("synced_modules", ())),
+            ),
+            _venv_module.RUNTIME_ERROR: step(
+                "managed_dependencies",
+                "error",
+                f"Could not sync managed runtime dependencies required by {dependency_owner}: "
+                + result.get("message", "unknown error"),
+                requirements=str(requirements),
+                missing=list(result.get("missing_modules", ())),
+            ),
+        }
+        if outcome == _venv_module.RUNTIME_PLANNED:
+            steps.append(
+                step(
+                    "managed_dependencies",
+                    "planned",
+                    f"Would sync the managed runtime dependencies required by {dependency_owner}.",
+                    requirements=str(requirements),
+                    missing=list(result.get("missing_modules", ())),
+                )
+            )
+        else:
+            steps.append(dependency_step[outcome])
 
     ready = (
         outcome in (
@@ -270,6 +361,7 @@ def bootstrap_managed_runtime(
         "launcher_python": str(launcher_path),
         "managed_python": managed_python_str,
         "status": status,
+        "message": summary_message,
         "steps": steps,
         "managed_runtime_ready": ready,
     }
@@ -290,6 +382,67 @@ def exec_managed_runtime(
     os.execve(managed_python, argv, env)
 
 
+def ensure_managed_runtime(
+    vault_root: str | Path,
+    *,
+    dependency_owner: str,
+    required_modules: tuple[str, ...] = MANAGED_RUNTIME_REQUIRED_MODULES,
+    launcher_python: str | None = None,
+    timeout: int = 300,
+) -> dict:
+    """Return the canonical managed-runtime summary for the current process.
+
+    Callers that only need the managed runtime to exist should use this helper.
+    Wrapper entry points that also need to re-exec should call
+    `handoff_current_script_to_managed_runtime`, which builds on this function.
+    Dry-run callers that need a non-raising preview should use
+    `preview_managed_runtime` instead.
+    """
+    if summary := _short_circuit_managed_runtime(
+        vault_root,
+        required_modules=required_modules,
+    ):
+        return summary
+
+    summary = bootstrap_managed_runtime(
+        Path(vault_root),
+        required_modules=required_modules,
+        dependency_owner=dependency_owner,
+        launcher_python=launcher_python,
+        timeout=timeout,
+    )
+    if not summary["managed_runtime_ready"]:
+        raise RuntimeError(
+            summary.get("message")
+            or "Managed runtime bootstrap did not produce a usable central venv."
+        )
+    return summary
+
+
+def preview_managed_runtime(
+    vault_root: str | Path,
+    *,
+    dependency_owner: str,
+    required_modules: tuple[str, ...] = MANAGED_RUNTIME_REQUIRED_MODULES,
+    launcher_python: str | None = None,
+    timeout: int = 300,
+) -> dict:
+    """Return a dry-run managed-runtime summary without re-exec or readiness raises."""
+    if summary := _short_circuit_managed_runtime(
+        vault_root,
+        required_modules=required_modules,
+    ):
+        return summary
+    return bootstrap_managed_runtime(
+        Path(vault_root),
+        required_modules=required_modules,
+        dependency_owner=dependency_owner,
+        launcher_python=launcher_python,
+        timeout=timeout,
+        dry_run=True,
+    )
+
+
 def handoff_current_script_to_managed_runtime(
     vault_root: str | Path,
     *,
@@ -307,27 +460,16 @@ def handoff_current_script_to_managed_runtime(
     into it or raises `RuntimeError` when bootstrap could not produce a usable
     managed interpreter.
     """
-    if current_process_in_managed_runtime(vault_root):
-        return {
-            "checked_at": iso_now(),
-            "managed_python": sys.executable,
-            "status": "ready",
-            "steps": load_bootstrap_steps(),
-            "managed_runtime_ready": True,
-        }
-
-    summary = bootstrap_managed_runtime(
-        Path(vault_root),
+    summary = ensure_managed_runtime(
+        vault_root,
         required_modules=required_modules,
         dependency_owner=dependency_owner,
         launcher_python=launcher_python,
         timeout=timeout,
     )
-    if not summary["managed_runtime_ready"]:
-        raise RuntimeError("Managed runtime bootstrap did not produce a usable central venv.")
 
     managed_python = summary["managed_python"]
-    if os.path.realpath(sys.executable) != os.path.realpath(managed_python):
+    if not _is_self_executable(managed_python):
         exec_managed_runtime(
             managed_python=managed_python,
             script_path=script_path,

@@ -10,7 +10,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-import init
 from _common import resolve_vault_venv_python
 from _bootstrap.runtime import probe_python, required_modules_for_scope
 from _repair_common import attach_repair_guidance
@@ -19,6 +18,12 @@ from _repair_common import attach_repair_guidance
 ISSUE_RUNTIME_MISSING = "runtime-missing"
 ISSUE_RUNTIME_UNUSABLE = "runtime-unusable"
 ISSUE_MANAGED_RUNTIME_DEPENDENCIES_MISSING = "managed-runtime-dependencies-missing"
+
+
+def _init_module():
+    import init as init_module
+
+    return init_module
 
 
 def _runtime_issue_message(issue: str) -> str:
@@ -33,13 +38,20 @@ def _runtime_issue_message(issue: str) -> str:
 def _runtime_state_from_probe(python_path: str, probe: dict) -> dict:
     """Normalise runtime probe results into one structured state payload."""
     missing = list(probe.get("missing", []))
+    probe_error = probe.get("probe_error")
     if not probe.get("compatible"):
+        message = (
+            f"Central managed runtime is present but could not be probed: {probe_error}."
+            if probe_error
+            else _runtime_issue_message(ISSUE_RUNTIME_UNUSABLE)
+        )
         return {
             "healthy": False,
             "python": python_path,
             "issues": [ISSUE_RUNTIME_UNUSABLE],
             "missing_modules": missing,
-            "message": _runtime_issue_message(ISSUE_RUNTIME_UNUSABLE),
+            "message": message,
+            "probe_error": probe_error,
         }
     if missing:
         module_list = ", ".join(sorted(missing))
@@ -52,6 +64,7 @@ def _runtime_state_from_probe(python_path: str, probe: dict) -> dict:
                 ISSUE_MANAGED_RUNTIME_DEPENDENCIES_MISSING
             ).rstrip(".")
             + f": {module_list}.",
+            "probe_error": probe_error,
         }
     return {
         "healthy": True,
@@ -59,6 +72,7 @@ def _runtime_state_from_probe(python_path: str, probe: dict) -> dict:
         "issues": [],
         "missing_modules": [],
         "message": "Central managed runtime is ready for packageful Brain work.",
+        "probe_error": probe_error,
     }
 
 
@@ -186,8 +200,9 @@ def inspect_registry(vault_root: Path) -> dict:
 
 
 def _expected_project_server_config(vault_root: Path) -> dict:
+    init_module = _init_module()
     venv_python = str(resolve_vault_venv_python(vault_root))
-    return init.build_mcp_config(venv_python, vault_root, workspace_dir=vault_root)
+    return init_module.build_mcp_config(venv_python, vault_root, workspace_dir=vault_root)
 
 
 def _record_matches(record: dict, *, client: str, config_path: Path, server_config: dict) -> bool:
@@ -222,7 +237,8 @@ def _has_hook_entry(settings: dict, command: str) -> bool:
 
 
 def _current_vault_project_records(vault_root: Path) -> list[dict]:
-    return init.matching_records(
+    init_module = _init_module()
+    return init_module.matching_records(
         vault_root,
         ["claude", "codex"],
         "project",
@@ -235,26 +251,28 @@ def _has_project_record(records: list[dict], client: str) -> bool:
 
 
 def _read_claude_project_server(config_path: Path) -> dict | None:
+    init_module = _init_module()
     payload, _ = _read_json_safe(config_path)
     servers = payload.get("mcpServers", {}) if isinstance(payload, dict) else {}
     if not isinstance(servers, dict):
         return None
-    server = servers.get(init.BRAIN_SERVER_NAME)
+    server = servers.get(init_module.BRAIN_SERVER_NAME)
     return server if isinstance(server, dict) else None
 
 
 def inspect_mcp(vault_root: Path) -> dict:
     """Inspect current-vault project MCP state without mutating user scope."""
+    init_module = _init_module()
     server_config = _expected_project_server_config(vault_root)
-    claude_config_path = vault_root / init.CLAUDE_PROJECT_CONFIG_FILE
-    codex_config_path = vault_root / init.CODEX_CONFIG_REL
-    claude_settings_path = vault_root / init.CLAUDE_LOCAL_SETTINGS_FILE
-    claude_md_path = vault_root / init.CLAUDE_MD_FILE
-    expected_hook = init.build_session_hook_command(vault_root, vault_root)
-    expected_bootstrap = init.bootstrap_line_for_target(vault_root)
+    claude_config_path = vault_root / init_module.CLAUDE_PROJECT_CONFIG_FILE
+    codex_config_path = vault_root / init_module.CODEX_CONFIG_REL
+    claude_settings_path = vault_root / init_module.CLAUDE_LOCAL_SETTINGS_FILE
+    claude_md_path = vault_root / init_module.CLAUDE_MD_FILE
+    expected_hook = init_module.build_session_hook_command(vault_root, vault_root)
+    expected_bootstrap = init_module.bootstrap_line_for_target(vault_root)
 
     claude_server = _read_claude_project_server(claude_config_path)
-    codex_server = init.read_codex_server_config(codex_config_path)
+    codex_server = init_module.read_codex_server_config(codex_config_path)
     claude_config_ok = claude_server == server_config
     codex_config_ok = codex_server == server_config
 
@@ -301,12 +319,13 @@ def inspect_mcp(vault_root: Path) -> dict:
 
 
 def local_mcp_state_present(vault_root: Path) -> bool:
+    init_module = _init_module()
     return any(
         (vault_root / rel).exists()
         for rel in (
-            init.CLAUDE_PROJECT_CONFIG_FILE,
-            init.CODEX_CONFIG_REL,
-            init.INIT_STATE_REL,
+            init_module.CLAUDE_PROJECT_CONFIG_FILE,
+            init_module.CODEX_CONFIG_REL,
+            init_module.INIT_STATE_REL,
         )
     )
 
@@ -334,7 +353,7 @@ def collect_bootstrap_check_findings(vault_root: str | Path) -> list[dict]:
                     "check": f"runtime:{issue}",
                     "severity": "warning",
                     "file": None,
-                    "message": _runtime_issue_message(issue),
+                    "message": runtime.get("message") or _runtime_issue_message(issue),
                 }
                 findings.append(attach_repair_guidance(finding, vault_root, "runtime"))
 

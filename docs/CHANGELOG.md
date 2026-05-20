@@ -6,6 +6,7 @@ Version-by-version release history for Obsidian Brain. Every shipped version has
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.42.3](changelog/v0.42.3.md) | 2026-05-20 | Tighten runtime handoff contracts and surface probe failures |
 | [v0.42.2](changelog/v0.42.2.md) | 2026-05-19 | Add bootstrap-only folder binding to init.py |
 | [v0.42.1](changelog/v0.42.1.md) | 2026-05-19 | Add portable lexical retrieval wrappers alongside the managed search surfaces |
 | [v0.42.0](changelog/v0.42.0.md) | 2026-05-19 | Restore portable artefact surfaces and remove compliance from brain_read |

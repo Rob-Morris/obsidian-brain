@@ -94,3 +94,17 @@ def test_main_rejects_mode_flag(tmp_path, wrapper_cli):
 
     assert result.returncode == 2
     assert "unrecognized arguments: --mode semantic" in result.stderr
+
+
+def test_portable_build_and_search_round_trip(tmp_path, wrapper_cli):
+    write_vault(tmp_path)
+
+    build = wrapper_cli(tmp_path, "build_lexical_index.py")
+    assert build.returncode == 0
+
+    search = wrapper_cli(tmp_path, "search_lexical.py", "python", "--json")
+    assert search.returncode == 0
+
+    payload = json.loads(search.stdout)
+    assert payload
+    assert payload[0]["path"].endswith("python-basics.md")

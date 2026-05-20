@@ -10,8 +10,8 @@ from _bootstrap.runtime import (
     BOOTSTRAP_SUMMARY_ENV,
     DEFAULT_MANAGED_RUNTIME_LAUNCHER,
     MANAGED_RUNTIME_ENV,
+    find_launcher_python,
 )
-from _lifecycle_common import find_repair_launcher
 
 
 REPAIR_SCRIPT_REL = Path(".brain-core/scripts/repair.py")
@@ -59,7 +59,7 @@ def build_repair_command(
     """Return an exact repair command for the given scope."""
     vault_root = Path(vault_root).resolve()
     script_path = vault_root / REPAIR_SCRIPT_REL
-    launcher = launcher or find_repair_launcher() or DEFAULT_MANAGED_RUNTIME_LAUNCHER
+    launcher = launcher or find_launcher_python() or DEFAULT_MANAGED_RUNTIME_LAUNCHER
     parts = [
         shlex.quote(launcher),
         shlex.quote(str(script_path)),

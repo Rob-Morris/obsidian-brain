@@ -7,7 +7,7 @@ import platform
 import subprocess
 from pathlib import Path
 
-from _lifecycle_common import probe_python, step as _step
+from _bootstrap.runtime import probe_python, step as _step
 from _lifecycle.retrieval_assets import refresh_retrieval_assets
 from _lifecycle.retrieval_errors import (
     CompiledRouterUnavailableError,

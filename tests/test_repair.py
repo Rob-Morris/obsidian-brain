@@ -14,7 +14,6 @@ import pytest
 import _bootstrap.diagnostics as bootstrap_diagnostics
 import _bootstrap.runtime as bootstrap_runtime
 import _lifecycle.frontmatter_repairs as frontmatter_repairs
-import _lifecycle_common as lifecycle_common
 import _semantic.config as semantic_config
 import _semantic.model as semantic_model
 import _repair_common as repair_common
@@ -167,101 +166,139 @@ def _mock_healthy_runtime(monkeypatch):
 
 
 class TestBootstrapSummary:
-    @pytest.mark.parametrize("scope", ["runtime", "mcp"])
-    def test_plans_runtime_and_dependency_repair_when_managed_runtime_missing(self, repair_vault, scope):
-        launcher = sys.executable
-        summary = repair._bootstrap_summary(
-            repair_vault,
-            scope=scope,
-            launcher_python=launcher,
-            dry_run=True,
+    def test_runtime_error_is_wrapped_in_structured_envelope(self, repair_vault, monkeypatch, capsys):
+        monkeypatch.setattr(
+            repair,
+            "handoff_current_script_to_managed_runtime",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                RuntimeError("Created central managed runtime is not Python 3.12+")
+            ),
         )
 
-        assert summary["status"] == "planned"
-        assert [step["name"] for step in summary["steps"]] == [
-            "managed_runtime",
-            "managed_dependencies",
+        exit_code = repair.main(["router", "--vault", str(repair_vault), "--json"])
+
+        assert exit_code == 2
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["status"] == "error"
+        assert payload["steps"][0]["name"] == "managed_runtime"
+        assert payload["steps"][0]["status"] == "error"
+        assert "Python 3.12+" in payload["steps"][0]["message"]
+
+    def test_dry_run_returns_planned_result_when_runtime_is_not_ready(
+        self, repair_vault, monkeypatch, capsys
+    ):
+        monkeypatch.setattr(
+            repair,
+            "preview_managed_runtime",
+            lambda *_args, **_kwargs: {
+                "status": "planned",
+                "managed_runtime_ready": False,
+                "managed_python": "/managed/python",
+                "steps": [
+                    {"name": "managed_runtime", "status": "planned", "message": "Would create runtime."},
+                    {"name": "managed_dependencies", "status": "planned", "message": "Would sync dependencies."},
+                ],
+            },
+        )
+
+        exit_code = repair.main(["router", "--vault", str(repair_vault), "--dry-run", "--json"])
+
+        assert exit_code == 0
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["status"] == "planned"
+        assert payload["steps"][-1]["name"] == "router"
+        assert payload["steps"][-1]["status"] == "planned"
+
+    def test_dry_run_propagates_bootstrap_preview_errors(self, repair_vault, monkeypatch, capsys):
+        monkeypatch.setattr(
+            repair,
+            "preview_managed_runtime",
+            lambda *_args, **_kwargs: {
+                "status": "error",
+                "managed_runtime_ready": False,
+                "managed_python": "/managed/python",
+                "steps": [
+                    {"name": "managed_runtime", "status": "error", "message": "preview failed"},
+                ],
+            },
+        )
+
+        exit_code = repair.main(["router", "--vault", str(repair_vault), "--dry-run", "--json"])
+
+        assert exit_code == 2
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["status"] == "error"
+        assert payload["steps"] == [
+            {"name": "managed_runtime", "status": "error", "message": "preview failed"},
         ]
-        assert all(step["status"] == "planned" for step in summary["steps"])
 
-    def test_runtime_error_is_wrapped_in_structured_envelope(self, repair_vault, monkeypatch, capsys):
-        def boom(*_args, **_kwargs):
-            raise RuntimeError("Created vault-local .venv is not Python 3.12+")
+    def test_main_uses_bootstrap_steps_from_handoff_summary(self, repair_vault, monkeypatch):
+        bootstrap_steps = [{"name": "managed_runtime", "status": "noop", "message": "ready"}]
+        captured = {}
 
-        monkeypatch.setattr(repair, "_bootstrap_summary", boom)
-        monkeypatch.setattr(repair, "_find_launcher_python", lambda: sys.executable)
-        monkeypatch.delenv(repair.MANAGED_RUNTIME_ENV, raising=False)
+        monkeypatch.setattr(
+            repair,
+            "handoff_current_script_to_managed_runtime",
+            lambda *_args, **_kwargs: {
+                "managed_runtime_ready": True,
+                "managed_python": sys.executable,
+                "steps": bootstrap_steps,
+            },
+        )
 
-        exit_code = repair.main(["router", "--vault", str(repair_vault), "--json"])
-
-        assert exit_code == 2
-        payload = json.loads(capsys.readouterr().out)
-        assert payload["status"] == "error"
-        assert payload["steps"][0]["name"] == "managed_runtime"
-        assert payload["steps"][0]["status"] == "error"
-        assert "Python 3.12+" in payload["steps"][0]["message"]
-
-    def test_bootstrap_invariant_error_is_wrapped_in_structured_envelope(self, repair_vault, monkeypatch, capsys):
-        def boom(*_args, **_kwargs):
-            raise AssertionError("Created central managed runtime is not Python 3.12+")
-
-        monkeypatch.setattr(repair, "_bootstrap_summary", boom)
-        monkeypatch.setattr(repair, "_find_launcher_python", lambda: sys.executable)
-        monkeypatch.delenv(repair.MANAGED_RUNTIME_ENV, raising=False)
-
-        exit_code = repair.main(["router", "--vault", str(repair_vault), "--json"])
-
-        assert exit_code == 2
-        payload = json.loads(capsys.readouterr().out)
-        assert payload["status"] == "error"
-        assert payload["steps"][0]["name"] == "managed_runtime"
-        assert payload["steps"][0]["status"] == "error"
-        assert "Python 3.12+" in payload["steps"][0]["message"]
-
-    def test_non_mcp_scope_does_not_plan_dependency_sync(self, repair_vault, monkeypatch):
-        # The autouse `_isolate_home` fixture pins HOME to a per-test directory,
-        # so `~/.brain/venvs/...` resolves under tmp_path rather than the
-        # developer's real home.
-        sys.path.insert(0, str(repair_vault / ".brain-core" / "scripts"))
-        try:
-            from _common import _venv  # noqa: WPS433 — fixture loads from copied helper
-        finally:
-            sys.path.pop(0)
-        central_python = _venv.resolve_vault_venv_python(repair_vault)
-        central_python.parent.mkdir(parents=True)
-        central_python.write_text("")
-
-        def fake_provision(*_args, **_kwargs):
+        def fake_run_scope(scope, vault_root, *, dry_run, bootstrap_steps):
+            captured["scope"] = scope
+            captured["vault_root"] = vault_root
+            captured["dry_run"] = dry_run
+            captured["bootstrap_steps"] = bootstrap_steps
             return {
-                "outcome": _venv.RUNTIME_REUSED,
-                "python": str(central_python),
-                "venv_dir": str(central_python.parent.parent),
-                "python_tag": "py3.12",
-                "hash": "fake",
-                "missing_modules": (),
+                "scope": scope,
+                "vault_root": str(vault_root),
+                "managed_python": sys.executable,
+                "status": "noop",
+                "steps": list(bootstrap_steps),
             }
 
-        monkeypatch.setattr(bootstrap_runtime, "resolve_or_provision_central_venv", fake_provision)
+        monkeypatch.setattr(repair_runtime, "run_scope", fake_run_scope)
 
-        summary = repair._bootstrap_summary(
-            repair_vault,
-            scope="router",
-            launcher_python=sys.executable,
-            dry_run=False,
+        exit_code = repair.main(["router", "--vault", str(repair_vault)])
+
+        assert exit_code == 0
+        assert captured["scope"] == "router"
+        assert captured["vault_root"] == repair_vault
+        assert captured["dry_run"] is False
+        assert captured["bootstrap_steps"] == bootstrap_steps
+
+    def test_dry_run_reexecs_before_running_scope_when_preview_is_ready(self, repair_vault, monkeypatch):
+        bootstrap_steps = [{"name": "managed_runtime", "status": "noop", "message": "ready"}]
+        captured = {}
+
+        monkeypatch.setattr(
+            repair,
+            "preview_managed_runtime",
+            lambda *_args, **_kwargs: {
+                "managed_runtime_ready": True,
+                "managed_python": "/managed/python",
+                "steps": bootstrap_steps,
+            },
         )
+        monkeypatch.setattr(repair, "current_process_in_managed_runtime", lambda _vault: False)
 
-        assert summary["status"] == "ready"
-        assert summary["steps"][0]["status"] == "noop"
-        assert summary["steps"][1]["status"] == "noop"
-        assert "does not require additional managed runtime dependencies" in summary["steps"][1]["message"]
+        def fake_exec(*, managed_python, script_path, forwarded_args, summary):
+            captured["managed_python"] = managed_python
+            captured["script_path"] = script_path
+            captured["forwarded_args"] = forwarded_args
+            captured["summary"] = summary
+            raise RuntimeError("reexec")
 
-    def test_repair_main_rejects_corrupt_bootstrap_summary(self, repair_vault, monkeypatch):
-        monkeypatch.setenv(repair.MANAGED_RUNTIME_ENV, "1")
-        monkeypatch.setenv(repair.BOOTSTRAP_SUMMARY_ENV, "{not-json")
-        monkeypatch.setattr(repair, "find_vault_root", lambda _vault: str(repair_vault))
+        monkeypatch.setattr(repair, "exec_managed_runtime", fake_exec)
 
-        with pytest.raises(RuntimeError, match="bootstrap summary"):
-            repair.main(["router", "--vault", str(repair_vault)])
+        with pytest.raises(RuntimeError, match="reexec"):
+            repair.main(["router", "--vault", str(repair_vault), "--dry-run"])
+
+        assert captured["managed_python"] == "/managed/python"
+        assert captured["forwarded_args"] == ["router", "--vault", str(repair_vault), "--dry-run"]
+        assert captured["summary"]["steps"] == bootstrap_steps
 
 
 class TestRepairScopes:
@@ -310,6 +347,29 @@ class TestRepairScopes:
 
         assert state["healthy"] is False
         assert state["issues"] == [repair_runtime.ISSUE_RUNTIME_UNUSABLE]
+
+    def test_inspect_runtime_reports_probe_error_context(self, repair_vault, monkeypatch):
+        runtime_python = repair_vault / ".brain" / "venv" / "bin" / "python"
+        runtime_python.parent.mkdir(parents=True)
+        runtime_python.write_text("")
+        monkeypatch.setattr(bootstrap_diagnostics, "resolve_vault_venv_python", lambda _vault: runtime_python)
+        monkeypatch.setattr(
+            bootstrap_diagnostics,
+            "probe_python",
+            lambda _python_path, *, modules=(): {
+                "compatible": False,
+                "ok": False,
+                "missing": [],
+                "probe_error": "permission denied",
+            },
+        )
+
+        state = repair_runtime.inspect_runtime(repair_vault)
+
+        assert state["healthy"] is False
+        assert state["issues"] == [repair_runtime.ISSUE_RUNTIME_UNUSABLE]
+        assert state["probe_error"] == "permission denied"
+        assert "permission denied" in state["message"]
 
     def test_inspect_runtime_reports_missing_baseline_packages(self, repair_vault, monkeypatch):
         runtime_python = repair_vault / ".brain" / "venv" / "bin" / "python"
@@ -940,7 +1000,7 @@ class TestCheckRepairHints:
     def test_missing_router_uses_detected_launcher_in_repair_guidance(self, tmp_path, monkeypatch):
         (tmp_path / ".brain-core").mkdir()
         (tmp_path / ".brain-core" / "VERSION").write_text("0.32.5\n")
-        monkeypatch.setattr(repair_common, "find_repair_launcher", lambda: "/opt/homebrew/bin/python3.13")
+        monkeypatch.setattr(repair_common, "find_launcher_python", lambda: "/opt/homebrew/bin/python3.13")
 
         result = check.run_checks(str(tmp_path))
 
@@ -1023,6 +1083,26 @@ class TestCheckRepairHints:
         hit = next(f for f in result["findings"] if f["check"] == "runtime:runtime-missing")
         assert hit["repair"]["scope"] == "runtime"
         assert "repair.py runtime" in hit["repair"]["command"]
+
+    def test_runtime_drift_surfaces_probe_error_message_in_check_output(self, repair_vault, monkeypatch):
+        _register_project_client(repair_vault, "claude")
+        monkeypatch.setattr(
+            bootstrap_diagnostics,
+            "inspect_runtime",
+            lambda _vault: {
+                "healthy": False,
+                "python": str(repair_vault / ".brain" / "managed-runtime" / "bin" / "python"),
+                "issues": [repair_runtime.ISSUE_RUNTIME_UNUSABLE],
+                "missing_modules": [],
+                "probe_error": "permission denied",
+                "message": "Central managed runtime is present but could not be probed: permission denied.",
+            },
+        )
+
+        result = check.run_checks(str(repair_vault), _wiki_router())
+
+        hit = next(f for f in result["findings"] if f["check"] == "runtime:runtime-unusable")
+        assert hit["message"] == "Central managed runtime is present but could not be probed: permission denied."
 
     @pytest.mark.parametrize("client", ["claude", "codex"])
     def test_valid_single_client_project_install_does_not_report_mcp_drift(self, repair_vault, client):

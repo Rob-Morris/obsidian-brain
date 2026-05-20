@@ -971,6 +971,7 @@ class TestBuildIndexCli:
 
     def test_main_reports_retrieval_persistence_failures(self, vault, monkeypatch, capsys):
         build_index_cli = _load_build_index_cli_module()
+        build_index_cli._load_runtime_modules()
         monkeypatch.setattr(build_index_cli, "find_vault_root", lambda: str(vault))
         monkeypatch.setattr(
             build_index_cli,

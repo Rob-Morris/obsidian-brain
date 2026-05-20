@@ -219,6 +219,144 @@ def test_orchestrator_syncs_in_place_when_modules_missing(tmp_path, monkeypatch)
     assert sentinel.read_text().strip() == rhash
 
 
+def test_orchestrator_preserves_stderr_when_creating_runtime_fails(tmp_path, monkeypatch):
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    monkeypatch.setenv("HOME", str(fake_home))
+
+    vault = _make_vault_with_helper(tmp_path)
+
+    sys.path.insert(0, str(REPO_ROOT / "src" / "brain-core" / "scripts"))
+    try:
+        from _common import _venv as _v
+    finally:
+        sys.path.pop(0)
+
+    launcher = Path(sys.executable)
+    original_run = _v.subprocess.run
+
+    def fake_run(args, **kwargs):
+        if list(args[:3]) == [str(launcher), "-m", "venv"]:
+            assert kwargs["capture_output"] is True
+            assert kwargs["text"] is True
+            raise subprocess.CalledProcessError(
+                1,
+                args,
+                stderr="venv create failed",
+            )
+        return original_run(args, **kwargs)
+
+    monkeypatch.setattr(_v.subprocess, "run", fake_run)
+
+    result = _v.resolve_or_provision_central_venv(
+        vault,
+        launcher=launcher,
+        required_modules=("mcp",),
+    )
+
+    assert result["outcome"] == _v.RUNTIME_ERROR
+    assert "command failed:" in result["message"]
+    assert "venv create failed" in result["message"]
+
+
+def test_orchestrator_preserves_stderr_when_syncing_existing_runtime_fails(tmp_path, monkeypatch):
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    monkeypatch.setenv("HOME", str(fake_home))
+
+    vault = _make_vault_with_helper(tmp_path)
+    sys.path.insert(0, str(vault / ".brain-core" / "scripts"))
+    try:
+        from _common import _venv
+        rhash = _venv.requirements_hash(_venv.vault_requirements_path(vault))
+    finally:
+        sys.path.pop(0)
+
+    launcher = _make_3_12_launcher(tmp_path)
+    _make_3_13_central_venv(fake_home, rhash, with_modules=())
+
+    sys.path.insert(0, str(REPO_ROOT / "src" / "brain-core" / "scripts"))
+    try:
+        from _common import _venv as _v
+    finally:
+        sys.path.pop(0)
+
+    original_run = _v.subprocess.run
+
+    def fake_run(args, **kwargs):
+        if len(args) >= 3 and args[1:3] == ["-m", "pip"]:
+            assert kwargs["capture_output"] is True
+            assert kwargs["text"] is True
+            raise subprocess.CalledProcessError(
+                1,
+                args,
+                stderr="pip sync failed",
+            )
+        return original_run(args, **kwargs)
+
+    monkeypatch.setattr(_v.subprocess, "run", fake_run)
+
+    result = _v.resolve_or_provision_central_venv(
+        vault,
+        launcher=launcher,
+        required_modules=("mcp",),
+    )
+
+    assert result["outcome"] == _v.RUNTIME_ERROR
+    assert "pip install failed against existing runtime" in result["message"]
+    assert "pip sync failed" in result["message"]
+
+
+def test_format_subprocess_error_uses_real_called_process_output():
+    sys.path.insert(0, str(REPO_ROOT / "src" / "brain-core" / "scripts"))
+    try:
+        from _common import _venv as _v
+    finally:
+        sys.path.pop(0)
+
+    with pytest.raises(subprocess.CalledProcessError) as excinfo:
+        subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "import sys; sys.stderr.write('boom\\n'); sys.exit(3)",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+    rendered = _v._format_subprocess_error(excinfo.value)
+    assert "command failed:" in rendered
+    assert "boom" in rendered
+    assert "exit 3" in rendered
+
+
+def test_format_subprocess_error_uses_real_timeout_context():
+    sys.path.insert(0, str(REPO_ROOT / "src" / "brain-core" / "scripts"))
+    try:
+        from _common import _venv as _v
+    finally:
+        sys.path.pop(0)
+
+    with pytest.raises(subprocess.TimeoutExpired) as excinfo:
+        subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "import time; time.sleep(1)",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=0.01,
+        )
+
+    rendered = _v._format_subprocess_error(excinfo.value)
+    assert "command timed out:" in rendered
+    assert str(excinfo.value.timeout) in rendered
+
+
 def test_orchestrator_honours_forced_sync_for_existing_runtime_without_sentinel(brew_churn_env):
     """Explicit install sync requests still repair a reused runtime in place.
 
@@ -257,7 +395,7 @@ def test_orchestrator_honours_forced_sync_for_existing_runtime_without_sentinel(
 # ---------------------------------------------------------------------------
 
 def test_bootstrap_managed_runtime_reports_reused_on_brew_churn(brew_churn_env):
-    """`_lifecycle_common.bootstrap_managed_runtime` delegates to the orchestrator
+    """`_bootstrap.runtime.bootstrap_managed_runtime` delegates to the orchestrator
     and surfaces a noop runtime step + noop dependencies step when the
     py3.13 runtime already has the required modules. No new py3.12-<hash>
     directory appears."""
@@ -265,11 +403,11 @@ def test_bootstrap_managed_runtime_reports_reused_on_brew_churn(brew_churn_env):
 
     sys.path.insert(0, str(REPO_ROOT / "src" / "brain-core" / "scripts"))
     try:
-        import _lifecycle_common as lifecycle_common
+        import _bootstrap.runtime as bootstrap_runtime
     finally:
         sys.path.pop(0)
 
-    summary = lifecycle_common.bootstrap_managed_runtime(
+    summary = bootstrap_runtime.bootstrap_managed_runtime(
         vault,
         required_modules=("mcp",),
         dependency_owner="convergence test",
@@ -303,11 +441,11 @@ def test_bootstrap_managed_runtime_syncs_modules_in_place(tmp_path, monkeypatch)
 
     sys.path.insert(0, str(REPO_ROOT / "src" / "brain-core" / "scripts"))
     try:
-        import _lifecycle_common as lifecycle_common
+        import _bootstrap.runtime as bootstrap_runtime
     finally:
         sys.path.pop(0)
 
-    summary = lifecycle_common.bootstrap_managed_runtime(
+    summary = bootstrap_runtime.bootstrap_managed_runtime(
         vault,
         required_modules=("mcp",),
         dependency_owner="sync-in-place test",
@@ -327,11 +465,11 @@ def test_bootstrap_managed_runtime_dry_run_does_not_mutate(brew_churn_env):
 
     sys.path.insert(0, str(REPO_ROOT / "src" / "brain-core" / "scripts"))
     try:
-        import _lifecycle_common as lifecycle_common
+        import _bootstrap.runtime as bootstrap_runtime
     finally:
         sys.path.pop(0)
 
-    summary = lifecycle_common.bootstrap_managed_runtime(
+    summary = bootstrap_runtime.bootstrap_managed_runtime(
         vault,
         required_modules=("mcp",),  # already available; should be noop dry-run-ish
         dependency_owner="dry-run test",

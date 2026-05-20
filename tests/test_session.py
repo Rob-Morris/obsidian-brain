@@ -2,6 +2,7 @@
 
 import json
 import sys
+import types
 
 import pytest
 
@@ -159,20 +160,39 @@ class TestBuildSessionModel:
             "tags": ["workspace/legacy"],
         }
 
-    def test_ignores_invalid_workspace_manifest(self, tmp_path):
+    def test_invalid_workspace_manifest_raises(self, tmp_path):
         workspace_dir = tmp_path / "demo-workspace"
         (workspace_dir / ".brain" / "local").mkdir(parents=True)
         (workspace_dir / ".brain" / "local" / "workspace.yaml").write_text("defaults: [broken\n")
 
-        model = session.build_session_model(
-            _minimal_router(tmp_path),
+        with pytest.raises(RuntimeError, match="failed to load workspace manifest"):
+            session.build_session_model(
+                _minimal_router(tmp_path),
+                str(tmp_path),
+                workspace_dir=str(workspace_dir),
+                load_config_if_missing=False,
+            )
+
+    def test_resolve_workspace_record_warns_when_registry_is_broken(self, tmp_path, monkeypatch, capsys):
+        fake_registry = types.SimpleNamespace(
+            list_workspaces=lambda _vault: (_ for _ in ()).throw(ValueError("registry is broken"))
+        )
+        monkeypatch.setitem(sys.modules, "workspace_registry", fake_registry)
+
+        record = session._resolve_workspace_record(
             str(tmp_path),
-            workspace_dir=str(workspace_dir),
-            load_config_if_missing=False,
+            {
+                "directory": str(tmp_path / "demo-workspace"),
+                "location": "external",
+            },
+            {"links": {"workspace": "brain-demo"}},
         )
 
-        assert "workspace_defaults" not in model
-        assert "workspace_record" not in model
+        assert record == {
+            "slug": "brain-demo",
+            "workspace_mode": "linked",
+        }
+        assert "failed to read linked workspace registry" in capsys.readouterr().err
 
 
 class TestSessionCli:
@@ -294,7 +314,7 @@ class TestSessionCli:
         assert "## Workspace Defaults" in content
         assert '`tags`: `["workspace/demo-workspace", "project/brain"]`' in content
 
-    def test_main_returns_error_when_compiled_router_missing(self, tmp_path, monkeypatch, capsys):
+    def test_main_emits_degraded_json_when_compiled_router_is_missing(self, tmp_path, monkeypatch, capsys):
         bc = tmp_path / ".brain-core"
         bc.mkdir()
         (bc / "session-core.md").write_text(MINIMAL_SESSION_CORE)
@@ -302,21 +322,46 @@ class TestSessionCli:
         monkeypatch.setattr(
             sys,
             "argv",
-            ["session.py", "--vault", str(tmp_path)],
+            ["session.py", "--vault", str(tmp_path), "--json"],
         )
 
-        assert session.main() == 1
-        assert "compiled router not found" in capsys.readouterr().err
+        assert session.main() == 2
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["status"] == "degraded"
+        assert "compiled router not found" in payload["message"]
+        assert payload["recovery"]["action"] == "Rebuild the compiled router, then rerun session.py."
+
+    def test_main_emits_degraded_json_when_compiled_router_is_invalid(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        bc = tmp_path / ".brain-core"
+        bc.mkdir()
+        (bc / "session-core.md").write_text(MINIMAL_SESSION_CORE)
+
+        local = tmp_path / ".brain" / "local"
+        local.mkdir(parents=True)
+        (local / "compiled-router.json").write_text("{not-json\n")
+
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            ["session.py", "--vault", str(tmp_path), "--json"],
+        )
+
+        assert session.main() == 2
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["status"] == "degraded"
+        assert payload["recovery"]["action"] == "Rebuild the compiled router, then rerun session.py."
+        assert "repair.py router" in payload["recovery"]["command"]
 
     def test_main_emits_degraded_json_when_bootstrap_fails(
         self, tmp_path, monkeypatch, capsys
     ):
         monkeypatch.delenv("BRAIN_MANAGED_RUNTIME", raising=False)
-        monkeypatch.setattr(session, "current_process_in_managed_runtime", lambda _vault: False)
         monkeypatch.setattr(
             session,
-            "_bootstrap_summary",
-            lambda _vault: (_ for _ in ()).throw(RuntimeError("managed runtime unavailable")),
+            "handoff_current_script_to_managed_runtime",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("managed runtime unavailable")),
         )
 
         workspace_dir = tmp_path / "demo-workspace"
@@ -331,10 +376,108 @@ class TestSessionCli:
             ],
         )
 
-        assert session.main() == 0
+        assert session.main() == 2
         payload = json.loads(capsys.readouterr().out)
         assert payload["status"] == "degraded"
         assert payload["vault_root"] == str(tmp_path)
         assert payload["workspace_dir"] == str(workspace_dir)
         assert payload["message"] == "managed runtime unavailable"
         assert payload["recovery"]["action"] == "Repair the canonical managed runtime, then rerun session.py."
+
+    def test_main_emits_degraded_json_when_workspace_manifest_is_invalid(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        bc = tmp_path / ".brain-core"
+        bc.mkdir()
+        (bc / "session-core.md").write_text(MINIMAL_SESSION_CORE)
+
+        local = tmp_path / ".brain" / "local"
+        local.mkdir(parents=True)
+        (local / "compiled-router.json").write_text(
+            json.dumps(_minimal_router(tmp_path))
+        )
+
+        workspace_dir = tmp_path / "demo-workspace"
+        (workspace_dir / ".brain" / "local").mkdir(parents=True)
+        (workspace_dir / ".brain" / "local" / "workspace.yaml").write_text(
+            "defaults: [broken\n"
+        )
+
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "session.py",
+                "--vault", str(tmp_path),
+                "--workspace-dir", str(workspace_dir),
+                "--json",
+            ],
+        )
+
+        assert session.main() == 2
+
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["status"] == "degraded"
+        assert payload["workspace_dir"] == str(workspace_dir)
+        assert "failed to load workspace manifest" in payload["message"]
+        assert payload["recovery"]["action"] == "Inspect and fix the broken workspace manifest, then rerun session.py."
+        assert str(workspace_dir / ".brain" / "local" / "workspace.yaml") in payload["recovery"]["command"]
+
+    def test_main_emits_degraded_json_when_config_is_invalid(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        bc = tmp_path / ".brain-core"
+        bc.mkdir()
+        (bc / "session-core.md").write_text(MINIMAL_SESSION_CORE)
+
+        local = tmp_path / ".brain" / "local"
+        local.mkdir(parents=True)
+        (local / "compiled-router.json").write_text(
+            json.dumps(_minimal_router(tmp_path))
+        )
+
+        shared = tmp_path / ".brain"
+        shared.mkdir(exist_ok=True)
+        (shared / "config.yaml").write_text("defaults: [broken\n")
+
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            ["session.py", "--vault", str(tmp_path), "--json"],
+        )
+
+        assert session.main() == 2
+
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["status"] == "degraded"
+        assert f"failed to load config for {tmp_path}" in payload["message"]
+        assert payload["recovery"]["action"] == "Inspect and fix the broken Brain config file, then rerun session.py."
+        assert str(tmp_path / ".brain" / "config.yaml") in payload["recovery"]["command"]
+        assert str(tmp_path / ".brain" / "local" / "config.yaml") in payload["recovery"]["command"]
+
+    def test_main_emits_degraded_json_when_session_core_is_malformed(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        bc = tmp_path / ".brain-core"
+        bc.mkdir()
+        (bc / "session-core.md").write_text("# Session Core\n\n## Core Docs\n\n")
+
+        local = tmp_path / ".brain" / "local"
+        local.mkdir(parents=True)
+        (local / "compiled-router.json").write_text(
+            json.dumps(_minimal_router(tmp_path))
+        )
+
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            ["session.py", "--vault", str(tmp_path), "--json"],
+        )
+
+        assert session.main() == 2
+
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["status"] == "degraded"
+        assert "## Standards" in payload["message"]
+        assert payload["recovery"]["action"] == "Reinstall or upgrade the shipped .brain-core files for this vault, then rerun session.py."
+        assert "install.sh --non-interactive --skip-mcp" in payload["recovery"]["command"]

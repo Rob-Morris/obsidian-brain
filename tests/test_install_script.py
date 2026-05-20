@@ -310,7 +310,7 @@ def test_install_enable_semantic_uses_real_configure_boundary(tmp_path):
             from dataclasses import dataclass
             from pathlib import Path
 
-            from _lifecycle_common import step as _step
+            from _bootstrap.runtime import step as _step
             import _semantic.config as semantic_config
 
 
@@ -392,7 +392,7 @@ def test_install_enable_semantic_uses_real_configure_boundary(tmp_path):
         "  if [ -f \"$venv_dir/yaml-installed\" ]; then\n"
         "    printf '{\"major\": 3, \"minor\": 12, \"missing\": [], \"compatible\": true, \"ok\": true}\\n'\n"
         "  else\n"
-        "    printf '{\"major\": 3, \"minor\": 12, \"missing\": [\"yaml\"], \"compatible\": true, \"ok\": false}\\n'\n"
+        "    printf '{\"major\": 3, \"minor\": 12, \"missing\": [\"mcp\"], \"compatible\": true, \"ok\": false}\\n'\n"
         "  fi\n"
         "  exit 0\n"
         "fi\n"

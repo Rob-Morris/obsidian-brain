@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 import pytest
 
 import config as config_module
 import configure
 import _bootstrap.runtime as bootstrap_runtime
-import _lifecycle_common as lifecycle_common
 import _lifecycle.retrieval_assets as retrieval_assets
 import _semantic.config as semantic_config
 import _semantic.model as semantic_model
@@ -244,53 +244,6 @@ def test_provision_semantic_runtime_formats_typed_asset_errors(
     assert outcome.marker_installed is False
 
 
-def test_bootstrap_summary_creates_runtime_and_syncs_dependencies(tmp_path, monkeypatch):
-    """`_bootstrap_summary` produces the correct envelope when a brand-new runtime is created.
-
-    Post-v0.39.0, `bootstrap_managed_runtime` delegates all resolve/reuse/sync/create
-    logic to `_common._venv.resolve_or_provision_central_venv` — the single
-    owner across entry points. We patch that owner directly to assert the
-    envelope-building behaviour in isolation.
-    """
-    vault = _make_vault(tmp_path)
-    fake_home = tmp_path / "home"
-    fake_home.mkdir()
-    monkeypatch.setenv("HOME", str(fake_home))
-
-    central_python = fake_home / ".brain" / "venvs" / "py3.12-fake" / "bin" / "python"
-    central_python.parent.mkdir(parents=True, exist_ok=True)
-    central_python.write_text("#!/usr/bin/env python\n")
-
-    def fake_provision(*_args, **_kwargs):
-        from _common import _venv as _venv_module
-        return {
-            "outcome": _venv_module.RUNTIME_CREATED,
-            "python": str(central_python),
-            "venv_dir": str(central_python.parent.parent),
-            "python_tag": "py3.12",
-            "hash": "fake",
-            "missing_modules": (),
-        }
-
-    monkeypatch.setattr(configure, "find_launcher_python", lambda: "/fake/python3.12")
-    monkeypatch.setattr(bootstrap_runtime, "resolve_or_provision_central_venv", fake_provision)
-
-    summary = configure._bootstrap_summary(vault)
-
-    assert summary["status"] == "ready"
-    assert [step["name"] for step in summary["steps"]] == ["managed_runtime", "managed_dependencies"]
-    assert summary["steps"][0]["status"] == "changed"
-    assert summary["steps"][1]["status"] == "noop"
-
-
-def test_bootstrap_summary_requires_compatible_launcher(tmp_path, monkeypatch):
-    vault = _make_vault(tmp_path)
-    monkeypatch.setattr(configure, "find_launcher_python", lambda: None)
-
-    with pytest.raises(RuntimeError, match="Python 3.12\\+"):
-        configure._bootstrap_summary(vault)
-
-
 def test_probe_python_raises_on_zero_exit_invalid_json(monkeypatch):
     def fake_run(_args, **_kwargs):
         return subprocess.CompletedProcess(
@@ -303,20 +256,24 @@ def test_probe_python_raises_on_zero_exit_invalid_json(monkeypatch):
     monkeypatch.setattr(bootstrap_runtime.subprocess, "run", fake_run)
 
     with pytest.raises(RuntimeError, match="produced invalid JSON"):
-        lifecycle_common.probe_python("/fake/python")
+        bootstrap_runtime.probe_python("/fake/python")
 
 
-def test_configure_main_uses_bootstrap_steps_from_managed_env(tmp_path, monkeypatch, capsys):
+def test_configure_main_uses_bootstrap_steps_from_handoff_summary(tmp_path, monkeypatch, capsys):
     vault = _make_vault(tmp_path)
     bootstrap_steps = [{"name": "managed_runtime", "status": "noop", "message": "ready"}]
     captured = {}
 
-    monkeypatch.setenv(configure.CONFIGURE_MANAGED_ENV, "1")
-    monkeypatch.setenv(
-        configure.CONFIGURE_BOOTSTRAP_SUMMARY_ENV,
-        json.dumps({"steps": bootstrap_steps}),
-    )
     monkeypatch.setattr(configure, "find_vault_root", lambda _vault: str(vault))
+    monkeypatch.setattr(
+        configure,
+        "handoff_current_script_to_managed_runtime",
+        lambda *_args, **_kwargs: {
+            "managed_runtime_ready": True,
+            "managed_python": sys.executable,
+            "steps": bootstrap_steps,
+        },
+    )
 
     def fake_configure(vault_root, *, provision, bootstrap_steps):
         captured["vault_root"] = vault_root
@@ -345,12 +302,16 @@ def test_configure_main_uses_bootstrap_steps_from_managed_env(tmp_path, monkeypa
 def test_configure_main_human_output_uses_exit_code_for_partial(tmp_path, monkeypatch, capsys):
     vault = _make_vault(tmp_path)
 
-    monkeypatch.setenv(configure.CONFIGURE_MANAGED_ENV, "1")
-    monkeypatch.setenv(
-        configure.CONFIGURE_BOOTSTRAP_SUMMARY_ENV,
-        json.dumps({"steps": [{"name": "managed_runtime", "status": "noop", "message": "ready"}]}),
-    )
     monkeypatch.setattr(configure, "find_vault_root", lambda _vault: str(vault))
+    monkeypatch.setattr(
+        configure,
+        "handoff_current_script_to_managed_runtime",
+        lambda *_args, **_kwargs: {
+            "managed_runtime_ready": True,
+            "managed_python": sys.executable,
+            "steps": [{"name": "managed_runtime", "status": "noop", "message": "ready"}],
+        },
+    )
     monkeypatch.setattr(
         configure,
         "_configure_semantic_enable",
@@ -372,26 +333,14 @@ def test_configure_main_human_output_uses_exit_code_for_partial(tmp_path, monkey
     assert "semantic_assets: refresh failed" in output
 
 
-def test_configure_main_rejects_corrupt_bootstrap_summary(tmp_path, monkeypatch):
-    vault = _make_vault(tmp_path)
-
-    monkeypatch.setenv(configure.CONFIGURE_MANAGED_ENV, "1")
-    monkeypatch.setenv(configure.CONFIGURE_BOOTSTRAP_SUMMARY_ENV, "{not-json")
-    monkeypatch.setattr(configure, "find_vault_root", lambda _vault: str(vault))
-
-    with pytest.raises(RuntimeError, match="bootstrap summary"):
-        configure.main(["semantic", "--enable", "--vault", str(vault)])
-
-
 def test_configure_main_wraps_bootstrap_invariant_failure(tmp_path, monkeypatch, capsys):
     vault = _make_vault(tmp_path)
 
-    monkeypatch.delenv(configure.CONFIGURE_MANAGED_ENV, raising=False)
     monkeypatch.setattr(configure, "find_vault_root", lambda _vault: str(vault))
     monkeypatch.setattr(
         configure,
-        "_bootstrap_summary",
-        lambda _vault_root: (_ for _ in ()).throw(AssertionError("Created vault-local .venv is not Python 3.12+")),
+        "handoff_current_script_to_managed_runtime",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("Created central managed runtime is not Python 3.12+")),
     )
 
     exit_code = configure.main(["semantic", "--enable", "--vault", str(vault), "--json"])

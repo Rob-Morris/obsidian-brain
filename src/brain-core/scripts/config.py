@@ -67,9 +67,6 @@ def _read_yaml(path: str) -> dict:
         return load_mapping_file(path)
     except FileNotFoundError:
         return {}
-    except YamlError as e:
-        warnings.warn(f"config: failed to parse {path}: {e}")
-        return {}
 
 
 # ---------------------------------------------------------------------------
