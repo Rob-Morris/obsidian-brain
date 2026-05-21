@@ -8,7 +8,7 @@ Direct script invocation remains the baseline command-line contract:
 python3.12 .brain-core/scripts/<script>.py ...
 ```
 
-That launcher process is not automatically the managed runtime. The shared bootstrap/runtime ownership now lives under `_bootstrap/`: bootstrap entrypoints do meaningful launcher-safe work there, and runtime-owning lifecycle entrypoints such as `repair.py`, `configure.py`, `session.py`, and `check.py` hand substantive managed work off into the canonical managed runtime before continuing.
+That launcher process is not automatically the managed runtime. The shared launcher-safe bootstrap ownership now lives under `_bootstrap/`: bootstrap entrypoints do meaningful launcher-safe work there, and runtime-owning lifecycle entrypoints such as `repair.py`, `configure.py`, `session.py`, and `check.py` hand substantive managed work off into the canonical managed runtime before continuing.
 
 Managed operational wrappers now follow that same contract too: `build_index.py`, `search_index.py`, `construct_benchmark_fixture.py`, `evaluate_search.py`, `compile_router.py`, `compile_colours.py`, `sync_definitions.py`, `shape_printable.py`, `shape_presentation.py`, and `migrate_naming.py` start in the launcher only long enough to enter the managed runtime. Manually activating the vault venv still works for debugging, but it is no longer the normal direct-script contract these wrappers document or rely on.
 
@@ -33,20 +33,20 @@ remains lexical-only.
 
 | Script | Purpose | CLI usage |
 |---|---|---|
-| `_bootstrap/` | Shared bootstrap package: launcher discovery, managed-runtime handoff, and launcher-safe bootstrap diagnostics | (library only) |
+| `_bootstrap/` | Shared launcher-safe bootstrap package: launcher discovery, managed-runtime handoff, bootstrap diagnostics, and shared MCP/config-layout state | (library only) |
 | `_common/` | Shared utilities package: vault discovery, frontmatter parsing, serialisation, CLI parser helpers, and general script support | (library only) |
 | `_lifecycle_common.py` | Shared lifecycle result-envelope rendering and CLI emission helpers | (library only) |
 | `_repair_common.py` | Launcher-safe repair metadata, scope definitions, and exact command builders | (library only) |
-| `_repair_runtime.py` | Managed-runtime repair scope implementations plus the managed semantic diagnostic tail | (library only) |
+| `_repair_runtime.py` | Managed-runtime repair scope implementations for the remaining non-semantic scopes (`runtime`, `mcp`, `router`, `lexical`, `registry`, `frontmatter`) | (library only) |
 | `_search/` | Internal retrieval package: lexical index ownership plus retrieval query-mode policy and lexical/semantic/hybrid execution | (library only) |
 | `_semantic/` | Internal semantic package: config flags, model/runtime provisioning, semantic sidecar mechanics, and vector-ranking/runtime utilities shared by build/search/configure/repair flows | (library only) |
-| `_lifecycle/` | Internal lifecycle/orchestration package: retrieval document-part types, duplicate-frontmatter repair helpers, shared retrieval-state errors, and combined lexical+semantic refresh workflows above `_search` and `_semantic` | (library only) |
+| `_lifecycle/` | Internal lifecycle/orchestration package: retrieval document-part types, duplicate-frontmatter repair helpers, shared retrieval-state errors, combined lexical+semantic refresh workflows, and the canonical managed semantic inspect/repair/check owner | (library only) |
 | `_portable/` | Portable operational package: launcher-safe seams shared by portable script surfaces | (library only) |
 | `build_lexical_index.py` | Thin portable lexical-only wrapper over `_search.index`: build the shared lexical retrieval index without any semantic or managed-runtime assumptions. | `python3 build_lexical_index.py [--json]` |
 | `build_index.py` | Thin CLI/script wrapper over the retrieval lifecycle seam: build the lexical retrieval index and refresh embeddings sidecars from the provisioned local semantic model when `semantic_processing` or `semantic_retrieval` is enabled and router data is available. Unreadable source files, compiled-router embedding drift, and retrieval-index persistence failures now fail explicitly at this boundary. Use `_search.index` / `_lifecycle.retrieval_assets` directly from Python; the wrapper remains only as a supported script entry surface. | `python3 build_index.py [--json]` |
 | `construct_benchmark_fixture.py` | Derive a vault-native retrieval benchmark fixture plus audit JSON from an existing vault, including semantic-variant audit diagnostics and optional externally seeded semantic or hybrid candidates. Unreadable source files now fail explicitly instead of being skipped silently. | `python3 construct_benchmark_fixture.py --fixture-out PATH [--audit-out PATH] [--semantic-strategy S] [--semantic-seed-file PATH] [--hybrid-seed-file PATH] [--json]` |
 | `evaluate_search.py` | Benchmark lexical, semantic, and hybrid retrieval against a JSON query set | `python3 evaluate_search.py --benchmark PATH [--mode M]... [--json]` |
-| `check.py` | Router-driven structural compliance checks; launcher-safe bootstrap diagnostics run before the managed semantic diagnostic tail, and human output still prints exact `repair.py` commands for repairable drift | `python3 check.py [--json] [--actionable] [--severity S] [--vault V]` |
+| `check.py` | Router-driven structural compliance checks; launcher-safe bootstrap diagnostics run first, then managed semantic findings from the canonical semantic owner are added after managed-runtime handoff, and human output still prints exact `repair.py` commands for repairable drift | `python3 check.py [--json] [--actionable] [--severity S] [--vault V]` |
 | `configure.py` | Explicit installed-vault lifecycle entry point for semantic-retrieval opt-in and runtime/model provisioning; bootstraps through `_bootstrap/runtime.py` first | `python3 configure.py semantic --enable [--no-provision] [--json] [--vault V]` |
 | `compile_colours.py` | Generate folder colour CSS | (called by compile_router) |
 | `compile_router.py` | Compile router from source files and refresh session markdown | `python3 compile_router.py [--json]` |
@@ -112,6 +112,7 @@ These scripts import from `_common/` for vault discovery, frontmatter parsing, a
 - `evaluate_search.py`
 - `fix_links.py`
 - `list_artefacts.py`
+- `init.py`
 - `migrate_naming.py`
 - `read.py`
 - `_repair_runtime.py`
@@ -127,7 +128,6 @@ These scripts import from `_common/` for vault discovery, frontmatter parsing, a
 ### Standalone (no `_common` dependency)
 
 - `generate_key.py` — stdlib only
-- `init.py` — stdlib only; self-contained because it may run before the managed runtime is available
 - `obsidian_cli.py` — stdlib only; IPC socket client
 - `_repair_common.py` — stdlib only; shared repair metadata and command builders
 - `repair.py` — bootstrap-safe launcher that repairs or creates the central managed runtime before handing off into it

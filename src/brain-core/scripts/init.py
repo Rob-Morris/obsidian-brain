@@ -35,6 +35,32 @@ from typing import Any, Dict, List, NoReturn, Optional, Tuple
 # bootstrap-only folder binding remain available before any managed-runtime
 # handoff has happened.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _bootstrap.mcp_state as _mcp_state  # noqa: E402
+from _bootstrap.mcp_state import (  # noqa: E402
+    BRAIN_SERVER_NAME,
+    CLAUDE_LOCAL_MD_FILE,
+    CLAUDE_LOCAL_SETTINGS_FILE,
+    CLAUDE_MD_FILE,
+    CLAUDE_MD_BOOTSTRAP_PROJECT,
+    CLAUDE_MD_BOOTSTRAP_VAULT,
+    CLAUDE_PROJECT_CONFIG_FILE,
+    CLAUDE_USER_CONFIG_FILE,
+    CODEX_CONFIG_REL,
+    INIT_STATE_REL,
+    bootstrap_line_for_target,
+    build_mcp_config,
+    build_session_hook_command,
+    config_targets_vault,
+    configured_vault_root,
+    is_vault_root as _is_vault_root,
+    _load_init_state,
+    matching_records,
+    read_codex_server_config,
+    record_init_target,
+    remove_codex_server,
+    remove_init_records as _remove_init_records,
+    write_codex_config,
+)
 from _bootstrap.runtime import ensure_managed_runtime, find_launcher_python, required_modules_for_scope  # noqa: E402
 from _common import safe_write, safe_write_json  # noqa: E402
 
@@ -43,20 +69,8 @@ from _common import safe_write, safe_write_json  # noqa: E402
 # Constants
 # ---------------------------------------------------------------------------
 
-BRAIN_SERVER_NAME = "brain"
-BRAIN_CORE_MARKER = os.path.join(".brain-core", "VERSION")
-MCP_PYTHONPATH_REL = os.path.join(".brain-core")
-MCP_PROXY_MODULE = "brain_mcp.proxy"
-MCP_SERVER_MODULE = "brain_mcp.server"
 VENV_HELPER_REL = os.path.join(".brain-core", "scripts", "_common", "_venv.py")
 
-CLAUDE_PROJECT_CONFIG_FILE = ".mcp.json"
-CLAUDE_USER_CONFIG_FILE = ".claude.json"
-CLAUDE_LOCAL_SETTINGS_FILE = os.path.join(".claude", "settings.local.json")
-CLAUDE_MD_FILE = "CLAUDE.md"
-CLAUDE_LOCAL_MD_FILE = os.path.join(".claude", "CLAUDE.local.md")
-
-CODEX_CONFIG_REL = os.path.join(".codex", "config.toml")
 WORKSPACE_MANIFEST_FILE = os.path.join(".brain", "local", "workspace.yaml")
 WORKSPACE_MANIFEST_LEGACY_FILE = os.path.join(".brain", "workspace.yaml")
 DEFAULT_BRAIN_IGNORE_ENTRIES = (".brain/local/",)
@@ -64,28 +78,12 @@ CLAUDE_LOCAL_SETTINGS_IGNORE = ".claude/settings.local.json"
 CLAUDE_LOCAL_MD_IGNORE = ".claude/CLAUDE.local.md"
 CODEX_PROJECT_IGNORE_ENTRIES = (".codex/config.toml",)
 
-INIT_STATE_REL = os.path.join(".brain", "local", "init-state.json")
-INIT_STATE_VERSION = 1
-
-CLAUDE_MD_BOOTSTRAP_VAULT = (
-    "ALWAYS DO FIRST: Call MCP `brain_session`, else read `.brain-core/index.md` if it exists."
-)
-CLAUDE_MD_BOOTSTRAP_PROJECT = "ALWAYS DO FIRST: Call brain_session"
-
 SUPPORTED_CLIENTS = ("claude", "codex")
 SUPPORTED_SCOPES = ("project", "local", "user")
 
 
 class GitInspectionError(RuntimeError):
     """Raised when git metadata cannot be inspected reliably."""
-
-
-# ---------------------------------------------------------------------------
-# Vault root discovery
-# ---------------------------------------------------------------------------
-
-def _is_vault_root(path: Path) -> bool:
-    return (path / BRAIN_CORE_MARKER).is_file()
 
 
 def _find_vault_root_from_script() -> Optional[Path]:
@@ -174,30 +172,6 @@ def find_python(vault_root: Path) -> str:
     return summary["managed_python"]
 
 
-# ---------------------------------------------------------------------------
-# MCP configuration
-# ---------------------------------------------------------------------------
-
-def build_mcp_config(
-    python_path: str,
-    vault_root: Path,
-    workspace_dir: Optional[Path] = None,
-) -> Dict[str, Any]:
-    """Build the MCP server config shared by Claude and Codex."""
-    pythonpath = str(vault_root / MCP_PYTHONPATH_REL)
-    env = {
-        "BRAIN_VAULT_ROOT": str(vault_root),
-        "PYTHONPATH": pythonpath,
-    }
-    if workspace_dir is not None:
-        env["BRAIN_WORKSPACE_DIR"] = str(workspace_dir)
-    return {
-        "command": python_path,
-        "args": ["-m", MCP_PROXY_MODULE, python_path, MCP_SERVER_MODULE],
-        "env": env,
-    }
-
-
 def _scope_from_args(args: argparse.Namespace) -> Tuple[str, Optional[Path], str]:
     if args.user:
         return "user", None, "user (all projects)"
@@ -208,30 +182,6 @@ def _scope_from_args(args: argparse.Namespace) -> Tuple[str, Optional[Path], str
 
     scope = "local" if args.local else "project"
     return scope, target_dir, f"{scope} ({target_dir})"
-
-
-def configured_vault_root(server_config: Any) -> Optional[Path]:
-    """Return the configured vault root from a Brain server config, if present."""
-    if not isinstance(server_config, dict):
-        return None
-    env = server_config.get("env")
-    if not isinstance(env, dict):
-        return None
-    vault_root = env.get("BRAIN_VAULT_ROOT")
-    if not isinstance(vault_root, str) or not vault_root:
-        return None
-    try:
-        return Path(vault_root).resolve()
-    except OSError:
-        return None
-
-
-def config_targets_vault(server_config: Any, vault_root: Path) -> bool:
-    """Return whether a Brain server config belongs to the given vault."""
-    configured_root = configured_vault_root(server_config)
-    if configured_root is None:
-        return False
-    return configured_root == vault_root.resolve()
 
 
 def _resolve_clients(client_arg: str, scope: str) -> Tuple[List[str], List[str]]:
@@ -274,38 +224,6 @@ def _codex_config_path(scope: str, target_dir: Optional[Path]) -> Path:
     if scope == "user":
         return Path.home() / CODEX_CONFIG_REL
     return (target_dir or Path.cwd()) / CODEX_CONFIG_REL
-
-
-def bootstrap_line_for_target(target_dir: Path) -> str:
-    return CLAUDE_MD_BOOTSTRAP_VAULT if _is_vault_root(target_dir) else CLAUDE_MD_BOOTSTRAP_PROJECT
-
-
-def _resolve_session_launcher() -> str:
-    """Resolve a Python 3.12+ launcher path to embed in the SessionStart hook.
-
-    Prefers PATH-resolved `python3.13` / `python3.12` / `python3` binaries —
-    those paths are stable across the lifetime of the embedded hook command.
-    Falls back to `sys.executable` only if no PATH binary qualifies.
-    The order matters because the hook is persisted into a long-lived
-    settings file; if `init.py` is invoked from a temporary interpreter,
-    `sys.executable` would bake in a path that disappears once the caller
-    exits, breaking the hook. Bare `python3` is never embedded — on asdf
-    shims with no configured version it fails with "No version is set for
-    command python3". session.py is stdlib-only beyond `_common`, so any
-    compatible launcher suffices.
-    """
-    return find_launcher_python(prefer_path_binaries=True) or sys.executable
-
-
-def build_session_hook_command(vault_root: Path, target_dir: Path) -> str:
-    session_script = str(vault_root / ".brain-core" / "scripts" / "session.py")
-    launcher = _resolve_session_launcher()
-    return (
-        "echo 'brain_session called:' "
-        f"&& {shlex.quote(launcher)} {shlex.quote(session_script)} "
-        f"--vault {shlex.quote(str(vault_root))} "
-        f"--workspace-dir {shlex.quote(str(target_dir))} --json"
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -520,202 +438,6 @@ def claude_project_followup_notes(target_dir: Path) -> List[str]:
     return notes
 
 
-# ---------------------------------------------------------------------------
-# Minimal TOML editing for Codex config
-# ---------------------------------------------------------------------------
-
-def _parse_toml_sections(content: str) -> Tuple[List[str], List[Dict[str, Any]]]:
-    preamble: List[str] = []
-    sections: List[Dict[str, Any]] = []
-    current: Optional[Dict[str, Any]] = None
-
-    for line in content.splitlines(keepends=True):
-        stripped = line.strip()
-        is_header = (
-            stripped.startswith("[")
-            and stripped.endswith("]")
-            and not stripped.startswith("[[")
-        )
-        if is_header:
-            current = {"name": stripped[1:-1].strip(), "header": line, "body": []}
-            sections.append(current)
-            continue
-        if current is None:
-            preamble.append(line)
-        else:
-            current["body"].append(line)
-
-    return preamble, sections
-
-
-def _render_toml(preamble: List[str], sections: List[Dict[str, Any]]) -> str:
-    chunks: List[str] = []
-
-    preamble_text = "".join(preamble).rstrip("\n")
-    if preamble_text:
-        chunks.append(preamble_text)
-
-    for section in sections:
-        body = "".join(section["body"]).rstrip("\n")
-        chunk = section["header"].rstrip("\n")
-        if body:
-            chunk = f"{chunk}\n{body}"
-        chunks.append(chunk)
-
-    if not chunks:
-        return ""
-    return "\n\n".join(chunks).rstrip() + "\n"
-
-
-def _find_section_index(sections: List[Dict[str, Any]], name: str) -> Optional[int]:
-    for index, section in enumerate(sections):
-        if section["name"] == name:
-            return index
-    return None
-
-
-def _brain_subtree_indexes(sections: List[Dict[str, Any]]) -> List[int]:
-    indexes: List[int] = []
-    for index, section in enumerate(sections):
-        name = section["name"]
-        if name == "mcp_servers.brain" or name.startswith("mcp_servers.brain."):
-            indexes.append(index)
-    return indexes
-
-
-def _upsert_toml_section(
-    sections: List[Dict[str, Any]],
-    name: str,
-    body_lines: List[str],
-) -> None:
-    existing_index = _find_section_index(sections, name)
-    if existing_index is not None:
-        sections[existing_index]["body"] = body_lines
-        return
-
-    insert_at = len(sections)
-    subtree_indexes = _brain_subtree_indexes(sections)
-
-    if name == "mcp_servers.brain":
-        if subtree_indexes:
-            insert_at = subtree_indexes[0]
-    elif name == "mcp_servers.brain.env":
-        tool_indexes = [
-            index
-            for index, section in enumerate(sections)
-            if section["name"].startswith("mcp_servers.brain.tools.")
-        ]
-        if tool_indexes:
-            insert_at = tool_indexes[0]
-        else:
-            main_index = _find_section_index(sections, "mcp_servers.brain")
-            if main_index is not None:
-                insert_at = main_index + 1
-            elif subtree_indexes:
-                insert_at = subtree_indexes[0]
-
-    sections.insert(
-        insert_at,
-        {"name": name, "header": f"[{name}]\n", "body": body_lines},
-    )
-
-
-def _toml_value(value: Any) -> str:
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    return json.dumps(value, ensure_ascii=False)
-
-
-def _toml_body_lines(mapping: Dict[str, Any]) -> List[str]:
-    lines: List[str] = []
-    for key, value in mapping.items():
-        lines.append(f"{key} = {_toml_value(value)}\n")
-    return lines
-
-
-def _parse_toml_scalar(value: str) -> Any:
-    value = value.strip()
-    if not value:
-        return value
-    if value.startswith('"') and value.endswith('"'):
-        return json.loads(value)
-    if value.startswith("[") and value.endswith("]"):
-        return json.loads(value)
-    if value == "true":
-        return True
-    if value == "false":
-        return False
-    return value
-
-
-def _parse_toml_mapping(body_lines: List[str]) -> Dict[str, Any]:
-    result: Dict[str, Any] = {}
-    for raw_line in body_lines:
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        result[key.strip()] = _parse_toml_scalar(value)
-    return result
-
-
-def read_codex_server_config(config_path: Path) -> Optional[Dict[str, Any]]:
-    if not config_path.is_file():
-        return None
-
-    try:
-        content = config_path.read_text(encoding="utf-8")
-    except OSError:
-        return None
-
-    _, sections = _parse_toml_sections(content)
-    main_index = _find_section_index(sections, "mcp_servers.brain")
-    if main_index is None:
-        return None
-
-    main = _parse_toml_mapping(sections[main_index]["body"])
-    env: Dict[str, Any] = {}
-    env_index = _find_section_index(sections, "mcp_servers.brain.env")
-    if env_index is not None:
-        env = _parse_toml_mapping(sections[env_index]["body"])
-
-    if "command" not in main or "args" not in main:
-        return None
-
-    return {
-        "command": main["command"],
-        "args": main["args"],
-        "env": env,
-    }
-
-
-def write_codex_config(server_config: Dict[str, Any], config_path: Path) -> None:
-    try:
-        content = config_path.read_text(encoding="utf-8") if config_path.is_file() else ""
-    except OSError:
-        content = ""
-
-    preamble, sections = _parse_toml_sections(content)
-    _upsert_toml_section(
-        sections,
-        "mcp_servers.brain",
-        _toml_body_lines(
-            {
-                "command": server_config["command"],
-                "args": server_config["args"],
-            }
-        ),
-    )
-    _upsert_toml_section(
-        sections,
-        "mcp_servers.brain.env",
-        _toml_body_lines(server_config["env"]),
-    )
-
-    safe_write(config_path, _render_toml(preamble, sections))
-    info(f"Wrote {BRAIN_SERVER_NAME} -> {config_path}")
-
-
 def _remove_codex_server(config_path: Path, server_config: Dict[str, Any]) -> bool:
     current = read_codex_server_config(config_path)
     if current is None:
@@ -724,29 +446,9 @@ def _remove_codex_server(config_path: Path, server_config: Dict[str, Any]) -> bo
     if current != server_config:
         info(f"Skipping {config_path}: current {BRAIN_SERVER_NAME} entry does not match recorded config")
         return False
-
-    try:
-        content = config_path.read_text(encoding="utf-8")
-    except OSError:
+    if not remove_codex_server(config_path, server_config):
         return False
-
-    preamble, sections = _parse_toml_sections(content)
-    kept_sections = [
-        section
-        for section in sections
-        if not (
-            section["name"] == "mcp_servers.brain"
-            or section["name"].startswith("mcp_servers.brain.")
-        )
-    ]
-
-    rendered = _render_toml(preamble, kept_sections)
-    if rendered:
-        safe_write(config_path, rendered)
-    else:
-        _delete_file_if_exists(config_path)
-        _remove_empty_parent_dirs(config_path, _config_cleanup_stop(config_path))
-
+    _remove_empty_parent_dirs(config_path, _config_cleanup_stop(config_path))
     info(f"Removed {BRAIN_SERVER_NAME} from {config_path}")
     return True
 
@@ -1078,92 +780,6 @@ def _remove_session_start_hook(
 
 
 # ---------------------------------------------------------------------------
-# Init state bookkeeping
-# ---------------------------------------------------------------------------
-
-def _state_path(vault_root: Path) -> Path:
-    return vault_root / INIT_STATE_REL
-
-
-def _load_init_state(vault_root: Path) -> Dict[str, Any]:
-    path = _state_path(vault_root)
-    if not path.is_file():
-        return {"version": INIT_STATE_VERSION, "records": []}
-
-    data = _read_json_safe(path)
-    records = data.get("records")
-    if not isinstance(records, list):
-        records = []
-    return {
-        "version": data.get("version", INIT_STATE_VERSION),
-        "records": records,
-    }
-
-
-def _save_init_state(vault_root: Path, state: Dict[str, Any]) -> None:
-    path = _state_path(vault_root)
-    records = state.get("records", [])
-    if records:
-        safe_write_json(path, {"version": INIT_STATE_VERSION, "records": records})
-        return
-    _delete_file_if_exists(path)
-
-
-def _record_identity(record: Dict[str, Any]) -> Tuple[Any, ...]:
-    return (
-        record.get("client"),
-        record.get("scope"),
-        record.get("target_path"),
-        record.get("config_path"),
-    )
-
-
-def record_init_target(vault_root: Path, record: Dict[str, Any]) -> None:
-    state = _load_init_state(vault_root)
-    records = []
-    record_id = _record_identity(record)
-    for existing in state["records"]:
-        if _record_identity(existing) != record_id:
-            records.append(existing)
-    records.append(record)
-    state["records"] = records
-    _save_init_state(vault_root, state)
-
-
-def _remove_init_records(vault_root: Path, removed_records: List[Dict[str, Any]]) -> None:
-    if not removed_records:
-        return
-    removed_ids = {_record_identity(record) for record in removed_records}
-    state = _load_init_state(vault_root)
-    state["records"] = [
-        record
-        for record in state["records"]
-        if _record_identity(record) not in removed_ids
-    ]
-    _save_init_state(vault_root, state)
-
-
-def matching_records(
-    vault_root: Path,
-    clients: List[str],
-    scope: str,
-    target_dir: Optional[Path],
-) -> List[Dict[str, Any]]:
-    state = _load_init_state(vault_root)
-    expected_target = str(target_dir) if target_dir else None
-    matches: List[Dict[str, Any]] = []
-    for record in state["records"]:
-        if record.get("client") not in clients:
-            continue
-        if record.get("scope") != scope:
-            continue
-        if record.get("target_path") != expected_target:
-            continue
-        matches.append(record)
-    return matches
-
-
-# ---------------------------------------------------------------------------
 # Registration / removal dispatch
 # ---------------------------------------------------------------------------
 
@@ -1250,6 +866,7 @@ def register_codex(
 ) -> Dict[str, Any]:
     config_path = _codex_config_path(scope, target_dir)
     write_codex_config(server_config, config_path)
+    info(f"Wrote {BRAIN_SERVER_NAME} -> {config_path}")
     return {
         "client": "codex",
         "scope": scope,

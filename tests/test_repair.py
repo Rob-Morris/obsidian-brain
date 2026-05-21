@@ -14,6 +14,7 @@ import pytest
 import _bootstrap.diagnostics as bootstrap_diagnostics
 import _bootstrap.runtime as bootstrap_runtime
 import _lifecycle.frontmatter_repairs as frontmatter_repairs
+import _lifecycle.semantic_repairs as semantic_repairs
 import _semantic.config as semantic_config
 import _semantic.model as semantic_model
 import _repair_common as repair_common
@@ -153,7 +154,7 @@ def _model_state(
 
 def _mock_healthy_runtime(monkeypatch):
     monkeypatch.setattr(
-        repair_runtime,
+        bootstrap_diagnostics,
         "inspect_runtime",
         lambda _vault: {
             "healthy": True,
@@ -343,7 +344,7 @@ class TestRepairScopes:
             lambda _python_path, *, modules=(): {"compatible": False, "ok": False, "missing": list(modules)},
         )
 
-        state = repair_runtime.inspect_runtime(repair_vault)
+        state = bootstrap_diagnostics.inspect_runtime(repair_vault)
 
         assert state["healthy"] is False
         assert state["issues"] == [repair_runtime.ISSUE_RUNTIME_UNUSABLE]
@@ -364,7 +365,7 @@ class TestRepairScopes:
             },
         )
 
-        state = repair_runtime.inspect_runtime(repair_vault)
+        state = bootstrap_diagnostics.inspect_runtime(repair_vault)
 
         assert state["healthy"] is False
         assert state["issues"] == [repair_runtime.ISSUE_RUNTIME_UNUSABLE]
@@ -382,7 +383,7 @@ class TestRepairScopes:
             lambda _python_path, *, modules=(): {"compatible": True, "ok": False, "missing": ["mcp"]},
         )
 
-        state = repair_runtime.inspect_runtime(repair_vault)
+        state = bootstrap_diagnostics.inspect_runtime(repair_vault)
 
         assert state["healthy"] is False
         assert state["issues"] == [repair_runtime.ISSUE_MANAGED_RUNTIME_DEPENDENCIES_MISSING]
@@ -390,7 +391,7 @@ class TestRepairScopes:
 
     def test_mcp_repair_returns_error_when_runtime_is_unhealthy(self, repair_vault, monkeypatch):
         monkeypatch.setattr(
-            repair_runtime,
+            bootstrap_diagnostics,
             "inspect_runtime",
             lambda _vault: {
                 "healthy": False,
@@ -453,7 +454,7 @@ class TestRepairScopes:
     def test_mcp_repair_propagates_programmer_errors(self, repair_vault, monkeypatch):
         _mock_healthy_runtime(monkeypatch)
         monkeypatch.setattr(
-            repair_runtime,
+            bootstrap_diagnostics,
             "inspect_mcp",
             lambda _vault: {
                 "server_config": {},
@@ -569,7 +570,7 @@ class TestRepairScopes:
         assert bad.read_text() == original
 
     def test_semantic_repair_is_noop_when_not_configured(self, repair_vault):
-        result = repair_runtime.repair_semantic(repair_vault, dry_run=False)
+        result = semantic_repairs.repair_semantic(repair_vault, dry_run=False)
 
         assert result["status"] == "noop"
         assert result["steps"][-1]["name"] == "semantic_config"
@@ -583,44 +584,44 @@ class TestRepairScopes:
         semantic_config.set_semantic_engine_installed(repair_vault, installed=True)
 
         monkeypatch.setattr(
-            repair_runtime,
+            semantic_repairs,
             "probe_python",
             lambda _python_path, *, modules=(): {"compatible": True, "ok": False, "missing": list(modules)},
         )
         monkeypatch.setattr(
-            repair_runtime._semantic_model,
+            semantic_repairs.semantic_model,
             "inspect_model_state",
             lambda _vault: _model_state(repair_vault),
         )
         monkeypatch.setattr(
-            repair_runtime._semantic_model,
+            semantic_repairs.semantic_model,
             "verify_local_model_load",
             lambda _state: pytest.fail("local model load should be skipped when runtime dependencies are missing"),
         )
         monkeypatch.setattr(
-            repair_runtime._semantic_runtime,
+            semantic_repairs.semantic_runtime,
             "embeddings_sidecars_match_manifest",
             lambda _vault, _manifest: (True, False),
         )
 
-        state = repair_runtime.inspect_semantic(repair_vault)
+        state = semantic_repairs.inspect_semantic(repair_vault)
 
         assert state["dependencies_ok"] is False
-        assert repair_runtime.ISSUE_SEMANTIC_RUNTIME_DEPENDENCIES_MISSING in state["issues"]
+        assert semantic_repairs.ISSUE_SEMANTIC_RUNTIME_DEPENDENCIES_MISSING in state["issues"]
         assert state["model_state"].load_error is None
 
     def test_semantic_repair_surfaces_config_load_errors(self, repair_vault, monkeypatch):
         monkeypatch.setattr(
-            repair_runtime._semantic_config,
+            semantic_repairs.semantic_config,
             "load_config_checked",
             lambda _vault: (_ for _ in ()).throw(
-                repair_runtime._semantic_config.SemanticConfigLoadError(
+                semantic_repairs.semantic_config.SemanticConfigLoadError(
                     "semantic config is unreadable"
                 )
             ),
         )
 
-        result = repair_runtime.repair_semantic(repair_vault, dry_run=False)
+        result = semantic_repairs.repair_semantic(repair_vault, dry_run=False)
 
         assert result["status"] == "error"
         assert result["steps"][-1] == {
@@ -634,42 +635,42 @@ class TestRepairScopes:
         semantic_config.set_semantic_engine_installed(repair_vault, installed=False)
 
         monkeypatch.setattr(
-            repair_runtime,
+            semantic_repairs,
             "probe_python",
             lambda _python_path, *, modules=(): {"compatible": True, "ok": True, "missing": []},
         )
         monkeypatch.setattr(
-            repair_runtime._semantic_model,
+            semantic_repairs.semantic_model,
             "inspect_model_state",
             lambda _vault: _model_state(repair_vault),
         )
         monkeypatch.setattr(
-            repair_runtime._semantic_model,
+            semantic_repairs.semantic_model,
             "verify_local_model_load",
             lambda state: state,
         )
         monkeypatch.setattr(
-            repair_runtime._semantic_runtime,
+            semantic_repairs.semantic_runtime,
             "embeddings_sidecars_match_manifest",
             lambda _vault, _manifest: (True, False),
         )
         monkeypatch.setattr(
-            repair_runtime._semantic_provision,
+            semantic_repairs.semantic_provision,
             "sync_runtime_packages",
             lambda _python: pytest.fail("runtime sync should not run when dependencies are already available"),
         )
         monkeypatch.setattr(
-            repair_runtime._semantic_provision.semantic_model,
+            semantic_repairs.semantic_provision.semantic_model,
             "provision_semantic_model",
             lambda _vault: _model_outcome(repair_vault, downloaded=False, manifest_changed=False),
         )
         monkeypatch.setattr(
-            repair_runtime._semantic_provision,
+            semantic_repairs.semantic_provision,
             "refresh_semantic_assets",
             lambda _vault: pytest.fail("asset refresh should not run when sidecars are already present"),
         )
 
-        result = repair_runtime.repair_semantic(repair_vault, dry_run=False)
+        result = semantic_repairs.repair_semantic(repair_vault, dry_run=False)
 
         assert result["status"] == "ok"
         assert [step["name"] for step in result["steps"]] == [
@@ -693,40 +694,40 @@ class TestRepairScopes:
                 return {"compatible": True, "ok": False, "missing": list(modules)}
             return {"compatible": True, "ok": True, "missing": []}
 
-        monkeypatch.setattr(repair_runtime, "probe_python", fake_probe)
-        monkeypatch.setattr(repair_runtime._semantic_provision, "probe_python", fake_probe)
+        monkeypatch.setattr(semantic_repairs, "probe_python", fake_probe)
+        monkeypatch.setattr(semantic_repairs.semantic_provision, "probe_python", fake_probe)
         monkeypatch.setattr(
-            repair_runtime._semantic_model,
+            semantic_repairs.semantic_model,
             "inspect_model_state",
             lambda _vault: _model_state(repair_vault, manifest_missing=True),
         )
         monkeypatch.setattr(
-            repair_runtime._semantic_model,
+            semantic_repairs.semantic_model,
             "verify_local_model_load",
             lambda state: state,
         )
         monkeypatch.setattr(
-            repair_runtime._semantic_runtime,
+            semantic_repairs.semantic_runtime,
             "embeddings_sidecars_match_manifest",
             lambda _vault, _manifest: (False, False),
         )
         monkeypatch.setattr(
-            repair_runtime._semantic_provision,
+            semantic_repairs.semantic_provision,
             "sync_runtime_packages",
             lambda _python: calls.__setitem__("sync", calls["sync"] + 1),
         )
         monkeypatch.setattr(
-            repair_runtime._semantic_provision.semantic_model,
+            semantic_repairs.semantic_provision.semantic_model,
             "provision_semantic_model",
             lambda _vault: _model_outcome(repair_vault, downloaded=True, manifest_changed=True),
         )
         monkeypatch.setattr(
-            repair_runtime._semantic_provision,
+            semantic_repairs.semantic_provision,
             "refresh_semantic_assets",
             lambda _vault: calls.__setitem__("refresh", calls["refresh"] + 1) or ["semantic assets refreshed"],
         )
 
-        result = repair_runtime.repair_semantic(repair_vault, dry_run=False)
+        result = semantic_repairs.repair_semantic(repair_vault, dry_run=False)
 
         assert result["status"] == "ok"
         assert calls["sync"] == 1
@@ -751,40 +752,40 @@ class TestRepairScopes:
                 return {"compatible": True, "ok": False, "missing": list(modules)}
             return {"compatible": True, "ok": True, "missing": []}
 
-        monkeypatch.setattr(repair_runtime, "probe_python", fake_probe)
-        monkeypatch.setattr(repair_runtime._semantic_provision, "probe_python", fake_probe)
+        monkeypatch.setattr(semantic_repairs, "probe_python", fake_probe)
+        monkeypatch.setattr(semantic_repairs.semantic_provision, "probe_python", fake_probe)
         monkeypatch.setattr(
-            repair_runtime._semantic_model,
+            semantic_repairs.semantic_model,
             "inspect_model_state",
             lambda _vault: _model_state(repair_vault),
         )
         monkeypatch.setattr(
-            repair_runtime._semantic_model,
+            semantic_repairs.semantic_model,
             "verify_local_model_load",
             lambda state: state,
         )
         monkeypatch.setattr(
-            repair_runtime._semantic_runtime,
+            semantic_repairs.semantic_runtime,
             "embeddings_sidecars_match_manifest",
             lambda _vault, _manifest: (True, False),
         )
         monkeypatch.setattr(
-            repair_runtime._semantic_provision,
+            semantic_repairs.semantic_provision,
             "sync_runtime_packages",
             lambda _python: calls.__setitem__("sync", calls["sync"] + 1),
         )
         monkeypatch.setattr(
-            repair_runtime._semantic_provision.semantic_model,
+            semantic_repairs.semantic_provision.semantic_model,
             "provision_semantic_model",
             lambda _vault: _model_outcome(repair_vault, downloaded=False, manifest_changed=False),
         )
         monkeypatch.setattr(
-            repair_runtime._semantic_provision,
+            semantic_repairs.semantic_provision,
             "refresh_semantic_assets",
             lambda _vault: pytest.fail("asset refresh should not run when sidecars are already present"),
         )
 
-        result = repair_runtime.repair_semantic(repair_vault, dry_run=False)
+        result = semantic_repairs.repair_semantic(repair_vault, dry_run=False)
 
         assert result["status"] == "ok"
         assert calls["sync"] == 1
@@ -799,39 +800,39 @@ class TestRepairScopes:
         semantic_config.set_semantic_engine_installed(repair_vault, installed=True)
 
         monkeypatch.setattr(
-            repair_runtime,
+            semantic_repairs,
             "probe_python",
             lambda _python_path, *, modules=(): {"compatible": True, "ok": True, "missing": []},
         )
         monkeypatch.setattr(
-            repair_runtime._semantic_model,
+            semantic_repairs.semantic_model,
             "inspect_model_state",
             lambda _vault: _model_state(repair_vault),
         )
         monkeypatch.setattr(
-            repair_runtime._semantic_model,
+            semantic_repairs.semantic_model,
             "verify_local_model_load",
             lambda state: state,
         )
         monkeypatch.setattr(
-            repair_runtime._semantic_runtime,
+            semantic_repairs.semantic_runtime,
             "embeddings_sidecars_match_manifest",
             lambda _vault, _manifest: (False, False),
         )
         monkeypatch.setattr(
-            repair_runtime._semantic_provision.semantic_model,
+            semantic_repairs.semantic_provision.semantic_model,
             "provision_semantic_model",
             lambda _vault: _model_outcome(repair_vault, downloaded=False, manifest_changed=False),
         )
         monkeypatch.setattr(
-            repair_runtime._semantic_provision,
+            semantic_repairs.semantic_provision,
             "refresh_semantic_assets",
             lambda _vault: (_ for _ in ()).throw(
-                repair_runtime._semantic_provision.SemanticRuntimeUnavailableError("boom")
+                semantic_repairs.semantic_provision.SemanticRuntimeUnavailableError("boom")
             ),
         )
 
-        result = repair_runtime.repair_semantic(repair_vault, dry_run=False)
+        result = semantic_repairs.repair_semantic(repair_vault, dry_run=False)
 
         assert result["status"] == "partial"
         assert result["steps"][-2]["name"] == "semantic_assets"
@@ -842,17 +843,17 @@ class TestRepairScopes:
         semantic_config.set_semantic_engine_installed(repair_vault, installed=False)
 
         monkeypatch.setattr(
-            repair_runtime,
+            semantic_repairs,
             "probe_python",
             lambda _python_path, *, modules=(): {"compatible": True, "ok": False, "missing": list(modules)},
         )
         monkeypatch.setattr(
-            repair_runtime._semantic_runtime,
+            semantic_repairs.semantic_runtime,
             "embeddings_sidecars_match_manifest",
             lambda _vault, _manifest: (False, False),
         )
 
-        result = repair_runtime.repair_semantic(repair_vault, dry_run=True)
+        result = semantic_repairs.repair_semantic(repair_vault, dry_run=True)
 
         assert result["status"] == "planned"
         assert result["steps"] == [
@@ -883,38 +884,38 @@ class TestRepairScopes:
         semantic_config.set_semantic_engine_installed(repair_vault, installed=True)
 
         monkeypatch.setattr(
-            repair_runtime,
+            semantic_repairs,
             "probe_python",
             lambda _python_path, *, modules=(): {"compatible": True, "ok": True, "missing": []},
         )
         monkeypatch.setattr(
-            repair_runtime._semantic_model,
+            semantic_repairs.semantic_model,
             "inspect_model_state",
             lambda _vault: _model_state(repair_vault),
         )
         monkeypatch.setattr(
-            repair_runtime._semantic_model,
+            semantic_repairs.semantic_model,
             "verify_local_model_load",
             lambda state: state,
         )
         monkeypatch.setattr(
-            repair_runtime._semantic_runtime,
+            semantic_repairs.semantic_runtime,
             "embeddings_sidecars_match_manifest",
             lambda _vault, _manifest: (False, False),
         )
         monkeypatch.setattr(
-            repair_runtime._semantic_provision.semantic_model,
+            semantic_repairs.semantic_provision.semantic_model,
             "provision_semantic_model",
             lambda _vault: _model_outcome(repair_vault, downloaded=False, manifest_changed=False),
         )
         monkeypatch.setattr(
-            repair_runtime._semantic_provision,
+            semantic_repairs.semantic_provision,
             "refresh_semantic_assets",
             lambda _vault: (_ for _ in ()).throw(TypeError("programmer bug")),
         )
 
         with pytest.raises(TypeError, match="programmer bug"):
-            repair_runtime.repair_semantic(repair_vault, dry_run=False)
+            semantic_repairs.repair_semantic(repair_vault, dry_run=False)
 
     def test_router_repair_propagates_programmer_errors_from_session_refresh(self, repair_vault, monkeypatch):
         monkeypatch.setattr(repair_runtime.compile_router, "refresh_session_markdown", lambda *_args: (_ for _ in ()).throw(TypeError("bad refresh")))
@@ -1136,7 +1137,7 @@ class TestCheckRepairHints:
         def explode(_vault):
             raise AssertionError("inspect_mcp must not run when no MCP state is present")
 
-        monkeypatch.setattr(repair_runtime, "inspect_mcp", explode)
+        monkeypatch.setattr(bootstrap_diagnostics, "inspect_mcp", explode)
 
         result = check.run_checks(str(repair_vault), _wiki_router())
 
@@ -1151,7 +1152,7 @@ class TestCheckRepairHints:
         def explode(_vault):
             raise AssertionError("inspect_mcp must not run for bootstrap-only state")
 
-        monkeypatch.setattr(repair_runtime, "inspect_mcp", explode)
+        monkeypatch.setattr(bootstrap_diagnostics, "inspect_mcp", explode)
 
         result = check.run_checks(str(repair_vault), _wiki_router())
 
@@ -1162,12 +1163,12 @@ class TestCheckRepairHints:
         semantic_config.set_semantic_engine_installed(repair_vault, installed=False)
 
         monkeypatch.setattr(
-            repair_runtime,
+            semantic_repairs,
             "probe_python",
             lambda _python_path, *, modules=(): {"compatible": True, "ok": False, "missing": list(modules)},
         )
         monkeypatch.setattr(
-            repair_runtime._semantic_runtime,
+            semantic_repairs.semantic_runtime,
             "embeddings_sidecars_match_manifest",
             lambda _vault, _manifest: (False, False),
         )
@@ -1238,12 +1239,12 @@ class TestCheckRepairHints:
         semantic_config.set_semantic_engine_installed(repair_vault, installed=True)
 
         monkeypatch.setattr(
-            repair_runtime,
+            semantic_repairs,
             "probe_python",
             lambda _python_path, *, modules=(): {"compatible": True, "ok": True, "missing": []},
         )
         monkeypatch.setattr(
-            repair_runtime._semantic_model,
+            semantic_repairs.semantic_model,
             "inspect_model_state",
             lambda _vault: replace(
                 model_state,
@@ -1255,12 +1256,12 @@ class TestCheckRepairHints:
             ),
         )
         monkeypatch.setattr(
-            repair_runtime._semantic_model,
+            semantic_repairs.semantic_model,
             "verify_local_model_load",
             lambda state: state,
         )
         monkeypatch.setattr(
-            repair_runtime._semantic_runtime,
+            semantic_repairs.semantic_runtime,
             "embeddings_sidecars_match_manifest",
             lambda _vault, _manifest: (sidecars_present, sidecars_present and meta_payload["model_revision"] != semantic_model.SHIPPED_MODEL_REVISION),
         )

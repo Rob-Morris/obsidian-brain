@@ -5,74 +5,25 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any
-from types import SimpleNamespace
 
 import compile_router
 import init
 import workspace_registry
 import _search.index as search_index
 import _search.paths as search_paths
+import _bootstrap.diagnostics as bootstrap_diagnostics
 from _bootstrap.diagnostics import (
     ISSUE_MANAGED_RUNTIME_DEPENDENCIES_MISSING,
     ISSUE_RUNTIME_MISSING,
     ISSUE_RUNTIME_UNUSABLE,
-    inspect_mcp as _bootstrap_inspect_mcp,
-    inspect_registry as _bootstrap_inspect_registry,
-    inspect_runtime as _bootstrap_inspect_runtime,
-    local_mcp_state_present as _bootstrap_local_mcp_state_present,
 )
-from _bootstrap.runtime import iso_now, probe_python, required_modules_for_scope, step as _step
+from _bootstrap.runtime import iso_now, step as _step
 from _lifecycle.frontmatter_repairs import normalize_duplicate_frontmatter_documents
-from _common import iter_artefact_paths, resolve_vault_venv_python
+from _common import iter_artefact_paths
 from _lifecycle_common import make_result_envelope
-from _repair_common import attach_repair_guidance
-
-ISSUE_CONFIG_LOAD_ERROR = "config-load-error"
-ISSUE_UNSUPPORTED_PLATFORM = "unsupported-platform"
-ISSUE_RUNTIME_NOT_PROVISIONED = "runtime-not-provisioned"
-ISSUE_SEMANTIC_RUNTIME_DEPENDENCIES_MISSING = "runtime-dependencies-missing"
-ISSUE_SEMANTIC_MODEL_MANIFEST_MISSING = "semantic-model-manifest-missing"
-ISSUE_SEMANTIC_MODEL_PATH_MISSING = "semantic-model-path-missing"
-ISSUE_SEMANTIC_MODEL_REVISION_MISMATCH = "semantic-model-revision-mismatch"
-ISSUE_SEMANTIC_MODEL_LOAD_ERROR = "semantic-model-load-error"
-ISSUE_SEMANTIC_SIDECARS_MISSING = "semantic-sidecars-missing"
-ISSUE_SEMANTIC_SIDECARS_OUTDATED = "semantic-sidecars-outdated"
-
-
-def _load_semantic_modules() -> SimpleNamespace:
-    # Production accessor for the semantic helper modules. The `_semantic_*`
-    # compatibility names layered on top exist only because tests/test_repair.py
-    # still patches them directly; do not add new callers that depend on those
-    # compat names.
-    import _semantic.config as semantic_config
-    import _semantic.model as semantic_model
-    import _semantic.provision as semantic_provision
-    import _semantic.runtime as semantic_runtime
-
-    return SimpleNamespace(
-        config=semantic_config,
-        model=semantic_model,
-        provision=semantic_provision,
-        runtime=semantic_runtime,
-    )
-
-
-def __getattr__(name: str):
-    """Provide lazy compatibility access to semantic helper modules for tests."""
-    if name == "_semantic_config":
-        return _load_semantic_modules().config
-    if name == "_semantic_model":
-        return _load_semantic_modules().model
-    if name == "_semantic_provision":
-        return _load_semantic_modules().provision
-    if name == "_semantic_runtime":
-        return _load_semantic_modules().runtime
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def _finalise_result(
@@ -91,60 +42,6 @@ def _finalise_result(
         checked_at=iso_now(),
         notes=notes,
     )
-
-
-def inspect_runtime(vault_root: Path) -> dict:
-    """Inspect the central managed runtime for this vault.
-
-    Kept as a named wrapper because repair tests still patch this surface
-    directly while `_bootstrap.diagnostics` remains the canonical owner.
-    """
-    return _bootstrap_inspect_runtime(vault_root)
-
-
-def _semantic_message(configured: bool, supported: bool, unsupported_message: str | None, issues: list[str]) -> str:
-    if not configured:
-        return "Semantic retrieval is not configured on for this vault."
-    if not supported:
-        return unsupported_message or "Semantic runtime is unsupported on this platform."
-
-    issue_set = set(issues)
-    if ISSUE_SEMANTIC_MODEL_LOAD_ERROR in issue_set:
-        return "Semantic retrieval is configured on, but the provisioned semantic model failed to load locally."
-    if ISSUE_SEMANTIC_MODEL_REVISION_MISMATCH in issue_set:
-        return "Semantic retrieval is configured on, but the provisioned semantic model revision no longer matches the shipped pin."
-    if ISSUE_SEMANTIC_MODEL_PATH_MISSING in issue_set:
-        return "Semantic retrieval is configured on, but the provisioned semantic model snapshot is missing from disk."
-    if ISSUE_SEMANTIC_MODEL_MANIFEST_MISSING in issue_set:
-        return "Semantic retrieval is configured on, but the local semantic model manifest is missing or unreadable."
-    if ISSUE_RUNTIME_NOT_PROVISIONED in issue_set and ISSUE_SEMANTIC_RUNTIME_DEPENDENCIES_MISSING in issue_set:
-        return "Semantic retrieval is configured on, but the local semantic runtime has not been provisioned."
-    if ISSUE_SEMANTIC_RUNTIME_DEPENDENCIES_MISSING in issue_set:
-        return "Semantic retrieval is configured on, but the local semantic runtime dependencies are unavailable."
-    if ISSUE_RUNTIME_NOT_PROVISIONED in issue_set:
-        return "Semantic retrieval is configured on, but the local semantic runtime marker is not set."
-    if ISSUE_SEMANTIC_SIDECARS_OUTDATED in issue_set:
-        return "Semantic retrieval is configured on, but the embeddings sidecars were built against a different semantic model revision."
-    if ISSUE_SEMANTIC_SIDECARS_MISSING in issue_set:
-        return "Semantic retrieval is configured on, but the embeddings sidecars are missing."
-    return "Semantic retrieval runtime is healthy."
-
-
-def _semantic_issue_message(issue: str) -> str:
-    """Return a specific user-facing message for one semantic health issue."""
-    messages = {
-        ISSUE_CONFIG_LOAD_ERROR: "Semantic config could not be loaded for this vault.",
-        ISSUE_UNSUPPORTED_PLATFORM: "Semantic runtime is unsupported on this platform.",
-        ISSUE_RUNTIME_NOT_PROVISIONED: "Semantic retrieval is configured on, but the local semantic runtime marker is not set.",
-        ISSUE_SEMANTIC_RUNTIME_DEPENDENCIES_MISSING: "Semantic retrieval is configured on, but the local semantic runtime dependencies are unavailable.",
-        ISSUE_SEMANTIC_MODEL_MANIFEST_MISSING: "Semantic retrieval is configured on, but the local semantic model manifest is missing or unreadable.",
-        ISSUE_SEMANTIC_MODEL_PATH_MISSING: "Semantic retrieval is configured on, but the provisioned semantic model snapshot is missing from disk.",
-        ISSUE_SEMANTIC_MODEL_REVISION_MISMATCH: "Semantic retrieval is configured on, but the provisioned semantic model revision no longer matches the shipped pin.",
-        ISSUE_SEMANTIC_MODEL_LOAD_ERROR: "Semantic retrieval is configured on, but the provisioned semantic model failed to load locally.",
-        ISSUE_SEMANTIC_SIDECARS_MISSING: "Semantic retrieval is configured on, but the embeddings sidecars are missing.",
-        ISSUE_SEMANTIC_SIDECARS_OUTDATED: "Semantic retrieval is configured on, but the embeddings sidecars were built against a different semantic model revision.",
-    }
-    return messages.get(issue, "Semantic retrieval runtime is unhealthy.")
 
 
 def _router_is_stale(vault_root: Path) -> tuple[bool, str]:
@@ -253,27 +150,9 @@ def _index_is_stale(vault_root: Path) -> tuple[bool, str]:
     return False, "fresh"
 
 
-def inspect_registry(vault_root: Path) -> dict:
-    """Inspect .brain/local/workspaces.json without mutating it.
-
-    Kept as a named wrapper because repair tests still patch this surface
-    directly while `_bootstrap.diagnostics` remains the canonical owner.
-    """
-    return _bootstrap_inspect_registry(vault_root)
-
-
 def _backup_path(path: Path) -> Path:
     stamp = datetime.now().strftime("%Y%m%d%H%M%S")
     return path.with_name(f"{path.name}.{stamp}.bak")
-
-
-def inspect_mcp(vault_root: Path) -> dict:
-    """Stable seam for current-vault project MCP inspection.
-
-    Kept as a named wrapper because repair tests monkeypatch this surface
-    directly while `_bootstrap.diagnostics` remains the canonical owner.
-    """
-    return _bootstrap_inspect_mcp(vault_root)
 
 
 def _record_claude_direct(vault_root: Path, server_config: dict) -> None:
@@ -325,12 +204,12 @@ def repair_mcp(vault_root: Path, dry_run: bool, bootstrap_steps: list[dict] | No
     # `repair.py main()` already repaired/bootstraped the managed runtime before
     # re-exec. Keep this guard for direct library/test callers that bypass the
     # bootstrap layer entirely.
-    runtime_state = inspect_runtime(vault_root)
+    runtime_state = bootstrap_diagnostics.inspect_runtime(vault_root)
     if not runtime_state["healthy"]:
         steps.append(_step("runtime", "error", runtime_state["message"]))
         return _finalise_result("mcp", vault_root, dry_run, steps)
 
-    state = inspect_mcp(vault_root)
+    state = bootstrap_diagnostics.inspect_mcp(vault_root)
     server_config = state["server_config"]
 
     try:
@@ -349,7 +228,7 @@ def repair_mcp(vault_root: Path, dry_run: bool, bootstrap_steps: list[dict] | No
 def verify_runtime_post_bootstrap(vault_root: Path, dry_run: bool, bootstrap_steps: list[dict] | None = None) -> dict:
     """Verify the runtime scope after bootstrap has repaired/re-synced it."""
     steps = list(bootstrap_steps or [])
-    state = inspect_runtime(vault_root)
+    state = bootstrap_diagnostics.inspect_runtime(vault_root)
     if not state["healthy"]:
         steps.append(_step("runtime", "error", state["message"]))
         return _finalise_result("runtime", vault_root, dry_run, steps)
@@ -359,7 +238,8 @@ def verify_runtime_post_bootstrap(vault_root: Path, dry_run: bool, bootstrap_ste
 
 
 def repair_router(vault_root: Path, dry_run: bool, bootstrap_steps: list[dict] | None = None) -> dict:
-    semantic_runtime = _load_semantic_modules().runtime
+    from _lifecycle import semantic_repairs
+
     steps = list(bootstrap_steps or [])
     stale, reason = _router_is_stale(vault_root)
     if not stale:
@@ -371,7 +251,7 @@ def repair_router(vault_root: Path, dry_run: bool, bootstrap_steps: list[dict] |
 
     compiled = compile_router.compile(str(vault_root))
     compile_router.persist_compiled_router(str(vault_root), compiled)
-    semantic_runtime.clear_embeddings_outputs(str(vault_root))
+    semantic_repairs.clear_semantic_embeddings_outputs(vault_root)
     steps.append(_step("router", "changed", f"Rebuilt the compiled router ({reason})."))
     try:
         compile_router.refresh_session_markdown(str(vault_root), compiled)
@@ -402,7 +282,7 @@ def repair_lexical(vault_root: Path, dry_run: bool, bootstrap_steps: list[dict] 
 
 def repair_registry(vault_root: Path, dry_run: bool, bootstrap_steps: list[dict] | None = None) -> dict:
     steps = list(bootstrap_steps or [])
-    state = inspect_registry(vault_root)
+    state = bootstrap_diagnostics.inspect_registry(vault_root)
     if state["healthy"]:
         steps.append(_step("registry", "noop", state["message"]))
         return _finalise_result("registry", vault_root, dry_run, steps)
@@ -455,170 +335,6 @@ def repair_frontmatter(vault_root: Path, dry_run: bool, bootstrap_steps: list[di
     return _finalise_result("frontmatter", vault_root, dry_run, steps, notes=notes)
 
 
-def inspect_semantic(vault_root: Path) -> dict:
-    """Inspect semantic config/runtime health for this vault."""
-    semantic = _load_semantic_modules()
-    try:
-        cfg = semantic.config.load_config_checked(vault_root)
-    except semantic.config.SemanticConfigLoadError as exc:
-        return {
-            "configured": False,
-            "healthy": False,
-            "message": str(exc),
-            "issues": [ISSUE_CONFIG_LOAD_ERROR],
-            "retrieval_enabled": False,
-            "processing_enabled": False,
-            "marker": False,
-            "dependencies_ok": False,
-            "sidecars_present": False,
-            "supported": True,
-        }
-
-    retrieval_enabled = semantic.config.semantic_retrieval_enabled(vault_root, config=cfg)
-    processing_enabled = semantic.config.semantic_processing_enabled(vault_root, config=cfg)
-    configured = semantic.config.is_semantic_intent_active(vault_root, config=cfg)
-    marker = semantic.config.semantic_engine_installed(vault_root, config=cfg)
-    supported, unsupported_message = semantic.provision.semantic_runtime_supported_platform()
-    if not configured:
-        return {
-            "configured": False,
-            "healthy": False,
-            "message": _semantic_message(False, supported, unsupported_message, []),
-            "issues": [],
-            "retrieval_enabled": retrieval_enabled,
-            "processing_enabled": processing_enabled,
-            "marker": marker,
-            "dependencies_ok": False,
-            "sidecars_present": False,
-            "supported": supported,
-        }
-
-    managed_probe = probe_python(
-        str(resolve_vault_venv_python(vault_root)),
-        modules=semantic.provision.SEMANTIC_RUNTIME_MODULES,
-    )
-    dependencies_ok = bool(managed_probe.get("ok"))
-    model_state = semantic.model.inspect_model_state(vault_root)
-    if dependencies_ok:
-        model_state = semantic.model.verify_local_model_load(model_state)
-    sidecars_present, sidecars_outdated = semantic.runtime.embeddings_sidecars_match_manifest(
-        vault_root,
-        model_state.manifest,
-    )
-
-    issues: list[str] = []
-    if not supported:
-        issues.append(ISSUE_UNSUPPORTED_PLATFORM)
-    if not marker:
-        issues.append(ISSUE_RUNTIME_NOT_PROVISIONED)
-    if not dependencies_ok:
-        issues.append(ISSUE_SEMANTIC_RUNTIME_DEPENDENCIES_MISSING)
-    if model_state.load_error:
-        issues.append(ISSUE_SEMANTIC_MODEL_LOAD_ERROR)
-    elif model_state.manifest_missing:
-        issues.append(ISSUE_SEMANTIC_MODEL_MANIFEST_MISSING)
-    elif model_state.model_revision_mismatch:
-        issues.append(ISSUE_SEMANTIC_MODEL_REVISION_MISMATCH)
-    elif model_state.model_path_missing:
-        issues.append(ISSUE_SEMANTIC_MODEL_PATH_MISSING)
-    if not sidecars_present:
-        issues.append(ISSUE_SEMANTIC_SIDECARS_MISSING)
-    elif sidecars_outdated:
-        issues.append(ISSUE_SEMANTIC_SIDECARS_OUTDATED)
-
-    return {
-        "configured": configured,
-        "healthy": configured and not issues,
-        "message": _semantic_message(configured, supported, unsupported_message, issues),
-        "issues": issues,
-        "retrieval_enabled": retrieval_enabled,
-        "processing_enabled": processing_enabled,
-        "marker": marker,
-        "dependencies_ok": dependencies_ok,
-        "sidecars_present": sidecars_present,
-        "sidecars_outdated": sidecars_outdated,
-        "model_state": model_state,
-        "supported": supported,
-    }
-
-
-def repair_semantic(vault_root: Path, dry_run: bool, bootstrap_steps: list[dict] | None = None) -> dict:
-    semantic = _load_semantic_modules()
-    steps = list(bootstrap_steps or [])
-    state = inspect_semantic(vault_root)
-
-    if ISSUE_CONFIG_LOAD_ERROR in state["issues"]:
-        steps.append(_step("semantic_config", "error", state["message"]))
-        return _finalise_result("semantic", vault_root, dry_run, steps)
-
-    if not state["configured"]:
-        steps.append(
-            _step(
-                "semantic_config",
-                "noop",
-                "Semantic retrieval is not configured on for this vault. Use configure.py semantic --enable first.",
-            )
-        )
-        return _finalise_result("semantic", vault_root, dry_run, steps)
-
-    if not state["supported"]:
-        steps.append(_step("semantic_runtime", "error", state["message"]))
-        return _finalise_result("semantic", vault_root, dry_run, steps)
-
-    dependencies_missing = not state["dependencies_ok"]
-    marker_missing = not state["marker"]
-    model_state = state["model_state"]
-    model_needs_provision = (
-        model_state.manifest_missing
-        or model_state.model_path_missing
-        or model_state.model_revision_mismatch
-        or bool(model_state.load_error)
-    )
-    sidecars_need_refresh = not state["sidecars_present"] or state["sidecars_outdated"]
-
-    if not dependencies_missing and not marker_missing and not model_needs_provision and not sidecars_need_refresh:
-        steps.append(_step("semantic_runtime", "noop", "Semantic runtime and embeddings sidecars are already healthy."))
-        return _finalise_result("semantic", vault_root, dry_run, steps)
-
-    if dry_run:
-        semantic.provision.plan_runtime_step(
-            steps,
-            runtime_missing=dependencies_missing,
-        )
-        semantic.provision.plan_model_step(
-            steps,
-            model_needs_provision=model_needs_provision,
-        )
-        semantic.provision.plan_asset_step(steps, assets_missing=sidecars_need_refresh)
-        if marker_missing or dependencies_missing or model_needs_provision or sidecars_need_refresh:
-            semantic.provision.plan_marker_step(
-                steps,
-                marker_missing=True,
-            )
-        return _finalise_result("semantic", vault_root, dry_run, steps)
-
-    try:
-        outcome = semantic.provision.provision_semantic_runtime(
-            vault_root,
-            python_executable=sys.executable,
-            runtime_ok=state["dependencies_ok"],
-            refresh_assets=sidecars_need_refresh or model_needs_provision,
-        )
-    except semantic.provision.SemanticProvisionError as exc:
-        steps.append(_step("semantic_runtime", "error", str(exc)))
-        return _finalise_result("semantic", vault_root, dry_run, steps)
-    semantic.provision.append_runtime_steps(
-        steps,
-        outcome,
-    )
-    notes: list[str] = []
-    semantic.provision.append_asset_step(steps, notes, outcome)
-    semantic.provision.append_marker_step(steps, outcome)
-    if outcome.assets_changed or outcome.assets_error:
-        return _finalise_result("semantic", vault_root, dry_run, steps, notes=notes or None)
-    return _finalise_result("semantic", vault_root, dry_run, steps)
-
-
 def run_scope(
     scope: str,
     vault_root: Path,
@@ -639,26 +355,7 @@ def run_scope(
     if scope == "frontmatter":
         return repair_frontmatter(vault_root, dry_run, bootstrap_steps)
     if scope == "semantic":
-        return repair_semantic(vault_root, dry_run, bootstrap_steps)
+        from _lifecycle import semantic_repairs
+
+        return semantic_repairs.repair_semantic(vault_root, dry_run, bootstrap_steps)
     raise ValueError(f"Unknown repair scope: {scope}")
-
-
-def collect_managed_check_findings(vault_root: str | Path) -> list[dict]:
-    """Return managed-only additive compliance findings."""
-    vault_root = Path(vault_root)
-    findings: list[dict] = []
-    semantic = inspect_semantic(vault_root)
-    if semantic["configured"] and not semantic["healthy"]:
-        for issue in semantic["issues"]:
-            finding = {
-                "check": f"semantic:{issue}",
-                "severity": "warning",
-                "file": None,
-                "message": _semantic_issue_message(issue),
-            }
-            findings.append(attach_repair_guidance(finding, vault_root, "semantic"))
-
-    return findings
-
-
-collect_check_findings = collect_managed_check_findings

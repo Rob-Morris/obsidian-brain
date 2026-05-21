@@ -788,7 +788,7 @@ def run_checks(vault_root, router=None):
     for check_fn in ALL_CHECKS:
         findings.extend(check_fn(vault_root, router, ctx=ctx))
     findings.extend(collect_bootstrap_check_findings(vault_root))
-    from _repair_runtime import collect_managed_check_findings
+    from _lifecycle.semantic_repairs import collect_managed_check_findings
 
     findings.extend(collect_managed_check_findings(vault_root))
 

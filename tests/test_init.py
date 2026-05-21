@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 import sys
+import tomllib
 
 import pytest
 
@@ -184,6 +185,10 @@ class TestCodexTomlConfig:
 
         assert config_path.is_file()
         assert init.read_codex_server_config(config_path) == config
+        payload = tomllib.loads(config_path.read_text(encoding="utf-8"))
+        assert payload["mcp_servers"]["brain"]["command"] == config["command"]
+        assert payload["mcp_servers"]["brain"]["args"] == config["args"]
+        assert payload["mcp_servers"]["brain"]["env"] == config["env"]
 
     def test_write_codex_config_preserves_other_sections_and_brain_tools(self, vault, project):
         config_path = project / ".codex" / "config.toml"
@@ -206,7 +211,60 @@ class TestCodexTomlConfig:
         assert '[mcp_servers.other]' in content
         assert '[mcp_servers.brain.tools.search]' in content
         assert 'approval_mode = "approve"' in content
-        assert init.read_codex_server_config(config_path) == config
+        payload = tomllib.loads(content)
+        assert payload["mcp_servers"]["other"]["command"] == "other"
+        assert payload["mcp_servers"]["brain"]["command"] == config["command"]
+        assert payload["mcp_servers"]["brain"]["args"] == config["args"]
+        assert payload["mcp_servers"]["brain"]["env"] == config["env"]
+        assert payload["mcp_servers"]["brain"]["tools"]["search"]["approval_mode"] == "approve"
+
+    def test_write_codex_config_updates_spaced_brain_headers_in_place(self, vault, project):
+        config_path = project / ".codex" / "config.toml"
+        config_path.parent.mkdir(parents=True)
+        config_path.write_text(
+            '[ mcp_servers.brain ]\n'
+            'command = "old"\n'
+            'args = ["-m", "old"]\n'
+            '\n'
+            '[ mcp_servers.brain.env ]\n'
+            'BRAIN_VAULT_ROOT = "/old"\n',
+            encoding="utf-8",
+        )
+
+        config = init.build_mcp_config("/usr/bin/python3", vault)
+        init.write_codex_config(config, config_path)
+
+        payload = tomllib.loads(config_path.read_text(encoding="utf-8"))
+        assert payload["mcp_servers"]["brain"]["command"] == config["command"]
+        assert payload["mcp_servers"]["brain"]["args"] == config["args"]
+        assert payload["mcp_servers"]["brain"]["env"] == config["env"]
+        headers = [
+            line.strip()
+            for line in config_path.read_text(encoding="utf-8").splitlines()
+            if line.strip().startswith("[") and line.strip().endswith("]")
+        ]
+        assert "[ mcp_servers.brain ]" in headers or "[mcp_servers.brain]" in headers
+        assert sum(1 for header in headers if header.replace(" ", "") == "[mcp_servers.brain]") == 1
+        assert sum(1 for header in headers if header.replace(" ", "") == "[mcp_servers.brain.env]") == 1
+
+    def test_read_codex_server_config_accepts_spaced_brain_headers(self, project):
+        config_path = project / ".codex" / "config.toml"
+        config_path.parent.mkdir(parents=True)
+        config_path.write_text(
+            '[ mcp_servers.brain ]\n'
+            'command = "/usr/bin/python3"\n'
+            'args = ["-m", "brain"]\n'
+            '\n'
+            '[ mcp_servers.brain.env ]\n'
+            'BRAIN_VAULT_ROOT = "/vault"\n',
+            encoding="utf-8",
+        )
+
+        assert init.read_codex_server_config(config_path) == {
+            "command": "/usr/bin/python3",
+            "args": ["-m", "brain"],
+            "env": {"BRAIN_VAULT_ROOT": "/vault"},
+        }
 
 
 class TestClientResolution:
@@ -347,7 +405,7 @@ class TestEnsureBrainIgnoreRules:
 class TestBuildSessionHookCommand:
     def test_does_not_embed_bare_python3(self, vault):
         """Regression: bare `python3` fails on asdf-shimmed machines."""
-        init.find_launcher_python.cache_clear()
+        init._mcp_state.find_launcher_python.cache_clear()
         command = init.build_session_hook_command(vault, vault)
         # The hook must embed a resolved absolute launcher, not a shim name.
         # Allow paths whose basename happens to be python3 — what we forbid is
@@ -359,7 +417,11 @@ class TestBuildSessionHookCommand:
     def test_prefers_path_resolved_launcher_over_sys_executable(self, vault, monkeypatch):
         """The hook is persisted; prefer stable PATH binaries to sys.executable
         because the caller may be a temporary interpreter whose path won't survive."""
-        monkeypatch.setattr(init, "find_launcher_python", lambda prefer_path_binaries=False: "/usr/bin/python3.12")
+        monkeypatch.setattr(
+            init._mcp_state,
+            "find_launcher_python",
+            lambda prefer_path_binaries=False: "/usr/bin/python3.12",
+        )
         command = init.build_session_hook_command(vault, vault)
         assert "/usr/bin/python3.12" in command
         assert sys.executable not in command
@@ -367,7 +429,11 @@ class TestBuildSessionHookCommand:
     def test_falls_back_to_sys_executable_when_path_lacks_compatible_python(
         self, vault, monkeypatch
     ):
-        monkeypatch.setattr(init, "find_launcher_python", lambda prefer_path_binaries=False: None)
+        monkeypatch.setattr(
+            init._mcp_state,
+            "find_launcher_python",
+            lambda prefer_path_binaries=False: None,
+        )
         command = init.build_session_hook_command(vault, vault)
         assert sys.executable in command
 

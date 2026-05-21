@@ -15,7 +15,7 @@ python3.12 .brain-core/scripts/<script>.py ...
 That `python3.12` process is the launcher, not the managed runtime itself.
 
 - launcher-safe bootstrap entrypoints such as `repair.py`, `configure.py`, and `init.py` may do meaningful bootstrap work there
-- shared bootstrap/runtime ownership now lives in `src/brain-core/scripts/_bootstrap/`
+- shared launcher-safe bootstrap ownership now lives in `src/brain-core/scripts/_bootstrap/`, including runtime handoff, bootstrap diagnostics, and shared MCP/client-config state
 - runtime-owning lifecycle entrypoints such as `repair.py`, `configure.py`, `session.py`, and `check.py` resolve or repair the canonical managed runtime and then hand off into it before substantive managed work continues
 - managed operational wrappers such as `build_index.py`, `search_index.py`, `construct_benchmark_fixture.py`, `evaluate_search.py`, `compile_router.py`, `compile_colours.py`, `sync_definitions.py`, `shape_printable.py`, `shape_presentation.py`, and `migrate_naming.py` now use that same launcher-to-managed-runtime handoff contract
 - if you are used to activating the vault venv manually first, that still works, but it is no longer the normal contract those wrappers document or rely on
@@ -25,7 +25,7 @@ That `python3.12` process is the launcher, not the managed runtime itself.
 
 | Script | Purpose | CLI usage |
 |---|---|---|
-| `_bootstrap/` | Shared bootstrap package: launcher discovery, managed-runtime handoff, and launcher-safe bootstrap diagnostics | (library only) |
+| `_bootstrap/` | Shared launcher-safe bootstrap package: launcher discovery, managed-runtime handoff, bootstrap diagnostics, and shared MCP/client-config state | (library only) |
 | `compile_router.py` | Compile router from source files and refresh the session mirror | `python3 compile_router.py [--json]` |
 | `compile_colours.py` | Generate folder colour CSS | (called by compile_router) |
 | `build_lexical_index.py` | Build the portable lexical retrieval index only | `python3 build_lexical_index.py [--json]` |
@@ -39,7 +39,7 @@ That `python3.12` process is the launcher, not the managed runtime itself.
 | `create.py` | Create new artefact | `python3 create.py --type T --title "Title" [--body B] [--body-file PATH] [--temp-path [SUFFIX]] [--json]` |
 | `edit.py` | Edit artefacts via CLI; importable helpers also back `brain_edit` for editable `_Config/` resources | `python3 edit.py edit\|append\|prepend\|delete_section --path P [--body B\|--body-file PATH] [--frontmatter JSON] [--target T] [--scope S] [--occurrence N] [--within T --within-occurrence N]... [--vault V] [--json]` |
 | `rename.py` | Rename/delete file + update wikilinks (full-path and filename-only), refusing existing-destination collisions | `python3 rename.py "source" "dest" [--json]` |
-| `check.py` | Structural compliance checks; launcher-safe bootstrap diagnostics are added first, then the managed semantic/runtime tail runs after managed-runtime handoff | `python3 check.py [--json] [--actionable] [--severity S] [--vault V]` |
+| `check.py` | Structural compliance checks; launcher-safe bootstrap diagnostics are added first, then managed semantic findings from the canonical semantic owner run after managed-runtime handoff | `python3 check.py [--json] [--actionable] [--severity S] [--vault V]` |
 | `configure.py` | Explicit installed-vault lifecycle entry point for local semantic opt-in and runtime/model provisioning; bootstraps through `_bootstrap/runtime.py` first | `python3 configure.py semantic --enable [--no-provision] [--json] [--vault V]` |
 | `repair.py` | Explicit Brain repair entry point with bootstrap-to-managed-runtime handoff, including dedicated managed-runtime recovery, duplicate-frontmatter normalisation, and semantic runtime/model/sidecar recovery | `python3 repair.py {runtime,mcp,router,lexical,registry,frontmatter,semantic} [--vault V] [--dry-run] [--json]` |
 | `_common/_venv.py` | Resolve and create the central managed runtime under `~/.brain/venvs/py<X.Y>-<sha16>/`. Importable helper plus a CLI surface used by `install.sh` | `python3 _common/_venv.py {python,ensure} --vault V [--launcher PY]` |
@@ -194,7 +194,7 @@ python3 repair.py semantic --vault /path/to/vault
 - `dependency-light` does **not** mean “assume the runtime is already healthy” and does **not** mean “run `repair.py mcp` first”. Every scope still uses the shared managed-runtime bootstrap owner to recover or reuse a usable interpreter path; the difference is only whether that scope needs extra managed packages beyond the interpreter itself.
 - `repair.py` is the explicit recovery surface. Other scripts should detect, explain, and point to `repair.py` rather than silently broadening their own repair semantics.
 
-The shared bootstrap/runtime mechanics behind `repair.py`, `configure.py`, `init.py`, `session.py`, and `check.py` now live in `src/brain-core/scripts/_bootstrap/runtime.py` and `src/brain-core/scripts/_bootstrap/diagnostics.py`.
+The shared bootstrap/runtime mechanics behind `repair.py`, `configure.py`, `init.py`, `session.py`, and `check.py` now live under `src/brain-core/scripts/_bootstrap/`. `runtime.py` owns launcher discovery and managed-runtime handoff, `diagnostics.py` owns launcher-safe runtime/MCP/registry checks, and `mcp_state.py` owns the launcher-safe MCP/config-layout and init-state helpers shared by `init.py` and bootstrap diagnostics.
 
 **Scope semantics:**
 
@@ -203,7 +203,7 @@ The shared bootstrap/runtime mechanics behind `repair.py`, `configure.py`, `init
 - `router` and `lexical` use internal freshness checks and are no-ops when their generated caches are already healthy.
 - `registry` is intentionally narrow in the first cut: it only mutates the current vault's `.brain/local/workspaces.json`. It does not prune or rewrite `~/.config/brain/vaults`, and it does not touch user-scope MCP config.
 - `frontmatter` repairs content corruption rather than infrastructure drift: it scans artefact markdown under the vault's content roots, merges accidental body-level frontmatter blocks into the canonical document frontmatter, and strips the duplicate block from the body. It is idempotent and safe to run repeatedly.
-- `semantic` is the explicit follow-up after a vault has opted in via `configure.py semantic --enable`. It bootstraps the managed runtime if needed, provisions or re-syncs the pinned semantic packages into the central managed runtime, restores the pinned local model snapshot/manifest, refreshes the semantic engine marker in local config, and rebuilds router/index/embeddings sidecars so semantic retrieval converges intentionally.
+- `semantic` is the explicit follow-up after a vault has opted in via `configure.py semantic --enable`. It bootstraps the managed runtime if needed, provisions or re-syncs the pinned semantic packages into the central managed runtime, restores the pinned local model snapshot/manifest, refreshes the semantic engine marker in local config, and rebuilds router/index/embeddings sidecars so semantic retrieval converges intentionally. The managed semantic inspect/repair owner for this scope now lives in `src/brain-core/scripts/_lifecycle/semantic_repairs.py`.
 
 If you do not know what is broken, start with `check.py`. Compliance findings now point to the exact `repair.py` command when a shaped repair scope applies.
 
@@ -376,7 +376,7 @@ User-scope cleanup remains explicit. The uninstall flow reminds you to run `init
 
 ## init.py
 
-Setup script at `.brain-core/scripts/init.py`. Configures Claude Code and Codex to use the brain MCP server, or bootstraps a folder binding without MCP when requested. Launcher-safe / stdlib-only by contract, idempotent, and explicit about both client and scope:
+Setup script at `.brain-core/scripts/init.py`. Configures Claude Code and Codex to use the brain MCP server, or bootstraps a folder binding without MCP when requested. Launcher-safe and dependency-light by contract, idempotent, and explicit about both client and scope:
 
 - **Client selector** — `--client claude|codex|all` (default: `all`)
 - **Project** (default): Claude writes `.mcp.json`; Codex writes `.codex/config.toml`; Claude also ensures `CLAUDE.md` and a SessionStart hook in `.claude/settings.local.json`
@@ -408,7 +408,7 @@ All writes are atomic (tmp + fsync + rename). `init.py` records client, scope, c
 
 For folder-scoped installs, `init.py` also scaffolds `.brain/local/workspace.yaml` when absent (except when targeting the vault root itself). If a legacy manifest exists at `.brain/workspace.yaml`, it is migrated to the new location automatically. The scaffold is intentionally minimal: it gives the workspace a stable slug and a default `workspace/{slug}` tag, but leaves richer metadata and links for humans or agents to evolve later. In git-backed folders, `init.py` now also declares Brain-owned machine-local paths in the tracked `.gitignore` when one exists (falling back to `.git/info/exclude` only when no `.gitignore` exists) so `.brain/local/` and other Brain-managed local state do not get committed accidentally.
 
-**Dependencies:** stdlib only. Detects a Python with `mcp` package for the server config — prefers the central managed runtime resolved via `_common/_venv.py` (`~/.brain/venvs/py<X.Y>-<sha16>/`), falls back to a legacy vault-local `.venv` if present, then to the current Python and a PATH search. See [DD-048](../architecture/decisions/dd-048-central-managed-runtime.md).
+**Dependencies:** launcher-safe shared modules only (`_bootstrap.mcp_state`, `_bootstrap.runtime`, and `_common`). Detects a Python with `mcp` package for the server config — prefers the central managed runtime resolved via `_common/_venv.py` (`~/.brain/venvs/py<X.Y>-<sha16>/`), falls back to a legacy vault-local `.venv` if present, then to the current Python and a PATH search. See [DD-048](../architecture/decisions/dd-048-central-managed-runtime.md).
 
 ## session.py
 

@@ -17,6 +17,7 @@ When touching bootstrap:
 
 - Treat `session.py` as the canonical bootstrap owner. Do not add payload content independently to `brain_session`, `index.md`, or fallback docs.
 - Treat `session-core.md` as the authored source for bootstrap principles and curated core-doc references. When a core doc, standard, or bootstrap principle changes, decide whether `session-core.md` must change too. The current `session.py` implementation parses `## Core Docs` and `## Standards` as required H2 sections (one of each) and `tests/test_session_core.py` guards that shape — this is implementation hygiene for the eager-load path, not a permanent bootstrap contract; expect it to relax when bootstrap moves to lazy-loading.
+- Treat `scripts/_bootstrap/` as the owner for launcher-safe shared bootstrap leaves. Runtime handoff belongs in `runtime.py`; launcher-safe diagnostics belong in `diagnostics.py`; shared MCP/config-layout and init-state helpers belong in `mcp_state.py`, not back in `init.py`.
 - Preserve parity between `brain_session` JSON and `.brain/local/session.md` for shared bootstrap content.
 - Keep `index.md` thin. It is a bootloader, not a second payload surface.
 - Treat `md-bootstrap.md` as the degraded fallback only, not as a peer of the canonical session model.
