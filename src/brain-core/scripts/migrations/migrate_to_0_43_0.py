@@ -59,15 +59,63 @@ _FOLDER_RENAMES = {
     "+Cancelled": "+Deprecated",
 }
 
-# Existing supersession callout. Matches the canonical two-line form and the
-# single-line variant. The first capture is the optional "by [[link]]" target
-# on the heading line; subsequent continuation lines (any "> ..." lines) are
-# consumed so the whole block is replaced atomically.
-_SUPERSEDED_CALLOUT_RE = re.compile(
-    r"^> \[!info\] Superseded(?: by (\[\[[^\]\n]+\]\]))?\s*$\n"
-    r"(?:^> .*\n)*",
-    re.MULTILINE,
-)
+# Legacy closure callouts. Each pattern matches a heading line followed by any
+# number of ``> ...`` continuation lines; (verb, preposition) describes how the
+# new ``Deprecated — …`` reason should be phrased when a link is present.
+# Authors used several callout shapes pre-v0.43.0 — ``[!info] Superseded``,
+# ``[!warning] Deprecated``, ``[!info] Merged``, ``[!note] Live planning moved``
+# — and many wrote prose after the keyword rather than a wikilink, so the
+# heading pattern is intentionally loose. Order matters: more specific verbs
+# first so ``Merged into`` does not collapse to a generic ``Superseded`` match.
+_LEGACY_CALLOUT_PATTERNS = [
+    (
+        re.compile(
+            r"^> \[![a-z]+\] Merged[^\n]*$\n(?:^> .*\n)*",
+            re.MULTILINE | re.IGNORECASE,
+        ),
+        "merged into",
+    ),
+    (
+        re.compile(
+            r"^> \[![a-z]+\] Replaced[^\n]*$\n(?:^> .*\n)*",
+            re.MULTILINE | re.IGNORECASE,
+        ),
+        "replaced by",
+    ),
+    (
+        re.compile(
+            r"^> \[![a-z]+\] (?:Superseded|Deprecated)[^\n]*$\n(?:^> .*\n)*",
+            re.MULTILINE | re.IGNORECASE,
+        ),
+        "superseded",
+    ),
+    (
+        re.compile(
+            r"^> \[!note\] (?:Live planning moved|Moved)[^\n]*$\n(?:^> .*\n)*",
+            re.MULTILINE | re.IGNORECASE,
+        ),
+        "superseded",
+    ),
+]
+
+# Body-line conventions that point at a successor outside any callout. These
+# take priority over callout-derived links because they are authoritative
+# author-level pointers (the callout's first wikilink is often just a parent
+# reference, not the supersession target). Order matches the callout patterns.
+_BODY_CONVENTION_PATTERNS = [
+    (
+        re.compile(r"^\*\*Merged into:\*\*\s*(\[\[[^\]\n]+\]\])", re.MULTILINE),
+        "merged into",
+    ),
+    (
+        re.compile(r"^\*\*Replaced by:\*\*\s*(\[\[[^\]\n]+\]\])", re.MULTILINE),
+        "replaced by",
+    ),
+    (
+        re.compile(r"^\*\*Superseded by:\*\*\s*(\[\[[^\]\n]+\]\])", re.MULTILINE),
+        "superseded",
+    ),
+]
 
 _WIKILINK_RE = re.compile(r"\[\[[^\[\]\n]+?\]\]")
 
@@ -85,10 +133,24 @@ def _artefacts_for_types(router, types):
     return by_type
 
 
-def _find_supersession_callout(body):
-    """Return the matched Superseded callout block, or None."""
-    match = _SUPERSEDED_CALLOUT_RE.search(body)
-    return match.group(0) if match else None
+def _find_legacy_callout(body):
+    """Return ``(matched_block, reason)`` for the first legacy closure callout
+    in *body*, or ``(None, None)`` if none is present."""
+    for pattern, reason in _LEGACY_CALLOUT_PATTERNS:
+        match = pattern.search(body)
+        if match:
+            return match.group(0), reason
+    return None, None
+
+
+def _find_body_convention(body):
+    """Return ``(link, reason)`` for the first ``**Superseded by:** [[X]]``-style
+    body convention, or ``(None, None)`` if none is present."""
+    for pattern, reason in _BODY_CONVENTION_PATTERNS:
+        match = pattern.search(body)
+        if match:
+            return match.group(1), reason
+    return None, None
 
 
 def _link_from_callout(callout_block):
@@ -100,33 +162,61 @@ def _link_from_callout(callout_block):
 
 
 def _build_deprecated_callout(reason, link):
-    if reason == "superseded" and link:
-        return f"> [!info] Deprecated — superseded by {link}\n"
+    """Render a ``> [!info] Deprecated — <reason>[ <link>]`` callout.
+
+    ``superseded`` inserts the ``by`` connector when a link is supplied;
+    other reasons already carry their preposition (``merged into``,
+    ``replaced by``).
+    """
+    if not link:
+        return f"> [!info] Deprecated — {reason}\n"
     if reason == "superseded":
-        return "> [!info] Deprecated — superseded\n"
-    return f"> [!info] Deprecated — {reason}\n"
+        return f"> [!info] Deprecated — superseded by {link}\n"
+    return f"> [!info] Deprecated — {reason} {link}\n"
 
 
 def _has_deprecated_callout(body):
     return bool(re.search(r"^> \[!info\] Deprecated\b", body, re.MULTILINE))
 
 
-def _rewrite_body_for_deprecation(body, reason):
-    """Replace an existing Superseded callout, or prepend a new Deprecated
-    callout near the top of the body. Idempotent — does nothing if a
-    Deprecated callout is already present."""
+def _rewrite_body_for_deprecation(body, status_reason):
+    """Replace or prepend the ``[!info] Deprecated`` callout. Idempotent.
+
+    Priority for the reason + link that fill the new callout:
+
+    1. Body convention (``**Superseded by:** [[X]]`` and friends) — most
+       authoritative, since authors use these as the canonical successor pointer
+       and callouts often lead with parent or related links instead.
+    2. Legacy callout (``[!info] Superseded``, ``[!warning] Deprecated``,
+       ``[!info] Merged``, ``[!note] Live planning moved``, etc.) — the
+       first wikilink inside the matched block.
+    3. Status fallback — the reason inferred from the artefact's retired status
+       (e.g. ``superseded`` → ``superseded``, ``rejected`` → ``rejected``,
+       ``cancelled`` → ``cancelled``). No link.
+
+    When a legacy callout exists, the new callout replaces it in place;
+    otherwise it is prepended before the first ``##`` heading.
+    """
     if _has_deprecated_callout(body):
         return body
 
-    existing_callout = _find_supersession_callout(body)
-    new_callout = _build_deprecated_callout(reason, _link_from_callout(existing_callout))
+    body_link, body_reason = _find_body_convention(body)
+    legacy_block, legacy_reason = _find_legacy_callout(body)
 
-    if existing_callout:
-        return body.replace(existing_callout, new_callout, 1)
+    if body_link:
+        reason, link = body_reason, body_link
+    elif legacy_block:
+        reason, link = legacy_reason, _link_from_callout(legacy_block)
+    else:
+        reason, link = status_reason, None
 
-    # No existing supersession callout — insert near the top, before the first
-    # section heading. Leading prose like **Origin:** / **Parent design:**
-    # stays above the callout.
+    new_callout = _build_deprecated_callout(reason, link)
+
+    if legacy_block:
+        return body.replace(legacy_block, new_callout, 1)
+
+    # No legacy callout — insert before the first section heading. Leading
+    # prose like **Origin:** / **Parent design:** stays above the callout.
     lines = body.splitlines(keepends=True)
     insert_at = len(lines)
     for i, line in enumerate(lines):

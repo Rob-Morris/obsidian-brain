@@ -223,6 +223,96 @@ class TestCalloutPreservation:
 
 
 # ---------------------------------------------------------------------------
+# Non-canonical callout shapes (regression — pre-improvement these slipped past
+# the regex and produced generic `Deprecated — superseded` callouts).
+# ---------------------------------------------------------------------------
+
+class TestNonCanonicalCallouts:
+    def test_warning_deprecated_callout(self, vault, router):
+        src = vault / "Designs" / "+Superseded" / "Shaping v2.md"
+        _write(src, {"type": "living/design", "tags": ["design"], "status": "superseded"},
+               body="> [!warning] Deprecated\n> Superseded by [[Multi-Skill Architecture]], which decomposed the v2 skill into five sub-skills.\n\n## Context\n\nx\n")
+        migrate_to_0_43_0.backfill_vault(str(vault), router=router)
+        moved = vault / "Designs" / "+Deprecated" / "Shaping v2.md"
+        assert "Deprecated — superseded by [[Multi-Skill Architecture]]" in moved.read_text()
+
+    def test_info_merged_callout(self, vault, router):
+        src = vault / "Designs" / "+Rejected" / "Maintenance Skill.md"
+        _write(src, {"type": "living/design", "tags": ["design"], "status": "rejected"},
+               body="> [!info] Merged\n> This design was merged into [[Documentation Audit Skills]]. See that design for the current approach.\n\n## Goal\n\nx\n")
+        migrate_to_0_43_0.backfill_vault(str(vault), router=router)
+        moved = vault / "Designs" / "+Deprecated" / "Maintenance Skill.md"
+        content = moved.read_text()
+        # Reason becomes "merged into" — overrides the status-based "rejected" fallback.
+        assert "Deprecated — merged into [[Documentation Audit Skills]]" in content
+
+    def test_note_live_planning_moved_callout(self, vault, router):
+        src = vault / "Designs" / "+Superseded" / "Roadmap.md"
+        _write(src, {"type": "living/design", "tags": ["design"], "status": "superseded"},
+               body="> [!note] Live planning moved\n> Live release sequencing now lives on [[Obsidian Brain#Releases]]. Treat this artefact as historical reference.\n\n## Release Model\n\nx\n")
+        migrate_to_0_43_0.backfill_vault(str(vault), router=router)
+        moved = vault / "Designs" / "+Deprecated" / "Roadmap.md"
+        assert "Deprecated — superseded by [[Obsidian Brain#Releases]]" in moved.read_text()
+
+    def test_superseded_with_trailing_prose_on_heading(self, vault, router):
+        # Pre-improvement, the regex required `\s*$` after `Superseded`, so a
+        # heading like `> [!info] Superseded by inline semantic search` did not
+        # match and the migration fell back to a generic callout.
+        src = vault / "Designs" / "+Superseded" / "Qmd.md"
+        _write(src, {"type": "living/design", "tags": ["design"], "status": "superseded"},
+               body="> [!info] Superseded by inline semantic search\n> This design was superseded on 2026-05-19 by the inline implementation. The full shipped design is documented in [[Inline Semantic Search]].\n\n## Problem\n\nx\n")
+        migrate_to_0_43_0.backfill_vault(str(vault), router=router)
+        moved = vault / "Designs" / "+Deprecated" / "Qmd.md"
+        assert "Deprecated — superseded by [[Inline Semantic Search]]" in moved.read_text()
+
+
+# ---------------------------------------------------------------------------
+# Body-line conventions (**Superseded by:** [[X]] etc.) take priority over
+# callout-derived links — authors use these as the canonical successor pointer.
+# ---------------------------------------------------------------------------
+
+class TestBodyConventions:
+    def test_superseded_by_body_line_overrides_callout_first_link(self, vault, router):
+        # The callout's first wikilink is a parent reference, not the
+        # supersession target. The body's **Superseded by:** line names the
+        # real successor and should win.
+        src = vault / "Designs" / "+Superseded" / "Claude Plugin.md"
+        _write(src, {"type": "living/design", "tags": ["design"], "status": "superseded"},
+               body="**Superseded by:** [[Tooling Architecture]]\n\n> [!info] Superseded\n> This design has been consolidated into [[Brain Master Design]]. See [[Tooling Architecture]] for the design history.\n\n## Body\n\nx\n")
+        migrate_to_0_43_0.backfill_vault(str(vault), router=router)
+        moved = vault / "Designs" / "+Deprecated" / "Claude Plugin.md"
+        content = moved.read_text()
+        assert "Deprecated — superseded by [[Tooling Architecture]]" in content
+        assert "Brain Master Design]]" not in content.split("## Body")[0] or "Deprecated — superseded by [[Brain Master Design" not in content
+
+    def test_merged_into_body_line(self, vault, router):
+        src = vault / "Designs" / "+Rejected" / "X.md"
+        _write(src, {"type": "living/design", "tags": ["design"], "status": "rejected"},
+               body="**Merged into:** [[Audit Skills]]\n\n## Goal\n\nx\n")
+        migrate_to_0_43_0.backfill_vault(str(vault), router=router)
+        moved = vault / "Designs" / "+Deprecated" / "X.md"
+        assert "Deprecated — merged into [[Audit Skills]]" in moved.read_text()
+
+    def test_replaced_by_body_line(self, vault, router):
+        src = vault / "Designs" / "+Superseded" / "Y.md"
+        _write(src, {"type": "living/design", "tags": ["design"], "status": "superseded"},
+               body="**Replaced by:** [[Successor Design]]\n\n## Goal\n\nx\n")
+        migrate_to_0_43_0.backfill_vault(str(vault), router=router)
+        moved = vault / "Designs" / "+Deprecated" / "Y.md"
+        assert "Deprecated — replaced by [[Successor Design]]" in moved.read_text()
+
+    def test_body_convention_alone_no_callout(self, vault, router):
+        # When the artefact has no legacy callout at all, the body convention
+        # still drives the new callout's link.
+        src = vault / "Designs" / "+Superseded" / "Z.md"
+        _write(src, {"type": "living/design", "tags": ["design"], "status": "superseded"},
+               body="# Header\n\n**Superseded by:** [[New Design]] for the forward-looking approach.\n\n## Goal\n\nx\n")
+        migrate_to_0_43_0.backfill_vault(str(vault), router=router)
+        moved = vault / "Designs" / "+Deprecated" / "Z.md"
+        assert "Deprecated — superseded by [[New Design]]" in moved.read_text()
+
+
+# ---------------------------------------------------------------------------
 # Idempotency + no-op
 # ---------------------------------------------------------------------------
 
