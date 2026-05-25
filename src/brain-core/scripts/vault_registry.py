@@ -26,27 +26,14 @@ import os
 import sys
 from pathlib import Path
 
-from _common._filesystem import safe_write
-from _common._slugs import title_to_slug
-from _common._templates import random_short_suffix
-from _common._vault import is_vault_root
+from _common import config_home, is_vault_root, random_short_suffix, safe_write, title_to_slug
 
 
 HEADER = "# brain vault registry — one vault per line, <alias>\\t<absolute-path>\n"
 
 
-def _config_home():
-    # Per the XDG Base Directory spec: if $XDG_CONFIG_HOME is unset, empty,
-    # or set to a relative path, fall back to $HOME/.config.
-    xdg = os.environ.get("XDG_CONFIG_HOME")
-    if xdg and os.path.isabs(xdg):
-        return xdg
-    home = os.environ.get("HOME") or str(Path.home())
-    return os.path.join(home, ".config")
-
-
 def _registry_path():
-    return os.path.join(_config_home(), "brain", "vaults")
+    return os.fspath(config_home() / "brain" / "vaults")
 
 
 @contextlib.contextmanager

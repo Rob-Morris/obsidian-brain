@@ -6,6 +6,7 @@ Version-by-version release history for Obsidian Brain. Every shipped version has
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.43.2](changelog/v0.43.2.md) | 2026-05-26 | Route brain doctor machine diagnosis through _machine |
 | [v0.43.1](changelog/v0.43.1.md) | 2026-05-25 | Broaden migrate_to_0_43_0.py callout shapes and body conventions |
 | [v0.43.0](changelog/v0.43.0.md) | 2026-05-25 | Unify artefact closure status vocabulary onto deprecated/parked |
 | [v0.42.4](changelog/v0.42.4.md) | 2026-05-21 | Single-source mcp_state.py and semantic_repairs.py ownership |

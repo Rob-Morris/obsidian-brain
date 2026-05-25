@@ -70,6 +70,10 @@ from ._naming import (
     validate_filename,
 )
 
+from ._paths import (
+    config_home,
+)
+
 from ._filesystem import (
     check_not_in_brain_core,
     check_write_allowed,

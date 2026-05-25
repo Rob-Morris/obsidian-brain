@@ -27,6 +27,7 @@ applies to `init.py`, `upgrade.py`, and `repair.py`.
 from __future__ import annotations
 
 import argparse
+from functools import lru_cache
 import hashlib
 import json
 import os
@@ -72,6 +73,15 @@ def requirements_hash(requirements_path: Path) -> str:
     return hashlib.sha256(Path(requirements_path).read_bytes()).hexdigest()[:_HASH_LEN]
 
 
+@lru_cache(maxsize=None)
+def _python_tag_for_launcher(launcher_realpath: str) -> str:
+    out = subprocess.check_output(
+        [launcher_realpath, "-c", "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"],
+        text=True,
+    ).strip()
+    return f"py{out}"
+
+
 def python_tag(launcher: Optional[Path] = None) -> str:
     """Return the `pyX.Y` tag for the given launcher, or the running interpreter.
 
@@ -86,11 +96,7 @@ def python_tag(launcher: Optional[Path] = None) -> str:
     if launcher is None or os.path.realpath(launcher) == os.path.realpath(sys.executable):
         info = sys.version_info
         return f"py{info.major}.{info.minor}"
-    out = subprocess.check_output(
-        [str(launcher), "-c", "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"],
-        text=True,
-    ).strip()
-    return f"py{out}"
+    return _python_tag_for_launcher(os.path.realpath(launcher))
 
 
 def venv_dir_for(requirements_path: Path, *, launcher: Optional[Path] = None) -> Path:

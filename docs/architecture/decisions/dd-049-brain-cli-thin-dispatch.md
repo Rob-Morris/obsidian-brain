@@ -42,7 +42,7 @@ CLI-only subcommands are a finite, named set, justified by operating *before or 
 - `brain version` / `brain --version` — prints `BRAIN_CLI_VERSION`. There is no vault to dispatch into.
 - `brain --help` — lists dispatched + CLI-only surface.
 - `brain install <path>` — wraps the installer to scaffold an additional vault on a machine that already has the CLI. No vault exists yet. The wrapped installer ref is pinned in the CLI binary; it is not a floating `main` branch download.
-- `brain doctor` — machine-level checks (PATH, `~/.local/bin`, `~/.brain/venvs/` presence, CLI version). When run inside a vault it *also* dispatches `check.py --json` and prints the combined output; the machine half stays CLI-side because there is no vault to dispatch to when the user is diagnosing a broken install.
+- `brain doctor` — machine-level checks. The shell layer keeps CLI/PATH/Python survivability checks; when a source Brain is available it hands richer shared-runtime topology checks to `doctor_machine.py` from that Brain's `.brain-core/scripts/`. When run inside a vault it *also* dispatches `check.py --json` and prints the combined output. If no source Brain can be found, the old shell-only `~/.brain/venvs/` summary remains the fallback.
 
 Any future CLI-only subcommand for an operation that has vault context is a smell: fix the script and dispatch.
 

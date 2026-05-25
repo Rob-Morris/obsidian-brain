@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CLI_PATH = REPO_ROOT / "cli" / "brain"
 SCRIPTS_DIR = REPO_ROOT / "src" / "brain-core" / "scripts"
@@ -64,6 +65,22 @@ def _build_fake_vault(root: Path) -> Path:
     for name in DISPATCH_CONTRACT:
         script = scripts / f"{name.replace('-', '_')}.py"
         script.write_text(echo_body)
+    return vault
+
+
+def _build_machine_helper_vault(root: Path) -> Path:
+    """Vault carrying the real machine-helper substrate used by `brain doctor`."""
+    vault = root / "machine-vault"
+    scripts = vault / ".brain-core" / "scripts"
+    scripts.mkdir(parents=True)
+    shutil.copytree(SCRIPTS_DIR / "_common", scripts / "_common")
+    shutil.copytree(SCRIPTS_DIR / "_machine", scripts / "_machine")
+    shutil.copy2(SCRIPTS_DIR / "doctor_machine.py", scripts / "doctor_machine.py")
+    shutil.copy2(SCRIPTS_DIR / "vault_registry.py", scripts / "vault_registry.py")
+    (vault / ".brain-core" / "VERSION").write_text(BRAIN_CORE_VERSION + "\n")
+    brain_mcp = vault / ".brain-core" / "brain_mcp"
+    brain_mcp.mkdir(parents=True)
+    (brain_mcp / "requirements.txt").write_text("mcp==1.0.0\n")
     return vault
 
 
@@ -305,6 +322,84 @@ def test_doctor_outside_vault_runs_machine_checks(tmp_path):
     assert "brain CLI:" in result.stdout
     assert "vault:" in result.stdout
     assert "none in scope" in result.stdout
+
+
+def test_doctor_outside_vault_uses_machine_helper_from_registry(tmp_path):
+    vault = _build_machine_helper_vault(tmp_path)
+    xdg = tmp_path / "xdg"
+    registry = xdg / "brain" / "vaults"
+    registry.parent.mkdir(parents=True)
+    registry.write_text(f"vault\t{vault}\n")
+
+    elsewhere = tmp_path / "no-vault"
+    elsewhere.mkdir()
+    result = _run_cli(
+        "doctor",
+        cwd=elsewhere,
+        env_extra={"BRAIN_VAULT_ROOT": "", "XDG_CONFIG_HOME": str(xdg), "HOME": str(tmp_path)},
+    )
+
+    assert "brains:    1 discovered" in result.stdout
+    assert "registry:" in result.stdout
+    assert "brain routes:" in result.stdout
+    assert "none in scope" in result.stdout
+
+
+def test_doctor_outside_vault_uses_machine_helper_from_brains_registry_fallback(tmp_path):
+    vault = _build_machine_helper_vault(tmp_path)
+    xdg = tmp_path / "xdg"
+    brains = xdg / "brain" / "brains.json"
+    brains.parent.mkdir(parents=True)
+    brains.write_text(
+        '{\n'
+        '  "version": 1,\n'
+        '  "brains": [\n'
+        f'    {{"alias": "vault", "path": "{vault}"}}\n'
+        '  ]\n'
+        '}\n'
+    )
+
+    elsewhere = tmp_path / "no-vault"
+    elsewhere.mkdir()
+    result = _run_cli(
+        "doctor",
+        cwd=elsewhere,
+        env_extra={"BRAIN_VAULT_ROOT": "", "XDG_CONFIG_HOME": str(xdg), "HOME": str(tmp_path)},
+    )
+
+    assert "brains:    1 discovered" in result.stdout
+    assert "registry:" in result.stdout
+    assert "brain routes:" in result.stdout
+    assert "none in scope" in result.stdout
+
+
+def test_doctor_inside_older_vault_falls_back_to_registered_machine_helper(tmp_path):
+    current_vault = _build_fake_vault(tmp_path)
+    brain_mcp = current_vault / ".brain-core" / "brain_mcp"
+    brain_mcp.mkdir(parents=True)
+    (brain_mcp / "requirements.txt").write_text("mcp==1.0.0\n")
+    (current_vault / ".brain-core" / "scripts" / "check.py").write_text(
+        "#!/usr/bin/env python3\n"
+        "print('DOCTOR_DISPATCHED_CHECK')\n"
+    )
+    helper_vault = _build_machine_helper_vault(tmp_path)
+    xdg = tmp_path / "xdg"
+    registry = xdg / "brain" / "vaults"
+    registry.parent.mkdir(parents=True)
+    registry.write_text(f"helper\t{helper_vault}\n")
+
+    result = _run_cli(
+        "doctor",
+        cwd=current_vault,
+        env_extra={"XDG_CONFIG_HOME": str(xdg), "HOME": str(tmp_path)},
+    )
+
+    assert "brains:" in result.stdout
+    assert "registry:" in result.stdout
+    assert "brain routes:" in result.stdout
+    assert str(current_vault) in result.stdout
+    assert str(helper_vault) in result.stdout
+    assert "DOCTOR_DISPATCHED_CHECK" in result.stdout
 
 
 def test_doctor_inside_vault_dispatches_check(tmp_path):

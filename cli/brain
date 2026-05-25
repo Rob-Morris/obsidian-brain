@@ -12,7 +12,7 @@
 set -euo pipefail
 
 BRAIN_CLI_VERSION="1.0.0"
-BRAIN_INSTALL_REF="v0.43.1"
+BRAIN_INSTALL_REF="v0.43.2"
 
 # Dispatch contract (DD-049 v1). hyphens here become underscores on disk.
 DISPATCH_SUBCOMMANDS=(
@@ -99,17 +99,42 @@ cli_doctor() {
         rc=1
     fi
 
-    local venvs_root="$HOME/.brain/venvs"
-    if [[ -d "$venvs_root" ]]; then
-        local count
-        count=$(find "$venvs_root" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')
-        printf 'venvs:     %s (%s present)\n' "$venvs_root" "$count"
-    else
-        printf 'venvs:     not yet provisioned (%s)\n' "$venvs_root"
-    fi
-
     local vault
     vault=$(resolve_vault_silent || true)
+    local machine_source_vault=""
+    if [[ -n "$vault" && -f "$vault/.brain-core/scripts/doctor_machine.py" ]]; then
+        machine_source_vault=$vault
+    else
+        machine_source_vault=$(resolve_machine_source_vault_silent "$py" || true)
+    fi
+
+    local machine_helper_ran=0
+    if [[ -n "$py" && -n "$machine_source_vault" ]]; then
+        local machine_helper="$machine_source_vault/.brain-core/scripts/doctor_machine.py"
+        if [[ -f "$machine_helper" ]]; then
+            local machine_python
+            machine_python=$(try_resolve_vault_python "$machine_source_vault" || true)
+            if [[ -n "$machine_python" ]]; then
+                if [[ -n "$vault" ]]; then
+                    "$machine_python" "$machine_helper" --vault "$machine_source_vault" --current-vault "$vault" --launcher "$py" || rc=$?
+                else
+                    "$machine_python" "$machine_helper" --vault "$machine_source_vault" --launcher "$py" || rc=$?
+                fi
+                machine_helper_ran=1
+            fi
+        fi
+    fi
+
+    if [[ "$machine_helper_ran" -eq 0 ]]; then
+        local venvs_root="$HOME/.brain/venvs"
+        if [[ -d "$venvs_root" ]]; then
+            local count
+            count=$(find "$venvs_root" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')
+            printf 'venvs:     %s (%s present)\n' "$venvs_root" "$count"
+        else
+            printf 'venvs:     not yet provisioned (%s)\n' "$venvs_root"
+        fi
+    fi
     if [[ -n "$vault" ]]; then
         printf '\nvault:     %s\n' "$vault"
         local check_py="$vault/.brain-core/scripts/check.py"
@@ -165,6 +190,82 @@ resolve_vault_silent() {
     walk_for_vault "$(pwd -P)"
 }
 
+machine_vault_registry_path() {
+    local xdg=${XDG_CONFIG_HOME:-}
+    if [[ -n "$xdg" && "$xdg" = /* ]]; then
+        printf '%s/brain/vaults\n' "$xdg"
+    else
+        printf '%s/.config/brain/vaults\n' "$HOME"
+    fi
+}
+
+machine_brains_registry_path() {
+    local xdg=${XDG_CONFIG_HOME:-}
+    if [[ -n "$xdg" && "$xdg" = /* ]]; then
+        printf '%s/brain/brains.json\n' "$xdg"
+    else
+        printf '%s/.config/brain/brains.json\n' "$HOME"
+    fi
+}
+
+resolve_machine_source_vault_silent() {
+    local launcher=${1:-}
+    local registry_path
+    registry_path=$(machine_vault_registry_path)
+
+    if [[ -f "$registry_path" ]]; then
+        # This duplicates the on-disk registry parsing contract from
+        # src/brain-core/scripts/vault_registry.py because `brain doctor` needs a
+        # source Brain before it can hand off to Python at all.
+        local alias path
+        while IFS=$'\t' read -r alias path; do
+            [[ -n "$alias" ]] || continue
+            [[ "$alias" == \#* ]] && continue
+            [[ -n "$path" ]] || continue
+            if [[ -f "$path/.brain-core/VERSION" && -f "$path/.brain-core/scripts/doctor_machine.py" ]]; then
+                absolute_path "$path"
+                return 0
+            fi
+        done < "$registry_path"
+    fi
+
+    [[ -n "$launcher" ]] || return 1
+
+    local brains_path
+    brains_path=$(machine_brains_registry_path)
+    [[ -f "$brains_path" ]] || return 1
+
+    # The shell only needs a dispatchable source Brain here. Version/schema
+    # validation for brains.json stays in the Python-owned _machine registry
+    # loader after handoff succeeds.
+    local fallback
+    fallback=$("$launcher" -c 'import json, os, sys
+path = sys.argv[1]
+try:
+    with open(path, "r", encoding="utf-8") as handle:
+        data = json.load(handle)
+except Exception:
+    raise SystemExit(1)
+brains = data.get("brains")
+if not isinstance(brains, list):
+    raise SystemExit(1)
+for entry in brains:
+    if not isinstance(entry, dict):
+        continue
+    vault_path = entry.get("path")
+    if not isinstance(vault_path, str) or not vault_path:
+        continue
+    version_path = os.path.join(vault_path, ".brain-core", "VERSION")
+    helper_path = os.path.join(vault_path, ".brain-core", "scripts", "doctor_machine.py")
+    if os.path.isfile(version_path) and os.path.isfile(helper_path):
+        print(os.path.realpath(vault_path))
+        raise SystemExit(0)
+raise SystemExit(1)' "$brains_path" 2>/dev/null || true)
+    [[ -n "$fallback" ]] || return 1
+    printf '%s\n' "$fallback"
+}
+
+
 find_launcher_python() {
     # Return an absolute path to a Python 3.12+ interpreter, or fail.
     # `command -v` resolves PATH tokens like 'python3.12' to absolute paths;
@@ -187,19 +288,30 @@ find_launcher_python() {
     return 1
 }
 
-resolve_vault_python() {
+_resolve_vault_python_inner() {
     local vault=$1
     local venv_helper="$vault/.brain-core/scripts/_common/_venv.py"
-    [[ -f "$venv_helper" ]] || die "brain: vault has no _venv.py helper — upgrade brain-core (path: $venv_helper)"
+    [[ -f "$venv_helper" ]] || return 1
     local launcher
-    launcher=$(find_launcher_python) || die "brain: no python3.12+ launcher on PATH (need python3.12 or python3.13)"
-    # Use runnable-python so dispatch works in supported no-runtime states
-    # (e.g. `install.sh --skip-mcp`): central venv → legacy → launcher.
+    launcher=$(find_launcher_python) || return 1
+    "$launcher" "$venv_helper" runnable-python --vault "$vault" --launcher "$launcher"
+}
+
+resolve_vault_python() {
+    local vault=$1
     local resolved
-    if ! resolved=$("$launcher" "$venv_helper" runnable-python --vault "$vault" --launcher "$launcher"); then
+    if ! resolved=$(_resolve_vault_python_inner "$vault"); then
+        local venv_helper="$vault/.brain-core/scripts/_common/_venv.py"
+        [[ -f "$venv_helper" ]] || die "brain: vault has no _venv.py helper — upgrade brain-core (path: $venv_helper)"
+        find_launcher_python >/dev/null || die "brain: no python3.12+ launcher on PATH (need python3.12 or python3.13)"
         die "brain: no runnable python for vault $vault — run 'brain repair runtime --vault $vault' or 'bash install.sh $vault'"
     fi
     printf '%s\n' "$resolved"
+}
+
+try_resolve_vault_python() {
+    local vault=$1
+    _resolve_vault_python_inner "$vault"
 }
 
 # ---------------------------------------------------------------------------

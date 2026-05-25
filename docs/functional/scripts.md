@@ -26,6 +26,7 @@ That `python3.12` process is the launcher, not the managed runtime itself.
 | Script | Purpose | CLI usage |
 |---|---|---|
 | `_bootstrap/` | Shared launcher-safe bootstrap package: launcher discovery, managed-runtime handoff, bootstrap diagnostics, and shared MCP/client-config state | (library only) |
+| `_machine/` | Launcher-safe machine-management package: multi-Brain discovery, shared-runtime topology classification, and machine-level maintenance analysis beneath the CLI family. Maintains `$XDG_CONFIG_HOME/brain/brains.json` as the derived machine registry once Python handoff succeeds; the shell still bootstraps from the user-home `vault_registry.py` signal first, then falls back to `brains.json` only when no curated source Brain remains. | (library only) |
 | `compile_router.py` | Compile router from source files and refresh the session mirror | `python3 compile_router.py [--json]` |
 | `compile_colours.py` | Generate folder colour CSS | (called by compile_router) |
 | `build_lexical_index.py` | Build the portable lexical retrieval index only | `python3 build_lexical_index.py [--json]` |
@@ -56,6 +57,7 @@ That `python3.12` process is the launcher, not the managed runtime itself.
 | `fix_links.py` | Auto-repair broken wikilinks | `python3 fix_links.py [--fix] [--json] [--vault V]` |
 | `sync_definitions.py` | Install / sync artefact library definitions and classify vault state | `python3 sync_definitions.py [--vault V] [--dry-run] [--force] [--types t1,t2] [--status] [--json]` |
 | `config.py` | Vault configuration loader (three-layer merge) | `python3 config.py` |
+| `doctor_machine.py` | Launcher-safe machine-level diagnosis adapter used by `brain doctor` when a source Brain is available; reports shared-runtime topology from `_machine/` while the CLI keeps the shell/bootstrap fallback | (internal helper, called by `brain doctor`) |
 | `session.py` | Build the canonical session model and refresh `.brain/local/session.md`; keeps a launcher-safe SessionStart shim but hands substantive work off into the managed runtime | `python3 session.py [--json] [--workspace-dir PATH]` |
 | `obsidian_cli.py` | IPC client for native Obsidian CLI | (library module, used by MCP server) |
 | `process.py` | Experimental content classification, duplicate resolution, ingestion | (library module, used by `brain_process` in the MCP server) |
