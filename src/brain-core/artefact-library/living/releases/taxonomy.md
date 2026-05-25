@@ -17,15 +17,21 @@ When a project, workstream, or product area has a named milestone, version targe
 | `planned` | Aspirational milestone record. Scoped and named, but work has not started yet. Owns no shipped versions. |
 | `active` | Current milestone record. Work is in progress, but the release still owns no shipped versions. |
 | `shipped` | Historical release record. Terminal — keeps the canonical shipped range, metadata, and release notes. |
-| `cancelled` | Abandoned milestone. Terminal — keeps the record of what was cut. Owns no shipped versions. |
+| `deprecated` | Abandoned, cancelled, or superseded milestone. Reason captured in a callout. Terminal — keeps the record of what was cut. Owns no shipped versions. |
 
 ## Terminal Status
 
-When a release reaches `shipped` status, move it to `Releases/{scope}/+Shipped/`.
+When a release reaches a terminal status (`shipped` or `deprecated`):
 
-When a release reaches `cancelled` status, move it to `Releases/{scope}/+Cancelled/`.
+- **Shipped:** set `status: shipped`, move to `Releases/{scope}/+Shipped/`. The filename leads with the shipped version (see Naming).
+- **Deprecated:** set `status: deprecated`, add a reason callout, move to `Releases/{scope}/+Deprecated/`:
+  ```markdown
+  > [!info] Deprecated — cancelled: scope absorbed into next milestone
+  > [!info] Deprecated — superseded by [[link|new release]]
+  > [!info] Deprecated — retired: milestone no longer pursued
+  ```
 
-Shipped and cancelled releases remain searchable and indexed in their terminal folders. No rename, no `archiveddate`.
+Shipped and deprecated releases remain searchable and indexed in their terminal folders. No rename for deprecated; no `archiveddate`.
 
 ## Naming
 
@@ -37,7 +43,7 @@ Before ship a release is identified by its human title. Once `status` is `shippe
 
 | Match field | Match values | Pattern |
 |---|---|---|
-| `status` | `planned`, `active`, `cancelled` | `{Title}.md` |
+| `status` | `planned`, `active`, `deprecated` | `{Title}.md` |
 | `status` | `shipped` | `{Version} - {Title}.md` |
 
 ### Placeholders

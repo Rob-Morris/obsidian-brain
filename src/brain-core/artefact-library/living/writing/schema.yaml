@@ -6,7 +6,7 @@ required:
     contains: "writing"
 optional:
   status:
-    enum: [draft, editing, review, published, parked]
+    enum: [draft, editing, review, published, deprecated, parked]
     default: draft
   publisheddate:
     type: string

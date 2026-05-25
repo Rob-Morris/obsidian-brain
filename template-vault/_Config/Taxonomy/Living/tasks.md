@@ -16,7 +16,8 @@ Brain-native tasks are deliberately minimal. They don't compete with dedicated t
 | `shaping` | The task is being shaped — clarifying scope and requirements before work begins. |
 | `in-progress` | Someone (human or agent) is actively working on this. |
 | `done` | Completed. Terminal — move to `+Done/`. |
-| `blocked` | Can't proceed — dependency, question, or external blocker. |
+| `parked` | Set aside — can't proceed (dependency, question, external blocker) or chosen pause. Reason captured in a callout. Non-terminal; may resume. |
+| `deprecated` | Cancelled or replaced — work won't be done here. Reason captured in a callout. Terminal — move to `+Deprecated/`. |
 
 ## Shaping
 
@@ -82,14 +83,23 @@ Tasks/
 
 ## Terminal Status
 
-When a task reaches `done` status:
+When a task reaches a terminal status (`done` or `deprecated`):
 
-- Set `status: done`
-- Move to `Tasks/+Done/` (or the parent subfolder's `+Done/`)
+- **Done:** set `status: done`, move to `Tasks/+Done/` (or the parent subfolder's `+Done/`).
+- **Deprecated:** set `status: deprecated`, add a reason callout, move to `Tasks/+Deprecated/` (or the parent subfolder's `+Deprecated/`):
+  ```markdown
+  > [!info] Deprecated — cancelled: scope absorbed into [[link|task or design]]
+  > [!info] Deprecated — replaced by [[link|new task]]
+  > [!info] Deprecated — abandoned: no longer relevant
+  ```
 
-Done tasks remain searchable and indexed in the `+Done/` folder. No rename, no `archiveddate`.
+Terminal tasks remain searchable and indexed in their `+Status` folder. No rename, no `archiveddate`.
 
-**Agent contract:** if you land on a done task, it's completed work. Do not reopen done tasks — create a new task if follow-up work is needed.
+**Agent contract:** if you land on a terminal task, it's no longer active. Do not reopen — create a new task if follow-up work is needed.
+
+## Parked Tasks
+
+`parked` is the non-terminal pause state. Use it when work can't proceed (waiting on an external dependency, blocked on a decision, or chosen pause). Capture the blocker in a `> [!info] Parked — <reason>` callout or short prose note in the body so it's clear what unblocks the task. When work can resume, move the status back to `open` or `in-progress`.
 
 ## Naming
 
@@ -104,7 +114,7 @@ Board tasks: `{ParentType}~{Name}.md` (e.g. `Design~Brain Inbox.md`).
 type: living/task
 tags:
   - task
-status: open                 # open | shaping | in-progress | done | blocked
+status: open                 # open | shaping | in-progress | done | parked | deprecated
 ---
 ```
 

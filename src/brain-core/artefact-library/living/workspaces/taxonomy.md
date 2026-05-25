@@ -42,14 +42,24 @@ Every file related to a workspace should use the nested workspace tag, e.g. `wor
 | Status | Meaning |
 |---|---|
 | `active` | Default. Workspace is in use. |
-| `parked` | Set aside temporarily. |
+| `parked` | Set aside temporarily. Non-terminal; may resume. |
 | `completed` | Work is done. Terminal — move to `+Completed/`. |
+| `deprecated` | Abandoned, replaced, or no longer relevant. Reason captured in a callout. Terminal — move to `+Deprecated/`. |
 
 ## Terminal Status
 
-When a workspace reaches `completed` status → move the hub file to `Workspaces/+Completed/`. No rename, no `archiveddate` — the file stays searchable and indexed in its terminal status folder.
+When a workspace reaches a terminal status (`completed` or `deprecated`), move the hub file to the corresponding `+Status` folder:
 
-The embedded data folder at `_Workspaces/{key}/` does **not** move. The data bucket sits outside the artefact taxonomy (see [[#Data Folder]]), so its layout is independent of hub status.
+- **Completed:** set `status: completed`, move to `Workspaces/+Completed/`.
+- **Deprecated:** set `status: deprecated`, add a reason callout, move to `Workspaces/+Deprecated/`:
+  ```markdown
+  > [!info] Deprecated — superseded by [[link|new workspace]]
+  > [!info] Deprecated — abandoned: work was not pursued
+  ```
+
+No rename, no `archiveddate` — terminal hubs stay searchable and indexed in their `+Status` folder.
+
+The embedded data folder at `_Workspaces/{key}/` does **not** move regardless of hub status. The data bucket sits outside the artefact taxonomy (see [[#Data Folder]]), so its layout is independent of hub status.
 
 ## Data Folder
 

@@ -6,7 +6,7 @@ required:
     contains: "task"
 optional:
   status:
-    enum: [open, shaping, in-progress, done, blocked]
+    enum: [open, shaping, in-progress, done, parked, deprecated]
     default: open
   kind:
     enum: [bug, feature, chore, spike, decision]

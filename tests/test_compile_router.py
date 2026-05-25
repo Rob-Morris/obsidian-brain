@@ -457,10 +457,10 @@ class TestParseStatusEnum:
             "# Plans\n\n"
             "## Frontmatter\n\n"
             "```yaml\n---\ntype: temporal/plan\nstatus: draft\n---\n```\n\n"
-            "Status values: `draft`, `approved`, `completed`.\n"
+            "Status values: `draft`, `shaping`, `approved`, `implementing`, `completed`, `superseded`, `parked`, `rejected`.\n"
         )
         result = cr.parse_status_enum(f.read_text())
-        assert result == ["draft", "approved", "completed"]
+        assert result == ["draft", "shaping", "approved", "implementing", "completed", "superseded", "parked", "rejected"]
 
     def test_no_status_returns_none(self, tmp_path):
         """Types without status fields return None."""
@@ -955,7 +955,7 @@ class TestTemplateVault:
         rules = parsed["naming"]["rules"]
         assert len(rules) == 2
         assert rules[0]["match_field"] == "status"
-        assert rules[0]["match_values"] == ["planned", "active", "cancelled"]
+        assert rules[0]["match_values"] == ["planned", "active", "deprecated"]
         assert rules[0]["pattern"] == "{Title}.md"
         assert rules[1]["match_field"] == "status"
         assert rules[1]["match_values"] == ["shipped"]
@@ -972,11 +972,11 @@ class TestTemplateVault:
             "planned",
             "active",
             "shipped",
-            "cancelled",
+            "deprecated",
         ]
         assert parsed["frontmatter"]["terminal_statuses"] == [
             "shipped",
-            "cancelled",
+            "deprecated",
         ]
         for field in ["version", "tag", "commit", "shipped"]:
             assert field in parsed["frontmatter"]["required"]

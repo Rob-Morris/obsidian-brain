@@ -37,8 +37,8 @@ Brain classifies every file as either **living** or **temporal**.
 | `living/note` | `Notes/` | none | Low-friction knowledge capture. |
 | `living/person` | `People/` | `active` → `shaping` → `parked` | Living hub for what you know about a person. |
 | `living/project` | `Projects/` | none | Living hub for project state and related artefacts. |
-| `living/release` | `Releases/{scope}/` | `planned` → `active` → `shipped`/`cancelled` | Milestone record before ship, historical release record after ship. |
-| `living/task` | `Tasks/` | `open` → `shaping` → `in-progress` → `done`/`blocked` | Persistent unit of work linked to the artefacts it serves. |
+| `living/release` | `Releases/{scope}/` | `planned` → `active` → `shipped`/`deprecated` | Milestone record before ship, historical release record after ship. |
+| `living/task` | `Tasks/` | `open` → `shaping` → `in-progress` → `done`/`parked`/`deprecated` | Persistent unit of work linked to the artefacts it serves. |
 | `living/workspace` | `Workspaces/` | `active` → `parked` → `completed` | Hub linking brain artefacts to a bounded data container. |
 | `living/writing` | `Writing/` | `draft` → `editing` → `review` → `published`/`parked` | Long-form written work crafted for an audience. |
 

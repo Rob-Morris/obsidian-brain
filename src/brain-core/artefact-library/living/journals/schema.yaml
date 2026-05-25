@@ -9,5 +9,5 @@ required:
     contains: "journal/{key}"
 optional:
   status:
-    enum: [active, parked]
+    enum: [active, parked, deprecated]
     default: active

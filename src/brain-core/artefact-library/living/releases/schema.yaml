@@ -8,7 +8,7 @@ required:
     type: string
 optional:
   status:
-    enum: [planned, active, shipped, cancelled]
+    enum: [planned, active, shipped, deprecated]
     default: planned
   version:
     type: string

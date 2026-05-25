@@ -17,8 +17,9 @@ When exploring a problem or developing a concept that isn't concrete enough for 
 | `new` | Default. The idea exists but hasn't been developed. |
 | `shaping` | The idea is being shaped and refined through Q&A. |
 | `ready` | Fully shaped — clear enough to act on. |
-| `adopted` | Adopted into a downstream artefact (e.g. design, project). The idea is no longer actively developed here. |
-| `parked` | Set aside — not abandoned, but not being pursued. |
+| `adopted` | Adopted into a downstream artefact (e.g. design, project). The idea is no longer actively developed here. Terminal — move to `+Adopted/`. |
+| `deprecated` | The idea was evaluated and won't be pursued, or has been replaced. Reason captured in a callout in the body. Terminal — move to `+Deprecated/`. |
+| `parked` | Set aside — not abandoned, but not being pursued. Non-terminal; may resume. |
 
 ## Shaping
 
@@ -38,9 +39,19 @@ Adoption is a provenance pattern. When an idea is adopted into a downstream arte
 
 ## Terminal Status
 
-When an idea reaches `adopted` status, move it to `Ideas/+Adopted/`. Adopted ideas remain searchable and indexed. No rename, no `archiveddate`.
+When an idea reaches a terminal status (`adopted` or `deprecated`), move it to the corresponding `+Status` folder:
 
-**Agent contract:** if you land on an adopted idea, follow the adoption callout link to find the downstream artefact. Do not modify adopted ideas.
+- **Adopted:** set `status: adopted`, move to `Ideas/+Adopted/`. The adoption callout links to the downstream artefact.
+- **Deprecated:** set `status: deprecated`, add a reason callout, move to `Ideas/+Deprecated/`:
+  ```markdown
+  > [!info] Deprecated — rejected: idea didn't survive shaping
+  > [!info] Deprecated — superseded by [[link|idea or design]]
+  > [!info] Deprecated — retired: no longer relevant
+  ```
+
+Terminal ideas remain searchable and indexed in their `+Status` folder. No rename, no `archiveddate`.
+
+**Agent contract:** if you land on a terminal idea, follow the callout link (if present) to find the current source of truth. Do not modify terminal ideas.
 
 ## Lineage
 
@@ -59,7 +70,7 @@ Example: `Ideas/voice-controlled-task-manager.md`
 type: living/idea
 tags:
   - idea
-status: new                 # new | shaping | ready | adopted | parked
+status: new                 # new | shaping | ready | adopted | deprecated | parked
 ---
 ```
 

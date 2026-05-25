@@ -89,6 +89,7 @@ Each DD captures the reasoning behind an architectural decision at the time it w
 | DD-047 | Keep the parked `brain_process` branch explicitly unreleased while aligning with `v0.33.0` conventions | Accepted | [dd-047](dd-047-brain-process-parked-branch-conventions.md) |
 | DD-048 | Central managed runtime, content-addressed by `requirements.txt` (`~/.brain/venvs/<py>-<sha>/`) | Accepted (v0.37.0) | [dd-048](dd-048-central-managed-runtime.md) |
 | DD-049 | Brain CLI as thin dispatch layer (versioned independently from brain-core) | Accepted (v0.38.0) | [dd-049](dd-049-brain-cli-thin-dispatch.md) |
+| DD-050 | Unified closure-status vocabulary — `deprecated` + `parked` across all lifecycle types, reason in callout | Implemented (v0.43.0) | [dd-050](dd-050-closure-status-model.md) |
 
 ---
 
@@ -103,3 +104,4 @@ Related decisions grouped by domain. Arrows show supersede/extend chains.
 - **Plugins & platforms:** DD-004, DD-005, DD-006, DD-007, DD-021, DD-022
 - **Agent methodology:** DD-024, DD-035
 - **Workspaces:** DD-040 (extends DD-038, DD-023)
+- **Artefact lifecycle & folder convention:** DD-029, DD-030 → DD-050

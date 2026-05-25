@@ -131,7 +131,7 @@ def vault(tmp_path):
         "frontmatter": {
             "type": "temporal/plan",
             "required": ["type", "tags", "status"],
-            "status_enum": ["draft", "approved", "completed"],
+            "status_enum": ["draft", "shaping", "approved", "implementing", "completed", "superseded", "parked", "rejected"],
             "terminal_statuses": None,
         },
         "taxonomy_file": "_Config/Taxonomy/Temporal/plans.md",

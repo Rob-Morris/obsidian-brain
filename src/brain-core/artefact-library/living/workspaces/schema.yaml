@@ -9,7 +9,7 @@ required:
     contains: "workspace/{key}"
 optional:
   status:
-    enum: [active, parked, completed]
+    enum: [active, parked, completed, deprecated]
     default: active
   workspace_mode:
     enum: [embedded, linked]

@@ -125,15 +125,17 @@ Why the split? Obsidian's backlinks and graph view work from body wikilinks. Sea
 
 Some types have a lifecycle. Status values are defined per type:
 
-- **Designs:** `proposed` → `shaping` → `ready` → `active` → `implemented` | `superseded` | `parked` | `rejected`
+- **Designs:** `proposed` → `shaping` → `ready` → `active` → `implemented` | `deprecated` | `parked`
 - **Documentation:** `new` → `shaping` → `ready` → `active` → `deprecated`
-- **Ideas:** `new` → `shaping` → `ready` → `adopted` | `parked`
-- **Idea Logs:** `open` → `adopted` | `parked`
-- **People:** `active` → `shaping` → `parked`
-- **Releases:** `planned` → `active` → `shipped` | `cancelled`
-- **Tasks:** `open` → `shaping` → `in-progress` → `done` | `blocked`
-- **Writing:** `draft` → `editing` → `review` → `published` | `parked`
-- **Plans:** `draft` → `shaping` → `approved` → `implementing` → `completed`
+- **Ideas:** `new` → `shaping` → `ready` → `adopted` | `deprecated` | `parked`
+- **Idea Logs:** `open` → `graduated` | `deprecated` | `parked`
+- **People:** `active` → `shaping` → `parked` | `deprecated`
+- **Releases:** `planned` → `active` → `shipped` | `deprecated`
+- **Tasks:** `open` → `shaping` → `in-progress` → `done` | `parked` | `deprecated`
+- **Writing:** `draft` → `editing` → `review` → `published` | `deprecated` | `parked`
+- **Plans:** `draft` → `shaping` → `approved` → `implementing` → `completed` | `deprecated` | `parked`
+
+Closure vocab is unified across types: a type-specific success terminal (e.g. `implemented`, `published`, `done`), a single `deprecated` abandonment terminal (with reason in a `> [!info] Deprecated — <reason>` callout), and an optional `parked` non-terminal pause.
 
 Not every type has status. Wiki, Notes, and most temporal types are evergreen.
 
@@ -169,13 +171,15 @@ Published writing moves to `Writing/+Published/` with date-prefixed filenames. F
 
 Living artefacts that reach a terminal status move to a `+Status/` folder within their type directory. These files remain searchable and indexed — no rename, no `archiveddate`. Every status change (terminal or not) auto-sets `statusdate: YYYY-MM-DD` in frontmatter. Each type defines its own terminal statuses and `+Status` folders:
 
-- **Designs:** `+Implemented/`, `+Superseded/`, `+Rejected/`
+- **Designs:** `+Implemented/`, `+Deprecated/`
 - **Documentation:** `+Deprecated/`
-- **Ideas:** `+Adopted/`
-- **Releases:** `+Shipped/`, `+Cancelled/`
-- **Tasks:** `+Done/`
-- **Workspaces:** `+Completed/`
-- **Writing:** `+Published/`
+- **Ideas:** `+Adopted/`, `+Deprecated/`
+- **Releases:** `+Shipped/`, `+Deprecated/`
+- **Tasks:** `+Done/`, `+Deprecated/`
+- **Workspaces:** `+Completed/`, `+Deprecated/`
+- **Writing:** `+Published/`, `+Deprecated/`
+
+`+Deprecated/` is the unified abandonment folder; the reason (superseded, rejected, cancelled, retired, duplicate) is captured in a `> [!info] Deprecated — <reason>` callout in the artefact body.
 
 `_Archive/` is reserved for deliberate removal — a "soft delete" that takes files completely out of the active vault namespace (index, search, and all normal operations). Use `brain_move(op="archive", path="...")` to archive and `brain_move(op="unarchive", path="...")` to restore. Use `brain_list(resource="archive")` to list archived files, `brain_read(resource="archive", name="...")` to read a specific one. Full details are in the [archiving standard](standards/archiving.md).
 

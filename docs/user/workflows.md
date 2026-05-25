@@ -124,7 +124,7 @@ The log is the raw timeline. The daily note is the digest.
 
 ## Working with Tasks and Notes
 
-**Tasks** (`Tasks/`) are persistent units of work — things you're tracking across sessions, not one-off to-dos. They have status values (`open`, `in-progress`, `done`, `blocked`) and link to related artefacts.
+**Tasks** (`Tasks/`) are persistent units of work — things you're tracking across sessions, not one-off to-dos. They have status values (`open`, `in-progress`, `done`, `parked`, `deprecated`) and link to related artefacts.
 
 **Notes** (`Notes/`) are low-friction knowledge captures — things you want to record but that don't need the structure of a wiki page. Write first, organise later. A note can always be promoted to a wiki page when it earns it.
 

@@ -18,10 +18,9 @@ When working out the concrete shape of something — structure, mechanics, trade
 | `shaping` | Default. The design is being explored and shaped — decisions are open. |
 | `ready` | Design decisions closed — fully shaped and agreed, but implementation not yet started. |
 | `active` | Implementation is in progress. |
-| `implemented` | The design has been fully built. |
-| `superseded` | The design was valid but replaced by a different approach. |
-| `parked` | Set aside — not abandoned, but not being pursued. |
-| `rejected` | Evaluated and declined. Kept as a record. |
+| `implemented` | The design has been fully built. Terminal — move to `+Implemented/`. |
+| `deprecated` | The design is no longer the source of truth. Reason (superseded, rejected, retired, etc.) is captured in a callout in the body. Terminal — move to `+Deprecated/`. |
+| `parked` | Set aside — not abandoned, but not being pursued. Non-terminal; may resume. |
 
 When a plan targeting this design reaches `completed`, update the design to reflect the implemented changes. When all planned work is done, transition the design from `active` to `implemented`.
 
@@ -31,27 +30,27 @@ When a design at `proposed` status is ready for a decision:
 
 1. Create a decision log recording the verdict and reasoning
 2. If accepted: set `status: shaping` and begin active design work
-3. If rejected: set `status: rejected` — the design stays as a record of what was considered and why it was declined
+3. If rejected: set `status: deprecated` and add a `> [!info] Deprecated — rejected` callout — the design stays as a record of what was considered and why it was declined
 
 ## Terminal Status
 
-When a design reaches a terminal status (`implemented`, `superseded`, or `rejected`), move it to the corresponding `+Status` folder:
+When a design reaches a terminal status (`implemented` or `deprecated`), move it to the corresponding `+Status` folder:
 
-- **Implemented:** set `status: implemented`, add a supersession callout, move to `Designs/+Implemented/`
+- **Implemented:** set `status: implemented`, add a context callout, move to `Designs/+Implemented/`
   ```markdown
   > [!info] Implemented
   > This design has been implemented. See [[link|title]] for the current source of truth.
   ```
-- **Superseded:** set `status: superseded`, add a supersession callout, move to `Designs/+Superseded/`
+- **Deprecated:** set `status: deprecated`, add a reason callout, move to `Designs/+Deprecated/`. The reason captures why the design is no longer the source of truth:
   ```markdown
-  > [!info] Superseded
-  > This design was superseded by [[link|title]]. See that design for the current approach.
+  > [!info] Deprecated — superseded by [[link|title]]
+  > [!info] Deprecated — rejected: design failed shaping bar
+  > [!info] Deprecated — retired: no longer maintained
   ```
-- **Rejected:** set `status: rejected`, move to `Designs/+Rejected/`
 
 Terminal designs remain searchable and indexed in their `+Status` folder. No rename, no `archiveddate`.
 
-**Agent contract:** if you land on a terminal design, follow the supersession link (if present) to find the current source of truth. Do not modify terminal designs.
+**Agent contract:** if you land on a terminal design, follow the callout link (if present) to find the current source of truth. Do not modify terminal designs.
 
 ## Lineage
 
@@ -91,7 +90,7 @@ Example: `Designs/pistols-at-dawn-discord-bot.md`
 type: living/design
 tags:
   - design
-status: shaping             # proposed | shaping | ready | active | implemented | superseded | parked | rejected
+status: shaping             # proposed | shaping | ready | active | implemented | deprecated | parked
 ---
 ```
 

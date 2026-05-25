@@ -23,7 +23,7 @@ These are patterns, not a required pipeline — each artefact type can be create
 
 When an idea is concrete enough to be a specific recommendation but needs a decision before action, it can become a design at `proposed` status — capturing the recommendation and what needs to be decided.
 
-When an idea is spun out into a design or other artefact, set `status: graduated` and add a provenance link to the successor artefact.
+When an idea is spun out into a design or other artefact, set `status: graduated` and add a provenance link to the successor artefact. If the idea is evaluated and won't be pursued (duplicate, retired, doesn't fit), set `status: deprecated` and add a `> [!info] Deprecated — <reason>` callout. Idea logs stay in their date folder regardless of status.
 
 ## Spinning Out
 
@@ -45,7 +45,7 @@ type: temporal/idea-log
 tags:
   - idea
   - topic-tag
-status: open              # open | graduated | parked
+status: open              # open | graduated | deprecated | parked
 ---
 ```
 

@@ -6,5 +6,5 @@ required:
     contains: "idea"
 optional:
   status:
-    enum: [new, shaping, ready, adopted, parked]
+    enum: [new, shaping, ready, adopted, deprecated, parked]
     default: new

@@ -17,22 +17,30 @@ When crafting a self-contained piece of written work — essay, post, chapter, l
 | `draft` | Work in progress. The default state. |
 | `editing` | Structure is set, refining language and flow. |
 | `review` | Ready for external eyes or final self-review. |
-| `published` | Released or delivered. Stays as canonical source. |
-| `parked` | Set aside — not abandoned, but not being worked on. |
+| `published` | Released or delivered. Terminal — stays as canonical source. |
+| `deprecated` | Superseded, retired, or otherwise no longer current. Reason captured in a callout. Terminal — move to `+Deprecated/`. |
+| `parked` | Set aside — not abandoned, but not being worked on. Non-terminal; may resume. |
 
 ## Terminal Status
 
-When a piece reaches `published` status, `brain_edit` automatically moves it to `Writing/+Published/` and renames the file with a `yyyymmdd-` prefix (rendered from `publisheddate`). The `publisheddate` is set to today on the transition into `published` unless already present. Companion files (HTML pastes, exports) belong in `Assets/Attachments/` or `Assets/Generated/`, not alongside the writing file.
+When a piece reaches a terminal status (`published` or `deprecated`), move it to the corresponding `+Status` folder:
+
+- **Published:** set `status: published`. `brain_edit` automatically moves it to `Writing/+Published/` and renames the file with a `yyyymmdd-` prefix (rendered from `publisheddate`). The `publisheddate` is set to today on the transition into `published` unless already present. Companion files (HTML pastes, exports) belong in `Assets/Attachments/` or `Assets/Generated/`, not alongside the writing file.
+- **Deprecated:** set `status: deprecated`, add a reason callout, move to `Writing/+Deprecated/`:
+  ```markdown
+  > [!info] Deprecated — superseded by [[link|successor piece]]
+  > [!info] Deprecated — retired: no longer current
+  ```
 
 ## Archiving
 
-Published writing that has been superseded (e.g. a rewrite exists elsewhere):
+Archiving is a deeper retirement: the file leaves the active vault entirely and moves to `_Archive/`. Use this for writing that's no longer relevant to the active vault namespace.
 
 1. Add `archiveddate: YYYY-MM-DD` to frontmatter
-2. Add a supersession callout linking to the successor
-3. Move the file from `+Published/` to `_Archive/`
+2. Add a supersession callout linking to the successor (if any)
+3. Move the file from its current folder to `_Archive/`
 
-The status stays `published` — archiving is an action, not a status.
+Archiving is an action, not a status — the status field stays at whatever it was. For "superseded but still in the active vault," use `status: deprecated` instead.
 
 ## Naming
 

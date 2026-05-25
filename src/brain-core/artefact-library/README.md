@@ -106,13 +106,15 @@ Frontmatter does not undergo placeholder substitution; `{{agent:...}}` hints bel
 
 Artefact types that have a lifecycle should include a `status` field in frontmatter. Each type defines its own status values. Common patterns:
 
-- **Ideas:** `new` → `shaping` → `ready` → `adopted` | `parked`
-- **Designs:** `proposed` → `shaping` → `ready` → `active` → `implemented` | `superseded` | `parked` | `rejected`
+- **Ideas:** `new` → `shaping` → `ready` → `adopted` | `deprecated` | `parked`
+- **Designs:** `proposed` → `shaping` → `ready` → `active` → `implemented` | `deprecated` | `parked`
 - **Documentation:** `new` → `shaping` → `ready` → `active` → `deprecated`
-- **Tasks:** `open` → `shaping` → `in-progress` → `done` | `blocked`
-- **Workspaces:** `active` → `parked` → `completed` (terminal → `+Completed/`)
-- **Plans:** `draft` → `shaping` → `approved` → `implementing` → `completed`
-- **Idea Logs:** `open` → `adopted` / `parked`
+- **Tasks:** `open` → `shaping` → `in-progress` → `done` | `parked` | `deprecated`
+- **Workspaces:** `active` → `parked` → `completed` | `deprecated`
+- **Plans:** `draft` → `shaping` → `approved` → `implementing` → `completed` | `deprecated` | `parked`
+- **Idea Logs:** `open` → `graduated` | `deprecated` | `parked`
+
+`deprecated` is the unified abandonment terminal across types; the *reason* (superseded, rejected, cancelled, retired, duplicate) is captured in a `> [!info] Deprecated — <reason>` callout in the body. `parked` is a non-terminal pause. See [[Artefact Closure Status Model]] for the full model.
 
 ## Installing a type
 

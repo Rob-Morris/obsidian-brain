@@ -109,7 +109,7 @@ Primary folder: `Releases/{scope}/`.
 
 | Match field | Match values | Pattern |
 |---|---|---|
-| `status` | `planned`, `active`, `cancelled` | `{Title}.md` |
+| `status` | `planned`, `active`, `deprecated` | `{Title}.md` |
 | `status` | `shipped` | `{Version} - {Title}.md` |
 
 ### Placeholders

@@ -9,5 +9,5 @@ required:
     contains: "person/{key}"
 optional:
   status:
-    enum: [active, shaping, parked]
+    enum: [active, shaping, parked, deprecated]
     default: active

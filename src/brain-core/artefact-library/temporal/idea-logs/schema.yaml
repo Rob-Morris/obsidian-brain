@@ -6,5 +6,5 @@ required:
     contains: "idea"
 optional:
   status:
-    enum: [open, graduated, parked]
+    enum: [open, graduated, deprecated, parked]
     default: open

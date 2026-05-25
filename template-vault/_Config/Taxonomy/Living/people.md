@@ -38,7 +38,20 @@ Every file related to a person should use the nested person tag, e.g. `person/al
 |---|---|
 | `active` | Default. Actively maintained. |
 | `shaping` | The person card is being shaped — filling in the picture through discovery. |
-| `parked` | No longer in regular contact. Preserved for reference. |
+| `parked` | No longer in regular contact. Preserved for reference. Non-terminal; may resume. |
+| `deprecated` | Card permanently retired — duplicate, merged into another, or no longer relevant. Reason captured in a callout. Terminal — move to `+Deprecated/`. |
+
+## Terminal Status
+
+When a person card reaches `deprecated` status, set `status: deprecated`, add a reason callout, and move it to `People/+Deprecated/`:
+
+```markdown
+> [!info] Deprecated — duplicate of [[link|primary card]]
+> [!info] Deprecated — merged into [[link|new card]]
+> [!info] Deprecated — retired: no longer in life
+```
+
+Existing observations and other artefacts tagged to this person stay where they are. No rename, no `archiveddate`.
 
 ## Shaping
 

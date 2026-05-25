@@ -34,7 +34,7 @@ The following section headings are parsed by `compile_router.py` and must use th
   - `type: temporal/{singular}` (always)
   - `tags: [{singular}]` or topical tags (always)
   - `status: {default}` (when the type has a lifecycle — most don't)
-- **`## Lifecycle`** *(when the type has a status enum)* — a Markdown table with one row per state. Examples: plans (`draft | shaping | approved | implementing | completed`), idea-logs (`open | graduated | parked`).
+- **`## Lifecycle`** *(when the type has a status enum)* — a Markdown table with one row per state. Examples: plans (`draft | shaping | approved | implementing | completed | deprecated | parked`), idea-logs (`open | graduated | deprecated | parked`).
 - **`## Template`** — a single wikilink to the template, e.g. `[[_Config/Templates/Temporal/Reports]]` (no `.md` extension). Required for the compiler to record the template pointer.
 
 Optional sections:
@@ -89,7 +89,7 @@ To add a new type to brain-core for distribution, create a bundle at `artefact-l
       contains: "{singular}"
   optional:
     status:
-      enum: [draft, shaping, approved, implementing, completed]
+      enum: [draft, shaping, approved, implementing, completed, deprecated, parked]
       default: draft
   ```
 - **`taxonomy.md`** and **`template.md`** — the canonical content vaults install.

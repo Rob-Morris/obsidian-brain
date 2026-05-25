@@ -46,7 +46,19 @@ The `journal/{key}` tag (e.g. `journal/personal`) is the relationship tag that c
 | Status | Meaning |
 |---|---|
 | `active` | Default. Accepting new entries. |
-| `parked` | Set aside — not abandoned, but not accepting new entries. |
+| `parked` | Set aside — not abandoned, but not accepting new entries. Non-terminal; may resume. |
+| `deprecated` | Closed permanently — no longer being added to, possibly replaced by a different journal. Reason captured in a callout. Terminal — move to `+Deprecated/`. |
+
+## Terminal Status
+
+When a journal reaches `deprecated` status, set `status: deprecated`, add a reason callout, and move the hub to `Journals/+Deprecated/`:
+
+```markdown
+> [!info] Deprecated — superseded by [[link|new journal]]
+> [!info] Deprecated — retired: no longer maintained
+```
+
+Existing journal entries are unaffected. No rename, no `archiveddate`.
 
 ## Temporal Handshake
 
