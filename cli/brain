@@ -12,7 +12,7 @@
 set -euo pipefail
 
 BRAIN_CLI_VERSION="1.0.0"
-BRAIN_INSTALL_REF="v0.43.3"
+BRAIN_INSTALL_REF="v0.43.4"
 
 # Dispatch contract (DD-049 v1). hyphens here become underscores on disk.
 DISPATCH_SUBCOMMANDS=(
@@ -46,7 +46,10 @@ Vault subcommands (dispatched to .brain-core/scripts/):
   configure      repair         init           upgrade
   session        read           migrate-naming fix-links
 
-CLI subcommands (machine-level):
+Machine-level commands:
+  machine ...    Machine-level runtime maintenance (dispatched to machine.py).
+
+CLI subcommands:
   install <path> Scaffold a new vault at <path> (wraps install.sh).
   doctor         Machine-level health checks (+ vault check if inside one).
   version        Print CLI version (also: --version).
@@ -70,6 +73,43 @@ cli_install() {
     shift
     command -v curl >/dev/null 2>&1 || die "brain install requires curl"
     bash <(curl -fsSL "$INSTALL_URL") "$target" "$@"
+}
+
+dispatch_machine() {
+    extract_vault_arg "$@"
+
+    local current_vault=""
+    if [[ -n "$VAULT_ARG" ]]; then
+        [[ -d "$VAULT_ARG" ]] || die "brain: --vault path does not exist: $VAULT_ARG"
+        current_vault=$(absolute_path "$VAULT_ARG")
+    else
+        current_vault=$(resolve_vault_silent || true)
+    fi
+
+    local py
+    py=$(find_launcher_python || true)
+    [[ -n "$py" ]] || die "brain: no python3.12+ launcher on PATH (need python3.12 or python3.13)"
+
+    local source_vault=""
+    if [[ -n "$current_vault" && -f "$current_vault/.brain-core/scripts/machine.py" ]]; then
+        source_vault=$current_vault
+    else
+        source_vault=$(resolve_machine_source_vault_silent "$py" machine.py || true)
+    fi
+    [[ -n "$source_vault" ]] || die "brain: no source Brain with machine.py found — run inside a modern Brain or upgrade one registered Brain first"
+
+    local source_python
+    source_python=$(resolve_vault_python "$source_vault")
+
+    local script_path="$source_vault/.brain-core/scripts/machine.py"
+    local machine_args=(--vault "$source_vault" --launcher "$py")
+    if [[ -n "$current_vault" ]]; then
+        machine_args+=(--current-vault "$current_vault")
+    fi
+    if (( ${#FORWARDED_ARGS[@]} > 0 )); then
+        machine_args+=("${FORWARDED_ARGS[@]}")
+    fi
+    exec "$source_python" "$script_path" "${machine_args[@]}"
 }
 
 cli_doctor() {
@@ -105,7 +145,7 @@ cli_doctor() {
     if [[ -n "$vault" && -f "$vault/.brain-core/scripts/doctor_machine.py" ]]; then
         machine_source_vault=$vault
     else
-        machine_source_vault=$(resolve_machine_source_vault_silent "$py" || true)
+        machine_source_vault=$(resolve_machine_source_vault_silent "$py" doctor_machine.py || true)
     fi
 
     local machine_helper_ran=0
@@ -210,19 +250,20 @@ machine_brains_registry_path() {
 
 resolve_machine_source_vault_silent() {
     local launcher=${1:-}
+    local helper_name=${2:-doctor_machine.py}
     local registry_path
     registry_path=$(machine_vault_registry_path)
 
     if [[ -f "$registry_path" ]]; then
         # This duplicates the on-disk registry parsing contract from
-        # src/brain-core/scripts/vault_registry.py because `brain doctor` needs a
-        # source Brain before it can hand off to Python at all.
+        # src/brain-core/scripts/vault_registry.py because machine-level CLI
+        # commands need a source Brain before they can hand off to Python at all.
         local alias path
         while IFS=$'\t' read -r alias path; do
             [[ -n "$alias" ]] || continue
             [[ "$alias" == \#* ]] && continue
             [[ -n "$path" ]] || continue
-            if [[ -f "$path/.brain-core/VERSION" && -f "$path/.brain-core/scripts/doctor_machine.py" ]]; then
+            if [[ -f "$path/.brain-core/VERSION" && -f "$path/.brain-core/scripts/$helper_name" ]]; then
                 absolute_path "$path"
                 return 0
             fi
@@ -249,6 +290,7 @@ except Exception:
 brains = data.get("brains")
 if not isinstance(brains, list):
     raise SystemExit(1)
+helper_name = sys.argv[2]
 for entry in brains:
     if not isinstance(entry, dict):
         continue
@@ -256,11 +298,11 @@ for entry in brains:
     if not isinstance(vault_path, str) or not vault_path:
         continue
     version_path = os.path.join(vault_path, ".brain-core", "VERSION")
-    helper_path = os.path.join(vault_path, ".brain-core", "scripts", "doctor_machine.py")
+    helper_path = os.path.join(vault_path, ".brain-core", "scripts", helper_name)
     if os.path.isfile(version_path) and os.path.isfile(helper_path):
         print(os.path.realpath(vault_path))
         raise SystemExit(0)
-raise SystemExit(1)' "$brains_path" 2>/dev/null || true)
+raise SystemExit(1)' "$brains_path" "$helper_name" 2>/dev/null || true)
     [[ -n "$fallback" ]] || return 1
     printf '%s\n' "$fallback"
 }
@@ -392,6 +434,7 @@ main() {
         --version|version) print_version ;;
         install) cli_install "$@" ;;
         doctor) cli_doctor ;;
+        machine) dispatch_machine "$@" ;;
         *)
             if is_dispatch_subcommand "$subcommand"; then
                 dispatch "$subcommand" "$@"

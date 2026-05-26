@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 
+from _machine._labels import brain_label
 from _machine.discovery import (
     MACHINE_REGISTRY_BLOCK_MESSAGES,
     discover_brains,
@@ -16,13 +17,6 @@ from _machine.maintenance import inspect_machine_runtime_state
 
 def _counted_label(count: int, singular: str, plural: str) -> str:
     return singular if count == 1 else plural
-
-
-def _brain_label(brain: dict) -> str:
-    alias = brain.get("alias")
-    if alias:
-        return f"{alias} ({brain['path']})"
-    return brain["path"]
 
 
 def _machine_registry_state_label(registry: dict) -> str:
@@ -122,7 +116,7 @@ def _render_human(summary: dict) -> None:
         print("brain routes:")
         for brain in summary["brains"]:
             runtime = brain["runtime"]
-            print(f"  {_brain_label(brain)}")
+            print(f"  {brain_label(brain)}")
             print(f"    route: {runtime['status']} — {runtime['message']}")
             if runtime["selected_runtime"] is not None:
                 print(f"    runtime: {runtime['selected_runtime']}")

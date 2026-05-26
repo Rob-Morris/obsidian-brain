@@ -48,6 +48,32 @@ REPAIR_SCOPES = {
 }
 
 
+def build_repair_argv(
+    vault_root: str | Path,
+    scope: str,
+    *,
+    launcher: str | None = None,
+    json_mode: bool = False,
+    dry_run: bool = False,
+) -> list[str]:
+    """Return argv for the exact repair.py invocation for one scope."""
+    vault_root = Path(vault_root).resolve()
+    script_path = vault_root / REPAIR_SCRIPT_REL
+    launcher = launcher or find_launcher_python() or DEFAULT_MANAGED_RUNTIME_LAUNCHER
+    argv = [
+        launcher,
+        str(script_path),
+        scope,
+        "--vault",
+        str(vault_root),
+    ]
+    if dry_run:
+        argv.append("--dry-run")
+    if json_mode:
+        argv.append("--json")
+    return argv
+
+
 def build_repair_command(
     vault_root: str | Path,
     scope: str,
@@ -56,22 +82,16 @@ def build_repair_command(
     json_mode: bool = False,
     dry_run: bool = False,
 ) -> str:
-    """Return an exact repair command for the given scope."""
-    vault_root = Path(vault_root).resolve()
-    script_path = vault_root / REPAIR_SCRIPT_REL
-    launcher = launcher or find_launcher_python() or DEFAULT_MANAGED_RUNTIME_LAUNCHER
-    parts = [
-        shlex.quote(launcher),
-        shlex.quote(str(script_path)),
-        scope,
-        "--vault",
-        shlex.quote(str(vault_root)),
-    ]
-    if dry_run:
-        parts.append("--dry-run")
-    if json_mode:
-        parts.append("--json")
-    return " ".join(parts)
+    """Return an exact shell-ready repair command for the given scope."""
+    return shlex.join(
+        build_repair_argv(
+            vault_root,
+            scope,
+            launcher=launcher,
+            json_mode=json_mode,
+            dry_run=dry_run,
+        )
+    )
 
 
 def build_repair_metadata(vault_root: str | Path, scope: str) -> dict:

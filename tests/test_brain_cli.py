@@ -1,5 +1,6 @@
 """Integration tests for `cli/brain` — the thin dispatch layer (DD-049)."""
 
+import json
 import os
 import re
 import shutil
@@ -77,8 +78,10 @@ def _build_machine_helper_vault(root: Path) -> Path:
     shutil.copytree(SCRIPTS_DIR / "_bootstrap", scripts / "_bootstrap")
     shutil.copytree(SCRIPTS_DIR / "_machine", scripts / "_machine")
     shutil.copy2(SCRIPTS_DIR / "doctor_machine.py", scripts / "doctor_machine.py")
+    shutil.copy2(SCRIPTS_DIR / "machine.py", scripts / "machine.py")
     shutil.copy2(SCRIPTS_DIR / "vault_registry.py", scripts / "vault_registry.py")
     shutil.copy2(SCRIPTS_DIR / "_repair_common.py", scripts / "_repair_common.py")
+    shutil.copy2(SCRIPTS_DIR / "_lifecycle_common.py", scripts / "_lifecycle_common.py")
     (vault / ".brain-core" / "VERSION").write_text(BRAIN_CORE_VERSION + "\n")
     brain_mcp = vault / ".brain-core" / "brain_mcp"
     brain_mcp.mkdir(parents=True)
@@ -373,6 +376,31 @@ def test_doctor_outside_vault_uses_machine_helper_from_brains_registry_fallback(
     assert "registry:" in result.stdout
     assert "brain routes:" in result.stdout
     assert "none in scope" in result.stdout
+
+
+def test_machine_outside_vault_uses_machine_helper_from_registry(tmp_path):
+    vault = _build_machine_helper_vault(tmp_path)
+    xdg = tmp_path / "xdg"
+    registry = xdg / "brain" / "vaults"
+    registry.parent.mkdir(parents=True)
+    registry.write_text(f"vault\t{vault}\n")
+
+    elsewhere = tmp_path / "no-vault"
+    elsewhere.mkdir()
+    result = _run_cli(
+        "machine",
+        "prune-runtimes",
+        "--dry-run",
+        "--json",
+        cwd=elsewhere,
+        env_extra={"BRAIN_VAULT_ROOT": "", "XDG_CONFIG_HOME": str(xdg), "HOME": str(tmp_path)},
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["action"] == "prune-runtimes"
+    assert payload["source_vault"] == str(vault)
+    assert payload["counts"]["targets"] == 0
 
 
 def test_doctor_inside_older_vault_falls_back_to_registered_machine_helper(tmp_path):

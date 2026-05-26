@@ -200,6 +200,8 @@ The MCP server writes persistent logs to `.brain/local/mcp-server.log` (2 MB max
 
 Available in `.brain-core/scripts/`. Scripts are the source of truth for all vault operations — the MCP server imports from them. The optional [`brain` CLI](../functional/cli.md) provides ergonomic shortcuts that dispatch to these same top-level script surfaces.
 
+Beyond vault-scoped dispatch, the CLI also owns the machine-level surfaces: `brain doctor` for shared-runtime diagnosis and `brain machine ...` for explicit legacy-Brain migration and orphan-runtime pruning. Those commands still route into launcher-safe Python owners under `.brain-core/scripts/`; the CLI remains chrome rather than a separate implementation layer.
+
 Use direct script invocation from a compatible Python 3.12+ launcher as the baseline command-line path. Bootstrap entrypoints such as `repair.py`, `configure.py`, and `init.py` do their launcher-safe setup there; runtime-owning lifecycle entrypoints such as `repair.py`, `configure.py`, `session.py`, and `check.py` then hand substantive managed work into the canonical managed runtime automatically.
 
 The same is now true for the managed operational wrappers: `build_index.py`, `search_index.py`, `construct_benchmark_fixture.py`, `evaluate_search.py`, `compile_router.py`, `compile_colours.py`, `sync_definitions.py`, `shape_printable.py`, `shape_presentation.py`, and `migrate_naming.py` all start in the launcher only long enough to enter the managed runtime. You do not need to activate the vault venv manually before using them. Portable lexical wrappers (`build_lexical_index.py`, `search_lexical.py`) stay in the launcher and use the same lexical index format without any semantic/runtime handoff.
