@@ -56,16 +56,28 @@ def _machine_registry_note_lines(summary: dict) -> list[str]:
     return []
 
 
+def _render_repair_findings(findings: list[dict]) -> list[str]:
+    lines: list[str] = []
+    for finding in findings:
+        repair = finding["repair"]
+        message = finding["message"]
+        lines.append(f"repair: {repair['scope']} — {message}")
+        lines.append(f"command: {repair['command']}")
+    return lines
+
+
 def _render_human(summary: dict) -> None:
     counts = summary["counts"]
     registry = summary["machine_registry"]
     stale_label = _counted_label(counts["stale_registry_entries"], "entry", "entries")
     orphan_label = _counted_label(counts["orphan_candidates"], "orphan candidate", "orphan candidates")
     registry_brain_label = _counted_label(registry["brains"], "brain", "brains")
+    drifted_label = _counted_label(counts["brains_with_repair_findings"], "Brain with drift", "Brains with drift")
     print(
         "brains:    "
         f"{counts['brains']} discovered "
-        f"({counts['stale_registry_entries']} stale vault-registry {stale_label})"
+        f"({counts['stale_registry_entries']} stale vault-registry {stale_label}, "
+        f"{counts['brains_with_repair_findings']} {drifted_label})"
     )
     print(
         "registry:  "
@@ -118,6 +130,9 @@ def _render_human(summary: dict) -> None:
                 print(f"    expected runtime: {runtime['expected_runtime']}")
             if runtime["legacy_runtime_present"]:
                 print(f"    legacy .venv: {runtime['legacy_runtime_dir']}")
+            if brain["repair_findings"]:
+                for line in _render_repair_findings(brain["repair_findings"]):
+                    print(f"    {line}")
 
     orphan_candidates = [runtime for runtime in summary["runtimes"] if runtime["orphan_candidate"]]
     if orphan_candidates:

@@ -23,6 +23,29 @@ def _install_central_runtime(python_path: Path) -> None:
     python_path.symlink_to(sys.executable)
 
 
+def _make_drifted_vault(root: Path, name: str) -> Path:
+    vault = _make_vault(root, name)
+    (vault / ".mcp.json").write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "brain": {
+                        "command": "/tmp/old-python",
+                        "args": ["-m", "brain_mcp.proxy", "/tmp/old-python", "brain_mcp.server"],
+                        "env": {"BRAIN_VAULT_ROOT": str(vault), "PYTHONPATH": str(vault / ".brain-core")},
+                    }
+                }
+            },
+            indent=2,
+        )
+    )
+    (vault / ".brain" / "local").mkdir(parents=True, exist_ok=True)
+    (vault / ".brain" / "local" / "workspaces.json").write_text(
+        json.dumps({"workspaces": {"bad": 7}}, indent=2)
+    )
+    return vault
+
+
 def test_discover_brains_skips_registry_writes_until_sync(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
@@ -258,6 +281,81 @@ def test_inspect_machine_runtime_state_marks_orphans_unknown_when_ps_fails(monke
     assert not summary["tidy"]
 
 
+def test_inspect_machine_runtime_state_reports_brain_level_repair_findings(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+
+    vault = _make_drifted_vault(tmp_path, "Active Brain")
+    selected_runtime = resolve_vault_venv_python(vault, launcher=Path(sys.executable))
+    _install_central_runtime(selected_runtime)
+
+    discovery = discover_brains(current_vault=vault)
+    machine_registry = sync_machine_registry(discovery["brains"])
+    summary = inspect_machine_runtime_state(
+        launcher_python=sys.executable,
+        discovery=discovery,
+        machine_registry=machine_registry,
+    )
+
+    brain = summary["brains"][0]
+    scopes = {finding["repair"]["scope"] for finding in brain["repair_findings"]}
+
+    assert scopes == {"mcp", "registry"}
+    assert summary["counts"]["brains_with_repair_findings"] == 1
+    assert summary["counts"]["repair_findings"] == 2
+    assert not summary["healthy"]
+
+
+def test_doctor_machine_main_renders_brain_level_repair_guidance(monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+
+    vault = _make_drifted_vault(tmp_path, "Active Brain")
+    selected_runtime = resolve_vault_venv_python(vault, launcher=Path(sys.executable))
+    _install_central_runtime(selected_runtime)
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "doctor_machine.py",
+            "--vault",
+            str(vault),
+            "--current-vault",
+            str(vault),
+            "--launcher",
+            sys.executable,
+        ],
+    )
+    assert doctor_machine.main() == 1
+    human = capsys.readouterr().out
+    assert "repair: mcp — Brain MCP project registration state is drifted or incomplete." in human
+    assert ".brain-core/scripts/repair.py" in human
+    assert "mcp --vault" in human
+    assert "repair: registry — Registry contains invalid linked-workspace entries: bad" in human
+    assert "registry --vault" in human
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "doctor_machine.py",
+            "--vault",
+            str(vault),
+            "--current-vault",
+            str(vault),
+            "--launcher",
+            sys.executable,
+            "--json",
+        ],
+    )
+    assert doctor_machine.main() == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["counts"]["brains_with_repair_findings"] == 1
+    assert payload["counts"]["repair_findings"] == 2
+    assert {finding["repair"]["scope"] for finding in payload["brains"][0]["repair_findings"]} == {"mcp", "registry"}
+
+
 def test_doctor_machine_main_renders_human_and_json(monkeypatch, tmp_path, capsys):
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
@@ -302,5 +400,8 @@ def test_doctor_machine_main_renders_human_and_json(monkeypatch, tmp_path, capsy
     assert doctor_machine.main() == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["counts"]["brains"] == 1
+    assert payload["counts"]["brains_with_repair_findings"] == 0
+    assert payload["counts"]["repair_findings"] == 0
     assert payload["machine_registry"]["brains"] == 1
     assert payload["brains"][0]["runtime"]["status"] == "central_exact"
+    assert payload["brains"][0]["repair_findings"] == []

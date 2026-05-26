@@ -74,9 +74,11 @@ def _build_machine_helper_vault(root: Path) -> Path:
     scripts = vault / ".brain-core" / "scripts"
     scripts.mkdir(parents=True)
     shutil.copytree(SCRIPTS_DIR / "_common", scripts / "_common")
+    shutil.copytree(SCRIPTS_DIR / "_bootstrap", scripts / "_bootstrap")
     shutil.copytree(SCRIPTS_DIR / "_machine", scripts / "_machine")
     shutil.copy2(SCRIPTS_DIR / "doctor_machine.py", scripts / "doctor_machine.py")
     shutil.copy2(SCRIPTS_DIR / "vault_registry.py", scripts / "vault_registry.py")
+    shutil.copy2(SCRIPTS_DIR / "_repair_common.py", scripts / "_repair_common.py")
     (vault / ".brain-core" / "VERSION").write_text(BRAIN_CORE_VERSION + "\n")
     brain_mcp = vault / ".brain-core" / "brain_mcp"
     brain_mcp.mkdir(parents=True)

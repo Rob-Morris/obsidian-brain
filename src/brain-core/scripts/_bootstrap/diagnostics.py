@@ -242,7 +242,7 @@ def _has_hook_entry(settings: dict, command: str) -> bool:
     return False
 
 
-def _current_vault_project_records(vault_root: Path) -> list[dict]:
+def _project_records_for_vault(vault_root: Path) -> list[dict]:
     return matching_records(
         vault_root,
         ["claude", "codex"],
@@ -265,7 +265,7 @@ def _read_claude_project_server(config_path: Path) -> dict | None:
 
 
 def inspect_mcp(vault_root: Path) -> dict:
-    """Inspect current-vault project MCP state without mutating user scope."""
+    """Inspect a vault's project MCP state without mutating user scope."""
     server_config = _expected_project_server_config(vault_root)
     claude_config_path = vault_root / CLAUDE_PROJECT_CONFIG_FILE
     codex_config_path = vault_root / CODEX_CONFIG_REL
@@ -288,7 +288,7 @@ def inspect_mcp(vault_root: Path) -> dict:
     settings, _ = _read_json_safe(claude_settings_path)
     hook_ok = _has_hook_entry(settings or {}, expected_hook)
 
-    records = _current_vault_project_records(vault_root)
+    records = _project_records_for_vault(vault_root)
     claude_record_ok = any(
         _record_matches(record, client="claude", config_path=claude_config_path, server_config=server_config)
         for record in records
@@ -332,11 +332,10 @@ def local_mcp_state_present(vault_root: Path) -> bool:
     )
 
 
-def collect_bootstrap_check_findings(vault_root: str | Path) -> list[dict]:
-    """Return launcher-safe repair-oriented compliance findings."""
+def collect_registry_check_findings(vault_root: str | Path) -> list[dict]:
+    """Return launcher-safe linked-workspace registry findings for one vault."""
     vault_root = Path(vault_root)
     findings: list[dict] = []
-
     registry = inspect_registry(vault_root)
     if registry["present"] and not registry["healthy"]:
         finding = {
@@ -346,32 +345,56 @@ def collect_bootstrap_check_findings(vault_root: str | Path) -> list[dict]:
             "message": registry["message"],
         }
         findings.append(attach_repair_guidance(finding, vault_root, "registry"))
+    return findings
 
-    if local_mcp_state_present(vault_root):
-        runtime = inspect_runtime(vault_root)
-        if not runtime["healthy"]:
-            for issue in runtime["issues"]:
-                finding = {
-                    "check": f"runtime:{issue}",
-                    "severity": "warning",
-                    "file": None,
-                    "message": runtime.get("message") or _runtime_issue_message(issue),
-                }
-                findings.append(attach_repair_guidance(finding, vault_root, "runtime"))
 
-        mcp = inspect_mcp(vault_root)
-        unhealthy = [
-            client
-            for client in ("claude", "codex")
-            if mcp[client]["present"] and not mcp[client]["healthy"]
-        ]
-        if unhealthy:
+def collect_runtime_check_findings(vault_root: str | Path) -> list[dict]:
+    """Return launcher-safe managed-runtime findings for one vault."""
+    vault_root = Path(vault_root)
+    findings: list[dict] = []
+    if not local_mcp_state_present(vault_root):
+        return findings
+
+    runtime = inspect_runtime(vault_root)
+    if not runtime["healthy"]:
+        for issue in runtime["issues"]:
             finding = {
-                "check": "mcp_registration",
+                "check": f"runtime:{issue}",
                 "severity": "warning",
                 "file": None,
-                "message": "Current-vault MCP registration state is drifted or incomplete.",
+                "message": runtime.get("message") or _runtime_issue_message(issue),
             }
-            findings.append(attach_repair_guidance(finding, vault_root, "mcp"))
+            findings.append(attach_repair_guidance(finding, vault_root, "runtime"))
+    return findings
 
+
+def collect_mcp_check_findings(vault_root: str | Path) -> list[dict]:
+    """Return launcher-safe Brain MCP registration findings for one vault."""
+    vault_root = Path(vault_root)
+    findings: list[dict] = []
+    if not local_mcp_state_present(vault_root):
+        return findings
+
+    mcp = inspect_mcp(vault_root)
+    unhealthy = [
+        client
+        for client in ("claude", "codex")
+        if mcp[client]["present"] and not mcp[client]["healthy"]
+    ]
+    if unhealthy:
+        finding = {
+            "check": "mcp_registration",
+            "severity": "warning",
+            "file": None,
+            "message": "Brain MCP project registration state is drifted or incomplete.",
+        }
+        findings.append(attach_repair_guidance(finding, vault_root, "mcp"))
+    return findings
+
+
+def collect_bootstrap_check_findings(vault_root: str | Path) -> list[dict]:
+    """Return launcher-safe repair-oriented compliance findings."""
+    findings = collect_registry_check_findings(vault_root)
+    findings.extend(collect_runtime_check_findings(vault_root))
+    findings.extend(collect_mcp_check_findings(vault_root))
     return findings

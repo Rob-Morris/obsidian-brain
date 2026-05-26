@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from _bootstrap import diagnostics as bootstrap_diagnostics
 from _common import central_venvs_root
 
 from .topology import (
@@ -25,8 +26,11 @@ def inspect_machine_runtime_state(
 
     for brain in discovery["brains"]:
         runtime = classify_brain_runtime(brain["path"], launcher_python=launcher_python)
+        repair_findings = bootstrap_diagnostics.collect_registry_check_findings(brain["path"])
+        repair_findings.extend(bootstrap_diagnostics.collect_mcp_check_findings(brain["path"]))
         record = dict(brain)
         record["runtime"] = runtime
+        record["repair_findings"] = repair_findings
         brains.append(record)
         if runtime["selected_runtime"] is not None:
             selected_runtimes.add(runtime["selected_runtime"])
@@ -60,7 +64,9 @@ def inspect_machine_runtime_state(
         and not machine_registry["blocked"]
         and not machine_registry["malformed_rewritten"]
         and all(
-            brain["runtime"]["healthy_runtime"] and not brain["runtime"]["legacy_runtime_present"]
+            brain["runtime"]["healthy_runtime"]
+            and not brain["runtime"]["legacy_runtime_present"]
+            and not brain["repair_findings"]
             for brain in brains
         )
     )
@@ -79,6 +85,8 @@ def inspect_machine_runtime_state(
         "runtimes": runtime_rows,
         "counts": {
             "brains": len(brains),
+            "brains_with_repair_findings": sum(1 for brain in brains if brain["repair_findings"]),
+            "repair_findings": sum(len(brain["repair_findings"]) for brain in brains),
             "machine_registry_brains": machine_registry["brains"],
             "stale_machine_registry_entries": len(machine_registry["stale_machine_registry_entries"]),
             "stale_registry_entries": len(discovery["stale_registry_entries"]),
