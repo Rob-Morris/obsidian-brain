@@ -61,6 +61,8 @@ from _repair_common import attach_repair_guidance
 # Constants
 # ---------------------------------------------------------------------------
 
+VALID_SEVERITIES = ("error", "warning", "info")
+
 ROOT_BOOTSTRAP_VARIANTS = {
     variant
     for variants in (
@@ -821,11 +823,53 @@ def parse_args(argv):
         idx = argv.index("--severity")
         if idx + 1 < len(argv):
             severity = argv[idx + 1]
+            if severity not in VALID_SEVERITIES:
+                raise SystemExit(
+                    "check.py: --severity must be one of: "
+                    + ", ".join(VALID_SEVERITIES)
+                )
     if "--vault" in argv:
         idx = argv.index("--vault")
         if idx + 1 < len(argv):
             vault_path = argv[idx + 1]
     return json_mode, actionable, severity, vault_path
+
+
+def render_human_findings(result, *, actionable=False):
+    """Return human-readable finding lines for an already-built check result.
+
+    Doctor's composed vault-local section consumes the same stable subset of the
+    check result envelope across Brain versions: each finding must carry
+    ``severity``, ``file``, and ``message``, with optional ``fix`` / ``repair``.
+    """
+    severity_prefix = {"error": "ERROR", "warning": "WARN ", "info": "INFO "}
+    lines = []
+    for finding in result["findings"]:
+        prefix = severity_prefix.get(finding["severity"], "     ")
+        file_str = finding["file"] or "(folder-level)"
+        line = f"  {prefix}  {file_str}: {finding['message']}"
+        if actionable and "fix" in finding:
+            line += f" → {finding['fix']}"
+        elif "repair" in finding:
+            line += f" → Run `{finding['repair']['command']}`"
+        lines.append(line)
+    return lines
+
+
+def render_human_summary(result):
+    """Return the human-readable summary/footer line for a check result.
+
+    The summary contract consumed by Doctor is the stable ``errors`` /
+    ``warnings`` / ``info`` count triple from ``run_checks``.
+    """
+    summary = result["summary"]
+    total = summary["errors"] + summary["warnings"] + summary["info"]
+    if total == 0:
+        return "All checks passed."
+    return (
+        f"{total} finding(s): {summary['errors']} error(s), "
+        f"{summary['warnings']} warning(s), {summary['info']} info"
+    )
 
 
 def main():
@@ -882,24 +926,12 @@ def main():
     if json_mode:
         print(json.dumps(result, indent=2, ensure_ascii=False))
     else:
-        # Human-readable output
-        severity_prefix = {"error": "ERROR", "warning": "WARN ", "info": "INFO "}
-        for f in result["findings"]:
-            prefix = severity_prefix.get(f["severity"], "     ")
-            file_str = f["file"] or "(folder-level)"
-            line = f"  {prefix}  {file_str}: {f['message']}"
-            if actionable and "fix" in f:
-                line += f" → {f['fix']}"
-            elif "repair" in f:
-                line += f" → Run `{f['repair']['command']}`"
+        lines = render_human_findings(result, actionable=actionable)
+        for line in lines:
             print(line)
-
-        s = result["summary"]
-        total = s["errors"] + s["warnings"] + s["info"]
-        if total == 0:
-            print("\nAll checks passed.")
-        else:
-            print(f"\n{total} finding(s): {s['errors']} error(s), {s['warnings']} warning(s), {s['info']} info")
+        if lines:
+            print()
+        print(render_human_summary(result))
 
     # Exit codes: 0 = clean, 1 = warnings only, 2 = errors
     if result["summary"]["errors"] > 0:

@@ -46,10 +46,10 @@ Hyphens in subcommand names map to underscores in script filenames (`migrate-nam
 | `brain version`, `brain --version` | Print the CLI version. |
 | `brain --help`, `brain -h` | List subcommands and resolution rules. |
 | `brain install <path>` | Scaffold a new vault at `<path>` (wraps `install.sh`). Useful when adding a second vault. |
-| `brain doctor` | Machine-level health checks. The shell layer still reports CLI/PATH/Python basics; when a source Brain is available it also hands richer shared-runtime topology checks to `doctor_machine.py`, including per-Brain MCP/workspace drift guidance with exact `repair.py` commands. Inside a vault, it also dispatches `check.py`. |
+| `brain doctor [--json] [--actionable] [--severity S] [--vault V]` | Machine-level health checks. The shell still resolves the current/source Brain and keeps the degraded fallback, but when a source Brain is available it now hands the composed Doctor experience to `doctor.py`: CLI/PATH/Python basics, machine-level shared-runtime diagnosis from `doctor_machine.py`, and current-vault `check.py` as a separate vault-local section. |
 | `brain machine <action> [...]` | Machine-level maintenance actions. The shell resolves a source Brain, then dispatches `machine.py` for explicit mutation surfaces such as legacy-Brain migration and orphan-runtime pruning. |
 
-`brain doctor` bootstraps its Python handoff from the user-home vault registry (`vault_registry.py`, stored at `$XDG_CONFIG_HOME/brain/vaults`, default `~/.config/brain/vaults`). Once a source Brain is available, the `_machine/` substrate maintains `$XDG_CONFIG_HOME/brain/brains.json` (default `~/.config/brain/brains.json`) as the derived machine registry used for richer topology diagnosis. The shell still prefers `vault_registry.py` as its curated bootstrap signal, but may fall back to `brains.json` when the curated registry no longer points at a runnable source Brain. Machine-level diagnosis now also points drifted Brains back to their own `repair.py mcp` / `repair.py registry` paths instead of treating that registration state as machine-owned. If `brain doctor` auto-repairs derived machine-registry drift, it exits non-zero once and expects a re-run to confirm the machine is clean.
+`brain doctor` bootstraps its Python handoff from the user-home vault registry (`vault_registry.py`, stored at `$XDG_CONFIG_HOME/brain/vaults`, default `~/.config/brain/vaults`). Once a source Brain is available, `doctor.py` becomes the launcher-safe composition owner for the Doctor experience: it renders CLI/PATH/Python basics, consumes machine-level shared-runtime findings from `doctor_machine.py` / `_machine/`, and runs the current vault's own `check.py --json` so the vault-local section stays owned by that Brain's version of `check.py`. The shell still prefers `vault_registry.py` as its curated bootstrap signal, but may fall back to `brains.json` when the curated registry no longer points at a runnable source Brain. Machine-level diagnosis now also points drifted Brains back to their own `repair.py mcp` / `repair.py registry` paths instead of treating that registration state as machine-owned. If `brain doctor` auto-repairs derived machine-registry drift, it exits non-zero once and expects a re-run to confirm the machine is clean.
 
 `brain machine` shares that same source-Brain bootstrap and `_machine/` substrate, but exposes explicit mutation surfaces instead of diagnosis. The current actions are:
 
@@ -90,8 +90,11 @@ brain check --vault ~/Documents/Brain --actionable
 # Doctor mode, outside any vault — machine-level checks only.
 brain doctor
 
-# Doctor mode, inside a vault — machine checks via `_machine/` + dispatched check.py.
+# Doctor mode, inside a vault — machine diagnosis first, then the current vault's own check.py section.
 cd ~/Documents/Brain && brain doctor
+
+# Structured Doctor output for the current vault.
+brain doctor --vault ~/Documents/Brain --json
 
 # Preview orphan-runtime pruning without mutating anything.
 brain machine prune-runtimes --dry-run

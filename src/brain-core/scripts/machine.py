@@ -7,9 +7,8 @@ import argparse
 import json
 
 from _lifecycle_common import exit_code_for_result, render_step_label
-from _machine.discovery import discover_brains, sync_machine_registry
 from _machine.maintenance import (
-    inspect_machine_runtime_state,
+    collect_machine_summary,
     migrate_legacy_brains,
     prune_orphaned_runtimes,
 )
@@ -68,12 +67,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
 
-    discovery = discover_brains(current_vault=args.current_vault)
-    machine_registry = sync_machine_registry(discovery["brains"])
-    summary = inspect_machine_runtime_state(
+    summary = collect_machine_summary(
+        current_vault=args.current_vault,
         launcher_python=args.launcher,
-        discovery=discovery,
-        machine_registry=machine_registry,
     )
 
     if args.action == "migrate-legacy":

@@ -23,14 +23,9 @@ import vault_registry
 
 
 MACHINE_REGISTRY_VERSION = 1
+DEFAULT_MACHINE_REGISTRY_BLOCK_MESSAGE = "machine-registry state could not be safely interpreted; leaving brains.json untouched"
 MACHINE_REGISTRY_BLOCK_MESSAGES = {
     "newer-version": "newer machine-registry schema detected; leaving brains.json untouched",
-    "missing-version": "machine-registry state could not be safely interpreted; leaving brains.json untouched",
-    "invalid-version": "machine-registry state could not be safely interpreted; leaving brains.json untouched",
-    "unsupported-version": "machine-registry state could not be safely interpreted; leaving brains.json untouched",
-    "invalid-root": "machine-registry state could not be safely interpreted; leaving brains.json untouched",
-    "invalid-json": "machine-registry state could not be safely interpreted; leaving brains.json untouched",
-    "unreadable": "machine-registry state could not be safely interpreted; leaving brains.json untouched",
 }
 
 
@@ -126,6 +121,9 @@ def _parse_machine_registry(data: Any, path: Path) -> dict[str, Any]:
             ),
         )
 
+    # Keep this parser aligned with the shell-side minimal brains.json scan in
+    # cli/brain: both understand only the path/helper-discovery subset needed
+    # before Python handoff can take over.
     brains = data.get("brains")
     if not isinstance(brains, list):
         state["malformed"] = True
@@ -193,7 +191,6 @@ def _brain_entry(path: Path, *, alias: str | None = None, source: str) -> dict[s
         "alias": alias,
         "path": str(path),
         "sources": [source],
-        "registered": alias is not None,
         "stale": False,
     }
 
@@ -217,7 +214,6 @@ def _merge_brain_entry(
         record["sources"].append(source)
     if record["alias"] is None and alias is not None:
         record["alias"] = alias
-        record["registered"] = True
 
 
 def _render_machine_registry(brains: list[dict[str, Any]]) -> dict[str, Any]:
@@ -259,7 +255,7 @@ def sync_machine_registry(brains: list[dict[str, Any]]) -> dict[str, Any]:
                 "backup_path": None,
                 "blocked": True,
                 "blocked_reason": current["blocked_reason"],
-                "brains": len(current["brains"]),
+                "brains_count": len(current["brains"]),
                 "changed": False,
                 "malformed_rewritten": False,
                 "path": str(path),
@@ -291,7 +287,7 @@ def sync_machine_registry(brains: list[dict[str, Any]]) -> dict[str, Any]:
         "backup_path": backup_path,
         "blocked": False,
         "blocked_reason": None,
-        "brains": len(target_brains),
+        "brains_count": len(target_brains),
         "changed": changed,
         "malformed_rewritten": malformed_current,
         "path": str(path),

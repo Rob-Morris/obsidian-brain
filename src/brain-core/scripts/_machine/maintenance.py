@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import json
 from pathlib import Path
 import shlex
@@ -14,9 +15,10 @@ from _bootstrap import diagnostics as bootstrap_diagnostics
 from _bootstrap.runtime import step as _step
 from _common import central_venvs_root
 from _lifecycle_common import derive_step_status
-from _repair_common import build_repair_argv, build_repair_command
+from _repair_common import build_repair_argv
 
 from ._labels import brain_label
+from .discovery import discover_brains, sync_machine_registry
 from .topology import (
     classify_brain_runtime,
     find_live_brain_runtime_processes,
@@ -28,6 +30,25 @@ DELEGATED_REPAIR_TIMEOUT = 300
 _DELEGATED_OK_STATUSES = {"planned", "noop", "changed"}
 
 
+@dataclass(frozen=True)
+class _LegacyTargetSelection:
+    targets: list[dict[str, Any]]
+    step: dict[str, Any]
+
+
+
+
+def collect_machine_summary(*, current_vault: str | None = None, launcher_python: str | None = None) -> dict[str, Any]:
+    """Collect the shared machine-runtime summary for Doctor and machine actions."""
+    discovery = discover_brains(current_vault=current_vault)
+    machine_registry = sync_machine_registry(discovery["brains"])
+    return inspect_machine_runtime_state(
+        launcher_python=launcher_python,
+        discovery=discovery,
+        machine_registry=machine_registry,
+    )
+
+
 def inspect_machine_runtime_state(
     *,
     launcher_python: str | None = None,
@@ -36,7 +57,6 @@ def inspect_machine_runtime_state(
 ) -> dict[str, Any]:
     """Inspect discovered Brains and shared runtimes on this machine."""
     brains: list[dict[str, Any]] = []
-    selected_runtimes: set[str] = set()
 
     for brain in discovery["brains"]:
         runtime = classify_brain_runtime(brain["path"], launcher_python=launcher_python)
@@ -46,8 +66,6 @@ def inspect_machine_runtime_state(
         record["runtime"] = runtime
         record["repair_findings"] = repair_findings
         brains.append(record)
-        if runtime["selected_runtime"] is not None:
-            selected_runtimes.add(runtime["selected_runtime"])
 
     runtimes = list_central_runtimes()
     live_usage = find_live_brain_runtime_processes(rt["python"] for rt in runtimes)
@@ -61,11 +79,9 @@ def inspect_machine_runtime_state(
             if brain["runtime"]["selected_runtime"] == runtime["python"]
         ]
         live_processes = live_usage["processes"].get(runtime["python"], [])
-        orphan_candidate = None
-        if live_usage["available"]:
-            orphan_candidate = not selected_by and not live_processes
-            if orphan_candidate:
-                orphan_candidates.append(runtime["python"])
+        orphan_candidate = live_usage["available"] and not selected_by and not live_processes
+        if orphan_candidate:
+            orphan_candidates.append(runtime["python"])
         row = dict(runtime)
         row["selected_by"] = selected_by
         row["live_processes"] = live_processes
@@ -101,11 +117,10 @@ def inspect_machine_runtime_state(
             "brains": len(brains),
             "brains_with_repair_findings": sum(1 for brain in brains if brain["repair_findings"]),
             "repair_findings": sum(len(brain["repair_findings"]) for brain in brains),
-            "machine_registry_brains": machine_registry["brains"],
+            "machine_registry_brains": machine_registry["brains_count"],
             "stale_machine_registry_entries": len(machine_registry["stale_machine_registry_entries"]),
             "stale_registry_entries": len(discovery["stale_registry_entries"]),
             "runtimes": len(runtime_rows),
-            "selected_runtimes": len(selected_runtimes),
             "orphan_candidates": len(orphan_candidates),
         },
     }
@@ -117,6 +132,55 @@ def _match_brain_selector(brain: dict[str, Any], selector: str) -> bool:
         return True
     alias = brain.get("alias")
     return alias == selector
+
+
+def _build_action_result(
+    action: str,
+    *,
+    dry_run: bool,
+    steps: list[dict[str, Any]],
+    targets: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    target_rows = list(targets or [])
+    return {
+        "action": action,
+        "dry_run": dry_run,
+        "status": derive_step_status(steps, dry_run=dry_run),
+        "steps": steps,
+        "targets": target_rows,
+        "counts": {
+            "targets": len(target_rows),
+            "changed_targets": sum(1 for row in target_rows if row["status"] == "ok"),
+            "planned_targets": sum(1 for row in target_rows if row["status"] == "planned"),
+            "error_targets": sum(1 for row in target_rows if row["status"] in {"error", "partial"}),
+        },
+    }
+
+
+def _record_target(
+    target_rows: list[dict[str, Any]],
+    top_level_steps: list[dict[str, Any]],
+    *,
+    target_row: dict[str, Any],
+    summary_metadata: dict[str, Any],
+) -> None:
+    target_rows.append(target_row)
+    status = target_row["status"]
+    step_status = {
+        "ok": "changed",
+        "planned": "planned",
+        "partial": "error",
+        "error": "error",
+        "noop": "noop",
+    }[status]
+    top_level_steps.append(
+        _step(
+            "target",
+            step_status,
+            f"{target_row['label']}: {status}",
+            **summary_metadata,
+        )
+    )
 
 
 def _run_repair_scope(
@@ -146,15 +210,12 @@ def _run_repair_scope(
             check=False,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
-        return {
-            "step": _step(
-                scope,
-                "error",
-                f"Could not run target Brain repair scope {scope}: {exc}",
-                command=command,
-            ),
-            "payload": None,
-        }
+        return _step(
+            scope,
+            "error",
+            f"Could not run target Brain repair scope {scope}: {exc}",
+            command=command,
+        )
 
     payload = None
     stdout = result.stdout.strip()
@@ -166,62 +227,85 @@ def _run_repair_scope(
 
     if payload is None:
         message = result.stderr.strip() or stdout or f"repair.py {scope} exited {result.returncode}"
-        return {
-            "step": _step(
-                scope,
-                "error",
-                f"Target Brain repair scope {scope} did not produce valid JSON: {message}",
-                command=command,
-            ),
-            "payload": None,
-        }
+        return _step(
+            scope,
+            "error",
+            f"Target Brain repair scope {scope} did not produce valid JSON: {message}",
+            command=command,
+        )
 
     delegated_status = payload.get("status")
-    if delegated_status == "planned":
-        status = "planned"
-        message = f"Would run target Brain repair scope {scope}."
-    elif delegated_status == "noop":
-        status = "noop"
-        message = f"Target Brain repair scope {scope} is already clean."
-    elif delegated_status == "ok":
-        status = "changed"
-        message = f"Ran target Brain repair scope {scope}."
-    elif delegated_status == "partial":
-        status = "partial"
-        message = f"Target Brain repair scope {scope} completed partially."
-    elif delegated_status == "error":
-        status = "error"
-        message = f"Target Brain repair scope {scope} failed."
-    else:
-        status = "error"
-        message = f"Target Brain repair scope {scope} returned unknown status {delegated_status!r}."
-
-    return {
-        "step": _step(
-            scope,
-            status,
-            message,
-            command=command,
-            delegated_status=delegated_status,
-            delegated_result=payload,
-        ),
-        "payload": payload,
+    delegated_map = {
+        "planned": ("planned", f"Would run target Brain repair scope {scope}."),
+        "noop": ("noop", f"Target Brain repair scope {scope} is already clean."),
+        "ok": ("changed", f"Ran target Brain repair scope {scope}."),
+        "partial": ("partial", f"Target Brain repair scope {scope} completed partially."),
+        "error": ("error", f"Target Brain repair scope {scope} failed."),
     }
+    status, message = delegated_map.get(
+        delegated_status,
+        ("error", f"Target Brain repair scope {scope} returned unknown status {delegated_status!r}."),
+    )
+
+    return _step(
+        scope,
+        status,
+        message,
+        command=command,
+        delegated_status=delegated_status,
+        delegated_result=payload,
+    )
 
 
-def _legacy_targets(summary: dict[str, Any], selector: str | None) -> tuple[list[dict[str, Any]] | None, str | None]:
+def _select_legacy_targets(
+    summary: dict[str, Any],
+    selector: str | None,
+    *,
+    dry_run: bool,
+) -> _LegacyTargetSelection:
     brains = summary["brains"]
     if selector is None:
-        return [brain for brain in brains if brain["runtime"]["status"] == "legacy_vault_venv"], None
+        targets = [brain for brain in brains if brain["runtime"]["status"] == "legacy_vault_venv"]
+        if not targets:
+            return _LegacyTargetSelection(
+                targets=[],
+                step=_step("selection", "noop", "No discovered legacy Brains need migration."),
+            )
+        return _LegacyTargetSelection(
+            targets=targets,
+            step=_step(
+                "selection",
+                "planned" if dry_run else "noop",
+                f"Selected {len(targets)} legacy Brain(s) for migration.",
+            ),
+        )
 
     matching = [brain for brain in brains if _match_brain_selector(brain, selector)]
     if not matching:
-        return None, f"No discovered Brain matches {selector!r}."
+        return _LegacyTargetSelection(
+            targets=[],
+            step=_step("selection", "error", f"No discovered Brain matches {selector!r}."),
+        )
 
     legacy = [brain for brain in matching if brain["runtime"]["status"] == "legacy_vault_venv"]
     if not legacy:
-        return [], f"Selected Brain {selector!r} is not currently using a legacy vault-local .venv."
-    return legacy, None
+        return _LegacyTargetSelection(
+            targets=[],
+            step=_step(
+                "selection",
+                "noop",
+                f"Selected Brain {selector!r} is not currently using a legacy vault-local .venv.",
+            ),
+        )
+
+    return _LegacyTargetSelection(
+        targets=legacy,
+        step=_step(
+            "selection",
+            "planned" if dry_run else "noop",
+            f"Selected {len(legacy)} legacy Brain(s) for migration.",
+        ),
+    )
 
 
 def _legacy_venv_step(
@@ -231,81 +315,64 @@ def _legacy_venv_step(
     live_processes: list[dict[str, Any]],
     delegated_cleanup_safe: bool,
     legacy_dir: Path,
-) -> tuple[dict[str, Any] | None, bool]:
+) -> dict[str, Any]:
     if dry_run:
         if not live_scan_available:
-            return (
-                _step(
-                    "legacy_venv",
-                    "planned",
-                    "Would remove the legacy vault-local .venv after proving no live process still uses it.",
-                    path=str(legacy_dir),
-                ),
-                False,
-            )
-        if live_processes:
-            return (
-                _step(
-                    "legacy_venv",
-                    "planned",
-                    "Would remove the legacy vault-local .venv once no live process is using it.",
-                    path=str(legacy_dir),
-                    live_processes=live_processes,
-                ),
-                False,
-            )
-        return (
-            _step(
+            return _step(
                 "legacy_venv",
                 "planned",
-                "Would remove the legacy vault-local .venv after delegated repairs succeed.",
+                "Would remove the legacy vault-local .venv after proving no live process still uses it.",
                 path=str(legacy_dir),
-            ),
-            False,
+            )
+        if live_processes:
+            return _step(
+                "legacy_venv",
+                "planned",
+                "Would remove the legacy vault-local .venv once no live process is using it.",
+                path=str(legacy_dir),
+                live_processes=live_processes,
+            )
+        return _step(
+            "legacy_venv",
+            "planned",
+            "Would remove the legacy vault-local .venv after delegated repairs succeed.",
+            path=str(legacy_dir),
         )
 
     if not live_scan_available:
-        return (
-            _step(
-                "legacy_venv",
-                "error",
-                "Cannot remove the legacy vault-local .venv because live-process detection is unavailable.",
-                path=str(legacy_dir),
-            ),
-            False,
+        return _step(
+            "legacy_venv",
+            "error",
+            "Cannot remove the legacy vault-local .venv because live-process detection is unavailable.",
+            path=str(legacy_dir),
         )
     if live_processes:
-        return (
-            _step(
-                "legacy_venv",
-                "error",
-                "Cannot remove the legacy vault-local .venv because it is still in use by a live process.",
-                path=str(legacy_dir),
-                live_processes=live_processes,
-            ),
-            False,
+        return _step(
+            "legacy_venv",
+            "error",
+            "Cannot remove the legacy vault-local .venv because it is still in use by a live process.",
+            path=str(legacy_dir),
+            live_processes=live_processes,
         )
     if not delegated_cleanup_safe:
-        return (
-            _step(
-                "legacy_venv",
-                "noop",
-                "Left the legacy vault-local .venv in place because delegated repairs did not complete cleanly.",
-                path=str(legacy_dir),
-            ),
-            False,
+        return _step(
+            "legacy_venv",
+            "noop",
+            "Left the legacy vault-local .venv in place because delegated repairs did not complete cleanly.",
+            path=str(legacy_dir),
         )
     if not legacy_dir.exists():
-        return (
-            _step(
-                "legacy_venv",
-                "noop",
-                "Legacy vault-local .venv was already absent.",
-                path=str(legacy_dir),
-            ),
-            False,
+        return _step(
+            "legacy_venv",
+            "noop",
+            "Legacy vault-local .venv was already absent.",
+            path=str(legacy_dir),
         )
-    return None, True
+    return _execute_removal_step(
+        name="legacy_venv",
+        target_path=legacy_dir,
+        success_message="Removed the legacy vault-local .venv after central-runtime migration.",
+    )
 
 
 def _execute_removal_step(
@@ -358,65 +425,33 @@ def migrate_legacy_brains(
     dry_run: bool,
     selector: str | None = None,
 ) -> dict[str, Any]:
-    targets, selection_error = _legacy_targets(summary, selector)
-    if targets is None:
-        steps = [_step("selection", "error", selection_error or "No matching Brain found.")]
-        return {
-            "action": "migrate-legacy",
-            "dry_run": dry_run,
-            "status": derive_step_status(steps, dry_run=dry_run),
-            "steps": steps,
-            "targets": [],
-            "counts": {
-                "targets": 0,
-                "changed_targets": 0,
-                "planned_targets": 0,
-                "error_targets": 1,
-            },
-        }
-
-    if not targets:
-        steps = [_step("selection", "noop", selection_error or "No discovered legacy Brains need migration.")]
-        return {
-            "action": "migrate-legacy",
-            "dry_run": dry_run,
-            "status": derive_step_status(steps, dry_run=dry_run),
-            "steps": steps,
-            "targets": [],
-            "counts": {
-                "targets": 0,
-                "changed_targets": 0,
-                "planned_targets": 0,
-                "error_targets": 0,
-            },
-        }
+    selection = _select_legacy_targets(summary, selector, dry_run=dry_run)
+    if not selection.targets:
+        return _build_action_result(
+            "migrate-legacy",
+            dry_run=dry_run,
+            steps=[selection.step],
+        )
 
     legacy_usage = find_live_brain_runtime_processes(
         brain["runtime"]["legacy_runtime_python"]
-        for brain in targets
+        for brain in selection.targets
     )
 
     target_rows: list[dict[str, Any]] = []
-    top_level_steps: list[dict[str, Any]] = [
-        _step(
-            "selection",
-            "planned" if dry_run else "noop",
-            f"Selected {len(targets)} legacy Brain(s) for migration.",
-        )
-    ]
-    flat_steps: list[dict[str, Any]] = []
+    top_level_steps: list[dict[str, Any]] = [selection.step]
 
-    for brain in targets:
+    for brain in selection.targets:
         steps: list[dict[str, Any]] = []
-        runtime_result = _run_repair_scope(
+        runtime_step = _run_repair_scope(
             brain["path"],
             "runtime",
             launcher_python=launcher_python,
             dry_run=dry_run,
         )
-        steps.append(runtime_result["step"])
+        steps.append(runtime_step)
 
-        delegated_cleanup_safe = runtime_result["step"]["status"] in _DELEGATED_OK_STATUSES
+        delegated_cleanup_safe = runtime_step["status"] in _DELEGATED_OK_STATUSES
         scopes = sorted(
             {
                 finding["repair"]["scope"]
@@ -425,70 +460,49 @@ def migrate_legacy_brains(
             }
         )
         for scope in scopes:
-            repair_result = _run_repair_scope(
+            repair_step = _run_repair_scope(
                 brain["path"],
                 scope,
                 launcher_python=launcher_python,
                 dry_run=dry_run,
             )
-            steps.append(repair_result["step"])
-            delegated_cleanup_safe = delegated_cleanup_safe and repair_result["step"]["status"] in _DELEGATED_OK_STATUSES
+            steps.append(repair_step)
+            delegated_cleanup_safe = delegated_cleanup_safe and repair_step["status"] in _DELEGATED_OK_STATUSES
 
-        legacy_dir = Path(brain["runtime"]["legacy_runtime_dir"])
         legacy_python = brain["runtime"]["legacy_runtime_python"]
         live_processes = legacy_usage["processes"].get(legacy_python, [])
-        legacy_step, should_remove_legacy = _legacy_venv_step(
-            dry_run=dry_run,
-            live_scan_available=legacy_usage["available"],
-            live_processes=live_processes,
-            delegated_cleanup_safe=delegated_cleanup_safe,
-            legacy_dir=legacy_dir,
-        )
-        if should_remove_legacy:
-            legacy_step = _execute_removal_step(
-                name="legacy_venv",
-                target_path=legacy_dir,
-                success_message="Removed the legacy vault-local .venv after central-runtime migration.",
+        steps.append(
+            _legacy_venv_step(
+                dry_run=dry_run,
+                live_scan_available=legacy_usage["available"],
+                live_processes=live_processes,
+                delegated_cleanup_safe=delegated_cleanup_safe,
+                legacy_dir=Path(brain["runtime"]["legacy_runtime_dir"]),
             )
-        else:
-            assert legacy_step is not None
-        steps.append(legacy_step)
+        )
 
         if not dry_run:
             steps.append(_verify_migrated_runtime(brain, launcher_python=launcher_python))
 
         target_status = derive_step_status(steps, dry_run=dry_run)
-        target_rows.append(
-            {
+        _record_target(
+            target_rows,
+            top_level_steps,
+            target_row={
                 "brain": {"alias": brain.get("alias"), "path": brain["path"]},
                 "label": brain_label(brain),
                 "status": target_status,
                 "steps": steps,
-            }
+            },
+            summary_metadata={"brain_path": brain["path"]},
         )
-        top_level_steps.append(
-            _step(
-                "target",
-                target_status,
-                f"{brain_label(brain)}: {target_status}",
-                brain_path=brain["path"],
-            )
-        )
-        flat_steps.extend(steps)
 
-    return {
-        "action": "migrate-legacy",
-        "dry_run": dry_run,
-        "status": derive_step_status(flat_steps, dry_run=dry_run),
-        "steps": top_level_steps,
-        "targets": target_rows,
-        "counts": {
-            "targets": len(target_rows),
-            "changed_targets": sum(1 for row in target_rows if row["status"] == "ok"),
-            "planned_targets": sum(1 for row in target_rows if row["status"] == "planned"),
-            "error_targets": sum(1 for row in target_rows if row["status"] in {"error", "partial"}),
-        },
-    }
+    return _build_action_result(
+        "migrate-legacy",
+        dry_run=dry_run,
+        steps=top_level_steps,
+        targets=target_rows,
+    )
 
 
 def prune_orphaned_runtimes(
@@ -497,43 +511,25 @@ def prune_orphaned_runtimes(
     dry_run: bool,
 ) -> dict[str, Any]:
     if not summary["live_process_scan_available"]:
-        steps = [
-            _step(
-                "selection",
-                "error",
-                "Cannot prune shared runtimes because live-process detection is unavailable.",
-            )
-        ]
-        return {
-            "action": "prune-runtimes",
-            "dry_run": dry_run,
-            "status": derive_step_status(steps, dry_run=dry_run),
-            "steps": steps,
-            "targets": [],
-            "counts": {
-                "targets": 0,
-                "changed_targets": 0,
-                "planned_targets": 0,
-                "error_targets": 1,
-            },
-        }
+        return _build_action_result(
+            "prune-runtimes",
+            dry_run=dry_run,
+            steps=[
+                _step(
+                    "selection",
+                    "error",
+                    "Cannot prune shared runtimes because live-process detection is unavailable.",
+                )
+            ],
+        )
 
     targets = [runtime for runtime in summary["runtimes"] if runtime["orphan_candidate"]]
     if not targets:
-        steps = [_step("selection", "noop", "No orphaned shared runtimes need pruning.")]
-        return {
-            "action": "prune-runtimes",
-            "dry_run": dry_run,
-            "status": derive_step_status(steps, dry_run=dry_run),
-            "steps": steps,
-            "targets": [],
-            "counts": {
-                "targets": 0,
-                "changed_targets": 0,
-                "planned_targets": 0,
-                "error_targets": 0,
-            },
-        }
+        return _build_action_result(
+            "prune-runtimes",
+            dry_run=dry_run,
+            steps=[_step("selection", "noop", "No orphaned shared runtimes need pruning.")],
+        )
 
     target_rows: list[dict[str, Any]] = []
     top_level_steps: list[dict[str, Any]] = [
@@ -543,7 +539,6 @@ def prune_orphaned_runtimes(
             f"Selected {len(targets)} orphaned shared runtime(s) for pruning.",
         )
     ]
-    flat_steps: list[dict[str, Any]] = []
     for runtime in targets:
         runtime_dir = Path(runtime["dir"])
         if dry_run:
@@ -572,8 +567,10 @@ def prune_orphaned_runtimes(
 
         steps = [prune_step]
         target_status = derive_step_status(steps, dry_run=dry_run)
-        target_rows.append(
-            {
+        _record_target(
+            target_rows,
+            top_level_steps,
+            target_row={
                 "runtime": {
                     "name": runtime["name"],
                     "dir": runtime["dir"],
@@ -582,28 +579,13 @@ def prune_orphaned_runtimes(
                 "label": runtime["python"],
                 "status": target_status,
                 "steps": steps,
-            }
+            },
+            summary_metadata={"python": runtime["python"]},
         )
-        top_level_steps.append(
-            _step(
-                "target",
-                target_status,
-                f"{runtime['python']}: {target_status}",
-                python=runtime["python"],
-            )
-        )
-        flat_steps.extend(steps)
 
-    return {
-        "action": "prune-runtimes",
-        "dry_run": dry_run,
-        "status": derive_step_status(flat_steps, dry_run=dry_run),
-        "steps": top_level_steps,
-        "targets": target_rows,
-        "counts": {
-            "targets": len(target_rows),
-            "changed_targets": sum(1 for row in target_rows if row["status"] == "ok"),
-            "planned_targets": sum(1 for row in target_rows if row["status"] == "planned"),
-            "error_targets": sum(1 for row in target_rows if row["status"] in {"error", "partial"}),
-        },
-    }
+    return _build_action_result(
+        "prune-runtimes",
+        dry_run=dry_run,
+        steps=top_level_steps,
+        targets=target_rows,
+    )

@@ -6,6 +6,7 @@ Version-by-version release history for Obsidian Brain. Every shipped version has
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.43.5](changelog/v0.43.5.md) | 2026-05-28 | Compose brain doctor and harden machine-runtime safety gates |
 | [v0.43.4](changelog/v0.43.4.md) | 2026-05-26 | Add brain machine migration and orphan-runtime pruning |
 | [v0.43.3](changelog/v0.43.3.md) | 2026-05-26 | Surface per-Brain MCP and registry drift guidance in brain doctor |
 | [v0.43.2](changelog/v0.43.2.md) | 2026-05-26 | Route brain doctor machine diagnosis through _machine |

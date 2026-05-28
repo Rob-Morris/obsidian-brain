@@ -1085,7 +1085,7 @@ def main():
         handoff_current_script_to_managed_runtime(
             vault_root,
             dependency_owner="compile_router.py",
-            required_modules=required_modules_for_scope("runtime"),
+            required_modules=required_modules_for_scope("router"),
             script_path=os.path.abspath(__file__),
             forwarded_args=sys.argv[1:],
         )

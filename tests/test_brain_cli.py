@@ -76,7 +76,11 @@ def _build_machine_helper_vault(root: Path) -> Path:
     scripts.mkdir(parents=True)
     shutil.copytree(SCRIPTS_DIR / "_common", scripts / "_common")
     shutil.copytree(SCRIPTS_DIR / "_bootstrap", scripts / "_bootstrap")
+    shutil.copytree(SCRIPTS_DIR / "_lifecycle", scripts / "_lifecycle")
     shutil.copytree(SCRIPTS_DIR / "_machine", scripts / "_machine")
+    shutil.copytree(SCRIPTS_DIR / "_portable", scripts / "_portable")
+    shutil.copy2(SCRIPTS_DIR / "check.py", scripts / "check.py")
+    shutil.copy2(SCRIPTS_DIR / "doctor.py", scripts / "doctor.py")
     shutil.copy2(SCRIPTS_DIR / "doctor_machine.py", scripts / "doctor_machine.py")
     shutil.copy2(SCRIPTS_DIR / "machine.py", scripts / "machine.py")
     shutil.copy2(SCRIPTS_DIR / "vault_registry.py", scripts / "vault_registry.py")
@@ -87,6 +91,36 @@ def _build_machine_helper_vault(root: Path) -> Path:
     brain_mcp.mkdir(parents=True)
     (brain_mcp / "requirements.txt").write_text("mcp==1.0.0\n")
     return vault
+
+
+def _write_doctor_check_stub(vault: Path, *, message: str = "Vault drift", severity: str = "error", exit_code: int = 2) -> None:
+    payload = {
+        "vault_root": str(vault),
+        "brain_core_version": "0.99.0",
+        "checked_at": "2026-05-26T00:00:00+00:00",
+        "summary": {"errors": 1 if severity == "error" else 0, "warnings": 1 if severity == "warning" else 0, "info": 0},
+        "findings": [
+            {
+                "check": "doctor-stub",
+                "severity": severity,
+                "file": "Notes/example.md",
+                "message": message,
+                "repair": {
+                    "scope": "registry",
+                    "description": "Repair registry",
+                    "command": f"python3 {vault}/.brain-core/scripts/repair.py registry --vault {vault}",
+                },
+            }
+        ],
+    }
+    (vault / ".brain-core" / "scripts" / "check.py").write_text(
+        "#!/usr/bin/env python3\n"
+        "import json\n"
+        "import sys\n"
+        f"payload = {payload!r}\n"
+        "print(json.dumps(payload))\n"
+        f"raise SystemExit({exit_code})\n"
+    )
 
 
 def _run_cli(*args, cwd=None, env_extra=None, set_launcher_override=True):
@@ -322,10 +356,19 @@ def test_hyphenated_subcommand_dispatches_to_underscored_script(tmp_path):
 def test_doctor_outside_vault_runs_machine_checks(tmp_path):
     elsewhere = tmp_path / "no-vault"
     elsewhere.mkdir()
-    result = _run_cli("doctor", cwd=elsewhere, env_extra={"BRAIN_VAULT_ROOT": ""})
+    result = _run_cli(
+        "doctor",
+        cwd=elsewhere,
+        env_extra={
+            "BRAIN_VAULT_ROOT": "",
+            "HOME": str(tmp_path),
+            "XDG_CONFIG_HOME": str(tmp_path / "xdg"),
+        },
+    )
     # doctor's exit code reflects whether checks passed; we only require it ran.
     assert "brain CLI:" in result.stdout
-    assert "vault:" in result.stdout
+    assert "machine diagnosis:" in result.stdout
+    assert "vault diagnosis:" in result.stdout
     assert "none in scope" in result.stdout
 
 
@@ -408,10 +451,7 @@ def test_doctor_inside_older_vault_falls_back_to_registered_machine_helper(tmp_p
     brain_mcp = current_vault / ".brain-core" / "brain_mcp"
     brain_mcp.mkdir(parents=True)
     (brain_mcp / "requirements.txt").write_text("mcp==1.0.0\n")
-    (current_vault / ".brain-core" / "scripts" / "check.py").write_text(
-        "#!/usr/bin/env python3\n"
-        "print('DOCTOR_DISPATCHED_CHECK')\n"
-    )
+    _write_doctor_check_stub(current_vault, message="Older-vault drift")
     helper_vault = _build_machine_helper_vault(tmp_path)
     xdg = tmp_path / "xdg"
     registry = xdg / "brain" / "vaults"
@@ -424,23 +464,90 @@ def test_doctor_inside_older_vault_falls_back_to_registered_machine_helper(tmp_p
         env_extra={"XDG_CONFIG_HOME": str(xdg), "HOME": str(tmp_path)},
     )
 
+    assert "machine diagnosis:" in result.stdout
+    assert "vault diagnosis:" in result.stdout
     assert "brains:" in result.stdout
-    assert "registry:" in result.stdout
-    assert "brain routes:" in result.stdout
+    assert "Older-vault drift" in result.stdout
     assert str(current_vault) in result.stdout
     assert str(helper_vault) in result.stdout
-    assert "DOCTOR_DISPATCHED_CHECK" in result.stdout
 
 
-def test_doctor_inside_vault_dispatches_check(tmp_path):
+def test_doctor_with_explicit_vault_outputs_composed_json(tmp_path):
+    current_vault = _build_fake_vault(tmp_path)
+    brain_mcp = current_vault / ".brain-core" / "brain_mcp"
+    brain_mcp.mkdir(parents=True)
+    (brain_mcp / "requirements.txt").write_text("mcp==1.0.0\n")
+    _write_doctor_check_stub(current_vault, message="Explicit-vault drift")
+    helper_vault = _build_machine_helper_vault(tmp_path)
+    xdg = tmp_path / "xdg"
+    registry = xdg / "brain" / "vaults"
+    registry.parent.mkdir(parents=True)
+    registry.write_text(f"helper\t{helper_vault}\n")
+
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    result = _run_cli(
+        "doctor",
+        "--vault",
+        str(current_vault),
+        "--json",
+        cwd=elsewhere,
+        env_extra={"BRAIN_VAULT_ROOT": "", "XDG_CONFIG_HOME": str(xdg), "HOME": str(tmp_path)},
+    )
+
+    assert result.returncode == 2, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["doctor"]["current_vault"] == str(current_vault)
+    assert payload["doctor"]["source_vault"] == str(helper_vault)
+    assert payload["vault"]["available"] is True
+    assert payload["vault"]["result"]["findings"][0]["message"] == "Explicit-vault drift"
+
+
+def test_doctor_inside_legacy_vault_uses_shell_fallback_check(tmp_path):
     vault = _build_fake_vault(tmp_path)
     # Replace check.py with one that prints a sentinel so we can confirm dispatch.
     (vault / ".brain-core" / "scripts" / "check.py").write_text(
         "#!/usr/bin/env python3\n"
         "print('DOCTOR_DISPATCHED_CHECK')\n"
     )
-    result = _run_cli("doctor", cwd=vault)
+    result = _run_cli(
+        "doctor",
+        cwd=vault,
+        env_extra={"HOME": str(tmp_path), "XDG_CONFIG_HOME": str(tmp_path / "xdg")},
+    )
+    assert "machine diagnosis:" in result.stdout
+    assert "vault diagnosis:" in result.stdout
     assert "DOCTOR_DISPATCHED_CHECK" in result.stdout
+
+
+def test_doctor_reports_source_vault_runtime_failure_in_shell_fallback(tmp_path):
+    current_vault = _build_fake_vault(tmp_path)
+    brain_mcp = current_vault / ".brain-core" / "brain_mcp"
+    brain_mcp.mkdir(parents=True)
+    (brain_mcp / "requirements.txt").write_text("mcp==1.0.0\n")
+    _write_doctor_check_stub(current_vault, message="Fallback drift", exit_code=2)
+    helper_vault = _build_machine_helper_vault(tmp_path)
+    (helper_vault / ".brain-core" / "scripts" / "_common" / "_venv.py").unlink()
+    xdg = tmp_path / "xdg"
+    registry = xdg / "brain" / "vaults"
+    registry.parent.mkdir(parents=True)
+    registry.write_text(f"helper\t{helper_vault}\n")
+
+    elsewhere = tmp_path / "elsewhere-runtime-failure"
+    elsewhere.mkdir()
+    result = _run_cli(
+        "doctor",
+        "--vault",
+        str(current_vault),
+        cwd=elsewhere,
+        env_extra={"BRAIN_VAULT_ROOT": "", "XDG_CONFIG_HOME": str(xdg), "HOME": str(tmp_path)},
+    )
+
+    assert result.returncode == 2, result.stderr
+    assert "doctor handoff unavailable" in result.stdout
+    assert str(helper_vault) in result.stdout
+    assert "brain repair runtime --vault" in result.stdout
+    assert "Fallback drift" in result.stdout
 
 
 def _doctor_from_dir(install_dir: Path, on_path: bool, tmp_path: Path):
@@ -453,6 +560,8 @@ def _doctor_from_dir(install_dir: Path, on_path: bool, tmp_path: Path):
     env = os.environ.copy()
     env["BRAIN_VENV_LAUNCHER"] = sys.executable
     env["BRAIN_VAULT_ROOT"] = ""
+    env["HOME"] = str(tmp_path)
+    env["XDG_CONFIG_HOME"] = str(tmp_path / "xdg")
     if on_path:
         env["PATH"] = f"{install_dir}:{env['PATH']}"
     else:

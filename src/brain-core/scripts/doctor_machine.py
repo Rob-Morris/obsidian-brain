@@ -8,11 +8,10 @@ import json
 
 from _machine._labels import brain_label
 from _machine.discovery import (
+    DEFAULT_MACHINE_REGISTRY_BLOCK_MESSAGE,
     MACHINE_REGISTRY_BLOCK_MESSAGES,
-    discover_brains,
-    sync_machine_registry,
 )
-from _machine.maintenance import inspect_machine_runtime_state
+from _machine.maintenance import collect_machine_summary
 
 
 def _counted_label(count: int, singular: str, plural: str) -> str:
@@ -33,7 +32,7 @@ def _machine_registry_note_lines(summary: dict) -> list[str]:
         return [
             MACHINE_REGISTRY_BLOCK_MESSAGES.get(
                 registry.get("blocked_reason"),
-                "machine-registry state is blocked; leaving brains.json untouched",
+                DEFAULT_MACHINE_REGISTRY_BLOCK_MESSAGE,
             )
         ]
     if registry["malformed_rewritten"]:
@@ -60,79 +59,83 @@ def _render_repair_findings(findings: list[dict]) -> list[str]:
     return lines
 
 
-def _render_human(summary: dict) -> None:
+def render_human_lines(summary: dict) -> list[str]:
     counts = summary["counts"]
     registry = summary["machine_registry"]
     stale_label = _counted_label(counts["stale_registry_entries"], "entry", "entries")
     orphan_label = _counted_label(counts["orphan_candidates"], "orphan candidate", "orphan candidates")
-    registry_brain_label = _counted_label(registry["brains"], "brain", "brains")
+    registry_brain_label = _counted_label(registry["brains_count"], "brain", "brains")
     drifted_label = _counted_label(counts["brains_with_repair_findings"], "Brain with drift", "Brains with drift")
-    print(
+    lines = [
         "brains:    "
         f"{counts['brains']} discovered "
         f"({counts['stale_registry_entries']} stale vault-registry {stale_label}, "
-        f"{counts['brains_with_repair_findings']} {drifted_label})"
-    )
-    print(
+        f"{counts['brains_with_repair_findings']} {drifted_label})",
         "registry:  "
         f"{registry['path']} "
-        f"({registry['brains']} {registry_brain_label}, {_machine_registry_state_label(registry)})"
-    )
+        f"({registry['brains_count']} {registry_brain_label}, {_machine_registry_state_label(registry)})",
+    ]
     if summary["live_process_scan_available"]:
-        print(
+        lines.append(
             "runtimes:  "
             f"{summary['venvs_root']} "
             f"({counts['runtimes']} present, {counts['orphan_candidates']} {orphan_label})"
         )
     else:
-        print(
+        lines.append(
             "runtimes:  "
             f"{summary['venvs_root']} "
             f"({counts['runtimes']} present, orphan detection unavailable)"
         )
 
     if summary["stale_registry_entries"]:
-        print("stale vault registry:")
+        lines.append("stale vault registry:")
         for entry in summary["stale_registry_entries"]:
-            print(f"  {entry['alias']}: {entry['path']}")
+            lines.append(f"  {entry['alias']}: {entry['path']}")
 
     if summary["stale_machine_registry_entries"]:
-        print("stale machine registry:")
+        lines.append("stale machine registry:")
         for entry in summary["stale_machine_registry_entries"]:
             label = entry["alias"] or "(unaliased)"
-            print(f"  {label}: {entry['path']}")
+            lines.append(f"  {label}: {entry['path']}")
 
     note_lines = _machine_registry_note_lines(summary)
     if note_lines:
-        print("registry note:")
+        lines.append("registry note:")
         for line in note_lines:
-            print(f"  {line}")
+            lines.append(f"  {line}")
 
     if not summary["live_process_scan_available"]:
-        print("runtime note:")
-        print("  ps failed; orphan detection skipped")
+        lines.extend(["runtime note:", "  ps failed; orphan detection skipped"])
 
     if summary["brains"]:
-        print("brain routes:")
+        lines.append("brain routes:")
         for brain in summary["brains"]:
             runtime = brain["runtime"]
-            print(f"  {brain_label(brain)}")
-            print(f"    route: {runtime['status']} — {runtime['message']}")
+            lines.append(f"  {brain_label(brain)}")
+            lines.append(f"    route: {runtime['status']} — {runtime['message']}")
             if runtime["selected_runtime"] is not None:
-                print(f"    runtime: {runtime['selected_runtime']}")
+                lines.append(f"    runtime: {runtime['selected_runtime']}")
             else:
-                print(f"    expected runtime: {runtime['expected_runtime']}")
+                lines.append(f"    expected runtime: {runtime['expected_runtime']}")
             if runtime["legacy_runtime_present"]:
-                print(f"    legacy .venv: {runtime['legacy_runtime_dir']}")
+                lines.append(f"    legacy .venv: {runtime['legacy_runtime_dir']}")
             if brain["repair_findings"]:
                 for line in _render_repair_findings(brain["repair_findings"]):
-                    print(f"    {line}")
+                    lines.append(f"    {line}")
 
     orphan_candidates = [runtime for runtime in summary["runtimes"] if runtime["orphan_candidate"]]
     if orphan_candidates:
-        print("orphan candidates:")
+        lines.append("orphan candidates:")
         for runtime in orphan_candidates:
-            print(f"  {runtime['python']}")
+            lines.append(f"  {runtime['python']}")
+
+    return lines
+
+
+def _render_human(summary: dict) -> None:
+    for line in render_human_lines(summary):
+        print(line)
 
 
 def main() -> int:
@@ -146,14 +149,9 @@ def main() -> int:
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
-    discovery = discover_brains(
+    summary = collect_machine_summary(
         current_vault=args.current_vault,
-    )
-    machine_registry = sync_machine_registry(discovery["brains"])
-    summary = inspect_machine_runtime_state(
         launcher_python=args.launcher,
-        discovery=discovery,
-        machine_registry=machine_registry,
     )
     if args.json:
         print(json.dumps(summary, indent=2))

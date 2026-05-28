@@ -1089,6 +1089,10 @@ class TestParseArgs:
         _, _, severity, _ = check.parse_args(["check.py", "--severity", "warning"])
         assert severity == "warning"
 
+    def test_invalid_severity_filter(self):
+        with pytest.raises(SystemExit, match="--severity must be one of"):
+            check.parse_args(["check.py", "--severity", "fatal"])
+
     def test_vault_flag(self):
         _, _, _, vault = check.parse_args(["check.py", "--vault", "/path/to/vault"])
         assert vault == "/path/to/vault"

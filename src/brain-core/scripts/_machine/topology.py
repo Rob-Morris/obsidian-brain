@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-import shlex
 import subprocess
 from typing import Any, Iterable
 
@@ -89,11 +88,58 @@ def list_central_runtimes() -> list[dict[str, str]]:
     return runtimes
 
 
+def _python_family_process_key(path: str | Path) -> str | None:
+    candidate = Path(str(path))
+    if not candidate.is_absolute():
+        return None
+    if not candidate.name.startswith("python"):
+        return None
+    return os.path.realpath(str(candidate.parent))
+
+
+def _tracked_runtime_processes(
+    runtime_pythons: Iterable[str | Path],
+) -> dict[str, dict[str, Any]]:
+    tracked: dict[str, dict[str, Any]] = {}
+    for path in runtime_pythons:
+        runtime_path = str(Path(path))
+        key = _python_family_process_key(runtime_path)
+        if key is None:
+            continue
+        tracked.setdefault(key, {"runtime": runtime_path, "processes": []})
+    return tracked
+
+
+def _tracked_process_map(tracked: dict[str, dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    return {
+        entry["runtime"]: list(entry["processes"])
+        for entry in tracked.values()
+    }
+
+
+def _command_prefixes(command: str) -> Iterable[str]:
+    for index, char in enumerate(command):
+        if char == " ":
+            yield command[:index]
+    yield command
+
+
+def _match_runtime_process(
+    command: str,
+    tracked: dict[str, dict[str, Any]],
+) -> str | None:
+    for prefix in _command_prefixes(command):
+        key = _python_family_process_key(prefix)
+        if key is not None and key in tracked:
+            return key
+    return None
+
+
 def find_live_brain_runtime_processes(
     runtime_pythons: Iterable[str | Path],
 ) -> dict[str, Any]:
     """Return live processes currently executing one of the supplied runtime paths."""
-    tracked = {str(Path(path)): [] for path in runtime_pythons}
+    tracked = _tracked_runtime_processes(runtime_pythons)
     if not tracked:
         return {"available": True, "processes": {}}
 
@@ -106,10 +152,10 @@ def find_live_brain_runtime_processes(
             check=False,
         )
     except (OSError, subprocess.TimeoutExpired):
-        return {"available": False, "processes": tracked}
+        return {"available": False, "processes": _tracked_process_map(tracked)}
 
     if result.returncode != 0:
-        return {"available": False, "processes": tracked}
+        return {"available": False, "processes": _tracked_process_map(tracked)}
 
     for line in result.stdout.splitlines():
         stripped = line.strip()
@@ -118,18 +164,16 @@ def find_live_brain_runtime_processes(
         pid_text, _, command = stripped.partition(" ")
         if not pid_text or not command:
             continue
-        try:
-            parts = shlex.split(command)
-        except ValueError:
-            parts = command.split(" ", 1)
-        if not parts:
-            continue
-        executable = parts[0]
-        if executable not in tracked:
+        tracked_key = _match_runtime_process(command, tracked)
+        if tracked_key is None:
             continue
         try:
             pid = int(pid_text)
         except ValueError:
             continue
-        tracked[executable].append({"pid": pid, "command": command})
-    return {"available": True, "processes": tracked}
+        tracked[tracked_key]["processes"].append({"pid": pid, "command": command})
+
+    return {
+        "available": True,
+        "processes": _tracked_process_map(tracked),
+    }

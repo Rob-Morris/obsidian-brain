@@ -344,32 +344,36 @@ def test_shared_handoff_reexecs_end_to_end_through_fake_managed_runtime(tmp_path
 
 
 @pytest.mark.parametrize(
-    ("script_name", "argv"),
+    ("script_name", "argv", "expected_modules"),
     [
-        ("search_index.py", ["search_index.py", "query"]),
-        ("build_index.py", ["build_index.py"]),
-        ("evaluate_search.py", ["evaluate_search.py", "--benchmark", "bench.json"]),
+        ("search_index.py", ["search_index.py", "query"], ("mcp",)),
+        ("build_index.py", ["build_index.py"], ("mcp",)),
+        ("evaluate_search.py", ["evaluate_search.py", "--benchmark", "bench.json"], ("mcp",)),
         (
             "construct_benchmark_fixture.py",
             ["construct_benchmark_fixture.py", "--fixture-out", "fixture.json"],
+            ("mcp",),
         ),
-        ("compile_router.py", ["compile_router.py"]),
-        ("compile_colours.py", ["compile_colours.py"]),
-        ("sync_definitions.py", ["sync_definitions.py"]),
+        ("compile_router.py", ["compile_router.py"], ()),
+        ("compile_colours.py", ["compile_colours.py"], ("mcp",)),
+        ("sync_definitions.py", ["sync_definitions.py"], ("mcp",)),
         (
             "shape_printable.py",
             ["shape_printable.py", "--source", "Notes/source.md", "--slug", "demo-printable"],
+            ("mcp",),
         ),
         (
             "shape_presentation.py",
             ["shape_presentation.py", "--source", "Notes/source.md", "--slug", "demo-deck"],
+            ("mcp",),
         ),
-        ("migrate_naming.py", ["migrate_naming.py"]),
+        ("migrate_naming.py", ["migrate_naming.py"], ("mcp",)),
     ],
 )
 def test_managed_wrappers_attempt_handoff_before_substantive_work(
     script_name,
     argv,
+    expected_modules,
     monkeypatch,
 ):
     module = _load_script_module(script_name)
@@ -399,7 +403,7 @@ def test_managed_wrappers_attempt_handoff_before_substantive_work(
     assert captured["dependency_owner"] == script_name
     assert captured["forwarded_args"] == argv[1:]
     assert captured["script_path"].endswith(script_name)
-    assert captured["required_modules"] == ("mcp",)
+    assert captured["required_modules"] == expected_modules
 
 
 @pytest.mark.parametrize(
