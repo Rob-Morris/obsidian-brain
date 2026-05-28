@@ -689,6 +689,34 @@ class TestUpgradeRetrievalAssetRepair:
         assert result["outcome"] == "error"
         assert "denied" in result["message"]
 
+    def test_retrieval_asset_repair_preserves_streams_and_salvages_json_from_noisy_stdout(self, source_and_vault, monkeypatch):
+        _source, vault = source_and_vault
+
+        noisy_stdout = "Loading weights\n{\n  \"status\": \"error\",\n  \"message\": \"semantic refresh failed\",\n  \"steps\": []\n}"
+
+        monkeypatch.setattr(upgrade, "_post_upgrade_retrieval_scope", lambda _vault: "semantic")
+        monkeypatch.setattr(
+            upgrade.subprocess,
+            "run",
+            lambda args, **kwargs: subprocess.CompletedProcess(
+                args=args,
+                returncode=7,
+                stdout=noisy_stdout,
+                stderr="model loader warning",
+            ),
+        )
+
+        result = upgrade._repair_retrieval_assets_after_upgrade(vault)
+
+        assert result["scope"] == "semantic"
+        assert result["outcome"] == "error"
+        assert result["returncode"] == 7
+        assert result["message"] == "semantic refresh failed"
+        assert result["stderr"] == "model loader warning"
+        assert result["stdout"] == noisy_stdout
+        assert result["result"]["status"] == "error"
+        assert result["result"]["message"] == "semantic refresh failed"
+
 
 class TestUpgradeProgressLogging:
     def test_upgrade_records_retrieval_asset_repair_stage_before_follow_up(self, source_and_vault, monkeypatch):

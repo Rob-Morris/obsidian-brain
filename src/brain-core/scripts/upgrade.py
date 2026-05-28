@@ -1255,6 +1255,55 @@ def _post_upgrade_retrieval_scope(vault_root: Path) -> str:
     return "semantic" if _semantic_intent_active(vault_root) else "lexical"
 
 
+def _load_json_dict_from_output(text: str) -> Optional[dict]:
+    """Best-effort parse for JSON output that may have noisy prefix lines.
+
+    Some runtime/model dependencies emit progress or load-report text around a
+    `--json` payload. Prefer the full string, then salvage a trailing JSON
+    object when a preceding line-oriented prefix is present.
+    """
+    stripped = text.strip()
+    if not stripped:
+        return None
+
+    candidates = [stripped]
+    marker = stripped.rfind("\n{")
+    if marker != -1:
+        candidates.append(stripped[marker + 1 :])
+
+    seen = set()
+    for candidate in candidates:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        try:
+            loaded = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(loaded, dict):
+            return loaded
+    return None
+
+
+def _retrieval_repair_failure_message(
+    *,
+    returncode: int,
+    payload: Optional[dict],
+    stdout: str,
+    stderr: str,
+) -> str:
+    """Return the operator-facing summary for a failed repair subprocess."""
+    if isinstance(payload, dict):
+        payload_message = payload.get("message")
+        if isinstance(payload_message, str) and payload_message.strip():
+            return payload_message.strip()
+    if stderr:
+        return stderr
+    if stdout:
+        return stdout
+    return f"repair.py exited {returncode}"
+
+
 def _repair_retrieval_assets_after_upgrade(vault_root: Path) -> dict:
     """Reconcile the vault's supported retrieval assets after upgrade.
 
@@ -1293,18 +1342,25 @@ def _repair_retrieval_assets_after_upgrade(vault_root: Path) -> dict:
         return {**summary, "outcome": "error", "message": str(e)}
 
     stdout = proc.stdout.strip()
-    payload = None
-    if stdout:
-        try:
-            loaded = json.loads(stdout)
-        except json.JSONDecodeError:
-            loaded = None
-        if isinstance(loaded, dict):
-            payload = loaded
+    stderr = proc.stderr.strip()
+    payload = _load_json_dict_from_output(stdout)
 
     if proc.returncode != 0:
-        message = proc.stderr.strip() or stdout or f"repair.py exited {proc.returncode}"
-        return {**summary, "outcome": "error", "message": message, "result": payload}
+        message = _retrieval_repair_failure_message(
+            returncode=proc.returncode,
+            payload=payload,
+            stdout=stdout,
+            stderr=stderr,
+        )
+        return {
+            **summary,
+            "outcome": "error",
+            "message": message,
+            "returncode": proc.returncode,
+            "stdout": stdout,
+            "stderr": stderr,
+            "result": payload,
+        }
 
     return {**summary, "outcome": "ok", "result": payload}
 
