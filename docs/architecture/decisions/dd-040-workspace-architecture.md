@@ -2,6 +2,7 @@
 
 **Status:** Implemented (v0.27.5)
 **Extends:** DD-038, DD-023
+**Extended by:** DD-051
 
 ## Context
 

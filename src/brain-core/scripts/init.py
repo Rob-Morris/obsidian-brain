@@ -20,13 +20,11 @@ import argparse
 import importlib.util
 import json
 import os
-import re
 import shlex
 import shutil
 import subprocess
 import sys
 import tempfile
-import unicodedata
 from pathlib import Path
 from typing import Any, Dict, List, NoReturn, Optional, Tuple
 
@@ -62,6 +60,13 @@ from _bootstrap.mcp_state import (  # noqa: E402
     write_codex_config,
 )
 from _bootstrap.runtime import ensure_managed_runtime, find_launcher_python, required_modules_for_scope  # noqa: E402
+from _bootstrap.workspace_binding import (  # noqa: E402
+    WORKSPACE_MANIFEST_LEGACY_REL as WORKSPACE_MANIFEST_LEGACY_FILE,
+    WORKSPACE_MANIFEST_REL as WORKSPACE_MANIFEST_FILE,
+    WorkspaceBindingError,
+    converge_workspace_binding,
+    resolve_local_brain_alias,
+)
 from _common import safe_write, safe_write_json  # noqa: E402
 
 
@@ -71,8 +76,6 @@ from _common import safe_write, safe_write_json  # noqa: E402
 
 VENV_HELPER_REL = os.path.join(".brain-core", "scripts", "_common", "_venv.py")
 
-WORKSPACE_MANIFEST_FILE = os.path.join(".brain", "local", "workspace.yaml")
-WORKSPACE_MANIFEST_LEGACY_FILE = os.path.join(".brain", "workspace.yaml")
 DEFAULT_BRAIN_IGNORE_ENTRIES = (".brain/local/",)
 CLAUDE_LOCAL_SETTINGS_IGNORE = ".claude/settings.local.json"
 CLAUDE_LOCAL_MD_IGNORE = ".claude/CLAUDE.local.md"
@@ -84,6 +87,10 @@ SUPPORTED_SCOPES = ("project", "local", "user")
 
 class GitInspectionError(RuntimeError):
     """Raised when git metadata cannot be inspected reliably."""
+
+
+class InitTransportError(RuntimeError):
+    """Raised when MCP transport configuration cannot be applied cleanly."""
 
 
 def _find_vault_root_from_script() -> Optional[Path]:
@@ -145,11 +152,11 @@ def _load_venv_helper(vault_root: Path):
     return mod
 
 
-def find_python(vault_root: Path) -> str:
+def _resolve_managed_python(vault_root: Path) -> str:
     """Ensure and return the canonical managed-runtime Python for MCP bindings."""
     launcher = find_launcher_python()
     if not launcher:
-        fatal(
+        raise InitTransportError(
             "No compatible Python 3.12+ launcher found.\n"
             "Install Python 3.12+ with your preferred package manager and rerun init.py."
         )
@@ -162,14 +169,21 @@ def find_python(vault_root: Path) -> str:
             launcher_python=launcher,
         )
     except RuntimeError as exc:
-        fatal(str(exc))
+        raise InitTransportError(str(exc)) from exc
 
     if not summary["managed_runtime_ready"] or not summary["managed_python"]:
-        fatal(
+        raise InitTransportError(
             "Could not provision the canonical managed runtime for MCP registration.\n"
             f"Run: {launcher} {vault_root / '.brain-core' / 'scripts' / 'repair.py'} runtime --vault {vault_root}"
         )
     return summary["managed_python"]
+
+
+def find_python(vault_root: Path) -> str:
+    try:
+        return _resolve_managed_python(vault_root)
+    except InitTransportError as exc:
+        fatal(str(exc))
 
 
 def _scope_from_args(args: argparse.Namespace) -> Tuple[str, Optional[Path], str]:
@@ -184,7 +198,7 @@ def _scope_from_args(args: argparse.Namespace) -> Tuple[str, Optional[Path], str
     return scope, target_dir, f"{scope} ({target_dir})"
 
 
-def _resolve_clients(client_arg: str, scope: str) -> Tuple[List[str], List[str]]:
+def _resolve_clients_or_error(client_arg: str, scope: str) -> Tuple[List[str], List[str]]:
     warnings: List[str] = []
 
     if client_arg == "all":
@@ -196,7 +210,7 @@ def _resolve_clients(client_arg: str, scope: str) -> Tuple[List[str], List[str]]
         return clients, warnings
 
     if client_arg == "codex":
-        fatal(
+        raise InitTransportError(
             "Codex does not support local scope.\n"
             "Use --client claude --local, or choose project/user scope for Codex."
         )
@@ -208,6 +222,13 @@ def _resolve_clients(client_arg: str, scope: str) -> Tuple[List[str], List[str]]
         return ["claude"], warnings
 
     return clients, warnings
+
+
+def _resolve_clients(client_arg: str, scope: str) -> Tuple[List[str], List[str]]:
+    try:
+        return _resolve_clients_or_error(client_arg, scope)
+    except InitTransportError as exc:
+        fatal(str(exc))
 
 
 def _claude_config_path(scope: str, target_dir: Optional[Path]) -> Path:
@@ -516,44 +537,49 @@ def cleanup_claude_bootstrap(
     _remove_bootstrap_line(target_dir / rel_path, line)
 
 
-def _workspace_slug(name: str) -> str:
-    """Return a stable slug for a workspace directory name."""
-    ascii_name = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode("ascii")
-    slug = re.sub(r"[^A-Za-z0-9]+", "-", ascii_name.strip().lower()).strip("-")
-    return slug or "workspace"
+def _converge_workspace_manifest(
+    target_dir: Path,
+    *,
+    vault_root: Path | None = None,
+    brain_id: str | None = None,
+    allow_rebind: bool = False,
+):
+    resolved_brain = brain_id
+    if resolved_brain is None:
+        if vault_root is None:
+            raise WorkspaceBindingError(
+                "Workspace binding now requires an explicit Brain identity.\n"
+                "Pass vault_root or brain_id when converging the workspace manifest."
+            )
+        resolved_brain = resolve_local_brain_alias(vault_root)
 
-
-def ensure_workspace_manifest(target_dir: Path) -> None:
-    """Scaffold `.brain/local/workspace.yaml` for a folder-scoped workspace.
-
-    The manifest is workspace-owned after creation, so this function only
-    creates a minimal starting file when absent.  If a legacy manifest exists
-    at `.brain/workspace.yaml`, it is moved to the new location automatically.
-    """
-    manifest_path = target_dir / WORKSPACE_MANIFEST_FILE
-    legacy_path = target_dir / WORKSPACE_MANIFEST_LEGACY_FILE
-
-    if not manifest_path.is_file() and legacy_path.is_file():
-        manifest_path.parent.mkdir(parents=True, exist_ok=True)
-        legacy_path.rename(manifest_path)
-        info(f"Migrated {WORKSPACE_MANIFEST_LEGACY_FILE} → {WORKSPACE_MANIFEST_FILE}")
-        return
-
-    if manifest_path.is_file():
-        info(f"{WORKSPACE_MANIFEST_FILE} already exists")
-        return
-
-    slug = _workspace_slug(target_dir.name)
-    content = (
-        "# Workspace-owned Brain metadata. Edit over time as needed.\n"
-        f"slug: {slug}\n"
-        "defaults:\n"
-        "  tags:\n"
-        f"    - workspace/{slug}\n"
+    return converge_workspace_binding(
+        target_dir,
+        brain=resolved_brain,
+        allow_rebind=allow_rebind,
     )
-    safe_write(manifest_path, content)
-    info(f"Created {WORKSPACE_MANIFEST_FILE}")
 
+
+def ensure_workspace_manifest(
+    target_dir: Path,
+    *,
+    vault_root: Path | None = None,
+    brain_id: str | None = None,
+    allow_rebind: bool = False,
+) -> Path:
+    """Converge the canonical workspace binding manifest for a target."""
+    try:
+        result = _converge_workspace_manifest(
+            target_dir,
+            vault_root=vault_root,
+            brain_id=brain_id,
+            allow_rebind=allow_rebind,
+        )
+    except WorkspaceBindingError as exc:
+        fatal(str(exc))
+
+    info(result.message)
+    return result.manifest_path
 
 def _run_git_rev_parse(target_dir: Path, *args: str, error_label: str) -> Optional[Path]:
     if shutil.which("git") is None:
@@ -679,6 +705,14 @@ def _ensure_brain_ignore_rules_or_fatal(
         ensure_brain_ignore_rules(target_dir, scope, clients, skip_mcp=skip_mcp)
     except GitInspectionError as exc:
         fatal(f"Failed to install Brain ignore rules: {exc}")
+
+
+def _scope_cli_flags(scope: str, target_dir: Optional[Path]) -> List[str]:
+    if scope == "user":
+        return ["--user"]
+    if scope == "local":
+        return ["--local"]
+    return ["--project", str(target_dir)]
 
 
 # ---------------------------------------------------------------------------
@@ -910,15 +944,145 @@ def _remove_record(vault_root: Path, record: Dict[str, Any]) -> bool:
     return False
 
 
-def _confirm_removal(scope_label: str, clients: List[str]) -> None:
+def _scope_label(scope: str, target_dir: Optional[Path]) -> str:
+    if scope == "user":
+        return "user (all projects)"
+    return f"{scope} ({target_dir})"
+
+
+def apply_mcp_transport_action(
+    vault_root: Path,
+    *,
+    client_arg: str,
+    scope: str,
+    target_dir: Optional[Path],
+    remove: bool,
+) -> Dict[str, Any]:
+    clients, warnings = _resolve_clients_or_error(client_arg, scope)
+    scope_label = _scope_label(scope, target_dir)
+
+    if remove:
+        matching = matching_records(vault_root, clients, scope, target_dir)
+        if not matching:
+            return {
+                "action": "remove",
+                "status": "noop",
+                "scope": scope,
+                "scope_label": scope_label,
+                "target_dir": target_dir,
+                "clients": clients,
+                "warnings": warnings,
+                "matching_count": 0,
+                "removed_count": 0,
+                "retained_count": 0,
+                "removed_records": [],
+            }
+
+        removed_records: List[Dict[str, Any]] = []
+        for record in matching:
+            info(f"Removing {record['client']} from {record['config_path']}")
+            if _remove_record(vault_root, record):
+                removed_records.append(record)
+
+        _remove_init_records(vault_root, removed_records)
+        return {
+            "action": "remove",
+            "status": "changed",
+            "scope": scope,
+            "scope_label": scope_label,
+            "target_dir": target_dir,
+            "clients": clients,
+            "warnings": warnings,
+            "matching_count": len(matching),
+            "removed_count": len(removed_records),
+            "retained_count": len(matching) - len(removed_records),
+            "removed_records": removed_records,
+        }
+
+    try:
+        python_path = _resolve_managed_python(vault_root)
+        server_config = build_mcp_config(python_path, vault_root, workspace_dir=target_dir)
+
+        for client in clients:
+            _warn_if_user_scope_exists(client, scope, server_config)
+
+        results: List[Dict[str, Any]] = []
+        for client in clients:
+            header(f"Registering {client} MCP server")
+            if client == "claude":
+                record = register_claude(vault_root, server_config, scope, target_dir)
+            else:
+                record = register_codex(server_config, scope, target_dir)
+            record_init_target(vault_root, record)
+            results.append(record)
+
+        if target_dir:
+            header("Workspace manifest")
+            binding = _converge_workspace_manifest(target_dir, vault_root=vault_root)
+            info(binding.message)
+            header("Git ignore rules")
+            ensure_brain_ignore_rules(target_dir, scope, clients, skip_mcp=False)
+    except (WorkspaceBindingError, GitInspectionError, OSError) as exc:
+        raise InitTransportError(str(exc)) from exc
+
+    has_claude = any(result["client"] == "claude" for result in results)
+    has_codex = any(result["client"] == "codex" for result in results)
+    project_scope = scope == "project" and target_dir is not None
+
+    claude_notes: List[str] = []
+    if project_scope and has_claude:
+        claude_notes = claude_project_followup_notes(target_dir)
+
+    verification_notes: List[str] = []
+    if has_claude:
+        if project_scope:
+            verification_notes.append("Claude:   open Claude Code in this directory and use /mcp to approve `brain` if prompted")
+            verification_notes.append("Verify:   ask Claude to call `brain_session` and confirm `environment.vault_root`")
+        else:
+            verification_notes.append("Verify:   claude mcp list")
+    if has_codex:
+        if project_scope:
+            verification_notes.append(
+                "Codex:    trust this project and ensure the project-scoped `brain` MCP is enabled if prompted"
+            )
+            verification_notes.append("Verify:   ask Codex to call `brain_session` and confirm `environment.vault_root`")
+            verification_notes.append("Health:   codex mcp list")
+        else:
+            verification_notes.append("Verify:   codex mcp list")
+
+    remove_args = [
+        "python3",
+        str(vault_root / '.brain-core' / 'scripts' / 'init.py'),
+        "--vault",
+        str(vault_root),
+        "--client",
+        client_arg,
+        *_scope_cli_flags(scope, target_dir),
+        "--remove",
+    ]
+
+    return {
+        "action": "configure",
+        "status": "changed",
+        "scope": scope,
+        "scope_label": scope_label,
+        "target_dir": target_dir,
+        "clients": clients,
+        "warnings": warnings,
+        "python_path": python_path,
+        "results": results,
+        "claude_project_notes": claude_notes,
+        "verification_notes": verification_notes,
+        "remove_command": shlex.join(remove_args),
+    }
+
+
+def _confirm_removal(scope_label: str, clients: List[str]) -> bool:
     client_label = ", ".join(clients)
     print(file=sys.stderr)
     print(f"Remove recorded Brain MCP registration for {client_label} at {scope_label}? [y/N]: ", end="", file=sys.stderr)
     response = input().strip()
-    if response.lower() != "y":
-        print(file=sys.stderr)
-        info("Removal cancelled. No changes made.")
-        sys.exit(0)
+    return response.lower() == "y"
 
 
 # ---------------------------------------------------------------------------
@@ -944,7 +1108,7 @@ def header(msg: str) -> None:
 # Main
 # ---------------------------------------------------------------------------
 
-def main() -> None:
+def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Set up or remove Brain MCP server registrations for Claude and Codex.",
         epilog=(
@@ -1008,7 +1172,11 @@ def main() -> None:
         action="store_true",
         help=argparse.SUPPRESS,
     )
-    args = parser.parse_args()
+    return parser.parse_args(argv)
+
+
+def main(argv: Optional[List[str]] = None) -> None:
+    args = parse_args(argv)
 
     if args.user and (args.local or args.project):
         fatal("--user cannot be combined with --local or --project")
@@ -1038,38 +1206,12 @@ def main() -> None:
         print(file=sys.stderr)
         return
 
-    if args.remove:
-        if not args.force:
-            _confirm_removal(scope_label, clients)
-
-        header("Removing MCP registrations")
-        matching = matching_records(vault_root, clients, scope, target_dir)
-        if not matching:
-            info("No recorded Brain-managed entries matched this request.")
-            print(file=sys.stderr)
-            return
-
-        removed_records: List[Dict[str, Any]] = []
-        for record in matching:
-            info(f"Removing {record['client']} from {record['config_path']}")
-            if _remove_record(vault_root, record):
-                removed_records.append(record)
-
-        _remove_init_records(vault_root, removed_records)
-
-        header("Done")
-        info(f"Removed:  {len(removed_records)} recorded registration(s)")
-        info(f"Retained: {len(matching) - len(removed_records)} record(s)")
-        print(file=sys.stderr)
-        return
-
     if args.skip_mcp:
         header("Folder bootstrap")
         if target_dir is None:
             fatal("--skip-mcp requires a target directory")
 
-        if not _is_vault_root(target_dir):
-            ensure_workspace_manifest(target_dir)
+        ensure_workspace_manifest(target_dir, vault_root=vault_root)
         _ensure_brain_ignore_rules_or_fatal(target_dir, scope, clients, skip_mcp=True)
 
         header("Done")
@@ -1079,74 +1221,51 @@ def main() -> None:
         print(file=sys.stderr)
         return
 
-    python_path = find_python(vault_root)
-    info(f"Python:  {python_path}")
-    server_config = build_mcp_config(python_path, vault_root, workspace_dir=target_dir)
+    if args.remove:
+        header("Removing MCP registrations")
+        if not args.force and not _confirm_removal(scope_label, clients):
+            print(file=sys.stderr)
+            info("Removal cancelled. No changes made.")
+            print(file=sys.stderr)
+            return
+    try:
+        result = apply_mcp_transport_action(
+            vault_root,
+            client_arg=args.client,
+            scope=scope,
+            target_dir=target_dir,
+            remove=args.remove,
+        )
+    except InitTransportError as exc:
+        fatal(str(exc))
 
-    for client in clients:
-        _warn_if_user_scope_exists(client, scope, server_config)
-
-    results: List[Dict[str, Any]] = []
-    for client in clients:
-        header(f"Registering {client} MCP server")
-        if client == "claude":
-            record = register_claude(vault_root, server_config, scope, target_dir)
-        else:
-            record = register_codex(server_config, scope, target_dir)
-        record_init_target(vault_root, record)
-        results.append(record)
-
-    if target_dir and not _is_vault_root(target_dir):
-        header("Workspace manifest")
-        ensure_workspace_manifest(target_dir)
-    if target_dir:
-        header("Git ignore rules")
-        _ensure_brain_ignore_rules_or_fatal(target_dir, scope, clients, skip_mcp=False)
+    if args.remove:
+        if result["status"] == "noop":
+            info("No recorded Brain-managed entries matched this request.")
+        header("Done")
+        info(f"Removed:  {result['removed_count']} recorded registration(s)")
+        info(f"Retained: {result['retained_count']} record(s)")
+        print(file=sys.stderr)
+        return
 
     header("Done")
     info(f"Vault:    {vault_root}")
     info(f"Scope:    {scope_label}")
     info(f"Clients:  {', '.join(clients)}")
-    for result in results:
-        info(
-            f"{result['client'].title()}: {result['method']}"
-        )
+    info(f"Python:   {result['python_path']}")
+    for registration in result["results"]:
+        info(f"{registration['client'].title()}: {registration['method']}")
     print(file=sys.stderr)
-    has_claude = any(result["client"] == "claude" for result in results)
-    has_codex = any(result["client"] == "codex" for result in results)
-    project_scope = scope == "project" and target_dir is not None
 
-    if project_scope and has_claude:
-        notes = claude_project_followup_notes(target_dir)
-        if notes:
-            header("Claude project approval")
-            for note in notes:
-                info(note)
-            print(file=sys.stderr)
+    if result["claude_project_notes"]:
+        header("Claude project approval")
+        for note in result["claude_project_notes"]:
+            info(note)
+        print(file=sys.stderr)
 
-    if has_claude:
-        if project_scope:
-            info("Claude:   open Claude Code in this directory and use /mcp to approve `brain` if prompted")
-            info("Verify:   ask Claude to call `brain_session` and confirm `environment.vault_root`")
-        else:
-            info("Verify:   claude mcp list")
-    if has_codex:
-        if project_scope:
-            info(
-                "Codex:    trust this project and ensure the project-scoped `brain` MCP "
-                "is enabled if prompted"
-            )
-            info("Verify:   ask Codex to call `brain_session` and confirm `environment.vault_root`")
-            info("Health:   codex mcp list")
-        else:
-            info("Verify:   codex mcp list")
-    info(
-        "Remove:   "
-        f"python3 {shlex.quote(str(vault_root / '.brain-core' / 'scripts' / 'init.py'))} "
-        f"--vault {shlex.quote(str(vault_root))} --client {args.client} "
-        f"{'--user' if scope == 'user' else ('--local' if scope == 'local' else '--project ' + shlex.quote(str(target_dir)))} "
-        "--remove"
-    )
+    for note in result["verification_notes"]:
+        info(note)
+    info(f"Remove:   {result['remove_command']}")
     print(file=sys.stderr)
 
 

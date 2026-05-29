@@ -24,6 +24,13 @@ from _bootstrap.runtime import (
     handoff_current_script_to_managed_runtime,
     required_modules_for_scope,
 )
+from _bootstrap.workspace_binding import (
+    WORKSPACE_MANIFEST_LEGACY_REL,
+    WORKSPACE_MANIFEST_REL,
+    WorkspaceBindingError,
+    extract_workspace_binding,
+    load_workspace_manifest_state,
+)
 from _common import (
     find_vault_root,
     parse_frontmatter,
@@ -42,8 +49,6 @@ GOTCHAS_REL = os.path.join("_Config", "User", "gotchas.md")
 SESSION_CORE_REL = os.path.join(".brain-core", "session-core.md")
 SESSION_MARKDOWN_REL = os.path.join(".brain", "local", "session.md")
 COMPILED_ROUTER_REL = os.path.join(".brain", "local", "compiled-router.json")
-WORKSPACE_MANIFEST_REL = os.path.join(".brain", "local", "workspace.yaml")
-WORKSPACE_MANIFEST_LEGACY_REL = os.path.join(".brain", "workspace.yaml")
 CORE_DOC_SECTION_HEADINGS = ("Core Docs", "Standards")
 BOOTSTRAP_TIMEOUT = 300
 
@@ -193,39 +198,30 @@ def _json_safe(value):
 
 
 def _load_workspace_manifest(workspace_dir):
-    """Load `.brain/local/workspace.yaml` from the active workspace.
-
-    Falls back to the legacy `.brain/workspace.yaml` location with a warning
-    so existing installs continue to work until migrated.
-    """
+    """Load the active workspace manifest via the shared binding helper."""
     if not workspace_dir:
         return None
-    from _common._yaml import YamlError, load_mapping_file
 
-    ws_abs = os.path.abspath(os.path.expanduser(str(workspace_dir)))
-    manifest_path = os.path.join(ws_abs, WORKSPACE_MANIFEST_REL)
-
-    if not os.path.isfile(manifest_path):
-        legacy_path = os.path.join(ws_abs, WORKSPACE_MANIFEST_LEGACY_REL)
-        if os.path.isfile(legacy_path):
-            print(
-                f"Warning: workspace manifest found at legacy location "
-                f"{WORKSPACE_MANIFEST_LEGACY_REL} — move it to "
-                f"{WORKSPACE_MANIFEST_REL}",
-                file=sys.stderr,
-            )
-            manifest_path = legacy_path
-        else:
-            return None
-
+    ws_abs = Path(os.path.abspath(os.path.expanduser(str(workspace_dir))))
     try:
-        data = load_mapping_file(manifest_path)
-    except (OSError, YamlError) as exc:
+        state = load_workspace_manifest_state(ws_abs)
+    except WorkspaceBindingError as exc:
+        manifest_path = os.path.join(str(ws_abs), WORKSPACE_MANIFEST_REL)
         raise SessionWorkspaceLoadError(
             manifest_path,
             f"failed to load workspace manifest {manifest_path}: {exc}",
         ) from exc
-    return data if isinstance(data, dict) else None
+
+    if state.source_path is None:
+        return None
+    if state.source_path == state.legacy_path:
+        print(
+            f"Warning: workspace manifest found at legacy location "
+            f"{WORKSPACE_MANIFEST_LEGACY_REL} — move it to "
+            f"{WORKSPACE_MANIFEST_REL}",
+            file=sys.stderr,
+        )
+    return state.data if isinstance(state.data, dict) else None
 
 
 def _extract_workspace_defaults(manifest):
@@ -591,6 +587,7 @@ def build_session_model(
     workspace_summary = _workspace_summary(workspace_dir, vault_root)
     workspace_manifest = _load_workspace_manifest(workspace_dir)
     workspace_defaults = _extract_workspace_defaults(workspace_manifest)
+    workspace_binding = extract_workspace_binding(workspace_manifest)
     workspace_record = _resolve_workspace_record(
         vault_root,
         workspace_summary,
@@ -622,6 +619,8 @@ def build_session_model(
         model["active_profile"] = resolved_profile
     if workspace_summary:
         model["workspace"] = workspace_summary
+    if workspace_binding:
+        model["workspace_binding"] = workspace_binding
     if workspace_record:
         model["workspace_record"] = workspace_record
     if workspace_defaults:

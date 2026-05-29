@@ -472,3 +472,219 @@ def test_load_config_checked_propagates_programmer_errors(tmp_path, monkeypatch)
 
     with pytest.raises(TypeError, match="bad call"):
         semantic_config.load_config_checked(vault)
+
+
+def test_configure_workspace_binding_writes_binding_manifest(tmp_path, monkeypatch, capsys):
+    vault = _make_vault(tmp_path)
+    workspace = tmp_path / "demo-workspace"
+    workspace.mkdir()
+
+    monkeypatch.setattr(configure, "resolve_bound_brain_vault", lambda brain_id: vault if brain_id == "brain" else None)
+
+    exit_code = configure.main([
+        "workspace",
+        "binding",
+        "--vault",
+        str(vault),
+        "--path",
+        str(workspace),
+        "--brain",
+        "brain",
+        "--json",
+    ])
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "ok"
+    assert (workspace / ".brain" / "local" / "workspace.yaml").read_text(encoding="utf-8") == (
+        "brain: brain\nslug: demo-workspace\n"
+    )
+
+
+def test_configure_workspace_metadata_updates_defaults_and_links(tmp_path, monkeypatch, capsys):
+    vault = _make_vault(tmp_path)
+    workspace = tmp_path / "demo-workspace"
+    (workspace / ".brain" / "local").mkdir(parents=True)
+    (workspace / ".brain" / "local" / "workspace.yaml").write_text(
+        "brain: brain\nslug: demo-workspace\n",
+        encoding="utf-8",
+    )
+
+    exit_code = configure.main([
+        "workspace",
+        "metadata",
+        "--vault",
+        str(vault),
+        "--path",
+        str(workspace),
+        "--tag",
+        "workspace/demo",
+        "--link",
+        "workspace=brain-demo",
+        "--json",
+    ])
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "ok"
+    assert (workspace / ".brain" / "local" / "workspace.yaml").read_text(encoding="utf-8") == (
+        "brain: brain\n"
+        "slug: demo-workspace\n"
+        "defaults:\n"
+        "  tags:\n"
+        "    - workspace/demo\n"
+        "links:\n"
+        "  workspace: brain-demo\n"
+    )
+
+
+def test_configure_workspace_bootstrap_installs_agents_and_claude(tmp_path, capsys):
+    vault = _make_vault(tmp_path)
+    workspace = tmp_path / "demo-workspace"
+    workspace.mkdir()
+
+    exit_code = configure.main([
+        "workspace",
+        "bootstrap",
+        "--vault",
+        str(vault),
+        "--path",
+        str(workspace),
+        "--surface",
+        "all",
+        "--json",
+    ])
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "ok"
+    assert "Call MCP `brain_session`" in (workspace / "AGENTS.md").read_text(encoding="utf-8")
+    assert "Call brain_session" in (workspace / "CLAUDE.md").read_text(encoding="utf-8")
+
+
+
+def test_configure_mcp_returns_structured_result(tmp_path, monkeypatch, capsys):
+    vault = _make_vault(tmp_path)
+    workspace = tmp_path / "demo-workspace"
+    workspace.mkdir()
+
+    calls = {}
+
+    def fake_apply(vault_root, *, client_arg, scope, target_dir, remove):
+        calls["vault_root"] = vault_root
+        calls["client_arg"] = client_arg
+        calls["scope"] = scope
+        calls["target_dir"] = target_dir
+        calls["remove"] = remove
+        return {
+            "status": "changed",
+            "warnings": [],
+        }
+
+    monkeypatch.setattr(configure.init, "apply_mcp_transport_action", fake_apply)
+
+    exit_code = configure.main([
+        "mcp",
+        "--vault",
+        str(vault),
+        "--workspace",
+        str(workspace),
+        "--client",
+        "all",
+        "--json",
+    ])
+
+    assert exit_code == 0
+    assert calls == {
+        "vault_root": vault,
+        "client_arg": "all",
+        "scope": "project",
+        "target_dir": workspace,
+        "remove": False,
+    }
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "ok"
+    assert payload["steps"][0]["name"] == "mcp_transport"
+    assert payload["steps"][0]["status"] == "changed"
+
+
+def test_configure_mcp_remove_noop_returns_noop_step(tmp_path, monkeypatch, capsys):
+    vault = _make_vault(tmp_path)
+    workspace = tmp_path / "demo-workspace"
+    workspace.mkdir()
+
+    monkeypatch.setattr(
+        configure.init,
+        "apply_mcp_transport_action",
+        lambda *_args, **_kwargs: {"status": "noop", "warnings": []},
+    )
+
+    exit_code = configure.main([
+        "mcp",
+        "--vault",
+        str(vault),
+        "--workspace",
+        str(workspace),
+        "--remove",
+        "--force",
+        "--json",
+    ])
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["steps"][0]["status"] == "noop"
+    assert "No recorded Brain-managed MCP entries matched this request." == payload["steps"][0]["message"]
+
+
+def test_configure_mcp_remove_changed_returns_changed_step(tmp_path, monkeypatch, capsys):
+    vault = _make_vault(tmp_path)
+    workspace = tmp_path / "demo-workspace"
+    workspace.mkdir()
+
+    monkeypatch.setattr(
+        configure.init,
+        "apply_mcp_transport_action",
+        lambda *_args, **_kwargs: {"status": "changed", "warnings": []},
+    )
+
+    exit_code = configure.main([
+        "mcp",
+        "--vault",
+        str(vault),
+        "--workspace",
+        str(workspace),
+        "--remove",
+        "--force",
+        "--json",
+    ])
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["steps"][0]["status"] == "changed"
+    assert payload["steps"][0]["message"] == "Removed recorded Brain-managed MCP entries for all (project)."
+
+
+def test_configure_mcp_returns_error_when_transport_apply_raises_typed_error(tmp_path, monkeypatch, capsys):
+    vault = _make_vault(tmp_path)
+    workspace = tmp_path / "demo-workspace"
+    workspace.mkdir()
+
+    def fake_apply(*_args, **_kwargs):
+        raise configure.init.InitTransportError("transport failed")
+
+    monkeypatch.setattr(configure.init, "apply_mcp_transport_action", fake_apply)
+
+    exit_code = configure.main([
+        "mcp",
+        "--vault",
+        str(vault),
+        "--workspace",
+        str(workspace),
+        "--json",
+    ])
+
+    assert exit_code == 2
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "error"
+    assert payload["steps"][0]["status"] == "error"
+    assert payload["steps"][0]["message"] == "transport failed"

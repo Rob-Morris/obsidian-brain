@@ -90,6 +90,7 @@ Each DD captures the reasoning behind an architectural decision at the time it w
 | DD-048 | Central managed runtime, content-addressed by `requirements.txt` (`~/.brain/venvs/<py>-<sha>/`) | Accepted (v0.37.0) | [dd-048](dd-048-central-managed-runtime.md) |
 | DD-049 | Brain CLI as thin dispatch layer (versioned independently from brain-core) | Accepted (v0.38.0) | [dd-049](dd-049-brain-cli-thin-dispatch.md) |
 | DD-050 | Unified closure-status vocabulary — `deprecated` + `parked` across all lifecycle types, reason in callout | Implemented (v0.43.0) | [dd-050](dd-050-closure-status-model.md) |
+| DD-051 | Workspace-owned binding and workspace-aware MCP; `setup workspace` / `configure ...` cutover | Accepted | [dd-051](dd-051-workspace-owned-binding-and-workspace-aware-mcp.md) |
 
 ---
 
@@ -98,10 +99,10 @@ Each DD captures the reasoning behind an architectural decision at the time it w
 Related decisions grouped by domain. Arrows show supersede/extend chains.
 
 - **MCP tool surface:** DD-010 → DD-044, DD-010 → DD-045 → DD-046 → DD-047, DD-011 → DD-020 → DD-025 → DD-045, DD-026, DD-027, DD-028
-- **Config & install:** DD-003 → DD-049, DD-015, DD-023 → DD-039 → DD-043 → DD-048 → DD-049, DD-032, DD-033
+- **Config & install:** DD-003 → DD-049, DD-015, DD-023 → DD-039 → DD-043 → DD-048 → DD-049, DD-023/DD-039 → DD-051, DD-032, DD-033
 - **Router & bootstrap:** DD-008, DD-009, DD-012, DD-013, DD-014, DD-017, DD-019, DD-038, DD-042
 - **Security & integrity:** DD-031, DD-036, DD-043
 - **Plugins & platforms:** DD-004, DD-005, DD-006, DD-007, DD-021, DD-022
 - **Agent methodology:** DD-024, DD-035
-- **Workspaces:** DD-040 (extends DD-038, DD-023)
+- **Workspaces:** DD-040 → DD-051 (DD-051 extends DD-023, DD-039, DD-040)
 - **Artefact lifecycle & folder convention:** DD-029, DD-030 → DD-050

@@ -4,12 +4,19 @@
 from __future__ import annotations
 
 import json
+import os
 import shlex
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from _bootstrap.runtime import find_launcher_python
+from _bootstrap.workspace_binding import (
+    WorkspaceBindingError,
+    extract_workspace_binding,
+    read_workspace_manifest,
+    resolve_bound_brain_vault,
+)
 from _common import safe_write, safe_write_json
 
 
@@ -48,7 +55,6 @@ def build_mcp_config(
     """Build the shared MCP server config shape used by Claude and Codex."""
     pythonpath = str(vault_root / MCP_PYTHONPATH_REL)
     env = {
-        "BRAIN_VAULT_ROOT": str(vault_root),
         "PYTHONPATH": pythonpath,
     }
     if workspace_dir is not None:
@@ -61,7 +67,7 @@ def build_mcp_config(
 
 
 def configured_vault_root(server_config: Any) -> Optional[Path]:
-    """Return the configured vault root from a Brain server config, if present."""
+    """Return the legacy configured vault root from a Brain server config, if present."""
     if not isinstance(server_config, dict):
         return None
     env = server_config.get("env")
@@ -76,9 +82,45 @@ def configured_vault_root(server_config: Any) -> Optional[Path]:
         return None
 
 
+def configured_workspace_dir(server_config: Any) -> Optional[Path]:
+    """Return the explicit configured workspace directory, if present."""
+    if not isinstance(server_config, dict):
+        return None
+    env = server_config.get("env")
+    if not isinstance(env, dict):
+        return None
+    workspace_dir = env.get("BRAIN_WORKSPACE_DIR")
+    if not isinstance(workspace_dir, str) or not workspace_dir:
+        return None
+    try:
+        return Path(workspace_dir).resolve()
+    except OSError:
+        return None
+
+
+def resolved_target_vault_root(server_config: Any) -> Optional[Path]:
+    """Resolve the effective target Brain vault for a persisted MCP config."""
+    legacy_root = configured_vault_root(server_config)
+    if legacy_root is not None:
+        return legacy_root
+
+    workspace_dir = configured_workspace_dir(server_config)
+    if workspace_dir is None:
+        return None
+
+    try:
+        manifest = read_workspace_manifest(workspace_dir)
+    except WorkspaceBindingError:
+        return None
+    binding = extract_workspace_binding(manifest)
+    if binding is None:
+        return None
+    return resolve_bound_brain_vault(binding["brain"])
+
+
 def config_targets_vault(server_config: Any, vault_root: Path) -> bool:
-    """Return whether a Brain server config belongs to the given vault."""
-    configured_root = configured_vault_root(server_config)
+    """Return whether a Brain server config resolves to the given target vault."""
+    configured_root = resolved_target_vault_root(server_config)
     if configured_root is None:
         return False
     return configured_root == vault_root.resolve()

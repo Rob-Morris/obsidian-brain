@@ -12,12 +12,12 @@
 set -euo pipefail
 
 BRAIN_CLI_VERSION="1.0.0"
-BRAIN_INSTALL_REF="v0.43.6"
+BRAIN_INSTALL_REF="v0.44.0"
 
 # Dispatch contract (DD-049 v1). hyphens here become underscores on disk.
 DISPATCH_SUBCOMMANDS=(
-    check create edit rename configure repair init upgrade
-    session read migrate-naming fix-links
+    check create edit rename setup configure repair upgrade
+    session read migrate-naming fix-links init
 )
 
 INSTALL_URL="${BRAIN_INSTALL_URL:-https://raw.githubusercontent.com/rob-morris/obsidian-brain/${BRAIN_INSTALL_REF}/install.sh}"
@@ -43,7 +43,7 @@ Usage:
 
 Vault subcommands (dispatched to .brain-core/scripts/):
   check          create         edit           rename
-  configure      repair         init           upgrade
+  setup          configure      repair         upgrade
   session        read           migrate-naming fix-links
 
 Machine-level commands:

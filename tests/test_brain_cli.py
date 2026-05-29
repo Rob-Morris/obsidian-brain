@@ -27,13 +27,14 @@ def _cli_shell_var(name: str) -> str:
 
 BRAIN_CLI_VERSION = _cli_shell_var("BRAIN_CLI_VERSION")
 
-# Dispatch contract — kept in sync with cli/brain's DISPATCH_SUBCOMMANDS array
-# and DD-049's documented v1 surface. Tests fail if these drift.
-DISPATCH_CONTRACT = [
+# Public dispatch contract plus legacy compatibility shims.
+PUBLIC_DISPATCH_CONTRACT = [
     "check", "create", "edit", "rename",
-    "configure", "repair", "init", "upgrade",
+    "setup", "configure", "repair", "upgrade",
     "session", "read", "migrate-naming", "fix-links",
 ]
+DISPATCH_COMPAT = ["init"]
+DISPATCH_CONTRACT = PUBLIC_DISPATCH_CONTRACT + DISPATCH_COMPAT
 
 
 # ---------------------------------------------------------------------------
@@ -187,8 +188,10 @@ def test_version_subcommand():
 def test_help_lists_dispatch_subcommands():
     result = _run_cli("--help")
     assert result.returncode == 0
-    for sub in DISPATCH_CONTRACT:
+    for sub in PUBLIC_DISPATCH_CONTRACT:
         assert sub in result.stdout
+    for sub in DISPATCH_COMPAT:
+        assert sub not in result.stdout
 
 
 def test_no_args_prints_help():

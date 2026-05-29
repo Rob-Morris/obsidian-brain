@@ -481,3 +481,43 @@ class TestSessionCli:
         assert "## Standards" in payload["message"]
         assert payload["recovery"]["action"] == "Reinstall or upgrade the shipped .brain-core files for this vault, then rerun session.py."
         assert "install.sh --non-interactive --skip-mcp" in payload["recovery"]["command"]
+
+
+def test_includes_workspace_binding_when_manifest_declares_brain(tmp_path):
+    workspace_dir = tmp_path / "demo-workspace"
+    (workspace_dir / ".brain" / "local").mkdir(parents=True)
+    (workspace_dir / ".brain" / "local" / "workspace.yaml").write_text(
+        "brain: brain\n"
+        "slug: demo-workspace\n",
+        encoding="utf-8",
+    )
+
+    model = session.build_session_model(
+        _minimal_router(tmp_path),
+        str(tmp_path),
+        workspace_dir=str(workspace_dir),
+        load_config_if_missing=False,
+    )
+
+    assert model["workspace_binding"] == {
+        "brain": "brain",
+        "slug": "demo-workspace",
+    }
+
+
+def test_omits_workspace_binding_when_manifest_binding_is_incomplete(tmp_path):
+    workspace_dir = tmp_path / "demo-workspace"
+    (workspace_dir / ".brain" / "local").mkdir(parents=True)
+    (workspace_dir / ".brain" / "local" / "workspace.yaml").write_text(
+        "brain: brain\n",
+        encoding="utf-8",
+    )
+
+    model = session.build_session_model(
+        _minimal_router(tmp_path),
+        str(tmp_path),
+        workspace_dir=str(workspace_dir),
+        load_config_if_missing=False,
+    )
+
+    assert "workspace_binding" not in model

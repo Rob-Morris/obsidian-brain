@@ -11,6 +11,7 @@ import pytest
 # init.py is self-contained, import it directly
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src", "brain-core", "scripts"))
 import init
+from _bootstrap.workspace_binding import workspace_slug
 
 
 @pytest.fixture
@@ -70,7 +71,6 @@ class TestBuildMcpConfig:
         config = init.build_mcp_config("/usr/bin/python3", vault)
         assert config["command"] == "/usr/bin/python3"
         assert config["args"] == ["-m", "brain_mcp.proxy", "/usr/bin/python3", "brain_mcp.server"]
-        assert config["env"]["BRAIN_VAULT_ROOT"] == str(vault)
         assert config["env"]["PYTHONPATH"] == str(vault / ".brain-core")
         assert "BRAIN_WORKSPACE_DIR" not in config["env"]
 
@@ -138,9 +138,31 @@ class TestFindPython:
 
 class TestVaultMatching:
     def test_extracts_configured_vault_root(self, vault):
-        config = init.build_mcp_config("/usr/bin/python3", vault)
+        config = {"env": {"BRAIN_VAULT_ROOT": str(vault)}}
         assert init.configured_vault_root(config) == vault.resolve()
         assert init.config_targets_vault(config, vault)
+
+    def test_workspace_binding_route_targets_vault_when_binding_is_complete(self, vault, project, monkeypatch):
+        workspace = project
+        (workspace / ".brain" / "local").mkdir(parents=True)
+        (workspace / ".brain" / "local" / "workspace.yaml").write_text(
+            "brain: brain\nslug: my-project\n",
+            encoding="utf-8",
+        )
+        config = init.build_mcp_config("/usr/bin/python3", vault, workspace_dir=workspace)
+        monkeypatch.setattr(init._mcp_state, "resolve_bound_brain_vault", lambda brain_id: vault if brain_id == "brain" else None)
+        assert init.config_targets_vault(config, vault)
+
+    def test_workspace_binding_route_does_not_match_when_slug_is_missing(self, vault, project, monkeypatch):
+        workspace = project
+        (workspace / ".brain" / "local").mkdir(parents=True)
+        (workspace / ".brain" / "local" / "workspace.yaml").write_text(
+            "brain: brain\n",
+            encoding="utf-8",
+        )
+        config = init.build_mcp_config("/usr/bin/python3", vault, workspace_dir=workspace)
+        monkeypatch.setattr(init._mcp_state, "resolve_bound_brain_vault", lambda brain_id: vault if brain_id == "brain" else None)
+        assert not init.config_targets_vault(config, vault)
 
     def test_missing_or_invalid_root_does_not_match(self, vault):
         assert init.configured_vault_root({}) is None
@@ -333,26 +355,26 @@ class TestEnsureClaudeMd:
 
 class TestEnsureWorkspaceManifest:
     def test_creates_new_manifest(self, project):
-        init.ensure_workspace_manifest(project)
+        init.ensure_workspace_manifest(project, brain_id="brain")
         content = (project / ".brain" / "local" / "workspace.yaml").read_text()
+        assert "brain: brain" in content
         assert "slug: my-project" in content
-        assert "- workspace/my-project" in content
 
-    def test_preserves_existing_manifest(self, project):
+    def test_preserves_existing_slug_while_adding_binding(self, project):
         manifest = project / ".brain" / "local" / "workspace.yaml"
         manifest.parent.mkdir(parents=True, exist_ok=True)
         manifest.write_text("slug: custom\n")
-        init.ensure_workspace_manifest(project)
-        assert manifest.read_text() == "slug: custom\n"
+        init.ensure_workspace_manifest(project, brain_id="brain")
+        assert manifest.read_text() == "brain: brain\nslug: custom\n"
 
     def test_migrates_legacy_manifest(self, project):
         legacy = project / ".brain" / "workspace.yaml"
         legacy.parent.mkdir(parents=True, exist_ok=True)
         legacy.write_text("slug: legacy\n")
-        init.ensure_workspace_manifest(project)
+        init.ensure_workspace_manifest(project, brain_id="brain")
         new_path = project / ".brain" / "local" / "workspace.yaml"
         assert new_path.is_file()
-        assert new_path.read_text() == "slug: legacy\n"
+        assert new_path.read_text() == "brain: brain\nslug: legacy\n"
         assert not legacy.is_file()
 
 
@@ -671,6 +693,21 @@ class TestSkipMcpMode:
         assert not (project / ".codex" / "config.toml").exists()
         assert not (project / "CLAUDE.md").exists()
         assert not (project / ".claude" / "settings.local.json").exists()
+
+    def test_skip_mcp_converges_vault_root_binding(self, vault, monkeypatch):
+        monkeypatch.setattr(init, "find_python", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("should not resolve runtime")))
+        monkeypatch.setattr(init, "resolve_local_brain_alias", lambda _vault_root: "brain")
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            ["init.py", "--vault", str(vault), "--project", str(vault), "--skip-mcp"],
+        )
+
+        init.main()
+
+        assert (vault / ".brain" / "local" / "workspace.yaml").read_text(encoding="utf-8") == (
+            f"brain: brain\nslug: {workspace_slug(vault.name)}\n"
+        )
 
     def test_skip_mcp_rejects_user_scope(self, vault, monkeypatch):
         monkeypatch.setattr(

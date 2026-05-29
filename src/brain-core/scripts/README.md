@@ -8,7 +8,7 @@ Direct script invocation remains the baseline command-line contract:
 python3.12 .brain-core/scripts/<script>.py ...
 ```
 
-That launcher process is not automatically the managed runtime. The shared launcher-safe bootstrap ownership now lives under `_bootstrap/`: bootstrap entrypoints do meaningful launcher-safe work there, and runtime-owning lifecycle entrypoints such as `repair.py`, `configure.py`, `session.py`, and `check.py` hand substantive managed work off into the canonical managed runtime before continuing.
+That launcher process is not automatically the managed runtime. The shared launcher-safe bootstrap ownership now lives under `_bootstrap/`: bootstrap entrypoints do meaningful launcher-safe work there, and runtime-owning lifecycle entrypoints such as `repair.py`, `setup.py`, `configure.py`, `session.py`, and `check.py` hand substantive managed work off into the canonical managed runtime before continuing.
 
 Managed operational wrappers now follow that same contract too: `build_index.py`, `search_index.py`, `construct_benchmark_fixture.py`, `evaluate_search.py`, `compile_router.py`, `compile_colours.py`, `sync_definitions.py`, `shape_printable.py`, `shape_presentation.py`, and `migrate_naming.py` start in the launcher only long enough to enter the managed runtime. Manually activating the vault venv still works for debugging, but it is no longer the normal direct-script contract these wrappers document or rely on.
 
@@ -59,7 +59,7 @@ remains lexical-only.
 | `edit.py` | Edit artefacts via CLI with explicit `target + selector + scope`; the importable helpers also back `brain_edit` for editable `_Config/` resources, with body input always meaning post-frontmatter markdown content | `python3 edit.py edit\|append\|prepend\|delete_section --path P [--body B\|--body-file PATH] [--frontmatter JSON] [--target T] [--scope S] [--occurrence N] [--within T --within-occurrence N]... [--json]` |
 | `fix_links.py` | Auto-repair broken wikilinks | `python3 fix_links.py [--fix] [--json] [--vault V]` |
 | `generate_key.py` | Generate operator key + hash for config.yaml via the dependency-free shared auth helper | `python3 generate_key.py [--count N]` |
-| `init.py` | Claude/Codex MCP server registration + recorded removal; now resolves or provisions the canonical managed runtime before persisting bindings, can scaffold folder bootstrap without MCP via `--skip-mcp`, scaffolds `.brain/local/workspace.yaml` for folder-scoped installs (migrates legacy `.brain/workspace.yaml` automatically), manages Brain-owned machine-local ignore entries in git-backed target folders, and writes config atomically with unique sibling temp files. Project-scoped MCP still needs client-side activation before it outranks user scope: approve via `/mcp` in Claude, or trust/enable the project-scoped server in Codex. | `python3 init.py [--client {claude,codex,all}] [--user] [--local] [--project PATH] [--skip-mcp] [--remove] [--force]` |
+| `init.py` | Legacy/internal MCP registration engine beneath `configure.py mcp` and installer flows. It still owns the low-level Claude/Codex config writes and recorded removal path, but it is no longer the taught public setup/configure noun. `--skip-mcp` remains the internal bootstrap-only path used by restricted installer flows. | `python3 init.py [--client {claude,codex,all}] [--user] [--local] [--project PATH] [--skip-mcp] [--remove] [--force]` |
 | `list_artefacts.py` | Enumerate vault artefacts and resources (unranked, no cap) via the same resource/filter contract as `brain_list` | `python3 list_artefacts.py [RESOURCE] [--query Q] [--type T] [--parent P] [--since D] [--until D] [--tag TAG] [--top-k N] [--sort S] [--vault V] [--json]` |
 | `search_lexical.py` | Thin portable lexical-only wrapper over `_search.lexical_query`: query the shared lexical retrieval index with lexical filters only. | `python3 search_lexical.py "query" [--type T] [--tag TAG] [--status S] [--top-k N] [--json]` |
 | `migrate_naming.py` | Migrate filenames to generous naming conventions | `python3 migrate_naming.py [--vault V] [--dry-run] [--json]` |
@@ -90,7 +90,7 @@ The script layer is organised into 8 bounded contexts. This is an architectural 
 | Compliance | `check.py` |
 | Content Intelligence | `_search/`, `search_lexical.py`, `search_index.py`, `evaluate_search.py`, `construct_benchmark_fixture.py`, `list_artefacts.py` |
 | Session & Configuration | `session.py`, `config.py`, `workspace_registry.py`, `generate_key.py` |
-| Lifecycle Management | `init.py`, `repair.py`, `upgrade.py`, `vault_registry.py`, `migrate_naming.py`, `migrations/` |
+| Lifecycle Management | `setup.py`, `configure.py`, `init.py`, `repair.py`, `upgrade.py`, `vault_registry.py`, `migrate_naming.py`, `migrations/` |
 | MCP Integration | `brain_mcp/server.py`, `brain_mcp/proxy.py` |
 | Platform Integration | `obsidian_cli.py` |
 

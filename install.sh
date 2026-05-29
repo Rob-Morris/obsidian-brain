@@ -161,8 +161,9 @@ print_mcp_retry_hint() {
     local vault_path="$1"
     local launcher="${2:-${PYTHON:-python3.12}}"
     info "Retry later with network access:"
+    info "  \"$launcher\" \"$vault_path/.brain-core/scripts/setup.py\" workspace \"$vault_path\" --vault \"$vault_path\""
     info "  \"$launcher\" \"$vault_path/.brain-core/scripts/_common/_venv.py\" ensure --vault \"$vault_path\" --launcher \"$launcher\""
-    info "  \"$launcher\" \"$vault_path/.brain-core/scripts/init.py\" --vault \"$vault_path\" --project \"$vault_path\" --client all"
+    info "  \"$launcher\" \"$vault_path/.brain-core/scripts/configure.py\" mcp --vault \"$vault_path\" --workspace \"$vault_path\" --client all"
     info "  In Claude Code for that directory: run /mcp and approve brain if prompted"
     info "  In Codex for that directory: trust the project and ensure the project-scoped brain MCP is enabled"
     info "  Verify in either client: call brain_session and confirm environment.vault_root"
@@ -172,7 +173,8 @@ print_mcp_retry_hint() {
 print_init_retry_hint() {
     local vault_path="$1"
     local python_cmd="$2"
-    info "  \"$python_cmd\" \"$vault_path/.brain-core/scripts/init.py\" --vault \"$vault_path\" --project \"$vault_path\" --client all"
+    info "  \"$python_cmd\" \"$vault_path/.brain-core/scripts/setup.py\" workspace \"$vault_path\" --vault \"$vault_path\""
+    info "  \"$python_cmd\" \"$vault_path/.brain-core/scripts/configure.py\" mcp --vault \"$vault_path\" --workspace \"$vault_path\" --client all"
 }
 
 print_semantic_retry_hint() {
@@ -736,6 +738,11 @@ elif [ "$SKIP_MCP" = true ]; then
     REGISTER_MCP=n
     info "MCP server setup skipped (--skip-mcp)."
     if [ -n "$PYTHON" ]; then
+        if spin "Binding Brain workspace" "$PYTHON" "$VAULT_PATH/.brain-core/scripts/init.py" --vault "$VAULT_PATH" --project "$VAULT_PATH" --skip-mcp; then
+            info "Workspace binding is ready."
+        else
+            warn "Vault created, but workspace binding setup was incomplete."
+        fi
         info "Register later with:"
         print_init_retry_hint "$VAULT_PATH" "$PYTHON"
     else

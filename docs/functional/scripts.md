@@ -14,7 +14,7 @@ python3.12 .brain-core/scripts/<script>.py ...
 
 That `python3.12` process is the launcher, not the managed runtime itself.
 
-- launcher-safe bootstrap entrypoints such as `repair.py`, `configure.py`, and `init.py` may do meaningful bootstrap work there
+- launcher-safe bootstrap entrypoints such as `repair.py`, `setup.py`, `configure.py`, and the legacy `init.py` engine may do meaningful bootstrap work there
 - shared launcher-safe bootstrap ownership now lives in `src/brain-core/scripts/_bootstrap/`, including runtime handoff, bootstrap diagnostics, and shared MCP/client-config state
 - runtime-owning lifecycle entrypoints such as `repair.py`, `configure.py`, `session.py`, and `check.py` resolve or repair the canonical managed runtime and then hand off into it before substantive managed work continues
 - managed operational wrappers such as `build_index.py`, `search_index.py`, `construct_benchmark_fixture.py`, `evaluate_search.py`, `compile_router.py`, `compile_colours.py`, `sync_definitions.py`, `shape_printable.py`, `shape_presentation.py`, and `migrate_naming.py` now use that same launcher-to-managed-runtime handoff contract
@@ -41,7 +41,8 @@ That `python3.12` process is the launcher, not the managed runtime itself.
 | `edit.py` | Edit artefacts via CLI; importable helpers also back `brain_edit` for editable `_Config/` resources | `python3 edit.py edit\|append\|prepend\|delete_section --path P [--body B\|--body-file PATH] [--frontmatter JSON] [--target T] [--scope S] [--occurrence N] [--within T --within-occurrence N]... [--vault V] [--json]` |
 | `rename.py` | Rename/delete file + update wikilinks (full-path and filename-only), refusing existing-destination collisions | `python3 rename.py "source" "dest" [--json]` |
 | `check.py` | Structural compliance checks; launcher-safe bootstrap diagnostics are added first, then managed semantic findings from the canonical semantic owner run after managed-runtime handoff | `python3 check.py [--json] [--actionable] [--severity S] [--vault V]` |
-| `configure.py` | Explicit installed-vault lifecycle entry point for local semantic opt-in and runtime/model provisioning; bootstraps through `_bootstrap/runtime.py` first | `python3 configure.py semantic --enable [--no-provision] [--json] [--vault V]` |
+| `setup.py` | Public workspace setup owner: converge `brain + slug` binding plus Brain-owned local scaffold/ignore state, with an optional guided wizard over the same explicit configure surfaces | `python3 setup.py workspace [PATH] [--vault V] [--brain ID] [--slug S] [--guided] [--force] [--json]` |
+| `configure.py` | Explicit installed-vault configuration entry point: `workspace binding`, `workspace metadata`, `workspace bootstrap`, `mcp`, and `semantic` live here so targeted changes do not have to go through the setup wrapper | `python3 configure.py {workspace,mcp,semantic} ...` |
 | `repair.py` | Explicit Brain repair entry point with bootstrap-to-managed-runtime handoff, including dedicated managed-runtime recovery, duplicate-frontmatter normalisation, and semantic runtime/model/sidecar recovery | `python3 repair.py {runtime,mcp,router,lexical,registry,frontmatter,semantic} [--vault V] [--dry-run] [--json]` |
 | `_common/_venv.py` | Resolve and create the central managed runtime under `~/.brain/venvs/py<X.Y>-<sha16>/`. Importable helper plus a CLI surface used by `install.sh` | `python3 _common/_venv.py {python,ensure} --vault V [--launcher PY]` |
 | `shape_printable.py` | Create printable + render PDF | `python3 shape_printable.py --source P --slug S [--no-render] [--pdf-engine E]` |
@@ -64,7 +65,7 @@ That `python3.12` process is the launcher, not the managed runtime itself.
 | `obsidian_cli.py` | IPC client for native Obsidian CLI | (library module, used by MCP server) |
 | `process.py` | Experimental content classification, duplicate resolution, ingestion | (library module, used by `brain_process` in the MCP server) |
 | `generate_key.py` | Generate operator key + hash for config.yaml | `python3 generate_key.py [--count N]` |
-| `init.py` | Claude/Codex MCP registration + recorded removal; can also scaffold folder bootstrap without client config via `--skip-mcp`, while still managing workspace manifest and git-local Brain ignores for git-backed folders | `python3 init.py [--client {claude,codex,all}] [--user] [--local] [--project PATH] [--skip-mcp] [--remove] [--force]` |
+| `init.py` | Legacy/internal MCP registration engine beneath `configure.py mcp` and installer flows. It still owns the low-level Claude/Codex config writes and recorded removal path, and `--skip-mcp` remains the restricted bootstrap-only path used by the installer. | `python3 init.py [--client {claude,codex,all}] [--user] [--local] [--project PATH] [--skip-mcp] [--remove] [--force]` |
 
 ## Architecture
 
@@ -378,41 +379,55 @@ Two-stage confirmation protects against accidental data loss (interactive mode o
 
 User-scope cleanup remains explicit. The uninstall flow reminds you to run `init.py --remove --user` before deleting the vault when that scope is in use.
 
-## init.py
+## setup.py
 
-Setup script at `.brain-core/scripts/init.py`. Configures Claude Code and Codex to use the brain MCP server, or bootstraps a folder binding without MCP when requested. Launcher-safe and dependency-light by contract, idempotent, and explicit about both client and scope:
+Public setup owner at `.brain-core/scripts/setup.py`. `setup.py workspace` is the taught first-class setup surface for this line. It owns the minimal deterministic baseline every workspace needs:
 
-- **Client selector** — `--client claude|codex|all` (default: `all`)
+- converge or repair `.brain/local/workspace.yaml` with the canonical `brain + slug` binding
+- migrate a legacy `.brain/workspace.yaml` manifest when present
+- ensure Brain-owned local scaffold/ignore state in git-backed workspaces
+- leave MCP policy, agent bootstrap, and richer metadata as optional follow-on concerns
+
+The default path is deterministic and scriptable. `--guided` turns the same owner into a branched wizard that can optionally orchestrate `configure mcp`, `configure workspace bootstrap`, and `configure workspace metadata` with recommended defaults.
+
+## configure.py
+
+Explicit configuration owner at `.brain-core/scripts/configure.py`. This is the targeted surface when the user already knows which concern they want to change. The current public families are:
+
+- `configure.py workspace binding` — create or update the workspace-to-Brain binding deterministically
+- `configure.py workspace metadata` — optional tags/links/defaults metadata for that workspace
+- `configure.py workspace bootstrap` — optional agent bootstrap/instruction surfaces such as `AGENTS.md` and `CLAUDE.md`
+- `configure.py mcp` — explicit MCP transport policy (`user`, `project`, or Claude-local scope)
+- `configure.py semantic` — local semantic retrieval opt-in and provisioning
+
+`configure.py mcp` is now the public MCP policy noun. It still delegates to the same low-level Claude/Codex config engine under the hood, but the public distinction is clear:
+
+- `setup workspace` ensures or guides workspace setup
+- `configure ...` targets one explicit concern
+
+## init.py (legacy/internal MCP engine)
+
+`init.py` remains in `.brain-core/scripts/` because installer flows, recorded removal, and the low-level client-config writers still live there. It is **not** the taught first-class public setup/configure noun anymore.
+
+What `init.py` still owns:
+
+- low-level Claude/Codex MCP config writes
+- recorded MCP removal via `.brain/local/init-state.json`
+- restricted bootstrap-only `--skip-mcp` paths used by installer flows
+- workspace-manifest convergence and Brain-owned local ignore state when those restricted flows target a workspace
+
+The useful operational facts are unchanged:
+
 - **Project** (default): Claude writes `.mcp.json`; Codex writes `.codex/config.toml`; Claude also ensures `CLAUDE.md` and a SessionStart hook in `.claude/settings.local.json`
 - **Local** (`--local`): Claude only. Writes `.claude/settings.local.json` + `.claude/CLAUDE.local.md` in the target directory
 - **User** (`--user`): Claude writes `~/.claude.json`; Codex writes `~/.codex/config.toml`
-- **Bootstrap-only** (`--skip-mcp`): skips runtime discovery, MCP registration, SessionStart hooks, and client config writes; still scaffolds `.brain/local/workspace.yaml` for folder targets and adds Brain-owned machine-local ignore entries to tracked `.gitignore` (falling back to `.git/info/exclude` only when no `.gitignore` exists)
+- **Bootstrap-only** (`--skip-mcp`): skips runtime discovery, MCP registration, SessionStart hooks, and client config writes; still converges `.brain/local/workspace.yaml` plus Brain-owned machine-local ignore entries
 
-`.mcp.json` and `.codex/config.toml` contain machine-local absolute paths (`command`, `BRAIN_VAULT_ROOT`, `PYTHONPATH`, `BRAIN_WORKSPACE_DIR`). Whether to commit these files is the vault or workspace's choice — Brain does not mandate. See [DD-040](../architecture/decisions/dd-040-workspace-architecture.md) for the scoping contract.
+`.mcp.json` and `.codex/config.toml` now persist machine-local absolute paths for the launcher plus `PYTHONPATH`, and may also carry an explicit `BRAIN_WORKSPACE_DIR` hint. The primary Brain identity is no longer stored there as a persisted `BRAIN_VAULT_ROOT` contract; the generic route resolves the target Brain from the active workspace binding at runtime.
 
-When multiple scopes are configured, project takes priority over local, which takes priority over user once the project-scoped client entry is active. For Claude, that means the project's `.mcp.json` entry has been approved via `/mcp`. For Codex, that means the project is trusted and the project-scoped MCP is enabled. The script warns if a matching user-scope registration already exists when installing at project or local scope.
+All writes remain atomic (tmp + fsync + rename). `init.py` still records client, scope, config path, target path, and server config in `.brain/local/init-state.json` so later removal can compare the current entry against recorded ownership instead of guessing from file presence.
 
-Codex has no native local scope. `--client codex --local` exits with an error. `--client all --local` applies Claude local setup, skips Codex local setup, prints a warning, and exits success.
-
-Optional: `--vault <path>` overrides vault root auto-detection (used by `install.sh` when the script isn't inside the vault).
-
-Registration strategy:
-
-- **Claude** — prefers `claude mcp add-json` when CLI available, falls back to direct JSON file editing
-- **Codex** — direct TOML file editing of native Codex config surfaces
-- **Removal** — `--remove` deletes only recorded Brain-managed entries from the requested client/scope; user-scope cleanup is explicit-only; project uninstall uses the same recorded removal path
-
-`init.py` remains the MCP registration owner, not the generic repair owner. For current-vault repair of the managed runtime or project MCP state, the explicit recovery entry points are `repair.py runtime` and `repair.py mcp`.
-
-Claude project-scope installs still require Claude Code's own trust step for `.mcp.json`. `init.py` does not auto-approve that trust boundary. After a project install, open Claude Code in the target directory and run `/mcp` to approve `brain` if prompted. This matters most when `~/.claude.json` already contains a user-scoped `brain`: until the project entry is approved, Claude may route `mcp__brain__*` calls to the user-scoped server instead. `claude mcp list` is only a health check; it does not prove project approval.
-
-Codex project-scope installs have the same activation caveat in different words: the project-scoped `.codex/config.toml` entry outranks the user-scoped one once the project is trusted and `brain` is enabled for that project. Until then, Codex may keep using the user-scoped `brain` from `~/.codex/config.toml`. `codex mcp list` is a health check, not proof that the project-scoped server is the one serving calls; verify by calling `brain_session` and confirming `environment.vault_root`.
-
-All writes are atomic (tmp + fsync + rename). `init.py` records client, scope, config path, target path, and server config in `.brain/local/init-state.json` so later removal can compare the current entry against recorded ownership instead of guessing from file presence.
-
-For folder-scoped installs, `init.py` also scaffolds `.brain/local/workspace.yaml` when absent (except when targeting the vault root itself). If a legacy manifest exists at `.brain/workspace.yaml`, it is migrated to the new location automatically. The scaffold is intentionally minimal: it gives the workspace a stable slug and a default `workspace/{slug}` tag, but leaves richer metadata and links for humans or agents to evolve later. In git-backed folders, `init.py` now also declares Brain-owned machine-local paths in the tracked `.gitignore` when one exists (falling back to `.git/info/exclude` only when no `.gitignore` exists) so `.brain/local/` and other Brain-managed local state do not get committed accidentally.
-
-**Dependencies:** launcher-safe shared modules only (`_bootstrap.mcp_state`, `_bootstrap.runtime`, and `_common`). Detects a Python with `mcp` package for the server config — prefers the central managed runtime resolved via `_common/_venv.py` (`~/.brain/venvs/py<X.Y>-<sha16>/`), falls back to a legacy vault-local `.venv` if present, then to the current Python and a PATH search. See [DD-048](../architecture/decisions/dd-048-central-managed-runtime.md).
+For current-vault repair of runtime or MCP state, the explicit recovery entry points remain `repair.py runtime` and `repair.py mcp`.
 
 ## session.py
 

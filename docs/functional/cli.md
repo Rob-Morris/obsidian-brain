@@ -28,16 +28,18 @@ brain install <path>
 | `brain create --type T --title "Title" [...]` | `create.py` | Create a new artefact. |
 | `brain edit edit\|append\|prepend\|delete_section [...]` | `edit.py` | Edit existing artefacts. |
 | `brain rename "source" "dest"` | `rename.py` | Rename + update wikilinks. |
+| `brain setup workspace [PATH] [...]` | `setup.py` | Bind a workspace to a Brain and converge the Brain-owned local scaffold. |
+| `brain configure workspace {binding\|metadata\|bootstrap} [...]` | `configure.py` | Targeted workspace-owned configuration surfaces. |
+| `brain configure mcp [...]` | `configure.py` | Explicit MCP transport configuration. |
 | `brain configure semantic --enable [...]` | `configure.py` | Vault lifecycle configuration. |
 | `brain repair {runtime\|mcp\|router\|lexical\|registry\|frontmatter\|semantic}` | `repair.py` | Infrastructure repair. |
-| `brain init [--client {claude,codex,all}] [...]` | `init.py` | MCP registration. |
 | `brain upgrade --source P [...]` | `upgrade.py` | In-place brain-core upgrade. |
 | `brain session [--json]` | `session.py` | Build the session bootstrap model. |
 | `brain read RESOURCE [--name N]` | `read.py` | Query compiled router resources. |
 | `brain migrate-naming [--dry-run]` | `migrate_naming.py` | Filename migrations. |
 | `brain fix-links [--fix]` | `fix_links.py` | Auto-repair broken wikilinks. |
 
-Hyphens in subcommand names map to underscores in script filenames (`migrate-naming` ↔ `migrate_naming.py`).
+Hyphens in subcommand names map to underscores in script filenames (`migrate-naming` ↔ `migrate_naming.py`). `brain init` remains dispatchable as a hidden compatibility shim, but it is no longer a taught first-class public noun for workspace setup or MCP policy.
 
 ### CLI-only (no script dispatch)
 

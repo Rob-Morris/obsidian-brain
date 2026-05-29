@@ -61,13 +61,17 @@ brain repair runtime
 
 A small portable script family also stays usable from a compatible launcher Python in restricted no-network environments, including the core artefact commands plus `build_lexical_index.py` and `search_lexical.py`. See [User Reference](user-reference.md#scripts) for the command-family breakdown and [Script Reference](../functional/scripts.md) for the exact per-script contract.
 
-When you already have a user-scoped Brain MCP setup and just want to bootstrap a specific folder, use `init.py --skip-mcp`:
+When you already have a Brain and just want to bind a specific folder as a workspace without choosing MCP policy yet, use `setup.py workspace` (or `brain setup workspace` if the CLI is installed):
 
 ```bash
-python3.12 .brain-core/scripts/init.py --project /path/to/project --skip-mcp
+python3.12 .brain-core/scripts/setup.py workspace /path/to/project --vault /path/to/brain
 ```
 
-That scaffolds `.brain/local/workspace.yaml` for the folder and adds Brain-owned machine-local ignore rules in git-backed targets without writing `.mcp.json`, `.codex/config.toml`, or SessionStart hooks.
+That creates or repairs `.brain/local/workspace.yaml` with the workspace's `brain + slug` binding and adds Brain-owned machine-local ignore rules in git-backed targets without writing `.mcp.json`, `.codex/config.toml`, or SessionStart hooks. Configure transport later only if you want it, for example:
+
+```bash
+brain configure mcp --vault /path/to/brain --workspace /path/to/project --user --client all
+```
 
 ---
 
