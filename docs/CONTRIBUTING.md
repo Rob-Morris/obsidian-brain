@@ -80,6 +80,11 @@ Bump `src/brain-core/VERSION` for any change to files under `src/brain-core/`, i
 | **Minor** | Breaking Brain changes that preserve the core model, including renamed/removed core files, breaking vault-structure or folder-convention changes, or breaking tool/script/MCP contract changes |
 | **Major** | Fundamental model changes to the artefact model, router contract, or agent bootstrap/entry flow |
 
+When a change touches versioned helper surfaces outside `src/brain-core/VERSION`, check them explicitly before commit:
+
+- `src/brain-core/brain_mcp/proxy.py` — bump `PROXY_VERSION` when the shipped proxy behaviour changes, so upgraded vaults do not report the new proxy as `+modified`.
+- `cli/brain` — keep `BRAIN_INSTALL_REF` pinned to `v<src/brain-core/VERSION>` and bump `BRAIN_CLI_VERSION` when the CLI's own dispatch or CLI-only behaviour changes.
+
 ## Changelog
 
 The live changelog is tiered:

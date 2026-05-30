@@ -8,6 +8,9 @@ Follow before every commit.
 
 [2] **Version bumped.** Bump `src/brain-core/VERSION` for any change to files under `src/brain-core/`, including doc-only edits. If it ships in `.brain-core/`, it gets a version bump. Also bump it for end-user install or upgrade contract changes (`install.sh`, installer docs, upgrade entry-point guidance) even when those files live outside `src/brain-core/`. Use the repo's pre-1.0 semver policy: patch = bug fixes, doc clarifications, additive, backward-compatible changes, including backward-compatible install/upgrade contract changes; minor = breaking Brain changes that preserve the core model, including vault-structure or tool/script/MCP contract changes; major = fundamental model changes to the artefact model, router contract, or agent bootstrap/entry flow.
 
+    [2a] **Proxy version surface** — if `src/brain-core/brain_mcp/proxy.py` changed, decide whether `PROXY_VERSION` must bump. Any shipped proxy behaviour change that would otherwise trip the runtime drift note on upgrade should bump it.
+    [2b] **CLI version surfaces** — if `cli/brain` changed, verify `BRAIN_INSTALL_REF` matches `v<src/brain-core/VERSION>` and decide whether `BRAIN_CLI_VERSION` must bump. Dispatch-surface or CLI-only behaviour changes bump the CLI version; script-only behaviour changes do not.
+
 [3] **Changelog updated.** Follow `docs/standards/changelog.md`. Create `docs/changelog/vX.Y.Z.md` with a short top-line Summary (~60–75 chars, imperative, no period, no version suffix, specific identifier) plus supporting bullets, and write the same Summary text into the matching row's `Summary` cell in `docs/CHANGELOG.md`. The Summary is one canonical text used three places — per-version top-line Summary, index `Summary` cell, release commit subject (with a `(vX.Y.Z)` suffix) — drafted once before commit. Preserve a `BREAKING —` prefix when install-manager action is required. Milestone rows use `Release: <title>`. Add or update `docs/changelog/releases/vX.Y.Z-<slug>.md` when the version closes a shipped release. Never rewrite older per-version files.
 
 [4] **Docs updated.** Update every file affected by your change:
@@ -63,6 +66,8 @@ Note: `skip` uses a comma separator (not colon) to avoid ambiguity with the labe
 ```
 [1] Tests pass: done
 [2] Version bumped: done
+    [2a] Proxy version surface: done
+    [2b] CLI version surfaces: done
 [3] Changelog updated: done
 [4] Docs updated: done
     [4a] Artefact type: skip, no type changes

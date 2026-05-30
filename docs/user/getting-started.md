@@ -61,9 +61,12 @@ brain repair runtime
 
 A small portable script family also stays usable from a compatible launcher Python in restricted no-network environments, including the core artefact commands plus `build_lexical_index.py` and `search_lexical.py`. See [User Reference](user-reference.md#scripts) for the command-family breakdown and [Script Reference](../functional/scripts.md) for the exact per-script contract.
 
-When you already have a Brain and just want to bind a specific folder as a workspace without choosing MCP policy yet, use `setup.py workspace` (or `brain setup workspace` if the CLI is installed):
+When you already have a Brain and just want to bind a specific folder as a workspace without choosing MCP policy yet, use the public `setup workspace` surface:
 
 ```bash
+brain setup workspace /path/to/project --vault /path/to/brain
+
+# or call the shipped script directly
 python3.12 .brain-core/scripts/setup.py workspace /path/to/project --vault /path/to/brain
 ```
 
@@ -71,6 +74,9 @@ That creates or repairs `.brain/local/workspace.yaml` with the workspace's `brai
 
 ```bash
 brain configure mcp --vault /path/to/brain --workspace /path/to/project --user --client all
+
+# or call the shipped script directly
+python3.12 .brain-core/scripts/configure.py mcp --vault /path/to/brain --workspace /path/to/project --user --client all
 ```
 
 ---

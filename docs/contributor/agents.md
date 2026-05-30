@@ -41,6 +41,13 @@ When editing docs that ship in `.brain-core/`:
 - **Architectural layer** (`architecture/`) — how and why it's built this way: `architecture/overview.md`, `architecture/documentation-philosophy.md`, `architecture/decisions/`
 - **Contributor docs** (`contributor/`) — repo-facing product and workflow surfaces: `contributor/specification.md`, `contributor/agents.md`, `contributor/plugins.md`
 
+## Versioned helper surfaces
+
+When a change touches the machine-global helpers around brain-core, check their own version surfaces explicitly:
+
+- `src/brain-core/brain_mcp/proxy.py` — bump `PROXY_VERSION` for shipped proxy behaviour changes so upgraded vaults do not report the new proxy as `+modified`.
+- `cli/brain` — keep `BRAIN_INSTALL_REF` aligned to `v<src/brain-core/VERSION>` and bump `BRAIN_CLI_VERSION` when the CLI's dispatch or CLI-only behaviour changes.
+
 ## When to Update Which Layer
 
 | Change type | Update |

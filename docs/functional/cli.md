@@ -76,7 +76,7 @@ All arguments after the subcommand pass through to the dispatched script unchang
 
 ## Versioning
 
-The CLI versions independently from `brain-core`. The CLI's contract is the dispatch surface (subcommand names + argument shape). A `brain-core` release that changes script behaviour does not affect CLI versioning. A `brain-core` release that *renames* a dispatched script requires a CLI major bump (or a back-compat shim).
+The CLI versions independently from `brain-core`. The CLI's contract is the dispatch surface plus CLI-only behaviour. A `brain-core` release that changes script behaviour does not affect CLI versioning. A `brain-core` release that *renames* a dispatched script requires a CLI major bump (or a back-compat shim), while backward-compatible CLI-only behaviour changes take a CLI patch bump. `brain install` is pinned separately through `BRAIN_INSTALL_REF`, which should always match the shipped `brain-core` release tag (`v<src/brain-core/VERSION>`).
 
 Starting version: `1.0.0`. See DD-049 §"The dispatch surface is a versioned API".
 
