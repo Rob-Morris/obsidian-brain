@@ -479,7 +479,7 @@ def test_configure_workspace_binding_writes_binding_manifest(tmp_path, monkeypat
     workspace = tmp_path / "demo-workspace"
     workspace.mkdir()
 
-    monkeypatch.setattr(configure, "resolve_bound_brain_vault", lambda brain_id: vault if brain_id == "brain" else None)
+    monkeypatch.setattr(configure, "resolve_local_brain_vault", lambda brain_id: vault if brain_id == "brain" else None)
 
     exit_code = configure.main([
         "workspace",

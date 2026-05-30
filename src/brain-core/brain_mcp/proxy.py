@@ -41,7 +41,7 @@ from _bootstrap.workspace_binding import (
     WorkspaceBindingError,
     find_bound_workspace_dir,
     require_workspace_binding,
-    resolve_bound_brain_vault,
+    resolve_local_brain_vault,
 )
 from _common import is_vault_root
 
@@ -1204,7 +1204,7 @@ def _resolve_proxy_target() -> tuple[str, str | None]:
 
     if workspace_hint is not None:
         binding = require_workspace_binding(workspace_hint)
-        target_vault = resolve_bound_brain_vault(binding["brain"])
+        target_vault = resolve_local_brain_vault(binding["brain"])
         if target_vault is None:
             raise WorkspaceBindingError(
                 f"workspace binds to unknown local Brain ID '{binding['brain']}'"
@@ -1217,7 +1217,7 @@ def _resolve_proxy_target() -> tuple[str, str | None]:
     workspace_dir = find_bound_workspace_dir(Path.cwd())
     if workspace_dir is not None:
         binding = require_workspace_binding(workspace_dir)
-        target_vault = resolve_bound_brain_vault(binding["brain"])
+        target_vault = resolve_local_brain_vault(binding["brain"])
         if target_vault is None:
             raise WorkspaceBindingError(
                 f"workspace binds to unknown local Brain ID '{binding['brain']}'"

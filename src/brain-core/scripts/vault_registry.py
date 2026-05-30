@@ -1,13 +1,20 @@
 #!/usr/bin/env python3
 """
-vault_registry.py — User-home registry of installed brain vaults.
+vault_registry.py — User-home authoritative Brain registry.
 
-Maps aliases to absolute vault paths. Stored as plain text at
+Maps symbolic Brain IDs to simple typed locators. Stored as plain text at
 $XDG_CONFIG_HOME/brain/vaults (defaulting to ~/.config/brain/vaults),
 one entry per line, tab-separated.
 
-Schema is deliberately minimal: alias + path only. All per-vault
-metadata (version, timestamps) lives in each vault's own .brain/.
+Current shipped writer contract is deliberately minimal:
+
+- `local` — `<brain-id>\tlocal\t<absolute-vault-path>`
+
+Legacy two-column entries (`<brain-id>\t<absolute-vault-path>`) are still read
+as implicit `local` entries for compatibility. Future non-local kinds may be
+preserved opaquely, but this module only resolves/manages local vault paths
+today. All per-vault metadata (version, timestamps) lives in each vault's own
+`.brain/`.
 
 Usage:
     python3 vault_registry.py --register /path/to/vault
@@ -15,7 +22,7 @@ Usage:
     python3 vault_registry.py --unregister /path/to/vault
     python3 vault_registry.py --list [--json]
     python3 vault_registry.py --prune
-    python3 vault_registry.py --resolve <alias>
+    python3 vault_registry.py --resolve <brain-id>
 """
 
 import argparse
@@ -24,12 +31,29 @@ import fcntl
 import json
 import os
 import sys
-from pathlib import Path
+from dataclasses import dataclass
 
 from _common import config_home, is_vault_root, random_short_suffix, safe_write, title_to_slug
 
 
-HEADER = "# brain vault registry — one vault per line, <alias>\\t<absolute-path>\n"
+TYPE_LOCAL = "local"
+TYPE_REMOTE = "remote"
+KNOWN_KINDS = frozenset({TYPE_LOCAL, TYPE_REMOTE})
+STATUS_RESERVED = "reserved"
+STATUS_UNKNOWN_KIND = "unknown-kind"
+
+HEADER = "# brain registry v2 — one Brain per line, <brain-id>\\t<kind>\\t<value>\n"
+
+
+class RegistryReadError(RuntimeError):
+    """Raised when the authoritative Brain registry exists but cannot be read."""
+
+
+@dataclass(frozen=True)
+class RegistryEntry:
+    brain_id: str
+    kind: str
+    value: str
 
 
 def _registry_path():
@@ -41,8 +65,8 @@ def _locked():
     """Serialize load-modify-save across concurrent installers.
 
     Locks a sibling ``.lock`` file (not the registry itself) so locking works
-    before the registry has been created. ``load()`` on its own is
-    intentionally unlocked — best-effort reads must not block installer
+    before the registry has been created. ``load_registry_entries()`` on its
+    own is intentionally unlocked — best-effort reads must not block installer
     prompts on a concurrent writer.
     """
     lock_path = _registry_path() + ".lock"
@@ -55,48 +79,68 @@ def _locked():
             fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
 
-def load():
-    """Load the registry. Returns dict of alias → absolute path.
+def _parse_entry(raw: str) -> RegistryEntry | None:
+    fields = [field.strip() for field in raw.split("\t")]
+    if len(fields) == 2:
+        brain_id, value = fields
+        kind = TYPE_LOCAL
+    elif len(fields) == 3:
+        brain_id, kind, value = fields
+    else:
+        return None
+    if not brain_id or not kind or not value:
+        return None
+    return RegistryEntry(brain_id=brain_id, kind=kind, value=value)
+
+
+def load_registry_entries():
+    """Load all registry entries keyed by Brain ID.
 
     Missing file → {}.
     Malformed lines are skipped with a stderr warning.
+    Unrecognised kinds are preserved opaquely and warned once per read.
     """
     path = _registry_path()
     result = {}
     malformed = 0
+    unknown_kinds: set[str] = set()
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            for line in f:
-                s = line.strip()
-                if not s or s.startswith("#"):
+        with open(path, "r", encoding="utf-8") as handle:
+            for line in handle:
+                raw = line.strip()
+                if not raw or raw.startswith("#"):
                     continue
-                if "\t" not in s:
+                entry = _parse_entry(raw)
+                if entry is None:
                     malformed += 1
                     continue
-                alias, _, vault_path = s.partition("\t")
-                alias, vault_path = alias.strip(), vault_path.strip()
-                if alias and vault_path:
-                    result[alias] = vault_path
-                else:
-                    malformed += 1
+                if entry.kind not in KNOWN_KINDS:
+                    unknown_kinds.add(entry.kind)
+                result[entry.brain_id] = entry
     except FileNotFoundError:
         return {}
-    except OSError as e:
-        print(f"vault_registry: error reading {path}: {e}", file=sys.stderr)
-        return {}
+    except OSError as exc:
+        raise RegistryReadError(f"could not read brain registry at {path}: {exc}") from exc
     if malformed:
         print(
             f"vault_registry: skipping {malformed} malformed line(s) in {path}",
             file=sys.stderr,
         )
+    if unknown_kinds:
+        kinds = ", ".join(sorted(unknown_kinds))
+        print(
+            f"vault_registry: unrecognised kind(s) in {path}: {kinds}",
+            file=sys.stderr,
+        )
     return result
 
 
-def save(registry):
-    """Write the registry atomically."""
+def _save_registry_entries(entries):
+    """Write typed registry entries atomically."""
     lines = [HEADER]
-    for alias in sorted(registry):
-        lines.append(f"{alias}\t{registry[alias]}\n")
+    for brain_id in sorted(entries):
+        entry = entries[brain_id]
+        lines.append(f"{brain_id}\t{entry.kind}\t{entry.value}\n")
     safe_write(_registry_path(), "".join(lines))
 
 
@@ -109,88 +153,130 @@ def _absolute(vault_path):
     and doesn't follow symlinks), so the installer may display a different
     path string than what's stored. Cosmetic only.
     """
-    p = os.path.expanduser(vault_path)
-    if not os.path.isabs(p):
-        p = os.path.join(os.getcwd(), p)
-    return os.path.realpath(p)
+    path = os.path.expanduser(vault_path)
+    if not os.path.isabs(path):
+        path = os.path.join(os.getcwd(), path)
+    return os.path.realpath(path)
 
 
-def _find_alias_by_path(registry, abs_path):
-    """Return the alias mapping to abs_path, or None."""
-    for alias, stored in registry.items():
-        if stored == abs_path:
-            return alias
+def _local_entries(entries):
+    return {
+        brain_id: entry
+        for brain_id, entry in entries.items()
+        if entry.kind == TYPE_LOCAL
+    }
+
+
+def _find_local_brain_id_by_path(entries, abs_path):
+    """Return the local Brain ID mapping to abs_path, or None."""
+    for brain_id, entry in _local_entries(entries).items():
+        if entry.value == abs_path:
+            return brain_id
     return None
 
 
 def register(vault_path):
-    """Register a vault. Returns the resolved alias.
+    """Register a local vault. Returns the resolved Brain ID.
 
-    - Alias = slugified basename.
-    - If path already registered (under any alias), returns existing alias (no-op).
+    - Brain ID = slugified basename.
+    - If path already registered (under any Brain ID), returns existing ID (no-op).
     - On basename collision with a different path, appends random [a-z0-9]{3} suffix.
     """
     abs_path = _absolute(vault_path)
     with _locked():
-        registry = load()
-        existing = _find_alias_by_path(registry, abs_path)
+        entries = load_registry_entries()
+        existing = _find_local_brain_id_by_path(entries, abs_path)
         if existing is not None:
             return existing
-        base_alias = title_to_slug(os.path.basename(abs_path)) or "vault"
-        alias = base_alias
-        while alias in registry:
-            alias = f"{base_alias}-{random_short_suffix()}"
-        registry[alias] = abs_path
-        save(registry)
-        return alias
+        base_brain_id = title_to_slug(os.path.basename(abs_path)) or "vault"
+        brain_id = base_brain_id
+        while brain_id in entries:
+            brain_id = f"{base_brain_id}-{random_short_suffix()}"
+        entries[brain_id] = RegistryEntry(
+            brain_id=brain_id,
+            kind=TYPE_LOCAL,
+            value=abs_path,
+        )
+        _save_registry_entries(entries)
+        return brain_id
 
 
 def backfill(vault_path):
-    """Register the vault if absent. Equivalent to register() since register
-    already no-ops when the path is already known; kept as a named entry point
-    for intent ("I'm upgrading, make sure it's tracked") and CLI clarity.
+    """Register the vault if absent.
+
+    Equivalent to register() since register already no-ops when the path is
+    already known; kept as a named entry point for upgrade/install intent.
     """
     return register(vault_path)
 
 
 def unregister(vault_path):
-    """Remove the entry keyed to this path. Returns True if removed."""
+    """Remove the local entry keyed to this path. Returns True if removed."""
     abs_path = _absolute(vault_path)
     with _locked():
-        registry = load()
-        to_remove = [a for a, p in registry.items() if p == abs_path]
+        entries = load_registry_entries()
+        to_remove = [
+            brain_id
+            for brain_id, entry in _local_entries(entries).items()
+            if entry.value == abs_path
+        ]
         if not to_remove:
             return False
-        for a in to_remove:
-            del registry[a]
-        save(registry)
+        for brain_id in to_remove:
+            del entries[brain_id]
+        _save_registry_entries(entries)
         return True
 
 
-def resolve(alias):
-    """Return the absolute path for an alias, or None if not registered."""
-    return load().get(alias)
+def resolve(brain_id):
+    """Return the absolute local vault path for a Brain ID, or None."""
+    entry = load_registry_entries().get(brain_id)
+    if entry is None or entry.kind != TYPE_LOCAL:
+        return None
+    return entry.value
 
 
 def list_entries():
-    """Return [{alias, path, stale}, ...] sorted by alias."""
-    registry = load()
-    return [
-        {"alias": a, "path": registry[a], "stale": not is_vault_root(registry[a])}
-        for a in sorted(registry)
-    ]
+    """Return sorted registry entries with honest local-vs-non-local detail."""
+    rendered = []
+    for brain_id, entry in sorted(load_registry_entries().items()):
+        if entry.kind == TYPE_LOCAL:
+            rendered.append(
+                {
+                    "alias": brain_id,
+                    "kind": entry.kind,
+                    "value": entry.value,
+                    "stale": not is_vault_root(entry.value),
+                }
+            )
+            continue
+        status = STATUS_RESERVED if entry.kind == TYPE_REMOTE else STATUS_UNKNOWN_KIND
+        rendered.append(
+            {
+                "alias": brain_id,
+                "kind": entry.kind,
+                "value": entry.value,
+                "stale": None,
+                "status": status,
+            }
+        )
+    return rendered
 
 
 def prune():
-    """Remove stale entries. Returns list of removed aliases."""
+    """Remove stale local entries. Returns list of removed Brain IDs."""
     with _locked():
-        registry = load()
-        stale = [a for a, p in registry.items() if not is_vault_root(p)]
+        entries = load_registry_entries()
+        stale = [
+            brain_id
+            for brain_id, entry in _local_entries(entries).items()
+            if not is_vault_root(entry.value)
+        ]
         if not stale:
             return []
-        for a in stale:
-            del registry[a]
-        save(registry)
+        for brain_id in stale:
+            del entries[brain_id]
+        _save_registry_entries(entries)
         return stale
 
 
@@ -199,47 +285,56 @@ def prune():
 # ---------------------------------------------------------------------------
 
 def main():
-    parser = argparse.ArgumentParser(description="User-home vault registry")
-    g = parser.add_mutually_exclusive_group(required=True)
-    g.add_argument("--register", metavar="PATH")
-    g.add_argument("--backfill", metavar="PATH")
-    g.add_argument("--unregister", metavar="PATH")
-    g.add_argument("--list", action="store_true")
-    g.add_argument("--prune", action="store_true")
-    g.add_argument("--resolve", metavar="ALIAS")
+    parser = argparse.ArgumentParser(description="User-home authoritative Brain registry")
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--register", metavar="PATH")
+    group.add_argument("--backfill", metavar="PATH")
+    group.add_argument("--unregister", metavar="PATH")
+    group.add_argument("--list", action="store_true")
+    group.add_argument("--prune", action="store_true")
+    group.add_argument("--resolve", metavar="BRAIN_ID")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
-    if args.register:
-        print(register(args.register))
-    elif args.backfill:
-        print(backfill(args.backfill))
-    elif args.unregister:
-        unregister(args.unregister)  # best-effort; always exit 0
-    elif args.list:
-        entries = list_entries()
-        if args.json:
-            print(json.dumps(entries, indent=2))
-        else:
-            if not entries:
-                print("No vaults registered.")
+    try:
+        if args.register:
+            print(register(args.register))
+        elif args.backfill:
+            print(backfill(args.backfill))
+        elif args.unregister:
+            unregister(args.unregister)  # best-effort; always exit 0
+        elif args.list:
+            entries = list_entries()
+            if args.json:
+                print(json.dumps(entries, indent=2))
+            elif not entries:
+                print("No Brains registered.")
             else:
-                for e in entries:
-                    tag = " (stale)" if e["stale"] else ""
-                    print(f"  {e['alias']}: {e['path']}{tag}")
-    elif args.prune:
-        removed = prune()
-        if not removed:
-            print("No stale entries.")
-        else:
-            for a in removed:
-                print(f"Removed: {a}")
-    elif args.resolve:
-        path = resolve(args.resolve)
-        if path is None:
-            print(f"Unknown alias: {args.resolve}", file=sys.stderr)
-            sys.exit(1)
-        print(path)
+                for entry in entries:
+                    if entry["kind"] == TYPE_LOCAL:
+                        stale_tag = " (stale)" if entry["stale"] else ""
+                        print(f"  {entry['alias']} [{entry['kind']}]: {entry['value']}{stale_tag}")
+                        continue
+                    note = " (reserved; unresolved here)"
+                    if entry["status"] == STATUS_UNKNOWN_KIND:
+                        note = " (unrecognised kind; unresolved here)"
+                    print(f"  {entry['alias']} [{entry['kind']}]: {entry['value']}{note}")
+        elif args.prune:
+            removed = prune()
+            if not removed:
+                print("No stale entries.")
+            else:
+                for brain_id in removed:
+                    print(f"Removed: {brain_id}")
+        elif args.resolve:
+            path = resolve(args.resolve)
+            if path is None:
+                print(f"Unknown Brain ID: {args.resolve}", file=sys.stderr)
+                sys.exit(1)
+            print(path)
+    except RegistryReadError as exc:
+        print(str(exc), file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

@@ -62,7 +62,7 @@ def test_discover_brains_skips_registry_writes_until_sync(monkeypatch, tmp_path)
     vault_registry.register(str(registered))
     registry_path = Path(os.environ["HOME"]) / ".config" / "brain" / "vaults"
     registry_path.write_text(
-        registry_path.read_text() + f"missing\t{stale}\n",
+        registry_path.read_text() + f"missing\tlocal\t{stale}\n",
     )
 
     summary = discover_brains(current_vault=current)
@@ -87,6 +87,21 @@ def test_discover_brains_skips_registry_writes_until_sync(monkeypatch, tmp_path)
         str(current.resolve()),
         str(registered.resolve()),
     ]
+
+
+def test_discover_brains_ignores_non_local_authoritative_entries(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+
+    current = _make_vault(tmp_path, "Current Brain")
+    registry_path = Path(os.environ["HOME"]) / ".config" / "brain" / "vaults"
+    registry_path.parent.mkdir(parents=True, exist_ok=True)
+    registry_path.write_text("team\tremote\thttps://brain.example.com\n")
+
+    summary = discover_brains(current_vault=current)
+
+    assert [brain["alias"] for brain in summary["brains"]] == [None]
+    assert summary["stale_registry_entries"] == []
 
 
 def test_discover_brains_uses_machine_registry_as_a_root(monkeypatch, tmp_path):

@@ -19,7 +19,7 @@ from _bootstrap.workspace_binding import (
     WorkspaceBindingError,
     converge_workspace_binding,
     load_workspace_manifest_state,
-    resolve_bound_brain_vault,
+    resolve_local_brain_vault,
     resolve_local_brain_alias,
     resolve_workspace_dir,
     save_workspace_manifest_data,
@@ -66,7 +66,7 @@ def _managed_runtime_error_result(action: str, vault_root: Path, message: str) -
 def _resolve_binding_brain(vault_root: Path, brain_id: str | None) -> str:
     if brain_id is None:
         return resolve_local_brain_alias(vault_root)
-    if resolve_bound_brain_vault(brain_id) is None:
+    if resolve_local_brain_vault(brain_id) is None:
         raise WorkspaceBindingError(
             f"unknown local Brain ID '{brain_id}'. Register or upgrade that Brain first, or pick a known vault alias."
         )

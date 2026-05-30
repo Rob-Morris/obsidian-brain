@@ -12,7 +12,7 @@
 set -euo pipefail
 
 BRAIN_CLI_VERSION="1.0.0"
-BRAIN_INSTALL_REF="v0.44.0"
+BRAIN_INSTALL_REF="v0.44.1"
 
 # Dispatch contract (DD-049 v1). hyphens here become underscores on disk.
 DISPATCH_SUBCOMMANDS=(
@@ -301,13 +301,20 @@ resolve_machine_source_vault_silent() {
         # This duplicates the on-disk registry parsing contract from
         # src/brain-core/scripts/vault_registry.py because machine-level CLI
         # commands need a source Brain before they can hand off to Python at all.
-        local alias path
-        while IFS=$'\t' read -r alias path; do
-            [[ -n "$alias" ]] || continue
-            [[ "$alias" == \#* ]] && continue
-            [[ -n "$path" ]] || continue
-            if [[ -f "$path/.brain-core/VERSION" && -f "$path/.brain-core/scripts/$helper_name" ]]; then
-                absolute_path "$path"
+        # Current writer contract is: <brain-id>\tlocal\t<absolute-vault-path>.
+        # Legacy two-column entries are still treated as implicit local entries.
+        local brain_id kind value
+        while IFS=$'	' read -r brain_id kind value; do
+            [[ -n "$brain_id" ]] || continue
+            [[ "$brain_id" == \#* ]] && continue
+            if [[ -z "$value" ]]; then
+                value=$kind
+                kind=local
+            fi
+            [[ "$kind" == "local" ]] || continue
+            [[ -n "$value" ]] || continue
+            if [[ -f "$value/.brain-core/VERSION" && -f "$value/.brain-core/scripts/$helper_name" ]]; then
+                absolute_path "$value"
                 return 0
             fi
         done < "$registry_path"

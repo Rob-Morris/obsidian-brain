@@ -150,7 +150,7 @@ class TestVaultMatching:
             encoding="utf-8",
         )
         config = init.build_mcp_config("/usr/bin/python3", vault, workspace_dir=workspace)
-        monkeypatch.setattr(init._mcp_state, "resolve_bound_brain_vault", lambda brain_id: vault if brain_id == "brain" else None)
+        monkeypatch.setattr(init._mcp_state, "resolve_local_brain_vault", lambda brain_id: vault if brain_id == "brain" else None)
         assert init.config_targets_vault(config, vault)
 
     def test_workspace_binding_route_does_not_match_when_slug_is_missing(self, vault, project, monkeypatch):
@@ -161,7 +161,18 @@ class TestVaultMatching:
             encoding="utf-8",
         )
         config = init.build_mcp_config("/usr/bin/python3", vault, workspace_dir=workspace)
-        monkeypatch.setattr(init._mcp_state, "resolve_bound_brain_vault", lambda brain_id: vault if brain_id == "brain" else None)
+        monkeypatch.setattr(init._mcp_state, "resolve_local_brain_vault", lambda brain_id: vault if brain_id == "brain" else None)
+        assert not init.config_targets_vault(config, vault)
+
+    def test_workspace_binding_route_requires_authoritative_local_registry_match(self, vault, project, monkeypatch):
+        workspace = project
+        (workspace / ".brain" / "local").mkdir(parents=True)
+        (workspace / ".brain" / "local" / "workspace.yaml").write_text(
+            "brain: brain\nslug: my-project\n",
+            encoding="utf-8",
+        )
+        config = init.build_mcp_config("/usr/bin/python3", vault, workspace_dir=workspace)
+        monkeypatch.setattr(init._mcp_state, "resolve_local_brain_vault", lambda _brain_id: None)
         assert not init.config_targets_vault(config, vault)
 
     def test_missing_or_invalid_root_does_not_match(self, vault):
@@ -680,6 +691,7 @@ class TestSkipMcpMode:
         monkeypatch.setattr(init, "find_python", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("should not resolve runtime")))
         monkeypatch.setattr(init, "register_claude", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("should not register claude")))
         monkeypatch.setattr(init, "register_codex", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("should not register codex")))
+        monkeypatch.setattr(init, "resolve_local_brain_alias", lambda _vault_root: "brain")
         monkeypatch.setattr(
             sys,
             "argv",

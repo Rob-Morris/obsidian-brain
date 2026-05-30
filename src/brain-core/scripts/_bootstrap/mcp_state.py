@@ -15,7 +15,7 @@ from _bootstrap.workspace_binding import (
     WorkspaceBindingError,
     extract_workspace_binding,
     read_workspace_manifest,
-    resolve_bound_brain_vault,
+    resolve_local_brain_vault,
 )
 from _common import safe_write, safe_write_json
 
@@ -99,7 +99,12 @@ def configured_workspace_dir(server_config: Any) -> Optional[Path]:
 
 
 def resolved_target_vault_root(server_config: Any) -> Optional[Path]:
-    """Resolve the effective target Brain vault for a persisted MCP config."""
+    """Resolve the effective target Brain vault for a persisted MCP config.
+
+    The authoritative local binding route is the user-home vault registry via
+    ``resolve_local_brain_vault()``. ``brains.json`` is derived machine state
+    and is never consulted here for workspace routing.
+    """
     legacy_root = configured_vault_root(server_config)
     if legacy_root is not None:
         return legacy_root
@@ -115,7 +120,7 @@ def resolved_target_vault_root(server_config: Any) -> Optional[Path]:
     binding = extract_workspace_binding(manifest)
     if binding is None:
         return None
-    return resolve_bound_brain_vault(binding["brain"])
+    return resolve_local_brain_vault(binding["brain"])
 
 
 def config_targets_vault(server_config: Any, vault_root: Path) -> bool:

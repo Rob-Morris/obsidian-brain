@@ -325,7 +325,9 @@ def discover_brains(
 
     stale_registry_entries: list[dict[str, str]] = []
     for entry in vault_registry.list_entries():
-        registry_path = _canonical_brain_path(entry["path"])
+        if entry.get("kind") != vault_registry.TYPE_LOCAL:
+            continue
+        registry_path = _canonical_brain_path(entry["value"])
         if entry["stale"] or not is_vault_root(registry_path):
             stale_registry_entries.append(
                 {"alias": entry["alias"], "path": str(registry_path)}

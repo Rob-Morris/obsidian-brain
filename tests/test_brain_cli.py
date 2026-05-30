@@ -380,7 +380,52 @@ def test_doctor_outside_vault_uses_machine_helper_from_registry(tmp_path):
     xdg = tmp_path / "xdg"
     registry = xdg / "brain" / "vaults"
     registry.parent.mkdir(parents=True)
+    registry.write_text(f"vault\tlocal\t{vault}\n")
+
+    elsewhere = tmp_path / "no-vault"
+    elsewhere.mkdir()
+    result = _run_cli(
+        "doctor",
+        cwd=elsewhere,
+        env_extra={"BRAIN_VAULT_ROOT": "", "XDG_CONFIG_HOME": str(xdg), "HOME": str(tmp_path)},
+    )
+
+    assert "brains:    1 discovered" in result.stdout
+    assert "registry:" in result.stdout
+    assert "brain routes:" in result.stdout
+    assert "none in scope" in result.stdout
+
+
+def test_doctor_outside_vault_accepts_legacy_two_column_registry_entries(tmp_path):
+    vault = _build_machine_helper_vault(tmp_path)
+    xdg = tmp_path / "xdg"
+    registry = xdg / "brain" / "vaults"
+    registry.parent.mkdir(parents=True)
     registry.write_text(f"vault\t{vault}\n")
+
+    elsewhere = tmp_path / "no-vault"
+    elsewhere.mkdir()
+    result = _run_cli(
+        "doctor",
+        cwd=elsewhere,
+        env_extra={"BRAIN_VAULT_ROOT": "", "XDG_CONFIG_HOME": str(xdg), "HOME": str(tmp_path)},
+    )
+
+    assert "brains:    1 discovered" in result.stdout
+    assert "registry:" in result.stdout
+    assert "brain routes:" in result.stdout
+    assert "none in scope" in result.stdout
+
+
+def test_doctor_outside_vault_ignores_non_local_registry_entries(tmp_path):
+    vault = _build_machine_helper_vault(tmp_path)
+    xdg = tmp_path / "xdg"
+    registry = xdg / "brain" / "vaults"
+    registry.parent.mkdir(parents=True)
+    registry.write_text(
+        "team\tremote\thttps://brain.example.com\n"
+        f"vault\tlocal\t{vault}\n"
+    )
 
     elsewhere = tmp_path / "no-vault"
     elsewhere.mkdir()
@@ -429,7 +474,7 @@ def test_machine_outside_vault_uses_machine_helper_from_registry(tmp_path):
     xdg = tmp_path / "xdg"
     registry = xdg / "brain" / "vaults"
     registry.parent.mkdir(parents=True)
-    registry.write_text(f"vault\t{vault}\n")
+    registry.write_text(f"vault\tlocal\t{vault}\n")
 
     elsewhere = tmp_path / "no-vault"
     elsewhere.mkdir()
@@ -459,7 +504,7 @@ def test_doctor_inside_older_vault_falls_back_to_registered_machine_helper(tmp_p
     xdg = tmp_path / "xdg"
     registry = xdg / "brain" / "vaults"
     registry.parent.mkdir(parents=True)
-    registry.write_text(f"helper\t{helper_vault}\n")
+    registry.write_text(f"helper\tlocal\t{helper_vault}\n")
 
     result = _run_cli(
         "doctor",
@@ -485,7 +530,7 @@ def test_doctor_with_explicit_vault_outputs_composed_json(tmp_path):
     xdg = tmp_path / "xdg"
     registry = xdg / "brain" / "vaults"
     registry.parent.mkdir(parents=True)
-    registry.write_text(f"helper\t{helper_vault}\n")
+    registry.write_text(f"helper\tlocal\t{helper_vault}\n")
 
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
@@ -534,7 +579,7 @@ def test_doctor_reports_source_vault_runtime_failure_in_shell_fallback(tmp_path)
     xdg = tmp_path / "xdg"
     registry = xdg / "brain" / "vaults"
     registry.parent.mkdir(parents=True)
-    registry.write_text(f"helper\t{helper_vault}\n")
+    registry.write_text(f"helper\tlocal\t{helper_vault}\n")
 
     elsewhere = tmp_path / "elsewhere-runtime-failure"
     elsewhere.mkdir()

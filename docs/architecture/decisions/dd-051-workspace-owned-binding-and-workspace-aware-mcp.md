@@ -25,7 +25,7 @@ The canonical workspace manifest is `.brain/local/workspace.yaml` in the workspa
 - `brain`: symbolic Brain ID
 - `slug`: workspace slug inside that Brain
 
-`brain` is symbolic, not a literal path or endpoint. Local resolution uses machine-level Brain registry aliases. Remote transport details are not part of the minimum workspace manifest contract.
+`brain` is symbolic, not a literal path or endpoint. Local resolution uses the user-home authoritative Brain registry maintained by `vault_registry.py`, whose current shipped entries are explicitly typed `local` locators. Remote transport details are not part of the minimum workspace manifest contract.
 
 ### 2. Public command surface splits setup from configuration
 
@@ -51,7 +51,7 @@ It does not implicitly choose or install MCP policy, agent bootstrap files, or o
 
 ### 4. MCP configuration becomes generic and workspace-aware
 
-Persisted MCP configuration no longer binds directly to one Brain via `BRAIN_VAULT_ROOT`. Instead, persisted MCP config is generic and routes into the Brain MCP proxy. The proxy resolves the active workspace, loads its workspace-owned binding, resolves the symbolic Brain ID through machine/user transport configuration, and then launches or connects to that Brain's canonical server/runtime.
+Persisted MCP configuration no longer binds directly to one Brain via `BRAIN_VAULT_ROOT`. Instead, persisted MCP config is generic and routes into the Brain MCP proxy. The proxy resolves the active workspace, loads its workspace-owned binding, resolves the symbolic Brain ID through the authoritative machine/user registry contract, and then launches or connects to that Brain's canonical server/runtime.
 
 This model is the primary design. Legacy Brain-bound MCP compatibility may be tolerated during transition only when it is nearly free and does not distort the new model.
 

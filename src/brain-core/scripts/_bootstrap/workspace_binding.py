@@ -178,18 +178,27 @@ def find_bound_workspace_dir(start_dir: Path | None = None) -> Path | None:
 
 
 def resolve_local_brain_alias(vault_root: Path) -> str:
-    """Return the authoritative local symbolic Brain ID for a vault."""
+    """Return the authoritative local symbolic Brain ID for a vault.
+
+    This comes from the user-home vault registry, not from the derived
+    machine registry in ``brains.json``.
+    """
     try:
         return vault_registry.backfill(str(vault_root))
-    except OSError as exc:
+    except (OSError, vault_registry.RegistryReadError) as exc:
         raise WorkspaceBindingError(
             f"failed to resolve local Brain ID for {vault_root}: {exc}"
         ) from exc
 
 
-def resolve_bound_brain_vault(brain_id: str) -> Path | None:
-    """Resolve a symbolic local Brain ID to a vault path when it exists locally."""
-    resolved = vault_registry.resolve(brain_id)
+def resolve_local_brain_vault(brain_id: str) -> Path | None:
+    """Resolve a symbolic local Brain ID via the authoritative local vault registry."""
+    try:
+        resolved = vault_registry.resolve(brain_id)
+    except vault_registry.RegistryReadError as exc:
+        raise WorkspaceBindingError(
+            f"failed to read local Brain registry while resolving Brain ID '{brain_id}': {exc}"
+        ) from exc
     if not resolved:
         return None
     candidate = Path(resolved).resolve()

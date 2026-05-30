@@ -27,7 +27,8 @@ def test_setup_workspace_creates_binding_manifest(tmp_path, vault, monkeypatch, 
     workspace = tmp_path / "demo-workspace"
     workspace.mkdir()
 
-    monkeypatch.setattr(configure, "resolve_bound_brain_vault", lambda brain_id: vault if brain_id == "brain" else None)
+    monkeypatch.setattr(configure, "resolve_local_brain_vault", lambda brain_id: vault if brain_id == "brain" else None)
+    monkeypatch.setattr(brain_setup, "resolve_local_brain_alias", lambda _vault_root: "brain")
 
     exit_code = brain_setup.main([
         "workspace",
@@ -50,7 +51,7 @@ def test_setup_workspace_errors_when_brain_id_is_unknown(tmp_path, vault, monkey
     workspace = tmp_path / "demo-workspace"
     workspace.mkdir()
 
-    monkeypatch.setattr(configure, "resolve_bound_brain_vault", lambda _brain_id: None)
+    monkeypatch.setattr(configure, "resolve_local_brain_vault", lambda _brain_id: None)
 
     exit_code = brain_setup.main([
         "workspace",
@@ -73,7 +74,8 @@ def test_guided_setup_orchestrates_optional_branches(tmp_path, vault, monkeypatc
     workspace = tmp_path / "demo-workspace"
     workspace.mkdir()
 
-    monkeypatch.setattr(configure, "resolve_bound_brain_vault", lambda brain_id: vault if brain_id == "brain" else None)
+    monkeypatch.setattr(configure, "resolve_local_brain_vault", lambda brain_id: vault if brain_id == "brain" else None)
+    monkeypatch.setattr(brain_setup, "resolve_local_brain_alias", lambda _vault_root: "brain")
     monkeypatch.setattr(
         configure,
         "configure_mcp_action",
@@ -127,7 +129,8 @@ def test_guided_setup_rebinds_when_user_confirms(tmp_path, vault, monkeypatch, c
     workspace = tmp_path / "demo-workspace"
     workspace.mkdir()
 
-    monkeypatch.setattr(configure, "resolve_bound_brain_vault", lambda brain_id: vault if brain_id == "brain" else None)
+    monkeypatch.setattr(configure, "resolve_local_brain_vault", lambda brain_id: vault if brain_id == "brain" else None)
+    monkeypatch.setattr(brain_setup, "resolve_local_brain_alias", lambda _vault_root: "brain")
 
     calls = []
 
