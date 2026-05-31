@@ -10,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 
 import compile_router
-import init
+from _bootstrap import mcp_transport
 import workspace_registry
 import _search.index as search_index
 import _search.paths as search_paths
@@ -156,24 +156,24 @@ def _backup_path(path: Path) -> Path:
 
 
 def _record_claude_direct(vault_root: Path, server_config: dict) -> None:
-    config_path = vault_root / init.CLAUDE_PROJECT_CONFIG_FILE
-    init.write_project_mcp_json(server_config, vault_root)
-    bootstrap_path = init.ensure_claude_md(vault_root)
-    hook_path = init.ensure_session_start_hook(vault_root, vault_root)
+    config_path = vault_root / mcp_transport.CLAUDE_PROJECT_CONFIG_FILE
+    mcp_transport.write_project_mcp_json(server_config, vault_root)
+    bootstrap_path = mcp_transport.ensure_claude_md(vault_root)
+    hook_path = mcp_transport.ensure_session_start_hook(vault_root, vault_root)
     record = {
         "client": "claude",
         "scope": "project",
         "target_path": str(vault_root),
         "config_path": str(config_path),
-        "server_name": init.BRAIN_SERVER_NAME,
+        "server_name": mcp_transport.BRAIN_SERVER_NAME,
         "server_config": server_config,
         "bootstrap_path": str(bootstrap_path),
-        "bootstrap_line": init.bootstrap_line_for_target(vault_root),
+        "bootstrap_line": mcp_transport.bootstrap_line_for_target(vault_root),
         "hook_path": str(hook_path),
-        "hook_command": init.build_session_hook_command(vault_root, vault_root),
+        "hook_command": mcp_transport.build_session_hook_command(vault_root, vault_root),
         "method": f"{config_path} (direct repair)",
     }
-    init.record_init_target(vault_root, record)
+    mcp_transport.record_init_target(vault_root, record)
 
 
 def _repair_claude(vault_root: Path, server_config: dict, claude_state: dict, dry_run: bool) -> dict:
@@ -194,8 +194,8 @@ def _repair_codex(vault_root: Path, server_config: dict, codex_state: dict, dry_
         return _step("codex_project", "noop", "Codex project MCP state is already healthy.")
     if dry_run:
         return _step("codex_project", "planned", "Would repair .codex/config.toml and the init-state record.")
-    record = init.register_codex(server_config, "project", vault_root)
-    init.record_init_target(vault_root, record)
+    record = mcp_transport.register_codex(server_config, "project", vault_root)
+    mcp_transport.record_init_target(vault_root, record)
     return _step("codex_project", "changed", "Repaired Codex project MCP config and init-state record.")
 
 
@@ -221,7 +221,7 @@ def repair_mcp(vault_root: Path, dry_run: bool, bootstrap_steps: list[dict] | No
     except (OSError, ValueError) as exc:
         steps.append(_step("codex_project", "error", str(exc)))
 
-    notes = init.claude_project_followup_notes(vault_root) if state["claude"]["present"] else []
+    notes = mcp_transport.claude_project_followup_notes(vault_root) if state["claude"]["present"] else []
     return _finalise_result("mcp", vault_root, dry_run, steps, notes=notes)
 
 

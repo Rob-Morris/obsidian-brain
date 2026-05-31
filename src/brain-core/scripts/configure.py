@@ -8,13 +8,14 @@ import os
 from pathlib import Path
 import sys
 
-import init
-from _bootstrap.mcp_state import CLAUDE_MD_BOOTSTRAP_VAULT
+from _bootstrap import mcp_transport
+from _bootstrap.mcp_state import CLAUDE_MD_BOOTSTRAP_VAULT, CLAUDE_MD_FILE, bootstrap_line_for_target
 from _bootstrap.runtime import (
     handoff_current_script_to_managed_runtime,
     required_modules_for_scope,
     step as _step,
 )
+from _bootstrap.vaults import find_vault_root
 from _bootstrap.workspace_binding import (
     WorkspaceBindingError,
     converge_workspace_binding,
@@ -33,7 +34,6 @@ from _lifecycle_common import (
 )
 
 BOOTSTRAP_TIMEOUT = 300
-find_vault_root = init.find_vault_root
 
 
 def _result_envelope(action: str, vault_root: Path, steps: list[dict], *, notes: list[str] | None = None) -> dict:
@@ -228,10 +228,10 @@ def configure_workspace_bootstrap_action(
             status, message = _ensure_bootstrap_file(agents_path, CLAUDE_MD_BOOTSTRAP_VAULT)
             steps.append(_step("workspace_bootstrap_agents", status, message))
         if "claude" in surfaces:
-            claude_path = workspace_dir / init.CLAUDE_MD_FILE
+            claude_path = workspace_dir / CLAUDE_MD_FILE
             status, message = _ensure_bootstrap_file(
                 claude_path,
-                init.bootstrap_line_for_target(workspace_dir),
+                bootstrap_line_for_target(workspace_dir),
             )
             steps.append(_step("workspace_bootstrap_claude", status, message))
         return _result_envelope("workspace_bootstrap", vault_root, steps)
@@ -418,7 +418,7 @@ def _mcp_followup_notes(*, client: str, scope: str, workspace_dir: Path | None) 
     notes: list[str] = []
     if scope == "project" and workspace_dir is not None:
         if client in {"all", "claude"}:
-            notes.extend(init.claude_project_followup_notes(workspace_dir))
+            notes.extend(mcp_transport.claude_project_followup_notes(workspace_dir))
             notes.append("In Claude Code for that directory: run /mcp and approve `brain` if prompted.")
             notes.append("Verify in Claude: call `brain_session` and confirm `environment.vault_root`.")
         if client in {"all", "codex"}:
@@ -447,11 +447,11 @@ def configure_mcp_action(
     action = "mcp_remove" if remove else "mcp_configure"
 
     try:
-        clients, _warnings = init._resolve_clients_or_error(client, scope)
-    except init.InitTransportError as exc:
+        clients, _warnings = mcp_transport._resolve_clients_or_error(client, scope)
+    except mcp_transport.InitTransportError as exc:
         return _result_envelope(action, vault_root, [_step("mcp_transport", "error", str(exc))])
 
-    if remove and not force and not init._confirm_removal(init._scope_label(scope, workspace_dir), clients):
+    if remove and not force and not mcp_transport._confirm_removal(mcp_transport._scope_label(scope, workspace_dir), clients):
         return _result_envelope(
             action,
             vault_root,
@@ -459,14 +459,14 @@ def configure_mcp_action(
         )
 
     try:
-        mcp_result = init.apply_mcp_transport_action(
+        mcp_result = mcp_transport.apply_mcp_transport_action(
             vault_root,
             client_arg=client,
             scope=scope,
             target_dir=workspace_dir,
             remove=remove,
         )
-    except init.InitTransportError as exc:
+    except mcp_transport.InitTransportError as exc:
         return _result_envelope(action, vault_root, [_step("mcp_transport", "error", str(exc))])
 
     if remove:

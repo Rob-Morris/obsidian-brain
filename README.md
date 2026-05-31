@@ -1,6 +1,6 @@
 # Obsidian Brain
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.44.2-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.12-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.44.3-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.12-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
 
 A self-evolving knowledge base for agents and humans working together on what matters.
 
@@ -149,7 +149,7 @@ If you prefer to do it yourself:
 2. Copy `template-vault/` to your preferred location: `cp -R template-vault /path/to/brain`
 3. Copy brain-core into the vault: `cp -R src/brain-core /path/to/brain/.brain-core`
 4. Provision the central managed runtime: `cd /path/to/brain && python3.12 .brain-core/scripts/_common/_venv.py ensure --vault . --launcher python3.12`. This creates `~/.brain/venvs/py3.12-<sha16>/` if missing and installs `requirements.txt` into it.
-5. Optionally configure MCP transport: run `.brain-core/scripts/configure.py mcp` with a compatible launcher Python, e.g. `python3.12 .brain-core/scripts/configure.py mcp --client all` (or add `--user --client all` for all projects). This public surface delegates the low-level Claude/Codex config writes to `init.py` under the hood.
+5. Optionally configure MCP transport: run `.brain-core/scripts/configure.py mcp` with a compatible launcher Python, e.g. `python3.12 .brain-core/scripts/configure.py mcp --client all` (or add `--user --client all` for all projects). This public surface and the installer now share the launcher-safe MCP transport owner in `.brain-core/scripts/_bootstrap/mcp_transport.py`; `init.py` remains only as the legacy compatibility CLI.
    For project scope, the file write is not the whole story: Claude still needs `/mcp` approval for `brain`, and Codex still needs the project trusted with `brain` enabled.
 6. Open the folder as an Obsidian vault
 7. Enable the CSS snippet in **Settings > Appearance > CSS Snippets** (`brain-folder-colours`)

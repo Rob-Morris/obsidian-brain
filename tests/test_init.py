@@ -11,6 +11,7 @@ import pytest
 # init.py is self-contained, import it directly
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src", "brain-core", "scripts"))
 import init
+from _bootstrap import mcp_transport, workspace_scaffold
 from _bootstrap.workspace_binding import workspace_slug
 
 
@@ -81,9 +82,9 @@ class TestBuildMcpConfig:
 
 class TestFindPython:
     def test_returns_canonical_managed_runtime_python(self, vault, monkeypatch):
-        monkeypatch.setattr(init, "find_launcher_python", lambda: "/usr/bin/python3.12")
+        monkeypatch.setattr(mcp_transport, "find_launcher_python", lambda: "/usr/bin/python3.12")
         monkeypatch.setattr(
-            init,
+            mcp_transport,
             "ensure_managed_runtime",
             lambda *_args, **_kwargs: {
                 "managed_runtime_ready": True,
@@ -94,15 +95,15 @@ class TestFindPython:
         assert init.find_python(vault) == "/home/.brain/venvs/py3.12-fake/bin/python"
 
     def test_errors_when_no_compatible_launcher_exists(self, vault, monkeypatch):
-        monkeypatch.setattr(init, "find_launcher_python", lambda: None)
+        monkeypatch.setattr(mcp_transport, "find_launcher_python", lambda: None)
 
         with pytest.raises(SystemExit):
             init.find_python(vault)
 
     def test_errors_when_bootstrap_cannot_produce_managed_runtime(self, vault, monkeypatch):
-        monkeypatch.setattr(init, "find_launcher_python", lambda: "/usr/bin/python3.12")
+        monkeypatch.setattr(mcp_transport, "find_launcher_python", lambda: "/usr/bin/python3.12")
         monkeypatch.setattr(
-            init,
+            mcp_transport,
             "ensure_managed_runtime",
             lambda *_args, **_kwargs: {
                 "managed_runtime_ready": False,
@@ -116,9 +117,9 @@ class TestFindPython:
     def test_errors_gracefully_when_managed_runtime_bootstrap_subprocess_fails(
         self, vault, monkeypatch, capsys
     ):
-        monkeypatch.setattr(init, "find_launcher_python", lambda: "/usr/bin/python3.12")
+        monkeypatch.setattr(mcp_transport, "find_launcher_python", lambda: "/usr/bin/python3.12")
         monkeypatch.setattr(
-            init,
+            mcp_transport,
             "ensure_managed_runtime",
             lambda *_args, **_kwargs: (_ for _ in ()).throw(
                 RuntimeError(
@@ -355,7 +356,7 @@ class TestEnsureClaudeMd:
             path.write_text(content, encoding="utf-8")
             return str(path.resolve())
 
-        monkeypatch.setattr(init, "safe_write", fake_safe_write)
+        monkeypatch.setattr(mcp_transport, "safe_write", fake_safe_write)
 
         init.ensure_claude_md(project)
 
@@ -393,8 +394,8 @@ class TestEnsureBrainIgnoreRules:
     def test_updates_gitignore_when_repo_has_tracked_ignore(self, project, monkeypatch):
         gitignore = project / ".gitignore"
         gitignore.write_text("node_modules/\n")
-        monkeypatch.setattr(init, "_git_repo_root", lambda _target: project)
-        monkeypatch.setattr(init, "_git_dir", lambda _target: project / ".git")
+        monkeypatch.setattr(workspace_scaffold, "_git_repo_root", lambda _target: project)
+        monkeypatch.setattr(workspace_scaffold, "_git_dir", lambda _target: project / ".git")
 
         init.ensure_brain_ignore_rules(project, "project", ["claude", "codex"], skip_mcp=False)
 
@@ -407,8 +408,8 @@ class TestEnsureBrainIgnoreRules:
     def test_falls_back_to_git_info_exclude_when_gitignore_missing(self, project, monkeypatch):
         git_dir = project / ".git"
         (git_dir / "info").mkdir(parents=True)
-        monkeypatch.setattr(init, "_git_repo_root", lambda _target: project)
-        monkeypatch.setattr(init, "_git_dir", lambda _target: git_dir)
+        monkeypatch.setattr(workspace_scaffold, "_git_repo_root", lambda _target: project)
+        monkeypatch.setattr(workspace_scaffold, "_git_dir", lambda _target: git_dir)
 
         init.ensure_brain_ignore_rules(project, "project", ["claude"], skip_mcp=True)
 
@@ -419,8 +420,8 @@ class TestEnsureBrainIgnoreRules:
     def test_raises_when_ignore_destination_is_unreadable(self, project, monkeypatch):
         gitignore = project / ".gitignore"
         gitignore.write_text("node_modules/\n")
-        monkeypatch.setattr(init, "_git_repo_root", lambda _target: project)
-        monkeypatch.setattr(init, "_git_dir", lambda _target: project / ".git")
+        monkeypatch.setattr(workspace_scaffold, "_git_repo_root", lambda _target: project)
+        monkeypatch.setattr(workspace_scaffold, "_git_dir", lambda _target: project / ".git")
 
         original_read_text = type(gitignore).read_text
 
@@ -568,7 +569,7 @@ class TestClientScopeWarnings:
         config = init.build_mcp_config("/usr/bin/python3", vault, workspace_dir=project)
         init.write_codex_config(config, fake_home / ".codex" / "config.toml")
 
-        init._warn_if_user_scope_exists("codex", "project", config)
+        mcp_transport._warn_if_user_scope_exists("codex", "project", config)
         err = capsys.readouterr().err
 
         assert "already registered globally" in err
@@ -601,7 +602,7 @@ class TestStateBookkeeping:
 
 class TestRemoval:
     def test_remove_claude_project_registration_cleans_bootstrap_and_hook(self, vault, project, monkeypatch):
-        monkeypatch.setattr(init, "_has_claude_cli", lambda: False)
+        monkeypatch.setattr(mcp_transport, "_has_claude_cli", lambda: False)
         config = init.build_mcp_config("/usr/bin/python3", vault)
 
         record = init.register_claude(vault, config, "project", project)
@@ -610,7 +611,7 @@ class TestRemoval:
         assert (project / "CLAUDE.md").is_file()
         assert (project / ".claude" / "settings.local.json").is_file()
 
-        removed = init._remove_record(vault, record)
+        removed = mcp_transport._remove_record(vault, record)
 
         assert removed is True
         assert not (project / ".mcp.json").exists()
@@ -618,13 +619,13 @@ class TestRemoval:
         assert not (project / ".claude").exists()
 
     def test_remove_claude_project_registration_preserves_user_claude_md_content(self, vault, project, monkeypatch):
-        monkeypatch.setattr(init, "_has_claude_cli", lambda: False)
+        monkeypatch.setattr(mcp_transport, "_has_claude_cli", lambda: False)
         (project / "CLAUDE.md").write_text("# My Project\n\nExisting content.\n")
         config = init.build_mcp_config("/usr/bin/python3", vault)
 
         record = init.register_claude(vault, config, "project", project)
 
-        removed = init._remove_record(vault, record)
+        removed = mcp_transport._remove_record(vault, record)
 
         assert removed is True
         assert not (project / ".mcp.json").exists()
@@ -632,18 +633,18 @@ class TestRemoval:
         assert not (project / ".claude").exists()
 
     def test_remove_claude_local_registration_cleans_local_bootstrap_and_hook(self, vault, project, monkeypatch):
-        monkeypatch.setattr(init, "_has_claude_cli", lambda: False)
+        monkeypatch.setattr(mcp_transport, "_has_claude_cli", lambda: False)
         config = init.build_mcp_config("/usr/bin/python3", vault)
 
         record = init.register_claude(vault, config, "local", project)
 
-        removed = init._remove_record(vault, record)
+        removed = mcp_transport._remove_record(vault, record)
 
         assert removed is True
         assert not (project / ".claude").exists()
 
     def test_remove_claude_project_uses_recorded_bootstrap_line(self, vault, project, monkeypatch):
-        monkeypatch.setattr(init, "_has_claude_cli", lambda: False)
+        monkeypatch.setattr(mcp_transport, "_has_claude_cli", lambda: False)
         config = init.build_mcp_config("/usr/bin/python3", vault)
         record = init.register_claude(vault, config, "project", project)
 
@@ -656,7 +657,7 @@ class TestRemoval:
             lambda _target: "@.brain-core/index.md (newer-format-bootstrap)",
         )
 
-        removed = init._remove_record(vault, record)
+        removed = mcp_transport._remove_record(vault, record)
 
         assert removed is True
         claude_md = project / "CLAUDE.md"
@@ -677,7 +678,7 @@ class TestRemoval:
             "server_config": expected,
         }
 
-        removed = init._remove_record(vault, record)
+        removed = mcp_transport._remove_record(vault, record)
 
         assert removed is False
         assert config_path.is_file()
@@ -691,7 +692,7 @@ class TestSkipMcpMode:
         monkeypatch.setattr(init, "find_python", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("should not resolve runtime")))
         monkeypatch.setattr(init, "register_claude", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("should not register claude")))
         monkeypatch.setattr(init, "register_codex", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("should not register codex")))
-        monkeypatch.setattr(init, "resolve_local_brain_alias", lambda _vault_root: "brain")
+        monkeypatch.setattr(mcp_transport, "resolve_local_brain_alias", lambda _vault_root: "brain")
         monkeypatch.setattr(
             sys,
             "argv",
@@ -708,7 +709,7 @@ class TestSkipMcpMode:
 
     def test_skip_mcp_converges_vault_root_binding(self, vault, monkeypatch):
         monkeypatch.setattr(init, "find_python", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("should not resolve runtime")))
-        monkeypatch.setattr(init, "resolve_local_brain_alias", lambda _vault_root: "brain")
+        monkeypatch.setattr(mcp_transport, "resolve_local_brain_alias", lambda _vault_root: "brain")
         monkeypatch.setattr(
             sys,
             "argv",

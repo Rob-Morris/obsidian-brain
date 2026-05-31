@@ -6,6 +6,7 @@ Version-by-version release history for Obsidian Brain. Every shipped version has
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.44.3](changelog/v0.44.3.md) | 2026-05-31 | Move MCP transport ownership into _bootstrap/mcp_transport.py |
 | [v0.44.2](changelog/v0.44.2.md) | 2026-05-30 | Bump PROXY_VERSION and BRAIN_CLI_VERSION for workspace routing |
 | [v0.44.1](changelog/v0.44.1.md) | 2026-05-30 | Harden vault_registry.py typed-local reads and non-local entries |
 | [v0.44.0](changelog/v0.44.0.md) | 2026-05-30 | BREAKING — Move workspace binding to setup/configure and workspace-aware MCP |

@@ -8,8 +8,9 @@ caused 30s+ MCP cold-start failures from materialising thousands of
 `site-packages/` files on every fresh process.
 
 A single source of truth for the path rule lives here. `install.sh`,
-`init.py`, `upgrade.py`, and `repair.py` all resolve the venv via this
-module — there is no other valid encoding of the rule in the codebase.
+`configure.py`, `init.py`, `upgrade.py`, and `repair.py` all resolve the
+venv via this module — there is no other valid encoding of the rule in the
+codebase.
 
 This module is also runnable as a CLI for `install.sh` (which is bash and
 needs to defer path resolution to Python):
@@ -21,7 +22,7 @@ needs to defer path resolution to Python):
 Bootstrap-layer constraint: this module is invoked by `install.sh` before
 the managed runtime exists, and must therefore use stdlib only — no imports
 from sibling `_common` modules, no third-party packages. The same discipline
-applies to `init.py`, `upgrade.py`, and `repair.py`.
+applies to `configure.py`, `init.py`, `upgrade.py`, and `repair.py`.
 """
 
 from __future__ import annotations
@@ -222,8 +223,8 @@ def find_runnable_python(
     3. The launcher itself — any compatible Python 3.12+ on the caller's machine.
 
     Returns ``None`` only when no candidate exists, which the CLI surfaces as
-    a clear error. Scripts that need third-party packages (e.g. `init.py` and
-    `mcp`) still re-verify availability themselves; callers that only need
+    a clear error. Scripts that need third-party packages (e.g. `configure.py`
+    and the MCP server) still re-verify availability themselves; callers that only need
     stdlib + `_common` (most scripts) get a runnable interpreter even before
     the managed runtime is provisioned.
 
@@ -659,7 +660,7 @@ def _main(argv: Optional[list[str]] = None) -> int:
 
     - `python --vault X [--launcher Y]` — print the central venv's python
       path (strict). Used in shell pipelines after `ensure`, e.g.
-      `"$(_venv.py python --vault .)" .brain-core/scripts/init.py ...`.
+      `"$(_venv.py python --vault .)" .brain-core/scripts/configure.py mcp ...`.
       The returned path may not exist if the central venv has not been
       provisioned yet; callers wanting a usable interpreter regardless
       should use `runnable-python` instead.

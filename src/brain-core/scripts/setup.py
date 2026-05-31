@@ -9,7 +9,8 @@ from pathlib import Path
 import sys
 
 import configure
-import init
+from _bootstrap.vaults import find_vault_root
+from _bootstrap.workspace_scaffold import GitInspectionError, ensure_brain_ignore_rules
 from _bootstrap.runtime import step as _step
 from _bootstrap.workspace_binding import (
     WORKSPACE_REASON_ALREADY_BOUND,
@@ -73,15 +74,24 @@ def _setup_workspace_core(
         return _result_envelope("workspace_setup", vault_root, steps, notes=notes)
 
     try:
-        init.ensure_brain_ignore_rules(workspace_dir, "project", [], skip_mcp=True)
-        steps.append(
-            _step(
-                "workspace_local_scaffold",
-                "noop",
-                "Ensured Brain-owned local scaffold and ignore rules when this workspace is a git repo root.",
+        ignore_message = ensure_brain_ignore_rules(workspace_dir, "project", [], skip_mcp=True)
+        if ignore_message:
+            steps.append(
+                _step(
+                    "workspace_local_scaffold",
+                    "noop",
+                    ignore_message,
+                )
             )
-        )
-    except init.GitInspectionError as exc:
+        else:
+            steps.append(
+                _step(
+                    "workspace_local_scaffold",
+                    "noop",
+                    "Workspace-local Brain ignore rules did not need changes.",
+                )
+            )
+    except GitInspectionError as exc:
         steps.append(_step("workspace_local_scaffold", "error", str(exc)))
 
     notes.append(
@@ -215,7 +225,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    vault_root = init.find_vault_root(args.vault)
+    vault_root = find_vault_root(args.vault)
 
     try:
         workspace_dir = resolve_workspace_dir(args.path)

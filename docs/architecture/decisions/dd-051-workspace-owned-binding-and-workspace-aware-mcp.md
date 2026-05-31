@@ -89,5 +89,7 @@ Implementation should establish the new workspace-owned binding and workspace-aw
 - `setup.py` owns the public `setup workspace` command.
 - `configure.py` owns `workspace binding`, `workspace metadata`, `workspace bootstrap`, and `mcp`.
 - `_bootstrap/workspace_binding.py` owns workspace manifest path rules, convergence, and legacy migration.
-- `_bootstrap/mcp_state.py`, `brain_mcp/proxy.py`, and `brain_mcp/server.py` carry the workspace-aware MCP routing contract.
+- `_bootstrap/mcp_state.py`, `_bootstrap/mcp_transport.py`, `brain_mcp/proxy.py`, and `brain_mcp/server.py` carry the workspace-aware MCP routing contract.
+- `_bootstrap/vaults.py` owns env-aware vault-root discovery for the public lifecycle wrappers, and `_bootstrap/workspace_scaffold.py` owns Brain-local ignore-rule convergence so `setup.py` / `configure.py` no longer reach back through `init.py` for those concerns.
+- `init.py` remains only as the legacy compatibility CLI over those shared bootstrap owners.
 - `session.py`, diagnostics, and repair flows must treat workspace binding as primary and transport policy as explicit/configurable.

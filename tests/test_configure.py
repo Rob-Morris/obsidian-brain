@@ -581,7 +581,7 @@ def test_configure_mcp_returns_structured_result(tmp_path, monkeypatch, capsys):
             "warnings": [],
         }
 
-    monkeypatch.setattr(configure.init, "apply_mcp_transport_action", fake_apply)
+    monkeypatch.setattr(configure.mcp_transport, "apply_mcp_transport_action", fake_apply)
 
     exit_code = configure.main([
         "mcp",
@@ -614,7 +614,7 @@ def test_configure_mcp_remove_noop_returns_noop_step(tmp_path, monkeypatch, caps
     workspace.mkdir()
 
     monkeypatch.setattr(
-        configure.init,
+        configure.mcp_transport,
         "apply_mcp_transport_action",
         lambda *_args, **_kwargs: {"status": "noop", "warnings": []},
     )
@@ -642,7 +642,7 @@ def test_configure_mcp_remove_changed_returns_changed_step(tmp_path, monkeypatch
     workspace.mkdir()
 
     monkeypatch.setattr(
-        configure.init,
+        configure.mcp_transport,
         "apply_mcp_transport_action",
         lambda *_args, **_kwargs: {"status": "changed", "warnings": []},
     )
@@ -670,9 +670,9 @@ def test_configure_mcp_returns_error_when_transport_apply_raises_typed_error(tmp
     workspace.mkdir()
 
     def fake_apply(*_args, **_kwargs):
-        raise configure.init.InitTransportError("transport failed")
+        raise configure.mcp_transport.InitTransportError("transport failed")
 
-    monkeypatch.setattr(configure.init, "apply_mcp_transport_action", fake_apply)
+    monkeypatch.setattr(configure.mcp_transport, "apply_mcp_transport_action", fake_apply)
 
     exit_code = configure.main([
         "mcp",

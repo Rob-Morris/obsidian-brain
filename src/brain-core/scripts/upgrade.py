@@ -41,7 +41,7 @@ def _safe_write(path, content):
     rewrites _common/ mid-execution and cannot rely on importing it.
     Keep this body structurally aligned with the canonical helper while
     preserving byte writes for rollback snapshots, and mirror relevant
-    fixes into the peer init.py copy when the shared pattern changes.
+    fixes into any other self-contained bootstrap copies when the shared pattern changes.
     """
     target = os.path.realpath(str(path))
     os.makedirs(os.path.dirname(target) or ".", exist_ok=True)
@@ -1826,8 +1826,8 @@ def main() -> None:
                     f"To migrate MCP config to the central runtime, run:"
                 )
                 info(f"    {shlex.quote(sys.executable)} "
-                     f"{shlex.quote(str(vault_root / '.brain-core' / 'scripts' / 'init.py'))} "
-                     f"--vault {shlex.quote(str(vault_root))} --client all")
+                     f"{shlex.quote(str(vault_root / '.brain-core' / 'scripts' / 'configure.py'))} "
+                     f"mcp --vault {shlex.quote(str(vault_root))} --workspace {shlex.quote(str(vault_root))} --client all")
             print(file=sys.stderr)
 
         cli_refresh = result.get("cli_refresh")

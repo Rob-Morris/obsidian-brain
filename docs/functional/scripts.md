@@ -25,7 +25,7 @@ That `python3.12` process is the launcher, not the managed runtime itself.
 
 | Script | Purpose | CLI usage |
 |---|---|---|
-| `_bootstrap/` | Shared launcher-safe bootstrap package: launcher discovery, managed-runtime handoff, bootstrap diagnostics, and shared MCP/client-config state | (library only) |
+| `_bootstrap/` | Shared launcher-safe bootstrap package: env-aware vault discovery, workspace-local scaffold/ignore rules, managed-runtime handoff, bootstrap diagnostics, shared MCP/config-layout state, and the shared Claude/Codex transport engine | (library only) |
 | `_machine/` | Launcher-safe machine-management package: multi-Brain discovery, shared-runtime topology classification, and machine-level maintenance analysis/mutation orchestration beneath the CLI family. Maintains `$XDG_CONFIG_HOME/brain/brains.json` as the derived machine registry once Python handoff succeeds; the shell still bootstraps from the user-home `vault_registry.py` signal first, then falls back to `brains.json` only when no curated source Brain remains. Reuses launcher-safe per-vault diagnostics only for brain-level MCP/workspace drift so `brain doctor` can point each Brain back to its own repair path, and delegates Brain-owned MCP/runtime/registry repair back to each target Brain during `brain machine` mutations. | (library only) |
 | `compile_router.py` | Compile router from source files and refresh the session mirror | `python3 compile_router.py [--json]` |
 | `compile_colours.py` | Generate folder colour CSS | (called by compile_router) |
@@ -65,7 +65,7 @@ That `python3.12` process is the launcher, not the managed runtime itself.
 | `obsidian_cli.py` | IPC client for native Obsidian CLI | (library module, used by MCP server) |
 | `process.py` | Experimental content classification, duplicate resolution, ingestion | (library module, used by `brain_process` in the MCP server) |
 | `generate_key.py` | Generate operator key + hash for config.yaml | `python3 generate_key.py [--count N]` |
-| `init.py` | Legacy/internal MCP registration engine beneath `configure.py mcp` and installer flows. It still owns the low-level Claude/Codex config writes and recorded removal path, and `--skip-mcp` remains the restricted bootstrap-only path used by the installer. | `python3 init.py [--client {claude,codex,all}] [--user] [--local] [--project PATH] [--skip-mcp] [--remove] [--force]` |
+| `init.py` | Legacy/internal MCP registration compatibility CLI. The shared Claude/Codex transport engine now lives in `_bootstrap/mcp_transport.py`, while `init.py` preserves the old flags and `--skip-mcp` remains the restricted bootstrap-only path used by the installer. | `python3 init.py [--client {claude,codex,all}] [--user] [--local] [--project PATH] [--skip-mcp] [--remove] [--force]` |
 
 ## Architecture
 
@@ -199,7 +199,7 @@ python3 repair.py semantic --vault /path/to/vault
 - `dependency-light` does **not** mean “assume the runtime is already healthy” and does **not** mean “run `repair.py mcp` first”. Every scope still uses the shared managed-runtime bootstrap owner to recover or reuse a usable interpreter path; the difference is only whether that scope needs extra managed packages beyond the interpreter itself.
 - `repair.py` is the explicit recovery surface. Other scripts should detect, explain, and point to `repair.py` rather than silently broadening their own repair semantics.
 
-The shared bootstrap/runtime mechanics behind `setup.py`, `repair.py`, `configure.py`, `init.py`, `session.py`, and `check.py` now live under `src/brain-core/scripts/_bootstrap/`. `runtime.py` owns launcher discovery and managed-runtime handoff, `diagnostics.py` owns launcher-safe runtime/MCP/registry checks, and `mcp_state.py` owns the launcher-safe MCP/config-layout and init-state helpers shared by `setup.py`, `configure.py`, `init.py`, and bootstrap diagnostics.
+The shared bootstrap/runtime mechanics behind `setup.py`, `repair.py`, `configure.py`, `init.py`, `session.py`, and `check.py` now live under `src/brain-core/scripts/_bootstrap/`. `runtime.py` owns launcher discovery and managed-runtime handoff; `diagnostics.py` owns launcher-safe runtime/MCP/registry checks; `mcp_state.py` owns shared MCP/config-layout and init-state helpers; `vaults.py` owns env-aware vault-root discovery for the lifecycle wrappers; `workspace_scaffold.py` owns Brain-local ignore-rule convergence; and `mcp_transport.py` owns the shared Claude/Codex config-write engine used by `configure.py mcp`, installer flows, `repair.py`, and the legacy `init.py` shell.
 
 **Scope semantics:**
 
@@ -380,7 +380,7 @@ Explicit configuration owner at `.brain-core/scripts/configure.py`. This is the 
 - `configure.py mcp` — explicit MCP transport policy (`user`, `project`, or Claude-local scope)
 - `configure.py semantic` — local semantic retrieval opt-in and provisioning
 
-`configure.py mcp` is now the public MCP policy noun. It still delegates to the same low-level Claude/Codex config engine under the hood, but the public distinction is clear:
+`configure.py mcp` is now the public MCP policy noun. It now calls the shared `_bootstrap/mcp_transport.py` owner directly, while `init.py` remains only as the compatibility CLI over the same engine, so the public distinction is clear:
 
 - `setup workspace` ensures or guides workspace setup
 - `configure ...` targets one explicit concern
@@ -397,12 +397,14 @@ python3 configure.py semantic --enable --no-provision --json
 
 ## init.py (legacy/internal MCP engine)
 
-`init.py` remains in `.brain-core/scripts/` because installer flows, recorded removal, and the low-level client-config writers still live there. It is **not** the taught first-class public setup/configure noun anymore.
+`init.py` remains in `.brain-core/scripts/` because installer flows, recorded removal, and the legacy flag-compatible CLI shell still live there. It is **not** the taught first-class public setup/configure noun anymore.
+
+The low-level Claude/Codex config writes now live in `_bootstrap/mcp_transport.py`; `init.py` is the compatibility wrapper over those shared owners.
 
 What `init.py` still owns:
 
-- low-level Claude/Codex MCP config writes
-- recorded MCP removal via `.brain/local/init-state.json`
+- legacy flag parsing and human CLI rendering over the shared bootstrap owners
+- the recorded MCP removal compatibility surface via `.brain/local/init-state.json`
 - restricted bootstrap-only `--skip-mcp` paths used by installer flows
 - workspace-manifest convergence and Brain-owned local ignore state when those restricted flows target a workspace
 

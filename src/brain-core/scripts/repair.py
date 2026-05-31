@@ -24,7 +24,7 @@ from pathlib import Path
 import sys
 from typing import NoReturn
 
-from init import find_vault_root
+from _bootstrap.vaults import find_vault_root
 
 from _common import resolve_vault_venv_python
 from _bootstrap.runtime import (

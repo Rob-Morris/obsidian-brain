@@ -33,7 +33,7 @@ remains lexical-only.
 
 | Script | Purpose | CLI usage |
 |---|---|---|
-| `_bootstrap/` | Shared launcher-safe bootstrap package: launcher discovery, managed-runtime handoff, bootstrap diagnostics, and shared MCP/config-layout state | (library only) |
+| `_bootstrap/` | Shared launcher-safe bootstrap package: env-aware vault discovery, workspace-local scaffold/ignore rules, managed-runtime handoff, bootstrap diagnostics, shared MCP/config-layout state, and the shared Claude/Codex transport engine | (library only) |
 | `_common/` | Shared utilities package: vault discovery, frontmatter parsing, serialisation, CLI parser helpers, and general script support | (library only) |
 | `_lifecycle_common.py` | Shared lifecycle result-envelope rendering and CLI emission helpers | (library only) |
 | `_repair_common.py` | Launcher-safe repair metadata, scope definitions, and exact command builders | (library only) |
@@ -48,7 +48,7 @@ remains lexical-only.
 | `construct_benchmark_fixture.py` | Derive a vault-native retrieval benchmark fixture plus audit JSON from an existing vault, including semantic-variant audit diagnostics and optional externally seeded semantic or hybrid candidates. Unreadable source files now fail explicitly instead of being skipped silently. | `python3 construct_benchmark_fixture.py --fixture-out PATH [--audit-out PATH] [--semantic-strategy S] [--semantic-seed-file PATH] [--hybrid-seed-file PATH] [--json]` |
 | `evaluate_search.py` | Benchmark lexical, semantic, and hybrid retrieval against a JSON query set | `python3 evaluate_search.py --benchmark PATH [--mode M]... [--json]` |
 | `check.py` | Router-driven structural compliance checks; launcher-safe bootstrap diagnostics run first, then managed semantic findings from the canonical semantic owner are added after managed-runtime handoff, and human output still prints exact `repair.py` commands for repairable drift | `python3 check.py [--json] [--actionable] [--severity S] [--vault V]` |
-| `configure.py` | Explicit installed-vault lifecycle entry point for semantic-retrieval opt-in and runtime/model provisioning; bootstraps through `_bootstrap/runtime.py` first | `python3 configure.py semantic --enable [--no-provision] [--json] [--vault V]` |
+| `configure.py` | Explicit installed-vault lifecycle entry point: targeted `workspace binding`, `workspace metadata`, `workspace bootstrap`, `mcp`, and `semantic` surfaces without going through the setup wrapper | `python3 configure.py {workspace,mcp,semantic} ...` |
 | `compile_colours.py` | Generate folder colour CSS | (called by compile_router) |
 | `compile_router.py` | Compile router from source files and refresh session markdown | `python3 compile_router.py [--json]` |
 | `config.py` | Vault configuration loader (three-layer merge) using the shared Brain-owned YAML seam for standalone config files | `python3 config.py` |
@@ -59,7 +59,7 @@ remains lexical-only.
 | `edit.py` | Edit artefacts via CLI with explicit `target + selector + scope`; the importable helpers also back `brain_edit` for editable `_Config/` resources, with body input always meaning post-frontmatter markdown content | `python3 edit.py edit\|append\|prepend\|delete_section --path P [--body B\|--body-file PATH] [--frontmatter JSON] [--target T] [--scope S] [--occurrence N] [--within T --within-occurrence N]... [--json]` |
 | `fix_links.py` | Auto-repair broken wikilinks | `python3 fix_links.py [--fix] [--json] [--vault V]` |
 | `generate_key.py` | Generate operator key + hash for config.yaml via the dependency-free shared auth helper | `python3 generate_key.py [--count N]` |
-| `init.py` | Legacy/internal MCP registration engine beneath `configure.py mcp` and installer flows. It still owns the low-level Claude/Codex config writes and recorded removal path, but it is no longer the taught public setup/configure noun. `--skip-mcp` remains the internal bootstrap-only path used by restricted installer flows. | `python3 init.py [--client {claude,codex,all}] [--user] [--local] [--project PATH] [--skip-mcp] [--remove] [--force]` |
+| `init.py` | Legacy/internal MCP registration compatibility CLI. The shared Claude/Codex transport engine now lives in `_bootstrap/mcp_transport.py`, but `init.py` preserves the old flags and recorded removal path. `--skip-mcp` remains the internal bootstrap-only path used by restricted installer flows. | `python3 init.py [--client {claude,codex,all}] [--user] [--local] [--project PATH] [--skip-mcp] [--remove] [--force]` |
 | `list_artefacts.py` | Enumerate vault artefacts and resources (unranked, no cap) via the same resource/filter contract as `brain_list` | `python3 list_artefacts.py [RESOURCE] [--query Q] [--type T] [--parent P] [--since D] [--until D] [--tag TAG] [--top-k N] [--sort S] [--vault V] [--json]` |
 | `search_lexical.py` | Thin portable lexical-only wrapper over `_search.lexical_query`: query the shared lexical retrieval index with lexical filters only. | `python3 search_lexical.py "query" [--type T] [--tag TAG] [--status S] [--top-k N] [--json]` |
 | `migrate_naming.py` | Migrate filenames to generous naming conventions | `python3 migrate_naming.py [--vault V] [--dry-run] [--json]` |
@@ -111,18 +111,21 @@ These scripts import from `_common/` for vault discovery, frontmatter parsing, a
 - `compile_colours.py`
 - `compile_router.py`
 - `config.py`
+- `configure.py`
 - `create.py`
 - `edit.py`
 - `evaluate_search.py`
 - `fix_links.py`
-- `list_artefacts.py`
 - `init.py`
+- `list_artefacts.py`
 - `migrate_naming.py`
-- `read.py`
 - `_repair_runtime.py`
+- `read.py`
+- `repair.py`
 - `rename.py`
 - `search_index.py`
 - `session.py`
+- `setup.py`
 - `shape_printable.py`
 - `shape_presentation.py`
 - `start_shaping.py`

@@ -94,15 +94,15 @@ def _wiki_router():
 def _register_project_client(vault: Path, client: str) -> dict:
     server_config = bootstrap_diagnostics._expected_project_server_config(vault)
     if client == "claude":
-        has_claude_cli = repair_runtime.init._has_claude_cli
-        repair_runtime.init._has_claude_cli = lambda: False
+        has_claude_cli = repair_runtime.mcp_transport._has_claude_cli
+        repair_runtime.mcp_transport._has_claude_cli = lambda: False
         try:
-            record = repair_runtime.init.register_claude(vault, server_config, "project", vault)
+            record = repair_runtime.mcp_transport.register_claude(vault, server_config, "project", vault)
         finally:
-            repair_runtime.init._has_claude_cli = has_claude_cli
+            repair_runtime.mcp_transport._has_claude_cli = has_claude_cli
     else:
-        record = repair_runtime.init.register_codex(server_config, "project", vault)
-    repair_runtime.init.record_init_target(vault, record)
+        record = repair_runtime.mcp_transport.register_codex(server_config, "project", vault)
+    repair_runtime.mcp_transport.record_init_target(vault, record)
     return server_config
 
 
@@ -413,7 +413,7 @@ class TestRepairScopes:
 
     def test_mcp_repair_is_noop_when_no_project_state_is_present(self, repair_vault, monkeypatch):
         _mock_healthy_runtime(monkeypatch)
-        monkeypatch.setattr(repair_runtime.init, "claude_project_followup_notes", lambda _target: [])
+        monkeypatch.setattr(repair_runtime.mcp_transport, "claude_project_followup_notes", lambda _target: [])
 
         result = repair_runtime.repair_mcp(repair_vault, dry_run=False)
 
@@ -427,7 +427,7 @@ class TestRepairScopes:
     @pytest.mark.parametrize("client", ["claude", "codex"])
     def test_mcp_repair_is_noop_for_healthy_single_client_install(self, repair_vault, monkeypatch, client):
         _mock_healthy_runtime(monkeypatch)
-        monkeypatch.setattr(repair_runtime.init, "claude_project_followup_notes", lambda _target: [])
+        monkeypatch.setattr(repair_runtime.mcp_transport, "claude_project_followup_notes", lambda _target: [])
         _register_project_client(repair_vault, client)
 
         result = repair_runtime.repair_mcp(repair_vault, dry_run=False)
@@ -437,7 +437,7 @@ class TestRepairScopes:
 
     def test_mcp_repair_repairs_only_recorded_claude_project_state(self, repair_vault, monkeypatch):
         _mock_healthy_runtime(monkeypatch)
-        monkeypatch.setattr(repair_runtime.init, "claude_project_followup_notes", lambda _target: [])
+        monkeypatch.setattr(repair_runtime.mcp_transport, "claude_project_followup_notes", lambda _target: [])
         _register_project_client(repair_vault, "claude")
         (repair_vault / ".mcp.json").unlink()
 
@@ -463,7 +463,7 @@ class TestRepairScopes:
             },
         )
         monkeypatch.setattr(
-            repair_runtime.init,
+            repair_runtime.mcp_transport,
             "register_codex",
             lambda *_args, **_kwargs: (_ for _ in ()).throw(TypeError("programmer bug")),
         )
@@ -1114,7 +1114,7 @@ class TestCheckRepairHints:
         assert not any(f["check"] == "mcp_registration" for f in result["findings"])
 
     def test_bootstrap_only_scaffold_does_not_report_mcp_drift(self, repair_vault):
-        (repair_vault / "CLAUDE.md").write_text(f"{repair_runtime.init.CLAUDE_MD_BOOTSTRAP_VAULT}\n")
+        (repair_vault / "CLAUDE.md").write_text(f"{repair_runtime.mcp_transport.CLAUDE_MD_BOOTSTRAP_VAULT}\n")
 
         result = check.run_checks(str(repair_vault), _wiki_router())
 
@@ -1144,7 +1144,7 @@ class TestCheckRepairHints:
         assert not any(f["check"] == "mcp_registration" for f in result["findings"])
 
     def test_bootstrap_only_state_still_skips_mcp_inspection(self, repair_vault, monkeypatch):
-        (repair_vault / "CLAUDE.md").write_text(f"{repair_runtime.init.CLAUDE_MD_BOOTSTRAP_VAULT}\n")
+        (repair_vault / "CLAUDE.md").write_text(f"{repair_runtime.mcp_transport.CLAUDE_MD_BOOTSTRAP_VAULT}\n")
         settings_path = repair_vault / ".claude" / "settings.local.json"
         settings_path.parent.mkdir(parents=True, exist_ok=True)
         settings_path.write_text(json.dumps({"theme": "dark"}))
