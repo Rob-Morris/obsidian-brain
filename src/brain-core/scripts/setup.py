@@ -9,7 +9,7 @@ from pathlib import Path
 import sys
 
 import configure
-from _bootstrap.vaults import find_vault_root
+from _bootstrap.vaults import find_vault_root, make_vault_parent_parser
 from _bootstrap.workspace_scaffold import GitInspectionError, ensure_brain_ignore_rules
 from _bootstrap.runtime import step as _step
 from _bootstrap.workspace_binding import (
@@ -205,15 +205,18 @@ def _run_guided_workspace_setup(
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Set up Brain vaults and workspaces.")
+    parser = argparse.ArgumentParser(
+        description="Set up Brain vaults and workspaces.",
+        parents=[make_vault_parent_parser()],
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     workspace = subparsers.add_parser(
         "workspace",
         help="Ensure a workspace is usable with an existing Brain.",
+        parents=[make_vault_parent_parser()],
     )
     workspace.add_argument("path", nargs="?", help="Workspace directory to set up (default: current directory).")
-    workspace.add_argument("--vault", help="Path to the Brain vault that owns this setup surface.")
     workspace.add_argument("--brain", help="Explicit local Brain ID to bind to (default: current vault's alias).")
     workspace.add_argument("--slug", help="Explicit workspace slug (default: existing slug or folder-derived slug).")
     workspace.add_argument("--guided", action="store_true", help="Run the interactive guided workspace setup flow.")
@@ -225,7 +228,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    vault_root = find_vault_root(args.vault)
+    vault_root = find_vault_root(getattr(args, "vault", None))
 
     try:
         workspace_dir = resolve_workspace_dir(args.path)

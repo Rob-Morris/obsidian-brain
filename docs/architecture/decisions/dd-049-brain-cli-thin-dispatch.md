@@ -51,9 +51,11 @@ Any future CLI-only subcommand for an operation that has vault context is a smel
 All arguments after the subcommand pass through to the dispatched script unchanged, *except* `--vault`. The CLI:
 
 1. Resolves the vault — explicit `--vault`, then `BRAIN_VAULT_ROOT` env, then CWD walk to the nearest `.brain-core/VERSION`.
-2. Re-injects `--vault <absolute-resolved-path>` into the forwarded argv.
+2. Re-injects `--vault <absolute-resolved-path>` at the **front** of the forwarded argv (i.e. before the subcommand name).
 
 This guarantees scripts always see an absolute vault path even when the user gave a relative `--vault` or relied on CWD walk. No script ever has to re-implement vault discovery to match the CLI.
+
+**Contract for dispatched scripts:** every dispatched script MUST accept `--vault` at the top-level parser, not only on subcommand parsers. Because re-injection places `--vault <path>` before the subcommand name, argparse must see it at the top level or it treats the path as an unrecognised positional. Scripts that use subcommands (e.g. `configure.py`, `setup.py`) satisfy this requirement by passing `parents=[make_vault_parent_parser()]` from `_bootstrap.vaults` to both the top-level `ArgumentParser` and each leaf subparser. The shared parent uses `default=argparse.SUPPRESS` so that an absent `--vault` never clobbers a value already parsed at the top level.
 
 ### CLI source ships in the repo at `cli/brain`, never inside the vault
 

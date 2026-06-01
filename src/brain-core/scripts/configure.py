@@ -15,7 +15,7 @@ from _bootstrap.runtime import (
     required_modules_for_scope,
     step as _step,
 )
-from _bootstrap.vaults import find_vault_root
+from _bootstrap.vaults import find_vault_root, make_vault_parent_parser
 from _bootstrap.workspace_binding import (
     WorkspaceBindingError,
     converge_workspace_binding,
@@ -307,18 +307,17 @@ def _configure_semantic_enable(vault_root: Path, *, provision: bool, bootstrap_s
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    vault_parent = make_vault_parent_parser()
     parser = argparse.ArgumentParser(
         description="Configure explicit Brain workspace and capability surfaces.",
+        parents=[vault_parent],
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     semantic = subparsers.add_parser(
         "semantic",
         help="Configure semantic retrieval support for this vault.",
-    )
-    semantic.add_argument(
-        "--vault",
-        help="Path to the Brain vault (default: auto-detect from script location or BRAIN_VAULT_ROOT).",
+        parents=[make_vault_parent_parser()],
     )
     semantic.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
     semantic.add_argument(
@@ -342,8 +341,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     binding = workspace_subparsers.add_parser(
         "binding",
         help="Create or update the workspace-to-Brain binding.",
+        parents=[make_vault_parent_parser()],
     )
-    binding.add_argument("--vault", help="Path to the Brain vault that owns this configuration surface.")
     binding.add_argument("--path", help="Workspace directory to bind (default: current directory).")
     binding.add_argument("--brain", help="Symbolic local Brain ID to bind to (default: current vault's alias).")
     binding.add_argument("--slug", help="Explicit workspace slug (default: existing slug or derived from folder name).")
@@ -353,8 +352,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     metadata = workspace_subparsers.add_parser(
         "metadata",
         help="Update optional workspace metadata such as defaults and links.",
+        parents=[make_vault_parent_parser()],
     )
-    metadata.add_argument("--vault", help="Path to the Brain vault that owns this configuration surface.")
     metadata.add_argument("--path", help="Workspace directory to update (default: current directory).")
     metadata.add_argument("--tag", action="append", default=[], help="Add one defaults.tags entry (repeatable).")
     metadata.add_argument("--clear-tags", action="store_true", help="Clear defaults.tags before applying any --tag values.")
@@ -362,25 +361,25 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     metadata.add_argument("--clear-links", action="store_true", help="Clear the links mapping before applying any --link values.")
     metadata.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
 
-    bootstrap = workspace_subparsers.add_parser(
+    bootstrap_sub = workspace_subparsers.add_parser(
         "bootstrap",
         help="Install optional agent bootstrap instructions into the workspace.",
+        parents=[make_vault_parent_parser()],
     )
-    bootstrap.add_argument("--vault", help="Path to the Brain vault that owns this configuration surface.")
-    bootstrap.add_argument("--path", help="Workspace directory to update (default: current directory).")
-    bootstrap.add_argument(
+    bootstrap_sub.add_argument("--path", help="Workspace directory to update (default: current directory).")
+    bootstrap_sub.add_argument(
         "--surface",
         choices=("agents", "claude", "all"),
         default="all",
         help="Which bootstrap surfaces to manage (default: all).",
     )
-    bootstrap.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
+    bootstrap_sub.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
 
     mcp = subparsers.add_parser(
         "mcp",
         help="Configure MCP transport policy explicitly.",
+        parents=[make_vault_parent_parser()],
     )
-    mcp.add_argument("--vault", help="Path to the Brain vault (default: auto-detect from script location or BRAIN_VAULT_ROOT).")
     mcp.add_argument(
         "--client",
         choices=("claude", "codex", "all"),
@@ -491,7 +490,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
 
     if args.command == "semantic":
-        vault_root = find_vault_root(args.vault)
+        vault_root = find_vault_root(getattr(args, "vault", None))
         forwarded_args = list(argv) if argv is not None else sys.argv[1:]
 
         try:
@@ -515,7 +514,7 @@ def main(argv: list[str] | None = None) -> int:
         return _emit_result(result, as_json=args.json)
 
     if args.command == "mcp":
-        vault_root = find_vault_root(args.vault)
+        vault_root = find_vault_root(getattr(args, "vault", None))
         workspace_dir = None
         if not args.user:
             try:
