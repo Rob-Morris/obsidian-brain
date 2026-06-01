@@ -11,6 +11,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src", "brain-core", "scripts"))
 import configure
 import setup as brain_setup
+from _bootstrap.workspace_binding import WorkspaceBindingError, converge_workspace_binding
 
 
 @pytest.fixture
@@ -123,6 +124,45 @@ def test_guided_setup_orchestrates_optional_branches(tmp_path, vault, monkeypatc
     assert "slug: demo-workspace" in manifest
     assert "workspace/demo" in manifest
     assert "workspace: demo-workspace" in manifest
+
+
+def test_converge_workspace_binding_refuses_vault_root(tmp_path):
+    """Refuse-guard: converge_workspace_binding raises on a vault root."""
+    vault = tmp_path / "myvault"
+    bc = vault / ".brain-core"
+    bc.mkdir(parents=True)
+    (bc / "VERSION").write_text("0.43.6\n")
+
+    with pytest.raises(WorkspaceBindingError) as exc_info:
+        converge_workspace_binding(vault, brain="some-brain", allow_rebind=False)
+
+    assert exc_info.value.code == "vault_root_not_workspace"
+    assert "vault root" in str(exc_info.value).lower() or "vault" in str(exc_info.value)
+
+
+def test_setup_workspace_refuses_vault_root(tmp_path, vault, monkeypatch, capsys):
+    """setup workspace at a vault root surfaces the vault_root_not_workspace error."""
+    monkeypatch.setattr(configure, "resolve_local_brain_vault", lambda brain_id: vault if brain_id == "brain" else None)
+    monkeypatch.setattr(brain_setup, "resolve_local_brain_alias", lambda _vault_root: "brain")
+
+    # vault IS the vault root — the refuse-guard should fire.
+    exit_code = brain_setup.main([
+        "workspace",
+        str(vault),
+        "--vault",
+        str(vault),
+        "--brain",
+        "brain",
+        "--json",
+    ])
+
+    assert exit_code != 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "error"
+    assert any(
+        step.get("reason") == "vault_root_not_workspace"
+        for step in payload["steps"]
+    )
 
 
 def test_guided_setup_rebinds_when_user_confirms(tmp_path, vault, monkeypatch, capsys):

@@ -77,6 +77,7 @@ from _bootstrap.workspace_binding import (
     WORKSPACE_MANIFEST_LEGACY_REL as WORKSPACE_MANIFEST_LEGACY_FILE,
     WORKSPACE_MANIFEST_REL as WORKSPACE_MANIFEST_FILE,
     WorkspaceBindingError,
+    is_brain_vault,
 )
 from _bootstrap.workspace_scaffold import GitInspectionError, ensure_brain_ignore_rules
 
@@ -176,6 +177,16 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         help="Skip the confirmation prompt for --remove",
     )
     parser.add_argument(
+        "--vault-self",
+        action="store_true",
+        dest="vault_self",
+        help=(
+            "Register using vault-self mode: set BRAIN_WORKSPACE_DIR to the target "
+            "directory (which must be the vault root) and skip workspace binding. "
+            "Intended for installing a vault's own project-scope MCP registration."
+        ),
+    )
+    parser.add_argument(
         "--cleanup-bootstrap",
         action="store_true",
         help=argparse.SUPPRESS,
@@ -192,6 +203,10 @@ def main(argv: Optional[List[str]] = None) -> None:
         fatal("--skip-mcp cannot be combined with --user")
     if args.skip_mcp and args.remove:
         fatal("--skip-mcp cannot be combined with --remove")
+    if args.vault_self and args.user:
+        fatal("--vault-self cannot be combined with --user")
+    if args.vault_self and args.remove:
+        fatal("--vault-self cannot be combined with --remove")
 
     scope, target_dir, scope_label = _scope_from_args(args)
     clients, warnings = _resolve_clients(args.client, scope)
@@ -219,7 +234,12 @@ def main(argv: Optional[List[str]] = None) -> None:
         if target_dir is None:
             fatal("--skip-mcp requires a target directory")
 
-        ensure_workspace_manifest(target_dir, vault_root=vault_root)
+        if not is_brain_vault(target_dir):
+            # Only bind non-vault-root directories; a vault root is a Brain, not
+            # a workspace of itself (the refuse-guard would raise). Use the narrow
+            # `.brain-core/VERSION` predicate (the single source of truth) so an
+            # AGENTS.md-only workspace is still bound, not mistaken for a vault.
+            ensure_workspace_manifest(target_dir, vault_root=vault_root)
         _ensure_brain_ignore_rules_or_fatal(target_dir, scope, clients, skip_mcp=True)
 
         header("Done")
@@ -243,6 +263,7 @@ def main(argv: Optional[List[str]] = None) -> None:
             scope=scope,
             target_dir=target_dir,
             remove=args.remove,
+            vault_self=args.vault_self,
         )
     except InitTransportError as exc:
         fatal(str(exc))

@@ -92,6 +92,7 @@ Each DD captures the reasoning behind an architectural decision at the time it w
 | DD-050 | Unified closure-status vocabulary — `deprecated` + `parked` across all lifecycle types, reason in callout | Implemented (v0.43.0) | [dd-050](dd-050-closure-status-model.md) |
 | DD-051 | Workspace-owned binding and workspace-aware MCP; `setup workspace` / `configure ...` cutover | Accepted | [dd-051](dd-051-workspace-owned-binding-and-workspace-aware-mcp.md) |
 | DD-052 | Unified Brain resolution ladder — ordered rungs, stale-terminates, demoted `BRAIN_VAULT_ROOT`, machine default, pure resolver | Implemented (v0.45.0) | [dd-052](dd-052-unified-brain-resolution-ladder.md) |
+| DD-053 | Explicit vault-self flag (rung 1) + unified `.brain-core/VERSION` vault predicate; vault-self install mode, refuse-guard, exclusive install scope | Implemented (v0.47.0) | [dd-053](dd-053-explicit-vault-self-flag-and-unified-predicate.md) |
 
 ---
 
@@ -105,5 +106,5 @@ Related decisions grouped by domain. Arrows show supersede/extend chains.
 - **Security & integrity:** DD-031, DD-036, DD-043
 - **Plugins & platforms:** DD-004, DD-005, DD-006, DD-007, DD-021, DD-022
 - **Agent methodology:** DD-024, DD-035
-- **Workspaces:** DD-040 → DD-051 → DD-052 (DD-051 extends DD-023, DD-039, DD-040; DD-052 adds the runtime resolution ladder)
+- **Workspaces:** DD-040 → DD-051 → DD-052 → DD-053 (DD-051 extends DD-023, DD-039, DD-040; DD-052 adds the runtime resolution ladder; DD-053 adds the explicit vault-self flag + unified vault predicate)
 - **Artefact lifecycle & folder convention:** DD-029, DD-030 → DD-050

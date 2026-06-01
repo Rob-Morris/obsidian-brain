@@ -89,8 +89,14 @@ parse_flags() {
     SKIP_CLI=false
     INSTALL_SYSTEM=false
     ENABLE_SEMANTIC=false
+    BRAIN_ID=""
     VAULT_PATH=""
+    local skip_next=false
     for arg in "$@"; do
+        if [ "$skip_next" = true ]; then
+            skip_next=false
+            continue
+        fi
         case "$arg" in
             --non-interactive)
                 NON_INTERACTIVE=true
@@ -110,10 +116,23 @@ parse_flags() {
             --enable-semantic)
                 ENABLE_SEMANTIC=true
                 ;;
+            --id)
+                # consume next arg as brain id — handled in positional pass below;
+                # set skip_next so the value doesn't land in VAULT_PATH
+                skip_next=true
+                ;;
             *)
                 VAULT_PATH="$arg"
                 ;;
         esac
+    done
+    # Second pass: capture --id <value>
+    local prev=""
+    for arg in "$@"; do
+        if [ "$prev" = "--id" ]; then
+            BRAIN_ID="$arg"
+        fi
+        prev="$arg"
     done
 }
 
@@ -161,9 +180,8 @@ print_mcp_retry_hint() {
     local vault_path="$1"
     local launcher="${2:-${PYTHON:-python3.12}}"
     info "Retry later with network access:"
-    info "  \"$launcher\" \"$vault_path/.brain-core/scripts/setup.py\" workspace \"$vault_path\" --vault \"$vault_path\""
     info "  \"$launcher\" \"$vault_path/.brain-core/scripts/_common/_venv.py\" ensure --vault \"$vault_path\" --launcher \"$launcher\""
-    info "  \"$launcher\" \"$vault_path/.brain-core/scripts/configure.py\" mcp --vault \"$vault_path\" --workspace \"$vault_path\" --client all"
+    info "  \"$launcher\" \"$vault_path/.brain-core/scripts/init.py\" --vault \"$vault_path\" --project \"$vault_path\" --vault-self --client all"
     info "  In Claude Code for that directory: run /mcp and approve brain if prompted"
     info "  In Codex for that directory: trust the project and ensure the project-scoped brain MCP is enabled"
     info "  Verify in either client: call brain_session and confirm environment.vault_root"
@@ -173,8 +191,13 @@ print_mcp_retry_hint() {
 print_init_retry_hint() {
     local vault_path="$1"
     local python_cmd="$2"
-    info "  \"$python_cmd\" \"$vault_path/.brain-core/scripts/setup.py\" workspace \"$vault_path\" --vault \"$vault_path\""
-    info "  \"$python_cmd\" \"$vault_path/.brain-core/scripts/configure.py\" mcp --vault \"$vault_path\" --workspace \"$vault_path\" --client all"
+    info "  \"$python_cmd\" \"$vault_path/.brain-core/scripts/init.py\" --vault \"$vault_path\" --project \"$vault_path\" --vault-self --client all"
+}
+
+print_user_scope_retry_hint() {
+    local vault_path="$1"
+    local python_cmd="$2"
+    info "  \"$python_cmd\" \"$vault_path/.brain-core/scripts/init.py\" --vault \"$vault_path\" --user --client all"
 }
 
 print_semantic_retry_hint() {
@@ -301,7 +324,12 @@ registry_update() {
     if [ -z "$py" ]; then
         py=$(find_python_for_script "$script") || return 0
     fi
-    "$py" "$script" "$action" "$path" >/dev/null 2>&1 || true
+    # Thread --id when provided and action is --register (explicit brain ID).
+    if [ "$action" = "--register" ] && [ -n "${BRAIN_ID:-}" ]; then
+        "$py" "$script" "$action" "$path" --id "$BRAIN_ID" >/dev/null 2>&1 || true
+    else
+        "$py" "$script" "$action" "$path" >/dev/null 2>&1 || true
+    fi
 }
 
 # Print the path of the single non-stale registered vault, or empty.
@@ -726,6 +754,15 @@ if [ "$UPGRADE_MODE" != true ]; then
     registry_update --register "$VAULT_PATH"
 fi
 
+# Brain-owned git ignore rules are scaffold hygiene, independent of MCP scope:
+# ensure .brain/local/ etc. are ignored even on --skip-mcp or user-default
+# installs, and for existing vaults that don't inherit the template .gitignore.
+# For a vault root, init.py --skip-mcp skips the self-binding and writes only the
+# ignore rules (a no-op on non-git directories).
+if [ "$UPGRADE_MODE" != true ] && [ -n "$PYTHON" ]; then
+    spin "Ensuring Brain git ignore rules" "$PYTHON" "$VAULT_PATH/.brain-core/scripts/init.py" --vault "$VAULT_PATH" --project "$VAULT_PATH" --skip-mcp || true
+fi
+
 # ---------------------------------------------------------------------------
 # MCP server + Python venv (optional)
 # ---------------------------------------------------------------------------
@@ -735,14 +772,8 @@ if [ "$UPGRADE_MODE" = true ]; then
     info "Upgrade mode uses upgrade.py directly and does not re-run MCP setup."
     info "Dependency sync and follow-up guidance now come from upgrade.py."
 elif [ "$SKIP_MCP" = true ]; then
-    REGISTER_MCP=n
     info "MCP server setup skipped (--skip-mcp)."
     if [ -n "$PYTHON" ]; then
-        if spin "Binding Brain workspace" "$PYTHON" "$VAULT_PATH/.brain-core/scripts/init.py" --vault "$VAULT_PATH" --project "$VAULT_PATH" --skip-mcp; then
-            info "Workspace binding is ready."
-        else
-            warn "Vault created, but workspace binding setup was incomplete."
-        fi
         info "Register later with:"
         print_init_retry_hint "$VAULT_PATH" "$PYTHON"
     else
@@ -753,37 +784,106 @@ elif [ -z "$PYTHON" ]; then
     info "MCP server setup skipped (requires Python 3.12+)."
     info "Install Python 3.12+, then run:"
     print_init_retry_hint "$VAULT_PATH" "python3.12"
-elif [ "$NON_INTERACTIVE" = true ]; then
-    REGISTER_MCP=y
 else
-    printf '  \033[1mRegister the Brain MCP server for Claude and Codex? (recommended)\033[0m [Y/n]: ' >&2
-    read -r REGISTER_MCP
-fi
-if [ "$UPGRADE_MODE" != true ] && [ "$SKIP_MCP" = false ] && [ -n "$PYTHON" ] && { [ -z "${REGISTER_MCP:-}" ] || [ "${REGISTER_MCP:-}" = "y" ] || [ "${REGISTER_MCP:-}" = "Y" ]; }; then
-    printf '\n' >&2
-    if spin "Setting up Python virtual environment" "$PYTHON" "$VAULT_PATH/.brain-core/scripts/_common/_venv.py" ensure --vault "$VAULT_PATH" --launcher "$PYTHON"; then
+    # ---------------------------------------------------------------------------
+    # Exclusive scope choice: this vault only (project) OR default brain (user).
+    # NEVER register both — BRAIN_SERVER_NAME is a single hardcoded name and
+    # two scopes for the same vault would collide.
+    # ---------------------------------------------------------------------------
+    MCP_SCOPE_CHOICE=""
+    if [ "$NON_INTERACTIVE" = true ]; then
+        # Non-interactive default: this vault only (project scope, vault-self mode).
+        MCP_SCOPE_CHOICE="vault"
+    else
+        # Detect whether a machine default already exists for the prompt wording.
+        CURRENT_DEFAULT=""
+        _reg_script="$REPO_DIR/src/brain-core/scripts/vault_registry.py"
+        if [ -f "$_reg_script" ]; then
+            _reg_py="${_PY312_PATH:-}"
+            if [ -z "$_reg_py" ]; then
+                _reg_py=$(find_python_for_script "$_reg_script") || true
+            fi
+            if [ -n "$_reg_py" ]; then
+                CURRENT_DEFAULT=$("$_reg_py" "$_reg_script" --get-default 2>/dev/null || true)
+            fi
+        fi
+
+        printf '  \033[1mHow would you like to register this Brain MCP server?\033[0m\n' >&2
         printf '\n' >&2
-        if spin "Registering Brain MCP server" "$PYTHON" "$VAULT_PATH/.brain-core/scripts/init.py" --vault "$VAULT_PATH" --project "$VAULT_PATH" --client all; then
-            printf '    \033[1mScope:\033[0m project (this vault only)\n' >&2
-            printf '    \033[1mClaude:\033[0m open Claude Code in this directory and use /mcp to approve brain if prompted\n' >&2
-            printf '    \033[1mCodex:\033[0m trust this project and ensure the project-scoped brain MCP is enabled if prompted\n' >&2
-            printf '    \033[1mVerify:\033[0m ask either client to call brain_session and confirm environment.vault_root\n' >&2
-            printf '    \033[1mHealth:\033[0m codex mcp list\n' >&2
+        printf '    1) This vault only  (project scope — recommended)\n' >&2
+        if [ -n "$CURRENT_DEFAULT" ]; then
+            printf '    2) Override current default brain (%s) with this vault  (user scope)\n' "$CURRENT_DEFAULT" >&2
+        else
+            printf '    2) Make this your default brain  (user scope)\n' >&2
+        fi
+        printf '    3) Skip MCP registration  (scaffold only)\n' >&2
+        printf '\n' >&2
+        printf '  Choice [1]: ' >&2
+        read -r MCP_SCOPE_CHOICE_RAW
+        case "${MCP_SCOPE_CHOICE_RAW:-1}" in
+            1|"") MCP_SCOPE_CHOICE="vault" ;;
+            2)    MCP_SCOPE_CHOICE="user" ;;
+            3)    MCP_SCOPE_CHOICE="skip" ;;
+            *)    MCP_SCOPE_CHOICE="vault" ;;
+        esac
+    fi
+
+    if [ "$MCP_SCOPE_CHOICE" = "skip" ]; then
+        info "MCP registration skipped. Register later with:"
+        print_init_retry_hint "$VAULT_PATH" "$PYTHON"
+    elif [ "$MCP_SCOPE_CHOICE" = "user" ]; then
+        # User scope: register globally, set as machine default.
+        if spin "Setting up Python virtual environment" "$PYTHON" "$VAULT_PATH/.brain-core/scripts/_common/_venv.py" ensure --vault "$VAULT_PATH" --launcher "$PYTHON"; then
+            printf '\n' >&2
+            if spin "Registering Brain MCP server (user scope)" "$PYTHON" "$VAULT_PATH/.brain-core/scripts/init.py" --vault "$VAULT_PATH" --user --client all; then
+                # Set this vault as the machine default.
+                _reg_script="$REPO_DIR/src/brain-core/scripts/vault_registry.py"
+                if [ -f "$_reg_script" ]; then
+                    _reg_py="${_PY312_PATH:-}"
+                    [ -z "$_reg_py" ] && _reg_py=$(find_python_for_script "$_reg_script") || true
+                    if [ -n "$_reg_py" ]; then
+                        _BRAIN_ID=$("$_reg_py" "$_reg_script" --register "$VAULT_PATH" 2>/dev/null || true)
+                        if [ -n "$_BRAIN_ID" ]; then
+                            "$_reg_py" "$_reg_script" --set-default "$_BRAIN_ID" >/dev/null 2>&1 || true
+                        fi
+                    fi
+                fi
+                printf '    \033[1mScope:\033[0m user (all projects)\n' >&2
+                printf '    \033[1mVerify:\033[0m claude mcp list\n' >&2
+                printf '    \033[1mCodex:\033[0m codex mcp list\n' >&2
+            else
+                printf '\n' >&2
+                warn "Vault created, but user-scope MCP registration failed."
+                info "Retry later with:"
+                print_user_scope_retry_hint "$VAULT_PATH" "$PYTHON"
+            fi
         else
             printf '\n' >&2
-            warn "Vault created, but MCP registration failed."
-            info "Retry later with:"
-            print_init_retry_hint "$VAULT_PATH" "$PYTHON"
+            warn "Vault created, but MCP dependency installation failed."
+            print_mcp_retry_hint "$VAULT_PATH"
         fi
     else
-        printf '\n' >&2
-        warn "Vault created, but MCP dependency installation failed."
-        print_mcp_retry_hint "$VAULT_PATH"
+        # Default: this vault only — project scope, vault-self mode (no self-binding written).
+        if spin "Setting up Python virtual environment" "$PYTHON" "$VAULT_PATH/.brain-core/scripts/_common/_venv.py" ensure --vault "$VAULT_PATH" --launcher "$PYTHON"; then
+            printf '\n' >&2
+            if spin "Registering Brain MCP server (this vault only)" "$PYTHON" "$VAULT_PATH/.brain-core/scripts/init.py" --vault "$VAULT_PATH" --project "$VAULT_PATH" --vault-self --client all; then
+                printf '    \033[1mScope:\033[0m project (this vault only)\n' >&2
+                printf '    \033[1mClaude:\033[0m open Claude Code in this directory and use /mcp to approve brain if prompted\n' >&2
+                printf '    \033[1mCodex:\033[0m trust this project and ensure the project-scoped brain MCP is enabled if prompted\n' >&2
+                printf '    \033[1mVerify:\033[0m ask either client to call brain_session and confirm environment.vault_root\n' >&2
+                printf '    \033[1mHealth:\033[0m codex mcp list\n' >&2
+            else
+                printf '\n' >&2
+                warn "Vault created, but MCP registration failed."
+                info "Retry later with:"
+                print_init_retry_hint "$VAULT_PATH" "$PYTHON"
+            fi
+        else
+            printf '\n' >&2
+            warn "Vault created, but MCP dependency installation failed."
+            print_mcp_retry_hint "$VAULT_PATH"
+        fi
     fi
-elif [ "$UPGRADE_MODE" != true ] && [ -n "$PYTHON" ]; then
-    printf '\n' >&2
-    info "MCP skipped. You can register later with:"
-    print_init_retry_hint "$VAULT_PATH" "$PYTHON"
 fi
 
 # ---------------------------------------------------------------------------

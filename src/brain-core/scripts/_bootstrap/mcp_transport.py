@@ -693,6 +693,7 @@ def apply_mcp_transport_action(
     scope: str,
     target_dir: Optional[Path],
     remove: bool,
+    vault_self: bool = False,
 ) -> Dict[str, Any]:
     clients, warnings = _resolve_clients_or_error(client_arg, scope)
     scope_label = _scope_label(scope, target_dir)
@@ -744,10 +745,13 @@ def apply_mcp_transport_action(
 
         # Converge the workspace binding BEFORE writing any MCP registration,
         # so a valid binding always exists before any client config is written.
-        if target_dir:
+        # In vault-self mode the target_dir IS the vault root — skip convergence
+        # (refuse-guard would raise), but still write ignore rules if applicable.
+        if target_dir and not vault_self:
             header("Workspace manifest")
             binding = _converge_workspace_manifest(target_dir, vault_root=vault_root)
             info(binding.message)
+        if target_dir:
             header("Git ignore rules")
             ignore_message = ensure_brain_ignore_rules(target_dir, scope, clients, skip_mcp=False)
             if ignore_message:

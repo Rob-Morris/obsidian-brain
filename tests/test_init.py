@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 import tomllib
+from unittest.mock import patch, MagicMock
 
 import pytest
 
@@ -707,9 +708,13 @@ class TestSkipMcpMode:
         assert not (project / "CLAUDE.md").exists()
         assert not (project / ".claude" / "settings.local.json").exists()
 
-    def test_skip_mcp_converges_vault_root_binding(self, vault, monkeypatch):
+    def test_skip_mcp_vault_root_skips_workspace_binding(self, vault, monkeypatch):
+        """--skip-mcp on the vault root must NOT write workspace.yaml (refuse-guard).
+
+        A vault root is a Brain, not a workspace of itself.  The --skip-mcp path
+        no longer writes a self-binding; it only writes ignore rules.
+        """
         monkeypatch.setattr(init, "find_python", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("should not resolve runtime")))
-        monkeypatch.setattr(mcp_transport, "resolve_local_brain_alias", lambda _vault_root: "brain")
         monkeypatch.setattr(
             sys,
             "argv",
@@ -718,8 +723,10 @@ class TestSkipMcpMode:
 
         init.main()
 
-        assert (vault / ".brain" / "local" / "workspace.yaml").read_text(encoding="utf-8") == (
-            f"brain: brain\nslug: {workspace_slug(vault.name)}\n"
+        # No workspace.yaml should be written for a vault root.
+        manifest_path = vault / ".brain" / "local" / "workspace.yaml"
+        assert not manifest_path.exists(), (
+            f"workspace.yaml was written for a vault root; it should not be."
         )
 
     def test_skip_mcp_rejects_user_scope(self, vault, monkeypatch):
@@ -731,3 +738,102 @@ class TestSkipMcpMode:
 
         with pytest.raises(SystemExit):
             init.main()
+
+
+class TestVaultSelfMode:
+    """Wiring from init.main() through apply_mcp_transport_action with vault_self=True."""
+
+    # Minimal return dict shaped to satisfy the main() result consumer.
+    _APPLY_RESULT = {
+        "action": "configure",
+        "status": "changed",
+        "scope": "project",
+        "scope_label": "project (/fake/vault)",
+        "target_dir": None,
+        "clients": ["claude", "codex"],
+        "warnings": [],
+        "python_path": "/fake/python3",
+        "results": [
+            {"client": "claude", "method": "direct write"},
+            {"client": "codex", "method": "direct write"},
+        ],
+        "claude_project_notes": [],
+        "verification_notes": ["Verify: /mcp"],
+        "remove_command": "configure mcp --remove",
+    }
+
+    def test_vault_self_flag_reaches_apply_mcp_transport_action(self, vault, monkeypatch):
+        """--vault-self must call apply_mcp_transport_action with vault_self=True."""
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            ["init.py", "--vault", str(vault), "--project", str(vault),
+             "--vault-self", "--client", "all"],
+        )
+        apply_result = dict(self._APPLY_RESULT)
+        apply_result["target_dir"] = vault
+
+        with patch.object(init, "apply_mcp_transport_action", return_value=apply_result) as mock_apply:
+            init.main()
+
+        mock_apply.assert_called_once()
+        call_kwargs = mock_apply.call_args.kwargs
+        assert call_kwargs.get("vault_self") is True, (
+            f"Expected vault_self=True but got: {call_kwargs.get('vault_self')!r}"
+        )
+
+    def test_vault_self_with_user_scope_is_rejected(self, vault, monkeypatch):
+        """--vault-self --user must call fatal() (SystemExit)."""
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            ["init.py", "--vault", str(vault), "--vault-self", "--user", "--client", "all"],
+        )
+
+        with pytest.raises(SystemExit):
+            init.main()
+
+    def test_vault_self_with_remove_is_rejected(self, vault, monkeypatch):
+        """--vault-self --remove must call fatal() (SystemExit)."""
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            ["init.py", "--vault", str(vault), "--project", str(vault),
+             "--vault-self", "--remove", "--client", "all"],
+        )
+
+        with pytest.raises(SystemExit):
+            init.main()
+
+
+class TestSkipMcpVaultPredicate:
+    """init.py --skip-mcp uses the narrow is_brain_vault predicate to decide
+    whether the target is a vault (skip the self-binding) or a workspace (bind)."""
+
+    def test_skip_mcp_on_vault_root_skips_binding(self, vault, monkeypatch):
+        """A vault root (.brain-core/VERSION) must NOT be bound to itself."""
+        calls = []
+        monkeypatch.setattr(init, "ensure_workspace_manifest", lambda *a, **k: calls.append((a, k)))
+        monkeypatch.setattr(init, "_ensure_brain_ignore_rules_or_fatal", lambda *a, **k: None)
+        monkeypatch.setattr(
+            sys, "argv",
+            ["init.py", "--vault", str(vault), "--project", str(vault), "--skip-mcp"],
+        )
+        init.main()
+        assert calls == []  # vault root → no self-binding attempt
+
+    def test_skip_mcp_on_agents_md_workspace_writes_binding(self, vault, tmp_path, monkeypatch):
+        """An AGENTS.md-only workspace (not a vault) must still be bound — the
+        narrow predicate keeps it from being mistaken for a vault."""
+        ws = tmp_path / "devrepo"
+        ws.mkdir()
+        (ws / "AGENTS.md").write_text("# bootstrap\n")
+        calls = []
+        monkeypatch.setattr(init, "ensure_workspace_manifest", lambda *a, **k: calls.append((a, k)))
+        monkeypatch.setattr(init, "_ensure_brain_ignore_rules_or_fatal", lambda *a, **k: None)
+        monkeypatch.setattr(
+            sys, "argv",
+            ["init.py", "--vault", str(vault), "--project", str(ws), "--skip-mcp"],
+        )
+        init.main()
+        assert len(calls) == 1  # AGENTS.md-only workspace → binding written

@@ -316,8 +316,9 @@ bash install.sh --uninstall --non-interactive /path/to/brain
 
 ### Flags
 
-- `--non-interactive` — skip all interactive prompts. On fresh install or existing-vault install: accepts defaults and auto-attempts MCP setup unless you also pass `--skip-mcp`. On uninstall: removes system files without prompting and skips the vault-deletion offer entirely. Also bypasses the stdin pipe detection error. On upgrade, it auto-confirms the handoff to `upgrade.py`. `install.sh` does not expose upgrade override semantics; use `upgrade.py --force` directly for same-version re-apply, downgrade, or migration rerun flows.
+- `--non-interactive` — skip all interactive prompts. On fresh install or existing-vault install: accepts defaults and auto-attempts MCP setup unless you also pass `--skip-mcp`. On uninstall: removes system files without prompting and skips the vault-deletion offer entirely. Also bypasses the stdin pipe detection error. On upgrade, it auto-confirms the handoff to `upgrade.py`. `install.sh` does not expose upgrade override semantics; use `upgrade.py --force` directly for same-version re-apply, downgrade, or migration rerun flows. On a fresh interactive install the MCP step is an **exclusive** scope choice — *this vault only* (project scope, vault-self mode) or *make this your default brain* (user scope + machine default), never both; `--non-interactive` selects *this vault only*.
 - `--skip-mcp` / `--no-mcp` — skip managed-runtime provisioning, dependency installation, and MCP registration on install flows. Useful for network-restricted or vault-only installs. On upgrade flows it passes `--no-sync-deps` through to `upgrade.py`, so the canonical upgrader still owns the behavior while the wrapper preserves the opt-out.
+- `--id <brain-id>` — register the new Brain in the machine registry under an explicit ID instead of the folder-derived default (threaded to `vault_registry.py --register --id`).
 - `--uninstall` — enter uninstall mode. Must be the first argument.
 - **Path** (positional, optional) — target directory. Defaults to current directory (prompted interactively, or `pwd` with `--non-interactive`).
 

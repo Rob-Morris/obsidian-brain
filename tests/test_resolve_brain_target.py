@@ -116,6 +116,92 @@ def vaults(tmp_path):
 # Rung 1 — BRAIN_WORKSPACE_DIR set
 # ---------------------------------------------------------------------------
 
+class TestRung1VaultSelf:
+    """Rung 1: BRAIN_WORKSPACE_DIR points at a vault root → vault_self short-circuit."""
+
+    def test_rung1_vault_root_gives_vault_self_source(self, tmp_path, isolated_home):
+        """BRAIN_WORKSPACE_DIR=<vault-root> resolves to source=vault_self by path.
+
+        No registry entry, no default, no workspace.yaml — proves the short-circuit
+        bypasses binding lookup entirely (a missing binding would fall through to
+        rung 3/4/5 and raise, so resolving without that means the check is working).
+        """
+        vault = _make_vault(tmp_path, "myvault")
+        # No registry entry, no default, no workspace.yaml — pure path resolution.
+
+        result = resolve_brain_target(
+            workspace_env=str(vault),
+            vault_root_env=None,
+            start_dir=tmp_path,
+        )
+        assert result.source == "vault_self"
+        assert result.vault_root == str(vault)
+        assert result.workspace_dir is None
+
+    def test_rung1_vault_self_workspace_dir_is_none(self, tmp_path, isolated_home):
+        """vault_self resolution returns workspace_dir=None."""
+        vault = _make_vault(tmp_path, "myvault")
+
+        result = resolve_brain_target(
+            workspace_env=str(vault),
+            vault_root_env=None,
+            start_dir=tmp_path,
+        )
+        assert result.workspace_dir is None
+
+    def test_rung1_vault_root_resolves_by_path_not_binding(self, tmp_path, isolated_home):
+        """vault-self bypasses the binding classification path entirely.
+
+        A registered binding exists for the vault, but vault_self must not go
+        through the binding path — it returns vault_self, not workspace_env.
+        """
+        vault = _make_vault(tmp_path, "myvault")
+        brain_id = vault_registry.register(str(vault))
+        # Also write a workspace.yaml in the vault root (should be ignored).
+        manifest_dir = vault / ".brain" / "local"
+        manifest_dir.mkdir(parents=True)
+        (manifest_dir / "workspace.yaml").write_text(f"brain: {brain_id}\nslug: ws\n")
+
+        result = resolve_brain_target(
+            workspace_env=str(vault),
+            vault_root_env=None,
+            start_dir=tmp_path,
+        )
+        assert result.source == "vault_self"
+        assert result.workspace_dir is None
+
+    def test_rung1_non_vault_dir_still_uses_binding_path(self, tmp_path, isolated_home):
+        """A real (non-vault) workspace dir still uses the binding path → workspace_env."""
+        vault = _make_vault(tmp_path, "myvault")
+        brain_id = vault_registry.register(str(vault))
+        ws = _make_workspace(tmp_path, "ws", brain=brain_id)
+
+        result = resolve_brain_target(
+            workspace_env=str(ws),
+            vault_root_env=None,
+            start_dir=tmp_path,
+        )
+        assert result.source == "workspace_env"
+        assert result.workspace_dir == str(ws)
+
+    def test_rung1_agents_md_only_dir_is_not_vault_self(self, tmp_path, isolated_home):
+        """BRAIN_WORKSPACE_DIR at an AGENTS.md-only dir (a real workspace such as
+        the dev repo) must NOT resolve as vault_self — is_brain_vault keys on
+        .brain-core/VERSION, so it uses the binding path, never vault-self."""
+        vault = _make_vault(tmp_path, "thebrain")
+        brain_id = vault_registry.register(str(vault))
+        ws = _make_workspace(tmp_path, "devrepo", brain=brain_id)
+        (ws / "AGENTS.md").write_text("# bootstrap\n")  # present, but NOT a vault
+
+        result = resolve_brain_target(
+            workspace_env=str(ws),
+            vault_root_env=None,
+            start_dir=tmp_path,
+        )
+        assert result.source == "workspace_env"
+        assert result.vault_root == str(vault)
+
+
 class TestRung1WorkspaceEnv:
     """Rung 1: BRAIN_WORKSPACE_DIR pinned."""
 

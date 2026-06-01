@@ -214,6 +214,125 @@ def test_find_python_for_script_skips_broken_candidates(tmp_path):
     assert result.returncode == 1
 
 
+def _stub_venv(source: Path) -> None:
+    """Replace _common/_venv.py with a no-op stub (so the venv spin succeeds)."""
+    venv_script = source / "src" / "brain-core" / "scripts" / "_common" / "_venv.py"
+    venv_script.write_text(
+        "# no-op stub\n"
+        "import sys\n"
+        "if __name__ == '__main__':\n"
+        "    sys.exit(0)\n"
+    )
+
+
+def _run_install_no_skip_mcp(source, vault_path, fake_home, *extra):
+    """Run install.sh with --non-interactive but WITHOUT --skip-mcp."""
+    env = os.environ.copy()
+    env["HOME"] = str(fake_home)
+    env.pop("XDG_CONFIG_HOME", None)
+    return subprocess.run(
+        [
+            "bash", str(source / "install.sh"),
+            "--non-interactive",
+            *extra, str(vault_path),
+        ],
+        env=env, capture_output=True, text=True, check=True,
+    )
+
+
+def test_non_interactive_vault_self_no_workspace_yaml(tmp_path):
+    """--non-interactive without --skip-mcp selects vault-self mode.
+
+    Uses its own source copy (separate from the module fixture) so that
+    _venv.py stubbing does not pollute other tests.
+
+    Verifies:
+    - init.py is called with --vault-self and --project <vault> (not --user)
+    - workspace.yaml is NOT written in the vault's .brain/local/
+    """
+    # Own source copy to avoid polluting the module-scoped fixture.
+    source = tmp_path / "source"
+    source.mkdir()
+    copy_install_source(source)
+    _stub_init(source)
+
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    vault = tmp_path / "brain"
+
+    # Stub init.py to capture args and succeed without real MCP work.
+    (source / "src" / "brain-core" / "scripts" / "init.py").write_text(
+        "import sys\nfrom pathlib import Path\n"
+        "args = sys.argv[1:]\n"
+        "vault = Path(args[args.index('--vault') + 1])\n"
+        "(vault / 'init-args.txt').write_text(' '.join(args))\n"
+    )
+    # Stub _venv.py so the venv spin step succeeds without real venv work.
+    _stub_venv(source)
+
+    _run_install_no_skip_mcp(source, vault, fake_home)
+
+    # init-args.txt must exist — init.py must have been invoked.
+    init_args_file = vault / "init-args.txt"
+    assert init_args_file.exists(), (
+        "init.py was not called — vault-self branch not reached"
+    )
+    init_args = init_args_file.read_text()
+
+    # Must include --vault-self (vault-self mode).
+    assert "--vault-self" in init_args, (
+        f"Expected --vault-self in init.py args but got: {init_args!r}"
+    )
+    # Must include --project (project scope).
+    assert "--project" in init_args, (
+        f"Expected --project in init.py args but got: {init_args!r}"
+    )
+    # Must NOT include --user (no user-scope registration).
+    assert "--user" not in init_args, (
+        f"Expected no --user in init.py args but got: {init_args!r}"
+    )
+
+    # workspace.yaml must NOT be written (no self-binding in vault-self mode).
+    workspace_yaml = vault / ".brain" / "local" / "workspace.yaml"
+    assert not workspace_yaml.exists(), (
+        "workspace.yaml should not be written when using --vault-self mode"
+    )
+
+
+def test_explicit_id_registers_under_given_id(tmp_path, install_source):
+    """--id <brain-id> threads through to vault_registry --register --id.
+
+    The vault dir name ('brain') deliberately differs from the --id value
+    ('custom-xyz') so the test fails if --id is ignored (auto-derived id
+    would be 'brain', not 'custom-xyz').
+    """
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    vault = tmp_path / "brain"  # basename → auto-derived id would be "brain"
+
+    env = os.environ.copy()
+    env["HOME"] = str(fake_home)
+    env.pop("XDG_CONFIG_HOME", None)
+    subprocess.run(
+        [
+            "bash", str(install_source / "install.sh"),
+            "--non-interactive", "--skip-mcp",
+            "--id", "custom-xyz",  # different from "brain" — catches if ignored
+            str(vault),
+        ],
+        env=env, capture_output=True, text=True, check=True,
+    )
+
+    registry = fake_home / ".config" / "brain" / "vaults"
+    assert registry.exists()
+    registry_text = registry.read_text()
+    # Must be registered under the explicit id, not the basename-derived one.
+    assert "custom-xyz" in registry_text, (
+        f"Expected 'custom-xyz' in registry but got:\n{registry_text}"
+    )
+    assert str(vault) in registry_text
+
+
 def test_uninstall_removes_entry(tmp_path, install_source):
     fake_home = tmp_path / "home"
     fake_home.mkdir()

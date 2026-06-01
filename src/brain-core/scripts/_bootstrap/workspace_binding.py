@@ -10,11 +10,27 @@ import re
 import unicodedata
 from typing import Any
 
-from _common import is_vault_root, safe_write
+from _common import safe_write
 from _common._yaml import YamlError, dump_mapping_text, load_mapping_file
 import vault_registry
 
 _log = logging.getLogger(__name__)
+
+
+def is_brain_vault(path: Path) -> bool:
+    """Return True when *path* is a resolvable Brain vault root.
+
+    A resolvable vault has a ``.brain-core/VERSION`` file — the resolver
+    re-points ``PYTHONPATH`` at that ``.brain-core``. This is intentionally
+    narrower than ``_common.is_vault_root`` (which also accepts an
+    ``AGENTS.md``-only bootstrap directory for CLI discovery): an
+    ``AGENTS.md``-only *workspace* must never resolve as vault-self, be accepted
+    as a ``BRAIN_VAULT_ROOT``/registry target, or be refused as "a workspace of
+    itself". This narrow predicate is the single source of truth for every
+    resolution, heal, and refuse-guard decision in this module.
+    """
+    p = path if isinstance(path, Path) else Path(path)
+    return (p / ".brain-core" / "VERSION").is_file()
 
 
 # ---------------------------------------------------------------------------
@@ -148,7 +164,7 @@ def _walk_for_nearest_marker(start_dir: Path) -> BrainTarget | None:
 
     1. ``(dir / ".brain-core" / "VERSION").is_file()`` — vault root present
        here → 'vault_self'.  Gated on ``.brain-core/VERSION`` specifically
-       rather than ``is_vault_root()`` so that AGENTS.md-only directories
+       rather than the broad ``_common.is_vault_root`` so that AGENTS.md-only directories
        (e.g. a repo root) are not misidentified as vault roots.
        This wins over a co-located workspace.yaml in the same directory.
     2. ``load_workspace_manifest_state(dir).source_path is not None`` —
@@ -172,10 +188,10 @@ def _walk_for_nearest_marker(start_dir: Path) -> BrainTarget | None:
     current = start_dir.resolve()
     for candidate in (current, *current.parents):
         # Vault-root check takes priority over a co-located workspace.yaml.
-        # Gate on .brain-core/VERSION specifically — is_vault_root() also
-        # matches AGENTS.md-only dirs (e.g. this repo root), which must NOT
-        # resolve as vault_self in the rung-2 walk (wrong-brain hazard).
-        if (candidate / ".brain-core" / "VERSION").is_file():
+        # is_brain_vault gates on .brain-core/VERSION specifically — the broad
+        # _common.is_vault_root also matches AGENTS.md-only dirs (e.g. this repo
+        # root), which must NOT resolve as vault_self (wrong-brain hazard).
+        if is_brain_vault(candidate):
             return BrainTarget(
                 vault_root=str(candidate),
                 workspace_dir=None,
@@ -235,7 +251,7 @@ def resolve_brain_target(
        - Nearest vault root → resolve by path ('vault_self').
        - Nearest workspace manifest → classify:
          VALID → use ('workspace_binding'); STALE → raise (STOP); MISSING → rung 3.
-    3. ``BRAIN_VAULT_ROOT`` set and ``is_vault_root`` → use ('vault_root_env').
+    3. ``BRAIN_VAULT_ROOT`` set and ``is_brain_vault`` → use ('vault_root_env').
     4. ``vault_registry.get_default()`` set → resolve:
        resolves → use ('registry_default'); dangling → raise (STOP).
     5. Nothing → raise with the setup cue.
@@ -258,6 +274,14 @@ def resolve_brain_target(
     # ------------------------------------------------------------------
     if workspace_env:
         ws_dir = Path(workspace_env).resolve()
+        # Vault-self short-circuit: when BRAIN_WORKSPACE_DIR points at the
+        # vault root itself, resolve by path immediately — no binding lookup.
+        if is_brain_vault(ws_dir):
+            return BrainTarget(
+                vault_root=str(ws_dir),
+                workspace_dir=None,
+                source="vault_self",
+            )
         state, vault = _classify_workspace_binding(ws_dir)
         if state == _STATE_VALID:
             assert vault is not None
@@ -295,7 +319,7 @@ def resolve_brain_target(
     # ------------------------------------------------------------------
     if vault_root_env:
         vault_path = Path(vault_root_env)
-        if is_vault_root(vault_path):
+        if is_brain_vault(vault_path):
             return BrainTarget(
                 vault_root=str(vault_path.resolve()),
                 workspace_dir=None,
@@ -401,7 +425,7 @@ def heal_legacy_config(
             # USER REG default-seed: seed from vault_root_env, NOT target.vault_root.
             try:
                 resolved = Path(vault_root_env).resolve()
-                if is_vault_root(resolved):
+                if is_brain_vault(resolved):
                     brain_id = vault_registry.register(str(resolved))
                     if vault_registry.get_default() is None:
                         vault_registry.set_default(brain_id)
@@ -594,7 +618,7 @@ def resolve_local_brain_vault(brain_id: str) -> Path | None:
     if not resolved:
         return None
     candidate = Path(resolved).resolve()
-    if not is_vault_root(candidate):
+    if not is_brain_vault(candidate):
         return None
     return candidate
 
@@ -657,6 +681,17 @@ def converge_workspace_binding(
     allow_rebind: bool,
 ) -> WorkspaceBindingConvergence:
     """Create or update the canonical workspace binding manifest."""
+    # Refuse-guard: a vault root is a Brain, not a workspace of itself.
+    # It resolves by path (vault_self) — binding it would create a circular
+    # reference.  The vault-self MCP mode (apply_mcp_transport_action with
+    # vault_self=True) skips this function intentionally.
+    if is_brain_vault(target_dir):
+        raise WorkspaceBindingError(
+            f"{target_dir} is a Brain vault root, not a workspace of itself. "
+            "It resolves by path — do not bind it as a workspace. "
+            "Use vault-self MCP registration instead.",
+            code="vault_root_not_workspace",
+        )
     state = load_workspace_manifest_state(target_dir)
     existing = dict(state.data or {})
     existing_brain = existing.get("brain")
