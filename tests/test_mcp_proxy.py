@@ -86,6 +86,9 @@ def _launch_proxy(
         stderr=subprocess.PIPE,
         text=True,
         env=env,
+        # cwd isolation: prevents the rung-2 walk from wandering out of
+        # tmp_path and finding markers in the real working tree.
+        cwd=str(tmp_path),
     )
 
 
@@ -397,6 +400,9 @@ def _run_proxy_wrapper(tmp_path, server_script, patch_body: str, *, backoff: str
         stderr=subprocess.PIPE,
         text=True,
         env=env,
+        # cwd isolation: prevents the rung-2 walk from wandering out of
+        # tmp_path and finding markers in the real working tree.
+        cwd=str(tmp_path),
     )
 
 

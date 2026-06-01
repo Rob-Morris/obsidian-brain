@@ -38,18 +38,16 @@ if str(_SCRIPT_ROOT) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_ROOT))
 
 from _bootstrap.workspace_binding import (
+    BrainTarget,
     WorkspaceBindingError,
-    find_bound_workspace_dir,
-    require_workspace_binding,
-    resolve_local_brain_vault,
+    resolve_brain_target,
 )
-from _common import is_vault_root
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
-PROXY_VERSION = "0.4.1"
+PROXY_VERSION = "0.5.0"
 
 _LOG_REL = os.path.join(".brain", "local", "mcp-proxy.log")
 _LOG_MAX_BYTES = 2 * 1024 * 1024  # 2 MB
@@ -1189,43 +1187,12 @@ class Proxy:
 # Entry point
 # ---------------------------------------------------------------------------
 
-def _resolve_workspace_env_path(raw: str | None) -> Path | None:
-    if not raw:
-        return None
-    try:
-        return Path(raw).resolve()
-    except OSError:
-        return None
-
-
-def _resolve_proxy_target() -> tuple[str, str | None]:
-    legacy_vault_root = os.environ.get("BRAIN_VAULT_ROOT")
-    workspace_hint = _resolve_workspace_env_path(os.environ.get("BRAIN_WORKSPACE_DIR"))
-
-    if workspace_hint is not None:
-        binding = require_workspace_binding(workspace_hint)
-        target_vault = resolve_local_brain_vault(binding["brain"])
-        if target_vault is None:
-            raise WorkspaceBindingError(
-                f"workspace binds to unknown local Brain ID '{binding['brain']}'"
-            )
-        return str(target_vault), str(workspace_hint)
-
-    if legacy_vault_root and is_vault_root(legacy_vault_root):
-        return str(Path(legacy_vault_root).resolve()), None
-
-    workspace_dir = find_bound_workspace_dir(Path.cwd())
-    if workspace_dir is not None:
-        binding = require_workspace_binding(workspace_dir)
-        target_vault = resolve_local_brain_vault(binding["brain"])
-        if target_vault is None:
-            raise WorkspaceBindingError(
-                f"workspace binds to unknown local Brain ID '{binding['brain']}'"
-            )
-        return str(target_vault), str(workspace_dir)
-
-    raise WorkspaceBindingError(
-        "no bound workspace could be resolved for Brain MCP startup"
+def _resolve_proxy_target() -> BrainTarget:
+    """Thin adapter: delegate to the pure resolution ladder and return the result."""
+    return resolve_brain_target(
+        workspace_env=os.environ.get("BRAIN_WORKSPACE_DIR"),
+        vault_root_env=os.environ.get("BRAIN_VAULT_ROOT"),
+        start_dir=Path.cwd(),
     )
 
 
@@ -1241,10 +1208,13 @@ def main() -> None:
     server_target = sys.argv[2]
 
     try:
-        vault_root, workspace_dir = _resolve_proxy_target()
+        target = _resolve_proxy_target()
     except WorkspaceBindingError as exc:
         print(f"brain-proxy: {exc}", file=sys.stderr)
         sys.exit(1)
+
+    vault_root = target.vault_root
+    workspace_dir = target.workspace_dir
 
     os.environ["BRAIN_VAULT_ROOT"] = vault_root
     os.environ["PYTHONPATH"] = str(Path(vault_root) / ".brain-core")
@@ -1255,8 +1225,8 @@ def main() -> None:
     global _logger
     _logger = _setup_logging(vault_root)
     _log().info(
-        "proxy starting: version=%s python=%s target=%s vault=%s workspace=%s",
-        PROXY_VERSION, python_path, server_target, vault_root, workspace_dir,
+        "proxy starting: version=%s python=%s target=%s vault=%s workspace=%s source=%s",
+        PROXY_VERSION, python_path, server_target, vault_root, workspace_dir, target.source,
     )
 
     proxy._start_writer_loop()

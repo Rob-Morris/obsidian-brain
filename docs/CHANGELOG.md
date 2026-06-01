@@ -6,6 +6,7 @@ Version-by-version release history for Obsidian Brain. Every shipped version has
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.45.0](changelog/v0.45.0.md) | 2026-06-01 | Resolve the active Brain via a unified ladder with stale-terminates |
 | [v0.44.5](changelog/v0.44.5.md) | 2026-06-01 | Add default Brain pointer and explicit-id support to vault_registry |
 | [v0.44.4](changelog/v0.44.4.md) | 2026-06-01 | Fix brain configure and setup dispatch by accepting top-level --vault |
 | [v0.44.3](changelog/v0.44.3.md) | 2026-05-31 | Move MCP transport ownership into _bootstrap/mcp_transport.py |
