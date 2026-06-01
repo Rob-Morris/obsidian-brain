@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import logging
 import os
 import re
 import unicodedata
@@ -12,6 +13,8 @@ from typing import Any
 from _common import is_vault_root, safe_write
 from _common._yaml import YamlError, dump_mapping_text, load_mapping_file
 import vault_registry
+
+_log = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -333,6 +336,118 @@ def resolve_brain_target(
         "(vault_registry --set-default).",
         code="no_brain",
     )
+
+
+# ---------------------------------------------------------------------------
+# Self-heal — best-effort, idempotent, missing-only
+# ---------------------------------------------------------------------------
+
+def heal_legacy_config(
+    target: BrainTarget,
+    *,
+    workspace_env: str | None,
+    vault_root_env: str | None,
+) -> None:
+    """Best-effort, idempotent migration of legacy Brain config state.
+
+    Runs AFTER a successful (non-stale) resolution.  Both triggers are
+    INDEPENDENT ``if`` blocks — not ``if/elif`` — so they can co-fire when
+    both conditions hold (e.g. ``vault_self`` source with a legacy
+    ``BRAIN_VAULT_ROOT`` set).
+
+    Trigger (1) — SELF-REGISTER
+        When source is "vault_self", backfill the vault into the registry.
+        This is idempotent: ``vault_registry.backfill`` returns the existing
+        Brain ID when the path is already registered.
+
+    Trigger (2) — LEGACY BRAIN_VAULT_ROOT signals
+        Guarded by ``vault_root_env``.  Inner branches are mutually exclusive
+        on ``workspace_env``:
+
+        PROJECT REG (``workspace_env`` set, source=="vault_root_env")
+            The anchor binding was MISSING (a stale one would have raised at
+            rung 1).  Register the vault and write the workspace binding.
+            ``allow_rebind=False`` ensures we only write when the binding is
+            absent — never overwrite an existing binding.
+
+        USER REG default-seed (``workspace_env`` not set)
+            Seed the machine default from the *env* value, never from
+            ``target.vault_root``.  When cd'd into a different bound vault,
+            ``target.vault_root`` is that other brain; the user-reg default
+            must come from ``vault_root_env``.  Only seeds when no default is
+            already set.
+    """
+    # (1) SELF-REGISTER — independent check; no return after this block.
+    if target.source == "vault_self":
+        try:
+            vault_registry.backfill(target.vault_root)
+        except Exception as exc:
+            _log.warning("heal_legacy_config: self-register backfill failed: %s", exc)
+
+    # (2) LEGACY BRAIN_VAULT_ROOT signals — guarded by vault_root_env.
+    if vault_root_env:
+        if workspace_env and target.source == "vault_root_env":
+            # PROJECT REG: the anchor binding was MISSING; write it now.
+            try:
+                brain_id = vault_registry.register(target.vault_root)
+                converge_workspace_binding(
+                    Path(workspace_env),
+                    brain=brain_id,
+                    allow_rebind=False,
+                )
+            except Exception as exc:
+                _log.warning("heal_legacy_config: project-reg binding failed: %s", exc)
+        elif not workspace_env:
+            # USER REG default-seed: seed from vault_root_env, NOT target.vault_root.
+            try:
+                resolved = Path(vault_root_env).resolve()
+                if is_vault_root(resolved):
+                    brain_id = vault_registry.register(str(resolved))
+                    if vault_registry.get_default() is None:
+                        vault_registry.set_default(brain_id)
+            except Exception as exc:
+                _log.warning("heal_legacy_config: user-reg default-seed failed: %s", exc)
+
+
+def resolve_and_heal(
+    *,
+    workspace_env: str | None,
+    vault_root_env: str | None,
+    start_dir: Path,
+) -> BrainTarget:
+    """Resolve the active Brain target, then run best-effort self-heal.
+
+    Resolution MUST succeed (and is pure/non-mutating) before any heal runs.
+    Because ``resolve_brain_target`` raises on stale or missing bindings,
+    ``heal_legacy_config`` is never reached on the stale path.
+
+    Args:
+        workspace_env:   Value of the ``BRAIN_WORKSPACE_DIR`` env var, or None.
+        vault_root_env:  Value of the ``BRAIN_VAULT_ROOT`` env var, or None.
+        start_dir:       Directory from which to begin the rung-2 upward walk.
+
+    Returns:
+        The resolved ``BrainTarget``.
+
+    Raises:
+        ``WorkspaceBindingError`` on stale bindings, dangling defaults, or when
+        no brain can be resolved at all.  Heal errors are caught and logged;
+        they never propagate.
+    """
+    target = resolve_brain_target(
+        workspace_env=workspace_env,
+        vault_root_env=vault_root_env,
+        start_dir=start_dir,
+    )
+    try:
+        heal_legacy_config(
+            target,
+            workspace_env=workspace_env,
+            vault_root_env=vault_root_env,
+        )
+    except Exception as exc:  # pragma: no cover — heal errors are best-effort
+        _log.warning("resolve_and_heal: heal_legacy_config raised unexpectedly: %s", exc)
+    return target
 
 
 # ---------------------------------------------------------------------------

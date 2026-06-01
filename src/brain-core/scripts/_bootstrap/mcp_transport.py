@@ -742,6 +742,17 @@ def apply_mcp_transport_action(
         for client in clients:
             _warn_if_user_scope_exists(client, scope, server_config)
 
+        # Converge the workspace binding BEFORE writing any MCP registration,
+        # so a valid binding always exists before any client config is written.
+        if target_dir:
+            header("Workspace manifest")
+            binding = _converge_workspace_manifest(target_dir, vault_root=vault_root)
+            info(binding.message)
+            header("Git ignore rules")
+            ignore_message = ensure_brain_ignore_rules(target_dir, scope, clients, skip_mcp=False)
+            if ignore_message:
+                info(ignore_message)
+
         results: List[Dict[str, Any]] = []
         for client in clients:
             header(f"Registering {client} MCP server")
@@ -752,14 +763,6 @@ def apply_mcp_transport_action(
             record_init_target(vault_root, record)
             results.append(record)
 
-        if target_dir:
-            header("Workspace manifest")
-            binding = _converge_workspace_manifest(target_dir, vault_root=vault_root)
-            info(binding.message)
-            header("Git ignore rules")
-            ignore_message = ensure_brain_ignore_rules(target_dir, scope, clients, skip_mcp=False)
-            if ignore_message:
-                info(ignore_message)
     except (WorkspaceBindingError, GitInspectionError, OSError) as exc:
         raise InitTransportError(str(exc)) from exc
 

@@ -38,16 +38,15 @@ if str(_SCRIPT_ROOT) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_ROOT))
 
 from _bootstrap.workspace_binding import (
-    BrainTarget,
     WorkspaceBindingError,
-    resolve_brain_target,
+    resolve_and_heal,
 )
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
-PROXY_VERSION = "0.5.0"
+PROXY_VERSION = "0.5.1"
 
 _LOG_REL = os.path.join(".brain", "local", "mcp-proxy.log")
 _LOG_MAX_BYTES = 2 * 1024 * 1024  # 2 MB
@@ -1187,15 +1186,6 @@ class Proxy:
 # Entry point
 # ---------------------------------------------------------------------------
 
-def _resolve_proxy_target() -> BrainTarget:
-    """Thin adapter: delegate to the pure resolution ladder and return the result."""
-    return resolve_brain_target(
-        workspace_env=os.environ.get("BRAIN_WORKSPACE_DIR"),
-        vault_root_env=os.environ.get("BRAIN_VAULT_ROOT"),
-        start_dir=Path.cwd(),
-    )
-
-
 def main() -> None:
     if len(sys.argv) != 3:
         print(
@@ -1207,8 +1197,18 @@ def main() -> None:
     python_path = sys.argv[1]
     server_target = sys.argv[2]
 
+    # Capture env ONCE, before any os.environ mutation, so heal_legacy_config
+    # receives the original pre-mutation values (not the resolved vault root
+    # written below).  Do NOT re-read os.environ inside resolve_and_heal.
+    workspace_env = os.environ.get("BRAIN_WORKSPACE_DIR")
+    vault_root_env = os.environ.get("BRAIN_VAULT_ROOT")
+
     try:
-        target = _resolve_proxy_target()
+        target = resolve_and_heal(
+            workspace_env=workspace_env,
+            vault_root_env=vault_root_env,
+            start_dir=Path.cwd(),
+        )
     except WorkspaceBindingError as exc:
         print(f"brain-proxy: {exc}", file=sys.stderr)
         sys.exit(1)
