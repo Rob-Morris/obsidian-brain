@@ -281,6 +281,7 @@ def test_list_entries_marks_remote_as_reserved_and_unverified(registry_dir):
             "value": "https://brain.example.com",
             "stale": None,
             "status": vault_registry.STATUS_RESERVED,
+            "default": False,
         }
     ]
 
@@ -295,6 +296,7 @@ def test_list_entries_marks_unknown_kind_as_unverified(registry_dir, capsys):
             "value": "https://brain.example.com",
             "stale": None,
             "status": vault_registry.STATUS_UNKNOWN_KIND,
+            "default": False,
         }
     ]
     assert "planetary" in capsys.readouterr().err
@@ -328,6 +330,36 @@ def test_prune_preserves_non_local_entries(registry_dir, tmp_path, monkeypatch):
         + f"brain\tlocal\t{real}\n"
         + "team\tremote\thttps://brain.example.com\n"
     )
+
+
+def test_prune_clears_matching_default(registry_home, tmp_path):
+    real = tmp_path / "real"
+    (real / ".brain-core").mkdir(parents=True)
+    (real / ".brain-core" / "VERSION").write_text("0.27.8\n")
+    vault_registry.register(str(real))
+    missing_id = vault_registry.register("/Users/rob/missing")
+    vault_registry.set_default(missing_id)
+    assert vault_registry.get_default() == missing_id
+    vault_registry.prune()
+    assert vault_registry.get_default() is None
+
+
+def test_prune_leaves_non_matching_default(registry_home, tmp_path):
+    real = tmp_path / "real"
+    (real / ".brain-core").mkdir(parents=True)
+    (real / ".brain-core" / "VERSION").write_text("0.27.8\n")
+    keep_id = vault_registry.register(str(real))
+    vault_registry.register("/Users/rob/missing")
+    vault_registry.set_default(keep_id)
+    vault_registry.prune()
+    assert vault_registry.get_default() == keep_id
+
+
+def test_register_explicit_id_conflict_with_non_local_id_raises(registry_dir):
+    registry_file = registry_dir / "vaults"
+    registry_file.write_text("team\tremote\thttps://brain.example.com\n")
+    with pytest.raises(vault_registry.RegistryConflictError):
+        vault_registry.register("/Users/rob/brain", brain_id="team")
 
 
 def test_register_preserves_non_local_entries(registry_dir):
@@ -433,3 +465,203 @@ def test_concurrent_register_does_not_lose_entries(registry_home, tmp_path):
     assert len(registry) == 8
     expected = sorted(os.path.realpath(str(path)) for path in paths)
     assert sorted(registry.values()) == expected
+
+
+# ---------------------------------------------------------------------------
+# Default Brain pointer
+# ---------------------------------------------------------------------------
+
+
+def test_get_default_returns_none_when_absent(registry_home):
+    assert vault_registry.get_default() is None
+
+
+def test_set_and_get_default(registry_home):
+    vault_registry.register("/Users/rob/brain")
+    vault_registry.set_default("brain")
+    assert vault_registry.get_default() == "brain"
+
+
+def test_clear_default(registry_home):
+    vault_registry.register("/Users/rob/brain")
+    vault_registry.set_default("brain")
+    vault_registry.clear_default()
+    assert vault_registry.get_default() is None
+
+
+def test_clear_default_tolerates_absent(registry_home):
+    # No default set — should not raise.
+    vault_registry.clear_default()
+    assert vault_registry.get_default() is None
+
+
+def test_set_default_rejects_unknown_id(registry_home):
+    with pytest.raises(vault_registry.RegistryConflictError, match="not a registered local Brain"):
+        vault_registry.set_default("unknown-id")
+
+
+def test_set_default_rejects_remote_id(registry_dir):
+    (registry_dir / "vaults").write_text("team\tremote\thttps://brain.example.com\n")
+    with pytest.raises(vault_registry.RegistryConflictError, match="not a registered local Brain"):
+        vault_registry.set_default("team")
+
+
+def test_unregister_clears_matching_default(registry_home):
+    vault_registry.register("/Users/rob/brain")
+    vault_registry.set_default("brain")
+    vault_registry.unregister("/Users/rob/brain")
+    assert vault_registry.get_default() is None
+
+
+def test_unregister_leaves_non_matching_default(registry_home):
+    vault_registry.register("/Users/rob/brain")
+    vault_registry.register("/Users/rob/work")
+    vault_registry.set_default("work")
+    vault_registry.unregister("/Users/rob/brain")
+    assert vault_registry.get_default() == "work"
+
+
+def test_default_file_is_separate_from_vaults_file(registry_home, registry_dir):
+    vault_registry.register("/Users/rob/brain")
+    vault_registry.set_default("brain")
+    vaults_text = (registry_dir / "vaults").read_text()
+    assert "default" not in vaults_text
+    default_text = (registry_dir / "default").read_text()
+    assert default_text.strip() == "brain"
+
+
+def test_list_entries_marks_default_entry(registry_home):
+    vault_registry.register("/Users/rob/brain")
+    vault_registry.register("/Users/rob/work")
+    vault_registry.set_default("work")
+    entries = {e["alias"]: e["default"] for e in vault_registry.list_entries()}
+    assert entries["brain"] is False
+    assert entries["work"] is True
+
+
+# ---------------------------------------------------------------------------
+# Explicit brain-id on register
+# ---------------------------------------------------------------------------
+
+
+def test_register_explicit_id_creates_entry(registry_home):
+    brain_id = vault_registry.register("/Users/rob/brain", brain_id="my-brain")
+    assert brain_id == "my-brain"
+    assert _local_entries() == {"my-brain": "/Users/rob/brain"}
+
+
+def test_register_explicit_id_same_path_is_noop(registry_home):
+    vault_registry.register("/Users/rob/brain", brain_id="my-brain")
+    result = vault_registry.register("/Users/rob/brain", brain_id="my-brain")
+    assert result == "my-brain"
+    assert _local_entries() == {"my-brain": "/Users/rob/brain"}
+
+
+def test_register_explicit_id_conflict_different_path_raises(registry_home):
+    vault_registry.register("/Users/rob/brain", brain_id="my-brain")
+    with pytest.raises(vault_registry.RegistryConflictError, match="already registered to a different path"):
+        vault_registry.register("/Users/rob/other", brain_id="my-brain")
+
+
+def test_register_explicit_id_path_already_registered_raises(registry_home):
+    vault_registry.register("/Users/rob/brain")  # auto → "brain"
+    with pytest.raises(vault_registry.RegistryConflictError, match="already registered as 'brain'"):
+        vault_registry.register("/Users/rob/brain", brain_id="new-name")
+
+
+def test_register_explicit_id_invalid_slug_raises(registry_home):
+    with pytest.raises(ValueError, match="invalid Brain ID"):
+        vault_registry.register("/Users/rob/brain", brain_id="My Brain")
+
+
+def test_register_explicit_id_uppercase_raises(registry_home):
+    with pytest.raises(ValueError, match="invalid Brain ID"):
+        vault_registry.register("/Users/rob/brain", brain_id="MyBrain")
+
+
+def test_register_explicit_id_empty_raises(registry_home):
+    with pytest.raises(ValueError, match="invalid Brain ID"):
+        vault_registry.register("/Users/rob/brain", brain_id="")
+
+
+# ---------------------------------------------------------------------------
+# backfill idempotency
+# ---------------------------------------------------------------------------
+
+
+def test_backfill_idempotent_returns_same_id(registry_home):
+    first_id = vault_registry.backfill("/Users/rob/brain")
+    second_id = vault_registry.backfill("/Users/rob/brain")
+    assert first_id == second_id == "brain"
+    assert len(_local_entries()) == 1
+
+
+# ---------------------------------------------------------------------------
+# CLI — default flags
+# ---------------------------------------------------------------------------
+
+
+def test_cli_set_default(registry_home):
+    vault_registry.register("/Users/rob/brain")
+    result = _run_cli(registry_home, "--set-default", "brain")
+    assert result.returncode == 0
+    assert vault_registry.get_default() == "brain"
+
+
+def test_cli_get_default_prints_id(registry_home):
+    vault_registry.register("/Users/rob/brain")
+    vault_registry.set_default("brain")
+    result = _run_cli(registry_home, "--get-default")
+    assert result.returncode == 0
+    assert result.stdout.strip() == "brain"
+
+
+def test_cli_get_default_absent_exits_0_prints_nothing(registry_home):
+    result = _run_cli(registry_home, "--get-default")
+    assert result.returncode == 0
+    assert result.stdout.strip() == ""
+
+
+def test_cli_clear_default(registry_home):
+    vault_registry.register("/Users/rob/brain")
+    vault_registry.set_default("brain")
+    result = _run_cli(registry_home, "--clear-default")
+    assert result.returncode == 0
+    assert vault_registry.get_default() is None
+
+
+def test_cli_set_default_unknown_id_exits_1(registry_home):
+    result = _run_cli(registry_home, "--set-default", "nope", check=False)
+    assert result.returncode == 1
+    assert "not a registered local Brain" in result.stderr
+
+
+def test_cli_list_shows_default_tag(registry_home):
+    vault_registry.register("/Users/rob/brain")
+    vault_registry.set_default("brain")
+    result = _run_cli(registry_home, "--list")
+    assert "(default)" in result.stdout
+
+
+def test_cli_list_json_includes_default_flag(registry_home):
+    vault_registry.register("/Users/rob/brain")
+    vault_registry.set_default("brain")
+    result = _run_cli(registry_home, "--list", "--json")
+    data = json.loads(result.stdout)
+    assert data[0]["default"] is True
+
+
+def test_cli_register_with_id(registry_home):
+    result = _run_cli(registry_home, "--register", "/Users/rob/brain", "--id", "my-brain")
+    assert result.returncode == 0
+    assert result.stdout.strip() == "my-brain"
+    assert _local_entries() == {"my-brain": "/Users/rob/brain"}
+
+
+def test_cli_register_with_id_conflict_exits_1(registry_home):
+    vault_registry.register("/Users/rob/brain", brain_id="my-brain")
+    result = _run_cli(
+        registry_home, "--register", "/Users/rob/other", "--id", "my-brain", check=False
+    )
+    assert result.returncode == 1
+    assert "already registered" in result.stderr
