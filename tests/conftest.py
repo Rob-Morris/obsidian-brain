@@ -101,6 +101,28 @@ def copy_install_source(dest):
 # Fixtures
 # ---------------------------------------------------------------------------
 
+@pytest.fixture(autouse=True)
+def _isolate_config_home(tmp_path, monkeypatch):
+    """Isolate the machine config home for every test.
+
+    ``config_home()`` (``_common/_paths.py``) honours ``XDG_CONFIG_HOME`` before
+    ``HOME``/``Path.home()``, so pointing it at a per-test tmp dir guarantees no
+    test reads or writes the real ``~/.config/brain`` registry (vaults list +
+    default Brain pointer). The value lives in ``os.environ``, so any subprocess
+    spawned with ``os.environ.copy()`` inherits the isolation too; subprocess
+    tests that build a *clean* env (e.g. ``env={"PATH": ...}``) must not touch
+    the registry, or must propagate ``XDG_CONFIG_HOME`` themselves.
+
+    Using ``tmp_path/.config`` keeps in-process resolution consistent with any
+    subprocess that instead isolates via ``HOME=tmp_path`` (both resolve to
+    ``tmp_path/.config/brain``).
+    """
+    cfg = tmp_path / ".config"
+    cfg.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(cfg))
+    return cfg
+
+
 @pytest.fixture
 def vault(tmp_path):
     """Create a minimal vault fixture in a temp directory."""
@@ -134,7 +156,16 @@ def vault(tmp_path):
 
 @pytest.fixture
 def fake_home(tmp_path, monkeypatch):
-    """Redirect ``Path.home()`` to ``tmp_path`` so tests can write fake user configs."""
+    """Redirect the user home to ``tmp_path`` so tests can write fake user configs.
+
+    Sets both ``HOME`` (what most brain-core path logic reads, e.g.
+    ``config_home()`` and the ``~/.brain`` managed runtime) and ``Path.home()``
+    (for the few callers that use it directly). Patching only ``Path.home()`` —
+    as this fixture once did — was ineffective for ``HOME``-based resolution.
+    Registry isolation is already guaranteed by the autouse ``_isolate_config_home``;
+    this fixture additionally redirects ``HOME`` for non-config home paths.
+    """
+    monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
     return tmp_path
 
