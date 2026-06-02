@@ -32,6 +32,9 @@ agents.local.md
 CLAUDE.local.md
 .worktrees/
 
+# Agent runtime locks (scheduler/session state, machine-local)
+.claude/*.lock
+
 # Test/tool artefacts
 .coverage
 .mcp.json
