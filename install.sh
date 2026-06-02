@@ -91,10 +91,11 @@ parse_flags() {
     ENABLE_SEMANTIC=false
     BRAIN_ID=""
     VAULT_PATH=""
-    local skip_next=false
+    local expect_id=false
     for arg in "$@"; do
-        if [ "$skip_next" = true ]; then
-            skip_next=false
+        if [ "$expect_id" = true ]; then
+            BRAIN_ID="$arg"
+            expect_id=false
             continue
         fi
         case "$arg" in
@@ -117,22 +118,13 @@ parse_flags() {
                 ENABLE_SEMANTIC=true
                 ;;
             --id)
-                # consume next arg as brain id — handled in positional pass below;
-                # set skip_next so the value doesn't land in VAULT_PATH
-                skip_next=true
+                # Next arg is the Brain ID value.
+                expect_id=true
                 ;;
             *)
                 VAULT_PATH="$arg"
                 ;;
         esac
-    done
-    # Second pass: capture --id <value>
-    local prev=""
-    for arg in "$@"; do
-        if [ "$prev" = "--id" ]; then
-            BRAIN_ID="$arg"
-        fi
-        prev="$arg"
     done
 }
 
@@ -325,8 +317,18 @@ registry_update() {
         py=$(find_python_for_script "$script") || return 0
     fi
     # Thread --id when provided and action is --register (explicit brain ID).
+    # For explicit --id, surface a conflict instead of swallowing it silently.
     if [ "$action" = "--register" ] && [ -n "${BRAIN_ID:-}" ]; then
-        "$py" "$script" "$action" "$path" --id "$BRAIN_ID" >/dev/null 2>&1 || true
+        local _reg_out
+        if _reg_out=$("$py" "$script" "$action" "$path" --id "$BRAIN_ID" 2>&1); then
+            : # registered cleanly — stay silent like the best-effort path
+        else
+            warn "Requested Brain ID '$BRAIN_ID' could not be registered (it may already be in use)."
+            info "$_reg_out"
+            info "This Brain was NOT registered under '$BRAIN_ID'. To resolve, free the id then re-register:"
+            info "  \"$py\" \"$script\" --unregister <path-shown-above>"
+            info "  \"$py\" \"$script\" --register \"$path\" --id \"$BRAIN_ID\""
+        fi
     else
         "$py" "$script" "$action" "$path" >/dev/null 2>&1 || true
     fi

@@ -46,7 +46,7 @@ from _bootstrap.workspace_binding import (
 # Constants
 # ---------------------------------------------------------------------------
 
-PROXY_VERSION = "0.5.2"
+PROXY_VERSION = "0.5.3"
 
 _LOG_REL = os.path.join(".brain", "local", "mcp-proxy.log")
 _LOG_MAX_BYTES = 2 * 1024 * 1024  # 2 MB

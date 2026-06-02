@@ -6,6 +6,7 @@ Version-by-version release history for Obsidian Brain. Every shipped version has
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.48.0](changelog/v0.48.0.md) | 2026-06-02 | Harden resolution sign-off: single vault predicate and anchor hard-error |
 | [v0.47.0](changelog/v0.47.0.md) | 2026-06-01 | Add vault-self MCP mode and exclusive install scope choice |
 | [v0.46.0](changelog/v0.46.0.md) | 2026-06-01 | Self-heal legacy Brain configs on proxy startup, bind before register |
 | [v0.45.0](changelog/v0.45.0.md) | 2026-06-01 | Resolve the active Brain via a unified ladder with stale-terminates |

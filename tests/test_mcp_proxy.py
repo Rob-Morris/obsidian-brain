@@ -1815,3 +1815,37 @@ class TestStartupTimeout:
         finally:
             proc.terminate()
             proc.wait(timeout=5)
+
+
+class TestMainEnvCaptureOrder:
+    """proxy.main() must capture BRAIN_WORKSPACE_DIR / BRAIN_VAULT_ROOT BEFORE it
+    mutates os.environ, so the heal layer receives the original (pre-mutation)
+    values — guarding against a refactor that reintroduces the v0.46.0
+    wrong-default footgun. proxy.main() is otherwise never exercised by the suite."""
+
+    def test_main_captures_env_before_mutation(self, monkeypatch):
+        monkeypatch.setattr(sys, "argv", ["proxy.py", "/usr/bin/python3", "brain_mcp.server"])
+        monkeypatch.setenv("BRAIN_WORKSPACE_DIR", "/orig/workspace")
+        monkeypatch.setenv("BRAIN_VAULT_ROOT", "/orig/vault")
+
+        captured = {}
+
+        class _Stop(Exception):
+            pass
+
+        def fake_resolve_and_heal(*, workspace_env, vault_root_env, start_dir):
+            captured["workspace_env"] = workspace_env
+            captured["vault_root_env"] = vault_root_env
+            # At call time os.environ must still hold the ORIGINAL value — main
+            # must not have mutated BRAIN_VAULT_ROOT yet.
+            captured["env_at_call"] = os.environ.get("BRAIN_VAULT_ROOT")
+            raise _Stop()
+
+        monkeypatch.setattr(proxy_mod, "resolve_and_heal", fake_resolve_and_heal)
+
+        with pytest.raises(_Stop):
+            proxy_mod.main()
+
+        assert captured["workspace_env"] == "/orig/workspace"
+        assert captured["vault_root_env"] == "/orig/vault"
+        assert captured["env_at_call"] == "/orig/vault"

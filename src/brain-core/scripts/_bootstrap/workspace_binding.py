@@ -10,27 +10,11 @@ import re
 import unicodedata
 from typing import Any
 
-from _common import safe_write
+from _common import is_brain_vault, safe_write
 from _common._yaml import YamlError, dump_mapping_text, load_mapping_file
 import vault_registry
 
 _log = logging.getLogger(__name__)
-
-
-def is_brain_vault(path: Path) -> bool:
-    """Return True when *path* is a resolvable Brain vault root.
-
-    A resolvable vault has a ``.brain-core/VERSION`` file — the resolver
-    re-points ``PYTHONPATH`` at that ``.brain-core``. This is intentionally
-    narrower than ``_common.is_vault_root`` (which also accepts an
-    ``AGENTS.md``-only bootstrap directory for CLI discovery): an
-    ``AGENTS.md``-only *workspace* must never resolve as vault-self, be accepted
-    as a ``BRAIN_VAULT_ROOT``/registry target, or be refused as "a workspace of
-    itself". This narrow predicate is the single source of truth for every
-    resolution, heal, and refuse-guard decision in this module.
-    """
-    p = path if isinstance(path, Path) else Path(path)
-    return (p / ".brain-core" / "VERSION").is_file()
 
 
 # ---------------------------------------------------------------------------
@@ -124,11 +108,12 @@ _STATE_STALE = "stale"
 _STATE_MISSING = "missing"
 
 
-def _classify_workspace_binding(ws_dir: Path) -> tuple[str, Path | None]:
+def _classify_workspace_binding(ws_dir: Path) -> tuple[str, Path | None, str | None]:
     """Classify a workspace directory's Brain binding state.
 
-    Returns a ``(state, vault)`` tuple where ``state`` is one of the
-    ``_STATE_*`` constants.
+    Returns a ``(state, vault, brain_id)`` tuple where ``state`` is one of the
+    ``_STATE_*`` constants and ``brain_id`` is the declared id when present — so
+    callers need not re-read the manifest to build the stale-binding message.
 
     Classification is based solely on the presence/resolvability of the
     ``brain`` key — the ``slug`` key is not required here.  This avoids
@@ -138,22 +123,35 @@ def _classify_workspace_binding(ws_dir: Path) -> tuple[str, Path | None]:
         ws_dir: The workspace directory to classify.
 
     Returns:
-        - ``(_STATE_VALID, <vault_path>)`` when the brain key is present and
+        - ``(_STATE_VALID, <vault_path>, <brain_id>)`` — brain key present and
           resolves to a live vault root.
-        - ``(_STATE_STALE, None)`` when the brain key is present but cannot be
+        - ``(_STATE_STALE, None, <brain_id>)`` — brain key present but cannot be
           resolved to a live vault root.
-        - ``(_STATE_MISSING, None)`` when there is no manifest or no brain key.
+        - ``(_STATE_MISSING, None, None)`` — no manifest or no brain key.
     """
     manifest = read_workspace_manifest(ws_dir)
     if not isinstance(manifest, dict):
-        return _STATE_MISSING, None
+        return _STATE_MISSING, None, None
     brain = manifest.get("brain")
     if not isinstance(brain, str) or not brain:
-        return _STATE_MISSING, None
+        return _STATE_MISSING, None, None
     vault = resolve_local_brain_vault(brain)
     if vault is None:
-        return _STATE_STALE, None
-    return _STATE_VALID, vault
+        return _STATE_STALE, None, brain
+    return _STATE_VALID, vault, brain
+
+
+def _stale_binding_detail(brain: str) -> str:
+    """Return a specific diagnostic for an unresolvable Brain id, distinguishing
+    "not in the registry" from "registered but its vault is missing/moved" so the
+    stale-binding prompt is actionable."""
+    try:
+        registered = vault_registry.resolve(brain)
+    except vault_registry.RegistryReadError:
+        registered = None
+    if registered is None:
+        return f"Brain id '{brain}' is not in the registry"
+    return f"Brain '{brain}' is registered but its vault at {registered} is missing or moved"
 
 
 def _walk_for_nearest_marker(start_dir: Path) -> BrainTarget | None:
@@ -202,7 +200,7 @@ def _walk_for_nearest_marker(start_dir: Path) -> BrainTarget | None:
         state = load_workspace_manifest_state(candidate)
         if state.source_path is not None:
             # A manifest exists — classify by the brain key.
-            binding_state, vault = _classify_workspace_binding(candidate)
+            binding_state, vault, brain = _classify_workspace_binding(candidate)
             if binding_state == _STATE_VALID:
                 assert vault is not None
                 return BrainTarget(
@@ -211,11 +209,12 @@ def _walk_for_nearest_marker(start_dir: Path) -> BrainTarget | None:
                     source="workspace_binding",
                 )
             if binding_state == _STATE_STALE:
-                brain = (state.data or {}).get("brain", "<unknown>")
+                assert brain is not None
                 raise WorkspaceBindingError(
-                    f"workspace at {candidate} is bound to Brain '{brain}' which "
-                    f"cannot be resolved — re-bind or repair this workspace "
-                    f"(brain setup workspace) before continuing.",
+                    f"workspace at {candidate} cannot be resolved: "
+                    f"{_stale_binding_detail(brain)} — re-bind or repair this "
+                    f"workspace (brain setup workspace), or restore the registry "
+                    f"entry, before continuing.",
                     code="stale_binding",
                 )
             # MISSING — manifest present but no brain key.  Stop the walk;
@@ -244,9 +243,10 @@ def resolve_brain_target(
     1. ``BRAIN_WORKSPACE_DIR`` set → consult ONLY that workspace's binding:
        - VALID  → use it.
        - STALE  → raise ``WorkspaceBindingError`` (STOP; do NOT fall through).
-       - MISSING (no brain key) → skip rung 2 entirely; jump straight to rung 3.
-         An explicit anchor must never cross-resolve a different workspace found
-         by the cwd walk — wrong-brain hazard.
+       - MISSING (no brain key) → skip rung 2; try rung 3 (BRAIN_VAULT_ROOT) only.
+         If rung 3 does not resolve, HARD-ERROR — never fall to the rung-4
+         default (Decision #2): an explicit anchor must not cross-resolve a
+         different workspace, nor be silently served the machine default.
     2. Only when ``BRAIN_WORKSPACE_DIR`` is unset — walk upward from *start_dir*:
        - Nearest vault root → resolve by path ('vault_self').
        - Nearest workspace manifest → classify:
@@ -272,6 +272,7 @@ def resolve_brain_target(
     # ------------------------------------------------------------------
     # Rung 1: explicit workspace anchor
     # ------------------------------------------------------------------
+    anchor_missing = False
     if workspace_env:
         ws_dir = Path(workspace_env).resolve()
         # Vault-self short-circuit: when BRAIN_WORKSPACE_DIR points at the
@@ -282,7 +283,7 @@ def resolve_brain_target(
                 workspace_dir=None,
                 source="vault_self",
             )
-        state, vault = _classify_workspace_binding(ws_dir)
+        state, vault, brain = _classify_workspace_binding(ws_dir)
         if state == _STATE_VALID:
             assert vault is not None
             return BrainTarget(
@@ -291,19 +292,20 @@ def resolve_brain_target(
                 source="workspace_env",
             )
         if state == _STATE_STALE:
-            manifest = read_workspace_manifest(ws_dir)
-            brain = (
-                (manifest or {}).get("brain", "<unknown>")
-                if isinstance(manifest, dict)
-                else "<unknown>"
-            )
+            assert brain is not None
             raise WorkspaceBindingError(
-                f"BRAIN_WORKSPACE_DIR points to a workspace bound to Brain "
-                f"'{brain}' which cannot be resolved — re-bind or repair this "
-                f"workspace (brain setup workspace) before continuing.",
+                f"BRAIN_WORKSPACE_DIR points to a workspace that cannot be "
+                f"resolved: {_stale_binding_detail(brain)} — re-bind or repair "
+                f"this workspace (brain setup workspace), or restore the registry "
+                f"entry, before continuing.",
                 code="stale_binding",
             )
-        # MISSING — skip rung 2, jump straight to rung 3.
+        # MISSING — the explicit anchor's binding is absent.  It may still be
+        # repaired from BRAIN_VAULT_ROOT (rung 3, the project-reg case), but it
+        # must NOT fall to the machine default (rung 4): a deliberately-bound
+        # workspace whose binding is lost has a specific, now-unknowable intent,
+        # and the default could serve a different Brain (Decision #2).
+        anchor_missing = True
 
     else:
         # ------------------------------------------------------------------
@@ -327,6 +329,21 @@ def resolve_brain_target(
             )
 
     # ------------------------------------------------------------------
+    # Decision #2: an explicit anchor with a missing binding and no usable
+    # BRAIN_VAULT_ROOT hard-errors here — it must never fall through to the
+    # machine default, which could route to a different Brain than the one
+    # this workspace was bound to.
+    # ------------------------------------------------------------------
+    if anchor_missing:
+        raise WorkspaceBindingError(
+            f"BRAIN_WORKSPACE_DIR is set ({workspace_env}) but that workspace "
+            f"has no Brain binding and no BRAIN_VAULT_ROOT is available to "
+            f"repair it — re-bind this workspace (brain setup workspace) before "
+            f"continuing.",
+            code="no_brain",
+        )
+
+    # ------------------------------------------------------------------
     # Rung 4: machine-wide registry default
     # ------------------------------------------------------------------
     try:
@@ -345,8 +362,8 @@ def resolve_brain_target(
                 source="registry_default",
             )
         raise WorkspaceBindingError(
-            f"the machine default Brain '{default_id}' is registered but its "
-            f"vault directory cannot be found — re-register or remove the "
+            f"the machine default Brain cannot be resolved: "
+            f"{_stale_binding_detail(default_id)} — re-register it or clear the "
             f"default (vault_registry --clear-default).",
             code="stale_binding",
         )
@@ -405,7 +422,8 @@ def heal_legacy_config(
     if target.source == "vault_self":
         try:
             vault_registry.backfill(target.vault_root)
-        except Exception as exc:
+        except (vault_registry.RegistryReadError, vault_registry.RegistryConflictError,
+                ValueError, WorkspaceBindingError, OSError) as exc:
             _log.warning("heal_legacy_config: self-register backfill failed: %s", exc)
 
     # (2) LEGACY BRAIN_VAULT_ROOT signals — guarded by vault_root_env.
@@ -419,7 +437,8 @@ def heal_legacy_config(
                     brain=brain_id,
                     allow_rebind=False,
                 )
-            except Exception as exc:
+            except (vault_registry.RegistryReadError, vault_registry.RegistryConflictError,
+                    ValueError, WorkspaceBindingError, OSError) as exc:
                 _log.warning("heal_legacy_config: project-reg binding failed: %s", exc)
         elif not workspace_env:
             # USER REG default-seed: seed from vault_root_env, NOT target.vault_root.
@@ -429,7 +448,8 @@ def heal_legacy_config(
                     brain_id = vault_registry.register(str(resolved))
                     if vault_registry.get_default() is None:
                         vault_registry.set_default(brain_id)
-            except Exception as exc:
+            except (vault_registry.RegistryReadError, vault_registry.RegistryConflictError,
+                    ValueError, WorkspaceBindingError, OSError) as exc:
                 _log.warning("heal_legacy_config: user-reg default-seed failed: %s", exc)
 
 
@@ -581,16 +601,6 @@ def require_workspace_binding(target_dir: Path) -> dict[str, str]:
             f"{WORKSPACE_MANIFEST_REL} is missing a valid 'slug' value"
         )
     return binding
-
-
-def find_bound_workspace_dir(start_dir: Path | None = None) -> Path | None:
-    """Walk upward from start_dir (or cwd) for a bound workspace manifest."""
-    current = (start_dir or Path.cwd()).resolve()
-    for candidate in (current, *current.parents):
-        state = load_workspace_manifest_state(candidate)
-        if state.source_path is not None:
-            return candidate
-    return None
 
 
 def resolve_local_brain_alias(vault_root: Path) -> str:

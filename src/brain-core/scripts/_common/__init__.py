@@ -16,6 +16,7 @@ from ._vault import (
     find_vault_root,
     find_root_bootstrap_file,
     is_archived_path,
+    is_brain_vault,
     is_system_dir,
     is_vault_root,
     match_artefact,

@@ -17,7 +17,7 @@ from _bootstrap.workspace_binding import (
     read_workspace_manifest,
     resolve_local_brain_vault,
 )
-from _common import safe_write, safe_write_json
+from _common import is_brain_vault, safe_write, safe_write_json
 
 
 BRAIN_SERVER_NAME = "brain"
@@ -40,11 +40,6 @@ CLAUDE_MD_BOOTSTRAP_VAULT = (
     "ALWAYS DO FIRST: Call MCP `brain_session`, else read `.brain-core/index.md` if it exists."
 )
 CLAUDE_MD_BOOTSTRAP_PROJECT = "ALWAYS DO FIRST: Call brain_session"
-
-
-def is_vault_root(path: Path) -> bool:
-    """Return whether the path looks like a Brain vault root."""
-    return (path / BRAIN_CORE_MARKER).is_file()
 
 
 def build_mcp_config(
@@ -133,7 +128,7 @@ def config_targets_vault(server_config: Any, vault_root: Path) -> bool:
 
 def bootstrap_line_for_target(target_dir: Path) -> str:
     """Return the expected Brain bootstrap line for the target directory."""
-    return CLAUDE_MD_BOOTSTRAP_VAULT if is_vault_root(target_dir) else CLAUDE_MD_BOOTSTRAP_PROJECT
+    return CLAUDE_MD_BOOTSTRAP_VAULT if is_brain_vault(target_dir) else CLAUDE_MD_BOOTSTRAP_PROJECT
 
 
 def _resolve_session_launcher() -> str:

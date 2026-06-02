@@ -685,3 +685,20 @@ class TestWriteOrderingApplyMcpTransport:
         assert manifest_path.exists(), (
             "workspace.yaml must exist — convergence runs before codex registration"
         )
+
+
+def test_rung4_default_resolution_writes_no_workspace_yaml(tmp_path, isolated_home):
+    """Situation 4: a brain-less workspace (no anchor, no binding) resolving to
+    the machine default must NOT have a workspace.yaml written by heal — this case
+    is resolution-only (rung 4), never a heal mutation."""
+    default_vault = _make_vault(tmp_path, "defaultvault")
+    brain_id = vault_registry.register(str(default_vault))
+    vault_registry.set_default(brain_id)
+    ws = tmp_path / "brainless_ws"
+    ws.mkdir()
+
+    target = resolve_and_heal(workspace_env=None, vault_root_env=None, start_dir=ws)
+
+    assert target.source == "registry_default"
+    assert target.vault_root == str(default_vault)
+    assert not (ws / ".brain" / "local" / "workspace.yaml").exists()

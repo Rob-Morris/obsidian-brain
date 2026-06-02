@@ -20,6 +20,7 @@ from _bootstrap.mcp_state import (
     bootstrap_line_for_target,
     build_mcp_config,
     build_session_hook_command,
+    configured_vault_root,
     matching_records,
     read_codex_server_config,
 )
@@ -392,9 +393,53 @@ def collect_mcp_check_findings(vault_root: str | Path) -> list[dict]:
     return findings
 
 
+def collect_mcp_legacy_vault_root_findings(vault_root: str | Path) -> list[dict]:
+    """Return informational findings for Brain MCP registrations carrying a legacy BRAIN_VAULT_ROOT.
+
+    BRAIN_VAULT_ROOT is still honoured as a rung-3 override but is no longer written by new
+    registrations.  Its presence marks a legacy config — informational, not an error or warning.
+    """
+    vault_root = Path(vault_root)
+    findings: list[dict] = []
+    if not local_mcp_state_present(vault_root):
+        return findings
+
+    clients: list[tuple[str, Path]] = [
+        ("claude", vault_root / CLAUDE_PROJECT_CONFIG_FILE),
+        ("codex", vault_root / CODEX_CONFIG_REL),
+    ]
+    for client, config_path in clients:
+        if client == "claude":
+            server = _read_claude_project_server(config_path)
+        else:
+            server = read_codex_server_config(config_path)
+        if server is None:
+            continue
+        legacy_root = configured_vault_root(server)
+        if legacy_root is None:
+            continue
+        try:
+            rel_config = str(config_path.relative_to(vault_root))
+        except ValueError:
+            rel_config = str(config_path)
+        findings.append({
+            "check": "mcp_legacy_vault_root",
+            "severity": "info",
+            "file": rel_config,
+            "message": (
+                f"Brain MCP registration carries a legacy BRAIN_VAULT_ROOT env var "
+                f"(pointing to {legacy_root}). "
+                "This override is still honoured but is no longer written by new registrations. "
+                "It can be left as-is or removed via `brain setup configure`."
+            ),
+        })
+    return findings
+
+
 def collect_bootstrap_check_findings(vault_root: str | Path) -> list[dict]:
     """Return launcher-safe repair-oriented compliance findings."""
     findings = collect_registry_check_findings(vault_root)
     findings.extend(collect_runtime_check_findings(vault_root))
     findings.extend(collect_mcp_check_findings(vault_root))
+    findings.extend(collect_mcp_legacy_vault_root_findings(vault_root))
     return findings

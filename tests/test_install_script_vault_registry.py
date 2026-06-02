@@ -333,6 +333,66 @@ def test_explicit_id_registers_under_given_id(tmp_path, install_source):
     assert str(vault) in registry_text
 
 
+def test_explicit_id_collision_is_surfaced(tmp_path, install_source):
+    """When --id <brain-id> collides with an existing registry entry, install.sh
+    surfaces a visible warning instead of silently swallowing the error.
+
+    Verifies:
+    - The install does NOT abort (scaffolding succeeded; check=True passes).
+    - The colliding id still resolves to its original vault, not the new one.
+    - stderr contains an explicit "NOT registered" signal mentioning the id.
+    """
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+
+    # Pre-seed the registry with custom-xyz → some other vault so the id is taken.
+    config_dir = fake_home / ".config" / "brain"
+    config_dir.mkdir(parents=True)
+    other_vault = tmp_path / "other-vault"
+    other_vault.mkdir()
+    registry = config_dir / "vaults"
+    registry.write_text(
+        "# brain registry v2 — one Brain per line, <brain-id>\\t<kind>\\t<value>\n"
+        f"custom-xyz\tlocal\t{other_vault}\n"
+    )
+
+    vault = tmp_path / "new-brain"
+
+    env = os.environ.copy()
+    env["HOME"] = str(fake_home)
+    env.pop("XDG_CONFIG_HOME", None)
+    result = subprocess.run(
+        [
+            "bash", str(install_source / "install.sh"),
+            "--non-interactive", "--skip-mcp",
+            "--id", "custom-xyz",
+            str(vault),
+        ],
+        env=env, capture_output=True, text=True,
+        check=True,  # install must NOT abort — scaffolding succeeded
+    )
+
+    # The colliding id must still point to the original vault, not the new one.
+    registry_text = registry.read_text()
+    assert str(other_vault) in registry_text, (
+        f"Original vault should still be registered under 'custom-xyz':\n{registry_text}"
+    )
+    assert str(vault) not in registry_text, (
+        f"New vault must NOT have been registered under the colliding id:\n{registry_text}"
+    )
+
+    # The warning must be visible on stderr — not silence.
+    combined = result.stderr + result.stdout
+    assert "NOT registered" in combined, (
+        f"Expected an explicit 'NOT registered' warning for id collision "
+        f"but got stderr:\n{result.stderr}"
+    )
+    assert "custom-xyz" in combined, (
+        f"Expected the colliding id 'custom-xyz' to appear in the warning "
+        f"but got stderr:\n{result.stderr}"
+    )
+
+
 def test_uninstall_removes_entry(tmp_path, install_source):
     fake_home = tmp_path / "home"
     fake_home.mkdir()

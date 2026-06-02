@@ -2,6 +2,7 @@
 
 **Status:** Accepted (v0.38.0)
 **Extends:** DD-003, DD-048
+**Extended by:** DD-053
 
 ## Context
 

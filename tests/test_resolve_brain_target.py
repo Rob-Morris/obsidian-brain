@@ -246,6 +246,20 @@ class TestRung1WorkspaceEnv:
                 start_dir=tmp_path,
             )
         assert exc_info.value.code == "stale_binding"
+        assert "registered but its vault" in str(exc_info.value)
+
+    def test_rung1_stale_unknown_id_message(self, tmp_path, isolated_home):
+        """The stale message distinguishes an id that is simply not in the
+        registry from one whose vault has moved/been deleted."""
+        ws = _make_workspace(tmp_path, "ws", brain="ghost-brain")  # never registered
+        with pytest.raises(WorkspaceBindingError) as exc_info:
+            resolve_brain_target(
+                workspace_env=str(ws),
+                vault_root_env=None,
+                start_dir=tmp_path,
+            )
+        assert exc_info.value.code == "stale_binding"
+        assert "not in the registry" in str(exc_info.value)
 
     def test_rung1_missing_skips_walk_goes_to_rung3(self, tmp_path, isolated_home):
         """Rung 1 MISSING (no brain key) skips rung 2 entirely.
@@ -274,20 +288,23 @@ class TestRung1WorkspaceEnv:
         assert result.vault_root == str(rung3_vault)
         assert result.source == "vault_root_env"
 
-    def test_rung1_missing_no_lower_rung_falls_to_rung4(self, tmp_path, isolated_home):
-        """Rung 1 MISSING + no BRAIN_VAULT_ROOT → fall to rung 4 default."""
+    def test_rung1_missing_no_vault_root_hard_errors_not_default(self, tmp_path, isolated_home):
+        """Decision #2 / 1.b: an explicit anchor with a MISSING binding and no
+        BRAIN_VAULT_ROOT must HARD-ERROR — it must NEVER fall to the machine
+        default, even when one is set (the default could serve a different Brain
+        than the one this workspace was deliberately bound to)."""
         pinned_ws = _make_workspace_no_brain_key(tmp_path, "pinned")
         default_vault = _make_vault(tmp_path, "defaultvault")
         brain_id = vault_registry.register(str(default_vault))
-        vault_registry.set_default(brain_id)
+        vault_registry.set_default(brain_id)  # a default IS set — must be ignored
 
-        result = resolve_brain_target(
-            workspace_env=str(pinned_ws),
-            vault_root_env=None,
-            start_dir=tmp_path,
-        )
-        assert result.vault_root == str(default_vault)
-        assert result.source == "registry_default"
+        with pytest.raises(WorkspaceBindingError) as exc_info:
+            resolve_brain_target(
+                workspace_env=str(pinned_ws),
+                vault_root_env=None,
+                start_dir=tmp_path,
+            )
+        assert exc_info.value.code == "no_brain"
 
     def test_rung1_empty_string_treated_as_unset(self, tmp_path, isolated_home):
         """workspace_env="" must be treated as unset — fall through to the walk.
@@ -458,6 +475,26 @@ class TestRung2Walk:
         )
         assert result.vault_root == str(rung3_vault)
         assert result.source == "vault_root_env"
+
+    def test_rung2_missing_manifest_stops_walk_not_climb_to_parent(self, tmp_path, isolated_home):
+        """A MISSING manifest STOPS the rung-2 walk — it must not climb to a
+        valid parent workspace higher up the tree (wrong-brain hazard)."""
+        parent_vault = _make_vault(tmp_path, "parentvault")
+        parent_brain = vault_registry.register(str(parent_vault))
+        parent_ws = _make_workspace(tmp_path, "parent_ws", brain=parent_brain)
+        # Child workspace INSIDE the parent, with a MISSING manifest (no brain key).
+        child_ws = _make_workspace_no_brain_key(parent_ws, "child_ws")
+        start = child_ws / "sub"
+        start.mkdir()
+        # No BRAIN_VAULT_ROOT, no default: the walk must stop at child_ws (MISSING)
+        # and NOT climb to parent_ws — so resolution hard-errors at rung 5.
+        with pytest.raises(WorkspaceBindingError) as exc_info:
+            resolve_brain_target(
+                workspace_env=None,
+                vault_root_env=None,
+                start_dir=start,
+            )
+        assert exc_info.value.code == "no_brain"
 
     def test_rung2_agents_md_only_dir_does_not_resolve_as_vault_self(
         self, tmp_path, isolated_home
