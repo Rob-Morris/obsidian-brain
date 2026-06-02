@@ -46,7 +46,7 @@ from _bootstrap.workspace_binding import (
 # Constants
 # ---------------------------------------------------------------------------
 
-PROXY_VERSION = "0.5.3"
+PROXY_VERSION = "0.5.4"
 
 _LOG_REL = os.path.join(".brain", "local", "mcp-proxy.log")
 _LOG_MAX_BYTES = 2 * 1024 * 1024  # 2 MB
@@ -1183,6 +1183,91 @@ class Proxy:
 
 
 # ---------------------------------------------------------------------------
+# Degraded mode (startup resolution failure)
+# ---------------------------------------------------------------------------
+
+def _run_degraded_server(reason: str, *, stdin=None, stdout=None) -> None:
+    """Serve a minimal MCP session that reports an unresolved-Brain error.
+
+    The proxy reaches here when it cannot resolve a target Brain at startup (a
+    stale/dangling binding or machine default, or a missing-anchor hard-error).
+    Exiting instead would make the client report a generic "-32000 failed to
+    reconnect" and bury the actionable cause on stderr. So we complete the MCP
+    handshake and surface the resolution error to the agent — as the sole
+    advertised tool's description (``brain_unavailable``) and as an error on
+    every ``tools/call`` — so the real problem and its fix are visible. The
+    operator repairs the binding/default and restarts MCP via /mcp.
+    """
+    stdin = stdin if stdin is not None else sys.stdin.buffer
+    stdout = stdout if stdout is not None else sys.stdout.buffer
+
+    detail = (
+        f"Brain MCP could not resolve a target vault. {reason} "
+        "Fix the binding or machine default, then restart MCP via /mcp."
+    )
+    _log().error("entering degraded (unresolved-Brain) mode: %s", reason)
+
+    while True:
+        try:
+            line = stdin.readline()
+        except Exception:
+            break
+        if not line:
+            break  # client closed stdin
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            continue
+
+        msg_id = obj.get("id")
+        method = obj.get("method", "")
+        if msg_id is None:
+            continue  # notification — no response owed
+
+        if method == "initialize":
+            protocol = "2025-06-18"
+            params = obj.get("params")
+            if isinstance(params, dict) and params.get("protocolVersion"):
+                protocol = params["protocolVersion"]
+            _write_line(stdout, {
+                "jsonrpc": "2.0",
+                "id": msg_id,
+                "result": {
+                    "protocolVersion": protocol,
+                    "capabilities": {"tools": {"listChanged": False}},
+                    "serverInfo": {"name": "brain (unavailable)", "version": PROXY_VERSION},
+                    "instructions": detail,
+                },
+            })
+        elif method == "tools/list":
+            _write_line(stdout, {
+                "jsonrpc": "2.0",
+                "id": msg_id,
+                "result": {"tools": [{
+                    "name": "brain_unavailable",
+                    "description": detail,
+                    "inputSchema": {"type": "object", "properties": {}},
+                }]},
+            })
+        elif method == "resources/list":
+            _write_line(stdout, {"jsonrpc": "2.0", "id": msg_id, "result": {"resources": []}})
+        elif method == "prompts/list":
+            _write_line(stdout, {"jsonrpc": "2.0", "id": msg_id, "result": {"prompts": []}})
+        elif method == "ping":
+            _write_line(stdout, {"jsonrpc": "2.0", "id": msg_id, "result": {}})
+        elif method == "tools/call":
+            _write_line(stdout, _make_error_response(msg_id, -32001, detail))
+        else:
+            _write_line(stdout, _make_error_response(
+                msg_id, -32601,
+                f"method '{method}' is unavailable while the Brain is unresolved. {detail}",
+            ))
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
@@ -1210,8 +1295,13 @@ def main() -> None:
             start_dir=Path.cwd(),
         )
     except WorkspaceBindingError as exc:
+        # Resolution failed before any MCP session exists. Don't exit (the client
+        # would surface a generic "-32000 failed to reconnect" and lose the cause)
+        # — run a degraded server that completes the handshake and delivers the
+        # actionable resolution error to the agent.
         print(f"brain-proxy: {exc}", file=sys.stderr)
-        sys.exit(1)
+        _run_degraded_server(str(exc))
+        return
 
     vault_root = target.vault_root
     workspace_dir = target.workspace_dir
