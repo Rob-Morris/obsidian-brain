@@ -4,8 +4,11 @@ Follows a pre-1.0 [semver](https://semver.org/) policy: backward-compatible chan
 
 Version-by-version release history for Obsidian Brain. Every shipped version has its own file under `docs/changelog/`; milestone releases additionally have richer release files under `docs/changelog/releases/`.
 
+Never edit past changelog entries. Only add new entries at the top.
+
 | Version | Date | Summary |
 |---|---|---|
+| [v0.48.2](changelog/v0.48.2.md) | 2026-06-03 | Harden MCP startup, managed runtime selection, and client registration repair |
 | [v0.48.1](changelog/v0.48.1.md) | 2026-06-03 | Serve unresolved-Brain errors over MCP instead of a bare -32000 |
 | [v0.48.0](changelog/v0.48.0.md) | 2026-06-02 | Harden resolution sign-off: single vault predicate and anchor hard-error |
 | [v0.47.0](changelog/v0.47.0.md) | 2026-06-01 | Add vault-self MCP mode and exclusive install scope choice |

@@ -2,30 +2,26 @@
 
 A self-evolving knowledge base, for agents and humans working together on what matters. 
 
-ALWAYS DO FIRST: Call MCP `brain_session`, else read `.brain-core/index.md` if it exists.
-
-## Git Discipline
-
-- Never edit past changelog entries. Only add new entries at the top.
-- Never force-add gitignored files. They are ignored for a reason.
+ALWAYS DO FIRST: Call MCP `brain_session`.
 
 ## Agent Contributors
 
 ALWAYS READ BEFORE contributing: `docs/contributor/agents.md`
 
-## Agent Installs
+## Documentation
 
-When installing a vault on behalf of a user:
-
-- Prefer `bash install.sh --non-interactive --skip-mcp <path>` in restricted or sandboxed environments.
-- Use plain `--non-interactive` only when package index access is expected to work.
-- Treat vault scaffolding and MCP setup as separate outcomes; report both.
-- If MCP setup fails, keep the scaffolded vault and surface the retry commands printed by the installer.
+- `docs/README.md` — documentation root index
+- `docs/user/README.md` — user setup, workflows, and reference
+- `docs/functional/README.md` — MCP tools, scripts, CLI, and configuration contracts
+- `docs/architecture/README.md` — system structure, security, boundaries, and decisions
+- `docs/contributor/README.md` — contribution workflow and contributor-facing product docs
+- `docs/CHANGELOG.md` — release history
 
 ## Before Committing
 
 1. Run `make test` (uses `.venv` with Python 3.12; run `make install` first if the venv doesn't exist)
 2. Follow `.canaries/pre-commit.md`
+3. Never force-add gitignored files. They are ignored for a reason.
 
 ## Local Overrides
 

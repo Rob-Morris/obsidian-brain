@@ -21,11 +21,13 @@ from _bootstrap.mcp_state import (
     build_mcp_config,
     build_session_hook_command,
     configured_vault_root,
+    is_session_hook_command,
     matching_records,
     read_codex_server_config,
+    session_hook_python,
 )
 from _common import resolve_vault_venv_python
-from _bootstrap.runtime import probe_python, required_modules_for_scope
+from _bootstrap.runtime import probe_python, required_modules_for_scope, same_executable_path
 from _repair_common import attach_repair_guidance
 
 
@@ -88,7 +90,7 @@ def inspect_runtime(vault_root: Path) -> dict:
     """Inspect the central managed runtime for this vault."""
     managed_python = resolve_vault_venv_python(vault_root)
     runtime_modules = required_modules_for_scope("runtime")
-    managed_python_str = os.path.realpath(str(managed_python))
+    managed_python_str = str(managed_python)
     if not managed_python.is_file():
         return {
             "healthy": False,
@@ -98,7 +100,7 @@ def inspect_runtime(vault_root: Path) -> dict:
             "message": _runtime_issue_message(ISSUE_RUNTIME_MISSING),
         }
 
-    if os.path.realpath(sys.executable) == managed_python_str:
+    if same_executable_path(sys.executable, managed_python):
         probe = {
             "compatible": sys.version_info >= (3, 12),
             "missing": [
@@ -222,13 +224,14 @@ def _record_matches(record: dict, *, client: str, config_path: Path, server_conf
     )
 
 
-def _has_hook_entry(settings: dict, command: str) -> bool:
+def _session_hook_commands(settings: dict) -> list[str]:
     hooks = settings.get("hooks")
     if not isinstance(hooks, dict):
-        return False
+        return []
     session_start = hooks.get("SessionStart")
     if not isinstance(session_start, list):
-        return False
+        return []
+    commands: list[str] = []
     for entry in session_start:
         if not isinstance(entry, dict):
             continue
@@ -238,9 +241,27 @@ def _has_hook_entry(settings: dict, command: str) -> bool:
         for child in child_hooks:
             if not isinstance(child, dict):
                 continue
-            if child.get("command") == command:
-                return True
-    return False
+            command = child.get("command")
+            if isinstance(command, str):
+                commands.append(command)
+    return commands
+
+
+def _session_hook_state(settings: dict, expected_command: str, vault_root: Path, target_dir: Path) -> dict:
+    commands = _session_hook_commands(settings)
+    brain_commands = [
+        command
+        for command in commands
+        if is_session_hook_command(command, vault_root, target_dir)
+    ]
+    stale_commands = [command for command in brain_commands if command != expected_command]
+    return {
+        "present": bool(brain_commands),
+        "exact": expected_command in brain_commands,
+        "stale_count": len(stale_commands),
+        "duplicate_count": max(0, len(brain_commands) - 1),
+        "commands": brain_commands,
+    }
 
 
 def _project_records_for_vault(vault_root: Path) -> list[dict]:
@@ -272,13 +293,27 @@ def inspect_mcp(vault_root: Path) -> dict:
     codex_config_path = vault_root / CODEX_CONFIG_REL
     claude_settings_path = vault_root / CLAUDE_LOCAL_SETTINGS_FILE
     claude_md_path = vault_root / CLAUDE_MD_FILE
-    expected_hook = build_session_hook_command(vault_root, vault_root)
+    hook_python = session_hook_python(server_config)
+    expected_hook = build_session_hook_command(
+        vault_root,
+        vault_root,
+        python_path=hook_python,
+    )
     expected_bootstrap = bootstrap_line_for_target(vault_root)
 
     claude_server = _read_claude_project_server(claude_config_path)
     codex_server = read_codex_server_config(codex_config_path)
+    expected_command = server_config["command"]
+    claude_command = claude_server.get("command") if isinstance(claude_server, dict) else None
+    codex_command = codex_server.get("command") if isinstance(codex_server, dict) else None
     claude_config_ok = claude_server == server_config
     codex_config_ok = codex_server == server_config
+    claude_command_ok = claude_server is None or (
+        isinstance(claude_command, str) and same_executable_path(claude_command, expected_command)
+    )
+    codex_command_ok = codex_server is None or (
+        isinstance(codex_command, str) and same_executable_path(codex_command, expected_command)
+    )
 
     try:
         claude_md_text = claude_md_path.read_text(encoding="utf-8")
@@ -287,7 +322,8 @@ def inspect_mcp(vault_root: Path) -> dict:
     bootstrap_ok = expected_bootstrap in claude_md_text
 
     settings, _ = _read_json_safe(claude_settings_path)
-    hook_ok = _has_hook_entry(settings or {}, expected_hook)
+    hook_state = _session_hook_state(settings or {}, expected_hook, vault_root, vault_root)
+    hook_ok = hook_state["exact"] and hook_state["stale_count"] == 0 and hook_state["duplicate_count"] == 0
 
     records = _project_records_for_vault(vault_root)
     claude_record_ok = any(
@@ -308,8 +344,11 @@ def inspect_mcp(vault_root: Path) -> dict:
             "present": claude_present,
             "healthy": claude_config_ok and bootstrap_ok and hook_ok and claude_record_ok,
             "config_ok": claude_config_ok,
+            "command": claude_command,
+            "command_ok": claude_command_ok,
             "bootstrap_ok": bootstrap_ok,
             "hook_ok": hook_ok,
+            "hook_state": hook_state,
             "record_ok": claude_record_ok,
         },
         "codex": {
@@ -317,6 +356,8 @@ def inspect_mcp(vault_root: Path) -> dict:
             "present": codex_present,
             "healthy": codex_config_ok and codex_record_ok,
             "config_ok": codex_config_ok,
+            "command": codex_command,
+            "command_ok": codex_command_ok,
             "record_ok": codex_record_ok,
         },
     }
@@ -377,19 +418,59 @@ def collect_mcp_check_findings(vault_root: str | Path) -> list[dict]:
         return findings
 
     mcp = inspect_mcp(vault_root)
-    unhealthy = [
-        client
-        for client in ("claude", "codex")
-        if mcp[client]["present"] and not mcp[client]["healthy"]
-    ]
-    if unhealthy:
-        finding = {
-            "check": "mcp_registration",
+    specifically_reported_clients: set[str] = set()
+
+    if mcp["claude"]["command"] is not None and not mcp["claude"]["command_ok"]:
+        specifically_reported_clients.add("claude")
+        findings.append(attach_repair_guidance({
+            "check": "mcp_registration:claude_python_mismatch",
             "severity": "warning",
-            "file": None,
-            "message": "Brain MCP project registration state is drifted or incomplete.",
-        }
-        findings.append(attach_repair_guidance(finding, vault_root, "mcp"))
+            "file": CLAUDE_PROJECT_CONFIG_FILE,
+            "message": "Claude Brain MCP config does not point at the canonical managed Python.",
+        }, vault_root, "mcp"))
+
+    if mcp["codex"]["command"] is not None and not mcp["codex"]["command_ok"]:
+        specifically_reported_clients.add("codex")
+        findings.append(attach_repair_guidance({
+            "check": "mcp_registration:codex_python_mismatch",
+            "severity": "warning",
+            "file": CODEX_CONFIG_REL,
+            "message": "Codex Brain MCP config does not point at the canonical managed Python.",
+        }, vault_root, "mcp"))
+
+    if mcp["claude"]["present"]:
+        hook_state = mcp["claude"].get("hook_state", {})
+        if not hook_state.get("exact"):
+            specifically_reported_clients.add("claude")
+            findings.append(attach_repair_guidance({
+                "check": "mcp_registration:claude_session_hook_missing",
+                "severity": "warning",
+                "file": CLAUDE_LOCAL_SETTINGS_FILE,
+                "message": "Claude SessionStart hook for brain_session is missing or does not match the canonical command.",
+            }, vault_root, "mcp"))
+        elif hook_state.get("stale_count", 0) or hook_state.get("duplicate_count", 0):
+            specifically_reported_clients.add("claude")
+            findings.append(attach_repair_guidance({
+                "check": "mcp_registration:claude_session_hook_drift",
+                "severity": "warning",
+                "file": CLAUDE_LOCAL_SETTINGS_FILE,
+                "message": "Claude SessionStart contains stale or duplicate Brain hooks.",
+            }, vault_root, "mcp"))
+
+    client_labels = {"claude": "Claude", "codex": "Codex"}
+    for client in ("claude", "codex"):
+        if (
+            mcp[client]["present"]
+            and not mcp[client]["healthy"]
+            and client not in specifically_reported_clients
+        ):
+            finding = {
+                "check": "mcp_registration",
+                "severity": "warning",
+                "file": None,
+                "message": f"{client_labels[client]} Brain MCP project registration state is drifted or incomplete.",
+            }
+            findings.append(attach_repair_guidance(finding, vault_root, "mcp"))
     return findings
 
 

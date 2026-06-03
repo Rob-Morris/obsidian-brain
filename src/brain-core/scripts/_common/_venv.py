@@ -83,6 +83,16 @@ def _python_tag_for_launcher(launcher_realpath: str) -> str:
     return f"py{out}"
 
 
+def _normalise_launcher_path(launcher: Path) -> Path:
+    """Resolve bare launcher names through PATH before subprocess execution."""
+    raw = os.fspath(launcher)
+    if os.sep not in raw and (os.altsep is None or os.altsep not in raw):
+        resolved = shutil.which(raw)
+        if resolved:
+            return Path(resolved)
+    return launcher
+
+
 def python_tag(launcher: Optional[Path] = None) -> str:
     """Return the `pyX.Y` tag for the given launcher, or the running interpreter.
 
@@ -94,6 +104,8 @@ def python_tag(launcher: Optional[Path] = None) -> str:
     override = os.environ.get(_LAUNCHER_OVERRIDE_ENV)
     if override:
         launcher = Path(override)
+    if launcher is not None:
+        launcher = _normalise_launcher_path(launcher)
     if launcher is None or os.path.realpath(launcher) == os.path.realpath(sys.executable):
         info = sys.version_info
         return f"py{info.major}.{info.minor}"
@@ -294,6 +306,7 @@ def ensure_central_venv(
     override = os.environ.get(_LAUNCHER_OVERRIDE_ENV)
     if override:
         launcher = Path(override)
+    launcher = _normalise_launcher_path(launcher)
 
     tag = python_tag(launcher)
     rhash = requirements_hash(requirements_path)

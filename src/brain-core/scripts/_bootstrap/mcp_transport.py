@@ -25,11 +25,13 @@ from _bootstrap.mcp_state import (
     build_mcp_config,
     build_session_hook_command,
     configured_vault_root,
+    is_session_hook_command,
     matching_records,
     read_codex_server_config,
     record_init_target,
     remove_codex_server,
     remove_init_records as _remove_init_records,
+    session_hook_python,
     write_codex_config,
 )
 from _bootstrap.runtime import ensure_managed_runtime, find_launcher_python, required_modules_for_scope
@@ -440,21 +442,26 @@ def ensure_workspace_manifest(
     return result.manifest_path
 
 
-def ensure_session_start_hook(target_dir: Path, vault_root: Path) -> Path:
+def ensure_session_start_hook(
+    target_dir: Path,
+    vault_root: Path,
+    *,
+    python_path: str | None = None,
+) -> Path:
     settings_path = target_dir / CLAUDE_LOCAL_SETTINGS_FILE
     settings = _read_json_safe(settings_path)
 
     if "hooks" not in settings or not isinstance(settings["hooks"], dict):
         settings["hooks"] = {}
 
-    hook_command = build_session_hook_command(vault_root, target_dir)
-    for entry in settings["hooks"].get("SessionStart", []):
-        if not isinstance(entry, dict):
-            continue
-        for hook in entry.get("hooks", []):
-            if isinstance(hook, dict) and hook.get("command") == hook_command:
-                info("SessionStart hook already configured")
-                return settings_path
+    hook_command = build_session_hook_command(vault_root, target_dir, python_path=python_path)
+    session_entries = settings["hooks"].get("SessionStart", [])
+    kept_entries, changed = _strip_brain_session_hooks(session_entries, vault_root, target_dir)
+
+    if changed:
+        settings["hooks"]["SessionStart"] = kept_entries
+    else:
+        settings["hooks"].setdefault("SessionStart", kept_entries)
 
     new_entry = {
         "hooks": [
@@ -470,25 +477,20 @@ def ensure_session_start_hook(target_dir: Path, vault_root: Path) -> Path:
     return settings_path
 
 
-def _remove_session_start_hook(
-    settings_path: Path,
+def _strip_brain_session_hooks(
+    session_entries: Any,
     vault_root: Path,
     target_dir: Path,
-    recorded_command: Optional[str] = None,
-) -> None:
-    settings = _read_json_safe(settings_path)
-    hooks = settings.get("hooks")
-    if not isinstance(hooks, dict):
-        return
-
-    fresh_command = build_session_hook_command(vault_root, target_dir)
-    valid_commands = {fresh_command}
-    if recorded_command:
-        valid_commands.add(recorded_command)
-
+    *,
+    extra_valid: tuple[str, ...] = (),
+) -> tuple[list[Any], bool]:
+    """Return SessionStart entries with Brain hooks removed."""
+    kept_entries: list[Any] = []
     changed = False
-    session_entries = hooks.get("SessionStart", [])
-    kept_entries = []
+    valid_commands = set(extra_valid)
+
+    if not isinstance(session_entries, list):
+        return kept_entries, True
 
     for entry in session_entries:
         if not isinstance(entry, dict):
@@ -502,7 +504,8 @@ def _remove_session_start_hook(
 
         kept_hooks = []
         for hook in hook_items:
-            if isinstance(hook, dict) and hook.get("command") in valid_commands:
+            command = hook.get("command") if isinstance(hook, dict) else None
+            if command in valid_commands or is_session_hook_command(command, vault_root, target_dir):
                 changed = True
                 continue
             kept_hooks.append(hook)
@@ -513,6 +516,33 @@ def _remove_session_start_hook(
             kept_entries.append(new_entry)
         elif hook_items:
             changed = True
+
+    return kept_entries, changed
+
+
+def _remove_session_start_hook(
+    settings_path: Path,
+    vault_root: Path,
+    target_dir: Path,
+    recorded_command: Optional[str] = None,
+    python_path: str | None = None,
+) -> None:
+    settings = _read_json_safe(settings_path)
+    hooks = settings.get("hooks")
+    if not isinstance(hooks, dict):
+        return
+
+    fresh_command = build_session_hook_command(vault_root, target_dir, python_path=python_path)
+    valid_commands = [fresh_command]
+    if recorded_command:
+        valid_commands.append(recorded_command)
+    session_entries = hooks.get("SessionStart", [])
+    kept_entries, changed = _strip_brain_session_hooks(
+        session_entries,
+        vault_root,
+        target_dir,
+        extra_valid=tuple(valid_commands),
+    )
 
     if not changed:
         return
@@ -593,12 +623,13 @@ def register_claude(
     }
 
     if target_dir:
+        hook_python = session_hook_python(server_config)
         bootstrap_path = ensure_claude_md(target_dir, local=scope == "local")
-        hook_path = ensure_session_start_hook(target_dir, vault_root)
+        hook_path = ensure_session_start_hook(target_dir, vault_root, python_path=hook_python)
         record["bootstrap_path"] = str(bootstrap_path)
         record["bootstrap_line"] = bootstrap_line_for_target(target_dir)
         record["hook_path"] = str(hook_path)
-        record["hook_command"] = build_session_hook_command(vault_root, target_dir)
+        record["hook_command"] = build_session_hook_command(vault_root, target_dir, python_path=hook_python)
 
     record["method"] = method
     return record
@@ -660,6 +691,7 @@ def _remove_record(vault_root: Path, record: Dict[str, Any]) -> bool:
                 vault_root,
                 target_dir,
                 recorded_command=record.get("hook_command"),
+                python_path=session_hook_python(server_config),
             )
         return removed
 

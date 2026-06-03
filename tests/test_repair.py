@@ -12,6 +12,7 @@ import sys
 import pytest
 
 import _bootstrap.diagnostics as bootstrap_diagnostics
+import _bootstrap.mcp_state as bootstrap_mcp_state
 import _bootstrap.runtime as bootstrap_runtime
 import _lifecycle.frontmatter_repairs as frontmatter_repairs
 import _lifecycle.semantic_repairs as semantic_repairs
@@ -20,6 +21,7 @@ import _semantic.model as semantic_model
 import _repair_common as repair_common
 import _repair_runtime as repair_runtime
 import check
+import migrate_to_0_48_2
 import repair
 from conftest import make_router, write_md
 
@@ -104,6 +106,28 @@ def _register_project_client(vault: Path, client: str) -> dict:
         record = repair_runtime.mcp_transport.register_codex(server_config, "project", vault)
     repair_runtime.mcp_transport.record_init_target(vault, record)
     return server_config
+
+
+def _write_legacy_session_hook(vault: Path, *, machine_python: str = "/usr/bin/python3.12") -> str:
+    legacy_command = (
+        "echo 'brain_session called:' "
+        f"&& {machine_python} {vault / '.brain-core' / 'scripts' / 'session.py'} "
+        f"--vault {vault} --workspace-dir {vault} --json"
+    )
+    settings_path = vault / ".claude" / "settings.local.json"
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text(json.dumps({
+        "hooks": {
+            "SessionStart": [
+                {
+                    "hooks": [
+                        {"type": "command", "command": legacy_command},
+                    ]
+                }
+            ]
+        }
+    }))
+    return legacy_command
 
 
 def _model_outcome(vault: Path, *, downloaded=False, manifest_changed=False):
@@ -389,6 +413,27 @@ class TestRepairScopes:
         assert state["issues"] == [repair_runtime.ISSUE_MANAGED_RUNTIME_DEPENDENCIES_MISSING]
         assert state["missing_modules"] == ["mcp"]
 
+    def test_inspect_runtime_preserves_venv_symlink_boundary(self, repair_vault, monkeypatch):
+        runtime_python = repair_vault / ".brain" / "venv" / "bin" / "python"
+        runtime_python.parent.mkdir(parents=True)
+        runtime_python.symlink_to(sys.executable)
+        captured = {}
+        monkeypatch.setattr(bootstrap_diagnostics, "resolve_vault_venv_python", lambda _vault: runtime_python)
+        monkeypatch.setattr(
+            bootstrap_diagnostics,
+            "probe_python",
+            lambda python_path, *, modules=(): captured.setdefault(
+                "probe",
+                {"compatible": True, "ok": True, "missing": [], "python_path": python_path},
+            ),
+        )
+
+        state = bootstrap_diagnostics.inspect_runtime(repair_vault)
+
+        assert state["healthy"] is True
+        assert state["python"] == str(runtime_python)
+        assert captured["probe"]["python_path"] == str(runtime_python)
+
     def test_mcp_repair_returns_error_when_runtime_is_unhealthy(self, repair_vault, monkeypatch):
         monkeypatch.setattr(
             bootstrap_diagnostics,
@@ -450,6 +495,35 @@ class TestRepairScopes:
         assert not (repair_vault / ".codex" / "config.toml").exists()
         state = json.loads((repair_vault / ".brain" / "local" / "init-state.json").read_text())
         assert [record["client"] for record in state["records"]] == ["claude"]
+
+    def test_mcp_repair_replaces_legacy_claude_session_hook(self, repair_vault, monkeypatch):
+        _mock_healthy_runtime(monkeypatch)
+        monkeypatch.setattr(repair_runtime.mcp_transport, "claude_project_followup_notes", lambda _target: [])
+        server_config = _register_project_client(repair_vault, "claude")
+        legacy_command = _write_legacy_session_hook(repair_vault)
+
+        before = bootstrap_diagnostics.inspect_mcp(repair_vault)
+        assert before["claude"]["hook_ok"] is False
+        assert before["claude"]["hook_state"]["stale_count"] == 1
+
+        result = repair_runtime.repair_mcp(repair_vault, dry_run=False)
+
+        assert result["status"] == "ok"
+        settings = json.loads((repair_vault / ".claude" / "settings.local.json").read_text())
+        commands = [
+            hook["command"]
+            for entry in settings["hooks"]["SessionStart"]
+            for hook in entry["hooks"]
+        ]
+        expected = repair_runtime.mcp_transport.build_session_hook_command(
+            repair_vault,
+            repair_vault,
+            python_path=server_config["command"],
+        )
+        assert commands == [expected]
+        assert legacy_command not in commands
+        after = bootstrap_diagnostics.inspect_mcp(repair_vault)
+        assert after["claude"]["hook_ok"] is True
 
     def test_mcp_repair_propagates_programmer_errors(self, repair_vault, monkeypatch):
         _mock_healthy_runtime(monkeypatch)
@@ -1064,6 +1138,241 @@ class TestCheckRepairHints:
         hit = next(f for f in result["findings"] if f["check"] == "mcp_registration")
         assert hit["repair"]["scope"] == "mcp"
         assert "repair.py mcp" in hit["repair"]["command"]
+
+    def test_mcp_python_mismatch_adds_specific_repair_guidance(self, repair_vault):
+        expected = bootstrap_diagnostics._expected_project_server_config(repair_vault)
+        stale = dict(expected)
+        stale["command"] = "/usr/bin/python3.12"
+        stale["args"] = ["-m", "brain_mcp.proxy", "/usr/bin/python3.12", "brain_mcp.server"]
+        (repair_vault / ".mcp.json").write_text(json.dumps({"mcpServers": {"brain": stale}}))
+
+        result = check.run_checks(str(repair_vault), _wiki_router())
+
+        hit = next(
+            f for f in result["findings"]
+            if f["check"] == "mcp_registration:claude_python_mismatch"
+        )
+        assert hit["file"] == ".mcp.json"
+        assert hit["repair"]["scope"] == "mcp"
+
+    def test_mcp_python_check_uses_launch_path_identity(self, repair_vault):
+        expected = bootstrap_diagnostics._expected_project_server_config(repair_vault)
+        equivalent_command = str(Path(expected["command"]).parent / ".." / "bin" / "python")
+        stale = dict(expected)
+        stale["command"] = equivalent_command
+        (repair_vault / ".mcp.json").write_text(json.dumps({"mcpServers": {"brain": stale}}))
+
+        state = bootstrap_diagnostics.inspect_mcp(repair_vault)
+
+        assert state["claude"]["command_ok"] is True
+        assert state["claude"]["config_ok"] is False
+
+    def test_codex_mcp_python_mismatch_adds_specific_repair_guidance(self, repair_vault):
+        expected = bootstrap_diagnostics._expected_project_server_config(repair_vault)
+        stale = dict(expected)
+        stale["command"] = "/usr/bin/python3.12"
+        stale["args"] = ["-m", "brain_mcp.proxy", "/usr/bin/python3.12", "brain_mcp.server"]
+        repair_runtime.mcp_transport.write_codex_config(
+            stale,
+            repair_vault / ".codex" / "config.toml",
+        )
+
+        result = check.run_checks(str(repair_vault), _wiki_router())
+
+        hit = next(
+            f for f in result["findings"]
+            if f["check"] == "mcp_registration:codex_python_mismatch"
+        )
+        assert hit["file"] == ".codex/config.toml"
+        assert hit["repair"]["scope"] == "mcp"
+
+    def test_specific_mcp_finding_does_not_suppress_other_client_generic_drift(self, repair_vault):
+        _register_project_client(repair_vault, "claude")
+        (repair_vault / "CLAUDE.md").write_text("missing bootstrap\n")
+        expected = bootstrap_diagnostics._expected_project_server_config(repair_vault)
+        stale = dict(expected)
+        stale["command"] = "/usr/bin/python3.12"
+        stale["args"] = ["-m", "brain_mcp.proxy", "/usr/bin/python3.12", "brain_mcp.server"]
+        repair_runtime.mcp_transport.write_codex_config(
+            stale,
+            repair_vault / ".codex" / "config.toml",
+        )
+
+        result = check.run_checks(str(repair_vault), _wiki_router())
+
+        checks = [f["check"] for f in result["findings"]]
+        generic = [
+            f for f in result["findings"]
+            if f["check"] == "mcp_registration"
+        ]
+        assert "mcp_registration:codex_python_mismatch" in checks
+        assert any("Claude Brain MCP project registration state" in f["message"] for f in generic)
+
+    def test_claude_session_hook_drift_adds_specific_repair_guidance(self, repair_vault):
+        _register_project_client(repair_vault, "claude")
+        _write_legacy_session_hook(repair_vault)
+
+        result = check.run_checks(str(repair_vault), _wiki_router())
+
+        hit = next(
+            f for f in result["findings"]
+            if f["check"] == "mcp_registration:claude_session_hook_missing"
+        )
+        assert hit["file"] == ".claude/settings.local.json"
+        assert hit["repair"]["scope"] == "mcp"
+
+    def test_0_48_2_migration_converges_stale_mcp_state(self, repair_vault, monkeypatch):
+        _mock_healthy_runtime(monkeypatch)
+        monkeypatch.setattr(repair_runtime.mcp_transport, "claude_project_followup_notes", lambda _target: [])
+        expected = bootstrap_diagnostics._expected_project_server_config(repair_vault)
+        stale = dict(expected)
+        stale["command"] = "/usr/bin/python3.12"
+        stale["args"] = ["-m", "brain_mcp.proxy", "/usr/bin/python3.12", "brain_mcp.server"]
+        (repair_vault / ".mcp.json").write_text(json.dumps({"mcpServers": {"brain": stale}}))
+        _write_legacy_session_hook(repair_vault)
+        repair_runtime.mcp_transport.record_init_target(repair_vault, {
+            "client": "claude",
+            "scope": "project",
+            "target_path": str(repair_vault),
+            "config_path": str(repair_vault / ".mcp.json"),
+            "server_name": "brain",
+            "server_config": stale,
+            "hook_path": str(repair_vault / ".claude" / "settings.local.json"),
+            "hook_command": "legacy",
+            "method": "test",
+        })
+
+        result = migrate_to_0_48_2.migrate(str(repair_vault))
+
+        assert result["status"] == "ok"
+        findings = bootstrap_diagnostics.collect_mcp_check_findings(repair_vault)
+        assert findings == []
+
+    def test_0_48_2_migration_noops_without_mcp_state(self, repair_vault, monkeypatch):
+        monkeypatch.setattr(repair_runtime.mcp_transport, "claude_project_followup_notes", lambda _target: [])
+
+        result = migrate_to_0_48_2.migrate(str(repair_vault))
+
+        assert result["status"] == "noop"
+        assert [step["name"] for step in result["steps"]] == ["claude_project", "codex_project"]
+        assert not (repair_vault / ".mcp.json").exists()
+        assert not (repair_vault / ".codex" / "config.toml").exists()
+        assert not (repair_vault / ".claude" / "settings.local.json").exists()
+        assert not (repair_vault / ".brain" / "local" / "init-state.json").exists()
+
+    def test_0_48_2_migration_is_idempotent_after_convergence(self, repair_vault, monkeypatch):
+        _mock_healthy_runtime(monkeypatch)
+        monkeypatch.setattr(repair_runtime.mcp_transport, "claude_project_followup_notes", lambda _target: [])
+        expected = bootstrap_diagnostics._expected_project_server_config(repair_vault)
+        stale = dict(expected)
+        stale["command"] = "/usr/bin/python3.12"
+        stale["args"] = ["-m", "brain_mcp.proxy", "/usr/bin/python3.12", "brain_mcp.server"]
+        (repair_vault / ".mcp.json").write_text(json.dumps({"mcpServers": {"brain": stale}}))
+        _write_legacy_session_hook(repair_vault)
+        repair_runtime.mcp_transport.record_init_target(repair_vault, {
+            "client": "claude",
+            "scope": "project",
+            "target_path": str(repair_vault),
+            "config_path": str(repair_vault / ".mcp.json"),
+            "server_name": "brain",
+            "server_config": stale,
+            "hook_path": str(repair_vault / ".claude" / "settings.local.json"),
+            "hook_command": "legacy",
+            "method": "test",
+        })
+
+        first = migrate_to_0_48_2.migrate(str(repair_vault))
+        second = migrate_to_0_48_2.migrate(str(repair_vault))
+
+        assert first["status"] == "ok"
+        assert second["status"] == "noop"
+        settings = json.loads((repair_vault / ".claude" / "settings.local.json").read_text())
+        hook_commands = [
+            command
+            for command in bootstrap_diagnostics._session_hook_commands(settings)
+            if bootstrap_mcp_state.is_session_hook_command(command, repair_vault, repair_vault)
+        ]
+        assert len(hook_commands) == 1
+        assert bootstrap_diagnostics.collect_mcp_check_findings(repair_vault) == []
+
+    def test_0_48_2_migration_reports_error_on_partial_repair(self, repair_vault, monkeypatch):
+        (repair_vault / ".mcp.json").write_text(json.dumps({"mcpServers": {"brain": {}}}))
+        monkeypatch.setattr(
+            migrate_to_0_48_2,
+            "_repair_claude",
+            lambda _vault, _server_config, _state, _dry_run: {
+                "name": "claude_project",
+                "status": "changed",
+                "message": "ok",
+            },
+        )
+        monkeypatch.setattr(
+            migrate_to_0_48_2,
+            "_repair_codex",
+            lambda _vault, _server_config, _state, _dry_run: {
+                "name": "codex_project",
+                "status": "error",
+                "message": "failed",
+            },
+        )
+
+        result = migrate_to_0_48_2.migrate(str(repair_vault))
+
+        assert result["status"] == "error"
+
+    def test_0_48_2_migration_cli_exits_nonzero_on_repair_error(
+        self, repair_vault, monkeypatch, capsys
+    ):
+        (repair_vault / ".mcp.json").write_text(json.dumps({"mcpServers": {"brain": {}}}))
+        monkeypatch.setattr(
+            migrate_to_0_48_2,
+            "_repair_claude",
+            lambda _vault, _server_config, _state, _dry_run: {
+                "name": "claude_project",
+                "status": "changed",
+                "message": "ok",
+            },
+        )
+        monkeypatch.setattr(
+            migrate_to_0_48_2,
+            "_repair_codex",
+            lambda _vault, _server_config, _state, _dry_run: {
+                "name": "codex_project",
+                "status": "error",
+                "message": "failed",
+            },
+        )
+
+        exit_code = migrate_to_0_48_2.main(["--vault", str(repair_vault)])
+
+        payload = json.loads(capsys.readouterr().out)
+        assert exit_code == 2
+        assert payload["status"] == "error"
+
+    def test_0_48_2_migration_cli_dry_run_does_not_rewrite_mcp_state(
+        self, repair_vault, monkeypatch, capsys
+    ):
+        _mock_healthy_runtime(monkeypatch)
+        monkeypatch.setattr(repair_runtime.mcp_transport, "claude_project_followup_notes", lambda _target: [])
+        expected = bootstrap_diagnostics._expected_project_server_config(repair_vault)
+        stale = dict(expected)
+        stale["command"] = "/usr/bin/python3.12"
+        stale["args"] = ["-m", "brain_mcp.proxy", "/usr/bin/python3.12", "brain_mcp.server"]
+        mcp_path = repair_vault / ".mcp.json"
+        mcp_path.write_text(json.dumps({"mcpServers": {"brain": stale}}, indent=2))
+        legacy_command = _write_legacy_session_hook(repair_vault)
+        before_mcp = mcp_path.read_text()
+        settings_path = repair_vault / ".claude" / "settings.local.json"
+        before_settings = settings_path.read_text()
+
+        exit_code = migrate_to_0_48_2.main(["--vault", str(repair_vault), "--dry-run"])
+
+        payload = json.loads(capsys.readouterr().out)
+        assert exit_code == 0
+        assert payload["status"] == "planned"
+        assert mcp_path.read_text() == before_mcp
+        assert settings_path.read_text() == before_settings
+        assert legacy_command in settings_path.read_text()
 
     def test_runtime_drift_adds_runtime_repair_guidance(self, repair_vault, monkeypatch):
         _register_project_client(repair_vault, "claude")

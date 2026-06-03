@@ -9,7 +9,6 @@ import shlex
 from _bootstrap.runtime import (
     BOOTSTRAP_SUMMARY_ENV,
     DEFAULT_MANAGED_RUNTIME_LAUNCHER,
-    MANAGED_RUNTIME_ENV,
     find_launcher_python,
 )
 

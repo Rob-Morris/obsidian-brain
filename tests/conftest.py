@@ -21,9 +21,10 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS_DIR = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "src", "brain-core", "scripts")
 )
+PACKAGE_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src", "brain-core"))
 MIGRATIONS_DIR = os.path.join(SCRIPTS_DIR, "migrations")
 
-for _path in (SCRIPTS_DIR, MIGRATIONS_DIR):
+for _path in (PACKAGE_ROOT, SCRIPTS_DIR, MIGRATIONS_DIR):
     if _path not in sys.path:
         sys.path.insert(0, _path)
 
@@ -180,9 +181,11 @@ def wrapper_cli():
         merged_env["PYTHONPATH"] = (
             SCRIPTS_DIR if not existing else f"{SCRIPTS_DIR}{os.pathsep}{existing}"
         )
-        # CLI wrapper tests exercise wrapper behaviour after the managed-runtime
-        # handoff has already happened.
-        merged_env.setdefault("BRAIN_MANAGED_RUNTIME", "1")
+        # CLI wrapper tests exercise wrapper behaviour without provisioning a
+        # real central runtime for every minimal fixture.  The skip-bootstrap
+        # seam still verifies that the current interpreter satisfies the
+        # wrapper's requested modules.
+        merged_env.setdefault("BRAIN_SKIP_BOOTSTRAP", "1")
         if env:
             merged_env.update(env)
         script_path = REPO_ROOT / "src" / "brain-core" / "scripts" / script_name

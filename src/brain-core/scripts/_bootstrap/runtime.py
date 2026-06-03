@@ -19,7 +19,6 @@ from _common import _venv as _venv_module
 
 
 DEFAULT_MANAGED_RUNTIME_LAUNCHER = "python3.12"
-MANAGED_RUNTIME_ENV = "BRAIN_MANAGED_RUNTIME"
 BOOTSTRAP_SUMMARY_ENV = "BRAIN_BOOTSTRAP_SUMMARY"
 SKIP_BOOTSTRAP_ENV = "BRAIN_SKIP_BOOTSTRAP"
 MANAGED_RUNTIME_REQUIRED_MODULES = ("mcp",)
@@ -37,9 +36,20 @@ BOOTSTRAP_SCOPE_MODULES = {
 }
 
 
+def same_executable_path(left: str | Path, right: str | Path) -> bool:
+    """Return whether two Python executable paths identify the same launch path.
+
+    Preserve the venv boundary: on Linux a virtualenv's ``bin/python`` is often
+    a symlink to the system interpreter.  Collapsing both sides with realpath
+    makes ``/usr/bin/python3.12`` look like the managed venv Python, which then
+    skips the managed-runtime handoff and writes system Python into MCP config.
+    """
+    return os.path.abspath(str(left)) == os.path.abspath(str(right))
+
+
 def _is_self_executable(python_path: str | Path) -> bool:
-    """Return whether a Python path resolves to the current interpreter."""
-    return os.path.realpath(str(python_path)) == os.path.realpath(sys.executable)
+    """Return whether a Python path is the current executable path."""
+    return same_executable_path(python_path, sys.executable)
 
 
 def iso_now() -> str:
@@ -173,9 +183,12 @@ def find_launcher_python(*, prefer_path_binaries: bool = False) -> str | None:
 
 def current_process_in_managed_runtime(vault_root: str | Path) -> bool:
     """Return whether this process already runs in the canonical managed runtime."""
-    if os.environ.get(MANAGED_RUNTIME_ENV) == "1":
-        return True
-    managed_python = resolve_vault_venv_python(vault_root)
+    try:
+        managed_python = resolve_vault_venv_python(vault_root)
+    except (OSError, subprocess.SubprocessError):
+        # Treat an unresolvable canonical runtime as "not yet managed"; the
+        # subsequent handoff/provisioning path will surface the concrete cause.
+        return False
     return _is_self_executable(managed_python)
 
 
@@ -376,7 +389,6 @@ def exec_managed_runtime(
 ) -> None:
     """Re-exec the current script inside the canonical managed runtime."""
     env = os.environ.copy()
-    env[MANAGED_RUNTIME_ENV] = "1"
     env[BOOTSTRAP_SUMMARY_ENV] = json.dumps(summary)
     argv = [managed_python, script_path, *forwarded_args]
     os.execve(managed_python, argv, env)

@@ -159,7 +159,8 @@ def _record_claude_direct(vault_root: Path, server_config: dict) -> None:
     config_path = vault_root / mcp_transport.CLAUDE_PROJECT_CONFIG_FILE
     mcp_transport.write_project_mcp_json(server_config, vault_root)
     bootstrap_path = mcp_transport.ensure_claude_md(vault_root)
-    hook_path = mcp_transport.ensure_session_start_hook(vault_root, vault_root)
+    hook_python = mcp_transport.session_hook_python(server_config)
+    hook_path = mcp_transport.ensure_session_start_hook(vault_root, vault_root, python_path=hook_python)
     record = {
         "client": "claude",
         "scope": "project",
@@ -170,7 +171,9 @@ def _record_claude_direct(vault_root: Path, server_config: dict) -> None:
         "bootstrap_path": str(bootstrap_path),
         "bootstrap_line": mcp_transport.bootstrap_line_for_target(vault_root),
         "hook_path": str(hook_path),
-        "hook_command": mcp_transport.build_session_hook_command(vault_root, vault_root),
+        "hook_command": mcp_transport.build_session_hook_command(
+            vault_root, vault_root, python_path=hook_python
+        ),
         "method": f"{config_path} (direct repair)",
     }
     mcp_transport.record_init_target(vault_root, record)

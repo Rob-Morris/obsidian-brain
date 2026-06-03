@@ -21,9 +21,11 @@ from unittest.mock import call, patch
 import pytest
 
 from _bootstrap.workspace_binding import (
+    WORKSPACE_ERROR_FILESYSTEM_ACCESS,
     BrainTarget,
     WorkspaceBindingError,
     heal_legacy_config,
+    load_workspace_manifest_state,
     resolve_and_heal,
 )
 from _bootstrap.mcp_state import build_mcp_config
@@ -541,6 +543,38 @@ class TestResolveAndHeal:
             start_dir=tmp_path / "unrelated",
         )
         assert result.source == "registry_default"
+
+    def test_unreadable_workspace_manifest_uses_filesystem_code(self, tmp_path, isolated_home, monkeypatch):
+        """Manifest read failures carry filesystem_access so callers can give correct remediation."""
+        import _bootstrap.workspace_binding as wb_mod
+
+        ws = _make_workspace(tmp_path, "myws")
+        manifest_dir = ws / ".brain" / "local"
+        manifest_dir.mkdir(parents=True, exist_ok=True)
+        (manifest_dir / "workspace.yaml").write_text("brain: x\nslug: myws\n")
+
+        monkeypatch.setattr(wb_mod, "load_mapping_file", lambda _path: (_ for _ in ()).throw(PermissionError("denied")))
+
+        with pytest.raises(WorkspaceBindingError) as exc_info:
+            load_workspace_manifest_state(ws)
+
+        assert exc_info.value.code == WORKSPACE_ERROR_FILESYSTEM_ACCESS
+
+    def test_unreadable_registry_default_uses_filesystem_code(self, tmp_path, isolated_home, monkeypatch):
+        monkeypatch.setattr(
+            vault_registry,
+            "get_default",
+            lambda: (_ for _ in ()).throw(vault_registry.RegistryReadError("denied")),
+        )
+
+        with pytest.raises(WorkspaceBindingError) as exc_info:
+            resolve_and_heal(
+                workspace_env=None,
+                vault_root_env=None,
+                start_dir=tmp_path / "unrelated",
+            )
+
+        assert exc_info.value.code == WORKSPACE_ERROR_FILESYSTEM_ACCESS
 
 
 # ---------------------------------------------------------------------------

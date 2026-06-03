@@ -983,7 +983,12 @@ class TestUpgradeCliCentralRuntime:
             capture_output=True,
             text=True,
             timeout=60,
-            env={**os.environ, "HOME": str(fake_home), "BRAIN_VENV_LAUNCHER": str(launcher)},
+            env={
+                **os.environ,
+                "HOME": str(fake_home),
+                "BRAIN_VENV_LAUNCHER": str(launcher),
+                "BRAIN_SKIP_BOOTSTRAP": "1",
+            },
         )
 
         assert result.returncode == 0, result.stderr
@@ -1019,7 +1024,12 @@ class TestUpgradeCliCentralRuntime:
 
         script = Path(__file__).resolve().parents[1] / "src" / "brain-core" / "scripts" / "upgrade.py"
 
-        env = {**os.environ, "HOME": str(fake_home), "BRAIN_VENV_LAUNCHER": str(launcher)}
+        env = {
+            **os.environ,
+            "HOME": str(fake_home),
+            "BRAIN_VENV_LAUNCHER": str(launcher),
+            "BRAIN_SKIP_BOOTSTRAP": "1",
+        }
 
         # First run: --sync-deps creates the venv (requirements unchanged but forced)
         first = subprocess.run(

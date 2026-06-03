@@ -155,6 +155,23 @@ def test_cli_python_subcommand_prints_python_path(monkeypatch, tmp_path):
     assert str(tmp_path) in out
 
 
+def test_cli_python_subcommand_resolves_bare_launcher_names(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    vault = _make_vault(tmp_path)
+    helper = Path(_venv.__file__)
+    launcher = _fake_launcher(tmp_path / "fakebin" / "python3.12")
+    monkeypatch.setenv("PATH", str(launcher.parent))
+
+    out = subprocess.check_output(
+        [sys.executable, str(helper), "python", "--vault", str(vault), "--launcher", "python3.12"],
+        text=True,
+        env={**os.environ, "HOME": str(tmp_path), "PATH": str(launcher.parent)},
+    ).strip()
+
+    assert out.endswith("/bin/python")
+    assert str(tmp_path) in out
+
+
 def test_cli_ensure_creates_venv(tmp_path):
     vault = _make_vault(tmp_path)
     helper = Path(_venv.__file__)

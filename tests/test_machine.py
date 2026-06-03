@@ -367,7 +367,7 @@ def test_inspect_machine_runtime_state_reports_brain_level_repair_findings(monke
 
     assert scopes == {"mcp", "registry"}
     assert summary["counts"]["brains_with_repair_findings"] == 1
-    assert summary["counts"]["repair_findings"] == 2
+    assert summary["counts"]["repair_findings"] == 3
     assert not summary["healthy"]
 
 
@@ -946,7 +946,8 @@ def test_doctor_machine_main_renders_brain_level_repair_guidance(monkeypatch, tm
     )
     assert doctor_machine.main() == 1
     human = capsys.readouterr().out
-    assert "repair: mcp — Brain MCP project registration state is drifted or incomplete." in human
+    assert "repair: mcp — Claude Brain MCP config does not point at the canonical managed Python." in human
+    assert "repair: mcp — Claude SessionStart hook for brain_session is missing or does not match the canonical command." in human
     assert ".brain-core/scripts/repair.py" in human
     assert "mcp --vault" in human
     assert "repair: registry — Registry contains invalid linked-workspace entries: bad" in human
@@ -969,7 +970,7 @@ def test_doctor_machine_main_renders_brain_level_repair_guidance(monkeypatch, tm
     assert doctor_machine.main() == 1
     payload = json.loads(capsys.readouterr().out)
     assert payload["counts"]["brains_with_repair_findings"] == 1
-    assert payload["counts"]["repair_findings"] == 2
+    assert payload["counts"]["repair_findings"] == 3
     assert {finding["repair"]["scope"] for finding in payload["brains"][0]["repair_findings"]} == {"mcp", "registry"}
 
 

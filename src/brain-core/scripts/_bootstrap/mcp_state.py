@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import os
 import shlex
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -136,16 +137,55 @@ def _resolve_session_launcher() -> str:
     return find_launcher_python(prefer_path_binaries=True) or sys.executable
 
 
-def build_session_hook_command(vault_root: Path, target_dir: Path) -> str:
+def session_hook_python(server_config: dict) -> str:
+    """Return the Python executable that should launch the SessionStart hook."""
+    command = server_config.get("command")
+    if not isinstance(command, str) or not command:
+        raise ValueError("Brain MCP server config is missing a string command")
+    return command
+
+
+def _join_hook_command(args: list[str]) -> str:
+    """Return a shell command fragment for the platform writing the hook."""
+    if sys.platform == "win32":
+        return subprocess.list2cmdline(args)
+    return " ".join(shlex.quote(arg) for arg in args)
+
+
+def _session_hook_argv(vault_root: Path, target_dir: Path) -> list[str]:
+    """Return the stable SessionStart argv payload after the Python launcher."""
+    return [
+        str(vault_root / ".brain-core" / "scripts" / "session.py"),
+        "--vault",
+        str(vault_root),
+        "--workspace-dir",
+        str(target_dir),
+        "--json",
+    ]
+
+
+def build_session_hook_command(
+    vault_root: Path,
+    target_dir: Path,
+    *,
+    python_path: str | None = None,
+) -> str:
     """Build the persisted SessionStart hook command for a target directory."""
-    session_script = str(vault_root / ".brain-core" / "scripts" / "session.py")
-    launcher = _resolve_session_launcher()
-    return (
-        "echo 'brain_session called:' "
-        f"&& {shlex.quote(launcher)} {shlex.quote(session_script)} "
-        f"--vault {shlex.quote(str(vault_root))} "
-        f"--workspace-dir {shlex.quote(str(target_dir))} --json"
-    )
+    launcher = python_path or _resolve_session_launcher()
+    command = _join_hook_command([launcher, *_session_hook_argv(vault_root, target_dir)])
+    return f"echo brain_session called: && {command}"
+
+
+def is_session_hook_command(command: Any, vault_root: Path, target_dir: Path) -> bool:
+    """Return whether a command is Brain's SessionStart hook for this target.
+
+    Older installs persisted a different echo prefix and a launcher Python
+    instead of the managed runtime. Match the stable argv payload rather than
+    the whole shell string so repair can replace those stale hooks exactly once.
+    """
+    if not isinstance(command, str):
+        return False
+    return all(part in command for part in _session_hook_argv(vault_root, target_dir))
 
 
 def _state_path(vault_root: Path) -> Path:

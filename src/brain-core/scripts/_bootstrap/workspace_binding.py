@@ -25,6 +25,8 @@ WORKSPACE_MANIFEST_REL = os.path.join(".brain", "local", "workspace.yaml")
 WORKSPACE_MANIFEST_LEGACY_REL = os.path.join(".brain", "workspace.yaml")
 
 WORKSPACE_REASON_ALREADY_BOUND = "already_bound"
+WORKSPACE_ERROR_INVALID_BINDING = "invalid_binding"
+WORKSPACE_ERROR_FILESYSTEM_ACCESS = "filesystem_access"
 
 
 # ---------------------------------------------------------------------------
@@ -34,7 +36,7 @@ WORKSPACE_REASON_ALREADY_BOUND = "already_bound"
 class WorkspaceBindingError(RuntimeError):
     """Raised when workspace binding state cannot be converged safely."""
 
-    def __init__(self, message: str, *, code: str = "invalid_binding") -> None:
+    def __init__(self, message: str, *, code: str = WORKSPACE_ERROR_INVALID_BINDING) -> None:
         super().__init__(message)
         self.code = code
 
@@ -350,7 +352,8 @@ def resolve_brain_target(
         default_id = vault_registry.get_default()
     except vault_registry.RegistryReadError as exc:
         raise WorkspaceBindingError(
-            f"failed to read Brain registry default: {exc}"
+            f"failed to read Brain registry default: {exc}",
+            code=WORKSPACE_ERROR_FILESYSTEM_ACCESS,
         ) from exc
 
     if default_id:
@@ -532,7 +535,12 @@ def load_workspace_manifest_state(target_dir: Path) -> WorkspaceManifestState:
     if manifest_path.is_file():
         try:
             data = load_mapping_file(manifest_path)
-        except (OSError, YamlError) as exc:
+        except OSError as exc:
+            raise WorkspaceBindingError(
+                f"failed to load {WORKSPACE_MANIFEST_REL}: {exc}",
+                code=WORKSPACE_ERROR_FILESYSTEM_ACCESS,
+            ) from exc
+        except YamlError as exc:
             raise WorkspaceBindingError(f"failed to load {WORKSPACE_MANIFEST_REL}: {exc}") from exc
         return WorkspaceManifestState(
             target_dir=target_dir,
@@ -545,7 +553,12 @@ def load_workspace_manifest_state(target_dir: Path) -> WorkspaceManifestState:
     if legacy_path.is_file():
         try:
             data = load_mapping_file(legacy_path)
-        except (OSError, YamlError) as exc:
+        except OSError as exc:
+            raise WorkspaceBindingError(
+                f"failed to load {WORKSPACE_MANIFEST_LEGACY_REL}: {exc}",
+                code=WORKSPACE_ERROR_FILESYSTEM_ACCESS,
+            ) from exc
+        except YamlError as exc:
             raise WorkspaceBindingError(f"failed to load {WORKSPACE_MANIFEST_LEGACY_REL}: {exc}") from exc
         return WorkspaceManifestState(
             target_dir=target_dir,
@@ -613,7 +626,8 @@ def resolve_local_brain_alias(vault_root: Path) -> str:
         return vault_registry.backfill(str(vault_root))
     except (OSError, vault_registry.RegistryReadError) as exc:
         raise WorkspaceBindingError(
-            f"failed to resolve local Brain ID for {vault_root}: {exc}"
+            f"failed to resolve local Brain ID for {vault_root}: {exc}",
+            code=WORKSPACE_ERROR_FILESYSTEM_ACCESS,
         ) from exc
 
 
@@ -623,7 +637,8 @@ def resolve_local_brain_vault(brain_id: str) -> Path | None:
         resolved = vault_registry.resolve(brain_id)
     except vault_registry.RegistryReadError as exc:
         raise WorkspaceBindingError(
-            f"failed to read local Brain registry while resolving Brain ID '{brain_id}': {exc}"
+            f"failed to read local Brain registry while resolving Brain ID '{brain_id}': {exc}",
+            code=WORKSPACE_ERROR_FILESYSTEM_ACCESS,
         ) from exc
     if not resolved:
         return None
@@ -647,7 +662,10 @@ def save_workspace_manifest_data(
         try:
             current_text = state.source_path.read_text(encoding="utf-8")
         except OSError as exc:
-            raise WorkspaceBindingError(f"failed to read existing workspace manifest: {exc}") from exc
+            raise WorkspaceBindingError(
+                f"failed to read existing workspace manifest: {exc}",
+                code=WORKSPACE_ERROR_FILESYSTEM_ACCESS,
+            ) from exc
     next_text = dump_mapping_text(data)
 
     if current_text == next_text and state.source_path == state.manifest_path:
@@ -665,7 +683,8 @@ def save_workspace_manifest_data(
             state.legacy_path.unlink()
         except OSError as exc:
             raise WorkspaceBindingError(
-                f"failed to remove legacy manifest {WORKSPACE_MANIFEST_LEGACY_REL}: {exc}"
+                f"failed to remove legacy manifest {WORKSPACE_MANIFEST_LEGACY_REL}: {exc}",
+                code=WORKSPACE_ERROR_FILESYSTEM_ACCESS,
             ) from exc
 
     if state.source_path is None:

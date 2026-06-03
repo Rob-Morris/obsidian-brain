@@ -73,10 +73,14 @@ python3.12 .brain-core/scripts/setup.py workspace /path/to/project --vault /path
 That creates or repairs `.brain/local/workspace.yaml` with the workspace's `brain + slug` binding and adds Brain-owned machine-local ignore rules in git-backed targets without writing `.mcp.json`, `.codex/config.toml`, or SessionStart hooks. Configure transport later only if you want it, for example:
 
 ```bash
-brain configure mcp --vault /path/to/brain --workspace /path/to/project --user --client all
+# Project scope for one workspace
+brain configure mcp --vault /path/to/brain --workspace /path/to/project --client all
 
 # or call the shipped script directly
-python3.12 .brain-core/scripts/configure.py mcp --vault /path/to/brain --workspace /path/to/project --user --client all
+python3.12 .brain-core/scripts/configure.py mcp --vault /path/to/brain --workspace /path/to/project --client all
+
+# User scope everywhere on the machine
+brain configure mcp --vault /path/to/brain --user --client all
 ```
 
 ---

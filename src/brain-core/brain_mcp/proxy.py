@@ -37,16 +37,20 @@ _SCRIPT_ROOT = Path(__file__).resolve().parents[1] / "scripts"
 if str(_SCRIPT_ROOT) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_ROOT))
 
+from _bootstrap.runtime import same_executable_path
 from _bootstrap.workspace_binding import (
+    WORKSPACE_ERROR_FILESYSTEM_ACCESS,
     WorkspaceBindingError,
     resolve_and_heal,
 )
+from _common import resolve_vault_venv_python
+from _repair_common import build_repair_command
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
-PROXY_VERSION = "0.5.4"
+PROXY_VERSION = "0.5.6"
 
 _LOG_REL = os.path.join(".brain", "local", "mcp-proxy.log")
 _LOG_MAX_BYTES = 2 * 1024 * 1024  # 2 MB
@@ -60,6 +64,13 @@ _READER_SELECT_TIMEOUT = 30  # seconds; override with BRAIN_PROXY_READ_TIMEOUT
 _HANG_CONSECUTIVE_LIMIT = 3  # kill child after this many timeouts with in-flight requests
 _MAX_REPLAY_DEPTH = 1  # cap replay to prevent infinite drift loops
 _VERSION_CHECK_INTERVAL = 5  # seconds; override with BRAIN_PROXY_VERSION_CHECK_INTERVAL
+_GUIDANCE_BINDING = "Fix the binding or machine default, then restart MCP."
+_GUIDANCE_FILESYSTEM = "Fix the filesystem permissions or mount state, then restart MCP."
+_GUIDANCE_VAULT_FILESYSTEM = "Fix the vault filesystem permissions or mount state, then restart MCP."
+_GUIDANCE_BY_BINDING_CODE = {
+    WORKSPACE_ERROR_FILESYSTEM_ACCESS: _GUIDANCE_FILESYSTEM,
+}
+
 
 def _unrecoverable_msg(reason: str) -> str:
     """Build a user-facing error message for an unrecoverable proxy state.
@@ -67,10 +78,47 @@ def _unrecoverable_msg(reason: str) -> str:
     All such messages share the `MCP unrecoverable — ...` prefix so clients
     can recognise terminal states regardless of cause.
     """
-    return f"MCP unrecoverable — {reason}. Restart MCP via /mcp."
+    return f"MCP unrecoverable — {reason}. Restart MCP to recover."
 
 
 _RECOVERY_THREAD_CRASHED_MSG = _unrecoverable_msg("proxy recovery thread crashed")
+
+
+def _read_child_line_with_timeout(child: "ChildProcess", timeout: int) -> bytes | None:
+    """Read one child stdout line with a timeout.
+
+    Unix can wait on pipe fds with select.  Windows select only supports
+    sockets, so pipe reads run in a daemon helper thread and the caller waits
+    on the queue.  A timed-out Windows read may leave that daemon blocked until
+    the child pipe closes; this is acceptable for the initialize handshake and
+    avoids wedging the proxy on a healthy child.
+    """
+    if sys.platform == "win32":
+        result: queue.Queue[bytes | None] = queue.Queue(maxsize=1)
+
+        def read_once() -> None:
+            try:
+                result.put(child.readline())
+            except OSError:
+                result.put(None)
+
+        reader = threading.Thread(target=read_once, daemon=True, name="child-line-timeout")
+        reader.start()
+        try:
+            return result.get(timeout=timeout)
+        except queue.Empty:
+            return None
+
+    fd = child.stdout_fd
+    if fd is None:
+        return None
+    try:
+        ready, _, _ = select.select([fd], [], [], timeout)
+    except (ValueError, OSError):
+        return None
+    if not ready:
+        return None
+    return child.readline()
 
 # ---------------------------------------------------------------------------
 # Logging setup
@@ -163,6 +211,38 @@ def _write_line(stream, obj: dict) -> None:
     stream.flush()
 
 
+def _safe_write_line(stream, obj: dict, *, broken_pipe_message: str, error_message: str) -> bool:
+    """Write one JSON-RPC line, logging and returning False if the client is gone."""
+    try:
+        _write_line(stream, obj)
+        return True
+    except BrokenPipeError:
+        _log().warning(broken_pipe_message)
+        return False
+    except OSError as exc:
+        _log().error("%s: %s", error_message, exc)
+        return False
+
+
+def _parse_jsonrpc_line(line: bytes, *, log_warning: bool) -> dict | None:
+    """Parse one NDJSON JSON-RPC frame, returning None for invalid/non-object input."""
+    try:
+        obj = json.loads(line.decode("utf-8").strip())
+    except (json.JSONDecodeError, UnicodeDecodeError) as e:
+        if log_warning:
+            _log().warning("failed to parse client message: %s", e)
+        return None
+    if not isinstance(obj, dict):
+        if log_warning:
+            _log().warning("ignored non-object JSON-RPC message: %r", obj)
+        return None
+    return obj
+
+
+def _restart_guidance_for_binding_error(exc: WorkspaceBindingError) -> str:
+    return _GUIDANCE_BY_BINDING_CODE.get(exc.code, _GUIDANCE_BINDING)
+
+
 def _decorate_with_drift_note(response: dict, old_ver: str, new_ver: str) -> dict:
     """
     Inject a proxy drift note into any outbound response — success or error.
@@ -173,34 +253,29 @@ def _decorate_with_drift_note(response: dict, old_ver: str, new_ver: str) -> dic
     """
     note = (
         f"\n\nNote: MCP proxy has been upgraded ({old_ver} → {new_ver}). "
-        "Restart MCP server via /mcp to load new proxy."
+        "Restart MCP to load the new proxy."
     )
     # Success response with text content
-    try:
-        content = response.get("result", {}).get("content", [])
-        if isinstance(content, list):
-            for i, item in enumerate(content):
-                if isinstance(item, dict) and item.get("type") == "text":
-                    new_item = dict(item)
-                    new_item["text"] = new_item.get("text", "") + note
-                    new_content = list(content)
-                    new_content[i] = new_item
-                    modified = dict(response)
-                    modified["result"] = dict(modified["result"])
-                    modified["result"]["content"] = new_content
-                    return modified
-    except Exception:
-        pass
+    result = response.get("result")
+    content = result.get("content", []) if isinstance(result, dict) else []
+    if isinstance(content, list):
+        for i, item in enumerate(content):
+            if isinstance(item, dict) and item.get("type") == "text":
+                new_item = dict(item)
+                new_item["text"] = new_item.get("text", "") + note
+                new_content = list(content)
+                new_content[i] = new_item
+                modified = dict(response)
+                modified["result"] = dict(result)
+                modified["result"]["content"] = new_content
+                return modified
     # Error response
-    try:
-        err = response.get("error")
-        if isinstance(err, dict) and "message" in err:
-            modified = dict(response)
-            modified["error"] = dict(err)
-            modified["error"]["message"] = err["message"] + note
-            return modified
-    except Exception:
-        pass
+    err = response.get("error")
+    if isinstance(err, dict) and "message" in err:
+        modified = dict(response)
+        modified["error"] = dict(err)
+        modified["error"]["message"] = err["message"] + note
+        return modified
     return response
 
 
@@ -504,6 +579,24 @@ class Proxy:
         """Enqueue a message for the client. Thread-safe. Never raises."""
         self._outbound.put(obj)
 
+    def _recover_owed_client(
+        self,
+        msg_id,
+        child: ChildProcess,
+        exit_code: int,
+        is_request: bool,
+    ) -> None:
+        """Recover a failed child send and answer a request still owed by this thread."""
+        owned_recovery = self._signal_recovery(exit_code, child=child)
+        if not owned_recovery and is_request:
+            # Reader thread already drove recovery; if its drain ran before
+            # our inflight insert, our id is still tracked and the client is
+            # owed a response.
+            with self._inflight_lock:
+                was_tracked = self._inflight_requests.pop(msg_id, None) is not None
+            if was_tracked:
+                self._send_to_client(self._error_response_for_dead_child(msg_id))
+
     def _initiate_shutdown(self) -> None:
         """Begin proxy shutdown and wake any sleeping background threads."""
         self._shutdown = True
@@ -522,49 +615,32 @@ class Proxy:
                 break
             if self._proxy_drift and self._proxy_version_on_disk:
                 obj = _decorate_with_drift_note(obj, PROXY_VERSION, self._proxy_version_on_disk)
-            try:
-                _write_line(sys.stdout.buffer, obj)
-            except BrokenPipeError:
-                _log().warning("client disconnected (broken pipe on stdout)")
-                self._initiate_shutdown()
-                return
-            except Exception as e:
-                _log().error("error writing to client stdout: %s", e)
+            if not _safe_write_line(
+                sys.stdout.buffer,
+                obj,
+                broken_pipe_message="client disconnected (broken pipe on stdout)",
+                error_message="error writing to client stdout",
+            ):
                 self._initiate_shutdown()
                 return
 
     def _read_with_timeout(self, child: ChildProcess, timeout: int) -> dict | None:
         """
         Read one JSON line from child stdout within timeout seconds.
-        Uses select() instead of a daemon thread to avoid leaked threads.
         Returns parsed dict or None on timeout/error.
         """
-        fd = child.stdout_fd
-        if fd is None:
+        line = _read_child_line_with_timeout(child, timeout)
+        if line is None:
+            _log().warning(
+                "child initialize produced no response within %ds or closed stdout",
+                timeout,
+            )
             return None
-
-        deadline = time.monotonic() + timeout
-        while True:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                _log().warning("child initialize timed out after %ds", timeout)
-                return None
-
-            try:
-                ready, _, _ = select.select([fd], [], [], remaining)
-            except (ValueError, OSError):
-                return None
-
-            if ready:
-                try:
-                    line = child.readline()
-                    if line:
-                        return json.loads(line.decode("utf-8").strip())
-                    # EOF — child died
-                    return None
-                except Exception as e:
-                    _log().error("error reading child initialize response: %s", e)
-                    return None
+        obj = _parse_jsonrpc_line(line, log_warning=False)
+        if obj is None:
+            _log().error("error reading child initialize response: invalid JSON-RPC frame")
+            return None
+        return obj
 
     def _compute_proxy_hash(self, content: bytes | None = None) -> str | None:
         """Compute SHA-256 hash prefix of proxy.py. Uses provided content or reads from disk."""
@@ -944,48 +1020,56 @@ class Proxy:
                     hang_counter = 0
                     continue
 
-                fd = child.stdout_fd
-                if fd is None:
-                    line = None
+                if sys.platform == "win32":
+                    # Windows select() cannot wait on anonymous pipe handles.
+                    # This reader is already a daemon thread, so block directly
+                    # and rely on EOF/crash recovery; timeout-based hang
+                    # detection remains available on Unix.
+                    line = child.readline()
                 else:
-                    try:
-                        ready, _, _ = select.select([fd], [], [], timeout)
-                    except (ValueError, OSError):
+                    fd = child.stdout_fd
+                    if fd is None:
+                        line = None
+                    else:
                         line = None
                         ready = None
-                    if ready is not None:
-                        if ready:
-                            line = child.readline()
-                            hang_counter = 0
-                        else:
-                            # Timeout — check child health
-                            poll = child.poll()
-                            if poll is not None:
-                                # Child already dead — treat as EOF
-                                line = None
+                        try:
+                            ready, _, _ = select.select([fd], [], [], timeout)
+                        except (ValueError, OSError):
+                            line = None
+                        if ready is not None:
+                            if ready:
+                                line = child.readline()
+                                hang_counter = 0
                             else:
-                                # Child alive — check for hang
-                                with self._inflight_lock:
-                                    has_inflight = bool(self._inflight_requests)
-                                if has_inflight:
-                                    hang_counter += 1
-                                    _log().warning(
-                                        "child unresponsive with in-flight requests "
-                                        "(timeout %d/%d)",
-                                        hang_counter, _HANG_CONSECUTIVE_LIMIT,
-                                    )
-                                    if hang_counter >= _HANG_CONSECUTIVE_LIMIT:
-                                        _log().error(
-                                            "killing hung child after %d consecutive timeouts",
-                                            hang_counter,
-                                        )
-                                        child.kill()
-                                        line = None  # trigger EOF path
-                                    else:
-                                        continue
+                                # Timeout — check child health
+                                poll = child.poll()
+                                if poll is not None:
+                                    # Child already dead — treat as EOF
+                                    line = None
                                 else:
-                                    # No in-flight requests — idle is fine
-                                    continue
+                                    # Child alive — check for hang
+                                    with self._inflight_lock:
+                                        has_inflight = bool(self._inflight_requests)
+                                    if has_inflight:
+                                        hang_counter += 1
+                                        _log().warning(
+                                            "child unresponsive with in-flight requests "
+                                            "(timeout %d/%d)",
+                                            hang_counter, _HANG_CONSECUTIVE_LIMIT,
+                                        )
+                                        if hang_counter >= _HANG_CONSECUTIVE_LIMIT:
+                                            _log().error(
+                                                "killing hung child after %d consecutive timeouts",
+                                                hang_counter,
+                                            )
+                                            child.kill()
+                                            line = None  # trigger EOF path
+                                        else:
+                                            continue
+                                    else:
+                                        # No in-flight requests — idle is fine
+                                        continue
 
                 if line is None:
                     # Child stdout closed — wait for exit code
@@ -1084,10 +1168,8 @@ class Proxy:
             if not line:
                 continue
 
-            try:
-                obj = json.loads(line.decode("utf-8"))
-            except (json.JSONDecodeError, UnicodeDecodeError) as e:
-                _log().warning("failed to parse client message: %s", e)
+            obj = _parse_jsonrpc_line(line, log_warning=True)
+            if obj is None:
                 continue
 
             msg_id = obj.get("id")
@@ -1145,18 +1227,15 @@ class Proxy:
                         exit_code = child.wait()
                     except Exception:
                         exit_code = 1
-                owned_recovery = self._signal_recovery(exit_code, child=child)
-                if not owned_recovery and is_request:
-                    # Reader thread already drove recovery; if its drain ran
-                    # before our inflight insert, our id is still tracked and
-                    # the client is owed a response.
-                    with self._inflight_lock:
-                        was_tracked = self._inflight_requests.pop(msg_id, None) is not None
-                    if was_tracked:
-                        self._send_to_client(self._error_response_for_dead_child(msg_id))
+                self._recover_owed_client(msg_id, child, exit_code, is_request)
                 continue
             except Exception as e:
-                _log().error("error sending to child: %s", e)
+                _log().error("error sending to child (%s): %s", type(e).__name__, e)
+                exit_code = child.poll()
+                if exit_code is None:
+                    exit_code = 1
+                self._recover_owed_client(msg_id, child, exit_code, is_request)
+                continue
 
         # Shutdown — kill child if still running
         self._initiate_shutdown()
@@ -1183,43 +1262,54 @@ class Proxy:
 
 
 # ---------------------------------------------------------------------------
-# Degraded mode (startup resolution failure)
+# Degraded mode (startup failure)
 # ---------------------------------------------------------------------------
 
-def _run_degraded_server(reason: str, *, stdin=None, stdout=None) -> None:
-    """Serve a minimal MCP session that reports an unresolved-Brain error.
+def _run_degraded_server(
+    reason: str,
+    *,
+    stdin=None,
+    stdout=None,
+    guidance: str = _GUIDANCE_BINDING,
+    lead: str = "Brain MCP could not resolve a target vault.",
+) -> None:
+    """Serve a minimal MCP session that reports a startup-degraded Brain error.
 
-    The proxy reaches here when it cannot resolve a target Brain at startup (a
-    stale/dangling binding or machine default, or a missing-anchor hard-error).
-    Exiting instead would make the client report a generic "-32000 failed to
-    reconnect" and bury the actionable cause on stderr. So we complete the MCP
-    handshake and surface the resolution error to the agent — as the sole
-    advertised tool's description (``brain_unavailable``) and as an error on
-    every ``tools/call`` — so the real problem and its fix are visible. The
-    operator repairs the binding/default and restarts MCP via /mcp.
+    The proxy reaches here when startup cannot continue before a real child MCP
+    server exists: unresolved Brain binding/default failures, filesystem probe
+    failures during resolution, or resolved-vault failures such as an
+    inaccessible proxy log. Exiting instead would make the client report a
+    generic "-32000 failed to reconnect" and bury the actionable cause on
+    stderr. So we complete the MCP handshake and surface the startup error to
+    the agent via ``brain_unavailable`` and every ``tools/call`` response.
     """
     stdin = stdin if stdin is not None else sys.stdin.buffer
     stdout = stdout if stdout is not None else sys.stdout.buffer
 
-    detail = (
-        f"Brain MCP could not resolve a target vault. {reason} "
-        "Fix the binding or machine default, then restart MCP via /mcp."
-    )
-    _log().error("entering degraded (unresolved-Brain) mode: %s", reason)
+    detail = f"{lead} {reason} {guidance}"
+    _log().error("entering degraded mode: %s", reason)
+
+    def send(obj: dict) -> bool:
+        return _safe_write_line(
+            stdout,
+            obj,
+            broken_pipe_message="client disconnected (broken pipe on degraded stdout)",
+            error_message="error writing degraded response to client stdout",
+        )
 
     while True:
         try:
             line = stdin.readline()
-        except Exception:
+        except OSError:
             break
         if not line:
             break  # client closed stdin
         line = line.strip()
         if not line:
             continue
-        try:
-            obj = json.loads(line.decode("utf-8"))
-        except (json.JSONDecodeError, UnicodeDecodeError):
+        # Degraded startup may not have a working log yet; silently ignore bad frames.
+        obj = _parse_jsonrpc_line(line, log_warning=False)
+        if obj is None:
             continue
 
         msg_id = obj.get("id")
@@ -1232,7 +1322,7 @@ def _run_degraded_server(reason: str, *, stdin=None, stdout=None) -> None:
             params = obj.get("params")
             if isinstance(params, dict) and params.get("protocolVersion"):
                 protocol = params["protocolVersion"]
-            _write_line(stdout, {
+            if not send({
                 "jsonrpc": "2.0",
                 "id": msg_id,
                 "result": {
@@ -1241,9 +1331,10 @@ def _run_degraded_server(reason: str, *, stdin=None, stdout=None) -> None:
                     "serverInfo": {"name": "brain (unavailable)", "version": PROXY_VERSION},
                     "instructions": detail,
                 },
-            })
+            }):
+                break
         elif method == "tools/list":
-            _write_line(stdout, {
+            if not send({
                 "jsonrpc": "2.0",
                 "id": msg_id,
                 "result": {"tools": [{
@@ -1251,20 +1342,26 @@ def _run_degraded_server(reason: str, *, stdin=None, stdout=None) -> None:
                     "description": detail,
                     "inputSchema": {"type": "object", "properties": {}},
                 }]},
-            })
+            }):
+                break
         elif method == "resources/list":
-            _write_line(stdout, {"jsonrpc": "2.0", "id": msg_id, "result": {"resources": []}})
+            if not send({"jsonrpc": "2.0", "id": msg_id, "result": {"resources": []}}):
+                break
         elif method == "prompts/list":
-            _write_line(stdout, {"jsonrpc": "2.0", "id": msg_id, "result": {"prompts": []}})
+            if not send({"jsonrpc": "2.0", "id": msg_id, "result": {"prompts": []}}):
+                break
         elif method == "ping":
-            _write_line(stdout, {"jsonrpc": "2.0", "id": msg_id, "result": {}})
+            if not send({"jsonrpc": "2.0", "id": msg_id, "result": {}}):
+                break
         elif method == "tools/call":
-            _write_line(stdout, _make_error_response(msg_id, -32001, detail))
+            if not send(_make_error_response(msg_id, -32001, detail)):
+                break
         else:
-            _write_line(stdout, _make_error_response(
+            if not send(_make_error_response(
                 msg_id, -32601,
-                f"method '{method}' is unavailable while the Brain is unresolved. {detail}",
-            ))
+                f"method '{method}' is unavailable while Brain MCP is in degraded startup mode. {detail}",
+            )):
+                break
 
 
 # ---------------------------------------------------------------------------
@@ -1300,7 +1397,18 @@ def main() -> None:
         # — run a degraded server that completes the handshake and delivers the
         # actionable resolution error to the agent.
         print(f"brain-proxy: {exc}", file=sys.stderr)
-        _run_degraded_server(str(exc))
+        _run_degraded_server(str(exc), guidance=_restart_guidance_for_binding_error(exc))
+        return
+    except OSError as exc:
+        # Raw filesystem errors can still escape target resolution before the
+        # MCP session exists. Keep the handshake alive, but use
+        # permission/storage-specific guidance instead of binding/default wording.
+        print(f"brain-proxy: filesystem access failed while resolving Brain target: {exc}", file=sys.stderr)
+        _run_degraded_server(
+            f"filesystem access failed while resolving Brain target: {exc}",
+            guidance=_GUIDANCE_FILESYSTEM,
+            lead="Brain MCP could not inspect the filesystem while resolving a target vault.",
+        )
         return
 
     vault_root = target.vault_root
@@ -1311,9 +1419,40 @@ def main() -> None:
     if workspace_dir is not None:
         os.environ["BRAIN_WORKSPACE_DIR"] = workspace_dir
 
-    proxy = Proxy(python_path, server_target, vault_root)
     global _logger
-    _logger = _setup_logging(vault_root)
+    try:
+        _logger = _setup_logging(vault_root)
+    except OSError as exc:
+        print(f"brain-proxy: filesystem access failed while opening proxy log: {exc}", file=sys.stderr)
+        _run_degraded_server(
+            f"filesystem access failed while opening proxy log for {vault_root}: {exc}",
+            guidance=_GUIDANCE_VAULT_FILESYSTEM,
+            lead="Brain MCP resolved the target vault but could not start.",
+        )
+        return
+
+    try:
+        expected_python = str(resolve_vault_venv_python(Path(vault_root)))
+    except (OSError, subprocess.SubprocessError) as exc:
+        # If the canonical runtime path cannot be resolved, proceed and let
+        # child startup/recovery surface the concrete bootstrap failure. The
+        # identity guard only rejects a positively-known stale launcher.
+        _log().warning("could not resolve canonical managed Python for launch validation: %s", exc)
+    else:
+        if not same_executable_path(python_path, expected_python):
+            message = (
+                "Brain MCP launch config points at a non-canonical Python "
+                f"({python_path}); expected the managed runtime ({expected_python})."
+            )
+            print(f"brain-proxy: {message}", file=sys.stderr)
+            _run_degraded_server(
+                message,
+                guidance=f"Run `{build_repair_command(vault_root, 'mcp')}` from a shell, then restart MCP.",
+                lead="Brain MCP resolved the target vault but found stale MCP registration state.",
+            )
+            return
+
+    proxy = Proxy(python_path, server_target, vault_root)
     _log().info(
         "proxy starting: version=%s python=%s target=%s vault=%s workspace=%s source=%s",
         PROXY_VERSION, python_path, server_target, vault_root, workspace_dir, target.source,

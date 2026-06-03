@@ -438,18 +438,18 @@ The config system defines three built-in profiles (`reader`, `contributor`, `ope
 
 If `.brain-core/` is upgraded while the server is running, the server detects the version change on the next tool call and exits via `os._exit(10)`. The proxy catches this exit code, relaunches the server with the new code, and **replays the triggering request** to the new child — the client gets a success response instead of an error. `os._exit()` is used instead of `sys.exit()` because `SystemExit` raised inside an MCP tool handler gets wrapped in `BaseExceptionGroup` by anyio task groups, losing the exit code. Replay is safe because `_check_version_drift()` is the first line of every tool handler, before any side effects. Replay depth is capped at 1 to prevent infinite loops if the replayed request triggers another drift.
 
-The proxy also detects its own code drift (file hash comparison) after child restarts and injects a note into responses advising an MCP restart. All child-loss detection paths — reader-thread EOF, pre-send `poll()!=None`, `BrokenPipeError` while writing to child stdin, and initial startup failure — feed the same restart coordinator. If every backoff attempt fails, the proxy flips into an explicit recovery-exhausted state with `/mcp` guidance instead of returning a soft "server restarting, please retry" forever.
+The proxy also detects its own code drift (file hash comparison) after child restarts and injects a note into responses advising an MCP restart. All child-loss detection paths — reader-thread EOF, pre-send `poll()!=None`, `BrokenPipeError` while writing to child stdin, and initial startup failure — feed the same restart coordinator. If every backoff attempt fails, the proxy flips into an explicit recovery-exhausted state with restart-MCP guidance instead of returning a soft "server restarting, please retry" forever.
 
-The backoff loop now runs on a dedicated recovery thread rather than on the reader thread, main loop, or `main()` itself. While that thread sleeps or retries, the proxy keeps reading stdin and rejects incoming requests immediately with `server restarting, please retry`. That restores the wrapper's intended "no blocking, no queuing" behaviour even during initial-start failure. If the recovery thread itself crashes, dead-child requests fail hard with `MCP unrecoverable — ...` plus `/mcp` guidance.
+The backoff loop now runs on a dedicated recovery thread rather than on the reader thread, main loop, or `main()` itself. While that thread sleeps or retries, the proxy keeps reading stdin and rejects incoming requests immediately with `server restarting, please retry`. That restores the wrapper's intended "no blocking, no queuing" behaviour even during initial-start failure. If the recovery thread itself crashes, dead-child requests fail hard with `MCP unrecoverable — ...` plus restart-MCP guidance.
 
 ### Shutdown Lifecycle
 
-The MCP server follows the [stdio lifecycle spec](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle). Four exit paths:
+The MCP server follows the [stdio lifecycle spec](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle). Five exit paths:
 
 1. **Stdin EOF** — client closes input pipe → `mcp.run()` returns → `brain-core shutdown: stdin closed` → exit 0
 2. **SIGTERM/SIGINT** — signal handler → `brain-core shutdown: received SIGTERM` → exit 0
 3. **Version drift** — `_check_version_drift()` detects `.brain-core/VERSION` changed on disk → exit 10. The proxy catches this, relaunches the server, and replays any in-flight requests.
-4. **Hang detection** — the proxy's reader thread uses `select()` with a configurable timeout (`BRAIN_PROXY_READ_TIMEOUT`, default 30s). If the child is unresponsive with in-flight requests for 3 consecutive timeouts, the proxy kills the child and routes the loss through the same restart/backoff coordinator.
+4. **Hang detection** — on Unix, the proxy's reader thread uses `select()` with a configurable timeout (`BRAIN_PROXY_READ_TIMEOUT`, default 30s). If the child is unresponsive with in-flight requests for 3 consecutive timeouts, the proxy kills the child and routes the loss through the same restart/backoff coordinator. On Windows, anonymous pipe reads block directly, so crash/EOF recovery remains available but timeout-based hang detection is not.
 5. **Unexpected error** — caught, full traceback to stderr → exit 1 (the only path that indicates a real crash)
 
 ## Obsidian CLI Integration

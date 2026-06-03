@@ -83,7 +83,6 @@ CLI_TARGET_LOCATIONS = (
 )
 DEPENDENCY_SYNC_TIMEOUT = 300
 RETRIEVAL_ASSET_REPAIR_TIMEOUT = 1800
-MANAGED_RUNTIME_ENV = "BRAIN_MANAGED_RUNTIME"
 SKIP_BOOTSTRAP_ENV = "BRAIN_SKIP_BOOTSTRAP"
 
 # Outcome tags for `_ensure_central_runtime` (named so producer + consumer cannot drift).

@@ -14,7 +14,7 @@ MINIMAL_SESSION_CORE = "# Session Core\n\n## Core Docs\n\n## Standards\n"
 
 @pytest.fixture(autouse=True)
 def _managed_runtime_env(monkeypatch):
-    monkeypatch.setenv("BRAIN_MANAGED_RUNTIME", "1")
+    monkeypatch.setenv("BRAIN_SKIP_BOOTSTRAP", "1")
 
 
 def _minimal_router(vault_root):
@@ -357,7 +357,6 @@ class TestSessionCli:
     def test_main_emits_degraded_json_when_bootstrap_fails(
         self, tmp_path, monkeypatch, capsys
     ):
-        monkeypatch.delenv("BRAIN_MANAGED_RUNTIME", raising=False)
         monkeypatch.setattr(
             session,
             "handoff_current_script_to_managed_runtime",

@@ -1,6 +1,6 @@
 # Obsidian Brain
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.48.1-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.12-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.48.2-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.12-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
 
 A self-evolving knowledge base for agents and humans working together on what matters.
 
@@ -31,7 +31,7 @@ The [Getting Started guide](docs/user/getting-started.md) walks through all of t
 
 ## Quick Start
 
-**You need:** git and an MCP-capable agent such as [Claude Code](https://docs.anthropic.com/en/docs/claude-code) or Codex. Python 3.12+ is the supported user-facing runtime for MCP and Python lifecycle commands; `install.sh` can still scaffold the vault without it and print the follow-up steps. [Obsidian](https://obsidian.md) is strongly recommended — the brain is designed for it — but you can use any markdown editor or just talk to your agent directly.
+**You need:** git, plus an agent you can run in the vault folder. An MCP-capable agent such as [Claude Code](https://docs.anthropic.com/en/docs/claude-code) or Codex gives the best tool-backed experience, but Brain also has a markdown bootstrap fallback for agents without MCP. Python 3.12+ is the supported user-facing runtime for MCP and Python lifecycle commands; `install.sh` can still scaffold the vault without it and print the follow-up steps. [Obsidian](https://obsidian.md) is strongly recommended — the brain is designed for it — but you can use any markdown editor or just talk to your agent directly.
 
 **Create your vault:**
 

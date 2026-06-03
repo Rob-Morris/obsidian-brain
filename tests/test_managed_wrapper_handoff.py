@@ -6,7 +6,6 @@ import importlib.util
 import json
 import os
 from pathlib import Path
-import stat
 import subprocess
 import sys
 
@@ -35,7 +34,11 @@ class _ReexecCalled(Exception):
 
 
 def test_shared_handoff_short_circuits_when_already_in_managed_runtime(monkeypatch):
-    monkeypatch.setenv("BRAIN_MANAGED_RUNTIME", "1")
+    monkeypatch.setattr(
+        bootstrap_runtime,
+        "resolve_vault_venv_python",
+        lambda _vault: Path(sys.executable),
+    )
     monkeypatch.setattr(
         bootstrap_runtime,
         "bootstrap_managed_runtime",
@@ -53,8 +56,22 @@ def test_shared_handoff_short_circuits_when_already_in_managed_runtime(monkeypat
     assert summary["managed_python"] == sys.executable
 
 
+def test_managed_runtime_detection_preserves_venv_symlink_boundary(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path / "_home"))
+
+    vault = tmp_path / "vault"
+    (vault / ".brain-core" / "brain_mcp").mkdir(parents=True)
+    (vault / ".brain-core" / "VERSION").write_text("0.42.3\n")
+    (vault / ".brain-core" / "brain_mcp" / "requirements.txt").write_text("mcp>=1.0.0\n")
+
+    managed_python = venv_helper.resolve_vault_venv_python(vault)
+    managed_python.parent.mkdir(parents=True, exist_ok=True)
+    managed_python.symlink_to(sys.executable)
+
+    assert bootstrap_runtime.current_process_in_managed_runtime(vault) is False
+
+
 def test_shared_handoff_reexecs_when_bootstrap_returns_different_python(monkeypatch):
-    monkeypatch.delenv("BRAIN_MANAGED_RUNTIME", raising=False)
     monkeypatch.setattr(
         bootstrap_runtime,
         "current_process_in_managed_runtime",
@@ -95,7 +112,6 @@ def test_shared_handoff_reexecs_when_bootstrap_returns_different_python(monkeypa
 
 
 def test_shared_handoff_raises_when_bootstrap_cannot_produce_runtime(monkeypatch):
-    monkeypatch.delenv("BRAIN_MANAGED_RUNTIME", raising=False)
     monkeypatch.setattr(
         bootstrap_runtime,
         "current_process_in_managed_runtime",
@@ -121,7 +137,6 @@ def test_shared_handoff_raises_when_bootstrap_cannot_produce_runtime(monkeypatch
 
 
 def test_ensure_managed_runtime_preserves_bootstrap_error_message(monkeypatch):
-    monkeypatch.delenv("BRAIN_MANAGED_RUNTIME", raising=False)
     monkeypatch.delenv("BRAIN_SKIP_BOOTSTRAP", raising=False)
     monkeypatch.setattr(
         bootstrap_runtime,
@@ -148,7 +163,11 @@ def test_ensure_managed_runtime_preserves_bootstrap_error_message(monkeypatch):
 
 
 def test_preview_managed_runtime_short_circuits_when_already_in_managed_runtime(monkeypatch):
-    monkeypatch.setenv("BRAIN_MANAGED_RUNTIME", "1")
+    monkeypatch.setattr(
+        bootstrap_runtime,
+        "resolve_vault_venv_python",
+        lambda _vault: Path(sys.executable),
+    )
     monkeypatch.setattr(
         bootstrap_runtime,
         "bootstrap_managed_runtime",
@@ -171,7 +190,6 @@ def test_semantic_scope_requires_only_baseline_managed_runtime_modules():
 
 def test_preview_managed_runtime_short_circuits_when_skip_bootstrap_current_interpreter_is_sufficient(monkeypatch):
     monkeypatch.setenv("BRAIN_SKIP_BOOTSTRAP", "1")
-    monkeypatch.delenv("BRAIN_MANAGED_RUNTIME", raising=False)
     monkeypatch.setattr(
         bootstrap_runtime,
         "bootstrap_managed_runtime",
@@ -190,7 +208,6 @@ def test_preview_managed_runtime_short_circuits_when_skip_bootstrap_current_inte
 
 def test_preview_managed_runtime_does_not_trust_skip_bootstrap_when_current_interpreter_lacks_scope_requirements(monkeypatch):
     monkeypatch.setenv("BRAIN_SKIP_BOOTSTRAP", "1")
-    monkeypatch.delenv("BRAIN_MANAGED_RUNTIME", raising=False)
     monkeypatch.setattr(
         bootstrap_runtime,
         "current_process_in_managed_runtime",
@@ -225,7 +242,6 @@ def test_preview_managed_runtime_does_not_trust_skip_bootstrap_when_current_inte
 
 
 def test_preview_managed_runtime_delegates_to_bootstrap_dry_run(monkeypatch):
-    monkeypatch.delenv("BRAIN_MANAGED_RUNTIME", raising=False)
     monkeypatch.delenv("BRAIN_SKIP_BOOTSTRAP", raising=False)
     monkeypatch.setattr(
         bootstrap_runtime,
@@ -278,19 +294,13 @@ def test_shared_handoff_reexecs_end_to_end_through_fake_managed_runtime(tmp_path
     (vault / ".brain-core" / "brain_mcp" / "requirements.txt").write_text("mcp>=1.0.0\n")
 
     managed_python = venv_helper.resolve_vault_venv_python(vault)
-    managed_python.parent.mkdir(parents=True, exist_ok=True)
-    marker_path = tmp_path / "managed-marker.txt"
     output_path = tmp_path / "handoff-output.json"
-    managed_python.write_text(
-        "#!/bin/sh\n"
-        f"echo \"$0\" >> {marker_path}\n"
-        f"exec {sys.executable} \"$@\"\n",
-        encoding="utf-8",
-    )
-    managed_python.chmod(
-        stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR
-        | stat.S_IRGRP | stat.S_IXGRP
-        | stat.S_IROTH | stat.S_IXOTH
+    counter_path = tmp_path / "handoff-count.txt"
+    subprocess.run(
+        [sys.executable, "-m", "venv", str(managed_python.parent.parent)],
+        check=True,
+        capture_output=True,
+        text=True,
     )
 
     probe_script = tmp_path / "handoff_probe.py"
@@ -299,6 +309,9 @@ def test_shared_handoff_reexecs_end_to_end_through_fake_managed_runtime(tmp_path
         "from pathlib import Path\n"
         "from _bootstrap.runtime import handoff_current_script_to_managed_runtime, load_bootstrap_steps\n"
         "vault_root = sys.argv[1]\n"
+        "counter = Path(os.environ['TEST_COUNTER'])\n"
+        "count = int(counter.read_text(encoding='utf-8')) if counter.exists() else 0\n"
+        "counter.write_text(str(count + 1), encoding='utf-8')\n"
         "handoff_current_script_to_managed_runtime(\n"
         "    vault_root,\n"
         "    dependency_owner='handoff_probe.py',\n"
@@ -307,7 +320,6 @@ def test_shared_handoff_reexecs_end_to_end_through_fake_managed_runtime(tmp_path
         "    required_modules=(),\n"
         ")\n"
         "payload = {\n"
-        "    'managed_env': os.environ.get('BRAIN_MANAGED_RUNTIME'),\n"
         "    'managed_python': sys.executable,\n"
         "    'steps': load_bootstrap_steps(),\n"
         "}\n"
@@ -318,7 +330,7 @@ def test_shared_handoff_reexecs_end_to_end_through_fake_managed_runtime(tmp_path
     env = os.environ.copy()
     env["PYTHONPATH"] = str(SCRIPTS_DIR)
     env["TEST_OUTPUT"] = str(output_path)
-    env.pop("BRAIN_MANAGED_RUNTIME", None)
+    env["TEST_COUNTER"] = str(counter_path)
     env.pop("BRAIN_BOOTSTRAP_SUMMARY", None)
 
     result = subprocess.run(
@@ -331,16 +343,10 @@ def test_shared_handoff_reexecs_end_to_end_through_fake_managed_runtime(tmp_path
     )
 
     assert result.returncode == 0, result.stderr
-    marker_lines = [
-        line
-        for line in marker_path.read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
-    assert marker_lines
-    assert marker_lines[-1] == str(managed_python)
     payload = json.loads(output_path.read_text(encoding="utf-8"))
-    assert payload["managed_env"] == "1"
+    assert Path(payload["managed_python"]) == managed_python
     assert payload["steps"]
+    assert counter_path.read_text(encoding="utf-8") == "2"
 
 
 @pytest.mark.parametrize(

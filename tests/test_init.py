@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 import tomllib
+from pathlib import Path, PureWindowsPath
 from unittest.mock import patch, MagicMock
 
 import pytest
@@ -472,6 +473,27 @@ class TestBuildSessionHookCommand:
         command = init.build_session_hook_command(vault, vault)
         assert sys.executable in command
 
+    def test_can_embed_managed_runtime_python(self, vault):
+        managed_python = str(vault / ".brain" / "venv" / "Scripts" / "python.exe")
+        command = init.build_session_hook_command(vault, vault, python_path=managed_python)
+        assert managed_python in command
+
+    def test_windows_quoting_uses_windows_command_rules(self, vault, monkeypatch):
+        managed_python = r"C:\Users\Rob Morris\.brain\venvs\py3.12\Scripts\python.exe"
+        vault_root = PureWindowsPath(r"C:\Users\Rob Morris\Documents\Brain")
+        workspace = PureWindowsPath(r"C:\Users\Rob Morris\Documents\Brain")
+        monkeypatch.setattr(init._mcp_state.sys, "platform", "win32")
+
+        command = init.build_session_hook_command(
+            vault_root,
+            workspace,
+            python_path=managed_python,
+        )
+
+        assert "'C:" not in command
+        assert '"C:\\Users\\Rob Morris\\.brain\\venvs\\py3.12\\Scripts\\python.exe"' in command
+        assert '"C:\\Users\\Rob Morris\\Documents\\Brain\\.brain-core\\scripts\\session.py"' in command
+
 
 class TestEnsureSessionStartHook:
     def test_creates_hook(self, project, vault):
@@ -508,6 +530,58 @@ class TestEnsureSessionStartHook:
         data = json.loads((settings_dir / "settings.local.json").read_text())
         assert "PostToolUse" in data["hooks"]
         assert "SessionStart" in data["hooks"]
+
+    def test_register_claude_uses_managed_python_for_hook(self, project, vault, monkeypatch):
+        managed_python = str(vault / ".brain" / "venv" / "bin" / "python")
+        server_config = init.build_mcp_config(managed_python, vault, workspace_dir=project)
+        monkeypatch.setattr(mcp_transport, "_has_claude_cli", lambda: False)
+
+        record = init.register_claude(vault, server_config, "project", project)
+
+        settings = json.loads((project / ".claude" / "settings.local.json").read_text())
+        command = settings["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+        assert managed_python in command
+        assert command == record["hook_command"]
+
+    def test_register_claude_replaces_legacy_machine_python_hook(self, project, vault, monkeypatch):
+        machine_python = "/usr/bin/python3.12"
+        managed_python = str(vault / ".brain" / "venv" / "bin" / "python")
+        legacy_command = (
+            "echo 'brain_session called:' "
+            f"&& {machine_python} {vault / '.brain-core' / 'scripts' / 'session.py'} "
+            f"--vault {vault} --workspace-dir {project} --json"
+        )
+        settings_path = project / ".claude" / "settings.local.json"
+        settings_path.parent.mkdir(parents=True)
+        settings_path.write_text(json.dumps({
+            "hooks": {
+                "SessionStart": [
+                    {
+                        "hooks": [
+                            {"type": "command", "command": legacy_command},
+                            {"type": "command", "command": "echo unrelated"},
+                        ]
+                    }
+                ]
+            }
+        }))
+        server_config = init.build_mcp_config(managed_python, vault, workspace_dir=project)
+        monkeypatch.setattr(mcp_transport, "_has_claude_cli", lambda: False)
+
+        record = init.register_claude(vault, server_config, "project", project)
+
+        settings = json.loads(settings_path.read_text())
+        session_hooks = settings["hooks"]["SessionStart"]
+        commands = [
+            hook["command"]
+            for entry in session_hooks
+            for hook in entry["hooks"]
+            if hook.get("type") == "command"
+        ]
+        assert legacy_command not in commands
+        assert "echo unrelated" in commands
+        assert record["hook_command"] in commands
+        assert len([command for command in commands if "session.py" in command]) == 1
 
 
 class TestClaudeProjectApproval:

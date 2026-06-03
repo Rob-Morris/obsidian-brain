@@ -30,9 +30,6 @@ PROXY_SCRIPT = os.path.abspath(
 PROXY_MODULE = "brain_mcp.proxy"
 PYTHON = sys.executable
 
-if PROXY_SCRIPT not in sys.path:
-    sys.path.insert(0, PROXY_SCRIPT)
-
 from brain_mcp import proxy as proxy_mod
 
 _GIVE_UP_MSG_FRAGMENT = "recovery attempts"
@@ -342,6 +339,18 @@ class _FakeChild:
         self.killed = True
 
 
+class _ReadableFakeChild(_FakeChild):
+    def __init__(self, lines: list[bytes | None]):
+        super().__init__(poll_values=[None, 0])
+        self._lines = list(lines)
+        self.stdout_fd = 123
+
+    def readline(self) -> bytes | None:
+        if self._lines:
+            return self._lines.pop(0)
+        return None
+
+
 def _make_inprocess_proxy(tmp_path, monkeypatch, stdin_lines: list[bytes]) -> tuple[proxy_mod.Proxy, list[dict]]:
     _write_vault(tmp_path)
     monkeypatch.setattr(proxy_mod, "_logger", proxy_mod._setup_logging(str(tmp_path)))
@@ -370,6 +379,48 @@ def _make_inprocess_proxy_with_real_threads(
     monkeypatch.setattr(proxy, "_send_to_client", lambda obj: sent_to_client.append(obj))
 
     return proxy, sent_to_client
+
+
+class TestWindowsChildPipeReads:
+    @staticmethod
+    def _fail_select(*args, **kwargs):
+        raise AssertionError("Windows pipe reads must not use select")
+
+    def test_initialize_read_uses_blocking_thread_instead_of_select(self, tmp_path, monkeypatch):
+        proxy, _ = _make_inprocess_proxy_with_real_threads(tmp_path, monkeypatch)
+        child = _ReadableFakeChild([_make_response(1, {"ok": True}).encode("utf-8")])
+
+        monkeypatch.setattr(proxy_mod.sys, "platform", "win32")
+        monkeypatch.setattr(proxy_mod.select, "select", self._fail_select)
+
+        assert proxy._read_with_timeout(child, 1) == {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {"ok": True},
+        }
+
+    def test_reader_thread_uses_blocking_readline_instead_of_select(self, tmp_path, monkeypatch):
+        proxy, sent_to_client = _make_inprocess_proxy_with_real_threads(tmp_path, monkeypatch)
+        child = _ReadableFakeChild([_make_response(2, {"ok": True}).encode("utf-8")])
+        with proxy._child_lock:
+            proxy._child = child
+
+        monkeypatch.setattr(proxy_mod.sys, "platform", "win32")
+        monkeypatch.setattr(proxy_mod.select, "select", self._fail_select)
+
+        def send_and_stop(obj: dict) -> None:
+            sent_to_client.append(obj)
+            proxy._initiate_shutdown()
+
+        monkeypatch.setattr(proxy, "_send_to_client", send_and_stop)
+
+        proxy._reader_thread()
+
+        assert sent_to_client == [{
+            "jsonrpc": "2.0",
+            "id": 2,
+            "result": {"ok": True},
+        }]
 
 
 def _run_proxy_wrapper(tmp_path, server_script, patch_body: str, *, backoff: str = "0,0,0,0,0"):
@@ -801,6 +852,28 @@ class TestMainLoopRecoveryPaths:
         assert proxy._restart_in_progress is True
         assert proxy._get_child() is None
 
+    def test_generic_send_error_signals_recovery_and_errors_orphaned_request(
+        self, tmp_path, monkeypatch
+    ):
+        proxy, sent_to_client = _make_inprocess_proxy(
+            tmp_path,
+            monkeypatch,
+            [_make_jsonrpc("tools/call", id=2, params={"name": "ping"}).encode("utf-8")],
+        )
+        broken_child = _FakeChild(poll_values=[None], send_exception=RuntimeError)
+
+        with proxy._child_lock:
+            proxy._child = broken_child
+
+        proxy.run()
+
+        assert len(sent_to_client) == 1
+        assert sent_to_client[0]["id"] == 2
+        assert "error" in sent_to_client[0]
+        assert "mid-request" in sent_to_client[0]["error"]["message"]
+        assert proxy._restart_in_progress is True
+        assert proxy._get_child() is None
+
 
 class TestInitialStartRecovery:
     """Initial child-start failures enter the same restart coordinator."""
@@ -917,7 +990,7 @@ class TestInitialStartRecovery:
 
     def test_subprocess_initial_start_permanent_failure_returns_give_up(self, tmp_path):
         """End-to-end: ChildProcess.start() always fails. Requests soft-fail
-        during recovery, then hard-fail with /mcp guidance after give-up."""
+        during recovery, then hard-fail with restart-MCP guidance after give-up."""
         _write_vault(tmp_path)
         server_script = _echo_server_script(tmp_path)
 
@@ -953,7 +1026,7 @@ class TestInitialStartRecovery:
             assert _GIVE_UP_MSG_FRAGMENT in error_msg.lower(), (
                 f"Expected explicit give-up message. Got: {error_msg!r}"
             )
-            assert "/mcp" in error_msg, (
+            assert "Restart MCP" in error_msg, (
                 f"Expected restart guidance. Got: {error_msg!r}"
             )
         finally:
@@ -1096,7 +1169,7 @@ class TestAsyncRecoveryThread:
         assert len(sent_to_client) == 1
         error_msg = sent_to_client[0]["error"]["message"]
         assert "MCP unrecoverable" in error_msg
-        assert "/mcp" in error_msg
+        assert "Restart MCP" in error_msg
 
     def test_crash_signal_after_recovery_crash_returns_unrecoverable(
         self, tmp_path, monkeypatch
@@ -1133,7 +1206,7 @@ class TestAsyncRecoveryThread:
         assert "MCP unrecoverable" in error_msg, (
             f"Expected unrecoverable error since recovery is dead, got: {error_msg!r}"
         )
-        assert "/mcp" in error_msg
+        assert "Restart MCP" in error_msg
 
     def test_drift_signal_after_recovery_crash_does_not_strand_inflight(
         self, tmp_path, monkeypatch
@@ -1175,7 +1248,7 @@ class TestAsyncRecoveryThread:
         assert sent_to_client[0]["id"] == 42
         error_msg = sent_to_client[0]["error"]["message"]
         assert "MCP unrecoverable" in error_msg
-        assert "/mcp" in error_msg
+        assert "Restart MCP" in error_msg
         assert proxy._pending_replay == []
 
 
@@ -1269,7 +1342,7 @@ class TestCrashBackoff:
             assert _GIVE_UP_MSG_FRAGMENT in error_msg.lower(), (
                 f"Expected explicit recovery exhaustion in error message. Got: {error_msg!r}"
             )
-            assert "Restart MCP via /mcp" in error_msg or "/mcp" in error_msg, (
+            assert "Restart MCP" in error_msg, (
                 f"Expected restart instruction in error message. Got: {error_msg!r}"
             )
 
@@ -1808,7 +1881,7 @@ class TestStartupTimeout:
             assert _GIVE_UP_MSG_FRAGMENT in error_msg.lower(), (
                 f"Expected explicit give-up message. Got: {error_msg!r}"
             )
-            assert "/mcp" in error_msg, (
+            assert "Restart MCP" in error_msg, (
                 f"Expected explicit restart guidance. Got: {error_msg!r}"
             )
 
