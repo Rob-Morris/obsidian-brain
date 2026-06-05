@@ -581,6 +581,25 @@ class TestConvertArtefact:
         fields, _ = parse_frontmatter(content)
         assert fields["type"] == "living/designs"
 
+    def test_convert_generates_distinctive_key_without_suffix(self, vault, router):
+        result = edit.convert_artefact(str(vault), router, "Wiki/test-page.md", "designs")
+        fields, _ = parse_frontmatter((vault / result["new_path"]).read_text())
+        assert fields["key"] == "test-page"
+
+    def test_convert_adds_random_suffix_only_after_keyword_collisions(self, vault, router):
+        (vault / "Designs" / "Existing Pair.md").write_text(
+            "---\ntype: living/designs\ntags: []\nkey: test-page\nstatus: shaping\n---\n\n# Existing\n"
+        )
+        (vault / "Designs" / "Existing Single.md").write_text(
+            "---\ntype: living/designs\ntags: []\nkey: test\nstatus: shaping\n---\n\n# Existing\n"
+        )
+        import compile_router
+        router = compile_router.compile(str(vault))
+
+        result = edit.convert_artefact(str(vault), router, "Wiki/test-page.md", "designs")
+        fields, _ = parse_frontmatter((vault / result["new_path"]).read_text())
+        assert re.fullmatch(r"test-page-[a-z2-9]{3}", fields["key"])
+
     def test_convert_preserves_body(self, vault, router):
         result = edit.convert_artefact(str(vault), router, "Wiki/test-page.md", "designs")
         abs_new = os.path.join(str(vault), result["new_path"])

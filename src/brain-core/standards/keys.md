@@ -49,12 +49,21 @@ Uppercase letters, spaces, underscores, consecutive hyphens, leading or trailing
 
 ## Selection
 
-The tooling generates keys automatically as `{keyword}-{suffix}`:
+The tooling generates keys automatically from the clearest distinctive words in
+the title:
 
-- **Keyword** — the longest non-stopword token from the title, lowercased, stripped of non-ASCII, and truncated to 12 characters. When every token is a stopword the sentinel keyword `husk` is used.
-- **Suffix** — a random 3-character string drawn from a confusable-free alphabet (`SLUG_ALPHABET` in `_common/_slugs.py`).
+- **Distinctive words** — up to two longest non-stopword tokens from the title,
+  lowercased, stripped of non-ASCII, and joined with a hyphen when they fit the
+  key budget. When every token is a stopword, the sentinel keyword `husk` is used.
+- **Collision fallback** — when the distinctive key is already taken, the tooling
+  tries the strongest single keyword, then appends a random 3-character suffix
+  drawn from a confusable-free alphabet (`SLUG_ALPHABET` in `_common/_slugs.py`).
+  The suffix always includes at least one letter, so generated keys satisfy the
+  alpha requirement by construction even when the title is numeric.
 
-Example: title `Pistols at Dawn` → keyword `pistols` → key `pistols-a1b`.
+Example: title `Pistols at Dawn` → key `pistols-dawn` when free. If
+`pistols-dawn` and `pistols` are both taken, the generated key falls back to a
+randomised form such as `pistols-dawn-k2p`.
 
 **Explicit keys** are accepted when a caller wants a memorable key (for example `pistols-at-dawn` on creation, or when converting). Explicit keys are validated against the format contract and rejected on collision within their type.
 
@@ -80,7 +89,8 @@ If a living artefact lacks a valid `key:` field, the router compile excludes it 
 
 Key uniqueness is enforced per artefact type. Two distinct `living/project` artefacts cannot both have `key: widget`; the router compile fails when duplicates are found.
 
-- **Generated keys** — the platform resamples the suffix until a unique candidate is produced.
+- **Generated keys** — the platform uses the clearest title-derived key that is
+  free, and resamples the suffix only when the randomised fallback is needed.
 - **Explicit keys** — the caller receives `KEY_TAKEN` and must choose another value.
 
 ## Conversion

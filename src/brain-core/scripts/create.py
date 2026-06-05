@@ -32,7 +32,7 @@ from _common import (
     ensure_tags_list,
     find_duplicate_basenames,
     find_vault_root,
-    generate_contextual_slug,
+    derive_distinctive_slug,
     has_leading_frontmatter,
     living_key_set,
     load_compiled_router,
@@ -89,10 +89,7 @@ def _generate_key(vault_root, router, artefact, title, explicit=None):
             raise ValueError(f"KEY_TAKEN: key '{explicit}' is already used")
         return explicit
 
-    while True:
-        candidate = generate_contextual_slug(title)
-        if candidate not in existing:
-            return candidate
+    return derive_distinctive_slug(title, existing)
 
 
 def _build_parent_context(router, artefact, fields, parent_key, parent_entry):

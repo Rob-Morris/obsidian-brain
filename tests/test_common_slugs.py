@@ -1,6 +1,9 @@
 """Tests for _common._slugs — slug generation and filename conversion."""
 
+import pytest
+
 import _common as common
+from _common import _slugs
 
 
 # ---------------------------------------------------------------------------
@@ -31,6 +34,45 @@ class TestTitleToSlug:
 
     def test_numbers(self):
         assert common.title_to_slug("3 Ways to Code") == "3-ways-to-code"
+
+
+# ---------------------------------------------------------------------------
+# derive_distinctive_slug
+# ---------------------------------------------------------------------------
+
+class TestDeriveDistinctiveSlug:
+    def test_generate_slug_suffix_always_contains_a_letter(self):
+        for _ in range(2000):
+            suffix = common.generate_slug_suffix()
+
+            assert len(suffix) == _slugs.SLUG_SUFFIX_LENGTH
+            assert all(char in _slugs.SLUG_ALPHABET for char in suffix)
+            assert any(char.isalpha() for char in suffix)
+
+    def test_prefers_free_two_word_key(self):
+        assert common.derive_distinctive_slug("Pistols at Dawn", set()) == "pistols-dawn"
+
+    def test_uses_single_keyword_when_pair_taken(self):
+        assert (
+            common.derive_distinctive_slug("Pistols at Dawn", {"pistols-dawn"})
+            == "pistols"
+        )
+
+    def test_numeric_title_always_yields_valid_key(self):
+        for _ in range(1000):
+            assert common.is_valid_key(common.derive_distinctive_slug("1984", set()))
+
+    def test_sentinel_title_uses_husk_fallback(self, monkeypatch):
+        monkeypatch.setattr(_slugs, "generate_slug_suffix", lambda: "abc")
+
+        assert common.derive_distinctive_slug("!!!", {"husk"}) == "husk-abc"
+
+    def test_raises_when_suffix_candidates_exhausted(self, monkeypatch):
+        monkeypatch.setattr(_slugs, "SLUG_SUFFIX_MAX_RETRIES", 2)
+        monkeypatch.setattr(_slugs, "generate_slug_suffix", lambda: "abc")
+
+        with pytest.raises(RuntimeError, match="could not find a free suffix"):
+            common.derive_distinctive_slug("1984", {"1984-abc"})
 
 
 # ---------------------------------------------------------------------------

@@ -29,7 +29,7 @@ from _common import (
     ensure_tags_list,
     extract_title,
     find_vault_root,
-    generate_contextual_slug,
+    derive_distinctive_slug,
     is_archived_path,
     is_valid_key,
     living_key_set,
@@ -804,10 +804,7 @@ def _choose_living_key(vault_root, router, art, title, key=None, *, exclude_path
         if key in existing:
             raise ValueError(f"KEY_TAKEN: key '{key}' is already used")
         return key
-    while True:
-        candidate = generate_contextual_slug(title)
-        if candidate not in existing:
-            return candidate
+    return derive_distinctive_slug(title, existing)
 
 
 def _normalise_ownership_changes(vault_root, router, art, frontmatter_changes):

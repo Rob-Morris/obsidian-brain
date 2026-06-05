@@ -17,6 +17,7 @@ SLUG_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"
 SLUG_SUFFIX_LENGTH = 3
 SLUG_SUFFIX_MAX_RETRIES = 100
 SLUG_KEYWORD_BUDGET = 20
+SLUG_KEY_MAX_LENGTH = 64
 SLUG_TITLE_KEY_LIMIT = 20
 SLUG_SENTINEL = "husk"
 SLUG_STOPWORDS = frozenset(
@@ -54,7 +55,7 @@ def is_valid_key(key):
     """Return whether *key* matches the canonical artefact key contract."""
     if not isinstance(key, str):
         return False
-    if not (1 <= len(key) <= 64):
+    if not (1 <= len(key) <= SLUG_KEY_MAX_LENGTH):
         return False
     if not _VALID_SLUG_RE.fullmatch(key):
         return False
@@ -66,7 +67,8 @@ def validate_key(key):
     if is_valid_key(key):
         return key
     raise ValueError(
-        "INVALID_KEY: key must match ^[a-z0-9]+(-[a-z0-9]+)*$, contain at least one letter, and be 1–64 characters long"
+        "INVALID_KEY: key must match ^[a-z0-9]+(-[a-z0-9]+)*$, "
+        f"contain at least one letter, and be 1–{SLUG_KEY_MAX_LENGTH} characters long"
     )
 
 
@@ -92,13 +94,12 @@ def extract_slug_keywords(title, max_words=2, budget=SLUG_KEYWORD_BUDGET):
 
 
 def generate_slug_suffix(length=SLUG_SUFFIX_LENGTH, alphabet=SLUG_ALPHABET):
-    """Generate a short confusable-free random suffix."""
-    return "".join(secrets.choice(alphabet) for _ in range(length))
-
-
-def generate_contextual_slug(title):
-    """Generate a contextual ``{keywords}-{suffix}`` slug candidate."""
-    return f"{extract_slug_keywords(title)}-{generate_slug_suffix()}"
+    """Generate a short confusable-free random suffix containing a letter."""
+    letters = [char for char in alphabet if char.isalpha()]
+    letter_pos = secrets.randbelow(length)
+    chars = [secrets.choice(alphabet) for _ in range(length)]
+    chars[letter_pos] = secrets.choice(letters)
+    return "".join(chars)
 
 
 def derive_distinctive_slug(title, taken):
@@ -107,15 +108,17 @@ def derive_distinctive_slug(title, taken):
     A multi-token pair wins by shape; otherwise the longest single
     keyword. The random-suffix slug is reserved for collision resolution.
     """
-    pair = extract_slug_keywords(title, max_words=2, budget=64)
+    # Let the strongest two-word key use the full key length; keep degraded
+    # single-keyword and suffix stems compact for readability.
+    pair = extract_slug_keywords(title, max_words=2, budget=SLUG_KEY_MAX_LENGTH)
     if "-" in pair and is_valid_key(pair) and pair not in taken:
         return pair
 
-    single = extract_slug_keywords(title, max_words=1)
+    single = extract_slug_keywords(title, max_words=1, budget=SLUG_KEYWORD_BUDGET)
     if is_valid_key(single) and single not in taken:
         return single
 
-    keywords = extract_slug_keywords(title)
+    keywords = extract_slug_keywords(title, max_words=2, budget=SLUG_KEYWORD_BUDGET)
     for _ in range(SLUG_SUFFIX_MAX_RETRIES):
         candidate = f"{keywords}-{generate_slug_suffix()}"
         if candidate not in taken:

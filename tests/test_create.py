@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import sys
 from unittest.mock import patch
 from datetime import datetime, timezone, timedelta
@@ -182,6 +183,40 @@ class TestCreateArtefact:
             content = f.read()
         fields, _ = parse_frontmatter(content)
         assert fields["type"] == "living/wiki"
+
+    def test_create_living_generates_distinctive_key_without_suffix(self, vault, router):
+        result = create.create_artefact(str(vault), router, "wiki", "Pistols at Dawn")
+        content = open(os.path.join(str(vault), result["path"])).read()
+        fields, _ = parse_frontmatter(content)
+        assert fields["key"] == "pistols-dawn"
+        assert result["key"] == "pistols-dawn"
+
+    def test_create_living_uses_single_keyword_before_random_suffix(self, vault, router):
+        (vault / "Wiki" / "Existing.md").write_text(
+            "---\ntype: living/wiki\ntags: []\nkey: pistols-dawn\n---\n\n# Existing\n"
+        )
+        import compile_router
+        router = compile_router.compile(str(vault))
+
+        result = create.create_artefact(str(vault), router, "wiki", "Pistols at Dawn")
+        content = open(os.path.join(str(vault), result["path"])).read()
+        fields, _ = parse_frontmatter(content)
+        assert fields["key"] == "pistols"
+
+    def test_create_living_adds_random_suffix_only_after_keyword_collisions(self, vault, router):
+        (vault / "Wiki" / "Existing Pair.md").write_text(
+            "---\ntype: living/wiki\ntags: []\nkey: pistols-dawn\n---\n\n# Existing\n"
+        )
+        (vault / "Wiki" / "Existing Single.md").write_text(
+            "---\ntype: living/wiki\ntags: []\nkey: pistols\n---\n\n# Existing\n"
+        )
+        import compile_router
+        router = compile_router.compile(str(vault))
+
+        result = create.create_artefact(str(vault), router, "wiki", "Pistols at Dawn")
+        content = open(os.path.join(str(vault), result["path"])).read()
+        fields, _ = parse_frontmatter(content)
+        assert re.fullmatch(r"pistols-dawn-[a-z2-9]{3}", fields["key"])
 
     def test_create_temporal_type(self, vault, router):
         result = create.create_artefact(str(vault), router, "logs", "My Session")

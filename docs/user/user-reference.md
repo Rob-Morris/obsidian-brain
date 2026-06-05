@@ -136,7 +136,7 @@ If your vault runs the Brain MCP server (`.brain-core/brain_mcp/server.py`), nin
 **brain_create** (additive, safe to auto-approve)
 - Create a new vault resource. Default `resource="artefact"` for artefact creation from type, title, and optional body/frontmatter/parent. Also creates `skill`, `memory`, `style`, and `template` resources in `_Config/` (use `name` instead of `type`/`title`)
 - Body contract is explicit: artefacts plus `skill` / `memory` / `style` take markdown body content after frontmatter; `template` takes a full markdown document with its own frontmatter block. Separate `frontmatter` input is rejected for `template`
-- Artefacts: resolves template and naming pattern from the compiled router
+- Artefacts: resolves template and naming pattern from the compiled router; living artefacts get a generated `key` from the clearest free title-derived words before using a random suffix
 - Non-artefact resources: `skill` → `_Config/Skills/{name}/SKILL.md`, `memory` → `_Config/Memories/{name}.md`, `style` → `_Config/Styles/{name}.md`, `template` → `_Config/Templates/{classification}/{Type}.md`
 - Resource-specific fields are enforced strictly: artefact creation requires `type` + `title`, non-artefact creation requires `name`, and cross-resource extras are rejected
 - Returns confirmation message with path
@@ -175,7 +175,7 @@ If your vault runs the Brain MCP server (`.brain-core/brain_mcp/server.py`), nin
 **brain_move** (vault-wide/destructive, requires approval)
 - Flat top-level move tool for artefact path/classification transitions
 - `rename` — request shape: `{op: "rename", source, dest}`; artefact-aware same-type move with automatic wikilink updates (uses Obsidian CLI when available)
-- `convert` — request shape: `{op: "convert", path, target_type, parent?}`; changes artefact type, moves the file, reconciles frontmatter, and updates wikilinks
+- `convert` — request shape: `{op: "convert", path, target_type, parent?}`; changes artefact type, moves the file, reconciles frontmatter, updates wikilinks, and generates a distinctive living `key` when converting temporal artefacts to living types
 - `archive` — request shape: `{op: "archive", path}`; archives a terminal-status artefact to `_Archive/` with date-prefix rename and wikilink updates
 - `unarchive` — request shape: `{op: "unarchive", path}`; restores an archived artefact to its original type folder and removes `archiveddate`
 
