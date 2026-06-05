@@ -68,6 +68,12 @@ When a change touches the machine-global helpers around brain-core, check their 
 
 When in doubt, check `docs/README.md` — if a doc file is listed there, it's a canonical reference that may need updating.
 
+## Testing Workflow
+
+Use serial `make test` for the pre-commit gate. `make test-parallel` is a fast
+pytest-xdist feedback path while iterating, but it does not replace the serial
+run because serial ordering still catches cross-file pollution.
+
 ## Installing for Users
 
 When a user asks an agent working in this repo to install a Brain vault on their behalf, separate the job into two outcomes:

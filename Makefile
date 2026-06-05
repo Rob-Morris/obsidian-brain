@@ -3,13 +3,13 @@ PYTHON := $(VENV)/bin/python
 PIP := $(VENV)/bin/pip
 PYTEST := $(VENV)/bin/pytest
 
-.PHONY: venv install install-semantic test lint clean hooks sync-template sync-template-check dev-link
+.PHONY: venv install install-semantic test test-parallel lint clean hooks sync-template sync-template-check dev-link
 
 venv:
 	python3.12 -m venv $(VENV)
 
 install: venv
-	$(PIP) install "mcp>=1.0.0" "pytest>=9.0" "pytest-bdd>=8.0" "interrogate>=1.7" "pytest-cov>=6.0"
+	$(PIP) install "mcp>=1.0.0" "pytest>=9.0" "pytest-bdd>=8.0" "pytest-xdist>=3.6" "interrogate>=1.7" "pytest-cov>=6.0"
 
 install-semantic: install
 	$(PYTHON) -c "import platform, sys; sys.exit('semantic retrieval dependencies are unsupported on Intel macOS in this branch; use lexical mode only' if platform.system() == 'Darwin' and platform.machine() == 'x86_64' else 0)"
@@ -20,6 +20,9 @@ dev-link:
 
 test: dev-link
 	$(PYTEST) -q
+
+test-parallel: dev-link
+	$(PYTEST) -q -n auto --dist loadscope
 
 test-fast: dev-link
 	$(PYTEST) -q -m "not slow"

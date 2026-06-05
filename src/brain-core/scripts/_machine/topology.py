@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from functools import lru_cache
 import os
 from pathlib import Path
+import re
 import subprocess
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 from _common import (
     central_venvs_root,
@@ -16,6 +18,10 @@ from _common import (
     resolve_vault_venv_python,
     same_executable_path,
 )
+
+
+# Performance gate only: exact matching still belongs to _python_family_process_key().
+_PYTHON_PROCESS_GATE = re.compile(r"/python[^/\s]*(?=\s|$)")
 
 
 def _same_path(left: str | Path | None, right: str | Path | None) -> bool:
@@ -89,13 +95,18 @@ def list_central_runtimes() -> list[dict[str, str]]:
     return runtimes
 
 
-def _python_family_process_key(path: str | Path) -> str | None:
+def _python_family_process_key(
+    path: str | Path,
+    *,
+    parent_resolver: Callable[[str], str] | None = None,
+) -> str | None:
+    resolve_parent = parent_resolver or os.path.realpath
     candidate = Path(str(path))
     if not candidate.is_absolute():
         return None
     if not candidate.name.startswith("python"):
         return None
-    return os.path.realpath(str(candidate.parent))
+    return resolve_parent(str(candidate.parent))
 
 
 def _tracked_runtime_processes(
@@ -128,9 +139,13 @@ def _command_prefixes(command: str) -> Iterable[str]:
 def _match_runtime_process(
     command: str,
     tracked: dict[str, dict[str, Any]],
+    *,
+    parent_resolver: Callable[[str], str] | None = None,
 ) -> str | None:
+    if not _PYTHON_PROCESS_GATE.search(command):
+        return None
     for prefix in _command_prefixes(command):
-        key = _python_family_process_key(prefix)
+        key = _python_family_process_key(prefix, parent_resolver=parent_resolver)
         if key is not None and key in tracked:
             return key
     return None
@@ -158,6 +173,10 @@ def find_live_brain_runtime_processes(
     if result.returncode != 0:
         return {"available": False, "processes": _tracked_process_map(tracked)}
 
+    @lru_cache(maxsize=None)
+    def real_runtime_parent(path: str) -> str:
+        return os.path.realpath(path)
+
     for line in result.stdout.splitlines():
         stripped = line.strip()
         if not stripped:
@@ -165,7 +184,7 @@ def find_live_brain_runtime_processes(
         pid_text, _, command = stripped.partition(" ")
         if not pid_text or not command:
             continue
-        tracked_key = _match_runtime_process(command, tracked)
+        tracked_key = _match_runtime_process(command, tracked, parent_resolver=real_runtime_parent)
         if tracked_key is None:
             continue
         try:

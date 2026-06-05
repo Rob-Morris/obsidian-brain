@@ -15,6 +15,18 @@ from _machine.topology import classify_brain_runtime, find_live_brain_runtime_pr
 import vault_registry
 
 
+@pytest.fixture(autouse=True)
+def _fast_machine_process_scan(monkeypatch):
+    """Machine-summary tests default to no live runtimes without shelling out to ps."""
+    monkeypatch.setattr(
+        "_machine.maintenance.find_live_brain_runtime_processes",
+        lambda runtime_pythons: {
+            "available": True,
+            "processes": {str(Path(p)): [] for p in runtime_pythons},
+        },
+    )
+
+
 def _make_vault(root: Path, name: str) -> Path:
     vault = root / name
     (vault / ".brain-core" / "brain_mcp").mkdir(parents=True)
@@ -303,6 +315,10 @@ def test_inspect_machine_runtime_state_marks_orphans_unknown_when_ps_fails(monke
         raise OSError("ps unavailable")
 
     monkeypatch.setattr("_machine.topology.subprocess.run", _boom)
+    monkeypatch.setattr(
+        "_machine.maintenance.find_live_brain_runtime_processes",
+        find_live_brain_runtime_processes,
+    )
 
     discovery = discover_brains(current_vault=vault)
     machine_registry = sync_machine_registry(discovery["brains"])
@@ -340,6 +356,65 @@ def test_find_live_brain_runtime_processes_matches_spaced_python_family_symlinks
     assert live["processes"][str(runtime_python)] == [
         {"pid": 123, "command": f"{alias_root / 'bin' / 'python3.12'} -m brain_mcp.server"}
     ]
+
+
+def test_find_live_brain_runtime_processes_matches_python_family_names(monkeypatch, tmp_path):
+    runtime_root = tmp_path / "runtime"
+    runtime_python = runtime_root / "bin" / "python"
+    runtime_python.parent.mkdir(parents=True)
+    runtime_python.symlink_to(sys.executable)
+    pythonw = runtime_python.parent / "pythonw"
+    pythonw.symlink_to("python")
+
+    def _fake_run(*args, **kwargs):
+        command = f"{pythonw} -m brain_mcp.server"
+        return subprocess.CompletedProcess(args[0], 0, f"123 {command}\n", "")
+
+    monkeypatch.setattr("_machine.topology.subprocess.run", _fake_run)
+
+    live = find_live_brain_runtime_processes([runtime_python])
+
+    assert live["available"] is True
+    assert live["processes"][str(runtime_python)] == [
+        {"pid": 123, "command": f"{pythonw} -m brain_mcp.server"}
+    ]
+
+
+def test_find_live_brain_runtime_processes_caches_parent_realpath(monkeypatch, tmp_path):
+    runtime_python = tmp_path / "runtime" / "bin" / "python"
+    runtime_python.parent.mkdir(parents=True)
+    runtime_python.touch()
+    original_realpath = os.path.realpath
+    realpath_calls: list[str] = []
+
+    def _fake_realpath(path):
+        realpath_calls.append(path)
+        return original_realpath(path)
+
+    def _fake_run(*args, **kwargs):
+        command = f"{runtime_python} -m brain_mcp.server"
+        stdout = "\n".join(
+            [
+                "100 /usr/bin/ssh some-host",
+                f"101 {command}",
+                "102 /bin/echo python is only an argument",
+                f"103 {command}",
+            ]
+        )
+        return subprocess.CompletedProcess(args[0], 0, f"{stdout}\n", "")
+
+    monkeypatch.setattr("_machine.topology.os.path.realpath", _fake_realpath)
+    monkeypatch.setattr("_machine.topology.subprocess.run", _fake_run)
+
+    live = find_live_brain_runtime_processes([runtime_python])
+
+    assert live["available"] is True
+    assert live["processes"][str(runtime_python)] == [
+        {"pid": 101, "command": f"{runtime_python} -m brain_mcp.server"},
+        {"pid": 103, "command": f"{runtime_python} -m brain_mcp.server"},
+    ]
+    # One tracked-side normalisation plus one cached scan-side parent lookup.
+    assert realpath_calls == [str(runtime_python.parent), str(runtime_python.parent)]
 
 
 

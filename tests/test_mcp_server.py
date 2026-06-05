@@ -45,6 +45,12 @@ def _progress_payload(result):
     return json.loads(result.content[0].text)
 
 
+def _bump_mtime(path, *, seconds: float = 10.0):
+    """Make *path* look newer without waiting for filesystem timestamp ticks."""
+    ts = time.time() + seconds
+    os.utime(path, (ts, ts))
+
+
 # ---------------------------------------------------------------------------
 # Vault fixture
 # ---------------------------------------------------------------------------
@@ -333,10 +339,9 @@ class TestStaleness:
 
     def test_router_stale_after_source_change(self, vault):
         server._compile_and_save(str(vault))
-        # Touch a source file to make it newer
-        time.sleep(0.1)
         router_md = vault / "_Config" / "router.md"
         router_md.write_text(router_md.read_text() + "\n- New rule.\n")
+        _bump_mtime(router_md)
         stale, _ = server._check_router(str(vault))
         assert stale is True
 
@@ -425,7 +430,6 @@ class TestStaleness:
 
     def test_index_stale_after_md_change(self, vault):
         server._build_index_and_save(str(vault))
-        time.sleep(0.1)
         # Add a new .md file
         (vault / "Wiki" / "new-file-zzz999.md").write_text(
             "---\ntype: living/wiki\n---\n\n# New File\n\nContent.\n"
@@ -1549,9 +1553,9 @@ class TestEnsureFreshRobustness:
             "---\ntype: user-preferences\n---\n\nEnsure fresh refreshes the session mirror.\n"
         )
 
-        time.sleep(0.1)
         router_md = initialized / "_Config" / "router.md"
         router_md.write_text(router_md.read_text() + "\n- Recompile for ensure_fresh.\n")
+        _bump_mtime(router_md)
         server._router_checked_at = 0.0
 
         server._ensure_router_fresh()
@@ -1565,9 +1569,9 @@ class TestEnsureFreshRobustness:
         """If _compile_and_save raises, the old router should be preserved."""
         old_router = server._router
         # Force staleness by bumping a taxonomy file's mtime
-        time.sleep(0.1)
         tax_file = initialized / "_Config" / "Taxonomy" / "Living" / "wiki.md"
         tax_file.write_text(tax_file.read_text() + "\n")
+        _bump_mtime(tax_file)
 
         with patch.object(server, "_compile_and_save", side_effect=OSError("boom")):
             server._ensure_router_fresh()
@@ -1919,10 +1923,10 @@ class TestAutoRecompile:
     def test_modified_taxonomy_triggers_recompile(self, initialized):
         """Modifying an existing taxonomy file's mtime should trigger recompile."""
         compiled_at = server._router["meta"]["compiled_at"]
-        time.sleep(0.1)
         # Touch a taxonomy source file to make it newer than compiled_at
         tax_file = initialized / "_Config" / "Taxonomy" / "Living" / "wiki.md"
         tax_file.write_text(tax_file.read_text() + "\n")
+        _bump_mtime(tax_file)
         server._ensure_router_fresh()
         assert server._router["meta"]["compiled_at"] != compiled_at
 
@@ -1986,7 +1990,6 @@ class TestResourceMtimeCache:
         server._check_router_resource_counts(str(initialized), server._router)
         assert resource_counts_calls["n"] == 1
 
-        time.sleep(0.05)
         (initialized / "Ideas" / "new-idea-abc123.md").write_text(
             "---\ntype: living/ideas\nslug: new-idea-abc123\n---\n# New Idea\n"
         )
@@ -2000,12 +2003,12 @@ class TestResourceMtimeCache:
         server._check_router_resource_counts(str(initialized), server._router)
         assert resource_counts_calls["n"] == 1
 
-        time.sleep(0.05)
         nested = initialized / "Ideas" / "2026-04" / "nested-idea-xyz789.md"
         nested.parent.mkdir(parents=True, exist_ok=True)
         nested.write_text(
             "---\ntype: living/ideas\nslug: nested-idea-xyz789\n---\n# Nested\n"
         )
+        _bump_mtime(nested.parent)
 
         server._check_router_resource_counts(str(initialized), server._router)
         assert resource_counts_calls["n"] == 2
@@ -2016,8 +2019,8 @@ class TestResourceMtimeCache:
         server._check_router_resource_counts(str(initialized), server._router)
         assert resource_counts_calls["n"] == 1
 
-        time.sleep(0.05)
         (initialized / "Projects").mkdir()
+        _bump_mtime(initialized / "Projects")
 
         server._check_router_resource_counts(str(initialized), server._router)
         assert resource_counts_calls["n"] == 2
@@ -2028,12 +2031,14 @@ class TestResourceMtimeCache:
         server._check_router_resource_counts(str(initialized), server._router)
         assert resource_counts_calls["n"] == 1
 
-        time.sleep(0.05)
         archive = initialized / "Ideas" / "_Archive" / "2026-04"
         archive.mkdir(parents=True, exist_ok=True)
         (archive / "old-idea-abc123.md").write_text(
             "---\ntype: living/ideas\nslug: old-idea-abc123\n---\n# Old\n"
         )
+        # Ignored archive paths changing must not invalidate the resource cache.
+        _bump_mtime(initialized / "Ideas" / "_Archive")
+        _bump_mtime(archive)
 
         server._check_router_resource_counts(str(initialized), server._router)
         assert resource_counts_calls["n"] == 1
@@ -2045,8 +2050,8 @@ class TestResourceMtimeCache:
         skill_md.write_text("# Demo\n")
 
         sig_before = server._resource_mtime_signature(str(initialized))
-        time.sleep(0.05)
         skill_md.unlink()
+        _bump_mtime(skill_dir)
         sig_after = server._resource_mtime_signature(str(initialized))
 
         assert sig_before != sig_after
@@ -2064,7 +2069,6 @@ class TestResourceMtimeCache:
         cached_before = server._resource_mtime_cache
         assert cached_before is not None
 
-        time.sleep(0.05)
         (initialized / "Ideas" / "trigger-abc123.md").write_text(
             "---\ntype: living/ideas\nslug: trigger-abc123\n---\n# t\n"
         )
@@ -4849,10 +4853,10 @@ class TestWorkspaceRegistryScript:
         workspace_registry.list_workspaces(str(vault))
         assert calls["n"] == 1
 
-        time.sleep(0.05)
         hub_file.write_text(
             "---\ntype: living/workspace\nkey: alpha\nstatus: parked\n---\n\n# A\n"
         )
+        _bump_mtime(hub_file)
         result = workspace_registry.list_workspaces(str(vault))
         assert calls["n"] == 2
         assert result[0]["status"] == "parked"

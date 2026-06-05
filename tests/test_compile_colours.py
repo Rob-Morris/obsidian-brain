@@ -2,11 +2,13 @@
 
 import json
 import os
+import shutil
 
 import pytest
 
 import compile_colours as cc
 import compile_router
+from conftest import TEMPLATE_VAULT_COPY_IGNORE
 
 
 TEMPLATE_VAULT = os.path.join(
@@ -83,18 +85,24 @@ def vault(tmp_path):
 
 
 @pytest.fixture
-def template_vault():
-    """Use the real template vault (read-only)."""
+def template_vault(tmp_path):
+    """Use an isolated copy of the template vault for compiled-router writes."""
     path = os.path.abspath(TEMPLATE_VAULT)
     if not os.path.isdir(path):
         pytest.skip("template-vault not found")
     if not os.path.isdir(os.path.join(path, ".brain-core")):
         pytest.skip(".brain-core not linked — run 'make dev-link'")
-    compiled_path = os.path.join(path, ".brain", "local", "compiled-router.json")
+    isolated = tmp_path / "template-vault"
+    shutil.copytree(
+        path,
+        isolated,
+        ignore=shutil.ignore_patterns(*TEMPLATE_VAULT_COPY_IGNORE),
+    )
+    compiled_path = isolated / ".brain" / "local" / "compiled-router.json"
     os.makedirs(os.path.dirname(compiled_path), exist_ok=True)
     with open(compiled_path, "w", encoding="utf-8") as handle:
-        json.dump(compile_router.compile(path), handle, indent=2)
-    return path
+        json.dump(compile_router.compile(str(isolated)), handle, indent=2)
+    return str(isolated)
 
 
 def _load_router(vault_path):

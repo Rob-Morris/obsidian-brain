@@ -5,7 +5,7 @@ How to contribute to Obsidian Brain. This layer covers contributor-facing produc
 - [Specification](specification.md) — design rationale and structural decisions
 - [Agents](agents.md) — contributor workflow guidance for agents
 - [Plugins](plugins.md) — writing and packaging plugin integrations
-- [Contributing](../CONTRIBUTING.md) — general contributor guide and maintenance rules, including proxy / CLI version-surface checks
+- [Contributing](../CONTRIBUTING.md) — general contributor guide and maintenance rules, including testing, proxy / CLI version-surface checks, and commit hygiene
 - [Agent Workflow](../standards/agent-workflow.md) — contributor workflow tiers
 - [Canary](../standards/canary.md) — canary system standard
 - [Changelog](../standards/changelog.md) — tiered public release-history standard

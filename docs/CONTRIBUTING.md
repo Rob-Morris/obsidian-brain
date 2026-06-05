@@ -116,6 +116,11 @@ make install   # first time — creates venv, installs dependencies
 make test      # runs pytest
 ```
 
+For fast feedback while iterating, `make test-parallel` runs the same suite
+with pytest-xdist (`-n auto --dist loadscope`). The serial `make test` run
+remains the canonical pre-commit gate because it preserves ordering-sensitive
+pollution checks.
+
 If you touch semantic retrieval, embeddings, or the evaluation harness, also
 install the pinned optional repo-local dependencies first:
 

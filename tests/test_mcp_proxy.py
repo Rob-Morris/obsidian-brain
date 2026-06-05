@@ -1837,10 +1837,11 @@ class TestStartupTimeout:
         _write_vault(tmp_path)
         server_script = _hang_on_init_server_script(tmp_path)
 
-        # Use a 1-second init timeout and zero backoff so all retries happen fast.
+        # Use an immediate init timeout and a short multi-entry backoff schedule
+        # so this still exercises schedule exhaustion without wall-clock hangs.
         proc = _launch_proxy(tmp_path, server_script,
-                             extra_env={"BRAIN_PROXY_INIT_TIMEOUT": "1",
-                                        "BRAIN_PROXY_BACKOFF": "0,0,0,0,0"})
+                             extra_env={"BRAIN_PROXY_INIT_TIMEOUT": "0",
+                                        "BRAIN_PROXY_BACKOFF": "0,0,0"})
         try:
             # 1. Initialize (first child run: responds normally)
             proc.stdin.write(_make_jsonrpc("initialize", id=1,
@@ -1852,27 +1853,36 @@ class TestStartupTimeout:
 
             # 2. Send a real request — first child crashes, triggering restart.
             #    On restart the proxy replays init to the new child (which now hangs).
-            #    The init timeout (1s) fires; the proxy retries until the
-            #    backoff schedule is exhausted, then moves into explicit give-up.
+            #    The immediate init timeout fires; the proxy retries until the
+            #    short backoff schedule is exhausted, then moves into explicit give-up.
             proc.stdin.write(_make_jsonrpc("tools/call", id=2, params={"name": "ping"}))
             proc.stdin.flush()
 
-            # 3. After the backoff is exhausted (5 × 1s ≈ 5s), send another request
-            #    to get the give-up error response.
-            # Wait a bit past the full backoff cycle before sending the next request.
-            time.sleep(7)
-            proc.stdin.write(_make_jsonrpc("tools/call", id=3, params={"name": "ping"}))
-            proc.stdin.flush()
+            # 3. Poll with real requests until the proxy reports give-up. While
+            #    recovery is still active, requests receive the soft restart
+            #    error; after the schedule is exhausted they receive the hard
+            #    unrecoverable guidance.
+            all_msgs = []
+            error_resp = None
+            deadline = time.monotonic() + 5.0
+            req_id = 3
+            while time.monotonic() < deadline:
+                proc.stdin.write(_make_jsonrpc("tools/call", id=req_id, params={"name": "ping"}))
+                proc.stdin.flush()
+                messages = _read_until_id(proc, req_id, timeout=5.0)
+                all_msgs.extend(messages)
+                resp = _find_by_id(messages, req_id)
+                if resp and "MCP unrecoverable" in resp.get("error", {}).get("message", ""):
+                    error_resp = resp
+                    break
+                req_id += 1
+                time.sleep(0.01)
 
-            all_msgs = _read_all_responses(proc, timeout=10.0, max_count=20)
-
-            # Find an error response for id=3 (the post-give-up request)
-            error_resp = _find_by_id(all_msgs, 3)
             assert error_resp is not None, (
-                f"Expected an error response with id=3 after init timeout/give-up. Got: {all_msgs}"
+                f"Expected an unrecoverable error after init timeout/give-up. Got: {all_msgs}"
             )
             assert "error" in error_resp, (
-                f"Expected error in response for id=3, got: {error_resp}"
+                f"Expected error in give-up probe response, got: {error_resp}"
             )
             error_msg = error_resp["error"]["message"]
             assert "MCP unrecoverable" in error_msg, (

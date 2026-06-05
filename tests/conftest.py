@@ -23,6 +23,7 @@ SCRIPTS_DIR = os.path.abspath(
 )
 PACKAGE_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src", "brain-core"))
 MIGRATIONS_DIR = os.path.join(SCRIPTS_DIR, "migrations")
+TEMPLATE_VAULT_COPY_IGNORE = (".venv", ".pytest_cache", "local")
 
 for _path in (PACKAGE_ROOT, SCRIPTS_DIR, MIGRATIONS_DIR):
     if _path not in sys.path:
@@ -94,7 +95,11 @@ def copy_install_source(dest):
     repo_root = Path(__file__).resolve().parents[1]
     dest = Path(dest)
     shutil.copy2(repo_root / "install.sh", dest / "install.sh")
-    shutil.copytree(repo_root / "template-vault", dest / "template-vault")
+    shutil.copytree(
+        repo_root / "template-vault",
+        dest / "template-vault",
+        ignore=shutil.ignore_patterns(*TEMPLATE_VAULT_COPY_IGNORE),
+    )
     shutil.copytree(repo_root / "src" / "brain-core", dest / "src" / "brain-core")
 
 
