@@ -202,6 +202,7 @@ from ._venv import (
     resolve_or_provision_central_venv,
     resolve_vault_venv_dir,
     resolve_vault_venv_python,
+    same_executable_path,
     vault_requirements_path,
     venv_dir_for,
     venv_python,

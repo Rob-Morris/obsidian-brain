@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import os
 from pathlib import Path
 import sys
 
@@ -40,7 +39,7 @@ def _result_envelope(action: str, vault_root: Path, steps: list[dict], *, notes:
     return make_result_envelope(
         action=action,
         vault_root=vault_root,
-        managed_python=os.path.realpath(sys.executable),
+        managed_python=sys.executable,
         steps=steps,
         notes=notes,
     )

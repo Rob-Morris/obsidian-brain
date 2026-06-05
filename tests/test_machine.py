@@ -269,6 +269,26 @@ def test_inspect_machine_runtime_state_classifies_selected_and_orphan_runtimes(m
     assert not summary["tidy"]
 
 
+def test_classify_brain_runtime_preserves_venv_symlink_boundary(monkeypatch, tmp_path):
+    expected = tmp_path / "expected" / "bin" / "python"
+    selected = tmp_path / "selected" / "bin" / "python"
+    expected.parent.mkdir(parents=True)
+    selected.parent.mkdir(parents=True)
+    expected.symlink_to(sys.executable)
+    selected.symlink_to(sys.executable)
+    vault = _make_vault(tmp_path, "Active Brain")
+
+    monkeypatch.setattr("_machine.topology.resolve_vault_venv_python", lambda *_args, **_kwargs: expected)
+    monkeypatch.setattr("_machine.topology.find_existing_central_venv", lambda *_args, **_kwargs: selected)
+    monkeypatch.setattr("_machine.topology.find_runnable_python", lambda *_args, **_kwargs: selected)
+
+    runtime = classify_brain_runtime(vault, launcher_python=sys.executable)
+
+    assert runtime["status"] == "central_compatible"
+    assert runtime["expected_runtime"] == str(expected)
+    assert runtime["selected_runtime"] == str(selected)
+
+
 def test_inspect_machine_runtime_state_marks_orphans_unknown_when_ps_fails(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)

@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 
@@ -41,7 +40,7 @@ def _finalise_result(
         scope=scope,
         vault_root=vault_root,
         dry_run=dry_run,
-        managed_python=os.path.realpath(sys.executable),
+        managed_python=sys.executable,
         steps=steps,
         checked_at=iso_now(),
         notes=notes,

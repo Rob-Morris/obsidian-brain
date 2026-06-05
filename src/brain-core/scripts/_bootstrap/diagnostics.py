@@ -26,8 +26,8 @@ from _bootstrap.mcp_state import (
     read_codex_server_config,
     session_hook_python,
 )
-from _common import resolve_vault_venv_python
-from _bootstrap.runtime import probe_python, required_modules_for_scope, same_executable_path
+from _common import resolve_vault_venv_python, same_executable_path
+from _bootstrap.runtime import probe_python, required_modules_for_scope
 from _repair_common import attach_repair_guidance
 
 

@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.48.3](changelog/v0.48.3.md) | 2026-06-05 | Preserve managed runtime launch paths across symlinks |
 | [v0.48.2](changelog/v0.48.2.md) | 2026-06-03 | Harden MCP startup, managed runtime selection, and client registration repair |
 | [v0.48.1](changelog/v0.48.1.md) | 2026-06-03 | Serve unresolved-Brain errors over MCP instead of a bare -32000 |
 | [v0.48.0](changelog/v0.48.0.md) | 2026-06-02 | Harden resolution sign-off: single vault predicate and anchor hard-error |

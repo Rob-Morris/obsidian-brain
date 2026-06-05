@@ -282,6 +282,41 @@ def test_ensure_central_venv_skips_pip_when_sentinel_matches(monkeypatch, tmp_pa
     assert pip_args.stat().st_size == initial_size
 
 
+def test_resolve_or_provision_probes_venv_symlink_not_launcher(monkeypatch, tmp_path):
+    """A venv symlink to native Python must still be probed as the venv path.
+
+    Linux venvs often expose ``bin/python`` as a symlink to the system
+    interpreter. Reusing the launcher's probe by realpath would report the
+    native interpreter's missing packages for a perfectly valid managed venv.
+    """
+    monkeypatch.setenv("HOME", str(tmp_path))
+    vault = _make_vault(tmp_path)
+    requirements = _venv.vault_requirements_path(vault)
+    launcher = Path(sys.executable)
+    managed_python = _venv.resolve_vault_venv_python(vault, launcher=launcher)
+    managed_python.parent.mkdir(parents=True)
+    managed_python.symlink_to(sys.executable)
+    rhash = _venv.requirements_hash(requirements)
+    (managed_python.parent.parent / _venv.DEPS_SENTINEL_NAME).write_text(rhash)
+    captured: dict[str, str] = {}
+
+    def _fake_probe(python_path: str, *, modules=()):
+        captured["python_path"] = python_path
+        return {"compatible": True, "ok": True, "missing": []}
+
+    monkeypatch.setattr(_venv, "_probe_runtime", _fake_probe)
+
+    result = _venv.resolve_or_provision_central_venv(
+        vault,
+        launcher=launcher,
+        launcher_probe={"compatible": True, "ok": False, "missing": ["mcp"]},
+        required_modules=("mcp",),
+    )
+
+    assert captured["python_path"] == str(managed_python)
+    assert result["outcome"] == _venv.RUNTIME_REUSED
+
+
 def test_find_runnable_python_prefers_central_venv(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path))
     vault = _make_vault(tmp_path)

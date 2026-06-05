@@ -14,13 +14,14 @@ from _common import (
     legacy_vault_venv_dir,
     legacy_vault_venv_python,
     resolve_vault_venv_python,
+    same_executable_path,
 )
 
 
 def _same_path(left: str | Path | None, right: str | Path | None) -> bool:
     if left is None or right is None:
         return False
-    return os.path.realpath(str(left)) == os.path.realpath(str(right))
+    return same_executable_path(left, right)
 
 
 def classify_brain_runtime(

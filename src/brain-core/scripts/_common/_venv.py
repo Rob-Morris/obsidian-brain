@@ -50,6 +50,17 @@ _HASH_LEN = 16
 _LAUNCHER_OVERRIDE_ENV = "BRAIN_VENV_LAUNCHER"
 
 
+def same_executable_path(left: str | Path, right: str | Path) -> bool:
+    """Return whether two executables are the same launch path.
+
+    Do not collapse symlinks here. On Linux a venv's ``bin/python`` commonly
+    symlinks to the native interpreter; comparing realpaths would treat the
+    managed venv and system Python as interchangeable and reuse the wrong
+    dependency probe.
+    """
+    return os.path.abspath(str(left)) == os.path.abspath(str(right))
+
+
 def central_venvs_root() -> Path:
     """Where Brain stores all managed venvs on this machine."""
     return Path.home() / ".brain" / "venvs"
@@ -535,7 +546,7 @@ def resolve_or_provision_central_venv(
         sentinel = venv_dir / DEPS_SENTINEL_NAME
 
         # Step 2: probe.
-        if launcher_probe is not None and os.path.realpath(str(existing)) == os.path.realpath(str(launcher)):
+        if launcher_probe is not None and same_executable_path(existing, launcher):
             probe = launcher_probe
         else:
             probe = _probe_runtime(str(existing), modules=required_modules)

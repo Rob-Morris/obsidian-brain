@@ -14,7 +14,12 @@ import subprocess
 import sys
 from typing import Any
 
-from _common import REQUIREMENTS_REL, resolve_or_provision_central_venv, resolve_vault_venv_python
+from _common import (
+    REQUIREMENTS_REL,
+    resolve_or_provision_central_venv,
+    resolve_vault_venv_python,
+    same_executable_path,
+)
 from _common import _venv as _venv_module
 
 
@@ -34,17 +39,6 @@ BOOTSTRAP_SCOPE_MODULES = {
     # contract to ensure `requirements.txt` has been applied first.
     "semantic": MANAGED_RUNTIME_REQUIRED_MODULES,
 }
-
-
-def same_executable_path(left: str | Path, right: str | Path) -> bool:
-    """Return whether two Python executable paths identify the same launch path.
-
-    Preserve the venv boundary: on Linux a virtualenv's ``bin/python`` is often
-    a symlink to the system interpreter.  Collapsing both sides with realpath
-    makes ``/usr/bin/python3.12`` look like the managed venv Python, which then
-    skips the managed-runtime handoff and writes system Python into MCP config.
-    """
-    return os.path.abspath(str(left)) == os.path.abspath(str(right))
 
 
 def _is_self_executable(python_path: str | Path) -> bool:
