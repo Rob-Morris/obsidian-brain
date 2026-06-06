@@ -27,6 +27,8 @@ DEFAULT_MANAGED_RUNTIME_LAUNCHER = "python3.12"
 BOOTSTRAP_SUMMARY_ENV = "BRAIN_BOOTSTRAP_SUMMARY"
 SKIP_BOOTSTRAP_ENV = "BRAIN_SKIP_BOOTSTRAP"
 MANAGED_RUNTIME_REQUIRED_MODULES = ("mcp",)
+POSIX_LAUNCHER_NAMES = ("python3.13", "python3.12", "python3")
+WIN32_LAUNCHER_NAMES = ("python", "py")
 BOOTSTRAP_SCOPE_MODULES = {
     "runtime": MANAGED_RUNTIME_REQUIRED_MODULES,
     "mcp": MANAGED_RUNTIME_REQUIRED_MODULES,
@@ -144,11 +146,15 @@ def is_compatible_python(python_path: str) -> bool:
 @functools.lru_cache(maxsize=2)
 def find_launcher_python(*, prefer_path_binaries: bool = False) -> str | None:
     """Return the best available Python launcher for bootstrap work."""
+    launcher_names = POSIX_LAUNCHER_NAMES
+    if sys.platform == "win32":
+        launcher_names = WIN32_LAUNCHER_NAMES + POSIX_LAUNCHER_NAMES
+
     candidates: list[str] = []
     if prefer_path_binaries:
         candidates.extend(
             path
-            for name in ("python3.13", "python3.12", "python3")
+            for name in launcher_names
             if (path := shutil.which(name))
         )
         if sys.executable:
@@ -158,7 +164,7 @@ def find_launcher_python(*, prefer_path_binaries: bool = False) -> str | None:
             candidates.append(sys.executable)
         candidates.extend(
             path
-            for name in ("python3.13", "python3.12", "python3")
+            for name in launcher_names
             if (path := shutil.which(name))
         )
 
@@ -385,6 +391,9 @@ def exec_managed_runtime(
     env = os.environ.copy()
     env[BOOTSTRAP_SUMMARY_ENV] = json.dumps(summary)
     argv = [managed_python, script_path, *forwarded_args]
+    if sys.platform == "win32":
+        result = subprocess.run(argv, env=env)
+        sys.exit(result.returncode)
     os.execve(managed_python, argv, env)
 
 

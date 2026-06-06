@@ -8,10 +8,19 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 
 import check as vault_check
 import doctor_machine
 from _common import find_runnable_python
+from _repair_common import build_repair_command
+
+
+def _no_runnable_python_guidance(current_vault: str) -> str:
+    repair = build_repair_command(current_vault, "runtime")
+    if sys.platform == "win32":
+        return f"no runnable python for vault {current_vault} — run `{repair}`"
+    return f"no runnable python for vault {current_vault} — run `{repair}` or `bash install.sh {current_vault}`"
 
 
 def collect_cli_diagnosis(*, binary_path: str, cli_version: str, launcher_python: str | None) -> dict:
@@ -105,10 +114,7 @@ def collect_vault_diagnosis(
     launcher_path = Path(launcher_python) if launcher_python else None
     runnable_python = find_runnable_python(vault_path, launcher=launcher_path)
     if runnable_python is None:
-        return _vault_failure(
-            current_vault,
-            f"no runnable python for vault {current_vault} — run `brain repair runtime --vault {current_vault}` or `bash install.sh {current_vault}`",
-        )
+        return _vault_failure(current_vault, _no_runnable_python_guidance(current_vault))
 
     argv = [str(runnable_python), str(check_script), "--vault", current_vault, "--json"]
     if actionable:

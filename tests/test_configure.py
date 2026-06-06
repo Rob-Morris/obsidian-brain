@@ -606,6 +606,8 @@ def test_configure_mcp_returns_structured_result(tmp_path, monkeypatch, capsys):
     assert payload["status"] == "ok"
     assert payload["steps"][0]["name"] == "mcp_transport"
     assert payload["steps"][0]["status"] == "changed"
+    assert any("/mcp" in note for note in payload["notes"])
+    assert any("brain_session" in note for note in payload["notes"])
 
 
 def test_configure_mcp_remove_noop_returns_noop_step(tmp_path, monkeypatch, capsys):
@@ -634,6 +636,7 @@ def test_configure_mcp_remove_noop_returns_noop_step(tmp_path, monkeypatch, caps
     payload = json.loads(capsys.readouterr().out)
     assert payload["steps"][0]["status"] == "noop"
     assert "No recorded Brain-managed MCP entries matched this request." == payload["steps"][0]["message"]
+    assert payload.get("notes", []) == []
 
 
 def test_configure_mcp_remove_changed_returns_changed_step(tmp_path, monkeypatch, capsys):
@@ -662,6 +665,7 @@ def test_configure_mcp_remove_changed_returns_changed_step(tmp_path, monkeypatch
     payload = json.loads(capsys.readouterr().out)
     assert payload["steps"][0]["status"] == "changed"
     assert payload["steps"][0]["message"] == "Removed recorded Brain-managed MCP entries for all (project)."
+    assert payload.get("notes", []) == []
 
 
 def test_configure_mcp_returns_error_when_transport_apply_raises_typed_error(tmp_path, monkeypatch, capsys):

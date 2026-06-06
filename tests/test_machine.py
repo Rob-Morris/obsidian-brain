@@ -8,10 +8,10 @@ import pytest
 
 import doctor_machine
 import machine
-from _common import central_venvs_root, resolve_vault_venv_python
+from _common import _venv, central_venvs_root, resolve_vault_venv_python
 from _machine.discovery import discover_brains, machine_registry_path, sync_machine_registry
 from _machine.maintenance import inspect_machine_runtime_state, migrate_legacy_brains, prune_orphaned_runtimes
-from _machine.topology import classify_brain_runtime, find_live_brain_runtime_processes
+from _machine.topology import classify_brain_runtime, find_live_brain_runtime_processes, list_central_runtimes
 import vault_registry
 
 
@@ -415,6 +415,25 @@ def test_find_live_brain_runtime_processes_caches_parent_realpath(monkeypatch, t
     ]
     # One tracked-side normalisation plus one cached scan-side parent lookup.
     assert realpath_calls == [str(runtime_python.parent), str(runtime_python.parent)]
+
+
+def test_list_central_runtimes_uses_platform_venv_python(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(_venv.sys, "platform", "win32")
+
+    python_path = tmp_path / ".brain" / "venvs" / "py3.12-deadbeef" / "Scripts" / "python.exe"
+    python_path.parent.mkdir(parents=True)
+    python_path.touch()
+
+    runtimes = list_central_runtimes()
+
+    assert runtimes == [
+        {
+            "name": "py3.12-deadbeef",
+            "dir": str(python_path.parent.parent),
+            "python": str(python_path),
+        }
+    ]
 
 
 

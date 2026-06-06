@@ -113,14 +113,12 @@ def test_install_ignores_machine_local_template_state(tmp_path):
     assert result.returncode == 0, result.stderr
     assert (target / ".mcp.json").is_file()
     assert (target / ".codex" / "config.toml").is_file()
-    assert "--project" in (target / "init-args.txt").read_text()
-    assert str(target) in (target / "init-args.txt").read_text()
-    assert "open Claude Code in this directory and use /mcp to approve brain if prompted" in result.stderr
-    assert "trust this project and ensure the project-scoped brain MCP is enabled if prompted" in result.stderr
+    claude_config = json.loads((target / ".mcp.json").read_text())["mcpServers"]["brain"]
+    assert claude_config["env"]["BRAIN_WORKSPACE_DIR"] == str(target)
+    assert "open Claude Code in this directory and use /mcp to approve `brain` if prompted" in result.stderr
+    assert "trust this project and ensure the project-scoped `brain` MCP is enabled if prompted" in result.stderr
     assert "stale-template-python" not in (target / ".mcp.json").read_text()
-    assert '"command": "python"' in (target / ".mcp.json").read_text()
     assert "stale-template-python" not in (target / ".codex" / "config.toml").read_text()
-    assert 'command = "python"' in (target / ".codex" / "config.toml").read_text()
     # Template-vault `.venv/` leakage is still scrubbed
     assert not (target / ".venv" / "bin" / "pip").exists()
     assert not (target / ".venv" / "source-only-marker").exists()
@@ -131,12 +129,71 @@ def test_install_ignores_machine_local_template_state(tmp_path):
     assert len(venv_dirs) == 1, f"expected exactly one central venv, got {venv_dirs}"
     central = venv_dirs[0]
     assert (central / "bin" / "python").is_file()
+    assert str(central / "bin" / "python") in (target / ".mcp.json").read_text()
     assert (central / "pip-args.txt").read_text().startswith(
         "install --quiet --upgrade pip -r "
     )
     assert not (target / ".brain" / "local" / "session.md").exists()
     assert not (target / ".brain" / "local" / "compiled-router.json").exists()
     assert (target / ".brain" / "local" / ".gitkeep").is_file()
+
+
+def test_windows_installer_static_wiring_uses_python_core_launcher():
+    # Static wiring check only; native PowerShell runtime smoke belongs to the
+    # Windows validation phase.
+    script = (REPO_ROOT / "install.ps1").read_text(encoding="utf-8")
+    cmd = (REPO_ROOT / "install.cmd").read_text(encoding="utf-8")
+
+    assert '$PSNativeCommandUseErrorActionPreference = $false' in script
+    assert 'Join-Path $repoRoot "src\\brain-core\\scripts\\install.py"' in script
+    assert 'Join-Path $repoRoot "src\\brain-core\\scripts\\vault_registry.py"' in script
+    assert "--get-default" in script
+    assert "Override current default brain" in script
+    assert '"--source-root", $repoRoot' in script
+    assert '"--launcher", $python' in script
+    assert '"--mcp-scope", $McpScope' in script
+    assert '"--client", $Client' in script
+    assert "install.sh" not in script
+    assert 'install.ps1" %*' in cmd
+
+
+def test_install_sh_errors_on_unexpected_install_core_exit(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    _copy_source_checkout(source)
+
+    (source / "src" / "brain-core" / "scripts" / "install.py").write_text(
+        "import sys\nsys.exit(127)\n",
+        encoding="utf-8",
+    )
+
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    _write_executable(
+        fake_bin / "python3.12",
+        "#!/bin/sh\n"
+        "if [ \"$1\" = \"-c\" ]; then\n"
+        "  printf '3.12\\n'\n"
+        "  exit 0\n"
+        "fi\n"
+        f"exec {REAL_PYTHON} \"$@\"\n",
+    )
+
+    target = tmp_path / "vault"
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}:{env['PATH']}"
+
+    result = subprocess.run(
+        ["bash", "install.sh", "--non-interactive", str(target)],
+        cwd=source,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+    assert result.returncode != 0
+    assert "Brain install exited unexpectedly (code 127)." in result.stderr
 
 
 def test_install_continues_when_mcp_dependency_install_fails(tmp_path):
@@ -212,7 +269,8 @@ def test_install_continues_when_mcp_dependency_install_fails(tmp_path):
     assert not (target / ".mcp.json").exists()
     assert not (target / ".codex" / "config.toml").exists()
     assert not (target / "init-ran.txt").exists()
-    assert "Vault created, but MCP dependency installation failed." in result.stderr
+    assert "Could not provision managed runtime" in result.stderr
+    assert "Brain install completed with follow-up work" in result.stderr
 
 
 def test_install_can_skip_mcp_setup(tmp_path):
@@ -249,7 +307,7 @@ def test_install_can_skip_mcp_setup(tmp_path):
     assert not (target / ".venv").exists()
     assert not (target / ".mcp.json").exists()
     assert not (target / ".codex" / "config.toml").exists()
-    assert "MCP server setup skipped (--skip-mcp)." in result.stderr
+    assert "MCP registration skipped." in result.stderr
 
 
 def test_install_can_enable_semantic_after_skipping_mcp(tmp_path):
@@ -294,7 +352,7 @@ def test_install_can_enable_semantic_after_skipping_mcp(tmp_path):
     assert result.returncode == 0, result.stderr
     assert (target / "semantic-configured.txt").is_file()
     assert "semantic --enable --vault" in (target / "semantic-configured.txt").read_text()
-    assert "MCP server setup skipped (--skip-mcp)." in result.stderr
+    assert "MCP registration skipped." in result.stderr
     assert "Semantic retrieval is enabled for this vault." in result.stderr
 
 
@@ -423,7 +481,7 @@ def test_install_enable_semantic_uses_real_configure_boundary(tmp_path):
     )
 
     assert result.returncode == 0, result.stderr
-    assert "MCP server setup skipped (--skip-mcp)." in result.stderr
+    assert "MCP registration skipped." in result.stderr
     assert "Semantic retrieval is enabled for this vault." in result.stderr
     assert (target / "semantic-provision-ran.txt").is_file()
 

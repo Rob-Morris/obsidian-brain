@@ -111,6 +111,68 @@ def test_shared_handoff_reexecs_when_bootstrap_returns_different_python(monkeypa
     assert captured["forwarded_args"] == ["--json"]
 
 
+def test_exec_managed_runtime_uses_spawn_then_exit_on_win32(monkeypatch):
+    monkeypatch.setattr(bootstrap_runtime.sys, "platform", "win32")
+    monkeypatch.setattr(
+        bootstrap_runtime.os,
+        "execve",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("win32 must not call execve")),
+    )
+    captured = {}
+
+    def fake_run(argv, *, env):
+        captured["argv"] = argv
+        captured["env"] = env
+        return subprocess.CompletedProcess(argv, 7)
+
+    monkeypatch.setattr(bootstrap_runtime.subprocess, "run", fake_run)
+
+    with pytest.raises(SystemExit) as exc:
+        bootstrap_runtime.exec_managed_runtime(
+            managed_python="C:/Brain/.venv/Scripts/python.exe",
+            script_path="C:/Brain/.brain-core/scripts/session.py",
+            forwarded_args=["--json"],
+            summary={"status": "ready"},
+        )
+
+    assert exc.value.code == 7
+    assert captured["argv"] == [
+        "C:/Brain/.venv/Scripts/python.exe",
+        "C:/Brain/.brain-core/scripts/session.py",
+        "--json",
+    ]
+    assert json.loads(captured["env"][bootstrap_runtime.BOOTSTRAP_SUMMARY_ENV]) == {"status": "ready"}
+
+
+def test_find_launcher_python_checks_win32_launcher_names(monkeypatch):
+    bootstrap_runtime.find_launcher_python.cache_clear()
+    monkeypatch.setattr(bootstrap_runtime.sys, "platform", "win32")
+    monkeypatch.setattr(bootstrap_runtime.sys, "executable", "")
+    candidates = {
+        "python": "C:/Python312/python.exe",
+        "py": "C:/Windows/py.exe",
+        "python3.12": "C:/Python312/python3.12.exe",
+    }
+    seen: list[str] = []
+
+    def fake_which(name):
+        seen.append(name)
+        return candidates.get(name)
+
+    monkeypatch.setattr(bootstrap_runtime.shutil, "which", fake_which)
+    monkeypatch.setattr(
+        bootstrap_runtime,
+        "is_compatible_python",
+        lambda path: path.endswith("py.exe"),
+    )
+
+    try:
+        assert bootstrap_runtime.find_launcher_python() == "C:/Windows/py.exe"
+        assert seen[:2] == ["python", "py"]
+    finally:
+        bootstrap_runtime.find_launcher_python.cache_clear()
+
+
 def test_shared_handoff_raises_when_bootstrap_cannot_produce_runtime(monkeypatch):
     monkeypatch.setattr(
         bootstrap_runtime,

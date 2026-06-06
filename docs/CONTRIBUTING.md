@@ -121,6 +121,11 @@ with pytest-xdist (`-n auto --dist loadscope`). The serial `make test` run
 remains the canonical pre-commit gate because it preserves ordering-sensitive
 pollution checks.
 
+The `Windows user smoke` GitHub Actions workflow runs only
+`tests/test_windows_user_smoke.py` on `windows-latest`. It protects the native
+Windows user path (installer launcher, MCP startup, and one `brain_read` round
+trip) without making the full suite a Windows contributor gate.
+
 If you touch semantic retrieval, embeddings, or the evaluation harness, also
 install the pinned optional repo-local dependencies first:
 

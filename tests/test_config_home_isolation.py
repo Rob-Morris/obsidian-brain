@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 
 from _common import config_home
+from _common import _paths
 
 
 def test_config_home_is_isolated_to_tmp():
@@ -23,6 +24,32 @@ def test_config_home_is_not_the_real_user_config():
     """The resolved registry root must not be the operator's real ~/.config."""
     real = Path(os.path.expanduser("~")) / ".config"
     assert config_home() != real
+
+
+def test_config_home_uses_appdata_on_win32_when_xdg_absent(monkeypatch):
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    monkeypatch.setenv("APPDATA", r"C:\Users\rob\AppData\Roaming")
+    monkeypatch.setattr(_paths.sys, "platform", "win32")
+
+    assert config_home() == Path(r"C:\Users\rob\AppData\Roaming")
+
+
+def test_config_home_ignores_relative_appdata_on_win32(monkeypatch, tmp_path):
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    monkeypatch.setenv("APPDATA", "relative/AppData")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(_paths.sys, "platform", "win32")
+
+    assert config_home() == tmp_path / ".config"
+
+
+def test_config_home_falls_back_to_home_when_appdata_missing_on_win32(monkeypatch, tmp_path):
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    monkeypatch.delenv("APPDATA", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(_paths.sys, "platform", "win32")
+
+    assert config_home() == tmp_path / ".config"
 
 
 def test_registry_writes_land_in_the_isolated_home(tmp_path):

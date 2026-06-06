@@ -412,25 +412,6 @@ def _mcp_scope(*, user: bool, local: bool) -> str:
     return "project"
 
 
-def _mcp_followup_notes(*, client: str, scope: str, workspace_dir: Path | None) -> list[str]:
-    notes: list[str] = []
-    if scope == "project" and workspace_dir is not None:
-        if client in {"all", "claude"}:
-            notes.extend(mcp_transport.claude_project_followup_notes(workspace_dir))
-            notes.append("In Claude Code for that directory: run /mcp and approve `brain` if prompted.")
-            notes.append("Verify in Claude: call `brain_session` and confirm `environment.vault_root`.")
-        if client in {"all", "codex"}:
-            notes.append("In Codex for that directory: trust the project and ensure the project-scoped `brain` MCP is enabled.")
-            notes.append("Verify in Codex: call `brain_session` and confirm `environment.vault_root`.")
-            notes.append("Health check: `codex mcp list`.")
-    elif scope == "user":
-        if client in {"all", "claude"}:
-            notes.append("Verify in Claude: `claude mcp list`.")
-        if client in {"all", "codex"}:
-            notes.append("Verify in Codex: `codex mcp list`.")
-    return notes
-
-
 def configure_mcp_action(
     vault_root: Path,
     *,
@@ -478,7 +459,9 @@ def configure_mcp_action(
         status = "changed"
         message = f"Configured Brain MCP transport for {client} ({scope})."
 
-    notes = _mcp_followup_notes(client=client, scope=scope, workspace_dir=workspace_dir)
+    notes = list(mcp_result.get("verification_notes") or [])
+    if not remove and not notes:
+        notes = mcp_transport.mcp_followup_notes(clients, scope, workspace_dir)
     for warning in mcp_result.get("warnings", []):
         if warning not in notes:
             notes.append(warning)

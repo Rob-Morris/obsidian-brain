@@ -13,6 +13,7 @@ import pytest
 # init.py is self-contained, import it directly
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src", "brain-core", "scripts"))
 import init
+from _common import _shell
 from _bootstrap import mcp_transport, workspace_scaffold
 from _bootstrap.workspace_binding import workspace_slug
 
@@ -478,10 +479,10 @@ class TestBuildSessionHookCommand:
         command = init.build_session_hook_command(vault, vault, python_path=managed_python)
         assert managed_python in command
 
-    def test_windows_quoting_uses_windows_command_rules(self, vault, monkeypatch):
-        managed_python = r"C:\Users\Rob Morris\.brain\venvs\py3.12\Scripts\python.exe"
-        vault_root = PureWindowsPath(r"C:\Users\Rob Morris\Documents\Brain")
-        workspace = PureWindowsPath(r"C:\Users\Rob Morris\Documents\Brain")
+    def test_windows_quoting_uses_powershell_command_rules(self, vault, monkeypatch):
+        managed_python = r"C:\tools&x\.brain\venvs\py3.12\Scripts\python.exe"
+        vault_root = PureWindowsPath(r"C:\Users\Rob&x\Documents\Brain")
+        workspace = PureWindowsPath(r"C:\Work|x\Brain")
         monkeypatch.setattr(init._mcp_state.sys, "platform", "win32")
 
         command = init.build_session_hook_command(
@@ -490,9 +491,37 @@ class TestBuildSessionHookCommand:
             python_path=managed_python,
         )
 
-        assert "'C:" not in command
-        assert '"C:\\Users\\Rob Morris\\.brain\\venvs\\py3.12\\Scripts\\python.exe"' in command
-        assert '"C:\\Users\\Rob Morris\\Documents\\Brain\\.brain-core\\scripts\\session.py"' in command
+        assert command.startswith("Write-Output 'brain_session called:'; & ")
+        assert "'C:\\tools&x\\.brain\\venvs\\py3.12\\Scripts\\python.exe'" in command
+        assert "'C:\\Users\\Rob&x\\Documents\\Brain\\.brain-core\\scripts\\session.py'" in command
+        assert "'C:\\Users\\Rob&x\\Documents\\Brain'" in command
+        assert "'C:\\Work|x\\Brain'" in command
+        assert '"C:' not in command
+
+    def test_windows_quoting_escapes_embedded_single_quotes(self, vault, monkeypatch):
+        managed_python = r"C:\tools\O'Hara\python.exe"
+        vault_root = PureWindowsPath(r"C:\Users\O'Hara\Brain")
+        monkeypatch.setattr(init._mcp_state.sys, "platform", "win32")
+
+        command = init.build_session_hook_command(
+            vault_root,
+            vault_root,
+            python_path=managed_python,
+        )
+
+        assert "'C:\\tools\\O''Hara\\python.exe'" in command
+        assert "'C:\\Users\\O''Hara\\Brain'" in command
+        assert init._mcp_state.is_session_hook_command(command, vault_root, vault_root)
+
+    def test_posix_hook_prefix_and_quoting_unchanged(self, vault, monkeypatch):
+        monkeypatch.setattr(init._mcp_state.sys, "platform", "linux")
+        managed_python = "/usr/local/bin/python3.12"
+
+        command = init.build_session_hook_command(vault, vault, python_path=managed_python)
+
+        assert command.startswith("echo brain_session called: && ")
+        assert "Write-Output" not in command
+        assert managed_python in command
 
 
 class TestEnsureSessionStartHook:
@@ -504,6 +533,7 @@ class TestEnsureSessionStartHook:
         hooks = data["hooks"]["SessionStart"]
         assert len(hooks) == 1
         command = hooks[0]["hooks"][0]["command"]
+        assert command.startswith("echo brain_session called:")
         assert "session.py" in command
         assert str(vault) in command
         assert "--workspace-dir" in command
@@ -511,6 +541,19 @@ class TestEnsureSessionStartHook:
         # Hook must use a resolved launcher path, not bare `python3`.
         assert " python3 " not in command
         assert not command.startswith("python3 ")
+
+    def test_creates_powershell_hook_on_windows(self, project, vault, monkeypatch):
+        monkeypatch.setattr(init._mcp_state.sys, "platform", "win32")
+        monkeypatch.setattr(mcp_transport.sys, "platform", "win32")
+
+        init.ensure_session_start_hook(project, vault, python_path=r"C:\tools&x\python.exe")
+
+        settings_path = project / ".claude" / "settings.local.json"
+        data = json.loads(settings_path.read_text())
+        hook = data["hooks"]["SessionStart"][0]["hooks"][0]
+        assert hook["shell"] == "powershell"
+        assert hook["command"].startswith("Write-Output 'brain_session called:'; & ")
+        assert "'C:\\tools&x\\python.exe'" in hook["command"]
 
     def test_idempotent(self, project, vault):
         init.ensure_session_start_hook(project, vault)
@@ -583,6 +626,56 @@ class TestEnsureSessionStartHook:
         assert record["hook_command"] in commands
         assert len([command for command in commands if "session.py" in command]) == 1
 
+    def test_register_claude_replaces_old_windows_hook_with_powershell_hook(
+        self, tmp_path, monkeypatch
+    ):
+        vault = tmp_path / "vault&x"
+        project = tmp_path / "project&x"
+        vault.mkdir()
+        project.mkdir()
+        old_python = r"C:\runtime&old\python.exe"
+        managed_python = r"C:\runtime&new\python.exe"
+        old_command = (
+            "echo brain_session called: && "
+            + subprocess.list2cmdline([
+                old_python,
+                str(vault / ".brain-core" / "scripts" / "session.py"),
+                "--vault",
+                str(vault),
+                "--workspace-dir",
+                str(project),
+                "--json",
+            ])
+        )
+        settings_path = project / ".claude" / "settings.local.json"
+        settings_path.parent.mkdir(parents=True)
+        settings_path.write_text(json.dumps({
+            "hooks": {
+                "SessionStart": [
+                    {"hooks": [{"type": "command", "command": old_command}]}
+                ]
+            }
+        }))
+        server_config = init.build_mcp_config(managed_python, vault, workspace_dir=project)
+        monkeypatch.setattr(init._mcp_state.sys, "platform", "win32")
+        monkeypatch.setattr(mcp_transport.sys, "platform", "win32")
+        monkeypatch.setattr(mcp_transport, "_has_claude_cli", lambda: False)
+
+        record = init.register_claude(vault, server_config, "project", project)
+
+        settings = json.loads(settings_path.read_text())
+        hooks = [
+            hook
+            for entry in settings["hooks"]["SessionStart"]
+            for hook in entry["hooks"]
+            if hook.get("type") == "command"
+        ]
+        assert len(hooks) == 1
+        assert hooks[0]["shell"] == "powershell"
+        assert hooks[0]["command"] == record["hook_command"]
+        assert old_command not in [hook["command"] for hook in hooks]
+        assert "'C:\\runtime&new\\python.exe'" in hooks[0]["command"]
+
 
 class TestClaudeProjectApproval:
     def test_reports_unapproved_project_with_user_scope_shadow_risk(self, project, fake_home):
@@ -650,6 +743,22 @@ class TestClientScopeWarnings:
         assert "already registered globally" in err
         assert "once this project is trusted" in err
         assert "enabled" in err
+
+
+def test_mcp_followup_notes_are_shared_for_project_scope(project):
+    notes = mcp_transport.mcp_followup_notes(["claude", "codex"], "project", project)
+
+    assert any("/mcp" in note for note in notes)
+    assert any("brain_session" in note for note in notes)
+    assert any("codex mcp list" in note for note in notes)
+
+
+def test_mcp_followup_notes_are_shared_for_user_scope():
+    notes = mcp_transport.mcp_followup_notes(["claude", "codex"], "user", None)
+
+    assert any("claude mcp list" in note for note in notes)
+    assert any("codex mcp list" in note for note in notes)
+    assert not any("brain_session" in note for note in notes)
 
 
 class TestStateBookkeeping:
@@ -758,6 +867,35 @@ class TestRemoval:
         assert removed is False
         assert config_path.is_file()
         assert init.read_codex_server_config(config_path) == other
+
+
+def test_apply_mcp_transport_action_quotes_remove_command_on_win32(tmp_path, monkeypatch):
+    vault = tmp_path / "Brain Vault"
+    project = tmp_path / "My Project"
+    vault.mkdir()
+    project.mkdir()
+    monkeypatch.setattr(_shell.sys, "platform", "win32")
+    monkeypatch.setattr(mcp_transport, "_resolve_managed_python", lambda _vault: r"C:\Program Files\Python312\python.exe")
+    monkeypatch.setattr(mcp_transport, "_warn_if_user_scope_exists", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(mcp_transport, "_converge_workspace_manifest", lambda *_args, **_kwargs: MagicMock(message="ok"))
+    monkeypatch.setattr(mcp_transport, "ensure_brain_ignore_rules", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        mcp_transport,
+        "register_claude",
+        lambda *_args, **_kwargs: {"client": "claude", "scope": "project"},
+    )
+    monkeypatch.setattr(mcp_transport, "record_init_target", lambda *_args, **_kwargs: None)
+
+    result = mcp_transport.apply_mcp_transport_action(
+        vault,
+        client_arg="claude",
+        scope="project",
+        target_dir=project,
+        remove=False,
+    )
+
+    assert f'"{vault}"' in result["remove_command"]
+    assert f'"{project}"' in result["remove_command"]
 
 
 class TestSkipMcpMode:

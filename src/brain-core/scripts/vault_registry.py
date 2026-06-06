@@ -35,7 +35,6 @@ Usage:
 
 import argparse
 import contextlib
-import fcntl
 import json
 import os
 import re
@@ -43,6 +42,7 @@ import sys
 from dataclasses import dataclass
 
 from _common import config_home, is_vault_root, random_short_suffix, safe_write, title_to_slug
+from _common._file_lock import exclusive_file_lock
 
 
 TYPE_LOCAL = "local"
@@ -89,13 +89,8 @@ def _locked():
     prompts on a concurrent writer.
     """
     lock_path = _registry_path() + ".lock"
-    os.makedirs(os.path.dirname(lock_path), exist_ok=True)
-    with open(lock_path, "w") as lock:
-        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+    with exclusive_file_lock(lock_path):
+        yield
 
 
 def _write_default_unlocked(brain_id):

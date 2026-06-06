@@ -165,6 +165,56 @@ def test_collect_vault_diagnosis_rejects_unsupported_check_json(monkeypatch, tmp
     assert result["exit_code"] == 1
 
 
+def test_collect_vault_diagnosis_omits_bash_install_guidance_on_win32(monkeypatch, tmp_path):
+    vault = tmp_path / "vault"
+    scripts = vault / ".brain-core" / "scripts"
+    scripts.mkdir(parents=True)
+    (scripts / "check.py").write_text("#!/usr/bin/env python3\n")
+    monkeypatch.setattr(doctor.sys, "platform", "win32")
+    monkeypatch.setattr(doctor, "find_runnable_python", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        doctor,
+        "build_repair_command",
+        lambda vault_root, scope: f"python repair.py {scope} --vault {vault_root}",
+    )
+
+    result = doctor.collect_vault_diagnosis(
+        current_vault=str(vault),
+        launcher_python=sys.executable,
+        actionable=False,
+        severity=None,
+    )
+
+    assert result["available"] is False
+    assert "python repair.py runtime" in result["message"]
+    assert "bash install.sh" not in result["message"]
+
+
+def test_collect_vault_diagnosis_keeps_install_sh_fallback_on_posix(monkeypatch, tmp_path):
+    vault = tmp_path / "vault"
+    scripts = vault / ".brain-core" / "scripts"
+    scripts.mkdir(parents=True)
+    (scripts / "check.py").write_text("#!/usr/bin/env python3\n")
+    monkeypatch.setattr(doctor.sys, "platform", "linux")
+    monkeypatch.setattr(doctor, "find_runnable_python", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        doctor,
+        "build_repair_command",
+        lambda vault_root, scope: f"python repair.py {scope} --vault {vault_root}",
+    )
+
+    result = doctor.collect_vault_diagnosis(
+        current_vault=str(vault),
+        launcher_python=sys.executable,
+        actionable=False,
+        severity=None,
+    )
+
+    assert result["available"] is False
+    assert "python repair.py runtime" in result["message"]
+    assert "bash install.sh" in result["message"]
+
+
 
 def test_overall_exit_code_rolls_up_cli_machine_and_vault_states():
     cases = [

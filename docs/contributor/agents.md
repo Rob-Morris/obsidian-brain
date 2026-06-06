@@ -74,6 +74,11 @@ Use serial `make test` for the pre-commit gate. `make test-parallel` is a fast
 pytest-xdist feedback path while iterating, but it does not replace the serial
 run because serial ordering still catches cross-file pollution.
 
+The `Windows user smoke` GitHub Actions workflow is a narrow user-path guard,
+not a contributor-platform promise. It runs `tests/test_windows_user_smoke.py`
+on `windows-latest` to exercise native install, MCP startup, and one
+`brain_read` round trip.
+
 ## Installing for Users
 
 When a user asks an agent working in this repo to install a Brain vault on their behalf, separate the job into two outcomes:

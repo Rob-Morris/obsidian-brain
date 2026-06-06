@@ -4,13 +4,13 @@
 from __future__ import annotations
 
 from pathlib import Path
-import shlex
 
 from _bootstrap.runtime import (
     BOOTSTRAP_SUMMARY_ENV,
     DEFAULT_MANAGED_RUNTIME_LAUNCHER,
     find_launcher_python,
 )
+from _common import join_argv
 
 
 REPAIR_SCRIPT_REL = Path(".brain-core/scripts/repair.py")
@@ -82,7 +82,7 @@ def build_repair_command(
     dry_run: bool = False,
 ) -> str:
     """Return an exact shell-ready repair command for the given scope."""
-    return shlex.join(
+    return join_argv(
         build_repair_argv(
             vault_root,
             scope,

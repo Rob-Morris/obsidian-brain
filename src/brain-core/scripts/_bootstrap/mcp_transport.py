@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import json
-import shlex
 import shutil
 import subprocess
 import sys
@@ -41,7 +40,7 @@ from _bootstrap.workspace_binding import (
     resolve_local_brain_alias,
 )
 from _bootstrap.workspace_scaffold import GitInspectionError, ensure_brain_ignore_rules
-from _common import safe_write, safe_write_json
+from _common import join_argv, safe_write, safe_write_json
 
 
 SUPPORTED_CLIENTS = ("claude", "codex")
@@ -463,14 +462,13 @@ def ensure_session_start_hook(
     else:
         settings["hooks"].setdefault("SessionStart", kept_entries)
 
-    new_entry = {
-        "hooks": [
-            {
-                "type": "command",
-                "command": hook_command,
-            }
-        ]
+    new_hook = {
+        "type": "command",
+        "command": hook_command,
     }
+    if sys.platform == "win32":
+        new_hook["shell"] = "powershell"
+    new_entry = {"hooks": [new_hook]}
     settings["hooks"].setdefault("SessionStart", []).append(new_entry)
     safe_write_json(settings_path, settings)
     info("Added SessionStart hook for brain_session")
@@ -712,6 +710,32 @@ def _scope_configure_flags(scope: str, target_dir: Optional[Path]) -> List[str]:
     return flags
 
 
+def _is_project_scope(scope: str, target_dir: Optional[Path]) -> bool:
+    return scope == "project" and target_dir is not None
+
+
+def mcp_followup_notes(clients: List[str], scope: str, target_dir: Optional[Path]) -> List[str]:
+    """Return shared post-registration verification guidance."""
+    project_scope = _is_project_scope(scope, target_dir)
+    notes: List[str] = []
+    if "claude" in clients:
+        if project_scope:
+            notes.append("Claude:   open Claude Code in this directory and use /mcp to approve `brain` if prompted")
+            notes.append("Verify:   ask Claude to call `brain_session` and confirm `environment.vault_root`")
+        else:
+            notes.append("Verify:   claude mcp list")
+    if "codex" in clients:
+        if project_scope:
+            notes.append(
+                "Codex:    trust this project and ensure the project-scoped `brain` MCP is enabled if prompted"
+            )
+            notes.append("Verify:   ask Codex to call `brain_session` and confirm `environment.vault_root`")
+            notes.append("Health:   codex mcp list")
+        else:
+            notes.append("Verify:   codex mcp list")
+    return notes
+
+
 def _scope_label(scope: str, target_dir: Optional[Path]) -> str:
     if scope == "user":
         return "user (all projects)"
@@ -803,29 +827,17 @@ def apply_mcp_transport_action(
         raise InitTransportError(str(exc)) from exc
 
     has_claude = any(result["client"] == "claude" for result in results)
-    has_codex = any(result["client"] == "codex" for result in results)
-    project_scope = scope == "project" and target_dir is not None
+    project_scope = _is_project_scope(scope, target_dir)
 
     claude_notes: List[str] = []
     if project_scope and has_claude:
         claude_notes = claude_project_followup_notes(target_dir)
 
-    verification_notes: List[str] = []
-    if has_claude:
-        if project_scope:
-            verification_notes.append("Claude:   open Claude Code in this directory and use /mcp to approve `brain` if prompted")
-            verification_notes.append("Verify:   ask Claude to call `brain_session` and confirm `environment.vault_root`")
-        else:
-            verification_notes.append("Verify:   claude mcp list")
-    if has_codex:
-        if project_scope:
-            verification_notes.append(
-                "Codex:    trust this project and ensure the project-scoped `brain` MCP is enabled if prompted"
-            )
-            verification_notes.append("Verify:   ask Codex to call `brain_session` and confirm `environment.vault_root`")
-            verification_notes.append("Health:   codex mcp list")
-        else:
-            verification_notes.append("Verify:   codex mcp list")
+    verification_notes = mcp_followup_notes(
+        [result["client"] for result in results],
+        scope,
+        target_dir,
+    )
 
     remove_args = [
         "python3",
@@ -851,7 +863,7 @@ def apply_mcp_transport_action(
         "results": results,
         "claude_project_notes": claude_notes,
         "verification_notes": verification_notes,
-        "remove_command": shlex.join(remove_args),
+        "remove_command": join_argv(remove_args),
     }
 
 

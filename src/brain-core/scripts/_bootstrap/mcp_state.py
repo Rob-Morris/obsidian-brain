@@ -6,7 +6,6 @@ from __future__ import annotations
 import json
 import os
 import shlex
-import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -148,8 +147,13 @@ def session_hook_python(server_config: dict) -> str:
 def _join_hook_command(args: list[str]) -> str:
     """Return a shell command fragment for the platform writing the hook."""
     if sys.platform == "win32":
-        return subprocess.list2cmdline(args)
+        return "& " + " ".join(_quote_powershell_arg(arg) for arg in args)
     return " ".join(shlex.quote(arg) for arg in args)
+
+
+def _quote_powershell_arg(value: str) -> str:
+    """Return a single-quoted PowerShell argument token."""
+    return "'" + value.replace("'", "''") + "'"
 
 
 def _session_hook_argv(vault_root: Path, target_dir: Path) -> list[str]:
@@ -173,7 +177,13 @@ def build_session_hook_command(
     """Build the persisted SessionStart hook command for a target directory."""
     launcher = python_path or _resolve_session_launcher()
     command = _join_hook_command([launcher, *_session_hook_argv(vault_root, target_dir)])
+    if sys.platform == "win32":
+        return f"Write-Output 'brain_session called:'; {command}"
     return f"echo brain_session called: && {command}"
+
+
+def _hook_command_contains_arg(command: str, arg: str) -> bool:
+    return arg in command or shlex.quote(arg) in command or _quote_powershell_arg(arg) in command
 
 
 def is_session_hook_command(command: Any, vault_root: Path, target_dir: Path) -> bool:
@@ -185,7 +195,7 @@ def is_session_hook_command(command: Any, vault_root: Path, target_dir: Path) ->
     """
     if not isinstance(command, str):
         return False
-    return all(part in command for part in _session_hook_argv(vault_root, target_dir))
+    return all(_hook_command_contains_arg(command, part) for part in _session_hook_argv(vault_root, target_dir))
 
 
 def _state_path(vault_root: Path) -> Path:

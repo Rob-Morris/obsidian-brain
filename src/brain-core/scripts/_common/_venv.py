@@ -31,6 +31,7 @@ import argparse
 from functools import lru_cache
 import hashlib
 import json
+import ntpath
 import os
 import shutil
 import subprocess
@@ -56,9 +57,16 @@ def same_executable_path(left: str | Path, right: str | Path) -> bool:
     Do not collapse symlinks here. On Linux a venv's ``bin/python`` commonly
     symlinks to the native interpreter; comparing realpaths would treat the
     managed venv and system Python as interchangeable and reuse the wrong
-    dependency probe.
+    dependency probe. On Windows, normalise casing and separators so persisted
+    launcher strings do not drift from equivalent runtime-derived paths.
     """
-    return os.path.abspath(str(left)) == os.path.abspath(str(right))
+    if sys.platform == "win32":
+        left_path = ntpath.normcase(ntpath.abspath(str(left)))
+        right_path = ntpath.normcase(ntpath.abspath(str(right)))
+    else:
+        left_path = os.path.abspath(str(left))
+        right_path = os.path.abspath(str(right))
+    return left_path == right_path
 
 
 def central_venvs_root() -> Path:
@@ -129,6 +137,8 @@ def venv_dir_for(requirements_path: Path, *, launcher: Optional[Path] = None) ->
 
 
 def venv_python(venv_dir: Path) -> Path:
+    if sys.platform == "win32":
+        return Path(venv_dir) / "Scripts" / "python.exe"
     return Path(venv_dir) / "bin" / "python"
 
 
@@ -241,8 +251,8 @@ def find_runnable_python(
 
     Fallback chain:
 
-    1. The vault's central managed runtime (`~/.brain/venvs/<tag>-<hash>/bin/python`).
-    2. The legacy vault-local venv (`<vault>/.venv/bin/python`) if present.
+    1. The vault's central managed runtime (`~/.brain/venvs/<tag>-<hash>/<python>`).
+    2. The legacy vault-local venv (`<vault>/.venv/<python>`) if present.
     3. The launcher itself — any compatible Python 3.12+ on the caller's machine.
 
     Returns ``None`` only when no candidate exists, which the CLI surfaces as
@@ -261,7 +271,7 @@ def find_runnable_python(
     central = find_existing_central_venv(vault_root, launcher=launcher)
     if central is not None:
         return central
-    # 2. Legacy vault-local `<vault>/.venv/bin/python` (pre-DD-048).
+    # 2. Legacy vault-local venv interpreter (pre-DD-048).
     legacy = legacy_vault_venv_python(vault_root)
     if legacy.is_file():
         return legacy
@@ -294,8 +304,8 @@ def ensure_central_venv(
 ) -> dict:
     """Create the central venv for these requirements if missing.
 
-    Idempotent: if `<dir>/bin/python` already exists, returns without re-running
-    pip. Always uses `launcher` (an external Python 3.12+ interpreter) to
+    Idempotent: if the managed venv interpreter already exists, returns
+    without re-running pip. Always uses `launcher` (an external Python 3.12+ interpreter) to
     create the venv, so the resulting `pyX.Y` tag always matches `launcher`.
 
     `install_requirements=False` skips the `pip install -r` step — used by
@@ -325,14 +335,14 @@ def ensure_central_venv(
     py = venv_python(venv_dir)
     sentinel = venv_dir / DEPS_SENTINEL_NAME
 
-    # Readiness probe: `bin/python` alone is not a guarantee that the venv is
-    # healthy. A previous `pip install` may have failed mid-stream, leaving the
-    # interpreter present but packages missing. The sentinel file is written
-    # only after pip completes successfully and records the requirements hash
-    # of the install. If pip is requested and the sentinel is absent or its
-    # hash drifts (defensive — the directory is already content-addressed so
-    # the hash check is belt-and-braces), re-run pip rather than handing back
-    # a half-built runtime.
+    # Readiness probe: the venv interpreter alone is not a guarantee that the
+    # venv is healthy. A previous `pip install` may have failed mid-stream,
+    # leaving the interpreter present but packages missing. The sentinel file
+    # is written only after pip completes successfully and records the
+    # requirements hash of the install. If pip is requested and the sentinel
+    # is absent or its hash drifts (defensive — the directory is already
+    # content-addressed so the hash check is belt-and-braces), re-run pip
+    # rather than handing back a half-built runtime.
     if py.is_file():
         if not install_requirements:
             return {

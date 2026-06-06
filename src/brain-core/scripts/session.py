@@ -17,7 +17,6 @@ import json
 import os
 from pathlib import Path
 import re
-import shlex
 import sys
 
 from _bootstrap.runtime import (
@@ -34,6 +33,7 @@ from _bootstrap.workspace_binding import (
 from _common import (
     find_vault_root,
     parse_frontmatter,
+    quote_arg,
     resolve_structural_target,
     safe_write,
 )
@@ -805,17 +805,24 @@ def persist_session_markdown(model, vault_root):
 
 
 def _bootstrap_reinstall_command(vault_root) -> str:
-    return f"bash install.sh --non-interactive --skip-mcp {shlex.quote(str(vault_root))}"
+    if sys.platform == "win32":
+        vault_arg = quote_arg(str(vault_root))
+        return (
+            "python <obsidian-brain>\\src\\brain-core\\scripts\\upgrade.py "
+            "--source <obsidian-brain>\\src\\brain-core "
+            f"--vault {vault_arg}"
+        )
+    return f"bash install.sh --non-interactive --skip-mcp {quote_arg(str(vault_root))}"
 
 
 def _config_inspect_command(vault_root) -> str:
-    shared = shlex.quote(str(Path(vault_root) / ".brain" / "config.yaml"))
-    local = shlex.quote(str(Path(vault_root) / ".brain" / "local" / "config.yaml"))
+    shared = quote_arg(str(Path(vault_root) / ".brain" / "config.yaml"))
+    local = quote_arg(str(Path(vault_root) / ".brain" / "local" / "config.yaml"))
     return f"cat {shared} {local}"
 
 
 def _workspace_manifest_inspect_command(manifest_path: str) -> str:
-    return f"cat {shlex.quote(manifest_path)}"
+    return f"cat {quote_arg(manifest_path)}"
 
 
 _RECOVERY_BY_CLASS = {

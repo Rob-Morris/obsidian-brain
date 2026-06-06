@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import contextlib
 from datetime import UTC, datetime
-import fcntl
 import json
 import os
 from pathlib import Path
@@ -19,6 +18,7 @@ import sys
 from typing import Any
 
 from _common import config_home, is_vault_root, safe_write_json
+from _common._file_lock import exclusive_file_lock
 import vault_registry
 
 
@@ -44,13 +44,8 @@ def machine_registry_path() -> Path:
 def _locked_machine_registry():
     """Serialise load-modify-save for the derived machine registry."""
     lock_path = Path(str(machine_registry_path()) + ".lock")
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    with lock_path.open("w", encoding="utf-8") as lock:
-        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+    with exclusive_file_lock(lock_path):
+        yield
 
 
 def _empty_machine_registry_state(path: Path) -> dict[str, Any]:

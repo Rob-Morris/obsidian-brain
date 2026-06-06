@@ -66,6 +66,13 @@ def _safe_write(path, content):
         raise
 
 
+def _join_argv(argv: list[str]) -> str:
+    """Render guidance argv without importing _common during upgrade."""
+    if sys.platform == "win32":
+        return subprocess.list2cmdline(argv)
+    return shlex.join(argv)
+
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -1816,17 +1823,35 @@ def main() -> None:
                 info("Central runtime check skipped (--no-sync-deps).")
             elif outcome == RUNTIME_ERROR:
                 info(f"Central runtime setup failed: {runtime['message']}")
-                info(f"  Retry: {shlex.quote(sys.executable)} "
-                     f"{shlex.quote(str(vault_root / VENV_HELPER_REL))} "
-                     f"ensure --vault {shlex.quote(str(vault_root))} --launcher {shlex.quote(sys.executable)}")
+                command = _join_argv([
+                    sys.executable,
+                    str(vault_root / VENV_HELPER_REL),
+                    "ensure",
+                    "--vault",
+                    str(vault_root),
+                    "--launcher",
+                    sys.executable,
+                ])
+                info(f"  Retry: {command}")
             if runtime.get("legacy_vault_venv"):
                 info(
                     f"  Legacy vault venv detected at {runtime['legacy_vault_venv']}. "
                     f"To migrate MCP config to the central runtime, run:"
                 )
-                info(f"    {shlex.quote(sys.executable)} "
-                     f"{shlex.quote(str(vault_root / '.brain-core' / 'scripts' / 'configure.py'))} "
-                     f"mcp --vault {shlex.quote(str(vault_root))} --workspace {shlex.quote(str(vault_root))} --client all")
+                info(
+                    "    "
+                    + _join_argv([
+                        sys.executable,
+                        str(vault_root / ".brain-core" / "scripts" / "configure.py"),
+                        "mcp",
+                        "--vault",
+                        str(vault_root),
+                        "--workspace",
+                        str(vault_root),
+                        "--client",
+                        "all",
+                    ])
+                )
             print(file=sys.stderr)
 
         cli_refresh = result.get("cli_refresh")
@@ -1842,7 +1867,7 @@ def main() -> None:
 
         retrieval_asset_repair = result.get("retrieval_asset_repair")
         if retrieval_asset_repair is not None:
-            command = shlex.join(retrieval_asset_repair["command"])
+            command = _join_argv(retrieval_asset_repair["command"])
             scope = retrieval_asset_repair["scope"]
             if retrieval_asset_repair["outcome"] == "ok":
                 if scope == "semantic":

@@ -1,0 +1,32 @@
+name: Windows user smoke
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  windows-user-smoke:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install smoke dependencies
+        shell: pwsh
+        run: |
+          python -m venv .venv
+          .\.venv\Scripts\python.exe -m pip install --upgrade pip
+          .\.venv\Scripts\python.exe -m pip install "mcp>=1.0.0" "pytest>=9.0"
+
+      - name: Run native Windows user smoke
+        shell: pwsh
+        run: .\.venv\Scripts\python.exe -m pytest -q tests/test_windows_user_smoke.py

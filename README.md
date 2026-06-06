@@ -1,6 +1,6 @@
 # Obsidian Brain
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.48.5-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.12-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.48.6-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.12-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
 
 A self-evolving knowledge base for agents and humans working together on what matters.
 
@@ -31,7 +31,7 @@ The [Getting Started guide](docs/user/getting-started.md) walks through all of t
 
 ## Quick Start
 
-**You need:** git, plus an agent you can run in the vault folder. An MCP-capable agent such as [Claude Code](https://docs.anthropic.com/en/docs/claude-code) or Codex gives the best tool-backed experience, but Brain also has a markdown bootstrap fallback for agents without MCP. Python 3.12+ is the supported user-facing runtime for MCP and Python lifecycle commands; `install.sh` can still scaffold the vault without it and print the follow-up steps. [Obsidian](https://obsidian.md) is strongly recommended — the brain is designed for it — but you can use any markdown editor or just talk to your agent directly.
+**You need:** git, Python 3.12+, plus an agent you can run in the vault folder. An MCP-capable agent such as [Claude Code](https://docs.anthropic.com/en/docs/claude-code) or Codex gives the best tool-backed experience, but Brain also has a markdown bootstrap fallback for agents without MCP. [Obsidian](https://obsidian.md) is strongly recommended — the brain is designed for it — but you can use any markdown editor or just talk to your agent directly.
 
 **Create your vault:**
 
@@ -40,6 +40,14 @@ bash <(curl -fsSL https://raw.githubusercontent.com/rob-morris/obsidian-brain/ma
 ```
 
 This downloads the repo, creates the vault in the current directory, and then attempts project-scope MCP setup for Claude Code and Codex. Pass a path to install elsewhere. If you want the vault scaffold without the managed runtime / MCP setup, pass `--skip-mcp` (or add `--non-interactive` for non-interactive agent installs). From a local clone, use `bash install.sh` instead.
+
+On native Windows, use the PowerShell launcher from a local clone:
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -VaultPath C:\path\to\brain
+```
+
+`install.cmd` is a cmd.exe wrapper over the same PowerShell launcher. Both launchers hand install policy to `src/brain-core/scripts/install.py`, the same Python installer core used by `install.sh`.
 
 Brain installs the managed Python runtime to `~/.brain/venvs/py<X.Y>-<sha16>/`, content-addressed by `requirements.txt`. Vaults sharing the same dependencies share one venv on disk. See [DD-048](docs/architecture/decisions/dd-048-central-managed-runtime.md) for rationale.
 
@@ -136,7 +144,7 @@ bash install.sh --non-interactive --skip-mcp /path/to/brain
 bash install.sh --uninstall --non-interactive /path/to/brain
 ```
 
-Skips all prompts. Useful for scripted or agent-driven installs. Add `--skip-mcp` to scaffold the vault without provisioning the central runtime or registering Claude/Codex MCP — useful in network-restricted agent sandboxes. If MCP dependency install or registration fails, the installer now leaves the vault in place and prints manual retry steps instead of aborting the whole install. On uninstall, `--non-interactive` removes system files without prompting and skips the vault-deletion offer entirely. On upgrade, `install.sh` just delegates to `upgrade.py`; it does not own upgrade override semantics or re-run MCP setup. If you need same-version re-apply, downgrade, or migration rerun behaviour, call `upgrade.py --force` directly.
+Skips all prompts. Useful for scripted or agent-driven installs. Add `--skip-mcp` to scaffold the vault without provisioning the central runtime or registering Claude/Codex MCP — useful in network-restricted agent sandboxes. Python 3.12+ is still required because the shell launcher now hands scaffold policy to the Python installer core. If MCP dependency install or registration fails, the installer leaves the vault in place and prints manual retry steps instead of aborting the whole install. On uninstall, `--non-interactive` removes system files without prompting and skips the vault-deletion offer entirely. On upgrade, `install.sh` just delegates to `upgrade.py`; it does not own upgrade override semantics or re-run MCP setup. If you need same-version re-apply, downgrade, or migration rerun behaviour, call `upgrade.py --force` directly.
 
 > **Full reference:** [Scripts — install.sh](docs/functional/scripts.md#installsh) covers all flags, safety guards, and edge-case behaviour.
 

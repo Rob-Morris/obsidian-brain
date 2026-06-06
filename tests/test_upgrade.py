@@ -917,6 +917,61 @@ class TestUpgradeProgressLogging:
         assert final["status"] == "ok"
         assert final["retrieval_asset_repair"]["scope"] == "lexical"
 
+    def test_human_output_quotes_win32_runtime_guidance_with_spaced_paths(self, tmp_path, monkeypatch, capsys):
+        source = _make_real_compile_source(tmp_path)
+        spaced_root = tmp_path / "spaced root"
+        spaced_root.mkdir()
+        vault = _make_minimal_upgrade_vault(spaced_root)
+        monkeypatch.setattr(upgrade.sys, "platform", "win32")
+        monkeypatch.setattr(upgrade.sys, "executable", r"C:\Program Files\Python312\python.exe")
+
+        def fake_upgrade(vault_root, source_arg, *, force=False, dry_run=False, sync=None, sync_deps=None):
+            return {
+                "status": "ok",
+                "old_version": "0.35.9",
+                "new_version": "0.40.0",
+                "files_added": [],
+                "files_modified": [],
+                "files_removed": [],
+                "files_unchanged": 0,
+                "dry_run": False,
+                "message": "Upgraded 0.35.9 → 0.40.0",
+                "central_runtime": {
+                    "outcome": upgrade.RUNTIME_ERROR,
+                    "message": "missing mcp",
+                    "legacy_vault_venv": str(vault / ".venv"),
+                },
+                "retrieval_asset_repair": {
+                    "scope": "lexical",
+                    "outcome": "error",
+                    "command": ["python", "repair.py", "lexical", "--vault", str(vault)],
+                    "message": "repair failed",
+                },
+            }
+
+        monkeypatch.setattr(upgrade, "upgrade", fake_upgrade)
+        monkeypatch.setattr(upgrade, "_refresh_brain_cli", lambda _source: None)
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "upgrade.py",
+                "--source",
+                str(source),
+                "--vault",
+                str(vault),
+            ],
+        )
+
+        upgrade.main()
+
+        err = capsys.readouterr().err
+        assert '"C:\\Program Files\\Python312\\python.exe"' in err
+        assert f'"{vault}"' in err
+        assert "Retry:" in err
+        assert "configure.py" in err
+        assert "repair.py lexical" in err
+
 
 class TestUpgradeCliCentralRuntime:
     """Upgrade CLI ensures the central managed runtime when requirements change.

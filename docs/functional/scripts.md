@@ -43,8 +43,9 @@ That `python3.12` process is the launcher, not the managed runtime itself.
 | `check.py` | Structural compliance checks; launcher-safe bootstrap diagnostics are added first, then managed semantic findings from the canonical semantic owner run after managed-runtime handoff | `python3 check.py [--json] [--actionable] [--severity S] [--vault V]` |
 | `setup.py` | Public workspace setup owner: converge `brain + slug` binding plus Brain-owned local scaffold/ignore state, with an optional guided wizard over the same explicit configure surfaces | `python3 setup.py workspace [PATH] [--vault V] [--brain ID] [--slug S] [--guided] [--force] [--json]` |
 | `configure.py` | Explicit installed-vault configuration entry point: `workspace binding`, `workspace metadata`, `workspace bootstrap`, `mcp`, and `semantic` live here so targeted changes do not have to go through the setup wrapper | `python3 configure.py {workspace,mcp,semantic} ...` |
+| `install.py` | Shared Python installer core used by `install.sh` and `install.ps1` for fresh/existing-vault installs: scaffolds the vault, installs `.brain-core/`, provisions the managed runtime, configures MCP, and emits lifecycle results | `python3 install.py VAULT [--source-root REPO] [--launcher PY] [--mcp-scope {project,user,skip}] [--client {claude,codex,all}] [--id ID] [--json]` |
 | `repair.py` | Explicit Brain repair entry point with bootstrap-to-managed-runtime handoff, including dedicated managed-runtime recovery, duplicate-frontmatter normalisation, and semantic runtime/model/sidecar recovery | `python3 repair.py {runtime,mcp,router,lexical,registry,frontmatter,semantic} [--vault V] [--dry-run] [--json]` |
-| `_common/_venv.py` | Resolve and create the central managed runtime under `~/.brain/venvs/py<X.Y>-<sha16>/`. Importable helper plus a CLI surface used by `install.sh` | `python3 _common/_venv.py {python,ensure} --vault V [--launcher PY]` |
+| `_common/_venv.py` | Resolve and create the central managed runtime under `~/.brain/venvs/py<X.Y>-<sha16>/`. Importable helper used by `install.py` and lifecycle entry points, with a small diagnostic/repair CLI surface | `python3 _common/_venv.py {python,ensure} --vault V [--launcher PY]` |
 | `shape_printable.py` | Create printable + render PDF | `python3 shape_printable.py --source P --slug S [--no-render] [--pdf-engine E]` |
 | `shape_presentation.py` | Create presentation + render PDF + launch preview | `python3 shape_presentation.py --source P --slug S [--no-render] [--no-preview]` |
 | `start_shaping.py` | Bootstrap a shaping session for an existing artefact | `python3 start_shaping.py --target P [--title T] [--vault V]` |
@@ -217,7 +218,7 @@ If you do not know what is broken, start with `check.py`. Compliance findings no
 
 Single source of truth for the central managed runtime path rule. Brain installs one virtualenv per `(python_minor, requirements.txt)` pair under `~/.brain/venvs/py<X.Y>-<sha16>/`, shared across vaults that pin the same dependency manifest. Cold-start cost on cloud-synced vaults motivated the move off `<vault>/.venv/` — see [DD-048](../architecture/decisions/dd-048-central-managed-runtime.md) for the full reasoning.
 
-`install.sh`, `configure.py`, `init.py`, `upgrade.py`, and `repair.py` resolve the managed runtime through this helper whenever they need one. `setup.py` stays launcher-safe for baseline workspace binding and does not require the managed runtime. There is no other valid encoding of the rule in the codebase.
+`install.py`, `configure.py`, `init.py`, `upgrade.py`, and `repair.py` resolve the managed runtime through this helper whenever they need one. `install.sh` and `install.ps1` hand install policy to `install.py` instead of resolving the managed runtime themselves. `setup.py` stays launcher-safe for baseline workspace binding and does not require the managed runtime. There is no other valid encoding of the rule in the codebase.
 
 **Importable API:**
 
@@ -229,7 +230,7 @@ Single source of truth for the central managed runtime path rule. Brain installs
 | `ensure_central_venv(requirements_path, *, launcher, install_requirements=True)` | Create the venv if missing; idempotent. Returns `{venv_dir, python, created, python_tag, hash}` |
 | `legacy_vault_venv_dir(vault_root)` | Pre-DD-048 vault-local `.venv` path; used only for migration detection |
 
-**CLI surface** (consumed by `install.sh`, which is bash and defers path resolution to Python):
+**CLI surface** (used for direct diagnostics and repair-style runtime resolution):
 
 ```bash
 python3 _common/_venv.py python --vault <vault> [--launcher <python>]
@@ -279,7 +280,7 @@ python3 edit.py delete_section --path Wiki/page.md --target "[!note] Status"
 
 ## install.sh
 
-Top-level script for installing and uninstalling the brain, plus a thin upgrade wrapper for already-installed vaults. Handles four modes depending on what it finds at the target path.
+Top-level POSIX launcher for installing and uninstalling the brain, plus a thin upgrade wrapper for already-installed vaults. It owns source acquisition, uninstall, upgrade delegation, and interactive POSIX prompts; fresh/existing-vault install policy is handed to the shared Python installer core (`install.py`). Handles four modes depending on what it finds at the target path.
 
 ### Usage
 
@@ -290,6 +291,10 @@ bash <(curl -fsSL https://raw.githubusercontent.com/rob-morris/obsidian-brain/ma
 
 # From a local clone (skips download)
 bash install.sh /path/to/brain
+
+# Native Windows from a local clone
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -VaultPath C:\path\to\brain
+install.cmd C:\path\to\brain
 
 # Upgrade an existing brain vault
 bash install.sh /path/to/brain   # detects .brain-core/, offers upgrade
@@ -310,7 +315,7 @@ bash install.sh --uninstall --non-interactive /path/to/brain
 
 | Mode | Trigger | What happens |
 |---|---|---|
-| **Fresh install** | Target is empty or doesn't exist | Copies template vault + brain-core, provisions the shared managed runtime under `~/.brain/venvs/` via `_common/_venv.py ensure`, registers project-scope MCP for Claude and Codex (unless skipped or deferred after a dependency failure) |
+| **Fresh install** | Target is empty or doesn't exist | `install.sh` / `install.ps1` call `install.py`, which copies template vault + brain-core, provisions the shared managed runtime under `~/.brain/venvs/`, registers project-scope MCP for Claude and Codex (unless skipped or deferred after a dependency failure), and emits structured lifecycle output |
 | **Upgrade** | Target contains `.brain-core/` | Shows installed vs source version, confirms, then delegates to `upgrade.py`; does not own upgrade policy or re-run MCP setup |
 | **Existing vault** | Target is non-empty but has no `.brain-core/` | Installs brain-core + config scaffolding only — existing files are never overwritten |
 | **Uninstall** | `--uninstall` flag | Removes brain system files; optionally deletes the entire vault |
@@ -327,7 +332,7 @@ bash install.sh --uninstall --non-interactive /path/to/brain
 
 - **git** — required (for cloning the repo when not running from a local clone). The installer pins `--branch main` explicitly, so the installer contract is independent of the repo's default-branch setting.
 - **python3** — required (any version, for basic preflight)
-- **Python 3.12+** — required for the Python lifecycle entry points (`setup.py`, `configure.py`, `init.py`, `upgrade.py`, `repair.py`) and the MCP server runtime. `install.sh` itself is a Bash bootstrapper: it searches for `python3.13`, `python3.12`, then `python3`, and if no 3.12+ interpreter is found the vault can still be scaffolded, but upgrade handoff plus managed-runtime / MCP setup are skipped. The script prints guidance for installing Python later and then running the relevant `setup.py`, `configure.py`, or `upgrade.py` command manually.
+- **Python 3.12+** — required for install, the Python lifecycle entry points (`setup.py`, `configure.py`, `init.py`, `upgrade.py`, `repair.py`), and the MCP server runtime. `install.sh` is now a Bash bootstrapper that searches for `python3.13`, `python3.12`, then `python3` before handing non-upgrade install policy to `install.py`; `install.ps1` searches `python`, `py`, `python3.13`, then `python3.12`.
 - **Package index access for MCP setup** — fresh installs and existing-vault installs may install `.brain-core/brain_mcp/requirements.txt` into the central managed runtime under `~/.brain/venvs/`. If that step fails, the installer keeps the vault intact, skips MCP registration, and prints manual retry commands instead of aborting the whole run. Upgrade-specific dependency guidance comes from `upgrade.py`. See [DD-048](../architecture/decisions/dd-048-central-managed-runtime.md) for the runtime location rule.
 
 ### Safety guards
@@ -360,6 +365,28 @@ Two-stage confirmation protects against accidental data loss (interactive mode o
 2. **Full vault deletion** — optionally offers to delete the entire directory. Counts and displays the number of artefacts that would be lost. Requires typing `"farewell, cruel world"` to confirm. Not available with `--non-interactive`.
 
 User-scope cleanup remains explicit. The uninstall flow reminds you to run `configure.py mcp --user --remove` before deleting the vault when that scope is in use.
+
+## install.py
+
+Shared Python installer core for fresh and existing-vault installs. It is the policy owner used by `install.sh` and `install.ps1`; users normally invoke a platform launcher rather than calling it directly.
+
+**CLI:**
+
+```bash
+python3 src/brain-core/scripts/install.py /path/to/brain --source-root /path/to/obsidian-brain --launcher python3.12
+python3 src/brain-core/scripts/install.py /path/to/brain --mcp-scope skip --json
+```
+
+**Flags:**
+
+- `--source-root <path>` — source checkout root containing `template-vault/` and `src/brain-core/`; defaults to the checkout containing the script.
+- `--launcher <python>` — Python launcher used to create or reuse the managed runtime.
+- `--mcp-scope {project,user,skip}` — project scope (this vault only), user scope (machine default Brain), or scaffold-only.
+- `--client {claude,codex,all}` — MCP client target.
+- `--id <brain-id>` — explicit local Brain ID for `vault_registry.py`.
+- `--json` — emit the lifecycle envelope as JSON.
+
+`install.py` refuses existing Brain vaults and points to `upgrade.py`; it does not duplicate upgrade, migration, rollback, or dependency-sync policy. On partial failure it keeps the vault scaffold, records the failed step in the lifecycle envelope, and emits exact follow-up notes.
 
 ## setup.py
 

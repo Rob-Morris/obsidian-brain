@@ -481,6 +481,34 @@ class TestSessionCli:
         assert payload["recovery"]["action"] == "Reinstall or upgrade the shipped .brain-core files for this vault, then rerun session.py."
         assert "install.sh --non-interactive --skip-mcp" in payload["recovery"]["command"]
 
+    def test_main_uses_platform_neutral_reinstall_guidance_on_win32(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        vault = tmp_path / "Brain Vault"
+        bc = vault / ".brain-core"
+        bc.mkdir(parents=True)
+        (bc / "session-core.md").write_text("# Session Core\n\n## Core Docs\n\n")
+
+        local = vault / ".brain" / "local"
+        local.mkdir(parents=True)
+        (local / "compiled-router.json").write_text(
+            json.dumps(_minimal_router(vault))
+        )
+
+        monkeypatch.setattr(session.sys, "platform", "win32")
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            ["session.py", "--vault", str(vault), "--json"],
+        )
+
+        assert session.main() == 2
+
+        payload = json.loads(capsys.readouterr().out)
+        assert "install.sh" not in payload["recovery"]["command"]
+        assert "upgrade.py" in payload["recovery"]["command"]
+        assert f'"{vault}"' in payload["recovery"]["command"]
+
 
 def test_includes_workspace_binding_when_manifest_declares_brain(tmp_path):
     workspace_dir = tmp_path / "demo-workspace"

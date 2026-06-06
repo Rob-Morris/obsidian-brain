@@ -75,6 +75,11 @@ from ._paths import (
     config_home,
 )
 
+from ._shell import (
+    join_argv,
+    quote_arg,
+)
+
 from ._filesystem import (
     check_not_in_brain_core,
     check_write_allowed,

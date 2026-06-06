@@ -164,11 +164,12 @@ class TestSend:
     def test_sends_correct_payload(self):
         mock_sock = MagicMock()
         mock_sock.recv.side_effect = [b"ok", b""]
-        with patch("obsidian_cli.socket.socket", return_value=mock_sock):
+        with patch("obsidian_cli.socket.socket", return_value=mock_sock), \
+             patch.object(obsidian_cli.tempfile, "gettempdir", return_value="/native/tmp"):
             result = obsidian_cli._send(["version"])
             sent = mock_sock.sendall.call_args[0][0].decode("utf-8")
             payload = json.loads(sent.strip())
-            assert payload == {"argv": ["version"], "tty": False, "cwd": "/tmp"}
+            assert payload == {"argv": ["version"], "tty": False, "cwd": "/native/tmp"}
             assert result == "ok"
 
     def test_returns_none_on_connection_refused(self):

@@ -85,6 +85,21 @@ def test_central_venvs_root_is_under_home(monkeypatch, tmp_path):
     assert _venv.central_venvs_root() == tmp_path / ".brain" / "venvs"
 
 
+def test_venv_python_uses_win32_scripts_layout(monkeypatch, tmp_path):
+    monkeypatch.setattr(_venv.sys, "platform", "win32")
+
+    assert _venv.venv_python(tmp_path / "runtime") == tmp_path / "runtime" / "Scripts" / "python.exe"
+
+
+def test_same_executable_path_normalises_win32_case_and_separators(monkeypatch):
+    monkeypatch.setattr(_venv.sys, "platform", "win32")
+
+    assert _venv.same_executable_path(
+        r"C:\Users\Rob\.brain\venvs\py3.12-abcd\Scripts\python.exe",
+        r"c:/users/rob/.brain/venvs/py3.12-abcd/scripts/PYTHON.EXE",
+    )
+
+
 def test_resolve_vault_venv_dir_combines_tag_and_hash(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path))
     vault = _make_vault(tmp_path)

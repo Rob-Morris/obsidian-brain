@@ -26,13 +26,21 @@ Or from a local clone of the repo:
 bash install.sh /path/to/brain
 ```
 
+On native Windows, use the PowerShell launcher from a local clone:
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -VaultPath C:\path\to\brain
+```
+
+`install.cmd` is a cmd.exe wrapper over the same PowerShell launcher.
+
 For non-interactive agent installs in restricted environments, scaffold the vault without MCP setup:
 
 ```bash
 bash install.sh --non-interactive --skip-mcp /path/to/brain
 ```
 
-The installer creates the vault from the template, copies `.brain-core/` into it, and then offers an MCP registration choice for Claude Code and Codex — register this Brain for this vault only (project scope, the default) or as your machine default brain (user scope) — provisioning the managed Python runtime as needed. It can also install brain-core into an existing Obsidian vault. For already-installed Brain vaults, the canonical upgrade path is `upgrade.py`; `install.sh` is only a convenience wrapper that can detect the vault and delegate to the upgrader. In network-restricted environments you can pass `--skip-mcp` to scaffold the vault without the runtime / MCP setup, or rerun the printed retry steps later if dependency installation fails. Use `--non-interactive` when you want installer automation without prompts; it selects the this-vault-only (project) scope. When upgrade changes `.brain-core/brain_mcp/requirements.txt`, `upgrade.py` provisions the matching shared runtime under `~/.brain/venvs/` itself; `install.sh --skip-mcp` passes through the opt-out. Same-version re-apply, downgrade, or explicit migration rerun flows remain explicit `upgrade.py --force` operations. Project scope still outranks user scope for both clients once the project-scoped MCP is active: in Claude, approve `brain` via `/mcp`; in Codex, trust the project and ensure `brain` is enabled for that project. See [install.sh](../functional/scripts.md#installsh) for full details, modes, and flags.
+The installer creates the vault from the template, copies `.brain-core/` into it, and then offers an MCP registration choice for Claude Code and Codex — register this Brain for this vault only (project scope, the default) or as your machine default brain (user scope) — provisioning the managed Python runtime as needed. `install.sh` and `install.ps1` both hand fresh/existing-vault install policy to the shared Python installer core at `src/brain-core/scripts/install.py`. The POSIX wrapper can also install brain-core into an existing Obsidian vault and detect already-installed Brain vaults; for those, the canonical upgrade path is `upgrade.py` and `install.sh` only delegates to it. In network-restricted environments you can pass `--skip-mcp` to scaffold the vault without runtime / MCP setup, or rerun the printed retry steps later if dependency installation fails. Use `--non-interactive` when you want installer automation without prompts; it selects the this-vault-only (project) scope. When upgrade changes `.brain-core/brain_mcp/requirements.txt`, `upgrade.py` provisions the matching shared runtime under `~/.brain/venvs/` itself; `install.sh --skip-mcp` passes through the opt-out. Same-version re-apply, downgrade, or explicit migration rerun flows remain explicit `upgrade.py --force` operations. Project scope still outranks user scope for both clients once the project-scoped MCP is active: in Claude, approve `brain` via `/mcp`; in Codex, trust the project and ensure `brain` is enabled for that project. See [install.sh](../functional/scripts.md#installsh) and [install.py](../functional/scripts.md#installpy) for full details, modes, and flags.
 
 Semantic retrieval remains optional. Enable it later from inside the vault with
 `python3 .brain-core/scripts/configure.py semantic --enable`. That command
@@ -41,7 +49,7 @@ the pinned local model under `.brain/local/semantic-models/`, records
 `.brain/local/semantic-model-manifest.json`, and refreshes embeddings sidecars
 so semantic search stays local-only at query time.
 
-**Requirements:** git and `python3`. Python 3.12+ is required for install, init, upgrade, repair, and MCP server support. Brain installs its dependencies into a shared local runtime under `~/.brain/venvs/` rather than into your wider Python environment. Without Python 3.12+ the vault can still be scaffolded, but agent tools will not be available until you install Python 3.12+ and rerun `bash install.sh /path/to/brain`.
+**Requirements:** git and Python 3.12+. Python 3.12+ is required for install, init, upgrade, repair, and MCP server support because the shell launchers hand scaffold policy to the Python installer core. Brain installs its managed dependencies into a shared local runtime under `~/.brain/venvs/` rather than into your wider Python environment.
 
 ## Command-line usage
 

@@ -241,62 +241,38 @@ def _run_install_no_skip_mcp(source, vault_path, fake_home, *extra):
 
 
 def test_non_interactive_vault_self_no_workspace_yaml(tmp_path):
-    """--non-interactive without --skip-mcp selects vault-self mode.
+    """--non-interactive without --skip-mcp selects project scope for the core.
 
-    Uses its own source copy (separate from the module fixture) so that
-    _venv.py stubbing does not pollute other tests.
-
-    Verifies:
-    - init.py is called with --vault-self and --project <vault> (not --user)
-    - workspace.yaml is NOT written in the vault's .brain/local/
+    The Python core owns the vault-self transport call; this shell-level test
+    verifies the launcher no longer calls init.py directly and instead passes
+    the correct scope to install.py.
     """
     # Own source copy to avoid polluting the module-scoped fixture.
     source = tmp_path / "source"
     source.mkdir()
     copy_install_source(source)
-    _stub_init(source)
+    install_py = source / "src" / "brain-core" / "scripts" / "install.py"
+    install_py.write_text(
+        "import sys\nfrom pathlib import Path\n"
+        "args = sys.argv[1:]\n"
+        "vault = Path(args[0])\n"
+        "vault.mkdir(parents=True, exist_ok=True)\n"
+        "(vault / '.brain-core').mkdir()\n"
+        "(vault / '.brain-core' / 'VERSION').write_text('test\\n')\n"
+        "(vault / 'install-args.txt').write_text(' '.join(args))\n"
+        "sys.exit(0)\n",
+        encoding="utf-8",
+    )
 
     fake_home = tmp_path / "home"
     fake_home.mkdir()
     vault = tmp_path / "brain"
 
-    # Stub init.py to capture args and succeed without real MCP work.
-    (source / "src" / "brain-core" / "scripts" / "init.py").write_text(
-        "import sys\nfrom pathlib import Path\n"
-        "args = sys.argv[1:]\n"
-        "vault = Path(args[args.index('--vault') + 1])\n"
-        "(vault / 'init-args.txt').write_text(' '.join(args))\n"
-    )
-    # Stub _venv.py so the venv spin step succeeds without real venv work.
-    _stub_venv(source)
-
     _run_install_no_skip_mcp(source, vault, fake_home)
 
-    # init-args.txt must exist — init.py must have been invoked.
-    init_args_file = vault / "init-args.txt"
-    assert init_args_file.exists(), (
-        "init.py was not called — vault-self branch not reached"
-    )
-    init_args = init_args_file.read_text()
-
-    # Must include --vault-self (vault-self mode).
-    assert "--vault-self" in init_args, (
-        f"Expected --vault-self in init.py args but got: {init_args!r}"
-    )
-    # Must include --project (project scope).
-    assert "--project" in init_args, (
-        f"Expected --project in init.py args but got: {init_args!r}"
-    )
-    # Must NOT include --user (no user-scope registration).
-    assert "--user" not in init_args, (
-        f"Expected no --user in init.py args but got: {init_args!r}"
-    )
-
-    # workspace.yaml must NOT be written (no self-binding in vault-self mode).
-    workspace_yaml = vault / ".brain" / "local" / "workspace.yaml"
-    assert not workspace_yaml.exists(), (
-        "workspace.yaml should not be written when using --vault-self mode"
-    )
+    args = (vault / "install-args.txt").read_text(encoding="utf-8")
+    assert "--mcp-scope project" in args
+    assert "--client all" in args
 
 
 def test_explicit_id_registers_under_given_id(tmp_path, install_source):

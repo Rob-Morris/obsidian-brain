@@ -12,6 +12,7 @@ import json
 import os
 import platform
 import socket
+import tempfile
 
 
 # ---------------------------------------------------------------------------
@@ -44,7 +45,7 @@ def _send(argv: list[str], timeout: float = 5.0) -> str | None:
         sock.settimeout(timeout)
         sock.connect(sock_path)
         try:
-            payload = json.dumps({"argv": argv, "tty": False, "cwd": "/tmp"}) + "\n"
+            payload = json.dumps({"argv": argv, "tty": False, "cwd": tempfile.gettempdir()}) + "\n"
             sock.sendall(payload.encode("utf-8"))
 
             chunks = []

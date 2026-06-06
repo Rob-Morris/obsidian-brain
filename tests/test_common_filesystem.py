@@ -1,11 +1,13 @@
 """Tests for _common._filesystem — safe writes, bounds checking, body file resolution."""
 import os
+from pathlib import Path
 import tempfile
 import threading
 
 import pytest
 
 import _common as common
+from _common import _filesystem
 
 
 # ---------------------------------------------------------------------------
@@ -363,6 +365,19 @@ class TestResolveBodyFile:
         finally:
             if os.path.exists(tmp_file):
                 os.remove(tmp_file)
+
+    def test_win32_temp_cleanup_uses_native_temp_root_only(self, monkeypatch, tmp_path):
+        native_tmp = tmp_path / "Temp"
+        native_tmp.mkdir()
+        body_file = native_tmp / "brain-body.txt"
+        body_file.write_text("tmp content")
+        monkeypatch.setattr(_filesystem.sys, "platform", "win32")
+        monkeypatch.setattr(_filesystem.tempfile, "gettempdir", lambda: str(native_tmp))
+
+        assert common.temp_body_file_cleanup_path(str(body_file)) == os.path.realpath(body_file)
+
+        slash_tmp_file = Path("/tmp/brain-body.txt")
+        assert common.temp_body_file_cleanup_path(str(slash_tmp_file)) is None
 
     def test_outside_vault_and_tmp_raises(self, non_tmp_vault):
         outside = os.path.join(non_tmp_vault, "..", "outside-secret.txt")

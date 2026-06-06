@@ -234,6 +234,7 @@ The same is now true for the managed operational wrappers: `build_index.py`, `se
 | `vault_registry.py` | User-home authoritative Brain registry for local Brain IDs (currently typed `local` entries pointing at vault roots), plus an optional machine default Brain pointer stored separately |
 | `workspace_registry.py` | Workspace key→path resolution and registration |
 | `init.py` | Legacy/internal MCP registration compatibility CLI. The shared transport/write ownership now lives in `_bootstrap/mcp_transport.py`, while `init.py` preserves the old flags and `--skip-mcp` remains the internal bootstrap-only path used by restricted installer flows. |
+| `install.py` | Shared Python installer core used by `install.sh` and `install.ps1`; normal users invoke a platform launcher, while the core owns scaffold/runtime/MCP policy and lifecycle output. |
 | `check.py` | Structural compliance checker — validates naming, frontmatter, month folders, archives, status values, and now routes launcher-safe runtime/MCP/registry diagnostics through the shared bootstrap seam before adding managed semantic diagnostics |
 | `migrate_naming.py` | Migrate vault filenames from old aggressive slugs to generous naming conventions |
 | `fix_links.py` | Auto-repair broken wikilinks using naming convention heuristics |

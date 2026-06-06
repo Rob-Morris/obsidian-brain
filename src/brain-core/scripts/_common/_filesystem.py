@@ -2,6 +2,7 @@
 
 import json
 import os
+import sys
 import tempfile
 from pathlib import Path
 
@@ -171,7 +172,10 @@ def temp_body_file_cleanup_path(body_file):
         return None
 
     abs_path = os.path.realpath(body_file)
-    tmp_roots = {os.path.realpath(tempfile.gettempdir()), os.path.realpath("/tmp")}
+    tmp_roots = {os.path.realpath(tempfile.gettempdir())}
+    if sys.platform != "win32":
+        # macOS commonly exposes /tmp as a symlink to the native temp root.
+        tmp_roots.add(os.path.realpath("/tmp"))
     for root in tmp_roots:
         try:
             resolve_and_check_bounds(abs_path, root)

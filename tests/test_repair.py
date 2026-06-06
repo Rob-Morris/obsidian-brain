@@ -14,6 +14,7 @@ import pytest
 import _bootstrap.diagnostics as bootstrap_diagnostics
 import _bootstrap.mcp_state as bootstrap_mcp_state
 import _bootstrap.runtime as bootstrap_runtime
+from _common import _shell
 import _lifecycle.frontmatter_repairs as frontmatter_repairs
 import _lifecycle.semantic_repairs as semantic_repairs
 import _semantic.config as semantic_config
@@ -69,6 +70,18 @@ def repair_vault(tmp_path):
         "# Test Page",
     )
     return tmp_path
+
+
+def test_build_repair_command_quotes_spaced_vault_path_on_win32(monkeypatch, tmp_path):
+    vault = tmp_path / "Brain Vault"
+    vault.mkdir()
+    monkeypatch.setattr(repair_common, "find_launcher_python", lambda: r"C:\Program Files\Python312\python.exe")
+    monkeypatch.setattr(_shell.sys, "platform", "win32")
+
+    command = repair_common.build_repair_command(vault, "runtime")
+
+    assert '"C:\\Program Files\\Python312\\python.exe"' in command
+    assert f'"{vault.resolve()}"' in command
 
 
 def _wiki_router():

@@ -17,6 +17,7 @@ from _common import (
     legacy_vault_venv_python,
     resolve_vault_venv_python,
     same_executable_path,
+    venv_python,
 )
 
 
@@ -83,7 +84,7 @@ def list_central_runtimes() -> list[dict[str, str]]:
 
     runtimes: list[dict[str, str]] = []
     for entry in sorted(root.iterdir(), key=lambda item: item.name):
-        python_path = entry / "bin" / "python"
+        python_path = venv_python(entry)
         if entry.is_dir() and python_path.is_file():
             runtimes.append(
                 {

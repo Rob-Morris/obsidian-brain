@@ -4,7 +4,7 @@ Brain MCP Server — thin MCP wrapper over brain-core scripts.
 
 All logic lives in `.brain-core/scripts/` as importable functions.
 The server imports them, holds the compiled router and search index in memory,
-and exposes 9 MCP tools:
+and exposes the MCP tool surface:
   brain_init    — additive bootstrap/orientation snapshot, cheap and idempotent
   brain_session — bootstrap an agent session (compiled payload, one call)
   brain_read    — read compiled router resources (safe, no side effects)
