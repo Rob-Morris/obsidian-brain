@@ -281,6 +281,45 @@ class TestApplyFixesToFile:
 
 
 class TestAttachWikilinkWarnings:
+    def test_supplied_index_is_used_directly_without_vault_walk(
+        self, vault, monkeypatch
+    ):
+        """Caller-supplied indexes are authoritative at the script layer."""
+        rel_path = "Wiki/linker.md"
+        write_md(
+            vault / rel_path,
+            {"type": "living/wiki", "tags": ["test"]},
+            "See [[definitely-missing]].",
+        )
+        partial_index = file_index_from_documents(
+            [{"path": rel_path}],
+            vault_root=str(vault),
+        )
+
+        called = {"count": 0}
+        original = fix_links.build_vault_file_index
+
+        def spy(*args, **kwargs):
+            called["count"] += 1
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(fix_links, "build_vault_file_index", spy)
+
+        result = {"path": rel_path}
+        fix_links.attach_wikilink_warnings(
+            str(vault), result, apply_fixes=True, file_index=partial_index,
+        )
+
+        assert called["count"] == 0
+        assert result["wikilink_warnings"] == [{
+            "stem": "definitely-missing",
+            "status": "broken",
+            "resolved_to": None,
+            "strategy": "none",
+            "candidates": [],
+        }]
+        assert "wikilink_fixes" not in result
+
     def test_apply_fixes_reuses_lazy_asset_cache_on_rescan(self, vault, monkeypatch):
         import _common._wikilinks as wikilinks
 

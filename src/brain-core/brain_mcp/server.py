@@ -2558,12 +2558,18 @@ def brain_create(
                 name=name or None,
                 fix_links=fix_links,
             )
+            file_index, progress = _server_artefacts.prepare_fix_links_file_index(
+                "brain_create", params.get("fix_links"), _runtime()
+            )
+            if progress:
+                return progress
             with _serialize_mutation(f"brain_create:{resource}:{type or name or title}"):
                 return _server_artefacts.handle_brain_create(
                     resource=resource,
                     params=params,
                     cleanup_path=cleanup_path,
                     runtime=_runtime(),
+                    file_index=file_index,
                 )
         except (ValueError, FileNotFoundError) as e:
             cleanup_temp_body_file(cleanup_path)
@@ -2669,6 +2675,11 @@ def brain_edit(
                 name=name or None,
                 fix_links=fix_links or None,
             )
+            file_index, progress = _server_artefacts.prepare_fix_links_file_index(
+                "brain_edit", params.get("fix_links"), _runtime()
+            )
+            if progress:
+                return progress
             with _serialize_mutation(f"brain_edit:{resource}:{path or name}"):
                 return _server_artefacts.handle_brain_edit(
                     resource=resource,
@@ -2676,6 +2687,7 @@ def brain_edit(
                     params=params,
                     cleanup_path=cleanup_path,
                     runtime=_runtime(),
+                    file_index=file_index,
                 )
         except (ValueError, FileNotFoundError) as e:
             cleanup_temp_body_file(cleanup_path)

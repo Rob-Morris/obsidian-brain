@@ -1,6 +1,7 @@
 """Tests for Brain MCP server — unit tests with a minimal vault fixture."""
 
 import asyncio
+import contextlib
 import json
 import os
 import subprocess
@@ -21,7 +22,7 @@ import _search.semantic_query as semantic_query
 import _semantic.assets as semantic_assets
 import _semantic.model as semantic_model
 import _semantic.runtime as semantic_runtime
-from brain_mcp import _server_content, _server_reading, server
+from brain_mcp import _server_artefacts, _server_content, _server_reading, server
 import compile_router
 import obsidian_cli
 import process
@@ -2282,19 +2283,44 @@ class TestBrainCreate:
 
 
 class TestBrainCreateFixLinks:
-    def test_mcp_create_with_fix_links_does_not_walk_and_resolves_self_link(
+    def test_fix_links_handler_contract_requires_prepared_index(self):
+        with pytest.raises(ValueError, match="requires a prepared filesystem"):
+            _server_artefacts.require_prepared_fix_links_index(
+                "brain_create", True, None
+            )
+
+    def test_mcp_create_with_fix_links_prepares_index_before_mutation(
         self, initialized, monkeypatch
     ):
         import fix_links as _fix_links
 
-        called = {"count": 0}
-        original = _fix_links.build_vault_file_index
+        called = {"prepared": 0, "script": 0}
+        in_mutation = {"value": False}
+        original_prepare = _server_artefacts.build_vault_file_index
+        original_script = _fix_links.build_vault_file_index
 
-        def spy(*args, **kwargs):
-            called["count"] += 1
-            return original(*args, **kwargs)
+        def prepare_spy(*args, **kwargs):
+            assert in_mutation["value"] is False
+            called["prepared"] += 1
+            return original_prepare(*args, **kwargs)
 
-        monkeypatch.setattr(_fix_links, "build_vault_file_index", spy)
+        def script_spy(*args, **kwargs):
+            called["script"] += 1
+            return original_script(*args, **kwargs)
+
+        @contextlib.contextmanager
+        def fake_serialize(_label):
+            in_mutation["value"] = True
+            try:
+                yield
+            finally:
+                in_mutation["value"] = False
+
+        monkeypatch.setattr(
+            _server_artefacts, "build_vault_file_index", prepare_spy
+        )
+        monkeypatch.setattr(_fix_links, "build_vault_file_index", script_spy)
+        monkeypatch.setattr(server, "_serialize_mutation", fake_serialize)
 
         result = server.brain_create(
             type="wiki",
@@ -2304,12 +2330,13 @@ class TestBrainCreateFixLinks:
         )
 
         assert "Error" not in str(result), f"brain_create unexpectedly returned error: {result}"
-        assert called["count"] == 0
+        assert called == {"prepared": 1, "script": 0}
         assert "Broken wikilinks" not in result
         assert "Resolvable wikilinks" not in result
 
-    def test_mcp_create_with_fix_links_requires_index_ready(self, initialized, monkeypatch):
-        monkeypatch.setattr(server, "_ensure_mutation_index_ready", lambda: None)
+    def test_mcp_create_with_fix_links_does_not_require_search_index(
+        self, initialized
+    ):
         server._index = None
 
         result = server.brain_create(
@@ -2319,9 +2346,9 @@ class TestBrainCreateFixLinks:
             fix_links=True,
         )
 
-        payload = _progress_payload(result)
-        assert payload["tool"] == "brain_create"
-        assert payload["needs"] == ["index"]
+        assert "Error" not in str(result), f"brain_create unexpectedly returned error: {result}"
+        assert "Broken wikilinks" not in result
+        assert "Resolvable wikilinks" not in result
 
 
 # ---------------------------------------------------------------------------
@@ -3163,21 +3190,42 @@ class TestBrainEdit:
                 os.remove(temp_path)
 
 
-class TestBrainEditSkipsVaultWalk:
-    """Regression guard: brain_edit (MCP path) must not walk the vault for fix_links."""
+class TestBrainEditFixLinksIndex:
+    """Regression guards for MCP mutation-time wikilink index preparation."""
 
-    def test_mcp_edit_with_fix_links_does_not_walk(self, initialized, monkeypatch):
-        """If state.index is populated, brain_edit derives file_index from it; no vault walk."""
+    def test_mcp_edit_with_fix_links_prepares_index_before_mutation(
+        self, initialized, monkeypatch
+    ):
+        """brain_edit prepares the filesystem index before entering mutation."""
         import fix_links as _fix_links
 
-        called = {"count": 0}
-        original = _fix_links.build_vault_file_index
+        called = {"prepared": 0, "script": 0}
+        in_mutation = {"value": False}
+        original_prepare = _server_artefacts.build_vault_file_index
+        original_script = _fix_links.build_vault_file_index
 
-        def spy(*args, **kwargs):
-            called["count"] += 1
-            return original(*args, **kwargs)
+        def prepare_spy(*args, **kwargs):
+            assert in_mutation["value"] is False
+            called["prepared"] += 1
+            return original_prepare(*args, **kwargs)
 
-        monkeypatch.setattr(_fix_links, "build_vault_file_index", spy)
+        def script_spy(*args, **kwargs):
+            called["script"] += 1
+            return original_script(*args, **kwargs)
+
+        @contextlib.contextmanager
+        def fake_serialize(_label):
+            in_mutation["value"] = True
+            try:
+                yield
+            finally:
+                in_mutation["value"] = False
+
+        monkeypatch.setattr(
+            _server_artefacts, "build_vault_file_index", prepare_spy
+        )
+        monkeypatch.setattr(_fix_links, "build_vault_file_index", script_spy)
+        monkeypatch.setattr(server, "_serialize_mutation", fake_serialize)
 
         assert server._index is not None, "fixture must populate state.index before test"
 
@@ -3191,10 +3239,43 @@ class TestBrainEditSkipsVaultWalk:
         )
 
         assert "Error" not in str(result), f"brain_edit unexpectedly returned error: {result}"
-        assert called["count"] == 0, (
-            "MCP path with state.index populated must not walk the vault "
-            f"(build_vault_file_index called {called['count']} time(s))"
+        assert called == {"prepared": 1, "script": 0}
+
+    def test_mcp_edit_with_fix_links_uses_filesystem_index_for_external_targets(
+        self, initialized
+    ):
+        """Externally-created files missing from state.index still resolve."""
+        vault = initialized
+        design_titles = [
+            "Cargo-Barbican Policy Init Design — Explicit Policy Scaffolding",
+            "Cargo-Barbican Inventory Command Design — Dependency Inventory Audit",
+            "Cargo-Barbican Gatehouse Posture Design — Holistic Readiness Report",
+        ]
+        target_dir = vault / "Designs" / "cargo-barbican"
+        target_dir.mkdir(parents=True, exist_ok=True)
+        for title in design_titles:
+            (target_dir / f"{title}.md").write_text(
+                "---\ntype: living/design\ntags: []\nstatus: shaping\n---\n\n"
+                f"# {title}\n"
+            )
+
+        assert not any(
+            doc["path"].startswith("Designs/cargo-barbican/")
+            for doc in server._index["documents"]
         )
+
+        result = server.brain_edit(
+            operation="edit",
+            path="Wiki/brain-overview-abc123.md",
+            body="\n".join(f"- [[{title}]]" for title in design_titles),
+            target=":body",
+            scope="section",
+            fix_links=True,
+        )
+
+        assert "Error" not in str(result), f"brain_edit unexpectedly returned error: {result}"
+        assert "Broken wikilinks" not in result
+        assert "Resolvable wikilinks" not in result
 
     def test_mcp_edit_with_fix_links_flushes_pending_index_updates(self, initialized):
         server.brain_create(type="wiki", title="Fresh Target")
@@ -3212,8 +3293,9 @@ class TestBrainEditSkipsVaultWalk:
         assert "Broken wikilinks" not in result
         assert "Resolvable wikilinks" not in result
 
-    def test_mcp_edit_with_fix_links_requires_index_ready(self, initialized, monkeypatch):
-        monkeypatch.setattr(server, "_ensure_mutation_index_ready", lambda: None)
+    def test_mcp_edit_with_fix_links_does_not_require_search_index(
+        self, initialized
+    ):
         server._index = None
 
         result = server.brain_edit(
@@ -3225,9 +3307,9 @@ class TestBrainEditSkipsVaultWalk:
             fix_links=True,
         )
 
-        payload = _progress_payload(result)
-        assert payload["tool"] == "brain_edit"
-        assert payload["needs"] == ["index"]
+        assert "Error" not in str(result), f"brain_edit unexpectedly returned error: {result}"
+        assert "Broken wikilinks" not in result
+        assert "Resolvable wikilinks" not in result
 
 
 # ---------------------------------------------------------------------------

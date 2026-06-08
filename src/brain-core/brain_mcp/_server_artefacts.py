@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from _common import (
+    build_vault_file_index,
     cleanup_temp_body_file,
-    file_index_from_documents,
     is_archived_path,
     resolve_body_file,
     temp_body_file_cleanup_path,
@@ -14,32 +14,34 @@ from . import _server_readiness
 from ._server_runtime import ServerRuntime
 
 
-def file_index_from_state(state):
-    """Derive a wikilink file_index from the runtime state, or None.
+def prepare_fix_links_file_index(tool_name, fix_links, runtime):
+    """Build the authoritative wikilink index for mutation-time fixes.
 
-    Adapter so brain_create / brain_edit handlers don't reach into the
-    state.index dict shape directly. MCP callers that require a ready
-    index should gate that before calling this helper.
-    """
-    if state.index is None or state.vault_root is None:
-        return None
-    documents = state.index.get("documents") or []
-    return file_index_from_documents(documents, state.vault_root)
-
-
-def require_fix_links_file_index(tool_name, fix_links, runtime):
-    """Return a file_index for mutation-time fix_links, or a progress payload.
-
-    The write path uses a bounded-cost readiness helper that applies pending
-    MCP updates but skips the read-path TTL staleness sweep.
+    MCP create/edit used to pass the retrieval index's document list through to
+    the script layer. That is cheap, but it can be stale for externally-created
+    files and therefore unsafe for deciding whether to warn or rewrite links.
+    Build the filesystem-backed wikilink index before the mutation is
+    serialized, then let create/edit overlay the just-written file. The index
+    is authoritative as of the pre-lock build; concurrent in-process mutations
+    after this point are reflected on their own later calls.
     """
     if not fix_links:
         return None, None
 
-    state, progress = _server_readiness.require_mutation_index(runtime, tool_name)
+    state, progress = _server_readiness.require_router(runtime, tool_name)
     if progress is not None:
         return None, progress
-    return file_index_from_state(state), None
+    if state.vault_root is None:
+        return None, runtime.fmt_progress(tool_name, ("router",))
+    return build_vault_file_index(state.vault_root), None
+
+
+def require_prepared_fix_links_index(tool_name, fix_links, file_index):
+    """Enforce the MCP handler contract for mutation-time link fixing."""
+    if fix_links and file_index is None:
+        raise ValueError(
+            f"{tool_name} fix_links requires a prepared filesystem wikilink index"
+        )
 
 
 def format_wikilink_fixes(fixes):
@@ -104,6 +106,7 @@ def handle_brain_create(
     params: dict,
     cleanup_path: str | None,
     runtime: ServerRuntime,
+    file_index: dict | None = None,
 ):
     """Execute a validated brain_create request.
 
@@ -123,11 +126,7 @@ def handle_brain_create(
         return runtime.fmt_progress("brain_create", ("router",))
 
     fix_links = bool(params.get("fix_links"))
-    file_index, progress = require_fix_links_file_index(
-        "brain_create", fix_links, runtime
-    )
-    if progress:
-        return progress
+    require_prepared_fix_links_index("brain_create", fix_links, file_index)
 
     body = params.get("body") or ""
     body_file = params.get("body_file") or ""
@@ -187,6 +186,7 @@ def handle_brain_edit(
     params: dict,
     cleanup_path: str | None,
     runtime: ServerRuntime,
+    file_index: dict | None = None,
 ):
     """Execute a validated brain_edit request.
 
@@ -214,11 +214,7 @@ def handle_brain_edit(
     scope = params.get("scope")
     name = params.get("name") or ""
     fix_links = bool(params.get("fix_links"))
-    file_index, progress = require_fix_links_file_index(
-        "brain_edit", fix_links, runtime
-    )
-    if progress:
-        return progress
+    require_prepared_fix_links_index("brain_edit", fix_links, file_index)
 
     cleanup_path = cleanup_path or temp_body_file_cleanup_path(body_file)
     try:
