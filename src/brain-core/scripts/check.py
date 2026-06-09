@@ -833,7 +833,7 @@ def run_checks(vault_root, router=None):
             "file": None,
             "message": router["error"],
         }
-        attach_repair_guidance(finding, vault_root, "router")
+        finding = attach_repair_guidance(finding, vault_root, "router")
         return _result_envelope(vault_root, None, [finding])
 
     version = router.get("meta", {}).get("brain_core_version")

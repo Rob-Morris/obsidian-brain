@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.48.9](changelog/v0.48.9.md) | 2026-06-09 | Round out repair.py dry-runs and vault repair boundaries |
 | [v0.48.8](changelog/v0.48.8.md) | 2026-06-09 | Surface derived-cache repair guidance in check and Doctor |
 | [v0.48.7](changelog/v0.48.7.md) | 2026-06-08 | Verify mutation-time wikilinks against the filesystem index |
 | [v0.48.6](changelog/v0.48.6.md) | 2026-06-07 | Add native Windows install and MCP smoke support |

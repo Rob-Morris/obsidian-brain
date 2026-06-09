@@ -6,6 +6,10 @@ Maps symbolic Brain IDs to simple typed locators. Stored as plain text at
 $XDG_CONFIG_HOME/brain/vaults (defaulting to ~/.config/brain/vaults),
 one entry per line, tab-separated.
 
+This is a machine-level surface, not a vault-scoped repair.py helper. It owns
+user-home registry rows and the default Brain pointer; vault-local repair must
+not import it to mutate machine-level state.
+
 Current shipped writer contract is deliberately minimal:
 
 - `local` — `<brain-id>\tlocal\t<absolute-vault-path>`

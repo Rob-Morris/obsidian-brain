@@ -503,7 +503,7 @@ def collect_mcp_legacy_vault_root_findings(vault_root: str | Path) -> list[dict]
             rel_config = str(config_path.relative_to(vault_root))
         except ValueError:
             rel_config = str(config_path)
-        findings.append({
+        finding = {
             "check": "mcp_legacy_vault_root",
             "severity": "info",
             "file": rel_config,
@@ -511,9 +511,10 @@ def collect_mcp_legacy_vault_root_findings(vault_root: str | Path) -> list[dict]
                 f"Brain MCP registration carries a legacy BRAIN_VAULT_ROOT env var "
                 f"(pointing to {legacy_root}). "
                 "This override is still honoured but is no longer written by new registrations. "
-                "It can be left as-is or removed via `brain setup configure`."
+                "It can be left as-is or removed by repairing this vault's MCP registration."
             ),
-        })
+        }
+        findings.append(attach_repair_guidance(finding, vault_root, "mcp"))
     return findings
 
 

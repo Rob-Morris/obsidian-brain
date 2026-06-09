@@ -53,7 +53,10 @@ class TestCollectMcpLegacyVaultRootFindings:
         assert str(legacy_target.resolve()) in finding["message"]
         assert "BRAIN_VAULT_ROOT" in finding["message"]
         assert "no longer written by new registrations" in finding["message"]
-        assert "repair" not in finding, "info finding must not carry a repair key"
+        assert "repairing this vault's MCP registration" in finding["message"]
+        assert "brain setup configure" not in finding["message"]
+        assert finding["repair"]["scope"] == "mcp"
+        assert "repair.py mcp" in finding["repair"]["command"]
 
     def test_claude_registration_without_brain_vault_root_emits_no_finding(self, tmp_path):
         vault = _make_minimal_vault(tmp_path / "vault")
@@ -106,3 +109,4 @@ class TestCollectMcpLegacyVaultRootFindings:
         legacy_findings = [f for f in findings if f["check"] == "mcp_legacy_vault_root"]
         assert len(legacy_findings) == 1
         assert legacy_findings[0]["severity"] == "info"
+        assert legacy_findings[0]["repair"]["scope"] == "mcp"

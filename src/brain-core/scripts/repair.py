@@ -15,6 +15,11 @@ Runtime layer:
   - every scope may rely on the shared managed-runtime owner to recover a
     usable managed interpreter path; scope-specific requirements only control
     extra managed-package needs beyond that bootstrap
+
+Repair altitude:
+  - repair.py owns vault-local repair only
+  - never mutate machine-level state here — the machine surface owns the
+    user-home Brain registry, default pointer, and shared-runtime maintenance
 """
 
 from __future__ import annotations

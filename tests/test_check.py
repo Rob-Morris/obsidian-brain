@@ -520,6 +520,26 @@ class TestCheckDuplicateFrontmatter:
         assert hits[0]["severity"] == "warning"
         assert hits[0]["check"] == "duplicate_frontmatter"
 
+    def test_duplicate_frontmatter_uses_context_cache_when_available(self, vault, monkeypatch):
+        tmp_path, router = vault
+        checked_paths = []
+
+        class FakeContext:
+            def duplicate_frontmatter(self, path):
+                checked_paths.append(path)
+                if path.endswith("Wiki/shared.md"):
+                    return {"merged_fields": {}, "body": "# Body\n"}
+                return None
+
+        (tmp_path / "Wiki" / "shared.md").write_text("# handled by fake ctx\n")
+
+        findings = check.check_duplicate_frontmatter(str(tmp_path), router, ctx=FakeContext())
+
+        assert str(tmp_path / "Wiki" / "shared.md") in checked_paths
+        hits = [f for f in findings if f.get("file") == "Wiki/shared.md"]
+        assert len(hits) == 1
+        assert hits[0]["repair"]["scope"] == "frontmatter"
+
     def test_run_checks_keeps_outer_authority_for_other_checks(self, vault):
         tmp_path, router = vault
         (tmp_path / "Designs" / "dup.md").write_text(

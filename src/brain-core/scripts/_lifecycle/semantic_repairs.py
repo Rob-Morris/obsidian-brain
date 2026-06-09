@@ -242,7 +242,7 @@ def repair_semantic(
         if marker_missing or dependencies_missing or model_needs_provision or sidecars_need_refresh:
             semantic_provision.plan_marker_step(
                 steps,
-                marker_missing=True,
+                marker_missing=marker_missing,
             )
         return _finalise_result("semantic", vault_root, dry_run, steps)
 

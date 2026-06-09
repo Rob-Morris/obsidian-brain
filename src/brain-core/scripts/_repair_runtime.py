@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Packageful repair logic that runs inside the managed vault runtime."""
+"""Packageful repair logic that runs inside the managed vault runtime.
+
+This module repairs vault-local state only. Never mutate machine-level state
+here; the machine surface owns user-home registry/default state and shared
+runtime maintenance.
+"""
 
 from __future__ import annotations
 
@@ -140,13 +145,25 @@ def repair_router(vault_root: Path, dry_run: bool, bootstrap_steps: list[dict] |
         steps.append(_step("router", "noop", "Compiled router is already fresh."))
         return _finalise_result("router", vault_root, dry_run, steps)
     if dry_run:
-        steps.append(_step("router", "planned", f"Would rebuild the compiled router ({state.reason})."))
+        steps.append(
+            _step(
+                "router",
+                "planned",
+                f"Would rebuild the compiled router ({state.reason}) and clear semantic embeddings sidecars.",
+            )
+        )
         return _finalise_result("router", vault_root, dry_run, steps)
 
     compiled = compile_router.compile(str(vault_root))
     compile_router.persist_compiled_router(str(vault_root), compiled)
     semantic_repairs.clear_semantic_embeddings_outputs(vault_root)
-    steps.append(_step("router", "changed", f"Rebuilt the compiled router ({state.reason})."))
+    steps.append(
+        _step(
+            "router",
+            "changed",
+            f"Rebuilt the compiled router ({state.reason}) and cleared semantic embeddings sidecars.",
+        )
+    )
     try:
         compile_router.refresh_session_markdown(str(vault_root), compiled)
     except (OSError, ValueError) as exc:

@@ -39,8 +39,8 @@ def iter_candidate_artefact_markdown_files(vault_root: str | Path):
                 yield os.path.relpath(os.path.join(dirpath, filename), vault_root)
 
 
-def collect_duplicate_frontmatter_documents(vault_root: str | Path) -> list[dict]:
-    """Return duplicate-frontmatter artefacts with normalized replacement text."""
+def detect_duplicate_frontmatter_documents(vault_root: str | Path) -> list[dict]:
+    """Return duplicate-frontmatter artefacts without mutating the vault."""
     vault_root = Path(vault_root)
     findings = []
     for rel_path in iter_candidate_artefact_markdown_files(vault_root):
@@ -72,7 +72,7 @@ def normalize_duplicate_frontmatter_documents(
     """Merge duplicate frontmatter blocks across vault artefacts."""
     vault_root = Path(vault_root)
     repair_modified = now_iso() if not dry_run else None
-    findings = collect_duplicate_frontmatter_documents(vault_root)
+    findings = detect_duplicate_frontmatter_documents(vault_root)
     if not findings:
         return {
             "status": "skipped",

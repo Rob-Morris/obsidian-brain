@@ -563,6 +563,9 @@ class TestRepairScopes:
         result = repair_runtime.repair_router(repair_vault, dry_run=False)
 
         assert result["status"] == "ok"
+        assert result["steps"][-1]["message"] == (
+            "Rebuilt the compiled router (missing) and cleared semantic embeddings sidecars."
+        )
         assert (repair_vault / ".brain" / "local" / "compiled-router.json").is_file()
 
     def test_router_repair_uses_shared_cache_detector(self, repair_vault, monkeypatch):
@@ -580,7 +583,7 @@ class TestRepairScopes:
 
         assert result["status"] == "planned"
         assert result["steps"][-1]["message"] == (
-            "Would rebuild the compiled router (source-newer-than-router)."
+            "Would rebuild the compiled router (source-newer-than-router) and clear semantic embeddings sidecars."
         )
 
     def test_lexical_repair_builds_retrieval_index(self, repair_vault):
@@ -692,6 +695,24 @@ class TestRepairScopes:
         assert result["steps"][-1]["name"] == "frontmatter"
         assert result["steps"][-1]["status"] == "planned"
         assert bad.read_text() == original
+
+    def test_frontmatter_repair_uses_shared_detection_preflight(self, repair_vault, monkeypatch):
+        calls = []
+
+        def fake_detect(vault_root):
+            calls.append(Path(vault_root))
+            return []
+
+        monkeypatch.setattr(
+            frontmatter_repairs,
+            "detect_duplicate_frontmatter_documents",
+            fake_detect,
+        )
+
+        result = repair_runtime.repair_frontmatter(repair_vault, dry_run=True)
+
+        assert result["status"] == "noop"
+        assert calls == [repair_vault]
 
     def test_semantic_repair_is_noop_when_not_configured(self, repair_vault):
         result = semantic_repairs.repair_semantic(repair_vault, dry_run=False)
@@ -1002,6 +1023,37 @@ class TestRepairScopes:
                 "message": "Would mark the local semantic runtime as provisioned for this vault once semantic provisioning completes successfully.",
             },
         ]
+
+    def test_semantic_repair_dry_run_skips_marker_when_already_set(self, repair_vault, monkeypatch):
+        semantic_config.set_semantic_flags(repair_vault, retrieval=True)
+        semantic_config.set_semantic_engine_installed(repair_vault, installed=True)
+
+        monkeypatch.setattr(
+            semantic_repairs,
+            "probe_python",
+            lambda _python_path, *, modules=(): {"compatible": True, "ok": True, "missing": []},
+        )
+        model_state = _model_state(repair_vault)
+        monkeypatch.setattr(
+            semantic_repairs.semantic_model,
+            "inspect_model_state",
+            lambda _vault: model_state,
+        )
+        monkeypatch.setattr(
+            semantic_repairs.semantic_model,
+            "verify_local_model_load",
+            lambda state: state,
+        )
+        monkeypatch.setattr(
+            semantic_repairs.semantic_runtime,
+            "embeddings_sidecars_match_manifest",
+            lambda _vault, _manifest: (False, False),
+        )
+
+        result = semantic_repairs.repair_semantic(repair_vault, dry_run=True)
+
+        assert result["status"] == "planned"
+        assert [step["name"] for step in result["steps"]] == ["semantic_assets"]
 
     def test_semantic_repair_propagates_programmer_errors_from_asset_refresh(self, repair_vault, monkeypatch):
         semantic_config.set_semantic_flags(repair_vault, retrieval=True)

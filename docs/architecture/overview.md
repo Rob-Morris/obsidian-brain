@@ -113,6 +113,15 @@ remain as supported script surfaces only.
 
 The optional [`brain` CLI](../functional/cli.md) (installed to `~/.local/bin/brain` by `install.sh`) is a thin dispatch layer on top of these scripts — `brain repair runtime` reaches the same `repair.py` entry surface against the active vault's central managed runtime. The CLI versions independently from `brain-core`; its dispatch surface is the contract. See [DD-049](decisions/dd-049-brain-cli-thin-dispatch.md).
 
+Repair ownership is split by altitude. `check.py` and `repair.py` diagnose or
+repair vault-local state only: `.brain/local/workspaces.json`, the compiled
+router, the lexical index, retrieval sidecars, and artefact frontmatter under
+the selected vault root. Machine-wide state belongs to `machine.py`,
+`doctor_machine.py`, and `vault_registry.py`: `$XDG_CONFIG_HOME/brain/vaults`
+(default `~/.config/brain/vaults`), the `default` Brain pointer, and shared
+managed runtimes under `~/.brain/venvs/`. Vault-scoped repair may read across
+that line to report useful guidance, but it must not mutate machine-wide state.
+
 ### Three-layer config merge
 
 Vault configuration is assembled from three layers at server startup:
