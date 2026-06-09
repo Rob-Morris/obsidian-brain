@@ -94,7 +94,15 @@ def _build_machine_helper_vault(root: Path) -> Path:
     return vault
 
 
-def _write_doctor_check_stub(vault: Path, *, message: str = "Vault drift", severity: str = "error", exit_code: int = 2) -> None:
+def _write_doctor_check_stub(
+    vault: Path,
+    *,
+    check_name: str = "doctor-stub",
+    message: str = "Vault drift",
+    repair_scope: str = "registry",
+    severity: str = "error",
+    exit_code: int = 2,
+) -> None:
     payload = {
         "vault_root": str(vault),
         "brain_core_version": "0.99.0",
@@ -102,14 +110,14 @@ def _write_doctor_check_stub(vault: Path, *, message: str = "Vault drift", sever
         "summary": {"errors": 1 if severity == "error" else 0, "warnings": 1 if severity == "warning" else 0, "info": 0},
         "findings": [
             {
-                "check": "doctor-stub",
+                "check": check_name,
                 "severity": severity,
                 "file": "Notes/example.md",
                 "message": message,
                 "repair": {
-                    "scope": "registry",
-                    "description": "Repair registry",
-                    "command": f"python3 {vault}/.brain-core/scripts/repair.py registry --vault {vault}",
+                    "scope": repair_scope,
+                    "description": f"Repair {repair_scope}",
+                    "command": f"python3 {vault}/.brain-core/scripts/repair.py {repair_scope} --vault {vault}",
                 },
             }
         ],
@@ -549,6 +557,44 @@ def test_doctor_with_explicit_vault_outputs_composed_json(tmp_path):
     assert payload["doctor"]["source_vault"] == str(helper_vault)
     assert payload["vault"]["available"] is True
     assert payload["vault"]["result"]["findings"][0]["message"] == "Explicit-vault drift"
+
+
+def test_doctor_with_explicit_vault_carries_current_vault_derived_cache_finding(tmp_path):
+    current_vault = _build_fake_vault(tmp_path)
+    brain_mcp = current_vault / ".brain-core" / "brain_mcp"
+    brain_mcp.mkdir(parents=True)
+    (brain_mcp / "requirements.txt").write_text("mcp==1.0.0\n")
+    _write_doctor_check_stub(
+        current_vault,
+        check_name="lexical_index",
+        message="Lexical retrieval index cache is stale or unreadable (version-drift).",
+        repair_scope="lexical",
+        severity="warning",
+        exit_code=1,
+    )
+    helper_vault = _build_machine_helper_vault(tmp_path)
+    xdg = tmp_path / "xdg"
+    registry = xdg / "brain" / "vaults"
+    registry.parent.mkdir(parents=True)
+    registry.write_text(f"helper\tlocal\t{helper_vault}\n")
+
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    result = _run_cli(
+        "doctor",
+        "--vault",
+        str(current_vault),
+        "--json",
+        cwd=elsewhere,
+        env_extra={"BRAIN_VAULT_ROOT": "", "XDG_CONFIG_HOME": str(xdg), "HOME": str(tmp_path)},
+    )
+
+    assert result.returncode == 1, result.stderr
+    payload = json.loads(result.stdout)
+    finding = payload["vault"]["result"]["findings"][0]
+    assert finding["check"] == "lexical_index"
+    assert finding["repair"]["scope"] == "lexical"
+    assert "version-drift" in finding["message"]
 
 
 def test_doctor_inside_legacy_vault_uses_shell_fallback_check(tmp_path):

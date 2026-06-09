@@ -3,8 +3,6 @@
 
 from __future__ import annotations
 
-import json
-import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -13,7 +11,6 @@ import compile_router
 from _bootstrap import mcp_transport
 import workspace_registry
 import _search.index as search_index
-import _search.paths as search_paths
 import _bootstrap.diagnostics as bootstrap_diagnostics
 from _bootstrap.diagnostics import (
     ISSUE_MANAGED_RUNTIME_DEPENDENCIES_MISSING,
@@ -21,8 +18,8 @@ from _bootstrap.diagnostics import (
     ISSUE_RUNTIME_UNUSABLE,
 )
 from _bootstrap.runtime import iso_now, step as _step
+from _lifecycle.derived_cache_state import inspect_lexical_cache, inspect_router_cache
 from _lifecycle.frontmatter_repairs import normalize_duplicate_frontmatter_documents
-from _common import iter_artefact_paths
 from _lifecycle_common import make_result_envelope
 
 
@@ -42,112 +39,6 @@ def _finalise_result(
         checked_at=iso_now(),
         notes=notes,
     )
-
-
-def _router_is_stale(vault_root: Path) -> tuple[bool, str]:
-    router_path = vault_root / compile_router.OUTPUT_PATH
-    if not router_path.is_file():
-        return True, "missing"
-
-    try:
-        data = json.loads(router_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return True, "invalid-json"
-    if not isinstance(data, dict):
-        return True, "invalid-payload"
-
-    meta = data.get("meta", {})
-    compiled_at = meta.get("compiled_at")
-    sources = meta.get("sources", {})
-    if not compiled_at or not isinstance(sources, dict) or not sources:
-        return True, "missing-metadata"
-
-    try:
-        compiled_ts = datetime.fromisoformat(compiled_at).timestamp()
-    except (ValueError, TypeError):
-        return True, "invalid-timestamp"
-
-    artefacts = data.get("artefacts", [])
-    artefact_index = data.get("artefact_index", {})
-    artefact_index_sources = meta.get("artefact_index_sources")
-    if artefact_index and artefact_index_sources is None:
-        return True, "missing-artefact-index-sources"
-    if artefact_index_sources is not None and not isinstance(artefact_index_sources, list):
-        return True, "invalid-artefact-index-sources"
-    artefact_index_source_paths = set(artefact_index_sources or [])
-
-    expected_index_source_count = meta.get("artefact_index_source_count")
-    if expected_index_source_count is not None:
-        current_index_source_count = compile_router.count_living_artefact_index_entries(
-            str(vault_root), artefacts
-        )
-        if current_index_source_count != expected_index_source_count:
-            return True, "artefact-index-count-drift"
-
-    for key, fs_count in compile_router.resource_counts(str(vault_root)).items():
-        if fs_count != len(data.get(key, [])):
-            return True, f"{key}-count-drift"
-
-    for rel_path, expected_hash in sources.items():
-        abs_path = vault_root / rel_path
-        if rel_path in artefact_index_source_paths:
-            try:
-                current_hash = compile_router.hash_living_artefact_source(str(abs_path))
-            except (OSError, UnicodeDecodeError):
-                return True, "artefact-index-source-unreadable"
-            if current_hash != expected_hash:
-                return True, "artefact-index-source-drift"
-            continue
-
-        try:
-            if os.path.getmtime(abs_path) > compiled_ts:
-                return True, "source-newer-than-router"
-        except OSError:
-            return True, "missing-source"
-
-    return False, "fresh"
-
-
-def _index_is_stale(vault_root: Path) -> tuple[bool, str]:
-    index_path = vault_root / search_paths.OUTPUT_PATH
-    if not index_path.is_file():
-        return True, "missing"
-
-    try:
-        data = json.loads(index_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return True, "invalid-json"
-    if not isinstance(data, dict):
-        return True, "invalid-payload"
-
-    if data.get("meta", {}).get("index_version") != search_paths.INDEX_VERSION:
-        return True, "version-drift"
-
-    built_at = data.get("meta", {}).get("built_at")
-    if not built_at:
-        return True, "missing-built-at"
-    try:
-        threshold = datetime.fromisoformat(built_at).timestamp()
-    except (ValueError, TypeError):
-        return True, "invalid-built-at"
-
-    expected_count = data.get("meta", {}).get("document_count", 0)
-    all_types = compile_router.scan_living_types(str(vault_root)) + compile_router.scan_temporal_types(str(vault_root))
-    count = 0
-    for type_info in all_types:
-        for rel_path in iter_artefact_paths(str(vault_root), type_info):
-            count += 1
-            if count > expected_count:
-                return True, "document-count-drift"
-            try:
-                if os.path.getmtime(vault_root / rel_path) > threshold:
-                    return True, "document-newer-than-index"
-            except OSError:
-                continue
-    if count != expected_count:
-        return True, "document-count-drift"
-
-    return False, "fresh"
 
 
 def _backup_path(path: Path) -> Path:
@@ -244,18 +135,18 @@ def repair_router(vault_root: Path, dry_run: bool, bootstrap_steps: list[dict] |
     from _lifecycle import semantic_repairs
 
     steps = list(bootstrap_steps or [])
-    stale, reason = _router_is_stale(vault_root)
-    if not stale:
+    state = inspect_router_cache(vault_root)
+    if not state.stale:
         steps.append(_step("router", "noop", "Compiled router is already fresh."))
         return _finalise_result("router", vault_root, dry_run, steps)
     if dry_run:
-        steps.append(_step("router", "planned", f"Would rebuild the compiled router ({reason})."))
+        steps.append(_step("router", "planned", f"Would rebuild the compiled router ({state.reason})."))
         return _finalise_result("router", vault_root, dry_run, steps)
 
     compiled = compile_router.compile(str(vault_root))
     compile_router.persist_compiled_router(str(vault_root), compiled)
     semantic_repairs.clear_semantic_embeddings_outputs(vault_root)
-    steps.append(_step("router", "changed", f"Rebuilt the compiled router ({reason})."))
+    steps.append(_step("router", "changed", f"Rebuilt the compiled router ({state.reason})."))
     try:
         compile_router.refresh_session_markdown(str(vault_root), compiled)
     except (OSError, ValueError) as exc:
@@ -269,17 +160,17 @@ def repair_router(vault_root: Path, dry_run: bool, bootstrap_steps: list[dict] |
 
 def repair_lexical(vault_root: Path, dry_run: bool, bootstrap_steps: list[dict] | None = None) -> dict:
     steps = list(bootstrap_steps or [])
-    stale, reason = _index_is_stale(vault_root)
-    if not stale:
+    state = inspect_lexical_cache(vault_root)
+    if not state.stale:
         steps.append(_step("lexical", "noop", "Lexical retrieval index is already fresh."))
         return _finalise_result("lexical", vault_root, dry_run, steps)
     if dry_run:
-        steps.append(_step("lexical", "planned", f"Would rebuild the lexical retrieval index ({reason})."))
+        steps.append(_step("lexical", "planned", f"Would rebuild the lexical retrieval index ({state.reason})."))
         return _finalise_result("lexical", vault_root, dry_run, steps)
 
     build_result = search_index.build_index(str(vault_root))
     search_index.persist_retrieval_index(str(vault_root), build_result.index)
-    steps.append(_step("lexical", "changed", f"Rebuilt the lexical retrieval index ({reason})."))
+    steps.append(_step("lexical", "changed", f"Rebuilt the lexical retrieval index ({state.reason})."))
     return _finalise_result("lexical", vault_root, dry_run, steps)
 
 

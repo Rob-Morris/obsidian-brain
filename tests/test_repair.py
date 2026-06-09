@@ -16,6 +16,7 @@ import _bootstrap.mcp_state as bootstrap_mcp_state
 import _bootstrap.runtime as bootstrap_runtime
 from _common import _shell
 import _lifecycle.frontmatter_repairs as frontmatter_repairs
+from _lifecycle.derived_cache_state import CacheState
 import _lifecycle.semantic_repairs as semantic_repairs
 import _semantic.config as semantic_config
 import _semantic.model as semantic_model
@@ -564,6 +565,24 @@ class TestRepairScopes:
         assert result["status"] == "ok"
         assert (repair_vault / ".brain" / "local" / "compiled-router.json").is_file()
 
+    def test_router_repair_uses_shared_cache_detector(self, repair_vault, monkeypatch):
+        monkeypatch.setattr(
+            repair_runtime,
+            "inspect_router_cache",
+            lambda _vault: CacheState(
+                stale=True,
+                reason="source-newer-than-router",
+                path=".brain/local/compiled-router.json",
+            ),
+        )
+
+        result = repair_runtime.repair_router(repair_vault, dry_run=True)
+
+        assert result["status"] == "planned"
+        assert result["steps"][-1]["message"] == (
+            "Would rebuild the compiled router (source-newer-than-router)."
+        )
+
     def test_lexical_repair_builds_retrieval_index(self, repair_vault):
         result = repair_runtime.repair_lexical(repair_vault, dry_run=False)
 
@@ -581,6 +600,24 @@ class TestRepairScopes:
                 "message": "Would rebuild the lexical retrieval index (missing).",
             }
         ]
+
+    def test_lexical_repair_uses_shared_cache_detector(self, repair_vault, monkeypatch):
+        monkeypatch.setattr(
+            repair_runtime,
+            "inspect_lexical_cache",
+            lambda _vault: CacheState(
+                stale=True,
+                reason="version-drift",
+                path=".brain/local/retrieval-index.json",
+            ),
+        )
+
+        result = repair_runtime.repair_lexical(repair_vault, dry_run=True)
+
+        assert result["status"] == "planned"
+        assert result["steps"][-1]["message"] == (
+            "Would rebuild the lexical retrieval index (version-drift)."
+        )
 
     def test_registry_repair_normalises_bare_string_entries(self, repair_vault):
         registry_path = repair_vault / ".brain" / "local" / "workspaces.json"

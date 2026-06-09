@@ -28,6 +28,7 @@ from _bootstrap.runtime import (
     handoff_current_script_to_managed_runtime,
     required_modules_for_scope,
 )
+from _lifecycle.derived_cache_state import inspect_lexical_cache, inspect_router_cache
 from _portable.links import check_broken_wikilinks as _portable_check_broken_wikilinks
 from _common import (
     BOOTSTRAP_VARIANTS,
@@ -132,6 +133,51 @@ class CheckContext:
 def load_router(vault_root):
     """Load compiled router JSON. Returns dict or error dict (never sys.exit)."""
     return load_compiled_router(vault_root)
+
+
+def _router_cache_message(reason):
+    if reason == "missing":
+        return "Compiled router not found at .brain/local/compiled-router.json. Run compile_router.py first."
+    return f"Compiled router cache is stale or unreadable ({reason})."
+
+
+def _lexical_cache_message(reason):
+    return f"Lexical retrieval index cache is stale or unreadable ({reason})."
+
+
+def _repairable_router_finding(vault_root, reason):
+    finding = {
+        "check": "router",
+        "severity": "error",
+        "file": None,
+        "message": _router_cache_message(reason),
+    }
+    return attach_repair_guidance(finding, vault_root, "router")
+
+
+def _repairable_lexical_finding(vault_root, reason):
+    finding = {
+        "check": "lexical_index",
+        "severity": "warning",
+        "file": None,
+        "message": _lexical_cache_message(reason),
+    }
+    return attach_repair_guidance(finding, vault_root, "lexical")
+
+
+def _result_envelope(vault_root, version, findings):
+    summary = {
+        "errors": sum(1 for f in findings if f["severity"] == "error"),
+        "warnings": sum(1 for f in findings if f["severity"] == "warning"),
+        "info": sum(1 for f in findings if f["severity"] == "info"),
+    }
+    return {
+        "vault_root": vault_root,
+        "brain_core_version": version,
+        "checked_at": datetime.now(timezone.utc).astimezone().isoformat(),
+        "summary": summary,
+        "findings": findings,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -766,8 +812,20 @@ def run_checks(vault_root, router=None):
 
     Safe for import — never calls sys.exit().
     """
+    inspect_derived_cache = router is None
+    derived_findings = []
     if router is None:
-        router = load_router(vault_root)
+        router_state = inspect_router_cache(vault_root)
+        if router_state.stale:
+            derived_findings.append(_repairable_router_finding(vault_root, router_state.reason))
+        if router_state.payload is None:
+            return _result_envelope(
+                vault_root,
+                None,
+                derived_findings,
+            )
+        router = router_state.payload
+
     if "error" in router:
         finding = {
             "check": "router",
@@ -776,37 +834,26 @@ def run_checks(vault_root, router=None):
             "message": router["error"],
         }
         attach_repair_guidance(finding, vault_root, "router")
-        return {
-            "vault_root": vault_root,
-            "brain_core_version": None,
-            "checked_at": datetime.now(timezone.utc).astimezone().isoformat(),
-            "summary": {"errors": 1, "warnings": 0, "info": 0},
-            "findings": [finding],
-        }
+        return _result_envelope(vault_root, None, [finding])
 
     version = router.get("meta", {}).get("brain_core_version")
     ctx = CheckContext(vault_root, router)
-    findings = []
+    findings = list(derived_findings)
     for check_fn in ALL_CHECKS:
         findings.extend(check_fn(vault_root, router, ctx=ctx))
     findings.extend(collect_bootstrap_check_findings(vault_root))
     from _lifecycle.semantic_repairs import collect_managed_check_findings
 
-    findings.extend(collect_managed_check_findings(vault_root))
+    semantic_findings = collect_managed_check_findings(vault_root)
+    findings.extend(semantic_findings)
+    if inspect_derived_cache and not any(
+        finding.get("repair", {}).get("scope") == "semantic" for finding in semantic_findings
+    ):
+        lexical_state = inspect_lexical_cache(vault_root)
+        if lexical_state.stale:
+            findings.append(_repairable_lexical_finding(vault_root, lexical_state.reason))
 
-    summary = {
-        "errors": sum(1 for f in findings if f["severity"] == "error"),
-        "warnings": sum(1 for f in findings if f["severity"] == "warning"),
-        "info": sum(1 for f in findings if f["severity"] == "info"),
-    }
-
-    return {
-        "vault_root": vault_root,
-        "brain_core_version": version,
-        "checked_at": datetime.now(timezone.utc).astimezone().isoformat(),
-        "summary": summary,
-        "findings": findings,
-    }
+    return _result_envelope(vault_root, version, findings)
 
 
 # ---------------------------------------------------------------------------

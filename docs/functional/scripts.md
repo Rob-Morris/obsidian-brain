@@ -156,13 +156,14 @@ python3 compile_router.py --json    # output JSON to stdout
 | `parent_contract` | warning | Child artefact has a broken or drifting `parent:` reference, or sits in a folder that contradicts its declared parent |
 | `status_folders` | warning | Terminal-status artefact in the wrong `+{Status}/` subfolder, or a non-terminal artefact stored inside one |
 | `taxonomy_type_consistency` | info | Taxonomy `frontmatter_type` equals folder-derived type for a plural key (likely a missing singular in the taxonomy) |
-| `router` | error | Compiled router failed to load (missing, invalid JSON, or reported an `error` payload) |
+| `router` | error | Compiled router failed to load or is stale/untrustworthy against its tracked sources |
+| `lexical_index` | warning | Lexical retrieval index is missing, unreadable, version-drifted, count-drifted, or stale |
 | `workspace_registry` | warning | Current-vault local workspace registry (`.brain/local/workspaces.json`) is malformed or needs normalisation |
 | `mcp_registration` | warning | Installed current-vault project MCP state is drifted or incomplete |
 
 **Constraints:** stdlib only, self-locating, stateless, idempotent, stdout-only.
 
-When `check.py` detects repairable runtime, router, MCP, semantic, local workspace-registry drift, or duplicate artefact frontmatter, normal human output now prints the exact `repair.py` command to run. Structured JSON/compliance output includes a `repair` object with `scope`, `description`, and `command` so agents can surface the same remediation path without scraping prose.
+When `check.py` detects repairable runtime, router, lexical-index, MCP, semantic, local workspace-registry drift, or duplicate artefact frontmatter, normal human output now prints the exact `repair.py` command to run. Structured JSON/compliance output includes a `repair` object with `scope`, `description`, and `command` so agents can surface the same remediation path without scraping prose. Missing or unreadable router state still short-circuits later structural checks because no trustworthy router contract is available; loadable stale router state is an error but can be reported alongside other diagnostic findings. Lexical-index drift is warning-level because structural compliance can still be assessed.
 
 **Relationship with `compliance_check.py`:** The vault-maintenance skill ships a separate `compliance_check.py` for **session hygiene** — quick checks like "did you log today? any transcripts? backups fresh?" It runs after each work block as a sanity check. `check.py` (this design) is **structural compliance** — "do all files have correct frontmatter? naming? month folders?" Deep scan, runs on demand or during maintenance. These are complementary tools, not competing ones.
 
@@ -207,7 +208,7 @@ The shared bootstrap/runtime mechanics behind `setup.py`, `repair.py`, `configur
 
 - `runtime` is the explicit command for “the central managed Brain runtime is broken”. It repairs or creates the central venv via `_common/_venv.py`, verifies the baseline managed packages, and leaves the vault with a usable packageful Brain runtime again.
 - `mcp` repairs installed current-vault project MCP state in `.mcp.json`, `.codex/config.toml`, `CLAUDE.md`, `.claude/settings.local.json`, and `.brain/local/init-state.json`. It composes runtime repair because those registrations must point at a working managed MCP host. It does not touch user-scope Claude/Codex config, it does not create first-time project registrations on a bare scaffold, and it does not add a second client that is not already installed for the vault.
-- `router` and `lexical` use internal freshness checks and are no-ops when their generated caches are already healthy.
+- `router` and `lexical` use shared derived-cache freshness inspection from `_lifecycle/derived_cache_state.py` and are no-ops when their generated caches are already healthy.
 - `registry` is intentionally narrow in the first cut: it only mutates the current vault's `.brain/local/workspaces.json`. It does not prune or rewrite `~/.config/brain/vaults`, and it does not touch user-scope MCP config.
 - `frontmatter` repairs content corruption rather than infrastructure drift: it scans artefact markdown under the vault's content roots, merges accidental body-level frontmatter blocks into the canonical document frontmatter, and strips the duplicate block from the body. It is idempotent and safe to run repeatedly.
 - `semantic` is the explicit follow-up after a vault has opted in via `configure.py semantic --enable`. It bootstraps the managed runtime if needed, provisions or re-syncs the pinned semantic packages into the central managed runtime, restores the pinned local model snapshot/manifest, refreshes the semantic engine marker in local config, and rebuilds router/index/embeddings sidecars so semantic retrieval converges intentionally. The managed semantic inspect/repair owner for this scope now lives in `src/brain-core/scripts/_lifecycle/semantic_repairs.py`.
@@ -573,7 +574,8 @@ snapshot with `local_files_only=True`; they do not fetch from Hugging Face at
 runtime. Intel macOS is not a supported semantic-search target because
 upstream PyPI wheels for this Torch line no longer cover `darwin/x86_64`. If
 a vault is already configured on but the runtime, model snapshot, or sidecars
-later drift, `check.py` will point to `repair.py semantic`. Missing sidecars
+later drift, `check.py` will point to `repair.py semantic` rather than
+competing lexical-only repair guidance. Missing sidecars
 still degrade cleanly; present-but-corrupt sidecars fail explicitly at the
 script entry points so the owning boundary can rebuild or repair them
 deliberately.

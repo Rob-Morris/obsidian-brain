@@ -3,11 +3,15 @@
 import json
 import os
 import sys
+import time
 
 import pytest
 
 import check
 import compile_router as cr
+import _lifecycle.semantic_repairs as semantic_repairs
+import _search.index as search_index
+import _search.paths as search_paths
 
 from conftest import make_router, write_md
 from conftest import filesystem_is_case_sensitive
@@ -273,6 +277,35 @@ def vault(tmp_path):
              {"type": "temporal/cookie", "tags": ["cookie"]}, "# Cookie")
 
     return tmp_path, router
+
+
+def compile_minimal_router(vault_root):
+    """Build a small real compiled router with freshness metadata."""
+    bc = vault_root / ".brain-core"
+    bc.mkdir()
+    (bc / "VERSION").write_text("0.32.5\n")
+    (bc / "session-core.md").write_text("# Session Core\n\n## Core Docs\n\n## Standards\n")
+
+    config = vault_root / "_Config"
+    config.mkdir()
+    (config / "router.md").write_text("Always:\n- Keep a tidy vault.\n")
+    taxonomy = config / "Taxonomy" / "Living"
+    taxonomy.mkdir(parents=True)
+    (taxonomy / "wiki.md").write_text(
+        "# Wiki\n\n"
+        "## Naming\n\n`{Title}.md` in `Wiki/`.\n\n"
+        "## Frontmatter\n\n```yaml\n---\ntype: living/wiki\ntags:\n  - wiki\n---\n```\n"
+    )
+    write_md(
+        vault_root / "Wiki" / "Reference.md",
+        {"type": "living/wiki", "tags": ["wiki"], "key": "reference"},
+        "# Reference",
+    )
+    router = cr.compile(str(vault_root))
+    brain_local = vault_root / ".brain" / "local"
+    brain_local.mkdir(parents=True, exist_ok=True)
+    (brain_local / "compiled-router.json").write_text(json.dumps(router, indent=2) + "\n")
+    return router
 
 
 # ---------------------------------------------------------------------------
@@ -987,13 +1020,138 @@ class TestRunChecks:
         (tmp_path / ".brain-core" / "VERSION").write_text("0.9.11\n")
         result = check.run_checks(str(tmp_path))
         assert result["summary"]["errors"] == 1
-        assert "router" in result["findings"][0]["check"]
+        finding = result["findings"][0]
+        assert "router" in finding["check"]
+        assert finding["repair"]["scope"] == "router"
+        assert "repair.py router" in finding["repair"]["command"]
 
     def test_with_loaded_router(self, vault):
         tmp_path, router = vault
         # Pass router directly — should not need to load from file
         result = check.run_checks(str(tmp_path), router)
         assert result["brain_core_version"] == "0.9.11"
+
+    def test_stale_loaded_router_adds_router_repair_error(self, tmp_path):
+        compile_minimal_router(tmp_path)
+        router_source = tmp_path / "_Config" / "router.md"
+        future = time.time() + 10
+        os.utime(router_source, (future, future))
+
+        result = check.run_checks(str(tmp_path))
+
+        hit = next(f for f in result["findings"] if f["check"] == "router")
+        assert hit["severity"] == "error"
+        assert "source-newer-than-router" in hit["message"]
+        assert hit["repair"]["scope"] == "router"
+        assert "repair.py router" in hit["repair"]["command"]
+        assert result["summary"]["errors"] >= 1
+
+    def test_invalid_router_metadata_returns_repairable_error(self, tmp_path):
+        (tmp_path / ".brain-core").mkdir()
+        (tmp_path / ".brain-core" / "VERSION").write_text("0.9.11\n")
+        brain_local = tmp_path / ".brain" / "local"
+        brain_local.mkdir(parents=True)
+        (brain_local / "compiled-router.json").write_text(
+            json.dumps({"meta": "oops", "artefacts": []}) + "\n"
+        )
+
+        result = check.run_checks(str(tmp_path))
+
+        assert result["summary"] == {"errors": 1, "warnings": 0, "info": 0}
+        hit = result["findings"][0]
+        assert hit["check"] == "router"
+        assert hit["severity"] == "error"
+        assert "invalid-metadata" in hit["message"]
+        assert hit["repair"]["scope"] == "router"
+
+    def test_missing_lexical_index_adds_warning_repair_guidance(self, tmp_path):
+        compile_minimal_router(tmp_path)
+
+        result = check.run_checks(str(tmp_path))
+
+        hit = next(f for f in result["findings"] if f["check"] == "lexical_index")
+        assert hit["severity"] == "warning"
+        assert "missing" in hit["message"]
+        assert hit["repair"]["scope"] == "lexical"
+        assert "repair.py lexical" in hit["repair"]["command"]
+
+    def test_lexical_version_drift_adds_warning_repair_guidance(self, tmp_path):
+        compile_minimal_router(tmp_path)
+        build_result = search_index.build_index(str(tmp_path))
+        search_index.persist_retrieval_index(str(tmp_path), build_result.index)
+        index_path = tmp_path / search_paths.OUTPUT_PATH
+        index = json.loads(index_path.read_text())
+        index["meta"]["index_version"] = -1
+        index_path.write_text(json.dumps(index, indent=2) + "\n")
+
+        result = check.run_checks(str(tmp_path))
+
+        hit = next(f for f in result["findings"] if f["check"] == "lexical_index")
+        assert hit["severity"] == "warning"
+        assert "version-drift" in hit["message"]
+        assert hit["repair"]["scope"] == "lexical"
+
+    def test_invalid_lexical_document_count_adds_warning_repair_guidance(self, tmp_path):
+        compile_minimal_router(tmp_path)
+        build_result = search_index.build_index(str(tmp_path))
+        search_index.persist_retrieval_index(str(tmp_path), build_result.index)
+        index_path = tmp_path / search_paths.OUTPUT_PATH
+        index = json.loads(index_path.read_text())
+        index["meta"]["document_count"] = None
+        index_path.write_text(json.dumps(index, indent=2) + "\n")
+
+        result = check.run_checks(str(tmp_path))
+
+        hit = next(f for f in result["findings"] if f["check"] == "lexical_index")
+        assert hit["severity"] == "warning"
+        assert "invalid-document-count" in hit["message"]
+        assert hit["repair"]["scope"] == "lexical"
+
+    def test_fresh_lexical_index_does_not_add_repair_guidance(self, tmp_path):
+        compile_minimal_router(tmp_path)
+        build_result = search_index.build_index(str(tmp_path))
+        search_index.persist_retrieval_index(str(tmp_path), build_result.index)
+
+        result = check.run_checks(str(tmp_path))
+
+        assert not any(f["check"] == "lexical_index" for f in result["findings"])
+
+    def test_semantic_repair_guidance_suppresses_lexical_guidance(self, tmp_path, monkeypatch):
+        compile_minimal_router(tmp_path)
+        semantic_finding = {
+            "check": "retrieval-sidecars-missing",
+            "severity": "warning",
+            "file": None,
+            "message": "Semantic retrieval is configured on, but the embeddings sidecars are missing.",
+            "repair": {"scope": "semantic", "description": "Repair semantic state.", "command": "repair.py semantic"},
+        }
+        monkeypatch.setattr(
+            semantic_repairs,
+            "collect_managed_check_findings",
+            lambda _vault: [semantic_finding],
+        )
+
+        result = check.run_checks(str(tmp_path))
+
+        assert any(f.get("repair", {}).get("scope") == "semantic" for f in result["findings"])
+        assert not any(f["check"] == "lexical_index" for f in result["findings"])
+
+    def test_human_output_prints_repair_commands_for_derived_cache_findings(self, tmp_path):
+        missing_router_vault = tmp_path / "missing-router"
+        missing_router_vault.mkdir()
+        (missing_router_vault / ".brain-core").mkdir()
+        (missing_router_vault / ".brain-core" / "VERSION").write_text("0.9.11\n")
+        router_result = check.run_checks(str(missing_router_vault))
+        router_lines = check.render_human_findings(router_result)
+
+        indexed_vault = tmp_path / "indexed"
+        indexed_vault.mkdir()
+        compile_minimal_router(indexed_vault)
+        lexical_result = check.run_checks(str(indexed_vault))
+        lexical_lines = check.render_human_findings(lexical_result)
+
+        assert any("repair.py router" in line for line in router_lines)
+        assert any("repair.py lexical" in line for line in lexical_lines)
 
 
 # ---------------------------------------------------------------------------

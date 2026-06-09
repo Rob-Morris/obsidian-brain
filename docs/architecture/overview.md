@@ -102,8 +102,9 @@ Within that script layer, retrieval ownership is now split honestly by
 responsibility: lexical index and retrieval policy live under `scripts/_search/`,
 semantic sidecar and local-model mechanics live under `scripts/_semantic/`,
 and combined router + lexical + semantic refresh workflows plus the canonical
-managed semantic inspect/repair/check owner live under `scripts/_lifecycle/`
-(notably `semantic_repairs.py`). The top-level `build_index.py`,
+derived-cache and managed semantic inspect/repair/check owners live under
+`scripts/_lifecycle/` (notably `derived_cache_state.py` and
+`semantic_repairs.py`). The top-level `build_index.py`,
 `search_index.py`, and `repair.py semantic` surfaces remain supported script
 entrypoints, but they are thin wrappers over those canonical module owners
 rather than the Python import surface. Internal production code and tests now
