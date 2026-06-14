@@ -559,7 +559,9 @@ def test_configure_workspace_bootstrap_installs_agents_and_claude(tmp_path, caps
     payload = json.loads(capsys.readouterr().out)
     assert payload["status"] == "ok"
     assert "Call MCP `brain_session`" in (workspace / "AGENTS.md").read_text(encoding="utf-8")
-    assert "Call brain_session" in (workspace / "CLAUDE.md").read_text(encoding="utf-8")
+    claude_bootstrap = (workspace / "CLAUDE.md").read_text(encoding="utf-8")
+    assert "Call MCP `brain_session`" in claude_bootstrap
+    assert "brain session --json" in claude_bootstrap
 
 
 

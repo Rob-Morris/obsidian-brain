@@ -288,8 +288,11 @@ local model snapshot/manifest, and the embeddings sidecars together.
 When full tooling isn't available, agents degrade gracefully:
 
 1. **MCP tools** — `brain_session` returns the canonical session model as JSON
-2. **Generated markdown bootstrap** — read `.brain-core/index.md`, then `.brain/local/session.md`
-3. **Degraded fallback** — read `.brain-core/index.md`, then `.brain-core/md-bootstrap.md`, then raw config files as directed
+2. **CLI session fallback** — from a bound external workspace, `brain session --json` resolves the workspace's Brain through the machine-level resolution runtime and dispatches only to that Brain's own `session.py`
+3. **Generated markdown bootstrap** — read `.brain-core/index.md`, then `.brain/local/session.md`
+4. **Degraded fallback** — read `.brain-core/index.md`, then `.brain-core/md-bootstrap.md`, then raw config files as directed
+
+There is no non-MCP `brain_init` twin. The MCP `brain_init` tool remains the cheap readiness/warmup probe; no-MCP bootstrap uses `brain session --json` when a JSON session payload is needed.
 
 ---
 

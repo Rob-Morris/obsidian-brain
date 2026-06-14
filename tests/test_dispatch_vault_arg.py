@@ -39,7 +39,7 @@ _PUBLIC_DISPATCH_CONTRACT = [
     "session", "read", "migrate-naming", "fix-links",
 ]
 _DISPATCH_COMPAT = ["init"]
-_DISPATCH_CONTRACT = _PUBLIC_DISPATCH_CONTRACT + _DISPATCH_COMPAT
+_SCRIPT_CONTRACT = _PUBLIC_DISPATCH_CONTRACT + _DISPATCH_COMPAT
 
 # Scripts that do NOT use subcommands and already declare --vault on the
 # top-level parser — confirm they are unaffected (no regression).
@@ -52,7 +52,7 @@ _DISPATCH_CONTRACT = _PUBLIC_DISPATCH_CONTRACT + _DISPATCH_COMPAT
 # 1. Dispatch-guard: every dispatched script accepts --vault at the top level
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("subcommand", _DISPATCH_CONTRACT)
+@pytest.mark.parametrize("subcommand", _SCRIPT_CONTRACT)
 def test_dispatch_script_accepts_front_injected_vault(tmp_path, subcommand):
     """``python <script>.py --vault <tmp> --help`` must not produce an argparse error.
 

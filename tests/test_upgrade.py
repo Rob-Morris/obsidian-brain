@@ -227,6 +227,8 @@ class TestPostUpgradeSync:
         )
         result = upgrade.upgrade(str(vault), str(source))
         assert result["status"] == "ok"
+        assert result["machine_resolution_runtime"]["outcome"] in {"updated", "noop"}
+        assert Path(result["machine_resolution_runtime"]["entry"]).is_file()
         assert "sync_result" in result
         assert len(result["sync_result"]["updated"]) > 0
         # Verify file was actually updated

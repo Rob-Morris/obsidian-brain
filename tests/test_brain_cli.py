@@ -34,7 +34,8 @@ PUBLIC_DISPATCH_CONTRACT = [
     "session", "read", "migrate-naming", "fix-links",
 ]
 DISPATCH_COMPAT = ["init"]
-DISPATCH_CONTRACT = PUBLIC_DISPATCH_CONTRACT + DISPATCH_COMPAT
+GENERIC_DISPATCH_CONTRACT = [sub for sub in PUBLIC_DISPATCH_CONTRACT if sub != "session"] + DISPATCH_COMPAT
+SCRIPT_CONTRACT = PUBLIC_DISPATCH_CONTRACT + DISPATCH_COMPAT
 
 
 # ---------------------------------------------------------------------------
@@ -64,10 +65,38 @@ def _build_fake_vault(root: Path) -> Path:
         "import json, sys\n"
         "print(json.dumps({'argv': sys.argv[1:]}))\n"
     )
-    for name in DISPATCH_CONTRACT:
+    for name in SCRIPT_CONTRACT:
         script = scripts / f"{name.replace('-', '_')}.py"
         script.write_text(echo_body)
     return vault
+
+
+def _write_machine_resolution_runtime(
+    home: Path,
+    payload: dict,
+    *,
+    expected_workspace_env: str | None = None,
+) -> Path:
+    runtime = home / ".brain" / "resolution-runtime"
+    runtime.mkdir(parents=True)
+    guard = ""
+    if expected_workspace_env is not None:
+        guard = (
+            "import os\n"
+            f"expected = {expected_workspace_env!r}\n"
+            "if os.environ.get('BRAIN_WORKSPACE_DIR') != expected:\n"
+            "    print(json.dumps({'status': 'degraded', 'message': 'workspace env mismatch', "
+            "'session_resolution': {'code': 'invalid_binding'}, 'recovery': {'action': 'fix', 'command': 'fix'}}))\n"
+            "    raise SystemExit(0)\n"
+        )
+    (runtime / "resolve_brain.py").write_text(
+        "#!/usr/bin/env python3\n"
+        "import json\n"
+        f"{guard}"
+        f"print(json.dumps({payload!r}))\n"
+    )
+    (runtime / "VERSION").write_text("test\n")
+    return runtime
 
 
 def _build_machine_helper_vault(root: Path) -> Path:
@@ -157,7 +186,7 @@ def _run_cli(*args, cwd=None, env_extra=None, set_launcher_override=True):
 # ---------------------------------------------------------------------------
 
 def test_dispatch_contract_matches_existing_scripts():
-    for sub in DISPATCH_CONTRACT:
+    for sub in SCRIPT_CONTRACT:
         script = SCRIPTS_DIR / f"{sub.replace('-', '_')}.py"
         assert script.is_file(), (
             f"Dispatch contract names '{sub}' but {script} does not exist. "
@@ -170,7 +199,7 @@ def test_cli_dispatch_array_matches_test_contract():
     match = re.search(r"DISPATCH_SUBCOMMANDS=\(([^)]*)\)", CLI_BODY)
     assert match, "Could not locate DISPATCH_SUBCOMMANDS in cli/brain"
     declared = match.group(1).split()
-    assert declared == DISPATCH_CONTRACT
+    assert declared == GENERIC_DISPATCH_CONTRACT
 
 
 def test_install_ref_matches_brain_core_version():
@@ -323,6 +352,484 @@ def test_vault_path_does_not_exist(tmp_path):
     result = _run_cli("check", "--vault", str(missing))
     assert result.returncode != 0
     assert "does not exist" in result.stderr
+
+
+# ---------------------------------------------------------------------------
+# Session dispatch through the machine-owned resolver
+# ---------------------------------------------------------------------------
+
+def test_session_with_explicit_vault_dispatches_directly(tmp_path):
+    vault = _build_fake_vault(tmp_path)
+    result = _run_cli("session", "--vault", str(vault), "--json")
+
+    assert result.returncode == 0, result.stderr
+    body = json.loads(result.stdout)
+    assert body["argv"] == ["--vault", str(vault), "--json"]
+
+
+def test_session_without_vault_uses_machine_resolver_then_bound_brain(tmp_path):
+    bound = _build_fake_vault(tmp_path / "bound-root")
+    foreign = _build_fake_vault(tmp_path / "foreign-root")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    home = tmp_path / "home"
+    xdg = tmp_path / "xdg"
+    registry = xdg / "brain" / "vaults"
+    registry.parent.mkdir(parents=True)
+    registry.write_text(f"foreign\tlocal\t{foreign}\n")
+    runtime = _write_machine_resolution_runtime(
+        home,
+        {
+            "status": "ok",
+            "target": {
+                "kind": "local",
+                "vault_root": str(bound),
+                "workspace_dir": str(workspace),
+                "source": "workspace_binding",
+            },
+        },
+    )
+
+    result = _run_cli(
+        "session",
+        "--json",
+        cwd=foreign,
+        env_extra={
+            "HOME": str(home),
+            "XDG_CONFIG_HOME": str(xdg),
+            "BRAIN_RESOLUTION_RUNTIME_DIR": str(runtime),
+            "BRAIN_WORKSPACE_DIR": str(workspace),
+            "BRAIN_VAULT_ROOT": "",
+        },
+    )
+
+    assert result.returncode == 0, result.stderr
+    body = json.loads(result.stdout)
+    assert body["argv"] == [
+        "--vault",
+        str(bound),
+        "--workspace-dir",
+        str(workspace),
+        "--json",
+    ]
+
+
+def test_session_no_workspace_no_vault_uses_default_target_without_registry_carrier_scan(tmp_path):
+    default_target = _build_fake_vault(tmp_path / "default-target")
+    foreign = _build_fake_vault(tmp_path / "foreign-root")
+    home = tmp_path / "home"
+    xdg = tmp_path / "xdg"
+    registry = xdg / "brain" / "vaults"
+    registry.parent.mkdir(parents=True)
+    registry.write_text(f"foreign\tlocal\t{foreign}\n")
+    runtime = _write_machine_resolution_runtime(
+        home,
+        {
+            "status": "ok",
+            "target": {
+                "kind": "local",
+                "vault_root": str(default_target),
+                "workspace_dir": None,
+                "source": "registry_default",
+            },
+        },
+    )
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+
+    result = _run_cli(
+        "session",
+        "--json",
+        cwd=elsewhere,
+        env_extra={
+            "HOME": str(home),
+            "XDG_CONFIG_HOME": str(xdg),
+            "BRAIN_RESOLUTION_RUNTIME_DIR": str(runtime),
+            "BRAIN_WORKSPACE_DIR": "",
+            "BRAIN_VAULT_ROOT": "",
+        },
+    )
+
+    assert result.returncode == 0, result.stderr
+    body = json.loads(result.stdout)
+    assert body["argv"] == ["--vault", str(default_target), "--json"]
+    assert str(foreign) not in result.stdout
+
+
+def test_session_bare_default_target_dispatches_with_empty_forwarded_args(tmp_path):
+    default_target = _build_fake_vault(tmp_path / "default-target")
+    home = tmp_path / "home"
+    runtime = _write_machine_resolution_runtime(
+        home,
+        {
+            "status": "ok",
+            "target": {
+                "kind": "local",
+                "vault_root": str(default_target),
+                "workspace_dir": None,
+                "source": "registry_default",
+            },
+        },
+    )
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+
+    result = _run_cli(
+        "session",
+        cwd=elsewhere,
+        env_extra={
+            "HOME": str(home),
+            "BRAIN_RESOLUTION_RUNTIME_DIR": str(runtime),
+            "BRAIN_WORKSPACE_DIR": "",
+            "BRAIN_VAULT_ROOT": "",
+        },
+    )
+
+    assert result.returncode == 0, result.stderr
+    body = json.loads(result.stdout)
+    assert body["argv"] == ["--vault", str(default_target)]
+
+
+def test_session_resolved_target_without_session_script_fails_clearly(tmp_path):
+    target = _build_fake_vault(tmp_path / "target-without-session")
+    (target / ".brain-core" / "scripts" / "session.py").unlink()
+    home = tmp_path / "home"
+    runtime = _write_machine_resolution_runtime(
+        home,
+        {
+            "status": "ok",
+            "target": {
+                "kind": "local",
+                "vault_root": str(target),
+                "workspace_dir": None,
+                "source": "registry_default",
+            },
+        },
+    )
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+
+    result = _run_cli(
+        "session",
+        "--json",
+        cwd=elsewhere,
+        env_extra={
+            "HOME": str(home),
+            "BRAIN_RESOLUTION_RUNTIME_DIR": str(runtime),
+            "BRAIN_WORKSPACE_DIR": "",
+            "BRAIN_VAULT_ROOT": "",
+        },
+    )
+
+    assert result.returncode == 1
+    assert "this brain-core version does not ship session.py" in result.stderr
+    assert str(target) in result.stderr
+
+
+def test_session_resolution_failure_emits_degraded_payload_when_json_requested(tmp_path):
+    home = tmp_path / "home"
+    runtime = _write_machine_resolution_runtime(
+        home,
+        {
+            "status": "degraded",
+            "recovery_class": "session_resolution",
+            "vault_root": None,
+            "message": "dangling default",
+            "session_resolution": {
+                "code": "stale_binding",
+                "context": {
+                    "workspace_env": None,
+                    "vault_root_env": None,
+                    "start_dir": str(tmp_path),
+                    "workspace_anchor_explicit": False,
+                    "vault_root_explicit": False,
+                },
+            },
+            "recovery": {
+                "action": "Re-bind/check the workspace, and check the machine default Brain.",
+                "command": "brain doctor --actionable",
+            },
+        },
+    )
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+
+    result = _run_cli(
+        "session",
+        "--json",
+        cwd=elsewhere,
+        env_extra={
+            "HOME": str(home),
+            "BRAIN_RESOLUTION_RUNTIME_DIR": str(runtime),
+            "BRAIN_WORKSPACE_DIR": "",
+            "BRAIN_VAULT_ROOT": "",
+        },
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "degraded"
+    assert payload["recovery_class"] == "session_resolution"
+    assert payload["vault_root"] is None
+    assert payload["message"] == "dangling default"
+    assert payload["session_resolution"]["code"] == "stale_binding"
+    assert payload["recovery"]["action"] == "Re-bind/check the workspace, and check the machine default Brain."
+    assert payload["recovery"]["command"] == "brain doctor --actionable"
+
+
+def test_session_workspace_dir_anchors_machine_resolution(tmp_path):
+    bound = _build_fake_vault(tmp_path / "bound-root")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    home = tmp_path / "home"
+    runtime = _write_machine_resolution_runtime(
+        home,
+        {
+            "status": "ok",
+            "target": {
+                "kind": "local",
+                "vault_root": str(bound),
+                "workspace_dir": str(workspace),
+                "source": "workspace_binding",
+            },
+        },
+        expected_workspace_env=str(workspace),
+    )
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+
+    result = _run_cli(
+        "session",
+        "--workspace-dir",
+        str(workspace),
+        "--json",
+        cwd=elsewhere,
+        env_extra={
+            "HOME": str(home),
+            "BRAIN_RESOLUTION_RUNTIME_DIR": str(runtime),
+            "BRAIN_WORKSPACE_DIR": "",
+            "BRAIN_VAULT_ROOT": "",
+        },
+    )
+
+    assert result.returncode == 0, result.stderr
+    body = json.loads(result.stdout)
+    assert body["argv"] == [
+        "--vault",
+        str(bound),
+        "--workspace-dir",
+        str(workspace),
+        "--json",
+    ]
+
+
+def test_session_deprecated_project_dir_alias_anchors_machine_resolution(tmp_path):
+    bound = _build_fake_vault(tmp_path / "bound-root")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    home = tmp_path / "home"
+    runtime = _write_machine_resolution_runtime(
+        home,
+        {
+            "status": "ok",
+            "target": {
+                "kind": "local",
+                "vault_root": str(bound),
+                "workspace_dir": str(workspace),
+                "source": "workspace_binding",
+            },
+        },
+        expected_workspace_env=str(workspace),
+    )
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+
+    result = _run_cli(
+        "session",
+        "--project-dir",
+        str(workspace),
+        "--json",
+        cwd=elsewhere,
+        env_extra={
+            "HOME": str(home),
+            "BRAIN_RESOLUTION_RUNTIME_DIR": str(runtime),
+            "BRAIN_WORKSPACE_DIR": "",
+            "BRAIN_VAULT_ROOT": "",
+        },
+    )
+
+    assert result.returncode == 0, result.stderr
+    body = json.loads(result.stdout)
+    assert body["argv"] == [
+        "--vault",
+        str(bound),
+        "--project-dir",
+        str(workspace),
+        "--json",
+    ]
+
+
+def test_session_workspace_dir_missing_value_fails_before_resolution(tmp_path):
+    home = tmp_path / "home"
+    runtime = _write_machine_resolution_runtime(
+        home,
+        {
+            "status": "degraded",
+            "message": "should not run",
+            "session_resolution": {"code": "invalid_binding"},
+            "recovery": {"action": "unused", "command": "unused"},
+        },
+    )
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+
+    result = _run_cli(
+        "session",
+        "--workspace-dir",
+        cwd=elsewhere,
+        env_extra={
+            "HOME": str(home),
+            "BRAIN_RESOLUTION_RUNTIME_DIR": str(runtime),
+            "BRAIN_WORKSPACE_DIR": "",
+            "BRAIN_VAULT_ROOT": "",
+        },
+    )
+
+    assert result.returncode == 1
+    assert "--workspace-dir requires a value" in result.stderr
+    assert "should not run" not in result.stdout
+
+
+def test_session_remote_target_returns_explicit_unsupported_payload(tmp_path):
+    home = tmp_path / "home"
+    runtime = _write_machine_resolution_runtime(
+        home,
+        {
+            "status": "ok",
+            "target": {
+                "kind": "remote",
+                "endpoint": "https://brain.example.com",
+                "source": "workspace_binding",
+            },
+        },
+    )
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+
+    result = _run_cli(
+        "session",
+        "--json",
+        cwd=elsewhere,
+        env_extra={
+            "HOME": str(home),
+            "BRAIN_RESOLUTION_RUNTIME_DIR": str(runtime),
+            "BRAIN_WORKSPACE_DIR": "",
+            "BRAIN_VAULT_ROOT": "",
+        },
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "degraded"
+    assert payload["session_resolution"]["code"] == "remote_unsupported"
+    assert "remote Brain targets are not yet supported" in payload["message"]
+
+
+def test_session_local_target_without_vault_root_is_internal_error(tmp_path):
+    home = tmp_path / "home"
+    runtime = _write_machine_resolution_runtime(
+        home,
+        {
+            "status": "ok",
+            "target": {
+                "kind": "local",
+                "workspace_dir": None,
+                "source": "registry_default",
+            },
+        },
+    )
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+
+    result = _run_cli(
+        "session",
+        "--json",
+        cwd=elsewhere,
+        env_extra={
+            "HOME": str(home),
+            "BRAIN_RESOLUTION_RUNTIME_DIR": str(runtime),
+            "BRAIN_WORKSPACE_DIR": "",
+            "BRAIN_VAULT_ROOT": "",
+        },
+    )
+
+    assert result.returncode == 1
+    assert "returned local target without vault_root" in result.stderr
+    assert result.stdout == ""
+
+
+def test_session_json_no_launcher_still_emits_degraded_payload(tmp_path):
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    result = _run_cli(
+        "session",
+        "--workspace-dir",
+        str(workspace),
+        "--json",
+        cwd=elsewhere,
+        env_extra={
+            "PATH": "/bin:/usr/bin",
+            "BRAIN_WORKSPACE_DIR": "",
+            "BRAIN_VAULT_ROOT": "",
+        },
+        set_launcher_override=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "degraded"
+    assert payload["vault_root"] is None
+    assert payload["session_resolution"]["code"] == "filesystem_access"
+    assert payload["session_resolution"]["context"]["workspace_env"] == str(workspace)
+
+
+def test_session_brain_vault_root_stale_fails_without_machine_fallback(tmp_path):
+    home = tmp_path / "home"
+    target = _build_fake_vault(tmp_path / "target")
+    runtime = _write_machine_resolution_runtime(
+        home,
+        {
+            "status": "ok",
+            "target": {
+                "kind": "local",
+                "vault_root": str(target),
+                "workspace_dir": None,
+                "source": "registry_default",
+            },
+        },
+    )
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    missing = tmp_path / "missing-vault"
+
+    result = _run_cli(
+        "session",
+        "--json",
+        cwd=elsewhere,
+        env_extra={
+            "HOME": str(home),
+            "BRAIN_RESOLUTION_RUNTIME_DIR": str(runtime),
+            "BRAIN_WORKSPACE_DIR": "",
+            "BRAIN_VAULT_ROOT": str(missing),
+        },
+    )
+
+    assert result.returncode != 0
+    assert "BRAIN_VAULT_ROOT path does not exist" in result.stderr
+    assert str(target) not in result.stdout
 
 
 # ---------------------------------------------------------------------------

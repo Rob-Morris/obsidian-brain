@@ -1164,6 +1164,45 @@ def _ensure_central_runtime(
     return summary
 
 
+def _ensure_machine_resolution_runtime(vault_root: Path) -> dict:
+    """Deploy the machine-level resolver runtime from the freshly-installed core."""
+    scripts_dir = vault_root / ".brain-core" / "scripts"
+    module_path = scripts_dir / "_machine" / "resolution_runtime.py"
+    if not module_path.is_file():
+        return {
+            "outcome": "error",
+            "message": f"resolution runtime helper missing at {module_path}",
+        }
+
+    try:
+        # Load the freshly copied provisioner from the target vault; a sys.path
+        # import could pick up the upgrader's older source checkout instead.
+        spec = importlib.util.spec_from_file_location("_brain_resolution_runtime", str(module_path))
+        if spec is None or spec.loader is None:
+            return {
+                "outcome": "error",
+                "message": f"could not load resolution runtime helper spec at {module_path}",
+            }
+        runtime_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(runtime_mod)
+        result = runtime_mod.ensure_resolution_runtime(scripts_dir)
+    except OSError as e:
+        return {
+            "outcome": "error",
+            "message": f"could not provision machine resolution runtime: {e}",
+        }
+
+    outcome = "updated" if result.get("status") == "changed" else result.get("status", "unknown")
+    return {
+        "outcome": outcome,
+        "path": result.get("path"),
+        "entry": result.get("entry"),
+        "version": result.get("version"),
+        "changed_files": result.get("changed_files", []),
+        "message": result.get("message"),
+    }
+
+
 def _refresh_brain_cli(source: str) -> Optional[dict]:
     """Refresh the `brain` CLI binary at known locations from the upgrade source.
 
@@ -1656,6 +1695,16 @@ def upgrade(
     )
     if runtime is not None:
         result["central_runtime"] = runtime
+
+    _write_upgrade_progress(
+        vault_root,
+        old_version=old_version,
+        new_version=new_version,
+        dry_run=False,
+        stage="machine_resolution_runtime",
+        message="Provisioning machine-level resolution runtime",
+    )
+    result["machine_resolution_runtime"] = _ensure_machine_resolution_runtime(Path(vault_root))
 
     _write_upgrade_progress(
         vault_root,

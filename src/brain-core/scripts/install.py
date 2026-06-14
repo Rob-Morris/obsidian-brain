@@ -15,6 +15,7 @@ from _bootstrap import mcp_transport
 from _bootstrap.runtime import step as _step
 from _bootstrap.workspace_scaffold import GitInspectionError, ensure_brain_ignore_rules
 from _common import ensure_central_venv, vault_requirements_path
+from _machine.resolution_runtime import ensure_resolution_runtime
 from _lifecycle_common import (
     emit_lifecycle_result,
     exit_code_for_result,
@@ -211,6 +212,28 @@ def _ensure_managed_runtime(vault_root: Path, launcher: Path) -> dict:
         return _step("managed_runtime", "error", f"Could not provision managed runtime: {exc}")
 
 
+def _ensure_machine_resolution_runtime(vault_root: Path) -> dict:
+    try:
+        result = ensure_resolution_runtime(vault_root / ".brain-core" / "scripts")
+    except OSError as exc:
+        return _step("machine_resolution_runtime", "error", f"Could not provision machine resolution runtime: {exc}")
+
+    if result["status"] == "error":
+        status = "error"
+    else:
+        status = "changed" if result["status"] == "changed" else "noop"
+    return _step(
+        "machine_resolution_runtime",
+        status,
+        result.get("message")
+        or f"Machine resolution runtime {result['status']} at {result['path']}.",
+        path=result.get("path"),
+        entry=result.get("entry"),
+        version=result.get("version"),
+        changed_files=result.get("changed_files", []),
+    )
+
+
 def _configure_mcp(vault_root: Path, *, scope: str, client: str) -> tuple[dict, list[str]]:
     try:
         result = mcp_transport.apply_mcp_transport_action(
@@ -298,6 +321,11 @@ def install_vault_action(
         steps.append(_step("vault_scaffold", "error", f"Could not scaffold vault: {exc}"))
         return result()
 
+    resolution_runtime_step = _ensure_machine_resolution_runtime(vault_root)
+    steps.append(resolution_runtime_step)
+    if resolution_runtime_step["status"] == "error":
+        notes.append("Machine-level resolution runtime was not provisioned; rerun install or upgrade before using no-MCP workspace session fallback.")
+
     registry_step, resolved_id = _register_vault(vault_root, brain_id)
     steps.append(registry_step)
     if registry_step["status"] == "error":
@@ -306,7 +334,7 @@ def install_vault_action(
 
     if mcp_scope == "skip":
         steps.append(_step("mcp_transport", "noop", "MCP registration skipped."))
-        notes.append("Register MCP later with configure.py mcp or init.py.")
+        notes.append("Register MCP later with configure.py mcp.")
     else:
         runtime_step = _ensure_managed_runtime(vault_root, launcher_path)
         steps.append(runtime_step)

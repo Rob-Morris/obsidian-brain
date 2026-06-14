@@ -93,6 +93,7 @@ Each DD captures the reasoning behind an architectural decision at the time it w
 | DD-051 | Workspace-owned binding and workspace-aware MCP; `setup workspace` / `configure ...` cutover | Accepted | [dd-051](dd-051-workspace-owned-binding-and-workspace-aware-mcp.md) |
 | DD-052 | Unified Brain resolution ladder — ordered rungs, stale-terminates, demoted `BRAIN_VAULT_ROOT`, machine default, pure resolver | Implemented (v0.45.0) | [dd-052](dd-052-unified-brain-resolution-ladder.md) |
 | DD-053 | Explicit vault-self flag (rung 1) + unified `.brain-core/VERSION` vault predicate single-sourced in `_common`; vault-self install mode, refuse-guard, exclusive install scope; sign-off refinements — Decision-#2 anchor hard-error, DD-049 dispatch surface includes `setup` | Implemented (v0.47.0, refined v0.48.0) | [dd-053](dd-053-explicit-vault-self-flag-and-unified-predicate.md) |
+| DD-054 | Machine-level resolution runtime for non-MCP `brain session` bootstrap; no unrelated Brain execution, stdlib-only deployed resolver, structured pre-vault degraded payloads | Accepted | [dd-054](dd-054-machine-resolution-runtime.md) |
 
 ---
 
@@ -101,10 +102,10 @@ Each DD captures the reasoning behind an architectural decision at the time it w
 Related decisions grouped by domain. Arrows show supersede/extend chains.
 
 - **MCP tool surface:** DD-010 → DD-044, DD-010 → DD-045 → DD-046 → DD-047, DD-011 → DD-020 → DD-025 → DD-045, DD-026, DD-027, DD-028
-- **Config & install:** DD-003 → DD-049, DD-015, DD-023 → DD-039 → DD-043 → DD-048 → DD-049, DD-023/DD-039 → DD-051, DD-032, DD-033
-- **Router & bootstrap:** DD-008, DD-009, DD-012, DD-013, DD-014, DD-017, DD-019, DD-038, DD-042
+- **Config & install:** DD-003 → DD-049 → DD-054, DD-015, DD-023 → DD-039 → DD-043 → DD-048 → DD-049 → DD-054, DD-023/DD-039 → DD-051, DD-032, DD-033
+- **Router & bootstrap:** DD-008, DD-009, DD-012, DD-013, DD-014, DD-017, DD-019, DD-038, DD-042, DD-054
 - **Security & integrity:** DD-031, DD-036, DD-043
 - **Plugins & platforms:** DD-004, DD-005, DD-006, DD-007, DD-021, DD-022
 - **Agent methodology:** DD-024, DD-035
-- **Workspaces:** DD-040 → DD-051 → DD-052 → DD-053 (DD-051 extends DD-023, DD-039, DD-040; DD-052 adds the runtime resolution ladder; DD-053 adds the explicit vault-self flag + the unified vault predicate single-sourced in `_common`, and — extending DD-049 — its sign-off refinements add the Decision-#2 anchor hard-error and record that the `brain` dispatch surface includes `setup`)
+- **Workspaces:** DD-040 → DD-051 → DD-052 → DD-053 → DD-054 (DD-051 extends DD-023, DD-039, DD-040; DD-052 adds the runtime resolution ladder; DD-053 adds the explicit vault-self flag + the unified vault predicate single-sourced in `_common`, and — extending DD-049 — its sign-off refinements add the Decision-#2 anchor hard-error and record that the `brain` dispatch surface includes `setup`; DD-054 carries that ladder into no-MCP `brain session` through machine-owned resolution infrastructure)
 - **Artefact lifecycle & folder convention:** DD-029, DD-030 → DD-050

@@ -129,6 +129,14 @@ def _isolate_config_home(tmp_path, monkeypatch):
     return cfg
 
 
+@pytest.fixture(autouse=True)
+def _isolate_resolution_runtime(tmp_path, monkeypatch):
+    """Keep machine-level resolver runtime writes out of the real home dir."""
+    runtime = tmp_path / ".brain" / "resolution-runtime"
+    monkeypatch.setenv("BRAIN_RESOLUTION_RUNTIME_DIR", str(runtime))
+    return runtime
+
+
 @pytest.fixture
 def vault(tmp_path):
     """Create a minimal vault fixture in a temp directory."""

@@ -45,8 +45,12 @@ import re
 import sys
 from dataclasses import dataclass
 
-from _common import config_home, is_vault_root, random_short_suffix, safe_write, title_to_slug
+from _common._filesystem import safe_write
 from _common._file_lock import exclusive_file_lock
+from _common._paths import config_home
+from _common._slugs import title_to_slug
+from _common._templates import random_short_suffix
+from _common._vault import is_vault_root
 
 
 TYPE_LOCAL = "local"

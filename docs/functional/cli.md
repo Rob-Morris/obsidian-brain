@@ -34,12 +34,14 @@ brain install <path>
 | `brain configure semantic --enable [...]` | `configure.py` | Vault lifecycle configuration. |
 | `brain repair {runtime\|mcp\|router\|lexical\|registry\|frontmatter\|semantic}` | `repair.py` | Infrastructure repair. |
 | `brain upgrade --source P [...]` | `upgrade.py` | In-place brain-core upgrade. |
-| `brain session [--json]` | `session.py` | Build the session bootstrap model. |
+| `brain session [--json]` | `session.py` | Build the session bootstrap model. With no directly scoped vault, this command first resolves the target Brain through the machine-level resolution runtime, then dispatches to only that Brain's own `session.py`. |
 | `brain read RESOURCE [--name N]` | `read.py` | Query compiled router resources. |
 | `brain migrate-naming [--dry-run]` | `migrate_naming.py` | Filename migrations. |
 | `brain fix-links [--fix]` | `fix_links.py` | Auto-repair broken wikilinks. |
 
 Hyphens in subcommand names map to underscores in script filenames (`migrate-naming` ↔ `migrate_naming.py`). `brain init` remains dispatchable as a hidden compatibility shim, but it is no longer a taught first-class public noun for workspace setup or MCP policy.
+
+`brain session` has one narrow pre-dispatch exception, documented in [DD-054](../architecture/decisions/dd-054-machine-resolution-runtime.md). If `--vault` is present, the CLI dispatches directly to that Brain. If no vault is directly in scope, or a workspace is explicitly supplied through `BRAIN_WORKSPACE_DIR`, `--workspace-dir`, or the deprecated `--project-dir`, the CLI runs the stdlib-only machine resolver at `~/.brain/resolution-runtime/resolve_brain.py`. A local result then dispatches to the resolved Brain's own `session.py` with `--vault <target>`. A degraded result emits a `session_resolution` payload (`vault_root: null`) when `--json` is requested, or recovery guidance in text mode. Remote Brain targets are recognised as a future seam but return explicit "not yet supported" guidance for this non-MCP path.
 
 ### CLI-only (no script dispatch)
 
@@ -62,7 +64,7 @@ These four are the named exceptions to the "scripts authoritative" rule. Each op
 
 ## Vault resolution
 
-For dispatched subcommands the CLI resolves the active vault in this order:
+For dispatched subcommands other than the `brain session` no-vault path, the CLI resolves the active vault in this order:
 
 1. `--vault <path>` if present (absolute or relative — re-injected to the dispatched script as an absolute path).
 2. `$BRAIN_VAULT_ROOT` env var.

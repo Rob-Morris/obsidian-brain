@@ -10,7 +10,8 @@ import re
 import unicodedata
 from typing import Any
 
-from _common import is_brain_vault, safe_write
+from _common._filesystem import safe_write
+from _common._vault import is_brain_vault
 from _common._yaml import YamlError, dump_mapping_text, load_mapping_file
 import vault_registry
 

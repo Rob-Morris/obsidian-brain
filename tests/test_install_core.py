@@ -52,6 +52,9 @@ def test_install_core_scaffolds_fresh_vault_and_scrubs_machine_local_state(tmp_p
 
     assert result["status"] == "ok"
     assert (vault / ".brain-core" / "VERSION").is_file()
+    runtime_step = next(step for step in result["steps"] if step["name"] == "machine_resolution_runtime")
+    assert runtime_step["status"] == "changed"
+    assert Path(runtime_step["entry"]).is_file()
     assert (vault / "AGENTS.md").is_file()
     assert not (vault / ".venv" / "source-only-marker").exists()
     assert not (vault / ".mcp.json").exists()

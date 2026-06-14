@@ -11,13 +11,13 @@
 
 set -euo pipefail
 
-BRAIN_CLI_VERSION="1.0.1"
-BRAIN_INSTALL_REF="v0.48.9"
+BRAIN_CLI_VERSION="1.0.2"
+BRAIN_INSTALL_REF="v0.48.10"
 
 # Dispatch contract (DD-049 v1). hyphens here become underscores on disk.
 DISPATCH_SUBCOMMANDS=(
     check create edit rename setup configure repair upgrade
-    session read migrate-naming fix-links init
+    read migrate-naming fix-links init
 )
 
 INSTALL_URL="${BRAIN_INSTALL_URL:-https://raw.githubusercontent.com/rob-morris/obsidian-brain/${BRAIN_INSTALL_REF}/install.sh}"
@@ -59,8 +59,9 @@ CLI subcommands:
 Vault resolution order: --vault, then \$BRAIN_VAULT_ROOT, then CWD walk for
 the nearest .brain-core/VERSION. --vault is forwarded as an absolute path.
 
-Scripts in .brain-core/scripts/ remain authoritative; this CLI adds no
-behaviour to dispatched subcommands. See docs/architecture/decisions/dd-049.
+Scripts in .brain-core/scripts/ remain authoritative; session without a direct
+vault first uses the machine-level resolver, then dispatches to the resolved
+Brain's own session.py. See docs/architecture/decisions/dd-049 and dd-054.
 EOF
 }
 
@@ -119,14 +120,19 @@ render_cli_doctor_basics() {
     return $rc
 }
 
-doctor_requested_json() {
+forwarded_args_include() {
+    local needle=$1
     local arg
-    for arg in "${FORWARDED_ARGS[@]:-}"; do
-        if [[ "$arg" == "--json" ]]; then
+    for arg in "${FORWARDED_ARGS[@]+"${FORWARDED_ARGS[@]}"}"; do
+        if [[ "$arg" == "$needle" ]]; then
             return 0
         fi
     done
     return 1
+}
+
+requested_json() {
+    forwarded_args_include "--json"
 }
 
 try_exec_doctor_helper() {
@@ -228,7 +234,7 @@ cli_doctor() {
         try_exec_doctor_helper "$SOURCE_VAULT" "$CURRENT_VAULT" "$py" || true
     fi
 
-    if doctor_requested_json; then
+    if requested_json; then
         die "brain: doctor JSON output requires a source Brain with doctor.py — run inside a modern Brain or upgrade one registered Brain first"
     fi
 
@@ -406,6 +412,167 @@ try_resolve_vault_python() {
     _resolve_vault_python_inner "$vault"
 }
 
+machine_resolution_runtime_root() {
+    if [[ -n "${BRAIN_RESOLUTION_RUNTIME_DIR:-}" ]]; then
+        if [[ "$BRAIN_RESOLUTION_RUNTIME_DIR" = /* ]]; then
+            printf '%s\n' "$BRAIN_RESOLUTION_RUNTIME_DIR"
+        else
+            printf '%s/%s\n' "$(pwd -P)" "$BRAIN_RESOLUTION_RUNTIME_DIR"
+        fi
+    else
+        printf '%s/.brain/resolution-runtime\n' "$HOME"
+    fi
+}
+
+machine_resolution_runtime_entry() {
+    printf '%s/resolve_brain.py\n' "$(machine_resolution_runtime_root)"
+}
+
+session_forwarded_workspace_dir() {
+    local i arg
+    for (( i = 0; i < ${#FORWARDED_ARGS[@]}; i++ )); do
+        arg=${FORWARDED_ARGS[$i]}
+        case "$arg" in
+            --workspace-dir|--project-dir)
+                if (( i + 1 < ${#FORWARDED_ARGS[@]} )); then
+                    printf '%s\n' "${FORWARDED_ARGS[$((i + 1))]}"
+                else
+                    die "brain: $arg requires a value"
+                fi
+                return 0
+                ;;
+            --workspace-dir=*)
+                printf '%s\n' "${arg#--workspace-dir=}"
+                return 0
+                ;;
+            --project-dir=*)
+                printf '%s\n' "${arg#--project-dir=}"
+                return 0
+                ;;
+        esac
+    done
+    return 1
+}
+
+json_escape() {
+    local value=${1-}
+    value=${value//\\/\\\\}
+    value=${value//\"/\\\"}
+    value=${value//$'\n'/\\n}
+    value=${value//$'\r'/\\r}
+    value=${value//$'\t'/\\t}
+    printf '%s' "$value"
+}
+
+emit_session_resolution_json_fallback() {
+    # Keep this minimal Bash JSON shape aligned with
+    # src/brain-core/scripts/_machine/resolve_brain.py:resolve_payload().
+    # It exists for failures before Python can run at all.
+    local message=$1
+    local code=$2
+    local action=$3
+    local command=$4
+    local start_dir
+    start_dir=$(pwd -P)
+    local workspace_env=${SESSION_RESOLUTION_WORKSPACE_DIR:-${BRAIN_WORKSPACE_DIR:-}}
+    local vault_root_env=${BRAIN_VAULT_ROOT:-}
+    local workspace_json vault_json
+    if [[ -n "$workspace_env" ]]; then
+        workspace_json="\"$(json_escape "$workspace_env")\""
+    else
+        workspace_json="null"
+    fi
+    if [[ -n "$vault_root_env" ]]; then
+        vault_json="\"$(json_escape "$vault_root_env")\""
+    else
+        vault_json="null"
+    fi
+    printf '{"status":"degraded","recovery_class":"session_resolution","vault_root":null,"message":"%s","session_resolution":{"code":"%s","context":{"workspace_env":%s,"vault_root_env":%s,"start_dir":"%s","workspace_anchor_explicit":%s,"vault_root_explicit":%s}},"recovery":{"action":"%s","command":"%s"}}\n' \
+        "$(json_escape "$message")" \
+        "$(json_escape "$code")" \
+        "$workspace_json" \
+        "$vault_json" \
+        "$(json_escape "$start_dir")" \
+        "$([[ -n "$workspace_env" ]] && printf true || printf false)" \
+        "$([[ -n "$vault_root_env" ]] && printf true || printf false)" \
+        "$(json_escape "$action")" \
+        "$(json_escape "$command")"
+}
+
+emit_session_resolution_error() {
+    local launcher=${1:-}
+    local message=$2
+    local code=$3
+    local action=$4
+    local command=$5
+    if requested_json; then
+        if [[ -z "$launcher" ]]; then
+            emit_session_resolution_json_fallback "$message" "$code" "$action" "$command"
+            exit 0
+        fi
+        "$launcher" -c 'import json, sys
+import os
+context = {
+    "workspace_env": os.environ.get("SESSION_RESOLUTION_WORKSPACE_DIR") or os.environ.get("BRAIN_WORKSPACE_DIR") or None,
+    "vault_root_env": os.environ.get("BRAIN_VAULT_ROOT") or None,
+    "start_dir": os.getcwd(),
+}
+context["workspace_anchor_explicit"] = bool(context["workspace_env"])
+context["vault_root_explicit"] = bool(context["vault_root_env"])
+print(json.dumps({
+    "status": "degraded",
+    "recovery_class": "session_resolution",
+    "vault_root": None,
+    "message": sys.argv[1],
+    "session_resolution": {
+        "code": sys.argv[2],
+        "context": context,
+    },
+    "recovery": {
+        "action": sys.argv[3],
+        "command": sys.argv[4],
+    },
+}, ensure_ascii=False))' "$message" "$code" "$action" "$command"
+        exit 0
+    else
+        err "brain: $message"
+        err "$action"
+        err "$command"
+    fi
+    exit 2
+}
+
+session_extract_payload() {
+    local launcher=$1
+    local payload=$2
+    eval "$("$launcher" -c 'import json, shlex, sys
+data = json.loads(sys.argv[1])
+def get(path):
+    value = data
+    for part in path.split("."):
+        if isinstance(value, dict):
+            value = value.get(part)
+        else:
+            return ""
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+fields = {
+    "SESSION_STATUS": get("status"),
+    "SESSION_MESSAGE": get("message"),
+    "SESSION_CODE": get("session_resolution.code"),
+    "SESSION_ACTION": get("recovery.action"),
+    "SESSION_COMMAND": get("recovery.command"),
+    "SESSION_TARGET_KIND": get("target.kind"),
+    "SESSION_TARGET_VAULT": get("target.vault_root"),
+    "SESSION_TARGET_WORKSPACE": get("target.workspace_dir"),
+}
+for key, value in fields.items():
+    print(f"{key}={shlex.quote(value)}")' "$payload")"
+}
+
 # ---------------------------------------------------------------------------
 # Dispatch
 # ---------------------------------------------------------------------------
@@ -466,6 +633,116 @@ dispatch() {
     exec "$vault_python" "$script_path" --vault "$vault" ${FORWARDED_ARGS[@]+"${FORWARDED_ARGS[@]}"}
 }
 
+dispatch_session_to_vault() {
+    local vault=$1
+    shift
+    local script_path="$vault/.brain-core/scripts/session.py"
+    [[ -f "$script_path" ]] || die "brain: this brain-core version does not ship session.py (vault: $vault)"
+
+    local vault_python
+    vault_python=$(resolve_vault_python "$vault")
+    exec "$vault_python" "$script_path" --vault "$vault" "$@"
+}
+
+dispatch_session() {
+    extract_vault_arg "$@"
+
+    local vault
+    if [[ -n "$VAULT_ARG" ]]; then
+        [[ -d "$VAULT_ARG" ]] || die "brain: --vault path does not exist: $VAULT_ARG"
+        vault=$(absolute_path "$VAULT_ARG")
+        dispatch_session_to_vault "$vault" ${FORWARDED_ARGS[@]+"${FORWARDED_ARGS[@]}"}
+    fi
+
+    local forwarded_workspace_dir
+    forwarded_workspace_dir=$(session_forwarded_workspace_dir || true)
+    if [[ -n "$forwarded_workspace_dir" && -z "${BRAIN_WORKSPACE_DIR:-}" ]]; then
+        export SESSION_RESOLUTION_WORKSPACE_DIR="$forwarded_workspace_dir"
+    else
+        unset SESSION_RESOLUTION_WORKSPACE_DIR
+    fi
+
+    if [[ -z "${BRAIN_WORKSPACE_DIR:-}" && -z "$forwarded_workspace_dir" ]]; then
+        if [[ -n "${BRAIN_VAULT_ROOT:-}" ]]; then
+            [[ -d "$BRAIN_VAULT_ROOT" ]] || die "brain: BRAIN_VAULT_ROOT path does not exist: $BRAIN_VAULT_ROOT"
+            vault=$(absolute_path "$BRAIN_VAULT_ROOT")
+            dispatch_session_to_vault "$vault" ${FORWARDED_ARGS[@]+"${FORWARDED_ARGS[@]}"}
+        fi
+
+        vault=$(walk_for_vault "$(pwd -P)" || true)
+        if [[ -n "$vault" ]]; then
+            dispatch_session_to_vault "$vault" ${FORWARDED_ARGS[@]+"${FORWARDED_ARGS[@]}"}
+        fi
+    fi
+
+    local launcher
+    launcher=$(find_launcher_python || true)
+    [[ -n "$launcher" ]] || emit_session_resolution_error "" \
+        "no python3.12+ launcher available for machine-level Brain resolution" \
+        "filesystem_access" \
+        "Install or repair the Brain CLI runtime, then rerun brain session." \
+        "brain doctor --actionable"
+
+    local resolver_entry
+    resolver_entry=$(machine_resolution_runtime_entry)
+    [[ -f "$resolver_entry" ]] || emit_session_resolution_error "$launcher" \
+        "machine-level Brain resolution runtime is not installed" \
+        "filesystem_access" \
+        "Install or upgrade a Brain so the machine resolution runtime is provisioned, then rerun brain session." \
+        "brain install <vault> or brain upgrade --vault <vault>"
+
+    local payload
+    local resolver_env=()
+    if [[ -n "$forwarded_workspace_dir" && -z "${BRAIN_WORKSPACE_DIR:-}" ]]; then
+        resolver_env=(BRAIN_WORKSPACE_DIR="$forwarded_workspace_dir")
+    fi
+    if ! payload=$(env ${resolver_env[@]+"${resolver_env[@]}"} "$launcher" "$resolver_entry" --start-dir "$(pwd -P)" --json); then
+        emit_session_resolution_error "$launcher" \
+            "machine-level Brain resolution failed before returning a payload" \
+            "filesystem_access" \
+            "Repair or reprovision the machine resolution runtime, then rerun brain session." \
+            "brain doctor --actionable"
+    fi
+
+    session_extract_payload "$launcher" "$payload"
+    : "${SESSION_STATUS:=}"
+    : "${SESSION_MESSAGE:=machine-level Brain resolution returned an unreadable payload}"
+    : "${SESSION_CODE:=filesystem_access}"
+    : "${SESSION_ACTION:=Repair or reprovision the machine resolution runtime, then rerun brain session.}"
+    : "${SESSION_COMMAND:=brain doctor --actionable}"
+    if [[ "$SESSION_STATUS" != "ok" ]]; then
+        if requested_json; then
+            printf '%s\n' "$payload"
+            exit 0
+        fi
+        emit_session_resolution_error "$launcher" "$SESSION_MESSAGE" "$SESSION_CODE" "$SESSION_ACTION" "$SESSION_COMMAND"
+    fi
+
+    # Remote seam — see DD-054. Non-MCP session only supports local targets in this slice.
+    if [[ "$SESSION_TARGET_KIND" != "local" ]]; then
+        emit_session_resolution_error "$launcher" \
+            "remote Brain targets are not yet supported by brain session" \
+            "remote_unsupported" \
+            "Use MCP/API access for this remote Brain until non-MCP remote session support lands." \
+            "brain doctor --actionable"
+    fi
+
+    # Remote seam / cross-process boundary — see DD-054. A local target without
+    # vault_root is a resolver bug, not a user-repairable binding failure.
+    [[ -n "$SESSION_TARGET_VAULT" ]] || die "brain: Brain resolution returned local target without vault_root"
+
+    local session_args=()
+    if [[ -n "$SESSION_TARGET_WORKSPACE" && -z "$forwarded_workspace_dir" ]]; then
+        session_args+=(--workspace-dir "$SESSION_TARGET_WORKSPACE")
+    fi
+    if (( ${#FORWARDED_ARGS[@]} > 0 )); then
+        session_args+=("${FORWARDED_ARGS[@]}")
+    fi
+
+    unset SESSION_RESOLUTION_WORKSPACE_DIR
+    dispatch_session_to_vault "$SESSION_TARGET_VAULT" ${session_args[@]+"${session_args[@]}"}
+}
+
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
@@ -485,6 +762,7 @@ main() {
         install) cli_install "$@" ;;
         doctor) cli_doctor "$@" ;;
         machine) dispatch_machine "$@" ;;
+        session) dispatch_session "$@" ;;
         *)
             if is_dispatch_subcommand "$subcommand"; then
                 dispatch "$subcommand" "$@"

@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """
-init.py - Set up or remove Brain MCP server registrations for Claude and Codex.
+init.py - Legacy compatibility shell for Brain MCP transport registrations.
+
+This script preserves the old flag-compatible entry point over the shared
+configure/setup transport owners. New workflows should use configure.py and
+setup.py directly; init.py remains only for legacy installer/removal paths.
 
 Examples:
   1. Current directory:  python3 /vault/.brain-core/scripts/init.py
@@ -119,7 +123,7 @@ def _ensure_brain_ignore_rules_or_fatal(
 
 def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Set up or remove Brain MCP server registrations for Claude and Codex.",
+        description="Legacy compatibility CLI for Brain MCP transport registrations.",
         epilog=(
             "Examples:\n"
             "  cd /my/project && python3 /vault/.brain-core/scripts/init.py\n"

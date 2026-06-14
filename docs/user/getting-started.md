@@ -40,7 +40,7 @@ For non-interactive agent installs in restricted environments, scaffold the vaul
 bash install.sh --non-interactive --skip-mcp /path/to/brain
 ```
 
-The installer creates the vault from the template, copies `.brain-core/` into it, and then offers an MCP registration choice for Claude Code and Codex — register this Brain for this vault only (project scope, the default) or as your machine default brain (user scope) — provisioning the managed Python runtime as needed. `install.sh` and `install.ps1` both hand fresh/existing-vault install policy to the shared Python installer core at `src/brain-core/scripts/install.py`. The POSIX wrapper can also install brain-core into an existing Obsidian vault and detect already-installed Brain vaults; for those, the canonical upgrade path is `upgrade.py` and `install.sh` only delegates to it. In network-restricted environments you can pass `--skip-mcp` to scaffold the vault without runtime / MCP setup, or rerun the printed retry steps later if dependency installation fails. Use `--non-interactive` when you want installer automation without prompts; it selects the this-vault-only (project) scope. When upgrade changes `.brain-core/brain_mcp/requirements.txt`, `upgrade.py` provisions the matching shared runtime under `~/.brain/venvs/` itself; `install.sh --skip-mcp` passes through the opt-out. Same-version re-apply, downgrade, or explicit migration rerun flows remain explicit `upgrade.py --force` operations. Project scope still outranks user scope for both clients once the project-scoped MCP is active: in Claude, approve `brain` via `/mcp`; in Codex, trust the project and ensure `brain` is enabled for that project. See [install.sh](../functional/scripts.md#installsh) and [install.py](../functional/scripts.md#installpy) for full details, modes, and flags.
+The installer creates the vault from the template, copies `.brain-core/` into it, provisions the light machine resolution runtime used by no-MCP `brain session`, and then offers an MCP registration choice for Claude Code and Codex — register this Brain for this vault only (project scope, the default) or as your machine default brain (user scope) — provisioning the managed Python runtime as needed. `install.sh` and `install.ps1` both hand fresh/existing-vault install policy to the shared Python installer core at `src/brain-core/scripts/install.py`. The POSIX wrapper can also install brain-core into an existing Obsidian vault and detect already-installed Brain vaults; for those, the canonical upgrade path is `upgrade.py` and `install.sh` only delegates to it. In network-restricted environments you can pass `--skip-mcp` to scaffold the vault without runtime / MCP setup, or rerun the printed retry steps later if dependency installation fails. Use `--non-interactive` when you want installer automation without prompts; it selects the this-vault-only (project) scope. When upgrade changes `.brain-core/brain_mcp/requirements.txt`, `upgrade.py` provisions the matching shared runtime under `~/.brain/venvs/` itself; `install.sh --skip-mcp` passes through the opt-out. Same-version re-apply, downgrade, or explicit migration rerun flows remain explicit `upgrade.py --force` operations. Project scope still outranks user scope for both clients once the project-scoped MCP is active: in Claude, approve `brain` via `/mcp`; in Codex, trust the project and ensure `brain` is enabled for that project. See [install.sh](../functional/scripts.md#installsh) and [install.py](../functional/scripts.md#installpy) for full details, modes, and flags.
 
 Semantic retrieval remains optional. Enable it later from inside the vault with
 `python3 .brain-core/scripts/configure.py semantic --enable`. That command
@@ -66,6 +66,14 @@ If you install the optional [`brain` CLI](../functional/cli.md), it is shorthand
 brain check --actionable
 brain repair runtime
 ```
+
+For agent bootstrap, MCP remains the primary path: call `brain_session`. When MCP is unavailable from a bound external workspace, run:
+
+```bash
+brain session --json
+```
+
+That command resolves the workspace binding through the machine-level resolution runtime and then dispatches only to the bound Brain's own `session.py`. It is not a separate non-MCP `brain_init` command.
 
 A small portable script family also stays usable from a compatible launcher Python in restricted no-network environments, including the core artefact commands plus `build_lexical_index.py` and `search_lexical.py`. See [User Reference](user-reference.md#scripts) for the command-family breakdown and [Script Reference](../functional/scripts.md) for the exact per-script contract.
 

@@ -39,7 +39,9 @@ INIT_STATE_VERSION = 1
 CLAUDE_MD_BOOTSTRAP_VAULT = (
     "ALWAYS DO FIRST: Call MCP `brain_session`, else read `.brain-core/index.md` if it exists."
 )
-CLAUDE_MD_BOOTSTRAP_PROJECT = "ALWAYS DO FIRST: Call brain_session"
+CLAUDE_MD_BOOTSTRAP_PROJECT = (
+    "ALWAYS DO FIRST: Call MCP `brain_session`; if MCP is unavailable, run `brain session --json` from this workspace."
+)
 
 
 def build_mcp_config(
