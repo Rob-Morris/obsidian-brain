@@ -27,13 +27,13 @@ def _cli_shell_var(name: str) -> str:
 
 BRAIN_CLI_VERSION = _cli_shell_var("BRAIN_CLI_VERSION")
 
-# Public dispatch contract plus legacy compatibility shims.
+# Public dispatch contract. Legacy compatibility shims must not remain here.
 PUBLIC_DISPATCH_CONTRACT = [
     "check", "create", "edit", "rename",
     "setup", "configure", "repair", "upgrade",
     "session", "read", "migrate-naming", "fix-links",
 ]
-DISPATCH_COMPAT = ["init"]
+DISPATCH_COMPAT = []
 GENERIC_DISPATCH_CONTRACT = [sub for sub in PUBLIC_DISPATCH_CONTRACT if sub != "session"] + DISPATCH_COMPAT
 SCRIPT_CONTRACT = PUBLIC_DISPATCH_CONTRACT + DISPATCH_COMPAT
 
@@ -279,6 +279,14 @@ def test_unknown_subcommand_fails():
     result = _run_cli("frobnicate")
     assert result.returncode == 2
     assert "unknown subcommand" in result.stderr
+
+
+def test_init_dispatch_noun_is_removed_without_redirect_stub():
+    result = _run_cli("init")
+    assert result.returncode == 2
+    assert "unknown subcommand: init" in result.stderr
+    assert "configure" in result.stderr
+    assert "deprecated" not in result.stderr.lower()
 
 
 # ---------------------------------------------------------------------------

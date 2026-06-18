@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Launcher-safe MCP transport helpers shared by setup/configure/init/repair."""
+"""Launcher-safe MCP transport helpers shared by setup/configure/repair."""
 
 from __future__ import annotations
 
@@ -92,13 +92,6 @@ def _resolve_managed_python(vault_root: Path) -> str:
     return summary["managed_python"]
 
 
-def find_python(vault_root: Path) -> str:
-    try:
-        return _resolve_managed_python(vault_root)
-    except InitTransportError as exc:
-        fatal(str(exc))
-
-
 def _resolve_clients_or_error(client_arg: str, scope: str) -> Tuple[List[str], List[str]]:
     warnings: List[str] = []
 
@@ -123,13 +116,6 @@ def _resolve_clients_or_error(client_arg: str, scope: str) -> Tuple[List[str], L
         return ["claude"], warnings
 
     return clients, warnings
-
-
-def _resolve_clients(client_arg: str, scope: str) -> Tuple[List[str], List[str]]:
-    try:
-        return _resolve_clients_or_error(client_arg, scope)
-    except InitTransportError as exc:
-        fatal(str(exc))
 
 
 def _claude_config_path(scope: str, target_dir: Optional[Path]) -> Path:
@@ -364,26 +350,30 @@ def ensure_claude_md(target_dir: Path, local: bool = False) -> Path:
     return claude_md
 
 
-def _remove_bootstrap_line(path: Path, bootstrap: str) -> None:
+def _remove_bootstrap_line(path: Path, bootstrap: str) -> bool:
     if not path.is_file():
-        return
+        return False
 
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
-    except OSError:
-        return
+    except OSError as exc:
+        raise InitTransportError(f"failed to read {path}: {exc}") from exc
 
+    matched = any(line.strip() == bootstrap for line in lines)
+    if not matched:
+        return False
     kept = [line for line in lines if line.strip() != bootstrap]
     while kept and not kept[-1].strip():
         kept.pop()
 
-    if kept == lines:
-        return
-
-    if kept:
-        safe_write(path, "\n".join(kept) + "\n")
-    else:
-        _delete_file_if_exists(path)
+    try:
+        if kept:
+            safe_write(path, "\n".join(kept) + "\n")
+        else:
+            _delete_file_if_exists(path)
+    except OSError as exc:
+        raise InitTransportError(f"failed to update {path}: {exc}") from exc
+    return True
 
 
 def cleanup_claude_bootstrap(
@@ -391,10 +381,10 @@ def cleanup_claude_bootstrap(
     *,
     local: bool = False,
     bootstrap_line: Optional[str] = None,
-) -> None:
+) -> bool:
     rel_path = CLAUDE_LOCAL_MD_FILE if local else CLAUDE_MD_FILE
     line = bootstrap_line if bootstrap_line is not None else bootstrap_line_for_target(target_dir)
-    _remove_bootstrap_line(target_dir / rel_path, line)
+    return _remove_bootstrap_line(target_dir / rel_path, line)
 
 
 def _converge_workspace_manifest(
@@ -418,27 +408,6 @@ def _converge_workspace_manifest(
         brain=resolved_brain,
         allow_rebind=allow_rebind,
     )
-
-
-def ensure_workspace_manifest(
-    target_dir: Path,
-    *,
-    vault_root: Path | None = None,
-    brain_id: str | None = None,
-    allow_rebind: bool = False,
-) -> Path:
-    try:
-        result = _converge_workspace_manifest(
-            target_dir,
-            vault_root=vault_root,
-            brain_id=brain_id,
-            allow_rebind=allow_rebind,
-        )
-    except WorkspaceBindingError as exc:
-        fatal(str(exc))
-
-    info(result.message)
-    return result.manifest_path
 
 
 def ensure_session_start_hook(
@@ -679,11 +648,14 @@ def _remove_record(vault_root: Path, record: Dict[str, Any]) -> bool:
         target_path = record.get("target_path")
         if removed and target_path:
             target_dir = Path(target_path)
-            cleanup_claude_bootstrap(
-                target_dir,
-                local=scope == "local",
-                bootstrap_line=record.get("bootstrap_line"),
-            )
+            try:
+                cleanup_claude_bootstrap(
+                    target_dir,
+                    local=scope == "local",
+                    bootstrap_line=record.get("bootstrap_line"),
+                )
+            except InitTransportError as exc:
+                info(f"Warning: could not clean Claude bootstrap for {target_dir}: {exc}")
             _remove_session_start_hook(
                 Path(record.get("hook_path", target_dir / CLAUDE_LOCAL_SETTINGS_FILE)),
                 vault_root,

@@ -14,7 +14,7 @@ python3.12 .brain-core/scripts/<script>.py ...
 
 That `python3.12` process is the launcher, not the managed runtime itself.
 
-- launcher-safe bootstrap entrypoints such as `repair.py`, `setup.py`, `configure.py`, and the legacy `init.py` engine may do meaningful bootstrap work there
+- launcher-safe bootstrap entrypoints such as `repair.py`, `setup.py`, and `configure.py` may do meaningful bootstrap work there
 - shared launcher-safe bootstrap ownership now lives in `src/brain-core/scripts/_bootstrap/`, including runtime handoff, bootstrap diagnostics, and shared MCP/client-config state
 - the machine-level resolution runtime under `~/.brain/resolution-runtime/` is a separate light runtime used by `brain session` before any Brain is selected; it runs only stdlib-only resolver code deployed from `.brain-core/scripts/`, not another Brain's managed runtime
 - runtime-owning lifecycle entrypoints such as `repair.py`, `configure.py`, `session.py`, and `check.py` resolve or repair the canonical managed runtime and then hand off into it before substantive managed work continues
@@ -68,7 +68,6 @@ That `python3.12` process is the launcher, not the managed runtime itself.
 | `obsidian_cli.py` | IPC client for native Obsidian CLI | (library module, used by MCP server) |
 | `process.py` | Experimental content classification, duplicate resolution, ingestion | (library module, used by `brain_process` in the MCP server) |
 | `generate_key.py` | Generate operator key + hash for config.yaml | `python3 generate_key.py [--count N]` |
-| `init.py` | Legacy/internal MCP registration compatibility CLI. The shared Claude/Codex transport engine now lives in `_bootstrap/mcp_transport.py`, while `init.py` preserves the old flags and `--skip-mcp` remains the restricted bootstrap-only path used by the installer. | `python3 init.py [--client {claude,codex,all}] [--user] [--local] [--project PATH] [--skip-mcp] [--remove] [--force]` |
 
 ## Architecture
 
@@ -204,7 +203,7 @@ python3 repair.py semantic --vault /path/to/vault
 - `repair.py` is the explicit recovery surface. Other scripts should detect, explain, and point to `repair.py` rather than silently broadening their own repair semantics.
 - Repair ownership is split by altitude. `check.py` and `repair.py` act on vault-local state only: `.brain/local/workspaces.json`, the compiled router, the lexical index, retrieval sidecars, and artefact frontmatter. `machine.py`, `doctor_machine.py`, and `vault_registry.py` own machine-wide state: `$XDG_CONFIG_HOME/brain/vaults` (default `~/.config/brain/vaults`), the `default` Brain pointer, and shared managed runtimes under `~/.brain/venvs/`. Vault-scoped repair may inspect machine-level state for diagnostics, but it must not mutate it.
 
-The shared bootstrap/runtime mechanics behind `setup.py`, `repair.py`, `configure.py`, `init.py`, `session.py`, and `check.py` now live under `src/brain-core/scripts/_bootstrap/`. `runtime.py` owns launcher discovery and managed-runtime handoff; `diagnostics.py` owns launcher-safe runtime/MCP/registry checks; `mcp_state.py` owns shared MCP/config-layout and init-state helpers; `vaults.py` owns env-aware vault-root discovery for the lifecycle wrappers; `workspace_scaffold.py` owns Brain-local ignore-rule convergence; and `mcp_transport.py` owns the shared Claude/Codex config-write engine used by `configure.py mcp`, installer flows, `repair.py`, and the legacy `init.py` shell.
+The shared bootstrap/runtime mechanics behind `setup.py`, `repair.py`, `configure.py`, `session.py`, and `check.py` now live under `src/brain-core/scripts/_bootstrap/`. `runtime.py` owns launcher discovery and managed-runtime handoff; `diagnostics.py` owns launcher-safe runtime/MCP/registry checks; `mcp_state.py` owns shared MCP/config-layout and init-state helpers; `vaults.py` owns env-aware vault-root discovery for the lifecycle wrappers; `workspace_scaffold.py` owns Brain-local ignore-rule convergence; and `mcp_transport.py` owns the shared Claude/Codex config-write engine used by `configure.py mcp`, installer flows, and `repair.py`.
 
 **Scope semantics:**
 
@@ -221,7 +220,7 @@ If you do not know what is broken, start with `check.py`. Compliance findings no
 
 Single source of truth for the central managed runtime path rule. Brain installs one virtualenv per `(python_minor, requirements.txt)` pair under `~/.brain/venvs/py<X.Y>-<sha16>/`, shared across vaults that pin the same dependency manifest. Cold-start cost on cloud-synced vaults motivated the move off `<vault>/.venv/` — see [DD-048](../architecture/decisions/dd-048-central-managed-runtime.md) for the full reasoning.
 
-`install.py`, `configure.py`, `init.py`, `upgrade.py`, and `repair.py` resolve the managed runtime through this helper whenever they need one. `install.sh` and `install.ps1` hand install policy to `install.py` instead of resolving the managed runtime themselves. `setup.py` stays launcher-safe for baseline workspace binding and does not require the managed runtime. There is no other valid encoding of the rule in the codebase.
+`install.py`, `configure.py`, `upgrade.py`, and `repair.py` resolve the managed runtime through this helper whenever they need one. `install.sh` and `install.ps1` hand install policy to `install.py` instead of resolving the managed runtime themselves. `setup.py` stays launcher-safe for baseline workspace binding and does not require the managed runtime. There is no other valid encoding of the rule in the codebase.
 
 **Importable API:**
 
@@ -349,7 +348,7 @@ bash install.sh --uninstall --non-interactive /path/to/brain
 
 - **git** — required (for cloning the repo when not running from a local clone). The installer pins `--branch main` explicitly, so the installer contract is independent of the repo's default-branch setting.
 - **python3** — required (any version, for basic preflight)
-- **Python 3.12+** — required for install, the Python lifecycle entry points (`setup.py`, `configure.py`, `init.py`, `upgrade.py`, `repair.py`), and the MCP server runtime. `install.sh` is now a Bash bootstrapper that searches for `python3.13`, `python3.12`, then `python3` before handing non-upgrade install policy to `install.py`; `install.ps1` searches `python`, `py`, `python3.13`, then `python3.12`.
+- **Python 3.12+** — required for install, the Python lifecycle entry points (`setup.py`, `configure.py`, `upgrade.py`, `repair.py`), and the MCP server runtime. `install.sh` is now a Bash bootstrapper that searches for `python3.13`, `python3.12`, then `python3` before handing non-upgrade install policy to `install.py`; `install.ps1` searches `python`, `py`, `python3.13`, then `python3.12`.
 - **Package index access for MCP setup** — fresh installs and existing-vault installs may install `.brain-core/brain_mcp/requirements.txt` into the central managed runtime under `~/.brain/venvs/`. If that step fails, the installer keeps the vault intact, skips MCP registration, and prints manual retry commands instead of aborting the whole run. Upgrade-specific dependency guidance comes from `upgrade.py`. See [DD-048](../architecture/decisions/dd-048-central-managed-runtime.md) for the runtime location rule.
 
 ### Safety guards
@@ -426,7 +425,7 @@ Explicit configuration owner at `.brain-core/scripts/configure.py`. This is the 
 - `configure.py mcp` — explicit MCP transport policy (`user`, `project`, or Claude-local scope)
 - `configure.py semantic` — local semantic retrieval opt-in and provisioning
 
-`configure.py mcp` is now the public MCP policy noun. It now calls the shared `_bootstrap/mcp_transport.py` owner directly, while `init.py` remains only as the compatibility CLI over the same engine, so the public distinction is clear:
+`configure.py mcp` is the public MCP policy noun. It calls the shared `_bootstrap/mcp_transport.py` owner directly, so the public distinction is clear:
 
 - `setup workspace` ensures or guides workspace setup
 - `configure ...` targets one explicit concern
@@ -440,32 +439,6 @@ python3 configure.py workspace binding --brain my-brain --path /path/to/project
 python3 configure.py mcp --workspace /path/to/project --client all
 python3 configure.py semantic --enable --no-provision --json
 ```
-
-## init.py (legacy/internal MCP engine)
-
-`init.py` remains in `.brain-core/scripts/` because installer flows, recorded removal, and the legacy flag-compatible CLI shell still live there. It is **not** the taught first-class public setup/configure noun anymore.
-
-The low-level Claude/Codex config writes now live in `_bootstrap/mcp_transport.py`; `init.py` is the compatibility wrapper over those shared owners.
-
-What `init.py` still owns:
-
-- legacy flag parsing and human CLI rendering over the shared bootstrap owners
-- the recorded MCP removal compatibility surface via `.brain/local/init-state.json`
-- restricted bootstrap-only `--skip-mcp` paths used by installer flows
-- workspace-manifest convergence and Brain-owned local ignore state when those restricted flows target a workspace
-
-The useful operational facts are unchanged:
-
-- **Project** (default): Claude writes `.mcp.json`; Codex writes `.codex/config.toml`; Claude also ensures `CLAUDE.md` and a SessionStart hook in `.claude/settings.local.json`
-- **Local** (`--local`): Claude only. Writes `.claude/settings.local.json` + `.claude/CLAUDE.local.md` in the target directory
-- **User** (`--user`): Claude writes `~/.claude.json`; Codex writes `~/.codex/config.toml`
-- **Bootstrap-only** (`--skip-mcp`): skips runtime discovery, MCP registration, SessionStart hooks, and client config writes; still converges `.brain/local/workspace.yaml` plus Brain-owned machine-local ignore entries
-
-`.mcp.json` and `.codex/config.toml` now persist machine-local absolute paths for the launcher plus `PYTHONPATH`, and may also carry an explicit `BRAIN_WORKSPACE_DIR` hint. The primary Brain identity is no longer stored there as a persisted `BRAIN_VAULT_ROOT` contract; the generic route resolves the target Brain from the active workspace binding at runtime.
-
-All writes remain atomic (tmp + fsync + rename). `init.py` still records client, scope, config path, target path, and server config in `.brain/local/init-state.json` so later removal can compare the current entry against recorded ownership instead of guessing from file presence.
-
-For current-vault repair of runtime or MCP state, the explicit recovery entry points remain `repair.py runtime` and `repair.py mcp`.
 
 ## session.py
 

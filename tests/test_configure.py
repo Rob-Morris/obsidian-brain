@@ -564,6 +564,203 @@ def test_configure_workspace_bootstrap_installs_agents_and_claude(tmp_path, caps
     assert "brain session --json" in claude_bootstrap
 
 
+def test_configure_workspace_bootstrap_remove_cleans_project_claude_bootstrap(tmp_path, capsys):
+    vault = _make_vault(tmp_path)
+    workspace = tmp_path / "demo-workspace"
+    workspace.mkdir()
+    claude_md = workspace / "CLAUDE.md"
+    claude_md.write_text(
+        "# Demo\n\n"
+        "ALWAYS DO FIRST: Call MCP `brain_session`; if MCP is unavailable, run `brain session --json` from this workspace.\n",
+        encoding="utf-8",
+    )
+
+    exit_code = configure.main([
+        "workspace",
+        "bootstrap",
+        "--vault",
+        str(vault),
+        "--workspace",
+        str(workspace),
+        "--surface",
+        "claude",
+        "--remove",
+        "--json",
+    ])
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "ok"
+    assert payload["steps"][0]["name"] == "workspace_bootstrap_claude"
+    assert payload["steps"][0]["status"] == "changed"
+    assert claude_md.read_text(encoding="utf-8") == "# Demo\n"
+
+
+def test_configure_workspace_bootstrap_remove_default_surface_skips_agents_and_cleans_claude(
+    tmp_path, capsys
+):
+    vault = _make_vault(tmp_path)
+    workspace = tmp_path / "demo-workspace"
+    workspace.mkdir()
+    claude_md = workspace / "CLAUDE.md"
+    claude_md.write_text(
+        "# Demo\n\n"
+        "ALWAYS DO FIRST: Call MCP `brain_session`; if MCP is unavailable, run `brain session --json` from this workspace.\n",
+        encoding="utf-8",
+    )
+
+    exit_code = configure.main([
+        "workspace",
+        "bootstrap",
+        "--vault",
+        str(vault),
+        "--workspace",
+        str(workspace),
+        "--remove",
+        "--json",
+    ])
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "ok"
+    assert payload["steps"] == [
+        {
+            "name": "workspace_bootstrap_agents",
+            "status": "noop",
+            "message": "AGENTS.md bootstrap removal is not supported.",
+        },
+        {
+            "name": "workspace_bootstrap_claude",
+            "status": "changed",
+            "message": "Removed Brain bootstrap instructions from CLAUDE.md.",
+        },
+    ]
+    assert claude_md.read_text(encoding="utf-8") == "# Demo\n"
+
+
+def test_configure_workspace_bootstrap_remove_agents_only_reports_error_guard(tmp_path, capsys):
+    vault = _make_vault(tmp_path)
+    workspace = tmp_path / "demo-workspace"
+    workspace.mkdir()
+    agents_md = workspace / "AGENTS.md"
+    agents_md.write_text("ALWAYS DO FIRST: Call MCP `brain_session`.\n", encoding="utf-8")
+
+    exit_code = configure.main([
+        "workspace",
+        "bootstrap",
+        "--vault",
+        str(vault),
+        "--workspace",
+        str(workspace),
+        "--surface",
+        "agents",
+        "--remove",
+        "--json",
+    ])
+
+    assert exit_code == 2
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "error"
+    assert payload["steps"] == [
+        {
+            "name": "workspace_bootstrap_agents",
+            "status": "error",
+            "message": "AGENTS.md bootstrap removal is not supported.",
+        },
+    ]
+    assert agents_md.read_text(encoding="utf-8") == "ALWAYS DO FIRST: Call MCP `brain_session`.\n"
+
+
+def test_configure_workspace_bootstrap_remove_noops_when_bootstrap_absent(tmp_path, capsys):
+    vault = _make_vault(tmp_path)
+    workspace = tmp_path / "demo-workspace"
+    workspace.mkdir()
+    claude_md = workspace / "CLAUDE.md"
+    claude_md.write_text("# Demo\n", encoding="utf-8")
+
+    exit_code = configure.main([
+        "workspace",
+        "bootstrap",
+        "--vault",
+        str(vault),
+        "--path",
+        str(workspace),
+        "--surface",
+        "claude",
+        "--remove",
+        "--json",
+    ])
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "noop"
+    assert payload["steps"][0]["name"] == "workspace_bootstrap_claude"
+    assert payload["steps"][0]["status"] == "noop"
+    assert claude_md.read_text(encoding="utf-8") == "# Demo\n"
+
+
+def test_configure_workspace_bootstrap_remove_does_not_claim_trailing_blank_cleanup(
+    tmp_path, capsys
+):
+    vault = _make_vault(tmp_path)
+    workspace = tmp_path / "demo-workspace"
+    workspace.mkdir()
+    claude_md = workspace / "CLAUDE.md"
+    claude_md.write_text("# Demo\n\n\n", encoding="utf-8")
+
+    exit_code = configure.main([
+        "workspace",
+        "bootstrap",
+        "--vault",
+        str(vault),
+        "--workspace",
+        str(workspace),
+        "--surface",
+        "claude",
+        "--remove",
+        "--json",
+    ])
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "noop"
+    assert payload["steps"][0]["status"] == "noop"
+    assert payload["steps"][0]["message"] == "CLAUDE.md has no Brain bootstrap instructions to remove."
+    assert claude_md.read_text(encoding="utf-8") == "# Demo\n\n\n"
+
+
+def test_configure_workspace_bootstrap_remove_transport_error_is_structured(
+    tmp_path, monkeypatch, capsys
+):
+    vault = _make_vault(tmp_path)
+    workspace = tmp_path / "demo-workspace"
+    workspace.mkdir()
+
+    def fail_cleanup(*_args, **_kwargs):
+        raise configure.mcp_transport.InitTransportError("failed to update CLAUDE.md")
+
+    monkeypatch.setattr(configure.mcp_transport, "cleanup_claude_bootstrap", fail_cleanup)
+
+    exit_code = configure.main([
+        "workspace",
+        "bootstrap",
+        "--vault",
+        str(vault),
+        "--workspace",
+        str(workspace),
+        "--surface",
+        "claude",
+        "--remove",
+        "--json",
+    ])
+
+    assert exit_code == 2
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "error"
+    assert payload["steps"][0]["name"] == "workspace_bootstrap"
+    assert payload["steps"][0]["message"] == "failed to update CLAUDE.md"
+
+
 
 def test_configure_mcp_returns_structured_result(tmp_path, monkeypatch, capsys):
     vault = _make_vault(tmp_path)
@@ -572,12 +769,13 @@ def test_configure_mcp_returns_structured_result(tmp_path, monkeypatch, capsys):
 
     calls = {}
 
-    def fake_apply(vault_root, *, client_arg, scope, target_dir, remove):
+    def fake_apply(vault_root, *, client_arg, scope, target_dir, remove, vault_self=False):
         calls["vault_root"] = vault_root
         calls["client_arg"] = client_arg
         calls["scope"] = scope
         calls["target_dir"] = target_dir
         calls["remove"] = remove
+        calls["vault_self"] = vault_self
         return {
             "status": "changed",
             "warnings": [],
@@ -603,6 +801,7 @@ def test_configure_mcp_returns_structured_result(tmp_path, monkeypatch, capsys):
         "scope": "project",
         "target_dir": workspace,
         "remove": False,
+        "vault_self": False,
     }
     payload = json.loads(capsys.readouterr().out)
     assert payload["status"] == "ok"
@@ -610,6 +809,124 @@ def test_configure_mcp_returns_structured_result(tmp_path, monkeypatch, capsys):
     assert payload["steps"][0]["status"] == "changed"
     assert any("/mcp" in note for note in payload["notes"])
     assert any("brain_session" in note for note in payload["notes"])
+
+
+def test_configure_mcp_vault_self_reaches_transport_owner(tmp_path, monkeypatch, capsys):
+    vault = _make_vault(tmp_path)
+    calls = {}
+
+    def fake_apply(vault_root, *, client_arg, scope, target_dir, remove, vault_self=False):
+        calls["vault_root"] = vault_root
+        calls["client_arg"] = client_arg
+        calls["scope"] = scope
+        calls["target_dir"] = target_dir
+        calls["remove"] = remove
+        calls["vault_self"] = vault_self
+        return {
+            "status": "changed",
+            "warnings": [],
+            "verification_notes": ["Verify: vault self"],
+        }
+
+    monkeypatch.setattr(configure.mcp_transport, "apply_mcp_transport_action", fake_apply)
+
+    exit_code = configure.main([
+        "mcp",
+        "--vault",
+        str(vault),
+        "--workspace",
+        str(vault),
+        "--vault-self",
+        "--client",
+        "all",
+        "--json",
+    ])
+
+    assert exit_code == 0
+    assert calls == {
+        "vault_root": vault,
+        "client_arg": "all",
+        "scope": "project",
+        "target_dir": vault,
+        "remove": False,
+        "vault_self": True,
+    }
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["steps"][0]["status"] == "changed"
+    assert payload["notes"] == ["Verify: vault self"]
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["--user"],
+        ["--local"],
+        ["--remove", "--force"],
+    ],
+)
+def test_configure_mcp_vault_self_rejects_invalid_combinations(tmp_path, args, capsys):
+    vault = _make_vault(tmp_path)
+
+    exit_code = configure.main([
+        "mcp",
+        "--vault",
+        str(vault),
+        "--workspace",
+        str(vault),
+        "--vault-self",
+        *args,
+        "--json",
+    ])
+
+    assert exit_code == 2
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "error"
+    assert payload["steps"][0]["name"] == "mcp_transport"
+    assert "--vault-self" in payload["steps"][0]["message"]
+
+
+def test_configure_mcp_vault_self_requires_explicit_workspace(tmp_path, capsys):
+    vault = _make_vault(tmp_path)
+
+    exit_code = configure.main([
+        "mcp",
+        "--vault",
+        str(vault),
+        "--vault-self",
+        "--json",
+    ])
+
+    assert exit_code == 2
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "error"
+    assert payload["action"] == "mcp_configure"
+    assert "--vault-self requires --workspace/--project" in payload["steps"][0]["message"]
+
+
+@pytest.mark.parametrize(
+    "args, expected",
+    [
+        (["--user", "--local"], "--user cannot be combined with --local"),
+        (["--user", "--workspace", "demo-workspace"], "--user cannot be combined with --workspace/--project"),
+        (["--user", "--project", "demo-workspace"], "--user cannot be combined with --workspace/--project"),
+    ],
+)
+def test_configure_mcp_user_rejects_local_or_project_scope(tmp_path, args, expected, capsys):
+    vault = _make_vault(tmp_path)
+
+    exit_code = configure.main([
+        "mcp",
+        "--vault",
+        str(vault),
+        *args,
+        "--json",
+    ])
+
+    assert exit_code == 2
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "error"
+    assert payload["action"] == "mcp_configure"
+    assert payload["steps"][0]["message"] == expected
 
 
 def test_configure_mcp_remove_noop_returns_noop_step(tmp_path, monkeypatch, capsys):
@@ -639,6 +956,27 @@ def test_configure_mcp_remove_noop_returns_noop_step(tmp_path, monkeypatch, caps
     assert payload["steps"][0]["status"] == "noop"
     assert "No recorded Brain-managed MCP entries matched this request." == payload["steps"][0]["message"]
     assert payload.get("notes", []) == []
+
+
+def test_configure_mcp_remove_workspace_resolution_error_uses_remove_action(tmp_path, capsys):
+    vault = _make_vault(tmp_path)
+    missing_parent = tmp_path / "missing" / "workspace"
+
+    exit_code = configure.main([
+        "mcp",
+        "--vault",
+        str(vault),
+        "--workspace",
+        str(missing_parent),
+        "--remove",
+        "--force",
+        "--json",
+    ])
+
+    assert exit_code == 2
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["action"] == "mcp_remove"
+    assert payload["steps"][0]["status"] == "error"
 
 
 def test_configure_mcp_remove_changed_returns_changed_step(tmp_path, monkeypatch, capsys):

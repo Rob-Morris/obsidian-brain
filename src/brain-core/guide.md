@@ -229,7 +229,7 @@ python3 /path/to/vault/.brain-core/scripts/configure.py mcp --vault /path/to/vau
 python3 /path/to/vault/.brain-core/scripts/configure.py mcp --vault /path/to/vault --user --client all
 ```
 
-`init.py` remains available as a legacy compatibility CLI for installer flows and older automation, but `setup.py workspace` and `configure.py mcp` are the taught public surfaces.
+`setup.py workspace` and `configure.py mcp` are the public setup and transport surfaces. Older automation that used the retired `init.py` compatibility shell should move to the targeted `setup.py` / `configure.py` command for the concern it owns.
 
 For project scope, registration is not the whole story. Claude still needs the project's `.mcp.json` entry approved via `/mcp`, and Codex still needs the project trusted with the project-scoped `brain` MCP enabled. Once that project-scoped entry is active, it outranks the user-scoped one. Until then, either client may keep routing `mcp__brain__*` calls to a user-scoped `brain`.
 
@@ -252,7 +252,7 @@ The MCP server logs to `.brain/local/mcp-server.log` — startup diagnostics, to
 
 For structural compliance (naming, frontmatter, archives), run `python3 .brain-core/scripts/check.py`.
 
-Without MCP, read `.brain-core/index.md` first. It routes to the generated markdown session mirror at `.brain/local/session.md` when available, or to `.brain-core/md-bootstrap.md` for the degraded raw-file fallback. The scripts in `.brain-core/scripts/` remain available directly (`read.py`, `list_artefacts.py`, `search_lexical.py`, `search_index.py`, `construct_benchmark_fixture.py`, `evaluate_search.py`, `create.py`, `edit.py`, `rename.py`, `compile_router.py`, `compile_colours.py`, `check.py`, `setup.py`, `configure.py`, `repair.py`, `fix_links.py`, `sync_definitions.py`, `workspace_registry.py`, `vault_registry.py`, `migrate_naming.py`, `session.py`, `build_lexical_index.py`, `build_index.py`, `shape_printable.py`, `shape_presentation.py`, `start_shaping.py`, `init.py`, `upgrade.py`, `config.py`, `generate_key.py`). Library modules such as `obsidian_cli.py` also remain available to script callers even though they are not primary CLI entry points.
+Without MCP, read `.brain-core/index.md` first. It routes to the generated markdown session mirror at `.brain/local/session.md` when available, or to `.brain-core/md-bootstrap.md` for the degraded raw-file fallback. The scripts in `.brain-core/scripts/` remain available directly (`read.py`, `list_artefacts.py`, `search_lexical.py`, `search_index.py`, `construct_benchmark_fixture.py`, `evaluate_search.py`, `create.py`, `edit.py`, `rename.py`, `compile_router.py`, `compile_colours.py`, `check.py`, `setup.py`, `configure.py`, `repair.py`, `fix_links.py`, `sync_definitions.py`, `workspace_registry.py`, `vault_registry.py`, `migrate_naming.py`, `session.py`, `build_lexical_index.py`, `build_index.py`, `shape_printable.py`, `shape_presentation.py`, `start_shaping.py`, `upgrade.py`, `config.py`, `generate_key.py`). Library modules such as `obsidian_cli.py` also remain available to script callers even though they are not primary CLI entry points.
 
 ## Further Reading
 

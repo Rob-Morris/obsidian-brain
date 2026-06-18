@@ -39,7 +39,7 @@ brain install <path>
 | `brain migrate-naming [--dry-run]` | `migrate_naming.py` | Filename migrations. |
 | `brain fix-links [--fix]` | `fix_links.py` | Auto-repair broken wikilinks. |
 
-Hyphens in subcommand names map to underscores in script filenames (`migrate-naming` ↔ `migrate_naming.py`). `brain init` remains dispatchable as a hidden compatibility shim, but it is no longer a taught first-class public noun for workspace setup or MCP policy.
+Hyphens in subcommand names map to underscores in script filenames (`migrate-naming` ↔ `migrate_naming.py`). The legacy `brain init` dispatch noun has been retired; use `brain setup workspace` for workspace binding and `brain configure ...` for targeted workspace or MCP policy.
 
 `brain session` has one narrow pre-dispatch exception, documented in [DD-054](../architecture/decisions/dd-054-machine-resolution-runtime.md). If `--vault` is present, the CLI dispatches directly to that Brain. If no vault is directly in scope, or a workspace is explicitly supplied through `BRAIN_WORKSPACE_DIR`, `--workspace-dir`, or the deprecated `--project-dir`, the CLI runs the stdlib-only machine resolver at `~/.brain/resolution-runtime/resolve_brain.py`. A local result then dispatches to the resolved Brain's own `session.py` with `--vault <target>`. A degraded result emits a `session_resolution` payload (`vault_root: null`) when `--json` is requested, or recovery guidance in text mode. Remote Brain targets are recognised as a future seam but return explicit "not yet supported" guidance for this non-MCP path.
 

@@ -1,6 +1,7 @@
 # DD-023: init.py Setup Script with Three Registration Scopes
 
 **Status:** Implemented (v0.10.0)
+**Superseded by:** DD-055
 **Extended by:** DD-039, DD-040, DD-043, DD-051
 
 ## Context

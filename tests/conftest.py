@@ -86,8 +86,7 @@ def copy_install_source(dest):
     """Copy the repo's install entry points into *dest* for install.sh integration tests.
 
     Copies install.sh, template-vault/, and src/brain-core/ — the minimum required
-    to run ``bash install.sh`` against an isolated target. Callers typically stub
-    ``src/brain-core/scripts/init.py`` afterwards to avoid real MCP registration.
+    to run ``bash install.sh`` against an isolated target.
     """
     import shutil
     from pathlib import Path
@@ -166,6 +165,29 @@ def vault(tmp_path):
     (temporal / ".hidden").mkdir()  # should be excluded
 
     return tmp_path
+
+
+@pytest.fixture
+def bootstrap_vault(tmp_path):
+    """Create a lightweight Brain vault root for launcher-safe bootstrap tests."""
+    bc = tmp_path / ".brain-core"
+    bc.mkdir()
+    (bc / "VERSION").write_text("0.10.0\n", encoding="utf-8")
+    (bc / "brain_mcp").mkdir()
+    (bc / "brain_mcp" / "proxy.py").write_text("# stub\n", encoding="utf-8")
+    (bc / "brain_mcp" / "server.py").write_text("# stub\n", encoding="utf-8")
+    scripts_dir = bc / "scripts"
+    scripts_dir.mkdir()
+    (scripts_dir / "session.py").write_text("# stub\n", encoding="utf-8")
+    return tmp_path
+
+
+@pytest.fixture
+def project(tmp_path):
+    """Create a small external project/workspace directory."""
+    project_dir = tmp_path / "my-project"
+    project_dir.mkdir()
+    return project_dir
 
 
 @pytest.fixture

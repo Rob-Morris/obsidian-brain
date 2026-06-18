@@ -1,6 +1,6 @@
 """Tests for the central-venv path resolver in `_common/_venv.py`.
 
-The path rule is single-sourced here; install.sh, init.py, upgrade.py, and
+The path rule is single-sourced here; install.sh, configure.py, upgrade.py, and
 repair.py all delegate. These tests pin down the contract.
 """
 

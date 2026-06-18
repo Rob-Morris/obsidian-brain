@@ -9,16 +9,6 @@ import pytest
 from conftest import copy_install_source
 
 
-def _stub_init(source: Path) -> None:
-    """Replace init.py with a no-op stub so --skip-mcp flows don't exercise real MCP."""
-    (source / "src" / "brain-core" / "scripts" / "init.py").write_text(
-        "import sys\nfrom pathlib import Path\n"
-        "args = sys.argv[1:]\n"
-        "vault = Path(args[args.index('--vault') + 1])\n"
-        "(vault / 'init-args.txt').write_text(' '.join(args))\n"
-    )
-
-
 @pytest.fixture(scope="module")
 def install_source(tmp_path_factory):
     """Repo source tree copied once per test module. Source is never mutated by
@@ -27,7 +17,6 @@ def install_source(tmp_path_factory):
     """
     source = tmp_path_factory.mktemp("source")
     copy_install_source(source)
-    _stub_init(source)
     return source
 
 
@@ -244,7 +233,7 @@ def test_non_interactive_vault_self_no_workspace_yaml(tmp_path):
     """--non-interactive without --skip-mcp selects project scope for the core.
 
     The Python core owns the vault-self transport call; this shell-level test
-    verifies the launcher no longer calls init.py directly and instead passes
+    verifies the launcher does not call legacy MCP setup directly and instead passes
     the correct scope to install.py.
     """
     # Own source copy to avoid polluting the module-scoped fixture.

@@ -8,7 +8,8 @@ import sys
 import textwrap
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src", "brain-core", "scripts"))
-import init
+from _bootstrap.mcp_state import build_mcp_config, build_session_hook_command
+from _bootstrap.mcp_transport import CLAUDE_MD_BOOTSTRAP_VAULT
 from _common._yaml import load_mapping_text
 
 from conftest import (
@@ -46,25 +47,6 @@ def test_install_ignores_machine_local_template_state(tmp_path):
     local.mkdir(parents=True, exist_ok=True)
     (local / "session.md").write_text("stale session\n")
     (local / "compiled-router.json").write_text("{}\n")
-
-    # Stub init.py so the installer can finish without real MCP deps.
-    (source / "src" / "brain-core" / "scripts" / "init.py").write_text(
-        "import json\n"
-        "import sys\n"
-        "from pathlib import Path\n"
-        "\n"
-        "args = sys.argv[1:]\n"
-        "vault = Path(args[args.index('--vault') + 1])\n"
-        "project = Path(args[args.index('--project') + 1])\n"
-        "(vault / 'init-args.txt').write_text(' '.join(args) + '\\n')\n"
-        "(project / '.mcp.json').write_text("
-        "json.dumps({'mcpServers': {'brain': {'command': 'python'}}}, indent=2) + '\\n'"
-        ")\n"
-        "(project / '.codex').mkdir(exist_ok=True)\n"
-        "(project / '.codex' / 'config.toml').write_text("
-        "'[mcp_servers.brain]\\ncommand = \"python\"\\n'"
-        ")\n"
-    )
 
     fake_bin = tmp_path / "fake-bin"
     fake_bin.mkdir()
@@ -200,15 +182,6 @@ def test_install_continues_when_mcp_dependency_install_fails(tmp_path):
     source = tmp_path / "source"
     source.mkdir()
     _copy_source_checkout(source)
-
-    # If registration runs, it leaves a marker. Dependency failure should skip it.
-    (source / "src" / "brain-core" / "scripts" / "init.py").write_text(
-        "import sys\n"
-        "from pathlib import Path\n"
-        "\n"
-        "vault = Path(sys.argv[-1])\n"
-        "(vault / 'init-ran.txt').write_text('called\\n')\n"
-    )
 
     fake_bin = tmp_path / "fake-bin"
     fake_bin.mkdir()
@@ -578,11 +551,11 @@ def test_uninstall_preserves_user_claude_md_content_and_cleans_vault_local_claud
 
     target.joinpath("CLAUDE.md").write_text(
         "# My Vault\n\n"
-        f"{init.CLAUDE_MD_BOOTSTRAP_VAULT}\n",
+        f"{CLAUDE_MD_BOOTSTRAP_VAULT}\n",
         encoding="utf-8",
     )
 
-    server_config = init.build_mcp_config("python", target, workspace_dir=target)
+    server_config = build_mcp_config("python", target, workspace_dir=target)
     settings_path = target / ".claude" / "settings.local.json"
     settings_path.parent.mkdir(parents=True, exist_ok=True)
     settings_path.write_text(
@@ -595,7 +568,7 @@ def test_uninstall_preserves_user_claude_md_content_and_cleans_vault_local_claud
                             "hooks": [
                                 {
                                     "type": "command",
-                                    "command": init.build_session_hook_command(target, target),
+                                    "command": build_session_hook_command(target, target),
                                 }
                             ]
                         }
@@ -608,7 +581,7 @@ def test_uninstall_preserves_user_claude_md_content_and_cleans_vault_local_claud
         encoding="utf-8",
     )
     local_bootstrap = target / ".claude" / "CLAUDE.local.md"
-    local_bootstrap.write_text(f"{init.CLAUDE_MD_BOOTSTRAP_VAULT}\n", encoding="utf-8")
+    local_bootstrap.write_text(f"{CLAUDE_MD_BOOTSTRAP_VAULT}\n", encoding="utf-8")
     init_state = target / ".brain" / "local" / "init-state.json"
     init_state.parent.mkdir(parents=True, exist_ok=True)
     init_state.write_text(
@@ -624,9 +597,9 @@ def test_uninstall_preserves_user_claude_md_content_and_cleans_vault_local_claud
                         "server_name": "brain",
                         "server_config": server_config,
                         "bootstrap_path": str(local_bootstrap),
-                        "bootstrap_line": init.CLAUDE_MD_BOOTSTRAP_VAULT,
+                        "bootstrap_line": CLAUDE_MD_BOOTSTRAP_VAULT,
                         "hook_path": str(settings_path),
-                        "hook_command": init.build_session_hook_command(target, target),
+                        "hook_command": build_session_hook_command(target, target),
                         "method": "test",
                     }
                 ],
@@ -651,6 +624,137 @@ def test_uninstall_preserves_user_claude_md_content_and_cleans_vault_local_claud
     assert not target.joinpath(".claude", "CLAUDE.local.md").exists()
     assert not target.joinpath(".claude", "settings.local.json").exists()
     assert not target.joinpath(".claude").exists()
+
+
+def test_uninstall_uses_configure_for_recorded_cleanup_calls(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    _copy_source_checkout(source)
+
+    target = tmp_path / "vault"
+    scripts = target / ".brain-core" / "scripts"
+    scripts.mkdir(parents=True)
+    (target / ".brain-core" / "VERSION").write_text("1.0.0\n", encoding="utf-8")
+    (scripts / "configure.py").write_text(
+        textwrap.dedent(
+            """
+            import json
+            import sys
+            from pathlib import Path
+
+            args = sys.argv[1:]
+            vault = Path(args[args.index("--vault") + 1])
+            with (vault / "configure-invocations.jsonl").open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(args) + "\\n")
+            """
+        ).lstrip(),
+        encoding="utf-8",
+    )
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    _write_executable(
+        fake_bin / "python3.12",
+        "#!/bin/sh\n"
+        "if [ \"$1\" = \"-c\" ]; then\n"
+        "  printf '3.12\\n'\n"
+        "  exit 0\n"
+        "fi\n"
+        f"exec {REAL_PYTHON} \"$@\"\n",
+    )
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}:{env['PATH']}"
+
+    result = subprocess.run(
+        ["bash", "install.sh", "--uninstall", "--non-interactive", str(target)],
+        cwd=source,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+    assert result.returncode == 0, result.stderr
+    invocations = [
+        json.loads(line)
+        for line in (target / "configure-invocations.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert invocations == [
+        [
+            "mcp",
+            "--vault",
+            str(target),
+            "--workspace",
+            str(target),
+            "--client",
+            "all",
+            "--remove",
+            "--force",
+        ],
+        [
+            "mcp",
+            "--vault",
+            str(target),
+            "--workspace",
+            str(target),
+            "--client",
+            "claude",
+            "--local",
+            "--remove",
+            "--force",
+        ],
+        [
+            "workspace",
+            "bootstrap",
+            "--vault",
+            str(target),
+            "--workspace",
+            str(target),
+            "--surface",
+            "claude",
+            "--remove",
+        ],
+    ]
+    assert f'python3 "{target}/.brain-core/scripts/configure.py" mcp --vault "{target}" --user --client all --remove' in result.stderr
+    assert "init.py" not in result.stderr
+
+
+def test_uninstall_configure_cleanup_fallback_warning(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    _copy_source_checkout(source)
+
+    target = tmp_path / "vault"
+    (target / ".brain-core" / "scripts").mkdir(parents=True)
+    (target / ".brain-core" / "VERSION").write_text("1.0.0\n", encoding="utf-8")
+
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    _write_executable(
+        fake_bin / "python3.12",
+        "#!/bin/sh\n"
+        "if [ \"$1\" = \"-c\" ]; then\n"
+        "  printf '3.12\\n'\n"
+        "  exit 0\n"
+        "fi\n"
+        f"exec {REAL_PYTHON} \"$@\"\n",
+    )
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}:{env['PATH']}"
+
+    result = subprocess.run(
+        ["bash", "install.sh", "--uninstall", "--non-interactive", str(target)],
+        cwd=source,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "Skipping recorded MCP and bootstrap cleanup (Python 3.12+ or configure.py unavailable)." in result.stderr
+    assert "init.py unavailable" not in result.stderr
 
 
 def test_install_rejects_legacy_force_flag(tmp_path):
@@ -780,14 +884,6 @@ def test_upgrade_wrapper_does_not_rerun_mcp_setup(tmp_path):
         "(vault / 'upgrade-ran.txt').write_text('ok\\n')\n"
         "print('upgrade.py owns the upgrade flow', file=sys.stderr)\n"
     )
-    (source / "src" / "brain-core" / "scripts" / "init.py").write_text(
-        "import sys\n"
-        "from pathlib import Path\n"
-        "\n"
-        "vault = Path(sys.argv[sys.argv.index('--vault') + 1])\n"
-        "(vault / 'init-ran.txt').write_text('called\\n')\n"
-    )
-
     fake_bin = tmp_path / "fake-bin"
     fake_bin.mkdir()
     _write_executable(

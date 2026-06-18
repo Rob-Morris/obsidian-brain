@@ -164,10 +164,9 @@ tmp-fsync-rename pattern:
 threads in the same process no longer collide on a shared temp filename when they
 target the same file.
 
-The same sibling-tempfile pattern is used directly in the self-contained
-bootstrap scripts (`init.py`, `upgrade.py`) and the historical migrations so
-those paths stay atomic without depending on `_common` during early install or
-upgrade flows.
+The same sibling-tempfile pattern is used directly in self-contained upgrade
+and historical migration paths so those paths stay atomic without depending on
+`_common` during early upgrade flows.
 
 The new `repair.py` bootstrap path is deliberately narrower: it repairs or
 creates the central managed runtime at `~/.brain/venvs/py<X.Y>-<sha16>/` and

@@ -471,7 +471,7 @@ The server imports functions directly from scripts — never calls their `main()
 
 ## Bootstrap Strategy
 
-`brain_session` is the primary bootstrap mechanism. Agents call it first to receive the canonical session model as JSON. The shared MCP transport engine (`configure.py mcp`, installer flows, and the legacy `init.py` compatibility shell) installs a SessionStart hook that calls `session.py --json` automatically; the same transport layer also refreshes `.brain/local/session.md`, the markdown mirror used by no-MCP bootstrap flows. When MCP is unavailable and a JSON session payload is still needed, the CLI fallback is `brain session --json`, which resolves the bound/default Brain through the machine-level resolution runtime before dispatching to that Brain's own `session.py`. There is no non-MCP `brain_init` twin.
+`brain_session` is the primary bootstrap mechanism. Agents call it first to receive the canonical session model as JSON. The shared MCP transport engine (`configure.py mcp` and installer flows) installs a SessionStart hook that calls `session.py --json` automatically; the same transport layer also refreshes `.brain/local/session.md`, the markdown mirror used by no-MCP bootstrap flows. When MCP is unavailable and a JSON session payload is still needed, the CLI fallback is `brain session --json`, which resolves the bound/default Brain through the machine-level resolution runtime before dispatching to that Brain's own `session.py`. There is no non-MCP `brain_init` twin.
 
 `brain_read(resource="router")` is not a bootstrap tool — it returns raw router state, not a session payload. Its primary use is as a staleness probe: agents or tooling can call it to check whether the router has changed since the last compile.
 

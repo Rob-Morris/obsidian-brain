@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import init
+from _bootstrap.mcp_state import read_codex_server_config, write_codex_config
 from migrate_to_0_27_6 import migrate
 
 
@@ -99,7 +99,7 @@ def test_rewrites_recorded_user_scope_claude_and_codex_configs(tmp_path, monkeyp
     claude_path.write_text(json.dumps({"mcpServers": {"brain": legacy_claude}}, indent=2) + "\n")
 
     codex_path = home / ".codex" / "config.toml"
-    init.write_codex_config(legacy_codex, codex_path)
+    write_codex_config(legacy_codex, codex_path)
 
     _write_init_state(
         vault,
@@ -137,7 +137,7 @@ def test_rewrites_recorded_user_scope_claude_and_codex_configs(tmp_path, monkeyp
     assert claude["env"]["PYTHONPATH"] == str(vault / ".brain-core")
     assert "BRAIN_WORKSPACE_DIR" not in claude["env"]
 
-    codex = init.read_codex_server_config(codex_path)
+    codex = read_codex_server_config(codex_path)
     assert codex is not None
     assert codex["args"] == [
         "-m",

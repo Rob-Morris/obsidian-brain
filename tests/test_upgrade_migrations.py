@@ -495,7 +495,6 @@ def test_upgrade_runs_real_mcp_transport_repair_migration(tmp_path):
 def test_remaining_pid_scoped_temp_helpers_are_gone():
     scripts = _REAL_SCRIPTS
     targets = [
-        scripts / "init.py",
         scripts / "upgrade.py",
         scripts / "migrations" / "migrate_to_0_16_0.py",
         scripts / "migrations" / "migrate_to_0_17_0.py",

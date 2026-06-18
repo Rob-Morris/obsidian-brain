@@ -378,7 +378,7 @@ if [ "${1:-}" = "--uninstall" ]; then
     printf '\n'
     info "User-scope Claude/Codex cleanup is explicit and is not run automatically."
     info "If this vault owns a user-scope registration, remove it before uninstalling:"
-    info "  python3 \"$VAULT_PATH/.brain-core/scripts/init.py\" --vault \"$VAULT_PATH\" --user --client all --remove"
+    info "  python3 \"$VAULT_PATH/.brain-core/scripts/configure.py\" mcp --vault \"$VAULT_PATH\" --user --client all --remove"
 
     if [ "$NON_INTERACTIVE" = false ]; then
         printf '\n' >&2
@@ -396,25 +396,25 @@ if [ "${1:-}" = "--uninstall" ]; then
     printf '\n' >&2
     find_python_312 || true
     MCP_CLEANUP_PYTHON="$_PY312_PATH"
-    if [ -n "$MCP_CLEANUP_PYTHON" ] && [ -f "$VAULT_PATH/.brain-core/scripts/init.py" ]; then
-        if ! spin "Removing recorded project MCP entries" "$MCP_CLEANUP_PYTHON" "$VAULT_PATH/.brain-core/scripts/init.py" --vault "$VAULT_PATH" --project "$VAULT_PATH" --client all --remove --force; then
+    if [ -n "$MCP_CLEANUP_PYTHON" ] && [ -f "$VAULT_PATH/.brain-core/scripts/configure.py" ]; then
+        if ! spin "Removing recorded project MCP entries" "$MCP_CLEANUP_PYTHON" "$VAULT_PATH/.brain-core/scripts/configure.py" mcp --vault "$VAULT_PATH" --workspace "$VAULT_PATH" --client all --remove --force; then
             warn "Could not remove recorded project MCP entries automatically."
             info "Retry later with:"
-            info "  \"$MCP_CLEANUP_PYTHON\" \"$VAULT_PATH/.brain-core/scripts/init.py\" --vault \"$VAULT_PATH\" --project \"$VAULT_PATH\" --client all --remove"
+            info "  \"$MCP_CLEANUP_PYTHON\" \"$VAULT_PATH/.brain-core/scripts/configure.py\" mcp --vault \"$VAULT_PATH\" --workspace \"$VAULT_PATH\" --client all --remove"
         fi
-        if ! spin "Removing recorded Claude local MCP entries" "$MCP_CLEANUP_PYTHON" "$VAULT_PATH/.brain-core/scripts/init.py" --vault "$VAULT_PATH" --project "$VAULT_PATH" --client claude --local --remove --force; then
+        if ! spin "Removing recorded Claude local MCP entries" "$MCP_CLEANUP_PYTHON" "$VAULT_PATH/.brain-core/scripts/configure.py" mcp --vault "$VAULT_PATH" --workspace "$VAULT_PATH" --client claude --local --remove --force; then
             warn "Could not remove recorded Claude local MCP entries automatically."
             info "Retry later with:"
-            info "  \"$MCP_CLEANUP_PYTHON\" \"$VAULT_PATH/.brain-core/scripts/init.py\" --vault \"$VAULT_PATH\" --project \"$VAULT_PATH\" --client claude --local --remove"
+            info "  \"$MCP_CLEANUP_PYTHON\" \"$VAULT_PATH/.brain-core/scripts/configure.py\" mcp --vault \"$VAULT_PATH\" --workspace \"$VAULT_PATH\" --client claude --local --remove"
         fi
-        if ! spin "Cleaning CLAUDE.md bootstrap" "$MCP_CLEANUP_PYTHON" "$VAULT_PATH/.brain-core/scripts/init.py" --vault "$VAULT_PATH" --project "$VAULT_PATH" --client claude --cleanup-bootstrap; then
+        if ! spin "Cleaning CLAUDE.md bootstrap" "$MCP_CLEANUP_PYTHON" "$VAULT_PATH/.brain-core/scripts/configure.py" workspace bootstrap --vault "$VAULT_PATH" --workspace "$VAULT_PATH" --surface claude --remove; then
             warn "Could not clean the Brain bootstrap line from CLAUDE.md automatically."
             info "Retry later with:"
-            info "  \"$MCP_CLEANUP_PYTHON\" \"$VAULT_PATH/.brain-core/scripts/init.py\" --vault \"$VAULT_PATH\" --project \"$VAULT_PATH\" --client claude --cleanup-bootstrap"
+            info "  \"$MCP_CLEANUP_PYTHON\" \"$VAULT_PATH/.brain-core/scripts/configure.py\" workspace bootstrap --vault \"$VAULT_PATH\" --workspace \"$VAULT_PATH\" --surface claude --remove"
         fi
         printf '\n' >&2
     else
-        warn "Skipping recorded MCP and bootstrap cleanup (Python 3.12+ or init.py unavailable)."
+        warn "Skipping recorded MCP and bootstrap cleanup (Python 3.12+ or configure.py unavailable)."
     fi
 
     registry_update --unregister "$VAULT_PATH" "$VAULT_PATH/.brain-core/scripts/vault_registry.py"

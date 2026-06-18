@@ -59,7 +59,6 @@ remains lexical-only.
 | `edit.py` | Edit artefacts via CLI with explicit `target + selector + scope`; the importable helpers also back `brain_edit` for editable `_Config/` resources, with body input always meaning post-frontmatter markdown content | `python3 edit.py edit\|append\|prepend\|delete_section --path P [--body B\|--body-file PATH] [--frontmatter JSON] [--target T] [--scope S] [--occurrence N] [--within T --within-occurrence N]... [--json]` |
 | `fix_links.py` | Auto-repair broken wikilinks | `python3 fix_links.py [--fix] [--json] [--vault V]` |
 | `generate_key.py` | Generate operator key + hash for config.yaml via the dependency-free shared auth helper | `python3 generate_key.py [--count N]` |
-| `init.py` | Legacy/internal MCP registration compatibility CLI. The shared Claude/Codex transport engine now lives in `_bootstrap/mcp_transport.py`, but `init.py` preserves the old flags and recorded removal path. `--skip-mcp` remains the internal bootstrap-only path used by restricted installer flows. | `python3 init.py [--client {claude,codex,all}] [--user] [--local] [--project PATH] [--skip-mcp] [--remove] [--force]` |
 | `install.py` | Shared Python installer core used by `install.sh` and `install.ps1`; normal users invoke a platform launcher, while the core owns scaffold/runtime/MCP policy and lifecycle output | `python3 install.py VAULT [--source-root REPO] [--launcher PY] [--mcp-scope {project,user,skip}] [--client {claude,codex,all}] [--id ID] [--json]` |
 | `list_artefacts.py` | Enumerate vault artefacts and resources (unranked, no cap) via the same resource/filter contract as `brain_list` | `python3 list_artefacts.py [RESOURCE] [--query Q] [--type T] [--parent P] [--since D] [--until D] [--tag TAG] [--top-k N] [--sort S] [--vault V] [--json]` |
 | `search_lexical.py` | Thin portable lexical-only wrapper over `_search.lexical_query`: query the shared lexical retrieval index with lexical filters only. | `python3 search_lexical.py "query" [--type T] [--tag TAG] [--status S] [--top-k N] [--json]` |
@@ -91,7 +90,7 @@ The script layer is organised into 8 bounded contexts. This is an architectural 
 | Compliance | `check.py` |
 | Content Intelligence | `_search/`, `search_lexical.py`, `search_index.py`, `evaluate_search.py`, `construct_benchmark_fixture.py`, `list_artefacts.py` |
 | Session & Configuration | `session.py`, `config.py`, `workspace_registry.py`, `generate_key.py` |
-| Lifecycle Management | `setup.py`, `configure.py`, `init.py`, `repair.py`, `upgrade.py`, `vault_registry.py`, `migrate_naming.py`, `migrations/` |
+| Lifecycle Management | `setup.py`, `configure.py`, `repair.py`, `upgrade.py`, `vault_registry.py`, `migrate_naming.py`, `migrations/` |
 | MCP Integration | `brain_mcp/server.py`, `brain_mcp/proxy.py` |
 | Platform Integration | `obsidian_cli.py` |
 
@@ -117,7 +116,6 @@ These scripts import from `_common/` for vault discovery, frontmatter parsing, a
 - `edit.py`
 - `evaluate_search.py`
 - `fix_links.py`
-- `init.py`
 - `list_artefacts.py`
 - `migrate_naming.py`
 - `_repair_runtime.py`

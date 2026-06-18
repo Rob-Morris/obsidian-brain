@@ -219,7 +219,7 @@ def test_ensure_managed_runtime_preserves_bootstrap_error_message(monkeypatch):
     with pytest.raises(RuntimeError, match="pip install failed"):
         bootstrap_runtime.ensure_managed_runtime(
             "/tmp/vault",
-            dependency_owner="init.py",
+            dependency_owner="configure.py",
             required_modules=("mcp",),
         )
 

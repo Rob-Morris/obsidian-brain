@@ -62,6 +62,14 @@ def _managed_runtime_error_result(action: str, vault_root: Path, message: str) -
     )
 
 
+def _mcp_error(action: str, vault_root: Path, message: str) -> dict:
+    return _result_envelope(
+        action,
+        vault_root,
+        [_step("mcp_transport", "error", message)],
+    )
+
+
 def _resolve_binding_brain(vault_root: Path, brain_id: str | None) -> str:
     if brain_id is None:
         return resolve_local_brain_alias(vault_root)
@@ -218,23 +226,42 @@ def configure_workspace_bootstrap_action(
     *,
     workspace_dir: Path,
     surface: str,
+    remove: bool = False,
 ) -> dict:
     try:
         surfaces = ["agents", "claude"] if surface == "all" else [surface]
         steps: list[dict] = []
-        if "agents" in surfaces:
+        if remove and "agents" in surfaces:
+            status = "noop" if surface == "all" else "error"
+            steps.append(_step("workspace_bootstrap_agents", status, "AGENTS.md bootstrap removal is not supported."))
+        elif "agents" in surfaces:
             agents_path = find_root_bootstrap_file(workspace_dir, "AGENTS.md") or (workspace_dir / "AGENTS.md")
             status, message = _ensure_bootstrap_file(agents_path, CLAUDE_MD_BOOTSTRAP_VAULT)
             steps.append(_step("workspace_bootstrap_agents", status, message))
         if "claude" in surfaces:
-            claude_path = workspace_dir / CLAUDE_MD_FILE
-            status, message = _ensure_bootstrap_file(
-                claude_path,
-                bootstrap_line_for_target(workspace_dir),
-            )
+            if remove:
+                removed = mcp_transport.cleanup_claude_bootstrap(workspace_dir)
+                status = "changed" if removed else "noop"
+                message = (
+                    "Removed Brain bootstrap instructions from CLAUDE.md."
+                    if removed
+                    else "CLAUDE.md has no Brain bootstrap instructions to remove."
+                )
+            else:
+                claude_path = workspace_dir / CLAUDE_MD_FILE
+                status, message = _ensure_bootstrap_file(
+                    claude_path,
+                    bootstrap_line_for_target(workspace_dir),
+                )
             steps.append(_step("workspace_bootstrap_claude", status, message))
         return _result_envelope("workspace_bootstrap", vault_root, steps)
     except WorkspaceBindingError as exc:
+        return _result_envelope(
+            "workspace_bootstrap",
+            vault_root,
+            [_step("workspace_bootstrap", "error", str(exc))],
+        )
+    except mcp_transport.InitTransportError as exc:
         return _result_envelope(
             "workspace_bootstrap",
             vault_root,
@@ -365,7 +392,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Install optional agent bootstrap instructions into the workspace.",
         parents=[make_vault_parent_parser()],
     )
-    bootstrap_sub.add_argument("--path", help="Workspace directory to update (default: current directory).")
+    bootstrap_sub.add_argument(
+        "--path",
+        "--workspace",
+        dest="path",
+        help="Workspace directory to update (default: current directory).",
+    )
     bootstrap_sub.add_argument(
         "--surface",
         choices=("agents", "claude", "all"),
@@ -373,6 +405,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Which bootstrap surfaces to manage (default: all).",
     )
     bootstrap_sub.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
+    bootstrap_sub.add_argument("--remove", action="store_true", help="Remove managed bootstrap instructions.")
 
     mcp = subparsers.add_parser(
         "mcp",
@@ -399,6 +432,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     mcp.add_argument("--remove", action="store_true", help="Remove only recorded Brain-managed entries for the requested scope.")
     mcp.add_argument("--force", action="store_true", help="Skip the confirmation prompt for --remove.")
+    mcp.add_argument(
+        "--vault-self",
+        action="store_true",
+        dest="vault_self",
+        help="Use explicit project-scope vault-self mode for registering this vault's own MCP transport.",
+    )
     mcp.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
 
     return parser.parse_args(argv)
@@ -421,14 +460,24 @@ def configure_mcp_action(
     workspace_dir: Path | None,
     remove: bool,
     force: bool,
+    vault_self: bool = False,
 ) -> dict:
     scope = _mcp_scope(user=user, local=local)
     action = "mcp_remove" if remove else "mcp_configure"
 
+    if user and local:
+        return _mcp_error(action, vault_root, "--user cannot be combined with --local")
+    if user and workspace_dir is not None:
+        return _mcp_error(action, vault_root, "--user cannot be combined with --workspace/--project")
+
+    conflict = "--user" if user else "--local" if local else "--remove" if remove else None
+    if vault_self and conflict is not None:
+        return _mcp_error(action, vault_root, f"--vault-self cannot be combined with {conflict}")
+
     try:
         clients, _warnings = mcp_transport._resolve_clients_or_error(client, scope)
     except mcp_transport.InitTransportError as exc:
-        return _result_envelope(action, vault_root, [_step("mcp_transport", "error", str(exc))])
+        return _mcp_error(action, vault_root, str(exc))
 
     if remove and not force and not mcp_transport._confirm_removal(mcp_transport._scope_label(scope, workspace_dir), clients):
         return _result_envelope(
@@ -444,9 +493,10 @@ def configure_mcp_action(
             scope=scope,
             target_dir=workspace_dir,
             remove=remove,
+            vault_self=vault_self,
         )
     except mcp_transport.InitTransportError as exc:
-        return _result_envelope(action, vault_root, [_step("mcp_transport", "error", str(exc))])
+        return _mcp_error(action, vault_root, str(exc))
 
     if remove:
         if mcp_result["status"] == "noop":
@@ -497,17 +547,25 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "mcp":
         vault_root = find_vault_root(getattr(args, "vault", None))
+        action = "mcp_remove" if args.remove else "mcp_configure"
+        if args.vault_self and args.user:
+            return _emit_result(_mcp_error(action, vault_root, "--vault-self cannot be combined with --user"), as_json=args.json)
+        if args.vault_self and args.local:
+            return _emit_result(_mcp_error(action, vault_root, "--vault-self cannot be combined with --local"), as_json=args.json)
+        if args.vault_self and args.remove:
+            return _emit_result(_mcp_error(action, vault_root, "--vault-self cannot be combined with --remove"), as_json=args.json)
+        if args.vault_self and not args.project:
+            return _emit_result(_mcp_error(action, vault_root, "--vault-self requires --workspace/--project"), as_json=args.json)
+        if args.user and args.local:
+            return _emit_result(_mcp_error(action, vault_root, "--user cannot be combined with --local"), as_json=args.json)
+        if args.user and args.project:
+            return _emit_result(_mcp_error(action, vault_root, "--user cannot be combined with --workspace/--project"), as_json=args.json)
         workspace_dir = None
         if not args.user:
             try:
                 workspace_dir = resolve_workspace_dir(args.project)
             except WorkspaceBindingError as exc:
-                result = _result_envelope(
-                    "mcp_configure",
-                    vault_root,
-                    [_step("mcp_transport", "error", str(exc))],
-                )
-                return _emit_result(result, as_json=args.json)
+                return _emit_result(_mcp_error(action, vault_root, str(exc)), as_json=args.json)
         result = configure_mcp_action(
             vault_root,
             client=args.client,
@@ -516,6 +574,7 @@ def main(argv: list[str] | None = None) -> int:
             workspace_dir=workspace_dir,
             remove=args.remove,
             force=args.force,
+            vault_self=args.vault_self,
         )
         return _emit_result(result, as_json=args.json)
 
@@ -555,6 +614,7 @@ def main(argv: list[str] | None = None) -> int:
         vault_root,
         workspace_dir=workspace_dir,
         surface=args.surface,
+        remove=args.remove,
     )
     return _emit_result(result, as_json=args.json)
 

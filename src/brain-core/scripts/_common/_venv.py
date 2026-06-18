@@ -8,7 +8,7 @@ caused 30s+ MCP cold-start failures from materialising thousands of
 `site-packages/` files on every fresh process.
 
 A single source of truth for the path rule lives here. `install.sh`,
-`configure.py`, `init.py`, `upgrade.py`, and `repair.py` all resolve the
+`configure.py`, `upgrade.py`, and `repair.py` all resolve the
 venv via this module — there is no other valid encoding of the rule in the
 codebase.
 
@@ -22,7 +22,7 @@ needs to defer path resolution to Python):
 Bootstrap-layer constraint: this module is invoked by `install.sh` before
 the managed runtime exists, and must therefore use stdlib only — no imports
 from sibling `_common` modules, no third-party packages. The same discipline
-applies to `configure.py`, `init.py`, `upgrade.py`, and `repair.py`.
+applies to `configure.py`, `upgrade.py`, and `repair.py`.
 """
 
 from __future__ import annotations

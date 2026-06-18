@@ -2,7 +2,7 @@
 
 **Status:** Accepted
 **Extends:** DD-023, DD-039, DD-040
-**Extended by:** DD-052
+**Extended by:** DD-052, DD-055
 
 ## Context
 

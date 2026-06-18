@@ -38,7 +38,7 @@ _PUBLIC_DISPATCH_CONTRACT = [
     "setup", "configure", "repair", "upgrade",
     "session", "read", "migrate-naming", "fix-links",
 ]
-_DISPATCH_COMPAT = ["init"]
+_DISPATCH_COMPAT = []
 _SCRIPT_CONTRACT = _PUBLIC_DISPATCH_CONTRACT + _DISPATCH_COMPAT
 
 # Scripts that do NOT use subcommands and already declare --vault on the
