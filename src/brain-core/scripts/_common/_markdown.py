@@ -237,13 +237,13 @@ def _scan_structural_nodes(body):
 
     for idx, node in enumerate(heading_nodes):
         section_end = len(body)
-        intro_end = section_end
         next_boundary = None
         for other in heading_nodes[idx + 1:]:
             if other["level"] <= node["level"]:
                 section_end = other["start"]
                 next_boundary = other
                 break
+        intro_end = section_end
         for other in heading_nodes[idx + 1:]:
             if other["start"] >= section_end:
                 break

@@ -2669,6 +2669,59 @@ class TestBrainEdit:
             "(heading body: ## Beta)"
         )
 
+    def test_heading_intro_without_child_preserves_following_siblings(self, initialized):
+        path = initialized / "Wiki" / "brain-overview-abc123.md"
+        path.write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "## Alpha\n\nAlpha body.\n\n"
+            "## Beta\n\nBeta body.\n\n"
+            "## Gamma\n\nGamma body.\n"
+        )
+        result = server.brain_edit(
+            operation="edit",
+            path="Wiki/brain-overview-abc123.md",
+            body="Replacement.\n",
+            target="## Alpha",
+            scope="intro",
+        )
+        assert result == (
+            "**Edited:** Wiki/brain-overview-abc123.md "
+            "(heading intro: ## Alpha)"
+        )
+        content = path.read_text()
+        assert "Alpha body." not in content
+        assert "Replacement.\n## Beta" in content
+        assert "## Beta" in content
+        assert "Beta body." in content
+        assert "## Gamma" in content
+        assert "Gamma body." in content
+
+    def test_append_heading_intro_without_child_preserves_following_siblings(self, initialized):
+        path = initialized / "Wiki" / "brain-overview-abc123.md"
+        path.write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "## Alpha\n\nAlpha body.\n\n"
+            "## Beta\n\nBeta body.\n\n"
+            "## Gamma\n\nGamma body.\n"
+        )
+        result = server.brain_edit(
+            operation="append",
+            path="Wiki/brain-overview-abc123.md",
+            body="Appended.\n",
+            target="## Alpha",
+            scope="intro",
+        )
+        assert result == (
+            "**Appended:** Wiki/brain-overview-abc123.md "
+            "(heading intro: ## Alpha)"
+        )
+        content = path.read_text()
+        assert "Alpha body.\n\nAppended.\n## Beta" in content
+        assert "## Beta" in content
+        assert "Beta body." in content
+        assert "## Gamma" in content
+        assert "Gamma body." in content
+
     def test_body_section_edit_returns_resolved_summary(self, initialized):
         path = initialized / "Wiki" / "brain-overview-abc123.md"
         path.write_text(

@@ -139,6 +139,14 @@ class TestResolveStructuralTarget:
         assert body[slice(*resolved["ranges"]["intro"])] == "\nIntro.\n\n"
         assert "### Child" in body[slice(*resolved["ranges"]["body"])]
 
+    def test_heading_intro_without_child_stops_at_next_sibling(self):
+        body = "## Alpha\n\nAlpha body.\n\n## Beta\n\nBeta body.\n\n## Gamma\n\nGamma body.\n"
+        resolved = resolve_structural_target(body, "## Alpha")
+        assert resolved["kind"] == "heading"
+        assert body[slice(*resolved["ranges"]["intro"])] == "\nAlpha body.\n\n"
+        assert "## Beta" not in body[slice(*resolved["ranges"]["intro"])]
+        assert "## Gamma" not in body[slice(*resolved["ranges"]["intro"])]
+
     def test_resolves_callout_ranges(self):
         body = "## Alpha\n\n> [!note] Status\n> One.\n>\n> Two.\n\nTail.\n"
         resolved = resolve_structural_target(body, "[!note] Status")
