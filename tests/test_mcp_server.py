@@ -29,6 +29,7 @@ import process
 import retrieval_embeddings
 import workspace_registry
 import config as config_mod
+from _common._yaml import dump_mapping_text
 
 
 def _assert_error(result, substring=None):
@@ -50,6 +51,18 @@ def _bump_mtime(path, *, seconds: float = 10.0):
     """Make *path* look newer without waiting for filesystem timestamp ticks."""
     ts = time.time() + seconds
     os.utime(path, (ts, ts))
+
+
+def _write_config_yaml(path, data):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(dump_mapping_text(data), encoding="utf-8")
+    _bump_mtime(path)
+
+
+def _write_config_text(path, text):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+    _bump_mtime(path)
 
 
 # ---------------------------------------------------------------------------
@@ -4178,7 +4191,11 @@ class TestSemanticWarmup:
             server._warmup_state = "failed"
             server._last_warmup_error = "workspace_registry_load: registry broken"
 
-        server._run_semantic_warmup(server._warmup_generation, str(initialized))
+        server._run_semantic_warmup(
+            server._warmup_generation,
+            str(initialized),
+            server._semantic_enablement_generation,
+        )
 
         assert server._semantic_warmup_state == "deferred"
 
@@ -5506,14 +5523,16 @@ class TestOperatorProfiles:
         )
         _assert_error(result, "does not allow brain_move")
 
-    def test_enforcement_no_config_allows_all(self, initialized):
-        """No config loaded → all tools allowed (backward compat)."""
-        server._config = None
-        server._session_profile = None
+    def test_config_error_blocks_guarded_tools(self, initialized):
+        """Config reload errors fail closed before profile enforcement."""
+        config_path = initialized / ".brain" / "local" / "config.yaml"
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        config_path.write_text("defaults: [unterminated\n", encoding="utf-8")
+        _bump_mtime(config_path)
 
-        # Should work without enforcement
         result = server.brain_read("type", name="wiki")
-        assert not isinstance(result, CallToolResult) or not result.isError
+
+        _assert_error(result, "config reload failed")
 
     def test_enforcement_brain_session_always_allowed(self, initialized):
         """brain_session works regardless of profile — it's the auth entry point."""
@@ -5532,6 +5551,570 @@ class TestOperatorProfiles:
         # Can call brain_session again (e.g., re-auth with different key)
         result = json.loads(server.brain_session())
         assert result["active_profile"] == "operator"
+
+
+class TestConfigFreshness:
+    def test_startup_config_signature_failure_records_known_debug_error(
+        self, vault, monkeypatch
+    ):
+        monkeypatch.setattr(
+            server.config_mod,
+            "config_input_paths",
+            lambda _vault_root: (_ for _ in ()).throw(FileNotFoundError("missing defaults/config.yaml")),
+        )
+
+        server.startup(vault_root=str(vault))
+
+        payload = json.loads(server.brain_init(debug=True))
+        assert "config_error" in payload["debug"]
+        assert "missing defaults/config.yaml" in payload["debug"]["config_error"]
+
+    def test_startup_internal_config_signature_bug_is_not_reported_as_user_config_error(
+        self, vault, monkeypatch
+    ):
+        monkeypatch.setattr(
+            server.config_mod,
+            "config_input_paths",
+            lambda _vault_root: (_ for _ in ()).throw(RuntimeError("programmer bug")),
+        )
+
+        with pytest.raises(RuntimeError, match="programmer bug"):
+            server.startup(vault_root=str(vault))
+
+    def test_internal_config_signature_bug_is_not_reported_as_user_config_error(
+        self, initialized, monkeypatch
+    ):
+        monkeypatch.setattr(
+            server.config_mod,
+            "config_input_paths",
+            lambda _vault_root: (_ for _ in ()).throw(RuntimeError("programmer bug")),
+        )
+
+        result = server.brain_search("brain")
+
+        _assert_error(result, "Unexpected error: programmer bug")
+        assert "config_error" not in json.loads(server.brain_init(debug=True))["debug"]
+
+    def test_transient_config_signature_failure_recovers_without_file_change(
+        self, initialized, monkeypatch
+    ):
+        real_config_input_paths = server.config_mod.config_input_paths
+        fail_once = {"remaining": 1}
+
+        def flaky_config_input_paths(vault_root):
+            if fail_once["remaining"]:
+                fail_once["remaining"] -= 1
+                raise FileNotFoundError("temporary config path failure")
+            return real_config_input_paths(vault_root)
+
+        monkeypatch.setattr(server.config_mod, "config_input_paths", flaky_config_input_paths)
+
+        first = server.brain_search("brain")
+        _assert_error(first, "temporary config path failure")
+        assert "config_error" in json.loads(server.brain_init(debug=True))["debug"]
+
+        second = server.brain_search("brain")
+        assert "bm25" in _search_text(second)
+        assert "config_error" not in json.loads(server.brain_init(debug=True))["debug"]
+
+    def test_changed_config_reload_uses_already_computed_signature_once(
+        self, initialized, monkeypatch
+    ):
+        real_config_input_paths = server.config_mod.config_input_paths
+        calls = {"count": 0}
+
+        def counted_config_input_paths(vault_root):
+            calls["count"] += 1
+            if calls["count"] > 1:
+                raise FileNotFoundError("second signature probe should not happen")
+            return real_config_input_paths(vault_root)
+
+        _write_config_yaml(
+            initialized / ".brain" / "local" / "config.yaml",
+            {"defaults": {"default_profile": "reader"}},
+        )
+        monkeypatch.setattr(server.config_mod, "config_input_paths", counted_config_input_paths)
+
+        result = server.brain_search("brain")
+
+        assert "bm25" in _search_text(result)
+        assert calls["count"] == 1
+        assert "config_error" not in json.loads(server.brain_init(debug=True))["debug"]
+
+    def test_current_config_returns_same_object_and_fails_closed(self, initialized):
+        # Fresh: the accessor returns the very same dict object (no copy), so
+        # in-place reads and mutations stay effective.
+        assert isinstance(server._config_state, server._server_config_state.ConfigFresh)
+        assert server._current_config() is server._config
+
+        # Force a sticky load error: `_config` lingers as last-good, but every
+        # reader fails closed to None.
+        lingering = server._config
+        config_path = initialized / ".brain" / "local" / "config.yaml"
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        config_path.write_text("defaults: [unterminated\n", encoding="utf-8")
+        _bump_mtime(config_path)
+
+        server.brain_search("brain")
+
+        assert isinstance(server._config_state, server._server_config_state.ConfigLoadError)
+        assert server._config is lingering        # last-good still held internally
+        assert server._current_config() is None    # but readers fail closed
+
+    def test_reload_recovery_into_semantic_enabled_config_starts_warmup(
+        self, initialized, monkeypatch
+    ):
+        # Reloading OUT of an error state INTO a semantic-enabling config must let
+        # publish's side effects observe the freshly-committed ConfigFresh state.
+        # If the state were committed after publish, _current_config() would still
+        # see the ConfigLoadError, _embeddings_enabled() would fail closed, and
+        # semantic warmup would be wrongly (and stickily) left "disabled".
+        monkeypatch.setattr(
+            retrieval_assets.semantic_runtime,
+            "semantic_engine_available",
+            lambda *_args, **_kwargs: True,
+        )
+        config_path = initialized / ".brain" / "local" / "config.yaml"
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # 1. Malformed config → sticky ConfigLoadError; last-good _config lingers
+        #    (semantic disabled in the initialized vault).
+        config_path.write_text("defaults: [unterminated\n", encoding="utf-8")
+        _bump_mtime(config_path)
+        _assert_error(server.brain_search("brain"), "config reload failed")
+        assert isinstance(
+            server._config_state, server._server_config_state.ConfigLoadError
+        )
+
+        # 2. Valid config that enables semantic.
+        _write_config_yaml(
+            config_path,
+            {
+                "defaults": {
+                    "flags": {"semantic_retrieval": True},
+                    "local_runtime": {"semantic_engine_installed": True},
+                }
+            },
+        )
+
+        # 3. Reload recovers; publish must see ConfigFresh and start warmup.
+        server.brain_search("brain", mode="lexical")
+
+        assert isinstance(server._config_state, server._server_config_state.ConfigFresh)
+        assert server._semantic_warmup_state != "disabled"
+
+    def test_transient_probe_error_uses_last_good_config_for_semantic_warmup(
+        self, initialized, monkeypatch
+    ):
+        """A stat/path blip must not permanently degrade semantic warmup."""
+        server._config.setdefault("defaults", {}).setdefault("flags", {})[
+            "semantic_retrieval"
+        ] = True
+        server._config["defaults"].setdefault("local_runtime", {})[
+            "semantic_engine_installed"
+        ] = True
+        monkeypatch.setattr(
+            retrieval_assets.semantic_runtime,
+            "semantic_engine_available",
+            lambda *_args, **_kwargs: True,
+        )
+        calls = []
+
+        def fake_run_semantic_warmup(
+            generation, vault_root, semantic_enablement_generation
+        ):
+            calls.append((generation, vault_root, semantic_enablement_generation))
+
+        monkeypatch.setattr(server, "_run_semantic_warmup", fake_run_semantic_warmup)
+        server._config_state = server._server_config_state.ConfigProbeError(
+            server._config_state.signature,
+            "temporary config stat failure",
+        )
+
+        server._ensure_semantic_warmup_started("transient probe error")
+        thread = server._semantic_warmup_thread
+        assert thread is not None
+        thread.join(timeout=5.0)
+
+        assert calls == [
+            (
+                server._warmup_generation,
+                str(initialized),
+                server._semantic_enablement_generation,
+            )
+        ]
+        assert server._semantic_warmup_state == "warming"
+
+    def test_changed_config_load_runs_while_holding_config_lock(
+        self, initialized, monkeypatch
+    ):
+        real_load = server._load_config
+        observed = {}
+
+        def probing_load(paths, *, error_prefix):
+            # A different thread must not be able to acquire the config lock while
+            # a load is in flight — decide → load → commit is one atomic section,
+            # so two concurrent refreshes cannot both load and race to publish.
+            acquired = []
+
+            def try_acquire():
+                got = server._config_lock.acquire(blocking=False)
+                acquired.append(got)
+                if got:
+                    server._config_lock.release()
+
+            t = threading.Thread(target=try_acquire)
+            t.start()
+            t.join()
+            observed["lock_held_during_load"] = acquired == [False]
+            return real_load(paths, error_prefix=error_prefix)
+
+        monkeypatch.setattr(server, "_load_config", probing_load)
+        _write_config_yaml(
+            initialized / ".brain" / "local" / "config.yaml",
+            {"defaults": {"default_profile": "reader"}},
+        )
+
+        result = server.brain_search("brain")
+
+        assert "bm25" in _search_text(result)
+        assert observed.get("lock_held_during_load") is True
+
+    def test_transient_signature_failure_does_not_clear_existing_load_error(
+        self, initialized, monkeypatch
+    ):
+        config_path = initialized / ".brain" / "local" / "config.yaml"
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        config_path.write_text("defaults: [unterminated\n", encoding="utf-8")
+        _bump_mtime(config_path)
+
+        load_error = server.brain_search("brain")
+        _assert_error(load_error, "inline sequence is missing a closing")
+
+        real_config_input_paths = server.config_mod.config_input_paths
+        fail_once = {"remaining": 1}
+
+        def flaky_config_input_paths(vault_root):
+            if fail_once["remaining"]:
+                fail_once["remaining"] -= 1
+                raise FileNotFoundError("temporary config path failure")
+            return real_config_input_paths(vault_root)
+
+        monkeypatch.setattr(server.config_mod, "config_input_paths", flaky_config_input_paths)
+
+        probe_error = server.brain_search("brain")
+        _assert_error(probe_error, "inline sequence is missing a closing")
+
+        still_failing = server.brain_search("brain")
+        _assert_error(still_failing, "inline sequence is missing a closing")
+        payload = json.loads(server.brain_init(debug=True))
+        assert "inline sequence is missing a closing" in payload["debug"]["config_error"]
+        assert "temporary config path failure" not in payload["debug"]["config_error"]
+
+    def test_startup_malformed_config_records_known_debug_error(self, vault):
+        config_path = vault / ".brain" / "local" / "config.yaml"
+        _write_config_text(config_path, "defaults: [unterminated\n")
+
+        server.startup(vault_root=str(vault))
+
+        payload = json.loads(server.brain_init(debug=True))
+        assert "config_error" in payload["debug"]
+        assert "config reload failed during startup" in payload["debug"]["config_error"]
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "defaults: hello\n",
+            "vault: hello\n",
+            "defaults:\n  semantic_processing: true\nvault:\n  profiles:\n    - reader\n",
+        ],
+    )
+    def test_startup_structurally_invalid_config_records_known_debug_error(
+        self, vault, text
+    ):
+        _write_config_text(vault / ".brain" / "config.yaml", text)
+
+        server.startup(vault_root=str(vault))
+
+        payload = json.loads(server.brain_init(debug=True))
+        assert "config_error" in payload["debug"]
+        assert "config reload failed during startup" in payload["debug"]["config_error"]
+
+    def test_semantic_search_reloads_local_config_enabled_after_startup(
+        self, initialized
+    ):
+        result = server.brain_search("brain", mode="semantic")
+        _assert_error(result, "semantic retrieval is disabled")
+
+        _write_config_yaml(
+            initialized / ".brain" / "local" / "config.yaml",
+            {
+                "defaults": {
+                    "flags": {"semantic_retrieval": True},
+                    "local_runtime": {"semantic_engine_installed": True},
+                }
+            },
+        )
+
+        result = server.brain_search("brain", mode="semantic")
+
+        _assert_error(result, "semantic retrieval is unavailable")
+
+    def test_semantic_disable_reload_prevents_stale_warmup_ready(
+        self, vault, gated_semantic_warmup, monkeypatch
+    ):
+        monkeypatch.setattr(
+            retrieval_assets.semantic_runtime,
+            "semantic_engine_available",
+            lambda *_args, **_kwargs: True,
+        )
+        config_path = vault / ".brain" / "local" / "config.yaml"
+        _write_config_yaml(
+            config_path,
+            {
+                "defaults": {
+                    "flags": {"semantic_retrieval": True},
+                    "local_runtime": {"semantic_engine_installed": True},
+                }
+            },
+        )
+
+        server.startup(vault_root=str(vault))
+        assert gated_semantic_warmup.entered.wait(timeout=2.0)
+        assert server._wait_for_warmup(timeout=5.0)
+        stale_thread = server._semantic_warmup_thread
+        assert stale_thread is not None
+
+        _write_config_yaml(
+            config_path,
+            {
+                "defaults": {
+                    "flags": {"semantic_retrieval": False},
+                    "local_runtime": {"semantic_engine_installed": True},
+                }
+            },
+        )
+
+        server.brain_search("brain", mode="lexical")
+        gated_semantic_warmup.release.set()
+        stale_thread.join(timeout=5.0)
+
+        assert server._semantic_warmup_state == "disabled"
+        assert server._type_embeddings is None
+        assert server._doc_embeddings is None
+        assert server._embeddings_meta is None
+        payload = json.loads(server.brain_init(debug=True))
+        assert payload["debug"]["semantic_warmup_state"] == "disabled"
+        result = server.brain_search("brain", mode="semantic")
+        _assert_error(result, "semantic retrieval is disabled")
+
+    def test_config_reload_failure_fails_closed_and_brain_init_reports_debug(
+        self, initialized
+    ):
+        config_path = initialized / ".brain" / "local" / "config.yaml"
+        _write_config_text(config_path, "defaults: [unterminated\n")
+
+        result = server.brain_search("brain")
+
+        _assert_error(result, "config reload failed")
+        payload = json.loads(server.brain_init(debug=True))
+        assert "config_error" in payload["debug"]
+        assert "config reload failed" in payload["debug"]["config_error"]
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "defaults: hello\n",
+            "vault: hello\n",
+            "defaults:\n  semantic_processing: true\nvault:\n  profiles:\n    - reader\n",
+        ],
+    )
+    def test_structurally_invalid_config_reload_fails_closed(
+        self, initialized, text
+    ):
+        _write_config_text(initialized / ".brain" / "config.yaml", text)
+
+        result = server.brain_search("brain")
+
+        _assert_error(result, "config reload failed")
+        assert "Unexpected error" not in result.content[0].text
+        payload = json.loads(server.brain_init(debug=True))
+        assert "config_error" in payload["debug"]
+
+    def test_config_reload_error_recovers_after_valid_signature_change(
+        self, initialized
+    ):
+        config_path = initialized / ".brain" / "local" / "config.yaml"
+        _write_config_text(config_path, "defaults: [unterminated\n")
+
+        result = server.brain_search("brain")
+        _assert_error(result, "config reload failed")
+        assert "config_error" in json.loads(server.brain_init(debug=True))["debug"]
+
+        _write_config_yaml(
+            config_path,
+            {"defaults": {"default_profile": "reader"}},
+        )
+
+        result = server.brain_read("environment")
+        assert "config_error" not in result
+        payload = json.loads(server.brain_init(debug=True))
+        assert "config_error" not in payload["debug"]
+
+    def test_brain_session_authentication_reloads_on_disk_operator_config(
+        self, initialized
+    ):
+        key = "cedar-river-signal"
+        config_path = initialized / ".brain" / "config.yaml"
+        _write_config_yaml(
+            config_path,
+            {
+                "vault": {
+                    "operators": [
+                        {
+                            "id": "disk-operator",
+                            "profile": "reader",
+                            "auth": {
+                                "type": "key",
+                                "hash": config_mod.hash_key(key),
+                            },
+                        }
+                    ]
+                }
+            },
+        )
+
+        result = json.loads(server.brain_session(operator_key=key))
+        assert result["active_profile"] == "reader"
+        assert server._session_profile == "reader"
+
+        _write_config_yaml(
+            config_path,
+            {
+                "vault": {
+                    "operators": [
+                        {
+                            "id": "disk-operator",
+                            "profile": "reader",
+                            "auth": {"type": "key", "hash": "sha256:not-this-key"},
+                        }
+                    ]
+                }
+            },
+        )
+
+        result = server.brain_session(operator_key=key)
+        _assert_error(result, "operator key does not match")
+
+    def test_profile_allow_list_reload_runs_before_authorising_tool(
+        self, initialized
+    ):
+        config_path = initialized / ".brain" / "config.yaml"
+        _write_config_yaml(
+            config_path,
+            {
+                "vault": {
+                    "profiles": {
+                        "dynamic": {"allow": ["brain_session", "brain_search"]}
+                    }
+                },
+                "defaults": {"default_profile": "dynamic"},
+            },
+        )
+
+        result = json.loads(server.brain_session())
+        assert result["active_profile"] == "dynamic"
+
+        _write_config_yaml(
+            config_path,
+            {
+                "vault": {
+                    "profiles": {
+                        "dynamic": {"allow": ["brain_session"]}
+                    }
+                },
+                "defaults": {"default_profile": "dynamic"},
+            },
+        )
+
+        result = server.brain_search("brain")
+
+        _assert_error(result, "does not allow brain_search")
+
+    def test_removed_active_profile_fails_closed_after_reload(self, initialized):
+        config_path = initialized / ".brain" / "config.yaml"
+        _write_config_yaml(
+            config_path,
+            {
+                "vault": {
+                    "profiles": {
+                        "dynamic": {"allow": ["brain_session", "brain_read"]}
+                    }
+                },
+                "defaults": {"default_profile": "dynamic"},
+            },
+        )
+
+        result = json.loads(server.brain_session())
+        assert result["active_profile"] == "dynamic"
+
+        _write_config_yaml(
+            config_path,
+            {
+                "defaults": {"default_profile": "operator"},
+            },
+        )
+
+        result = server.brain_read("type", name="wiki")
+
+        _assert_error(result, "active operator profile 'dynamic' is no longer defined")
+
+    def test_config_reload_updates_vault_name_for_cli_search(
+        self, initialized, cli_available, monkeypatch
+    ):
+        config_path = initialized / ".brain" / "config.yaml"
+        _write_config_yaml(
+            config_path,
+            {"vault": {"brain_name": "before-reload"}},
+        )
+        server.brain_session()
+        assert server._vault_name == "before-reload"
+
+        calls = []
+        monkeypatch.setattr(obsidian_cli, "check_available", lambda: True)
+        monkeypatch.setattr(
+            obsidian_cli,
+            "search",
+            lambda vault_name, query: calls.append((vault_name, query)) or [],
+        )
+        server._cli_probed_at = 0.0
+        _write_config_yaml(
+            config_path,
+            {"vault": {"brain_name": "after-reload"}},
+        )
+
+        server.brain_search("brain", mode="lexical")
+
+        assert calls == [("after-reload", "brain")]
+
+    def test_config_reload_enqueues_session_mirror_refresh(
+        self, initialized
+    ):
+        session_path = initialized / ".brain" / "local" / "session.md"
+        json.loads(server.brain_session())
+        assert "`default_profile`: `operator`" in session_path.read_text()
+
+        _write_config_yaml(
+            initialized / ".brain" / "local" / "config.yaml",
+            {"defaults": {"default_profile": "reader"}},
+        )
+
+        _search_text(server.brain_search("brain", mode="lexical"))
+        server._mirror_queue.join()
+
+        content = session_path.read_text()
+        assert "`default_profile`: `reader`" in content
+        assert "`default_profile`: `operator`" not in content
 
 
 # ---------------------------------------------------------------------------

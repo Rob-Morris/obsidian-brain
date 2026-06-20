@@ -414,7 +414,7 @@ settles.
 
 ### Startup
 
-Loads vault config via three-layer merge (template → `.brain/config.yaml` → `.brain/local/config.yaml`). Auto-compiles router and auto-builds index if stale (compares timestamps against source file mtimes). Both artefacts loaded into memory for the session lifetime. Loads workspace registry from `.brain/local/workspaces.json` (empty dict if absent). Derives vault name from config `brain_name`, then `BRAIN_VAULT_NAME` env var, then directory basename. Obsidian CLI availability is probed lazily on demand rather than during startup.
+Loads vault config via three-layer merge (template → `.brain/config.yaml` → `.brain/local/config.yaml`). Config freshness is rechecked before profile enforcement and before `brain_session` authentication, so on-disk config edits take effect without restarting the MCP server. Malformed or unreadable config fails closed for guarded tools and is reported through `brain_init(debug=true)`. Auto-compiles router and auto-builds index if stale (compares timestamps against source file mtimes). Both artefacts loaded into memory for the session lifetime. Loads workspace registry from `.brain/local/workspaces.json` (empty dict if absent). Derives vault name from config `brain_name`, then `BRAIN_VAULT_NAME` env var, then directory basename. Obsidian CLI availability is probed lazily on demand rather than during startup.
 
 Router freshness is also enforced mid-session when needed: `brain_session`, `brain_read`, `brain_search`, `brain_list`, `brain_create`, `brain_edit`, all `brain_move` ops, and `brain_action` flows that depend on current router state (`delete`, `start-shaping`).
 
@@ -432,7 +432,7 @@ Stderr receives WARN+ messages only (for MCP client visibility). Set `BRAIN_LOG_
 
 ### Operator Profiles
 
-The config system defines three built-in profiles (`reader`, `contributor`, `operator`) with per-tool allow-lists. `brain_session` authenticates operators via SHA-256 key hashing. All tools except `brain_session` enforce the active profile — denied calls return a `CallToolResult` error. No config loaded = no enforcement (backward compatible with existing vaults).
+The config system defines three built-in profiles (`reader`, `contributor`, `operator`) with per-tool allow-lists. `brain_session` refreshes config before authenticating operators via SHA-256 key hashing. All tools except `brain_session` enforce the active profile — denied calls return a `CallToolResult` error. Config load errors fail closed for guarded tools, and an active profile removed from config becomes an error until the operator runs `brain_session` again or fixes config. Fresh config with no active session profile still runs without per-call enforcement for the unauthenticated bootstrap path.
 
 ### Version Drift
 

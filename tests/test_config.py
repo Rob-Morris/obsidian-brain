@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import warnings
 
 import pytest
@@ -78,6 +79,59 @@ def test_load_config_template_only(vault, monkeypatch):
     }
     assert cfg["defaults"]["tool_paths"] == {}
     assert cfg["defaults"]["exclude"]["artefact_sync"] == []
+
+
+def test_config_input_paths_match_load_layers(vault, monkeypatch):
+    """The public input-path helper exposes the exact three load layers."""
+    template = str(vault / ".brain-core" / "defaults" / "config.yaml")
+    monkeypatch.setattr(config_mod, "_find_template", lambda: template)
+
+    assert config_mod.config_input_paths(str(vault)) == (
+        template,
+        str(vault / ".brain" / "config.yaml"),
+        str(vault / ".brain" / "local" / "config.yaml"),
+    )
+
+
+def test_load_config_from_paths_does_not_rediscover_paths(vault, monkeypatch):
+    """Callers with resolved paths can load config without another path lookup."""
+    template = str(vault / ".brain-core" / "defaults" / "config.yaml")
+    paths = (
+        template,
+        str(vault / ".brain" / "config.yaml"),
+        str(vault / ".brain" / "local" / "config.yaml"),
+    )
+    monkeypatch.setattr(
+        config_mod,
+        "config_input_paths",
+        lambda _vault_root: (_ for _ in ()).throw(AssertionError("rediscovered paths")),
+    )
+
+    cfg = config_mod.load_config_from_paths(paths)
+
+    assert cfg["defaults"]["default_profile"] == "operator"
+
+
+@pytest.mark.parametrize(
+    ("text", "message"),
+    [
+        ("defaults: hello\n", ".brain/config.yaml: 'defaults' must be a mapping"),
+        ("vault: hello\n", ".brain/config.yaml: 'vault' must be a mapping"),
+        ("defaults:\n  semantic_processing: true\nvault:\n  profiles:\n    - reader\n", "vault.profiles must be a mapping"),
+    ],
+)
+def test_load_config_rejects_structurally_invalid_config(vault, monkeypatch, text, message):
+    """Parseable YAML with wrong config shapes raises a typed config error."""
+    monkeypatch.setattr(
+        config_mod,
+        "_find_template",
+        lambda: str(vault / ".brain-core" / "defaults" / "config.yaml"),
+    )
+    (vault / ".brain" / "config.yaml").parent.mkdir(parents=True, exist_ok=True)
+    (vault / ".brain" / "config.yaml").write_text(text, encoding="utf-8")
+
+    with pytest.raises(config_mod.ConfigError, match=re.escape(message)):
+        config_mod.load_config(str(vault))
 
 
 def test_load_config_vault_override(vault, monkeypatch):

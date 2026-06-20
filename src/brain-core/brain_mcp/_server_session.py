@@ -21,14 +21,17 @@ def handle_brain_session(
     if state.vault_root is None:
         return runtime.fmt_error("server not initialized")
 
+    config_error = runtime.ensure_config_fresh("brain_session")
+    if config_error is not None:
+        return runtime.fmt_error(config_error)
+    state = runtime.get_state()
+
     if state.config is not None:
         try:
             profile, _op_id = config_mod.authenticate_operator(operator_key, state.config)
             runtime.set_session_profile(profile)
         except ValueError as e:
             return runtime.fmt_error(str(e))
-    else:
-        runtime.set_session_profile(None)
 
     state, progress = _server_readiness.require_router(runtime, "brain_session")
     if progress is not None:

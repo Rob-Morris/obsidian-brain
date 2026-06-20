@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.49.1](changelog/v0.49.1.md) | 2026-06-21 | Model MCP config freshness as an explicit state machine |
 | [v0.49.0](changelog/v0.49.0.md) | 2026-06-18 | Retire init.py and consolidate MCP transport CLI onto configure |
 | [v0.48.10](changelog/v0.48.10.md) | 2026-06-14 | Add non-MCP brain session resolution via a machine-level runtime |
 | [v0.48.9](changelog/v0.48.9.md) | 2026-06-09 | Round out repair.py dry-runs and vault repair boundaries |

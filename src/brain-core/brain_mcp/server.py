@@ -94,6 +94,7 @@ import workspace_registry
 import config as config_mod
 from . import _server_actions
 from . import _server_artefacts
+from . import _server_config_state
 from . import _server_init
 from . import _server_content
 from . import _server_readiness
@@ -123,7 +124,17 @@ def _index_rel() -> str:
 mcp = FastMCP(name="brain")
 
 _vault_root: str | None = None
+# `_config` answers "what is the current config?" — the last successfully
+# published merged config dict (lingers as last-good during an error state).
+# `_config_state` answers "is it fresh/healthy?" — see _server_config_state.
+# Readers must reach config via `_current_config()` (fail-closed), never `_config`
+# directly; `_publish_config_reload` is the sole exception (it reads the outgoing
+# config to diff semantic enablement before swapping).
 _config: dict | None = None
+_config_state: _server_config_state.ConfigState = _server_config_state.ConfigProbeError(
+    None, "config not loaded"
+)
+_config_lock = threading.RLock()
 _session_profile: str | None = None
 _router: dict | None = None
 _index: dict | None = None
@@ -149,6 +160,7 @@ _last_warmup_error: str | None = None
 _last_warmup_reason: str | None = None
 _last_semantic_warmup_error: str | None = None
 _warmup_generation: int = 0
+_semantic_enablement_generation: int = 0
 _warmup_thread: threading.Thread | None = None
 _semantic_warmup_thread: threading.Thread | None = None
 _warmup_lock = threading.Lock()
@@ -287,6 +299,7 @@ def _trace_tool(tool_name: str, **kwargs):
 def _reset_runtime_state_for_startup() -> int:
     """Reset warmup-owned state for a fresh startup cycle."""
     global _session_profile, _router, _index, _workspace_registry
+    global _config, _config_state
     global _last_index_error
     global _index_dirty, _router_dirty, _router_checked_at, _index_checked_at
     global _resource_mtime_cache, _warmup_generation, _warmup_thread
@@ -297,6 +310,9 @@ def _reset_runtime_state_for_startup() -> int:
     global _router_ready_event
 
     _session_profile = None
+    with _config_lock:
+        _config = None
+        _config_state = _server_config_state.ConfigProbeError(None, "config not loaded")
     _index = None
     _last_index_error = None
     _workspace_registry = None
@@ -328,6 +344,236 @@ def _reset_runtime_state_for_startup() -> int:
     with _doc_embeddings_pending_lock:
         _doc_embeddings_pending.clear()
     return generation
+
+
+def _config_path_signature(path: str) -> tuple:
+    """Return a cheap signature for one config input path."""
+    try:
+        stat = os.stat(path)
+    except FileNotFoundError:
+        return (os.path.abspath(path), False, None, None, None, None, None)
+    return (
+        os.path.abspath(path),
+        True,
+        stat.st_mtime_ns,
+        stat.st_size,
+        stat.st_ino,
+        stat.st_dev,
+        stat.st_mode,
+    )
+
+
+def _format_config_error(exc: BaseException, *, prefix: str = "config reload failed") -> str:
+    return f"{prefix}: {exc}"
+
+
+def _probe_config(
+    vault_root: str, *, error_prefix: str
+) -> _server_config_state.ProbeOutcome:
+    """Resolve config input paths and stat them into a change signature.
+
+    Wraps only expected boundary failures. A programmer bug (e.g. a mis-stubbed
+    path helper raising RuntimeError) propagates untouched to the unexpected-error
+    path and is never reported as a user config error. The signature is computed
+    exactly once here and threaded onward, so the load path never re-probes.
+    """
+    try:
+        paths = config_mod.config_input_paths(vault_root)
+        signature = tuple(_config_path_signature(path) for path in paths)
+    except (FileNotFoundError, OSError) as exc:
+        return _server_config_state.ProbeFailed(
+            _format_config_error(exc, prefix=error_prefix)
+        )
+    return _server_config_state.ProbeOk(paths, signature)
+
+
+def _load_config(
+    paths: tuple, *, error_prefix: str
+) -> _server_config_state.LoadOutcome:
+    """Load and merge config for already-resolved input paths.
+
+    Wraps only expected boundary failures (missing/unreadable files, malformed
+    YAML, invalid config shape, invalid text encoding); other exceptions
+    propagate as programmer bugs.
+    """
+    try:
+        config = config_mod.load_config_from_paths(paths)
+    except (OSError, config_mod.YamlError, config_mod.ConfigError, UnicodeDecodeError) as exc:
+        return _server_config_state.LoadFailed(
+            _format_config_error(exc, prefix=error_prefix)
+        )
+    return _server_config_state.LoadOk(config)
+
+
+def _config_embeddings_enabled(config: dict | None) -> bool:
+    if _vault_root is None or config is None:
+        return False
+    return retrieval_assets.embeddings_should_refresh(_vault_root, config=config)
+
+
+def _set_vault_name_from_config(config: dict | None) -> None:
+    global _vault_name
+    config_brain_name = (config or {}).get("vault", {}).get("brain_name", "")
+    _vault_name = (
+        config_brain_name
+        or os.environ.get("BRAIN_VAULT_NAME")
+        or os.path.basename(_vault_root or "")
+    )
+
+
+def _current_config() -> dict | None:
+    """Return the published config only when it is fresh, else None (fail closed).
+
+    Returns the SAME dict object held by `_config` — never a copy — so callers
+    (and tests) that mutate the live config in place keep working. During any
+    error state this returns None, so every config-derived feature fails closed.
+    """
+    return _config if isinstance(_config_state, _server_config_state.ConfigFresh) else None
+
+
+def _derived_work_config() -> dict | None:
+    """Return config for background derived work.
+
+    A transient probe error means we could not stat config inputs, not that the
+    last-good config is structurally bad. Background work such as semantic warmup
+    may keep using that last-good config so a stat blip does not permanently
+    degrade derived state. Sticky load errors still fail closed.
+    """
+    if isinstance(
+        _config_state,
+        (_server_config_state.ConfigFresh, _server_config_state.ConfigProbeError),
+    ):
+        return _config
+    return None
+
+
+def _config_error_message() -> str | None:
+    """Operator-facing config error for the current state, or None when fresh."""
+    state = _config_state
+    if isinstance(
+        state,
+        (_server_config_state.ConfigProbeError, _server_config_state.ConfigLoadError),
+    ):
+        return state.error
+    return None
+
+
+def _semantic_warmup_enablement_matches(
+    warmup_generation: int,
+    semantic_enablement_generation: int,
+) -> bool:
+    with _warmup_lock:
+        return (
+            warmup_generation == _warmup_generation
+            and semantic_enablement_generation == _semantic_enablement_generation
+        )
+
+
+def _reconcile_semantic_config_change(
+    *,
+    was_enabled: bool,
+    is_enabled: bool,
+    reason: str,
+) -> None:
+    """Update semantic warmup state after config enablement changes."""
+    global _semantic_enablement_generation, _semantic_warmup_state
+    global _semantic_warmup_thread, _last_semantic_warmup_error
+    if was_enabled == is_enabled:
+        return
+    with _warmup_lock:
+        _semantic_enablement_generation += 1
+        if not is_enabled:
+            _semantic_warmup_state = "disabled"
+            _semantic_warmup_thread = None
+            _last_semantic_warmup_error = None
+    if not is_enabled:
+        _clear_loaded_embeddings()
+        _retrieval_embeddings.clear_query_encoder()
+        with _doc_embeddings_pending_lock:
+            _doc_embeddings_pending.clear()
+        return
+    _ensure_semantic_warmup_started(reason)
+
+
+def _publish_config_reload(
+    config: dict,
+    *,
+    reason: str,
+    enqueue_mirror: bool,
+) -> None:
+    """Publish a freshly loaded config and all derived runtime state.
+
+    Single side-effect point for a successful reload. Owns `_config` and every
+    config-derived effect; the `_config_state` transition is owned by the caller
+    (`_refresh_config`). The semantic-enablement diff is computed against the
+    OUTGOING `_config` *before* reassigning it — this is the one place that reads
+    `_config` directly rather than via `_current_config()`.
+    """
+    global _config
+    was_enabled = _config_embeddings_enabled(_config)
+    _config = config
+    _set_vault_name_from_config(config)
+    is_enabled = _config_embeddings_enabled(config)
+    _reconcile_semantic_config_change(
+        was_enabled=was_enabled,
+        is_enabled=is_enabled,
+        reason=reason,
+    )
+    if enqueue_mirror:
+        _refresh_session_mirror_best_effort()
+
+
+def _refresh_config(reason: str, *, error_prefix: str, enqueue_mirror: bool) -> str | None:
+    """Probe → decide → (load) → commit the config-freshness state.
+
+    The read-only probe runs outside the lock; the load and the state commit run
+    inside `_config_lock` so two concurrent refreshes cannot both load and race
+    to publish. Returns an operator-facing error string, or None when fresh.
+    Shared by live reload and startup (which differ only by error prefix and
+    whether a session-mirror refresh is enqueued).
+    """
+    global _config_state
+    if _vault_root is None:
+        return None
+    probe_outcome = _probe_config(_vault_root, error_prefix=error_prefix)
+    with _config_lock:
+        decision = _server_config_state.on_probe(_config_state, probe_outcome)
+        if isinstance(decision, _server_config_state.NeedsLoad):
+            load_outcome = _load_config(decision.paths, error_prefix=error_prefix)
+            commit = _server_config_state.on_load(decision.signature, load_outcome)
+            # Commit the state BEFORE publishing. Publish's side effects
+            # (semantic reconcile, mirror enqueue) read config via
+            # `_current_config()`, which gates on `ConfigFresh`. Committing after
+            # would make those readers observe the pre-reload state and fail
+            # closed on a *successful* reload — notably leaving semantic warmup
+            # stuck "disabled" when recovering from an error into a config that
+            # enables semantic. `was_enabled` is unaffected: publish reads the
+            # outgoing `_config` explicitly before swapping it.
+            _config_state = commit.next_state
+            if commit.publish:
+                _publish_config_reload(
+                    load_outcome.config,
+                    reason=reason,
+                    enqueue_mirror=enqueue_mirror,
+                )
+            elif commit.error and _logger:
+                _logger.error("%s", commit.error)
+            return commit.error
+        _config_state = decision.next_state
+        return decision.error
+
+
+def _ensure_config_fresh(reason: str) -> str | None:
+    """Reload merged config when its input signature changes (live reload).
+
+    Returns an operator-facing error string when a changed config cannot be
+    loaded; sticky until a later signature change reloads cleanly. A transient
+    probe failure is reported but clears on the next successful same-signature
+    probe without requiring a file change.
+    """
+    return _refresh_config(
+        reason, error_prefix="config reload failed", enqueue_mirror=True
+    )
 
 
 def _warmup_generation_matches(generation: int) -> bool:
@@ -424,11 +670,12 @@ def _ensure_semantic_warmup_started(reason: str | None = None) -> None:
         if _semantic_warmup_thread is not None and _semantic_warmup_thread.is_alive():
             return
         generation = _warmup_generation
+        semantic_enablement_generation = _semantic_enablement_generation
         _semantic_warmup_state = "warming"
         _last_semantic_warmup_error = None
         _semantic_warmup_thread = threading.Thread(
             target=_run_semantic_warmup,
-            args=(generation, _vault_root),
+            args=(generation, _vault_root, semantic_enablement_generation),
             daemon=True,
             name="brain-semantic-warmup",
         )
@@ -476,10 +723,16 @@ def _finish_semantic_warmup(
     *,
     state: Literal["disabled", "ready", "deferred"],
     error: str | None = None,
+    semantic_enablement_generation: int | None = None,
 ) -> None:
     global _semantic_warmup_state, _semantic_warmup_thread, _last_semantic_warmup_error
     with _warmup_lock:
         if generation != _warmup_generation:
+            return
+        if (
+            semantic_enablement_generation is not None
+            and semantic_enablement_generation != _semantic_enablement_generation
+        ):
             return
         _semantic_warmup_state = state
         _semantic_warmup_thread = None
@@ -587,23 +840,24 @@ def _run_phase(kind: str, phase_key: str, fn, *, on_error=None):
     Callers that need stateful failure tracking can provide *on_error*.
     """
     started_at = time.monotonic()
-    if _logger:
-        _logger.info("%s phase begin: %s", kind, phase_key)
+    _log_phase_begin(kind, phase_key)
     try:
         result = fn()
     except Exception as e:
-        if _logger:
-            _logger.error(
-                "%s phase failure: %s %.3fs: %s",
-                kind,
-                phase_key,
-                time.monotonic() - started_at,
-                e,
-                exc_info=True,
-            )
+        _log_phase_failure(kind, phase_key, started_at, str(e), exc_info=True)
         if on_error is not None:
             on_error(str(e))
         return None
+    _log_phase_success(kind, phase_key, started_at)
+    return result
+
+
+def _log_phase_begin(kind: str, phase_key: str) -> None:
+    if _logger:
+        _logger.info("%s phase begin: %s", kind, phase_key)
+
+
+def _log_phase_success(kind: str, phase_key: str, started_at: float) -> None:
     if _logger:
         _logger.info(
             "%s phase success: %s %.3fs",
@@ -611,7 +865,25 @@ def _run_phase(kind: str, phase_key: str, fn, *, on_error=None):
             phase_key,
             time.monotonic() - started_at,
         )
-    return result
+
+
+def _log_phase_failure(
+    kind: str,
+    phase_key: str,
+    started_at: float,
+    error: str,
+    *,
+    exc_info: bool = False,
+) -> None:
+    if _logger:
+        _logger.error(
+            "%s phase failure: %s %.3fs: %s",
+            kind,
+            phase_key,
+            time.monotonic() - started_at,
+            error,
+            exc_info=exc_info,
+        )
 
 
 def _load_router_for_warmup(vault_root: str, generation: int) -> dict | None:
@@ -721,13 +993,21 @@ def _run_warmup(generation: int, vault_root: str) -> None:
     _finish_warmup(generation, success=success)
 
 
-def _run_semantic_warmup(generation: int, vault_root: str) -> None:
+def _run_semantic_warmup(
+    generation: int,
+    vault_root: str,
+    semantic_enablement_generation: int,
+) -> None:
     """Warm semantic embeddings state in parallel with the main warmup track."""
-    if not _warmup_generation_matches(generation):
+    if not _semantic_warmup_enablement_matches(generation, semantic_enablement_generation):
         return
 
     if not _embeddings_enabled():
-        _finish_semantic_warmup(generation, state="disabled")
+        _finish_semantic_warmup(
+            generation,
+            state="disabled",
+            semantic_enablement_generation=semantic_enablement_generation,
+        )
         return
 
     with _warmup_lock:
@@ -738,7 +1018,7 @@ def _run_semantic_warmup(generation: int, vault_root: str) -> None:
                 "semantic warmup timed out waiting for router readiness after %.1fs",
                 _STARTUP_OP_TIMEOUT,
             )
-        if _warmup_generation_matches(generation):
+        if _semantic_warmup_enablement_matches(generation, semantic_enablement_generation):
             _mark_embeddings_dirty()
         _finish_semantic_warmup(
             generation,
@@ -746,9 +1026,10 @@ def _run_semantic_warmup(generation: int, vault_root: str) -> None:
             error=_semantic_warmup_restart_message(
                 "semantic warmup timed out waiting for router readiness"
             ),
+            semantic_enablement_generation=semantic_enablement_generation,
         )
         return
-    if not _warmup_generation_matches(generation):
+    if not _semantic_warmup_enablement_matches(generation, semantic_enablement_generation):
         return
 
     with _warmup_lock:
@@ -763,6 +1044,7 @@ def _run_semantic_warmup(generation: int, vault_root: str) -> None:
             generation,
             state="deferred",
             error=_semantic_warmup_restart_message(detail),
+            semantic_enablement_generation=semantic_enablement_generation,
         )
         return
     if router is None:
@@ -772,6 +1054,7 @@ def _run_semantic_warmup(generation: int, vault_root: str) -> None:
             error=_semantic_warmup_restart_message(
                 "semantic warmup could not start because the router never became available"
             ),
+            semantic_enablement_generation=semantic_enablement_generation,
         )
         return
 
@@ -785,23 +1068,24 @@ def _run_semantic_warmup(generation: int, vault_root: str) -> None:
                 "semantic embeddings sidecars are unreadable during warmup; scheduling rebuild: %s",
                 exc,
             )
-        if _warmup_generation_matches(generation):
+        if _semantic_warmup_enablement_matches(generation, semantic_enablement_generation):
             _mark_embeddings_dirty()
     except _INDEX_STATE_ERROR_TYPES as exc:
         if _logger:
             _logger.error("semantic warmup failed: %s", exc, exc_info=True)
-        if _warmup_generation_matches(generation):
+        if _semantic_warmup_enablement_matches(generation, semantic_enablement_generation):
             _mark_embeddings_dirty()
         _finish_semantic_warmup(
             generation,
             state="deferred",
             error=_semantic_warmup_restart_message(str(exc)),
+            semantic_enablement_generation=semantic_enablement_generation,
         )
         return
     except Exception as exc:
         if _logger:
             _logger.error("semantic warmup failed: %s", exc, exc_info=True)
-        if _warmup_generation_matches(generation):
+        if _semantic_warmup_enablement_matches(generation, semantic_enablement_generation):
             _mark_embeddings_dirty()
         _finish_semantic_warmup(
             generation,
@@ -809,22 +1093,28 @@ def _run_semantic_warmup(generation: int, vault_root: str) -> None:
             error=_semantic_warmup_restart_message(
                 f"semantic warmup failed unexpectedly: {exc}"
             ),
+            semantic_enablement_generation=semantic_enablement_generation,
         )
         return
     else:
-        if _warmup_generation_matches(generation):
+        if _semantic_warmup_enablement_matches(generation, semantic_enablement_generation):
             if loaded is None:
                 _mark_embeddings_dirty()
             else:
                 applied = _apply_loaded_embeddings_snapshot(
                     loaded,
                     generation=generation,
+                    semantic_enablement_generation=semantic_enablement_generation,
                     expected_router_source_hash=expected_router_source_hash,
                 )
                 if not applied:
                     _mark_embeddings_dirty()
 
-    _finish_semantic_warmup(generation, state="ready")
+    _finish_semantic_warmup(
+        generation,
+        state="ready",
+        semantic_enablement_generation=semantic_enablement_generation,
+    )
 
 
 def _refresh_cli_available() -> bool:
@@ -904,7 +1194,7 @@ def _enqueue_mirror_refresh(*, generation: int | None = None) -> None:
             "router": _router,
             "vault_root": _vault_root,
             "obsidian_cli_available": _cli_available,
-            "config": _config,
+            "config": _derived_work_config(),
             "active_profile": _session_profile,
             "load_config_if_missing": False,
         },
@@ -1295,9 +1585,7 @@ def _refresh_session_mirror_best_effort() -> None:
 
 def _embeddings_enabled() -> bool:
     """Return True when any enabled feature needs embedding sidecars."""
-    if _vault_root is None:
-        return False
-    return retrieval_assets.embeddings_should_refresh(_vault_root, config=_config)
+    return _config_embeddings_enabled(_derived_work_config())
 
 
 def _clear_loaded_embeddings() -> None:
@@ -1352,6 +1640,7 @@ def _apply_loaded_embeddings_snapshot(
     loaded,
     *,
     generation: int | None = None,
+    semantic_enablement_generation: int | None = None,
     expected_router_source_hash: str | None = None,
 ) -> bool:
     """Apply a fully-loaded embeddings snapshot when it still matches runtime state.
@@ -1365,6 +1654,11 @@ def _apply_loaded_embeddings_snapshot(
 
     with _warmup_lock:
         if generation is not None and generation != _warmup_generation:
+            return False
+        if (
+            semantic_enablement_generation is not None
+            and semantic_enablement_generation != _semantic_enablement_generation
+        ):
             return False
         if _router is None:
             return False
@@ -1451,7 +1745,7 @@ def _ensure_embeddings_fresh() -> None:
         _router,
         _index["documents"],
         embedding_parts_by_path=_embedding_parts_by_path,
-        config=_config,
+        config=_derived_work_config(),
     )
     if result is not None:
         _apply_loaded_embeddings_snapshot(result)
@@ -1648,7 +1942,7 @@ def _build_index_and_save(vault_root: str) -> dict:
         index,
         router=_router,
         embedding_parts_by_path=build_result.embedding_parts_by_path,
-        config=_config,
+        config=_derived_work_config(),
     )
     _index_dirty = False
     _doc_embeddings_dirty = False
@@ -1673,7 +1967,7 @@ def _build_index_and_save(vault_root: str) -> dict:
 
 def startup(vault_root: str | None = None) -> None:
     """Initialize the minimal server skeleton and start background warmup."""
-    global _vault_root, _config, _vault_name, _loaded_version, _logger
+    global _vault_root, _vault_name, _loaded_version, _logger
 
     if vault_root is None:
         vault_root = os.environ.get("BRAIN_VAULT_ROOT")
@@ -1700,17 +1994,24 @@ def startup(vault_root: str | None = None) -> None:
     _ensure_mirror_worker_started()
     _register_mirror_drain_once()
 
-    # Load vault config (three-layer merge: template → vault → local)
-    _config = _run_phase(
+    # Load vault config via the same probe→load primitive as live reload. An
+    # expected config boundary failure (missing/malformed config) becomes a known
+    # config error visible in brain_init(debug=true) and the server proceeds
+    # degraded (_config stays None). A programmer bug propagates and is fatal.
+    started_at = time.monotonic()
+    _log_phase_begin("startup", "config_load")
+    startup_config_error = _refresh_config(
         "startup",
-        "config_load",
-        lambda: config_mod.load_config(_vault_root),
+        error_prefix="config reload failed during startup",
+        enqueue_mirror=False,
     )
+    if startup_config_error is not None:
+        _set_vault_name_from_config(None)
+        _log_phase_failure("startup", "config_load", started_at, startup_config_error)
+    else:
+        _log_phase_success("startup", "config_load", started_at)
     # CLI availability is probed lazily on first tool call via _refresh_cli_available()
     # to avoid blocking startup (the Obsidian IPC socket check is fast but we defer entirely).
-    # Vault name: config > env var > directory basename
-    config_brain_name = (_config or {}).get("vault", {}).get("brain_name", "")
-    _vault_name = config_brain_name or os.environ.get("BRAIN_VAULT_NAME") or os.path.basename(_vault_root)
 
     _ensure_warmup_started("startup")
     _ensure_semantic_warmup_started("startup")
@@ -1727,7 +2028,8 @@ def _get_state() -> ServerState:
     return ServerState(
         vault_root=_vault_root,
         loaded_version=_loaded_version,
-        config=_config,
+        config=_current_config(),
+        config_error=_config_error_message(),
         session_profile=_session_profile,
         router=_router,
         index=_index,
@@ -1779,6 +2081,7 @@ def _runtime() -> ServerRuntime:
         fmt_error=_fmt_error,
         fmt_progress=_fmt_progress,
         enforce_profile=_enforce_profile,
+        ensure_config_fresh=_ensure_config_fresh,
         refresh_cli_available=_refresh_cli_available,
         ensure_warmup_started=_ensure_warmup_started,
         ensure_router_fresh=_ensure_router_fresh,
@@ -1801,14 +2104,22 @@ def _enforce_profile(tool_name: str) -> CallToolResult | None:
     """Check if current session profile allows this tool.
 
     Returns None if allowed, or an error CallToolResult if denied.
-    No enforcement if config or session profile is not set (backward compat).
+    Config freshness is checked before enforcement; config errors fail closed.
+    No enforcement if there is fresh config but no active session profile.
     """
-    if _config is None or _session_profile is None:
+    config_error = _ensure_config_fresh(tool_name)
+    if config_error is not None:
+        return _fmt_error(config_error)
+    config = _current_config()
+    if config is None or _session_profile is None:
         return None
-    profiles = _config.get("vault", {}).get("profiles", {})
+    profiles = config.get("vault", {}).get("profiles", {})
     profile = profiles.get(_session_profile)
     if profile is None:
-        return None  # unknown profile = no enforcement
+        return _fmt_error(
+            f"active operator profile '{_session_profile}' is no longer defined; "
+            "run brain_session again or fix config"
+        )
     if tool_name not in profile.get("allow", []):
         return _fmt_error(
             f"operator profile '{_session_profile}' does not allow {tool_name}"

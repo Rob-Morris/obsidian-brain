@@ -9,6 +9,7 @@ class ServerState:
     vault_root: str | None
     loaded_version: str | None
     config: dict | None
+    config_error: str | None
     session_profile: str | None
     router: dict | None
     index: dict | None
@@ -44,6 +45,7 @@ class ServerRuntime:
     fmt_error: Callable[[str], Any]
     fmt_progress: Callable[[str, tuple[str, ...]], Any]
     enforce_profile: Callable[[str], Any]
+    ensure_config_fresh: Callable[[str], str | None]
     refresh_cli_available: Callable[[], bool]
     ensure_warmup_started: Callable[[str | None], None]
     ensure_router_fresh: Callable[[], None]

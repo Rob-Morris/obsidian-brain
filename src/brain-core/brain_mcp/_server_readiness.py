@@ -77,6 +77,8 @@ def build_snapshot(
             "workspace_registry_ready": state.workspace_registry is not None,
             "semantic_warmup_state": info.semantic_warmup_state,
         }
+        if state.config_error:
+            payload["debug"]["config_error"] = state.config_error
     return payload
 
 

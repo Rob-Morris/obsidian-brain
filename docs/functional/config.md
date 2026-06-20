@@ -99,7 +99,9 @@ defaults:
 
 ### Startup behaviour
 
-On startup, the MCP server calls `load_config()`, which reads all three layers through the shared Brain-owned YAML seam, runs the merge, validates the result (unknown profile tool names raise warnings), and returns a typed dict. If a layer's YAML is missing or unparseable, it is treated as `{}` with a warning — the server continues with the remaining layers.
+On startup, the MCP server probes the three config inputs, loads them through the same shared Brain-owned YAML seam as `load_config()`, runs the merge, validates the result (unknown profile tool names raise warnings), and publishes the merged config into the long-lived server runtime.
+
+Config freshness is also checked mid-session before profile enforcement and before `brain_session` authentication. Missing optional vault/local config files are treated as `{}`; malformed or unreadable YAML is a config error. While a config error is active, guarded MCP tools fail closed and `brain_init(debug=true)` reports `debug.config_error`. The last good config remains in memory internally, but runtime readers do not use it again until a later config signature change reloads cleanly.
 
 ---
 
@@ -144,9 +146,9 @@ Each profile has a per-tool allow-list defined in the vault config. Tools not on
 
 ### Authentication
 
-`brain_session` accepts an optional `operator_key` parameter. The server hashes the supplied key with SHA-256 and matches it against registered operators in the vault config. On a match, it sets the session profile to `operator` for all subsequent per-call enforcement. If `operator_key` is omitted, the default profile from config is used.
+`brain_session` accepts an optional `operator_key` parameter. Before authenticating, the server refreshes config if any config input changed. It then hashes the supplied key with SHA-256 and matches it against registered operators in the vault config. On a match, it sets the session profile to the operator's configured profile for all subsequent per-call enforcement. If `operator_key` is omitted, the default profile from config is used.
 
-All tools except `brain_session` itself enforce the active profile. Vaults with no config loaded have no enforcement — this is intentional backward compatibility.
+All tools except `brain_session` itself enforce the active profile. If config is malformed or unreadable, enforcement fails closed and guarded tools return the config error. If the active session profile is removed from config while the server is running, guarded tools return an error asking the operator to run `brain_session` again or fix config. Vaults with fresh config but no active session profile still run without per-call enforcement, which preserves the unauthenticated bootstrap path.
 
 ### Generating a key
 

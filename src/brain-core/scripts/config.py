@@ -40,6 +40,10 @@ _VALID_TOOLS = frozenset([
 ])
 
 
+class ConfigError(ValueError):
+    """Raised when parsed config has an invalid structural shape."""
+
+
 # ---------------------------------------------------------------------------
 # Template discovery
 # ---------------------------------------------------------------------------
@@ -58,6 +62,20 @@ def _find_template() -> str:
     raise FileNotFoundError(
         f"Config template not found at {template}. "
         "Ensure defaults/config.yaml is shipped with brain-core."
+    )
+
+
+def config_input_paths(vault_root: str) -> tuple[str, str, str]:
+    """Return the exact config inputs used by ``load_config``.
+
+    The MCP server uses this to cheaply detect whether the merged config may
+    have changed without duplicating installed-vs-repo template path logic.
+    """
+    template_path = _find_template()
+    return (
+        template_path,
+        os.path.join(vault_root, CONFIG_YAML),
+        os.path.join(vault_root, LOCAL_CONFIG_YAML),
     )
 
 
@@ -120,8 +138,8 @@ def _merge_config(template: dict, vault_cfg: dict, local_cfg: dict) -> dict:
     result = {}
 
     # --- vault zone: shared authoritative ---
-    base_vault = template.get("vault", {})
-    vault_overlay = vault_cfg.get("vault", {})
+    base_vault = _mapping_zone(template, "template", "vault")
+    vault_overlay = _mapping_zone(vault_cfg, ".brain/config.yaml", "vault")
     # Simple deep merge for vault (vault config overrides template)
     result["vault"] = _deep_merge(base_vault, vault_overlay)
 
@@ -134,9 +152,9 @@ def _merge_config(template: dict, vault_cfg: dict, local_cfg: dict) -> dict:
         )
 
     # --- defaults zone: type-based merge ---
-    base_defaults = template.get("defaults", {})
-    vault_defaults = vault_cfg.get("defaults", {})
-    local_defaults = local_cfg.get("defaults", {})
+    base_defaults = _mapping_zone(template, "template", "defaults")
+    vault_defaults = _mapping_zone(vault_cfg, ".brain/config.yaml", "defaults")
+    local_defaults = _mapping_zone(local_cfg, ".brain/local/config.yaml", "defaults")
 
     # Layer 1: template + vault defaults
     merged_defaults = _merge_defaults(base_defaults, vault_defaults)
@@ -145,6 +163,16 @@ def _merge_config(template: dict, vault_cfg: dict, local_cfg: dict) -> dict:
     result["defaults"] = merged_defaults
 
     return result
+
+
+def _mapping_zone(config: dict, source: str, key: str) -> dict:
+    """Return a config zone that must be a mapping when present."""
+    value = config.get(key, {})
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ConfigError(f"{source}: '{key}' must be a mapping")
+    return value
 
 
 def _deep_merge(base: dict, overlay: dict) -> dict:
@@ -170,6 +198,8 @@ def _validate_config(config: dict) -> list[str]:
 
     # Validate profile tool names
     profiles = vault.get("profiles", {})
+    if not isinstance(profiles, dict):
+        raise ConfigError("vault.profiles must be a mapping")
     for profile_name, profile_def in profiles.items():
         if not isinstance(profile_def, dict):
             warns.append(f"profile '{profile_name}' is not a dict")
@@ -183,6 +213,8 @@ def _validate_config(config: dict) -> list[str]:
 
     # Validate operator profile references
     operators = vault.get("operators", [])
+    if not isinstance(operators, list):
+        raise ConfigError("vault.operators must be a list")
     for op in operators:
         if not isinstance(op, dict):
             continue
@@ -242,16 +274,18 @@ def load_config(vault_root: str) -> dict:
     Validates the result and emits warnings for issues.
     Returns the merged config dict.
     """
-    # Layer 0: shipped template defaults
-    template_path = _find_template()
+    return load_config_from_paths(config_input_paths(vault_root))
+
+
+def load_config_from_paths(paths: tuple[str, str, str]) -> dict:
+    """Load and merge vault configuration from an already-resolved path tuple."""
+    template_path, vault_path, local_path = paths
     template = _read_yaml(template_path)
 
     # Layer 1: vault config (shared, committed)
-    vault_path = os.path.join(vault_root, CONFIG_YAML)
     vault_cfg = _read_yaml(vault_path)
 
     # Layer 2: local config (machine-specific, gitignored)
-    local_path = os.path.join(vault_root, LOCAL_CONFIG_YAML)
     local_cfg = _read_yaml(local_path)
 
     # Merge
