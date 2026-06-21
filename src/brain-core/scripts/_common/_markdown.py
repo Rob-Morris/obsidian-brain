@@ -235,6 +235,10 @@ def _scan_structural_nodes(body):
         node["parent"] = stack[-1] if stack else None
         stack.append(node)
 
+    def _next_heading_start(i):
+        """Start of the heading after index ``i`` (``i=-1`` for the document root), or EOF."""
+        return heading_nodes[i + 1]["start"] if i + 1 < len(heading_nodes) else len(body)
+
     for idx, node in enumerate(heading_nodes):
         section_end = len(body)
         next_boundary = None
@@ -243,13 +247,8 @@ def _scan_structural_nodes(body):
                 section_end = other["start"]
                 next_boundary = other
                 break
-        intro_end = section_end
-        for other in heading_nodes[idx + 1:]:
-            if other["start"] >= section_end:
-                break
-            if other["level"] > node["level"]:
-                intro_end = other["start"]
-                break
+        # intro is level-agnostic: ends at the next heading regardless of nesting (unlike section_end)
+        intro_end = _next_heading_start(idx)
         node["section_end"] = section_end
         node["body_end"] = section_end
         node["intro_end"] = intro_end
@@ -311,7 +310,7 @@ def _scan_structural_nodes(body):
         node["parent"] = parent
 
     nodes = sorted(heading_nodes + callout_nodes, key=lambda item: item["start"])
-    intro_end = heading_nodes[0]["start"] if heading_nodes else len(body)
+    intro_end = _next_heading_start(-1)
     root = {
         "kind": "body",
         "raw": ":body",

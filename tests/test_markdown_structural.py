@@ -147,6 +147,14 @@ class TestResolveStructuralTarget:
         assert "## Beta" not in body[slice(*resolved["ranges"]["intro"])]
         assert "## Gamma" not in body[slice(*resolved["ranges"]["intro"])]
 
+    def test_heading_intro_for_last_heading_runs_to_eof(self):
+        body = "## Alpha\n\nAlpha body.\n\n## Beta\n\nBeta body.\n"
+        resolved = resolve_structural_target(body, "## Beta")
+        assert resolved["kind"] == "heading"
+        start, end = resolved["ranges"]["intro"]
+        assert end == len(body)
+        assert body[start:end] == "\nBeta body.\n"
+
     def test_resolves_callout_ranges(self):
         body = "## Alpha\n\n> [!note] Status\n> One.\n>\n> Two.\n\nTail.\n"
         resolved = resolve_structural_target(body, "[!note] Status")

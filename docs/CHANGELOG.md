@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.49.3](changelog/v0.49.3.md) | 2026-06-21 | Unify the heading intro boundary and correct its scope contract |
 | [v0.49.2](changelog/v0.49.2.md) | 2026-06-21 | Bound childless heading intro edits to sibling sections |
 | [v0.49.1](changelog/v0.49.1.md) | 2026-06-21 | Model MCP config freshness as an explicit state machine |
 | [v0.49.0](changelog/v0.49.0.md) | 2026-06-18 | Retire init.py and consolidate MCP transport CLI onto configure |

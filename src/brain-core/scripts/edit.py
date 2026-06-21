@@ -177,7 +177,7 @@ _SCOPE_MEANINGS = {
     "heading": {
         "section": "the heading line plus its body (the whole subtree)",
         "body": "the body under the heading (excludes the heading line)",
-        "intro": "the intro before the heading's first child heading",
+        "intro": "the content under the heading before its first child heading (the whole body when the heading has no children)",
         "heading": "the heading line itself (edit-only)",
     },
     "callout": {
@@ -208,7 +208,7 @@ def brain_edit_scope_description():
         "allowed for delete_section. ':body' -> 'section' (whole body) | "
         "'intro' (before first heading); heading -> 'section' (heading + "
         "subtree) | 'body' (content under heading) | 'intro' (before first "
-        "child heading) | 'heading' (line-only, edit-only); callout -> "
+        "child heading, else whole body) | 'heading' (line-only, edit-only); callout -> "
         "'section' (whole callout) | 'body' (content under header) | "
         "'header' (line-only, edit-only)."
     )
