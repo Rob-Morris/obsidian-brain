@@ -88,12 +88,17 @@ async def _call_installed_brain_read(vault_root: Path, env: dict[str, str]) -> d
                 if not result.isError:
                     return _parse_environment(text)
 
-                # Cold-start progress contract: the readiness snapshot is JSON,
-                # so retry while warmup is still running and surface anything
-                # else as the failure it is.
-                payload = json.loads(text)
-                status = payload.get("status")
-                assert status == "starting", payload
+                # Cold-start progress contract: the readiness snapshot is JSON
+                # with status "starting". Any other isError response is a real
+                # failure — including a plaintext "Error: ..." that is not JSON —
+                # so surface the raw text rather than masking it with a
+                # JSONDecodeError from an unconditional json.loads.
+                try:
+                    payload = json.loads(text)
+                except json.JSONDecodeError:
+                    payload = None
+                status = payload.get("status") if isinstance(payload, dict) else None
+                assert status == "starting", text
                 assert asyncio.get_running_loop().time() < deadline, (
                     f"brain_read environment never became ready: {payload}"
                 )

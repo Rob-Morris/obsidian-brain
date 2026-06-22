@@ -1,9 +1,11 @@
 """Shared test fixtures and helpers for brain-core tests."""
 
+import atexit
 import functools
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -21,10 +23,15 @@ import pytest
 # zone. Pin the suite's timezone here — before any test imports datetime helpers
 # or spawns a subprocess via os.environ.copy() — so the suite is reproducible on
 # UTC CI runners and the web container, not just an Australian workstation.
+#
+# POSIX only: guarded on time.tzset (absent on Windows). Setting an IANA TZ on
+# Windows would not take effect — the CRT cannot parse it — and would leak a
+# misleading value into every os.environ.copy() subprocess, including the
+# Windows smoke's MCP server.
 # ---------------------------------------------------------------------------
 
-os.environ["TZ"] = "Australia/Sydney"
 if hasattr(time, "tzset"):
+    os.environ["TZ"] = "Australia/Sydney"
     time.tzset()
 
 
@@ -111,7 +118,9 @@ def _masks_versioned_python(name: str) -> bool:
     """
     if name in ("python", "python2"):
         return True
-    return bool(re.match(r"^python(2\.|3\.\d)", name))
+    # Any version-tagged interpreter (python3.12, python3.13, a future
+    # python4.0, ...) — keep only a bare `python3`.
+    return bool(re.match(r"^python\d+\.\d", name))
 
 
 @functools.lru_cache(maxsize=1)
@@ -127,6 +136,7 @@ def launcher_discovery_path() -> str:
     once per session; the symlink farm is cheap and read-only.
     """
     bin_dir = Path(tempfile.mkdtemp(prefix="brain-launcher-path-"))
+    atexit.register(shutil.rmtree, bin_dir, ignore_errors=True)
     seen: set[str] = set()
     for entry in os.environ.get("PATH", "").split(os.pathsep):
         if not entry or not os.path.isdir(entry):

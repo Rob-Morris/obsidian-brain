@@ -203,4 +203,7 @@ class TestSend:
             side_effect=AssertionError("must not construct a socket without AF_UNIX"),
         ):
             assert obsidian_cli._send(["version"]) is None
-            assert obsidian_cli.check_available() is False
+            # Force past the _socket_exists() short-circuit so check_available
+            # actually reaches _send and exercises the guard, not a no-op.
+            with patch.object(obsidian_cli, "_socket_exists", return_value=True):
+                assert obsidian_cli.check_available() is False
