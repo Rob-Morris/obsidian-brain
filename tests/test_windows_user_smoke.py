@@ -47,6 +47,21 @@ def _windows_smoke_env(tmp_path: Path) -> dict[str, str]:
 _WARMUP_READY_TIMEOUT_S = 120.0
 
 
+def _parse_environment(text: str) -> dict[str, str]:
+    """Parse a successful brain_read environment payload.
+
+    The environment resource is formatted as ``key=value`` lines (see
+    _server_reading._fmt_environment), not JSON, so split each line on its first
+    ``=`` (values such as the vault root are Windows paths without ``=``).
+    """
+    env: dict[str, str] = {}
+    for line in text.splitlines():
+        if "=" in line:
+            key, value = line.split("=", 1)
+            env[key] = value
+    return env
+
+
 async def _call_installed_brain_read(vault_root: Path, env: dict[str, str]) -> dict:
     config = json.loads((vault_root / ".mcp.json").read_text(encoding="utf-8"))
     server_config = config["mcpServers"]["brain"]
@@ -69,12 +84,14 @@ async def _call_installed_brain_read(vault_root: Path, env: dict[str, str]) -> d
             deadline = asyncio.get_running_loop().time() + _WARMUP_READY_TIMEOUT_S
             while True:
                 result = await session.call_tool("brain_read", {"resource": "environment"})
-                payload = json.loads(result.content[0].text)
+                text = result.content[0].text
                 if not result.isError:
-                    return payload
+                    return _parse_environment(text)
 
-                # Cold-start progress contract: retry while warmup is still
-                # running; surface anything else as the failure it is.
+                # Cold-start progress contract: the readiness snapshot is JSON,
+                # so retry while warmup is still running and surface anything
+                # else as the failure it is.
+                payload = json.loads(text)
                 status = payload.get("status")
                 assert status == "starting", payload
                 assert asyncio.get_running_loop().time() < deadline, (
