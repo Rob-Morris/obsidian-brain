@@ -220,7 +220,7 @@ Manual setup:
 
 ```bash
 python3.12 -m venv .venv
-.venv/bin/pip install "mcp>=1.0.0" "pytest>=9.0"
+.venv/bin/pip install "mcp>=1.0.0" "pytest>=9.0" "pytest-bdd>=8.0" "pytest-xdist>=3.6" "interrogate>=1.7" "pytest-cov>=6.0"
 .venv/bin/pytest -q
 ```
 

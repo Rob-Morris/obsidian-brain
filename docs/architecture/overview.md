@@ -111,7 +111,7 @@ rather than the Python import surface. Internal production code and tests now
 depend on `_search`, `_semantic`, and `_lifecycle` directly; the wrappers
 remain as supported script surfaces only.
 
-The optional [`brain` CLI](../functional/cli.md) (installed to `~/.local/bin/brain` by `install.sh`) is a thin dispatch layer on top of these scripts — `brain repair runtime` reaches the same `repair.py` entry surface against the active vault's central managed runtime. The CLI versions independently from `brain-core`; its dispatch surface is the contract. See [DD-049](decisions/dd-049-brain-cli-thin-dispatch.md).
+The optional [`brain` CLI](../functional/cli.md) (installed by `install.sh` to `~/.local/bin/brain` by default, `/usr/local/bin/brain` with `--system`, or skipped with `--skip-cli`) is a thin dispatch layer on top of these scripts — `brain repair runtime` reaches the same `repair.py` entry surface against the active vault's central managed runtime. The CLI versions independently from `brain-core`; its dispatch surface is the contract. See [DD-049](decisions/dd-049-brain-cli-thin-dispatch.md).
 
 Repair ownership is split by altitude. `check.py` and `repair.py` diagnose or
 repair vault-local state only: `.brain/local/workspaces.json`, the compiled

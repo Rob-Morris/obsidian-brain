@@ -1,6 +1,6 @@
 # Obsidian Brain
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.49.3-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.12-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.49.4-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.12-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
 
 A self-evolving knowledge base for agents and humans working together on what matters.
 
@@ -51,8 +51,9 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -VaultPath C:\path\t
 
 Brain installs the managed Python runtime to `~/.brain/venvs/py<X.Y>-<sha16>/`, content-addressed by `requirements.txt`. Vaults sharing the same dependencies share one venv on disk. See [DD-048](docs/architecture/decisions/dd-048-central-managed-runtime.md) for rationale.
 
-Semantic retrieval remains explicit opt-in. Enable it later from inside the
-vault with `python3 .brain-core/scripts/configure.py semantic --enable`. That
+Semantic retrieval remains explicit opt-in. Enable it at install time with
+`install.sh --enable-semantic`, or later from inside the vault with
+`python3 .brain-core/scripts/configure.py semantic --enable`. That
 flow writes the local semantic-retrieval flag first, installs the pinned
 semantic Python stack into the central managed runtime, snapshots the pinned
 model under `.brain/local/semantic-models/`, records

@@ -16,8 +16,9 @@ any I/O begins.
 
 1. Calls `os.realpath()` to resolve the full chain of symlinks to a canonical
    filesystem path.
-2. Compares the resolved path against the `bounds` directory (the vault root for
-   vault writes; `/tmp` is permitted additionally for intermediate body files).
+2. Compares the resolved path against the `bounds` directory — the vault root for
+   vault writes. (Intermediate body files are a separate path: they are staged in
+   the system temp directory and bounds-checked against it, not the vault root.)
 3. Appends `os.sep` before the prefix test so `/vault` never accidentally matches
    `/vault-other`.
 4. Raises `ValueError` if the resolved path falls outside bounds, or if

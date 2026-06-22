@@ -34,12 +34,12 @@ That `python3.12` process is the launcher, not the managed runtime itself.
 | `build_index.py` | Build retrieval index and optional embeddings sidecars from the provisioned local semantic model; unreadable retrieval sources and persistence failures now fail explicitly | `python3 build_index.py [--json]` |
 | `list_artefacts.py` | Enumerate vault artefacts and resources (unranked, no cap) | `python3 list_artefacts.py [RESOURCE] [--query Q] [--type T] [--parent P] [--since D] [--until D] [--tag TAG] [--top-k N] [--sort S] [--vault V] [--json]` |
 | `search_lexical.py` | Run portable lexical-only retrieval search | `python3 search_lexical.py "query" [--type T] [--tag TAG] [--status S] [--top-k N] [--json]` |
-| `search_index.py` | Lexical, semantic, or hybrid local search | `python3 search_index.py "query" [--type T] [--mode M] [--json]` |
+| `search_index.py` | Lexical, semantic, or hybrid local search | `python3 search_index.py "query" [--type T] [--tag TAG] [--status S] [--mode M] [--top-k N] [--json]` |
 | `construct_benchmark_fixture.py` | Derive a vault-native retrieval benchmark fixture plus audit JSON from an existing vault, including semantic-variant audit diagnostics and optional externally seeded semantic or hybrid candidates; unreadable source files now fail explicitly | `python3 construct_benchmark_fixture.py --fixture-out PATH [--audit-out PATH] [--semantic-strategy S] [--semantic-seed-file PATH] [--hybrid-seed-file PATH] [--json]` |
 | `evaluate_search.py` | Benchmark lexical, semantic, and hybrid retrieval against a JSON query set | `python3 evaluate_search.py --benchmark PATH [--mode M]... [--json]` |
-| `read.py` | Query compiled router resources | `python3 read.py RESOURCE [--name N]` |
-| `create.py` | Create new artefact, generating living keys from the clearest free title-derived words before random suffix fallback | `python3 create.py --type T --title "Title" [--body B] [--body-file PATH] [--temp-path [SUFFIX]] [--json]` |
-| `edit.py` | Edit artefacts via CLI; importable helpers also back `brain_edit` for editable `_Config/` resources | `python3 edit.py edit\|append\|prepend\|delete_section --path P [--body B\|--body-file PATH] [--frontmatter JSON] [--target T] [--scope S] [--occurrence N] [--within T --within-occurrence N]... [--vault V] [--json]` |
+| `read.py` | Query compiled router resources | `python3 read.py RESOURCE [--name N] [--vault V]` |
+| `create.py` | Create new artefact, generating living keys from the clearest free title-derived words before random suffix fallback | `python3 create.py --type T --title "Title" [--body B] [--body-file PATH] [--parent NAME] [--vault PATH] [--temp-path [SUFFIX]] [--json]` |
+| `edit.py` | Edit artefacts via CLI; importable helpers also back `brain_edit` for editable `_Config/` resources | `python3 edit.py edit\|append\|prepend\|delete_section --path P [--body B\|--body-file PATH] [--frontmatter JSON] [--target T] [--scope S] [--occurrence N] [--within T --within-occurrence N]... [--temp-path [SUFFIX]] [--vault V] [--json]` |
 | `rename.py` | Rename/delete file + update wikilinks (full-path and filename-only), refusing existing-destination collisions | `python3 rename.py "source" "dest" [--json]` |
 | `check.py` | Structural compliance checks; launcher-safe bootstrap diagnostics are added first, then managed semantic findings from the canonical semantic owner run after managed-runtime handoff | `python3 check.py [--json] [--actionable] [--severity S] [--vault V]` |
 | `setup.py` | Public workspace setup owner: converge `brain + slug` binding plus Brain-owned local scaffold/ignore state, with an optional guided wizard over the same explicit configure surfaces | `python3 setup.py workspace [PATH] [--vault V] [--brain ID] [--slug S] [--guided] [--force] [--json]` |
@@ -47,7 +47,7 @@ That `python3.12` process is the launcher, not the managed runtime itself.
 | `install.py` | Shared Python installer core used by `install.sh` and `install.ps1` for fresh/existing-vault installs: scaffolds the vault, installs `.brain-core/`, provisions the machine resolution runtime, provisions the managed runtime, configures MCP, and emits lifecycle results | `python3 install.py VAULT [--source-root REPO] [--launcher PY] [--mcp-scope {project,user,skip}] [--client {claude,codex,all}] [--id ID] [--json]` |
 | `repair.py` | Explicit Brain repair entry point with bootstrap-to-managed-runtime handoff, including dedicated managed-runtime recovery, duplicate-frontmatter normalisation, and semantic runtime/model/sidecar recovery | `python3 repair.py {runtime,mcp,router,lexical,registry,frontmatter,semantic} [--vault V] [--dry-run] [--json]` |
 | `_common/_venv.py` | Resolve and create the central managed runtime under `~/.brain/venvs/py<X.Y>-<sha16>/`. Importable helper used by `install.py` and lifecycle entry points, with a small diagnostic/repair CLI surface | `python3 _common/_venv.py {python,ensure} --vault V [--launcher PY]` |
-| `shape_printable.py` | Create printable + render PDF | `python3 shape_printable.py --source P --slug S [--no-render] [--pdf-engine E]` |
+| `shape_printable.py` | Create printable + render PDF | `python3 shape_printable.py --source P --slug S [--no-render] [--pdf-engine E] [--keep-heading-with-next]` |
 | `shape_presentation.py` | Create presentation + render PDF + launch preview | `python3 shape_presentation.py --source P --slug S [--no-render] [--no-preview]` |
 | `start_shaping.py` | Bootstrap a shaping session for an existing artefact | `python3 start_shaping.py --target P [--title T] [--vault V]` |
 | `upgrade.py` | In-place brain-core upgrade with local migration ledger, running stage snapshots in `.brain/local/last-upgrade.json`, syncs the machine resolution runtime from the freshly copied core, provisions the central managed runtime at `~/.brain/venvs/` when requirements change, reconciles post-upgrade retrieval assets through `repair.py lexical` or `repair.py semantic`, and keeps direct bootstrap writes self-contained and atomic | `python3 upgrade.py --source P [--vault V] [--dry-run] [--force] [--sync\|--no-sync] [--sync-deps\|--no-sync-deps] [--json]` |
@@ -68,6 +68,8 @@ That `python3.12` process is the launcher, not the managed runtime itself.
 | `obsidian_cli.py` | IPC client for native Obsidian CLI | (library module, used by MCP server) |
 | `process.py` | Experimental content classification, duplicate resolution, ingestion | (library module, used by `brain_process` in the MCP server) |
 | `generate_key.py` | Generate operator key + hash for config.yaml | `python3 generate_key.py [--count N]` |
+
+> The `migrations/` rows above are representative; the full set of `migrate_to_*.py` one-shots (run by `upgrade.py`) lives in `src/brain-core/scripts/migrations/`.
 
 ## Architecture
 

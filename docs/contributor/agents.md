@@ -37,8 +37,8 @@ When editing docs that ship in `.brain-core/`:
 [docs/README.md](../README.md) is the documentation entry point. It routes to the main doc layers and contributor docs:
 
 - **User layer** (`user/`) — how to use the system: `user/getting-started.md`, `user/system-guide.md`, `user/template-library-guide.md`, `user/plugins.md`, `user/workflows.md`, `user/user-reference.md`
-- **Functional layer** (`functional/`) — what it does: `functional/mcp-tools.md`, `functional/scripts.md`, `functional/config.md`
-- **Architectural layer** (`architecture/`) — how and why it's built this way: `architecture/overview.md`, `architecture/documentation-philosophy.md`, `architecture/decisions/`
+- **Functional layer** (`functional/`) — what it does: `functional/mcp-tools.md`, `functional/scripts.md`, `functional/cli.md`, `functional/config.md`
+- **Architectural layer** (`architecture/`) — how and why it's built this way: `architecture/overview.md`, `architecture/bounded-contexts.md`, `architecture/security.md`, `architecture/documentation-philosophy.md`, `architecture/decisions/`
 - **Contributor docs** (`contributor/`) — repo-facing product and workflow surfaces: `contributor/specification.md`, `contributor/agents.md`, `contributor/plugins.md`
 
 ## Versioned helper surfaces
@@ -64,7 +64,7 @@ When a change touches the machine-global helpers around brain-core, check their 
 | Plugin authoring or packaging | `contributor/plugins.md`; if the shipped overview changes too, also `src/brain-core/plugins.md` |
 | Bootstrap principles or curated core-doc/standards links | `src/brain-core/session-core.md`; if the bootstrap entry flow changes too, also `src/brain-core/index.md` and `src/brain-core/md-bootstrap.md` |
 | Architectural decision (non-obvious, cross-cutting) | Add a DD file to `architecture/decisions/` |
-| System boundary or security model | `architecture/overview.md` or `architecture/security.md` (if present) |
+| System boundary or security model | `architecture/overview.md` or `architecture/security.md` |
 
 When in doubt, check `docs/README.md` — if a doc file is listed there, it's a canonical reference that may need updating.
 
