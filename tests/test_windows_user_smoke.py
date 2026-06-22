@@ -39,6 +39,14 @@ def _windows_smoke_env(tmp_path: Path) -> dict[str, str]:
     return env
 
 
+# Bound on how long we wait for background warmup to compile the router before
+# brain_read can serve the environment resource. The server runs warmup off the
+# request thread and returns a "starting" progress response with retry_after_ms
+# until the router is ready, so the smoke test honours that contract rather than
+# racing the first call against a cold start (slow on the Windows runner).
+_WARMUP_READY_TIMEOUT_S = 120.0
+
+
 async def _call_installed_brain_read(vault_root: Path, env: dict[str, str]) -> dict:
     config = json.loads((vault_root / ".mcp.json").read_text(encoding="utf-8"))
     server_config = config["mcpServers"]["brain"]
@@ -58,10 +66,22 @@ async def _call_installed_brain_read(vault_root: Path, env: dict[str, str]) -> d
             tools = await session.list_tools()
             assert any(tool.name == "brain_read" for tool in tools.tools)
 
-            result = await session.call_tool("brain_read", {"resource": "environment"})
-            assert not result.isError
-            payload = json.loads(result.content[0].text)
-            return payload
+            deadline = asyncio.get_running_loop().time() + _WARMUP_READY_TIMEOUT_S
+            while True:
+                result = await session.call_tool("brain_read", {"resource": "environment"})
+                payload = json.loads(result.content[0].text)
+                if not result.isError:
+                    return payload
+
+                # Cold-start progress contract: retry while warmup is still
+                # running; surface anything else as the failure it is.
+                status = payload.get("status")
+                assert status == "starting", payload
+                assert asyncio.get_running_loop().time() < deadline, (
+                    f"brain_read environment never became ready: {payload}"
+                )
+                retry_after_s = payload.get("retry_after_ms", 1000) / 1000
+                await asyncio.sleep(retry_after_s)
 
 
 def _run_install_ps1(vault: Path, env: dict[str, str], *, launcher: str | None) -> subprocess.CompletedProcess[str]:
