@@ -1,9 +1,12 @@
 """Shared test fixtures and helpers for brain-core tests."""
 
+import functools
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
+import tempfile
 import time
 
 import pytest
@@ -93,6 +96,52 @@ def filesystem_is_case_sensitive(tmp_path):
         return not (tmp_path / "caseprobe.txt").exists()
     finally:
         probe.unlink(missing_ok=True)
+
+
+def _masks_versioned_python(name: str) -> bool:
+    """Return True for interpreter names launcher discovery prefers over a fake.
+
+    install.sh (``find_python_312``/``find_python_for_script``) and ``cli/brain``
+    (``find_launcher_python``) enumerate ``python3.13``, ``python3.12``,
+    ``python3``, ``python`` via ``command -v`` and take the first match. To let a
+    test's fake interpreter be the one discovered, we hide every *version-tagged*
+    ``python3.N`` (the high-precedence names) plus bare ``python``/``python2`` —
+    but keep a bare ``python3`` so generic liveness checks (the install.sh
+    ``command -v python3`` preflight) still pass.
+    """
+    if name in ("python", "python2"):
+        return True
+    return bool(re.match(r"^python(2\.|3\.\d)", name))
+
+
+@functools.lru_cache(maxsize=1)
+def launcher_discovery_path() -> str:
+    """Return a PATH value where the only version-tagged Python is a test's fake.
+
+    Launcher-discovery results otherwise depend on what the host ships (this web
+    container has ``python3.13`` on PATH; an Australian workstation may not), so
+    discovery tests that install a fake ``python3.12``/``python3`` need the real
+    versioned interpreters out of the way. Mirror every executable on the current
+    PATH as a symlink, skipping the names :func:`_masks_versioned_python` hides,
+    so a test can prepend its fake and get identical discovery everywhere. Built
+    once per session; the symlink farm is cheap and read-only.
+    """
+    bin_dir = Path(tempfile.mkdtemp(prefix="brain-launcher-path-"))
+    seen: set[str] = set()
+    for entry in os.environ.get("PATH", "").split(os.pathsep):
+        if not entry or not os.path.isdir(entry):
+            continue
+        for name in sorted(os.listdir(entry)):
+            if name in seen or _masks_versioned_python(name):
+                continue
+            src = os.path.join(entry, name)
+            if os.path.isfile(src) and os.access(src, os.X_OK):
+                try:
+                    os.symlink(src, bin_dir / name)
+                except OSError:
+                    continue
+                seen.add(name)
+    return str(bin_dir)
 
 
 def write_executable(path, content):

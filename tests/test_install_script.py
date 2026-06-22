@@ -14,6 +14,7 @@ from _common._yaml import load_mapping_text
 
 from conftest import (
     copy_install_source as _copy_source_checkout,
+    launcher_discovery_path,
     write_executable as _write_executable,
 )
 
@@ -80,7 +81,7 @@ def test_install_ignores_machine_local_template_state(tmp_path):
     fake_home = tmp_path / "home"
     fake_home.mkdir()
     env = os.environ.copy()
-    env["PATH"] = f"{fake_bin}:{env['PATH']}"
+    env["PATH"] = f"{fake_bin}{os.pathsep}{launcher_discovery_path()}"
     env["HOME"] = str(fake_home)
 
     result = subprocess.run(
@@ -163,7 +164,7 @@ def test_install_sh_errors_on_unexpected_install_core_exit(tmp_path):
 
     target = tmp_path / "vault"
     env = os.environ.copy()
-    env["PATH"] = f"{fake_bin}:{env['PATH']}"
+    env["PATH"] = f"{fake_bin}{os.pathsep}{launcher_discovery_path()}"
 
     result = subprocess.run(
         ["bash", "install.sh", "--non-interactive", str(target)],
@@ -216,7 +217,7 @@ def test_install_continues_when_mcp_dependency_install_fails(tmp_path):
     fake_home = tmp_path / "home"
     fake_home.mkdir()
     env = os.environ.copy()
-    env["PATH"] = f"{fake_bin}:{env['PATH']}"
+    env["PATH"] = f"{fake_bin}{os.pathsep}{launcher_discovery_path()}"
     env["HOME"] = str(fake_home)
 
     result = subprocess.run(
@@ -264,7 +265,7 @@ def test_install_can_skip_mcp_setup(tmp_path):
 
     target = tmp_path / "vault"
     env = os.environ.copy()
-    env["PATH"] = f"{fake_bin}:{env['PATH']}"
+    env["PATH"] = f"{fake_bin}{os.pathsep}{launcher_discovery_path()}"
 
     result = subprocess.run(
         ["bash", "install.sh", "--non-interactive", "--skip-mcp", str(target)],
@@ -311,7 +312,7 @@ def test_install_can_enable_semantic_after_skipping_mcp(tmp_path):
 
     target = tmp_path / "vault"
     env = os.environ.copy()
-    env["PATH"] = f"{fake_bin}:{env['PATH']}"
+    env["PATH"] = f"{fake_bin}{os.pathsep}{launcher_discovery_path()}"
 
     result = subprocess.run(
         ["bash", "install.sh", "--non-interactive", "--skip-mcp", "--enable-semantic", str(target)],
@@ -440,7 +441,7 @@ def test_install_enable_semantic_uses_real_configure_boundary(tmp_path):
     fake_home = tmp_path / "home"
     fake_home.mkdir()
     env = os.environ.copy()
-    env["PATH"] = f"{fake_bin}:{env['PATH']}"
+    env["PATH"] = f"{fake_bin}{os.pathsep}{launcher_discovery_path()}"
     env["HOME"] = str(fake_home)
     env.pop("XDG_CONFIG_HOME", None)
 
@@ -501,7 +502,7 @@ def test_install_keeps_vault_when_semantic_setup_fails(tmp_path):
 
     target = tmp_path / "vault"
     env = os.environ.copy()
-    env["PATH"] = f"{fake_bin}:{env['PATH']}"
+    env["PATH"] = f"{fake_bin}{os.pathsep}{launcher_discovery_path()}"
 
     result = subprocess.run(
         ["bash", "install.sh", "--non-interactive", "--skip-mcp", "--enable-semantic", str(target)],
@@ -537,7 +538,7 @@ def test_uninstall_preserves_user_claude_md_content_and_cleans_vault_local_claud
 
     target = tmp_path / "vault"
     env = os.environ.copy()
-    env["PATH"] = f"{fake_bin}:{env['PATH']}"
+    env["PATH"] = f"{fake_bin}{os.pathsep}{launcher_discovery_path()}"
 
     install_result = subprocess.run(
         ["bash", "install.sh", "--non-interactive", "--skip-mcp", str(target)],
@@ -663,7 +664,7 @@ def test_uninstall_uses_configure_for_recorded_cleanup_calls(tmp_path):
     )
 
     env = os.environ.copy()
-    env["PATH"] = f"{fake_bin}:{env['PATH']}"
+    env["PATH"] = f"{fake_bin}{os.pathsep}{launcher_discovery_path()}"
 
     result = subprocess.run(
         ["bash", "install.sh", "--uninstall", "--non-interactive", str(target)],
@@ -741,7 +742,7 @@ def test_uninstall_configure_cleanup_fallback_warning(tmp_path):
     )
 
     env = os.environ.copy()
-    env["PATH"] = f"{fake_bin}:{env['PATH']}"
+    env["PATH"] = f"{fake_bin}{os.pathsep}{launcher_discovery_path()}"
 
     result = subprocess.run(
         ["bash", "install.sh", "--uninstall", "--non-interactive", str(target)],
@@ -853,7 +854,7 @@ def test_upgrade_wrapper_uses_resolved_managed_python(tmp_path):
     )
 
     env = os.environ.copy()
-    env["PATH"] = f"{fake_bin}:{env['PATH']}"
+    env["PATH"] = f"{fake_bin}{os.pathsep}{launcher_discovery_path()}"
 
     result = subprocess.run(
         ["bash", "install.sh", "--non-interactive", "--skip-mcp", str(target)],
@@ -907,7 +908,7 @@ def test_upgrade_wrapper_does_not_rerun_mcp_setup(tmp_path):
     (target / ".brain-core" / "VERSION").write_text("1.0.0\n")
 
     env = os.environ.copy()
-    env["PATH"] = f"{fake_bin}:{env['PATH']}"
+    env["PATH"] = f"{fake_bin}{os.pathsep}{launcher_discovery_path()}"
 
     result = subprocess.run(
         ["bash", "install.sh", "--non-interactive", str(target)],
@@ -965,7 +966,7 @@ def test_upgrade_wrapper_does_not_run_semantic_configuration(tmp_path):
     (target / ".brain-core" / "VERSION").write_text("1.0.0\n")
 
     env = os.environ.copy()
-    env["PATH"] = f"{fake_bin}:{env['PATH']}"
+    env["PATH"] = f"{fake_bin}{os.pathsep}{launcher_discovery_path()}"
 
     result = subprocess.run(
         ["bash", "install.sh", "--non-interactive", "--enable-semantic", str(target)],
