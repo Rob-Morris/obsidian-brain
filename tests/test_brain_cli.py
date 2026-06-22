@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from conftest import launcher_discovery_path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -1329,7 +1330,7 @@ def test_path_launcher_below_3_12_is_rejected(tmp_path):
 
     env_extra = {
         "HOME": str(tmp_path / "empty-home"),
-        "PATH": f"{fake_bin}:/usr/bin:/bin",
+        "PATH": f"{fake_bin}{os.pathsep}{launcher_discovery_path()}",
     }
     (tmp_path / "empty-home").mkdir()
     result = _run_cli(
@@ -1368,7 +1369,7 @@ def test_doctor_reports_missing_when_no_compatible_launcher(tmp_path):
     no_vault.mkdir()
     env_extra = {
         "HOME": str(tmp_path / "empty-home"),
-        "PATH": f"{fake_bin}:/usr/bin:/bin",
+        "PATH": f"{fake_bin}{os.pathsep}{launcher_discovery_path()}",
         "BRAIN_VAULT_ROOT": "",
     }
     (tmp_path / "empty-home").mkdir()

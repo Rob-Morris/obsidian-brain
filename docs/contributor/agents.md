@@ -74,6 +74,11 @@ Use serial `make test` for the pre-commit gate. `make test-parallel` is a fast
 pytest-xdist feedback path while iterating, but it does not replace the serial
 run because serial ordering still catches cross-file pollution.
 
+The `Linux test suite` GitHub Actions workflow runs the full `make test` on
+`ubuntu-latest`, so the suite must stay host-independent (timezone, filesystem
+case-sensitivity, and the Python interpreters on `PATH` are all pinned or
+isolated in `tests/conftest.py`).
+
 The `Windows user smoke` GitHub Actions workflow is a narrow user-path guard,
 not a contributor-platform promise. It runs `tests/test_windows_user_smoke.py`
 on `windows-latest` to exercise native install, MCP startup, and one

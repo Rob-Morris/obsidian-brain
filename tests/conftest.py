@@ -1,11 +1,38 @@
 """Shared test fixtures and helpers for brain-core tests."""
 
+import atexit
+import functools
 import os
 from pathlib import Path
+import re
+import shutil
 import subprocess
 import sys
+import tempfile
+import time
 
 import pytest
+
+
+# ---------------------------------------------------------------------------
+# Deterministic timezone
+#
+# Brain computes artefact dates in *local* time (parse_date_value normalises to
+# the host zone via .astimezone()), so many create/edit/reconcile/migrate tests
+# assert ISO values and date folders that are only correct under the author's
+# zone. Pin the suite's timezone here — before any test imports datetime helpers
+# or spawns a subprocess via os.environ.copy() — so the suite is reproducible on
+# UTC CI runners and the web container, not just an Australian workstation.
+#
+# POSIX only: guarded on time.tzset (absent on Windows). Setting an IANA TZ on
+# Windows would not take effect — the CRT cannot parse it — and would leak a
+# misleading value into every os.environ.copy() subprocess, including the
+# Windows smoke's MCP server.
+# ---------------------------------------------------------------------------
+
+if hasattr(time, "tzset"):
+    os.environ["TZ"] = "Australia/Sydney"
+    time.tzset()
 
 
 # ---------------------------------------------------------------------------
@@ -65,10 +92,66 @@ def make_router(artefacts, meta=None):
 
 
 def filesystem_is_case_sensitive(tmp_path):
-    """Return True when the test filesystem distinguishes path casing."""
+    """Return True when the test filesystem distinguishes path casing.
+
+    Cleans up the probe file so callers can pass a vault root without the probe
+    leaking in as a stray content file (e.g. tripping check_root_files).
+    """
     probe = tmp_path / "CaseProbe.txt"
     probe.write_text("probe\n")
-    return not (tmp_path / "caseprobe.txt").exists()
+    try:
+        return not (tmp_path / "caseprobe.txt").exists()
+    finally:
+        probe.unlink(missing_ok=True)
+
+
+def _masks_versioned_python(name: str) -> bool:
+    """Return True for interpreter names launcher discovery prefers over a fake.
+
+    install.sh (``find_python_312``/``find_python_for_script``) and ``cli/brain``
+    (``find_launcher_python``) enumerate ``python3.13``, ``python3.12``,
+    ``python3``, ``python`` via ``command -v`` and take the first match. To let a
+    test's fake interpreter be the one discovered, we hide every *version-tagged*
+    ``python3.N`` (the high-precedence names) plus bare ``python``/``python2`` —
+    but keep a bare ``python3`` so generic liveness checks (the install.sh
+    ``command -v python3`` preflight) still pass.
+    """
+    if name in ("python", "python2"):
+        return True
+    # Any version-tagged interpreter (python3.12, python3.13, a future
+    # python4.0, ...) — keep only a bare `python3`.
+    return bool(re.match(r"^python\d+\.\d", name))
+
+
+@functools.lru_cache(maxsize=1)
+def launcher_discovery_path() -> str:
+    """Return a PATH value where the only version-tagged Python is a test's fake.
+
+    Launcher-discovery results otherwise depend on what the host ships (this web
+    container has ``python3.13`` on PATH; an Australian workstation may not), so
+    discovery tests that install a fake ``python3.12``/``python3`` need the real
+    versioned interpreters out of the way. Mirror every executable on the current
+    PATH as a symlink, skipping the names :func:`_masks_versioned_python` hides,
+    so a test can prepend its fake and get identical discovery everywhere. Built
+    once per session; the symlink farm is cheap and read-only.
+    """
+    bin_dir = Path(tempfile.mkdtemp(prefix="brain-launcher-path-"))
+    atexit.register(shutil.rmtree, bin_dir, ignore_errors=True)
+    seen: set[str] = set()
+    for entry in os.environ.get("PATH", "").split(os.pathsep):
+        if not entry or not os.path.isdir(entry):
+            continue
+        for name in sorted(os.listdir(entry)):
+            if name in seen or _masks_versioned_python(name):
+                continue
+            src = os.path.join(entry, name)
+            if os.path.isfile(src) and os.access(src, os.X_OK):
+                try:
+                    os.symlink(src, bin_dir / name)
+                except OSError:
+                    continue
+                seen.add(name)
+    return str(bin_dir)
 
 
 def write_executable(path, content):

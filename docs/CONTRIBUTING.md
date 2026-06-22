@@ -121,6 +121,11 @@ with pytest-xdist (`-n auto --dist loadscope`). The serial `make test` run
 remains the canonical pre-commit gate because it preserves ordering-sensitive
 pollution checks.
 
+The `Linux test suite` GitHub Actions workflow runs the full `make test` on
+`ubuntu-latest` for every push to `main` and every pull request, so the suite
+must stay host-independent — `tests/conftest.py` pins the timezone and isolates
+launcher Python discovery so it passes regardless of what the runner ships.
+
 The `Windows user smoke` GitHub Actions workflow runs only
 `tests/test_windows_user_smoke.py` on `windows-latest`. It protects the native
 Windows user path (installer launcher, MCP startup, and one `brain_read` round

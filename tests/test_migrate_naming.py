@@ -170,8 +170,11 @@ def vault(tmp_path):
         "---\ntype: temporal/plans\ntags: []\n---\n\n# API Refactor\n"
     )
 
-    # A file that links to the old names
-    (wiki / "index.md").write_text(
+    # A file that links to the old names. Named already-canonical ("Index.md",
+    # not "index.md") so the migration does not title-case the linking note
+    # itself — otherwise the rename is invisible on case-insensitive
+    # filesystems but breaks the read below on case-sensitive ones.
+    (wiki / "Index.md").write_text(
         "---\ntype: living/wiki\ntags: []\n---\n\n"
         "See [[Wiki/rust-lifetimes]] and "
         "[[_Temporal/Plans/2026-03/20260324-plan--api-refactor]]\n"
@@ -231,7 +234,7 @@ class TestMigrateVault:
     def test_wikilinks_updated(self, vault, router):
         migrate_naming.migrate_vault(str(vault), router=router, dry_run=False)
 
-        index_path = vault / "Wiki" / "index.md"
+        index_path = vault / "Wiki" / "Index.md"
         content = index_path.read_text()
         assert "[[Wiki/Rust Lifetimes]]" in content
         assert "[[_Temporal/Plans/2026-03/20260324-plan~Api Refactor]]" in content

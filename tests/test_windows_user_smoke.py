@@ -39,6 +39,29 @@ def _windows_smoke_env(tmp_path: Path) -> dict[str, str]:
     return env
 
 
+# Bound on how long we wait for background warmup to compile the router before
+# brain_read can serve the environment resource. The server runs warmup off the
+# request thread and returns a "starting" progress response with retry_after_ms
+# until the router is ready, so the smoke test honours that contract rather than
+# racing the first call against a cold start (slow on the Windows runner).
+_WARMUP_READY_TIMEOUT_S = 120.0
+
+
+def _parse_environment(text: str) -> dict[str, str]:
+    """Parse a successful brain_read environment payload.
+
+    The environment resource is formatted as ``key=value`` lines (see
+    _server_reading._fmt_environment), not JSON, so split each line on its first
+    ``=`` (values such as the vault root are Windows paths without ``=``).
+    """
+    env: dict[str, str] = {}
+    for line in text.splitlines():
+        if "=" in line:
+            key, value = line.split("=", 1)
+            env[key] = value
+    return env
+
+
 async def _call_installed_brain_read(vault_root: Path, env: dict[str, str]) -> dict:
     config = json.loads((vault_root / ".mcp.json").read_text(encoding="utf-8"))
     server_config = config["mcpServers"]["brain"]
@@ -58,10 +81,29 @@ async def _call_installed_brain_read(vault_root: Path, env: dict[str, str]) -> d
             tools = await session.list_tools()
             assert any(tool.name == "brain_read" for tool in tools.tools)
 
-            result = await session.call_tool("brain_read", {"resource": "environment"})
-            assert not result.isError
-            payload = json.loads(result.content[0].text)
-            return payload
+            deadline = asyncio.get_running_loop().time() + _WARMUP_READY_TIMEOUT_S
+            while True:
+                result = await session.call_tool("brain_read", {"resource": "environment"})
+                text = result.content[0].text
+                if not result.isError:
+                    return _parse_environment(text)
+
+                # Cold-start progress contract: the readiness snapshot is JSON
+                # with status "starting". Any other isError response is a real
+                # failure — including a plaintext "Error: ..." that is not JSON —
+                # so surface the raw text rather than masking it with a
+                # JSONDecodeError from an unconditional json.loads.
+                try:
+                    payload = json.loads(text)
+                except json.JSONDecodeError:
+                    payload = None
+                status = payload.get("status") if isinstance(payload, dict) else None
+                assert status == "starting", text
+                assert asyncio.get_running_loop().time() < deadline, (
+                    f"brain_read environment never became ready: {payload}"
+                )
+                retry_after_s = payload.get("retry_after_ms", 1000) / 1000
+                await asyncio.sleep(retry_after_s)
 
 
 def _run_install_ps1(vault: Path, env: dict[str, str], *, launcher: str | None) -> subprocess.CompletedProcess[str]:

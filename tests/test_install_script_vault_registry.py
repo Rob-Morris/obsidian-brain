@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import copy_install_source
+from conftest import copy_install_source, launcher_discovery_path
 
 
 @pytest.fixture(scope="module")
@@ -140,7 +140,7 @@ def test_find_python_for_script_picks_interpreter_that_can_run_script(tmp_path):
     cmd = f"{fn}\nfind_python_for_script {script}\n"
     result = subprocess.run(
         ["bash", "-c", cmd],
-        env={"PATH": f"{fake_bin}:/bin:/usr/bin"},
+        env={"PATH": f"{fake_bin}{os.pathsep}{launcher_discovery_path()}"},
         capture_output=True, text=True,
     )
     assert result.returncode == 0, result.stderr
@@ -174,7 +174,7 @@ def test_find_python_for_script_rejects_stub_passing_pass_but_failing_script(tmp
     cmd = f"{fn}\nfind_python_for_script {script}\n"
     result = subprocess.run(
         ["bash", "-c", cmd],
-        env={"PATH": f"{fake_bin}:/bin:/usr/bin"},
+        env={"PATH": f"{fake_bin}{os.pathsep}{launcher_discovery_path()}"},
         capture_output=True, text=True,
     )
     # The stub passes -c 'pass' but fails the actual script probe → rejected.
@@ -197,7 +197,7 @@ def test_find_python_for_script_skips_broken_candidates(tmp_path):
     cmd = f"{fn}\nfind_python_for_script {script}\n"
     result = subprocess.run(
         ["bash", "-c", cmd],
-        env={"PATH": f"{fake_bin}:/bin:/usr/bin"},
+        env={"PATH": f"{fake_bin}{os.pathsep}{launcher_discovery_path()}"},
         capture_output=True, text=True,
     )
     assert result.returncode == 1
