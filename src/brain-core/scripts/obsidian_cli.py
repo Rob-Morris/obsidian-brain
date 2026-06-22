@@ -38,7 +38,17 @@ def _socket_exists() -> bool:
 # ---------------------------------------------------------------------------
 
 def _send(argv: list[str], timeout: float = 5.0) -> str | None:
-    """Send a command to Obsidian via IPC socket, return response or None."""
+    """Send a command to Obsidian via IPC socket, return response or None.
+
+    The transport is a Unix domain socket (``socket.AF_UNIX``). On Windows the
+    Obsidian CLI exposes a named pipe instead, which this stdlib client does not
+    yet speak, and Windows Python builds do not define ``socket.AF_UNIX`` at all.
+    Rather than raise ``AttributeError`` out of a read path — breaking the
+    "never crash; report unavailable" contract above — report the CLI as
+    unavailable there so callers fall back to the bundled BM25 index.
+    """
+    if not hasattr(socket, "AF_UNIX"):
+        return None
     sock_path = _get_socket_path()
     try:
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)

@@ -189,3 +189,18 @@ class TestSend:
         mock_sock.recv.side_effect = [b"hel", b"lo", b""]
         with patch("obsidian_cli.socket.socket", return_value=mock_sock):
             assert obsidian_cli._send(["version"]) == "hello"
+
+    def test_returns_none_when_af_unix_unavailable(self, monkeypatch):
+        """Windows Python lacks socket.AF_UNIX; _send must degrade, not crash.
+
+        Regression for the native Windows smoke: brain_read environment refreshes
+        CLI availability, which previously raised AttributeError out of _send on
+        Windows instead of reporting the CLI as unavailable.
+        """
+        monkeypatch.delattr(obsidian_cli.socket, "AF_UNIX", raising=False)
+        with patch(
+            "obsidian_cli.socket.socket",
+            side_effect=AssertionError("must not construct a socket without AF_UNIX"),
+        ):
+            assert obsidian_cli._send(["version"]) is None
+            assert obsidian_cli.check_available() is False
