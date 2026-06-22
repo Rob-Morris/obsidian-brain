@@ -4,8 +4,25 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import time
 
 import pytest
+
+
+# ---------------------------------------------------------------------------
+# Deterministic timezone
+#
+# Brain computes artefact dates in *local* time (parse_date_value normalises to
+# the host zone via .astimezone()), so many create/edit/reconcile/migrate tests
+# assert ISO values and date folders that are only correct under the author's
+# zone. Pin the suite's timezone here — before any test imports datetime helpers
+# or spawns a subprocess via os.environ.copy() — so the suite is reproducible on
+# UTC CI runners and the web container, not just an Australian workstation.
+# ---------------------------------------------------------------------------
+
+os.environ["TZ"] = "Australia/Sydney"
+if hasattr(time, "tzset"):
+    time.tzset()
 
 
 # ---------------------------------------------------------------------------
@@ -65,10 +82,17 @@ def make_router(artefacts, meta=None):
 
 
 def filesystem_is_case_sensitive(tmp_path):
-    """Return True when the test filesystem distinguishes path casing."""
+    """Return True when the test filesystem distinguishes path casing.
+
+    Cleans up the probe file so callers can pass a vault root without the probe
+    leaking in as a stray content file (e.g. tripping check_root_files).
+    """
     probe = tmp_path / "CaseProbe.txt"
     probe.write_text("probe\n")
-    return not (tmp_path / "caseprobe.txt").exists()
+    try:
+        return not (tmp_path / "caseprobe.txt").exists()
+    finally:
+        probe.unlink(missing_ok=True)
 
 
 def write_executable(path, content):
