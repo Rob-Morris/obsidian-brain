@@ -14,6 +14,12 @@ import time
 import pytest
 
 
+# conftest.py files carry no doctests. Excluding them from --doctest-modules
+# collection avoids the dual-conftest "import file mismatch" that prepend
+# import mode raises once test subdirectories have their own conftest.py.
+collect_ignore_glob = ["conftest.py", "*/conftest.py"]
+
+
 # ---------------------------------------------------------------------------
 # Deterministic timezone
 #
