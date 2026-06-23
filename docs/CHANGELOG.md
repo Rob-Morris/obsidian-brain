@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.49.5](changelog/v0.49.5.md) | 2026-06-23 | Correct tool count and script-usage drift in shipped Brain docs |
 | [v0.49.4](changelog/v0.49.4.md) | 2026-06-22 | Degrade the Obsidian CLI client gracefully on native Windows |
 | [v0.49.3](changelog/v0.49.3.md) | 2026-06-21 | Unify the heading intro boundary and correct its scope contract |
 | [v0.49.2](changelog/v0.49.2.md) | 2026-06-21 | Bound childless heading intro edits to sibling sections |

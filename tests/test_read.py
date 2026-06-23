@@ -402,7 +402,7 @@ class TestReadFile:
         # "test-memory" is in _Config/Memories/ — file should delegate to memory handler
         result = read.read_resource(router, str(tmp_path), "file", name="test-memory")
         assert isinstance(result, str)
-        assert "test topic" in result.lower() or "memory" in result.lower()
+        assert "Remember this." in result
 
     def test_requires_name(self, vault):
         _, router = vault

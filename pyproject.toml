@@ -36,6 +36,7 @@ pythonpath = [
 ]
 markers = [
     "slow: subprocess integration tests (deselect with -m 'not slow')",
+    "semantic: tests requiring the optional semantic stack, e.g. numpy (deselect with -m 'not semantic'; they still skip gracefully if the stack is absent)",
 ]
 
 [tool.coverage.run]

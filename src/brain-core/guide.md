@@ -235,7 +235,7 @@ For project scope, registration is not the whole story. Claude still needs the p
 
 ## Tooling
 
-If your vault has the Brain MCP server running, you get nine tools:
+If your vault has the Brain MCP server running, you get ten tools:
 
 - **brain_init** — additive bootstrap/orientation snapshot with readiness, warmup status, and optional cheap debug output. `warmup=true` ensures background warmup is underway, then returns immediately.
 - **brain_session** — bootstrap an agent session in one call (static core bootstrap content, structured core-doc references with explicit `brain_read(resource="file", ...)` load instructions, always-rules, preferences, gotchas, triggers, artefact types, environment); also refreshes `.brain/local/session.md`

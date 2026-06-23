@@ -109,10 +109,9 @@ def test_folder_rename_skipped_if_already_adopted(tmp_path):
     make_idea(adopted, "Old Idea.md", "adopted")
 
     result = migrate(str(vault))
-    # No folder rename (already +Adopted), no status changes (status is adopted not graduated/developing)
-    # So either skipped or folder_renamed=False
-    if result["status"] == "ok":
-        assert result["folder_renamed"] is False
+    # No folder rename (already +Adopted) and no status changes (status is
+    # adopted, not graduated/developing), so no actions run → skipped.
+    assert result["status"] == "skipped"
 
 
 # ---------------------------------------------------------------------------

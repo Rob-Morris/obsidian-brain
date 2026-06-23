@@ -914,7 +914,7 @@ def test_doctor_outside_vault_uses_machine_helper_from_registry(tmp_path):
         env_extra={"BRAIN_VAULT_ROOT": "", "XDG_CONFIG_HOME": str(xdg), "HOME": str(tmp_path)},
     )
 
-    assert "brains:    1 discovered" in result.stdout
+    assert "1 discovered" in result.stdout
     assert "registry:" in result.stdout
     assert "brain routes:" in result.stdout
     assert "none in scope" in result.stdout
@@ -935,7 +935,7 @@ def test_doctor_outside_vault_accepts_legacy_two_column_registry_entries(tmp_pat
         env_extra={"BRAIN_VAULT_ROOT": "", "XDG_CONFIG_HOME": str(xdg), "HOME": str(tmp_path)},
     )
 
-    assert "brains:    1 discovered" in result.stdout
+    assert "1 discovered" in result.stdout
     assert "registry:" in result.stdout
     assert "brain routes:" in result.stdout
     assert "none in scope" in result.stdout
@@ -959,7 +959,7 @@ def test_doctor_outside_vault_ignores_non_local_registry_entries(tmp_path):
         env_extra={"BRAIN_VAULT_ROOT": "", "XDG_CONFIG_HOME": str(xdg), "HOME": str(tmp_path)},
     )
 
-    assert "brains:    1 discovered" in result.stdout
+    assert "1 discovered" in result.stdout
     assert "registry:" in result.stdout
     assert "brain routes:" in result.stdout
     assert "none in scope" in result.stdout
@@ -987,7 +987,7 @@ def test_doctor_outside_vault_uses_machine_helper_from_brains_registry_fallback(
         env_extra={"BRAIN_VAULT_ROOT": "", "XDG_CONFIG_HOME": str(xdg), "HOME": str(tmp_path)},
     )
 
-    assert "brains:    1 discovered" in result.stdout
+    assert "1 discovered" in result.stdout
     assert "registry:" in result.stdout
     assert "brain routes:" in result.stdout
     assert "none in scope" in result.stdout

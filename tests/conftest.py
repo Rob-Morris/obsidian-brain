@@ -343,3 +343,72 @@ def non_tmp_vault():
         f.write("# Session Core\n")
     yield vault_dir
     shutil.rmtree(vault_dir, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
+# Searchable-vault builders (shared by the retrieval test suites)
+# ---------------------------------------------------------------------------
+
+def make_searchable_vault(tmp_path):
+    """Create a vault with searchable Wiki/Designs/Logs content.
+
+    Shared by the retrieval suites (lexical, semantic, build-index, evaluate)
+    so the corpus lives in one place instead of being copy-pasted per file.
+    """
+    bc = tmp_path / ".brain-core"
+    bc.mkdir()
+    (bc / "VERSION").write_text("1.0.0\n")
+    (bc / "session-core.md").write_text("# Session Core\n")
+    (tmp_path / "_Config").mkdir()
+
+    wiki = tmp_path / "Wiki"
+    wiki.mkdir()
+    (wiki / "python-basics.md").write_text(
+        "---\ntype: living/wiki\ntags: [python, programming]\nstatus: active\n---\n\n"
+        "# Python Basics\n\nPython is a versatile programming language. "
+        "Python supports object-oriented programming and functional programming. "
+        "Python is widely used in data science and web development.\n"
+    )
+    (wiki / "rust-ownership.md").write_text(
+        "---\ntype: living/wiki\ntags: [rust, systems]\nstatus: active\n---\n\n"
+        "# Rust Ownership\n\nRust uses an ownership system to manage memory. "
+        "The borrow checker enforces ownership rules at compile time. "
+        "Rust prevents data races through its type system.\n"
+    )
+    (wiki / "javascript-async.md").write_text(
+        "---\ntype: living/wiki\ntags: [javascript, web]\nstatus: draft\n---\n\n"
+        "# JavaScript Async\n\nJavaScript uses promises and async/await for asynchronous programming. "
+        "The event loop processes callbacks. Node.js is a JavaScript runtime.\n"
+    )
+
+    designs = tmp_path / "Designs"
+    designs.mkdir()
+    (designs / "brain-tooling.md").write_text(
+        "---\ntype: living/design\ntags: [brain-core, tooling]\nstatus: active\n---\n\n"
+        "# Brain Tooling Design\n\nThe brain-core tooling architecture uses Python scripts. "
+        "Each script is self-contained with no external dependencies. "
+        "The compiled router is the central configuration interface.\n"
+    )
+
+    temporal = tmp_path / "_Temporal"
+    temporal.mkdir()
+    logs = temporal / "Logs"
+    logs.mkdir()
+    month = logs / "2026-03"
+    month.mkdir()
+    (month / "20260315-python-log.md").write_text(
+        "---\ntype: temporal/logs\ntags: [python, log]\nstatus: done\n---\n\n"
+        "# Python Research Log\n\nResearched Python packaging tools. "
+        "Compared pip, poetry, and pdm. Python packaging is evolving rapidly.\n"
+    )
+
+    return tmp_path
+
+
+def build_and_persist_index(vault):
+    """Build and persist the retrieval index for a searchable vault."""
+    import _search.index as search_index_mod
+
+    index = search_index_mod.build_index(vault).index
+    search_index_mod.persist_retrieval_index(vault, index)
+    return index

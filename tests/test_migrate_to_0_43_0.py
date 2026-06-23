@@ -283,7 +283,7 @@ class TestBodyConventions:
         moved = vault / "Designs" / "+Deprecated" / "Claude Plugin.md"
         content = moved.read_text()
         assert "Deprecated — superseded by [[Tooling Architecture]]" in content
-        assert "Brain Master Design]]" not in content.split("## Body")[0] or "Deprecated — superseded by [[Brain Master Design" not in content
+        assert "Deprecated — superseded by [[Brain Master Design" not in content
 
     def test_merged_into_body_line(self, vault, router):
         src = vault / "Designs" / "+Rejected" / "X.md"

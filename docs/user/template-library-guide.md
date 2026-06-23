@@ -122,6 +122,10 @@ Pre-work plans written before complex work begins. Records the intended approach
 
 Slide decks generated from markdown content using Marp CLI. The markdown source is the artefact; the PDF is the output. Use presentations to distil vault artefacts — designs, research, reports — into a structured narrative for an audience.
 
+### Printables
+
+Paginated PDF documents generated from markdown content using Pandoc. The markdown source is the artefact; the PDF is the output. Use a printable when the audience needs a page-based document — brief, memo, handout, one-pager, or report-style summary — rather than a slide deck.
+
 ### Reports
 
 Overviews of detailed processes, distilling findings and implications from research, diagnosis, or investigation. Use a report to communicate what a process meant — what was done, what was found, and what should happen next. A report is about what you *did*; research is about what you *learned*.

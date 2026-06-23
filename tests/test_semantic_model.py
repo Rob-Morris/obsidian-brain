@@ -139,6 +139,7 @@ def test_load_embeddings_state_returns_none_without_numpy(tmp_path, monkeypatch)
     assert semantic_runtime.load_embeddings_state(vault) == (None, None, None)
 
 
+@pytest.mark.semantic
 def test_load_embeddings_state_raises_on_corrupt_meta(tmp_path):
     pytest.importorskip("numpy")
     vault = _make_vault(tmp_path)
@@ -153,6 +154,7 @@ def test_load_embeddings_state_raises_on_corrupt_meta(tmp_path):
         semantic_runtime.load_embeddings_state(vault)
 
 
+@pytest.mark.semantic
 def test_load_embeddings_state_raises_when_meta_is_not_a_json_object(tmp_path):
     pytest.importorskip("numpy")
     vault = _make_vault(tmp_path)
@@ -167,6 +169,7 @@ def test_load_embeddings_state_raises_when_meta_is_not_a_json_object(tmp_path):
         semantic_runtime.load_embeddings_state(vault)
 
 
+@pytest.mark.semantic
 def test_load_embeddings_state_raises_on_corrupt_document_array(tmp_path):
     pytest.importorskip("numpy")
     vault = _make_vault(tmp_path)

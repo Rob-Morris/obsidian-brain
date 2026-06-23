@@ -97,7 +97,7 @@ Skill documents for MCP tools, CLI commands, or plugin workflows. One folder per
 
 ### MCP Tools
 
-If your vault runs the Brain MCP server (`.brain-core/brain_mcp/server.py`), nine tools are available:
+If your vault runs the Brain MCP server (`.brain-core/brain_mcp/server.py`), ten tools are available:
 
 **brain_init** (safe, auto-approvable)
 - Additive bootstrap/orientation snapshot for the Brain runtime
@@ -243,7 +243,7 @@ The same is now true for the managed operational wrappers: `build_index.py`, `se
 
 ### Compliance Checks
 
-Two complementary tools:
+Complementary tools:
 
 **`check.py`** (structural compliance) — deep scan that validates all files against the compiled router: naming patterns, frontmatter type and required fields, month folders for temporal files, archive metadata, status values, duplicate frontmatter corruption, and broken or ambiguous wikilinks (including YAML frontmatter property-links like `parent: "[[foo]]"`; wikilinks inside code, HTML comments, `$$` math, and raw HTML blocks are treated as literal text). When runtime, router, lexical-index, MCP, semantic, local workspace-registry drift, or duplicate artefact frontmatter is detected, normal output prints the exact `repair.py` command to run and JSON/compliance output includes structured `repair` metadata. Run on demand or during maintenance. Flags: `--json` (structured output), `--actionable` (fix suggestions), `--severity <level>` (filter).
 
