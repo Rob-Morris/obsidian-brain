@@ -63,9 +63,7 @@ def _make_drifted_vault(root: Path, name: str) -> Path:
     return vault
 
 
-def test_discover_brains_skips_registry_writes_until_sync(monkeypatch, tmp_path):
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+def test_discover_brains_skips_registry_writes_until_sync(monkeypatch, tmp_path, fake_home):
 
     current = _make_vault(tmp_path, "Current Brain")
     registered = _make_vault(tmp_path, "Registered Brain")
@@ -101,9 +99,7 @@ def test_discover_brains_skips_registry_writes_until_sync(monkeypatch, tmp_path)
     ]
 
 
-def test_discover_brains_ignores_non_local_authoritative_entries(monkeypatch, tmp_path):
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+def test_discover_brains_ignores_non_local_authoritative_entries(monkeypatch, tmp_path, fake_home):
 
     current = _make_vault(tmp_path, "Current Brain")
     registry_path = Path(os.environ["HOME"]) / ".config" / "brain" / "vaults"
@@ -116,9 +112,7 @@ def test_discover_brains_ignores_non_local_authoritative_entries(monkeypatch, tm
     assert summary["stale_registry_entries"] == []
 
 
-def test_discover_brains_uses_machine_registry_as_a_root(monkeypatch, tmp_path):
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+def test_discover_brains_uses_machine_registry_as_a_root(monkeypatch, tmp_path, fake_home):
 
     registered = _make_vault(tmp_path, "Registered Brain")
 
@@ -133,9 +127,7 @@ def test_discover_brains_uses_machine_registry_as_a_root(monkeypatch, tmp_path):
     assert second["machine_registry_view"]["version"] == 1
 
 
-def test_discover_brains_reports_stale_machine_registry_entries(monkeypatch, tmp_path):
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+def test_discover_brains_reports_stale_machine_registry_entries(monkeypatch, tmp_path, fake_home):
 
     active = _make_vault(tmp_path, "Active Brain")
     missing = tmp_path / "Missing Brain"
@@ -170,9 +162,7 @@ def test_discover_brains_reports_stale_machine_registry_entries(monkeypatch, tmp
     ]
 
 
-def test_sync_machine_registry_rewrites_malformed_v1_state_with_backup(monkeypatch, tmp_path):
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+def test_sync_machine_registry_rewrites_malformed_v1_state_with_backup(monkeypatch, tmp_path, fake_home):
 
     active = _make_vault(tmp_path, "Active Brain")
     machine_registry_path().parent.mkdir(parents=True, exist_ok=True)
@@ -203,9 +193,7 @@ def test_sync_machine_registry_rewrites_malformed_v1_state_with_backup(monkeypat
     ]
 
 
-def test_sync_machine_registry_blocks_invalid_json(monkeypatch, tmp_path):
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+def test_sync_machine_registry_blocks_invalid_json(monkeypatch, tmp_path, fake_home):
 
     active = _make_vault(tmp_path, "Active Brain")
     machine_registry_path().parent.mkdir(parents=True, exist_ok=True)
@@ -223,9 +211,7 @@ def test_sync_machine_registry_blocks_invalid_json(monkeypatch, tmp_path):
     assert machine_registry_path().read_text() == original
 
 
-def test_sync_machine_registry_refuses_newer_schema(monkeypatch, tmp_path):
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+def test_sync_machine_registry_refuses_newer_schema(monkeypatch, tmp_path, fake_home):
 
     active = _make_vault(tmp_path, "Active Brain")
     machine_registry_path().parent.mkdir(parents=True, exist_ok=True)
@@ -250,9 +236,7 @@ def test_sync_machine_registry_refuses_newer_schema(monkeypatch, tmp_path):
     assert machine_registry_path().read_text() == original
 
 
-def test_inspect_machine_runtime_state_classifies_selected_and_orphan_runtimes(monkeypatch, tmp_path):
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+def test_inspect_machine_runtime_state_classifies_selected_and_orphan_runtimes(monkeypatch, tmp_path, fake_home):
 
     vault = _make_vault(tmp_path, "Active Brain")
     selected_runtime = resolve_vault_venv_python(vault, launcher=Path(sys.executable))
@@ -301,9 +285,7 @@ def test_classify_brain_runtime_preserves_venv_symlink_boundary(monkeypatch, tmp
     assert runtime["selected_runtime"] == str(selected)
 
 
-def test_inspect_machine_runtime_state_marks_orphans_unknown_when_ps_fails(monkeypatch, tmp_path):
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+def test_inspect_machine_runtime_state_marks_orphans_unknown_when_ps_fails(monkeypatch, tmp_path, fake_home):
 
     vault = _make_vault(tmp_path, "Active Brain")
     selected_runtime = resolve_vault_venv_python(vault, launcher=Path(sys.executable))
@@ -463,9 +445,7 @@ def test_classify_brain_runtime_reports_missing_runtime(monkeypatch, tmp_path):
 
 
 
-def test_inspect_machine_runtime_state_reports_brain_level_repair_findings(monkeypatch, tmp_path):
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+def test_inspect_machine_runtime_state_reports_brain_level_repair_findings(monkeypatch, tmp_path, fake_home):
 
     vault = _make_drifted_vault(tmp_path, "Active Brain")
     discovery = discover_brains(current_vault=vault)
@@ -485,9 +465,7 @@ def test_inspect_machine_runtime_state_reports_brain_level_repair_findings(monke
     assert not summary["healthy"]
 
 
-def test_migrate_legacy_brains_reports_missing_selector(monkeypatch, tmp_path):
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+def test_migrate_legacy_brains_reports_missing_selector(monkeypatch, tmp_path, fake_home):
 
     vault = _make_vault(tmp_path, "Active Brain")
     discovery = discover_brains(current_vault=vault)
@@ -512,9 +490,7 @@ def test_migrate_legacy_brains_reports_missing_selector(monkeypatch, tmp_path):
 
 
 
-def test_migrate_legacy_brains_reports_non_legacy_selector_as_noop(monkeypatch, tmp_path):
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+def test_migrate_legacy_brains_reports_non_legacy_selector_as_noop(monkeypatch, tmp_path, fake_home):
 
     vault = _make_vault(tmp_path, "Active Brain")
     selected_runtime = resolve_vault_venv_python(vault, launcher=Path(sys.executable))
@@ -541,9 +517,7 @@ def test_migrate_legacy_brains_reports_non_legacy_selector_as_noop(monkeypatch, 
 
 
 
-def test_migrate_legacy_brains_dry_run_plans_runtime_and_venv_changes(monkeypatch, tmp_path):
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+def test_migrate_legacy_brains_dry_run_plans_runtime_and_venv_changes(monkeypatch, tmp_path, fake_home):
 
     vault = _make_drifted_vault(tmp_path, "Legacy Brain")
     legacy_python = vault / ".venv" / "bin" / "python"
@@ -578,9 +552,7 @@ def test_migrate_legacy_brains_dry_run_plans_runtime_and_venv_changes(monkeypatc
 
 
 
-def test_migrate_legacy_brains_delegates_repairs_and_removes_legacy_venv(monkeypatch, tmp_path):
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+def test_migrate_legacy_brains_delegates_repairs_and_removes_legacy_venv(monkeypatch, tmp_path, fake_home):
 
     vault = _make_drifted_vault(tmp_path, "Legacy Brain")
     legacy_python = vault / ".venv" / "bin" / "python"
@@ -622,9 +594,7 @@ def test_migrate_legacy_brains_delegates_repairs_and_removes_legacy_venv(monkeyp
     assert "repair.py" in target["steps"][2]["command"] and " registry " in target["steps"][2]["command"] and "--json" in target["steps"][2]["command"]
 
 
-def test_prune_orphaned_runtimes_removes_orphans(monkeypatch, tmp_path):
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+def test_prune_orphaned_runtimes_removes_orphans(monkeypatch, tmp_path, fake_home):
 
     vault = _make_vault(tmp_path, "Active Brain")
     selected_runtime = resolve_vault_venv_python(vault, launcher=Path(sys.executable))
@@ -648,9 +618,7 @@ def test_prune_orphaned_runtimes_removes_orphans(monkeypatch, tmp_path):
     assert Path(selected_runtime).is_file()
 
 
-def test_migrate_legacy_brains_keeps_legacy_venv_on_partial_delegated_repair(monkeypatch, tmp_path):
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+def test_migrate_legacy_brains_keeps_legacy_venv_on_partial_delegated_repair(monkeypatch, tmp_path, fake_home):
 
     vault = _make_drifted_vault(tmp_path, "Legacy Brain")
     legacy_python = vault / ".venv" / "bin" / "python"
@@ -684,9 +652,7 @@ def test_migrate_legacy_brains_keeps_legacy_venv_on_partial_delegated_repair(mon
     assert legacy_python.parent.parent.exists()
 
 
-def test_migrate_legacy_brains_keeps_legacy_venv_when_live_process_detected(monkeypatch, tmp_path):
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+def test_migrate_legacy_brains_keeps_legacy_venv_when_live_process_detected(monkeypatch, tmp_path, fake_home):
 
     vault = _make_drifted_vault(tmp_path, "Legacy Brain")
     legacy_python = vault / ".venv" / "bin" / "python"
@@ -725,9 +691,7 @@ def test_migrate_legacy_brains_keeps_legacy_venv_when_live_process_detected(monk
 
 
 
-def test_migrate_legacy_brains_keeps_legacy_venv_when_live_scan_unavailable(monkeypatch, tmp_path):
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+def test_migrate_legacy_brains_keeps_legacy_venv_when_live_scan_unavailable(monkeypatch, tmp_path, fake_home):
 
     vault = _make_drifted_vault(tmp_path, "Legacy Brain")
     legacy_python = vault / ".venv" / "bin" / "python"
@@ -785,9 +749,8 @@ def test_migrate_legacy_brains_keeps_legacy_venv_on_repair_scope_errors(
     tmp_path,
     run_factory,
     expected_fragment,
+    fake_home,
 ):
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
 
     vault = _make_drifted_vault(tmp_path, "Legacy Brain")
     legacy_python = vault / ".venv" / "bin" / "python"
@@ -817,9 +780,7 @@ def test_migrate_legacy_brains_keeps_legacy_venv_on_repair_scope_errors(
 
 
 
-def test_migrate_legacy_brains_dry_run_reports_live_scan_uncertainty(monkeypatch, tmp_path):
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+def test_migrate_legacy_brains_dry_run_reports_live_scan_uncertainty(monkeypatch, tmp_path, fake_home):
 
     vault = _make_drifted_vault(tmp_path, "Legacy Brain")
     legacy_python = vault / ".venv" / "bin" / "python"
@@ -852,9 +813,7 @@ def test_migrate_legacy_brains_dry_run_reports_live_scan_uncertainty(monkeypatch
 
 
 
-def test_prune_orphaned_runtimes_keeps_live_unclaimed_runtime(monkeypatch, tmp_path):
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+def test_prune_orphaned_runtimes_keeps_live_unclaimed_runtime(monkeypatch, tmp_path, fake_home):
 
     vault = _make_vault(tmp_path, "Active Brain")
     selected_runtime = resolve_vault_venv_python(vault, launcher=Path(sys.executable))
@@ -895,9 +854,7 @@ def test_prune_orphaned_runtimes_keeps_live_unclaimed_runtime(monkeypatch, tmp_p
 
 
 
-def test_prune_orphaned_runtimes_reports_rmtree_errors_per_target(monkeypatch, tmp_path):
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+def test_prune_orphaned_runtimes_reports_rmtree_errors_per_target(monkeypatch, tmp_path, fake_home):
 
     vault = _make_vault(tmp_path, "Active Brain")
     orphan_one = central_venvs_root() / "py3.12-orphan0000000000" / "bin" / "python"
@@ -935,9 +892,7 @@ def test_prune_orphaned_runtimes_reports_rmtree_errors_per_target(monkeypatch, t
 
 
 
-def test_machine_main_renders_migrate_json(monkeypatch, tmp_path, capsys):
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+def test_machine_main_renders_migrate_json(monkeypatch, tmp_path, capsys, fake_home):
 
     vault = _make_drifted_vault(tmp_path, "Legacy Brain")
     legacy_python = vault / ".venv" / "bin" / "python"
@@ -985,9 +940,7 @@ def test_machine_main_renders_migrate_json(monkeypatch, tmp_path, capsys):
 
 
 
-def test_machine_main_renders_prune_json(monkeypatch, tmp_path, capsys):
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+def test_machine_main_renders_prune_json(monkeypatch, tmp_path, capsys, fake_home):
 
     vault = _make_vault(tmp_path, "Active Brain")
     selected_runtime = resolve_vault_venv_python(vault, launcher=Path(sys.executable))
@@ -1040,9 +993,7 @@ def test_machine_main_renders_prune_json(monkeypatch, tmp_path, capsys):
 
 
 
-def test_doctor_machine_main_renders_brain_level_repair_guidance(monkeypatch, tmp_path, capsys):
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+def test_doctor_machine_main_renders_brain_level_repair_guidance(monkeypatch, tmp_path, capsys, fake_home):
 
     vault = _make_drifted_vault(tmp_path, "Active Brain")
     monkeypatch.setattr(
@@ -1088,9 +1039,7 @@ def test_doctor_machine_main_renders_brain_level_repair_guidance(monkeypatch, tm
     assert {finding["repair"]["scope"] for finding in payload["brains"][0]["repair_findings"]} == {"mcp", "registry"}
 
 
-def test_doctor_machine_main_renders_default_blocked_registry_note(monkeypatch, tmp_path, capsys):
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+def test_doctor_machine_main_renders_default_blocked_registry_note(monkeypatch, tmp_path, capsys, fake_home):
 
     vault = _make_vault(tmp_path, "Active Brain")
     machine_registry_path().parent.mkdir(parents=True, exist_ok=True)
@@ -1116,9 +1065,7 @@ def test_doctor_machine_main_renders_default_blocked_registry_note(monkeypatch, 
 
 
 
-def test_doctor_machine_main_renders_human_and_json(monkeypatch, tmp_path, capsys):
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+def test_doctor_machine_main_renders_human_and_json(monkeypatch, tmp_path, capsys, fake_home):
 
     vault = _make_vault(tmp_path, "Active Brain")
     selected_runtime = resolve_vault_venv_python(vault, launcher=Path(sys.executable))
