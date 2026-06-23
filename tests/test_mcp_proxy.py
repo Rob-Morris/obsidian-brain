@@ -1009,7 +1009,16 @@ class TestInitialStartRecovery:
             early_resp = _find_by_id(early_msgs, 1)
             assert early_resp is not None, f"Expected early error response for id=1, got: {early_msgs}"
             assert "error" in early_resp, f"Expected error, got: {early_resp}"
-            assert early_resp["error"]["message"] == "server restarting, please retry"
+            # With instant backoff (0,0,0) the three recovery attempts collapse
+            # to a near-zero window, so id=1 may land either mid-recovery (soft
+            # retry) or after give-up — both are correct. The deterministic
+            # mid-recovery soft-fail is covered by TestAsyncRecoveryThread; here
+            # we only require a valid recovery error. id=2 below pins give-up.
+            early_msg = early_resp["error"]["message"]
+            assert (
+                early_msg == "server restarting, please retry"
+                or "MCP unrecoverable" in early_msg
+            ), early_msg
 
             time.sleep(0.2)
             proc.stdin.write(_make_jsonrpc("tools/call", id=2, params={"name": "ping"}))
