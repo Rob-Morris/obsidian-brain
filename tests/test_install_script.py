@@ -16,6 +16,7 @@ from conftest import (
     copy_install_source as _copy_source_checkout,
     launcher_discovery_path,
     write_executable as _write_executable,
+    write_fake_launcher,
 )
 
 
@@ -51,31 +52,7 @@ def test_install_ignores_machine_local_template_state(tmp_path):
 
     fake_bin = tmp_path / "fake-bin"
     fake_bin.mkdir()
-    _write_executable(
-        fake_bin / "python3.12",
-        "#!/bin/sh\n"
-        "if [ \"$1\" = \"-c\" ]; then\n"
-        f"  exec {REAL_PYTHON} \"$@\"\n"
-        "fi\n"
-        "if [ \"$1\" = \"-m\" ] && [ \"$2\" = \"venv\" ]; then\n"
-        "  venv_dir=\"$3\"\n"
-        "  mkdir -p \"$venv_dir/bin\"\n"
-        "  cat > \"$venv_dir/bin/python\" <<'EOF'\n"
-        "#!/bin/sh\n"
-        "if [ \"$1\" = \"-m\" ] && [ \"$2\" = \"pip\" ]; then\n"
-        "  shift 2\n"
-        "  venv_dir=$(cd \"$(dirname \"$0\")/..\" && pwd)\n"
-        "  printf '%s\\n' \"$*\" > \"$venv_dir/pip-args.txt\"\n"
-        "  exit 0\n"
-        "fi\n"
-        "printf 'unexpected venv python args: %s\\n' \"$*\" >&2\n"
-        "exit 1\n"
-        "EOF\n"
-        "  chmod +x \"$venv_dir/bin/python\"\n"
-        "  exit 0\n"
-        "fi\n"
-        f"exec {REAL_PYTHON} \"$@\"\n",
-    )
+    write_fake_launcher(fake_bin / "python3.12", cversion=None, venv="ok")
 
     target = tmp_path / "vault"
     fake_home = tmp_path / "home"
@@ -152,15 +129,7 @@ def test_install_sh_errors_on_unexpected_install_core_exit(tmp_path):
 
     fake_bin = tmp_path / "fake-bin"
     fake_bin.mkdir()
-    _write_executable(
-        fake_bin / "python3.12",
-        "#!/bin/sh\n"
-        "if [ \"$1\" = \"-c\" ]; then\n"
-        "  printf '3.12\\n'\n"
-        "  exit 0\n"
-        "fi\n"
-        f"exec {REAL_PYTHON} \"$@\"\n",
-    )
+    write_fake_launcher(fake_bin / "python3.12")
 
     target = tmp_path / "vault"
     env = os.environ.copy()
@@ -186,32 +155,7 @@ def test_install_continues_when_mcp_dependency_install_fails(tmp_path):
 
     fake_bin = tmp_path / "fake-bin"
     fake_bin.mkdir()
-    _write_executable(
-        fake_bin / "python3.12",
-        "#!/bin/sh\n"
-        "if [ \"$1\" = \"-c\" ]; then\n"
-        f"  exec {REAL_PYTHON} \"$@\"\n"
-        "fi\n"
-        "if [ \"$1\" = \"-m\" ] && [ \"$2\" = \"venv\" ]; then\n"
-        "  venv_dir=\"$3\"\n"
-        "  mkdir -p \"$venv_dir/bin\"\n"
-        "  cat > \"$venv_dir/bin/python\" <<'EOF'\n"
-        "#!/bin/sh\n"
-        "if [ \"$1\" = \"-m\" ] && [ \"$2\" = \"pip\" ]; then\n"
-        "  shift 2\n"
-        "  venv_dir=$(cd \"$(dirname \"$0\")/..\" && pwd)\n"
-        "  printf '%s\\n' \"$*\" > \"$venv_dir/pip-args.txt\"\n"
-        "  printf 'simulated pip failure\\n' >&2\n"
-        "  exit 1\n"
-        "fi\n"
-        "printf 'unexpected venv python args: %s\\n' \"$*\" >&2\n"
-        "exit 1\n"
-        "EOF\n"
-        "  chmod +x \"$venv_dir/bin/python\"\n"
-        "  exit 0\n"
-        "fi\n"
-        f"exec {REAL_PYTHON} \"$@\"\n",
-    )
+    write_fake_launcher(fake_bin / "python3.12", cversion=None, venv="fail")
 
     target = tmp_path / "vault"
     fake_home = tmp_path / "home"
@@ -254,14 +198,7 @@ def test_install_can_skip_mcp_setup(tmp_path):
 
     fake_bin = tmp_path / "fake-bin"
     fake_bin.mkdir()
-    _write_executable(
-        fake_bin / "python3.12",
-        "#!/bin/sh\n"
-        "if [ \"$1\" = \"-c\" ]; then\n"
-        f"  exec {REAL_PYTHON} \"$@\"\n"
-        "fi\n"
-        f"exec {REAL_PYTHON} \"$@\"\n",
-    )
+    write_fake_launcher(fake_bin / "python3.12", cversion=None)
 
     target = tmp_path / "vault"
     env = os.environ.copy()
@@ -300,15 +237,7 @@ def test_install_can_enable_semantic_after_skipping_mcp(tmp_path):
 
     fake_bin = tmp_path / "fake-bin"
     fake_bin.mkdir()
-    _write_executable(
-        fake_bin / "python3.12",
-        "#!/bin/sh\n"
-        "if [ \"$1\" = \"-c\" ]; then\n"
-        "  printf '3.12\\n'\n"
-        "  exit 0\n"
-        "fi\n"
-        f"exec {REAL_PYTHON} \"$@\"\n",
-    )
+    write_fake_launcher(fake_bin / "python3.12")
 
     target = tmp_path / "vault"
     env = os.environ.copy()
@@ -490,15 +419,7 @@ def test_install_keeps_vault_when_semantic_setup_fails(tmp_path):
 
     fake_bin = tmp_path / "fake-bin"
     fake_bin.mkdir()
-    _write_executable(
-        fake_bin / "python3.12",
-        "#!/bin/sh\n"
-        "if [ \"$1\" = \"-c\" ]; then\n"
-        "  printf '3.12\\n'\n"
-        "  exit 0\n"
-        "fi\n"
-        f"exec {REAL_PYTHON} \"$@\"\n",
-    )
+    write_fake_launcher(fake_bin / "python3.12")
 
     target = tmp_path / "vault"
     env = os.environ.copy()
@@ -526,15 +447,7 @@ def test_uninstall_preserves_user_claude_md_content_and_cleans_vault_local_claud
 
     fake_bin = tmp_path / "fake-bin"
     fake_bin.mkdir()
-    _write_executable(
-        fake_bin / "python3.12",
-        "#!/bin/sh\n"
-        "if [ \"$1\" = \"-c\" ]; then\n"
-        "  printf '3.12\\n'\n"
-        "  exit 0\n"
-        "fi\n"
-        f"exec {REAL_PYTHON} \"$@\"\n",
-    )
+    write_fake_launcher(fake_bin / "python3.12")
 
     target = tmp_path / "vault"
     env = os.environ.copy()
@@ -653,15 +566,7 @@ def test_uninstall_uses_configure_for_recorded_cleanup_calls(tmp_path):
     )
     fake_bin = tmp_path / "fake-bin"
     fake_bin.mkdir()
-    _write_executable(
-        fake_bin / "python3.12",
-        "#!/bin/sh\n"
-        "if [ \"$1\" = \"-c\" ]; then\n"
-        "  printf '3.12\\n'\n"
-        "  exit 0\n"
-        "fi\n"
-        f"exec {REAL_PYTHON} \"$@\"\n",
-    )
+    write_fake_launcher(fake_bin / "python3.12")
 
     env = os.environ.copy()
     env["PATH"] = f"{fake_bin}{os.pathsep}{launcher_discovery_path()}"
@@ -731,15 +636,7 @@ def test_uninstall_configure_cleanup_fallback_warning(tmp_path):
 
     fake_bin = tmp_path / "fake-bin"
     fake_bin.mkdir()
-    _write_executable(
-        fake_bin / "python3.12",
-        "#!/bin/sh\n"
-        "if [ \"$1\" = \"-c\" ]; then\n"
-        "  printf '3.12\\n'\n"
-        "  exit 0\n"
-        "fi\n"
-        f"exec {REAL_PYTHON} \"$@\"\n",
-    )
+    write_fake_launcher(fake_bin / "python3.12")
 
     env = os.environ.copy()
     env["PATH"] = f"{fake_bin}{os.pathsep}{launcher_discovery_path()}"
@@ -887,21 +784,7 @@ def test_upgrade_wrapper_does_not_rerun_mcp_setup(tmp_path):
     )
     fake_bin = tmp_path / "fake-bin"
     fake_bin.mkdir()
-    _write_executable(
-        fake_bin / "python3.12",
-        "#!/bin/sh\n"
-        "if [ \"$1\" = \"-c\" ]; then\n"
-        "  printf '3.12\\n'\n"
-        "  exit 0\n"
-        "fi\n"
-        "if [ \"$1\" = \"-m\" ] && [ \"$2\" = \"venv\" ]; then\n"
-        "  venv_dir=\"$3\"\n"
-        "  mkdir -p \"$venv_dir\"\n"
-        "  printf 'unexpected venv creation\\n' > \"$venv_dir/should-not-exist.txt\"\n"
-        "  exit 0\n"
-        "fi\n"
-        f"exec {REAL_PYTHON} \"$@\"\n",
-    )
+    write_fake_launcher(fake_bin / "python3.12", venv="marker")
 
     target = tmp_path / "vault"
     (target / ".brain-core").mkdir(parents=True)
@@ -951,15 +834,7 @@ def test_upgrade_wrapper_does_not_run_semantic_configuration(tmp_path):
 
     fake_bin = tmp_path / "fake-bin"
     fake_bin.mkdir()
-    _write_executable(
-        fake_bin / "python3.12",
-        "#!/bin/sh\n"
-        "if [ \"$1\" = \"-c\" ]; then\n"
-        "  printf '3.12\\n'\n"
-        "  exit 0\n"
-        "fi\n"
-        f"exec {REAL_PYTHON} \"$@\"\n",
-    )
+    write_fake_launcher(fake_bin / "python3.12")
 
     target = tmp_path / "vault"
     (target / ".brain-core").mkdir(parents=True)

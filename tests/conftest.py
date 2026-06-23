@@ -165,6 +165,78 @@ def write_executable(path, content):
     path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
 
+def write_fake_launcher(path, *, cversion="3.12", venv="none", real_python=None):
+    """Write a fake ``python`` launcher stub used by the install.sh tests.
+
+    Centralises the shell stub that install/upgrade tests previously copy-pasted.
+
+    cversion: value printed for ``-c`` version probes (e.g. ``"3.12"``). If
+        ``None``, ``-c`` is delegated to the real interpreter — for flows whose
+        install path actually runs ``-c`` code rather than only probing.
+    venv: behaviour of ``-m venv <dir>``:
+        ``"none"``   — not handled (falls through to the real interpreter);
+        ``"ok"``     — create a venv whose python records pip args to
+                       ``pip-args.txt`` and succeeds;
+        ``"fail"``   — like ``"ok"`` but the venv pip prints a failure and exits 1;
+        ``"marker"`` — create the venv dir plus a ``should-not-exist.txt`` marker
+                       (for tests asserting a flow must NOT provision a venv).
+    """
+    real_python = real_python or sys.executable
+    if cversion is None:
+        c_branch = (
+            "if [ \"$1\" = \"-c\" ]; then\n"
+            f"  exec {real_python} \"$@\"\n"
+            "fi\n"
+        )
+    else:
+        c_branch = (
+            "if [ \"$1\" = \"-c\" ]; then\n"
+            f"  printf '{cversion}\\n'\n"
+            "  exit 0\n"
+            "fi\n"
+        )
+
+    venv_branch = ""
+    if venv in ("ok", "fail"):
+        pip_tail = (
+            "  exit 0\n" if venv == "ok"
+            else "  printf 'simulated pip failure\\n' >&2\n  exit 1\n"
+        )
+        venv_branch = (
+            "if [ \"$1\" = \"-m\" ] && [ \"$2\" = \"venv\" ]; then\n"
+            "  venv_dir=\"$3\"\n"
+            "  mkdir -p \"$venv_dir/bin\"\n"
+            "  cat > \"$venv_dir/bin/python\" <<'EOF'\n"
+            "#!/bin/sh\n"
+            "if [ \"$1\" = \"-m\" ] && [ \"$2\" = \"pip\" ]; then\n"
+            "  shift 2\n"
+            "  venv_dir=$(cd \"$(dirname \"$0\")/..\" && pwd)\n"
+            "  printf '%s\\n' \"$*\" > \"$venv_dir/pip-args.txt\"\n"
+            f"{pip_tail}"
+            "fi\n"
+            "printf 'unexpected venv python args: %s\\n' \"$*\" >&2\n"
+            "exit 1\n"
+            "EOF\n"
+            "  chmod +x \"$venv_dir/bin/python\"\n"
+            "  exit 0\n"
+            "fi\n"
+        )
+    elif venv == "marker":
+        venv_branch = (
+            "if [ \"$1\" = \"-m\" ] && [ \"$2\" = \"venv\" ]; then\n"
+            "  venv_dir=\"$3\"\n"
+            "  mkdir -p \"$venv_dir\"\n"
+            "  printf 'unexpected venv creation\\n' > \"$venv_dir/should-not-exist.txt\"\n"
+            "  exit 0\n"
+            "fi\n"
+        )
+
+    write_executable(
+        path,
+        "#!/bin/sh\n" + c_branch + venv_branch + f"exec {real_python} \"$@\"\n",
+    )
+
+
 def copy_install_source(dest):
     """Copy the repo's install entry points into *dest* for install.sh integration tests.
 
