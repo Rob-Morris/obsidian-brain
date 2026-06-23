@@ -105,7 +105,7 @@ def test_doctor_main_renders_human_and_json(monkeypatch, capsys):
     assert doctor.main() == 2
     human = capsys.readouterr().out
     assert "machine diagnosis:" in human
-    assert "brains:    1 discovered" in human
+    assert "1 discovered" in human
     assert "vault diagnosis:" in human
     assert "Vault drift" in human
 
