@@ -6,7 +6,7 @@ import pytest
 
 import fix_links
 from _common import file_index_from_documents
-from conftest import make_router, write_md
+from brain_test_support import make_router, write_md
 
 
 # ---------------------------------------------------------------------------

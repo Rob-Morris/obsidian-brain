@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import copy_install_source, launcher_discovery_path
+from brain_test_support import copy_install_source, launcher_discovery_path
 
 
 @pytest.fixture(scope="module")

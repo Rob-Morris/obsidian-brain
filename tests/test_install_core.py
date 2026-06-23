@@ -10,7 +10,7 @@ import sys
 
 import pytest
 
-from conftest import copy_install_source
+from brain_test_support import copy_install_source
 import vault_registry
 
 
