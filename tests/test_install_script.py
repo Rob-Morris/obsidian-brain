@@ -12,7 +12,7 @@ from _bootstrap.mcp_state import build_mcp_config, build_session_hook_command
 from _bootstrap.mcp_transport import CLAUDE_MD_BOOTSTRAP_VAULT
 from _common._yaml import load_mapping_text
 
-from conftest import (
+from brain_test_support import (
     copy_install_source as _copy_source_checkout,
     launcher_discovery_path,
     write_executable as _write_executable,

@@ -13,8 +13,8 @@ import _lifecycle.semantic_repairs as semantic_repairs
 import _search.index as search_index
 import _search.paths as search_paths
 
-from conftest import make_router, write_md
-from conftest import filesystem_is_case_sensitive
+from brain_test_support import make_router, write_md
+from brain_test_support import filesystem_is_case_sensitive
 
 
 # ---------------------------------------------------------------------------

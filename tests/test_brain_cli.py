@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import launcher_discovery_path
+from brain_test_support import launcher_discovery_path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]

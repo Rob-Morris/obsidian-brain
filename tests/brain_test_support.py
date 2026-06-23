@@ -3,9 +3,10 @@
 Fixtures live in ``conftest.py`` (they cascade into subdirectories
 automatically). Plain helper *functions*, however, cannot be reached from a
 subdirectory test via ``from conftest import ...`` — under pytest's default
-prepend import mode that name resolves to the subdirectory's own conftest. So
-the shared plain helpers live here instead, on the ``pythonpath`` (see
-pyproject), and ``conftest`` re-exports them for backwards compatibility.
+prepend import mode that name resolves to the subdirectory's own conftest, and
+two conftest modules collide in ``sys.modules``. So the shared plain helpers
+live here instead, on the ``pythonpath`` (see pyproject); tests import them
+from ``brain_test_support`` directly.
 """
 
 import atexit

@@ -18,7 +18,7 @@ import _search.snippet as snippet_mod
 import _semantic.model as semantic_model
 import _semantic.runtime as semantic_runtime
 
-from conftest import build_and_persist_index, make_searchable_vault
+from brain_test_support import build_and_persist_index, make_searchable_vault
 
 
 # ---------------------------------------------------------------------------

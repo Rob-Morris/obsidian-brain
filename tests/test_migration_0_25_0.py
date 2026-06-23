@@ -1,6 +1,6 @@
 """Tests for migrations/migrate_to_0_25_0.py — canonical bootstrap text."""
 
-from conftest import filesystem_is_case_sensitive
+from brain_test_support import filesystem_is_case_sensitive
 from migrate_to_0_25_0 import NEW_BOOTSTRAP, migrate
 
 

@@ -7,7 +7,7 @@ import pytest
 import _common as common
 from _common import is_vault_root
 
-from conftest import filesystem_is_case_sensitive
+from brain_test_support import filesystem_is_case_sensitive
 
 
 # ---------------------------------------------------------------------------

@@ -55,20 +55,8 @@ for _path in (PACKAGE_ROOT, SCRIPTS_DIR, MIGRATIONS_DIR):
     if _path not in sys.path:
         sys.path.insert(0, _path)
 
-# Re-export plain helpers from brain_test_support so existing `from conftest import <helper>`
-# call sites keep working; subdirectory tests import them from brain_test_support directly.
-from brain_test_support import (  # noqa: E402
-    TEMPLATE_VAULT_COPY_IGNORE,
-    build_and_persist_index,
-    copy_install_source,
-    filesystem_is_case_sensitive,
-    launcher_discovery_path,
-    make_router,
-    make_searchable_vault,
-    write_executable,
-    write_fake_launcher,
-    write_md,
-)
+# Plain helper functions live in brain_test_support (importable from any
+# subdirectory); conftest holds only fixtures, which cascade automatically.
 
 
 # ---------------------------------------------------------------------------

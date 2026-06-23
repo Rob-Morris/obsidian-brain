@@ -11,7 +11,7 @@ import sys
 import pytest
 
 import upgrade
-from conftest import write_executable as _write_executable
+from brain_test_support import write_executable as _write_executable
 
 
 # ---------------------------------------------------------------------------

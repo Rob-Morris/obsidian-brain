@@ -8,7 +8,7 @@ import pytest
 
 import compile_colours as cc
 import compile_router
-from conftest import TEMPLATE_VAULT_COPY_IGNORE
+from brain_test_support import TEMPLATE_VAULT_COPY_IGNORE
 
 
 TEMPLATE_VAULT = os.path.join(
