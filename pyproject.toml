@@ -33,6 +33,7 @@ testpaths = ["tests"]
 pythonpath = [
     "src/brain-core",
     "src/brain-core/scripts",
+    "tests",
 ]
 markers = [
     "slow: subprocess integration tests (deselect with -m 'not slow')",
