@@ -18,6 +18,8 @@ import _search.snippet as snippet_mod
 import _semantic.model as semantic_model
 import _semantic.runtime as semantic_runtime
 
+from conftest import build_and_persist_index, make_searchable_vault
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -25,68 +27,14 @@ import _semantic.runtime as semantic_runtime
 
 @pytest.fixture
 def vault(tmp_path):
-    """Create a vault with searchable content."""
-    bc = tmp_path / ".brain-core"
-    bc.mkdir()
-    (bc / "VERSION").write_text("1.0.0\n")
-    (bc / "session-core.md").write_text("# Session Core\n")
-    (tmp_path / "_Config").mkdir()
-
-    wiki = tmp_path / "Wiki"
-    wiki.mkdir()
-    (wiki / "python-basics.md").write_text(
-        "---\ntype: living/wiki\ntags: [python, programming]\nstatus: active\n---\n\n"
-        "# Python Basics\n\nPython is a versatile programming language. "
-        "Python supports object-oriented programming and functional programming. "
-        "Python is widely used in data science and web development.\n"
-    )
-    (wiki / "rust-ownership.md").write_text(
-        "---\ntype: living/wiki\ntags: [rust, systems]\nstatus: active\n---\n\n"
-        "# Rust Ownership\n\nRust uses an ownership system to manage memory. "
-        "The borrow checker enforces ownership rules at compile time. "
-        "Rust prevents data races through its type system.\n"
-    )
-    (wiki / "javascript-async.md").write_text(
-        "---\ntype: living/wiki\ntags: [javascript, web]\nstatus: draft\n---\n\n"
-        "# JavaScript Async\n\nJavaScript uses promises and async/await for asynchronous programming. "
-        "The event loop processes callbacks. Node.js is a JavaScript runtime.\n"
-    )
-
-    designs = tmp_path / "Designs"
-    designs.mkdir()
-    (designs / "brain-tooling.md").write_text(
-        "---\ntype: living/design\ntags: [brain-core, tooling]\nstatus: active\n---\n\n"
-        "# Brain Tooling Design\n\nThe brain-core tooling architecture uses Python scripts. "
-        "Each script is self-contained with no external dependencies. "
-        "The compiled router is the central configuration interface.\n"
-    )
-
-    temporal = tmp_path / "_Temporal"
-    temporal.mkdir()
-    logs = temporal / "Logs"
-    logs.mkdir()
-    month = logs / "2026-03"
-    month.mkdir()
-    (month / "20260315-python-log.md").write_text(
-        "---\ntype: temporal/logs\ntags: [python, log]\nstatus: done\n---\n\n"
-        "# Python Research Log\n\nResearched Python packaging tools. "
-        "Compared pip, poetry, and pdm. Python packaging is evolving rapidly.\n"
-    )
-
-    return tmp_path
+    """Create a vault with searchable content (shared corpus, see conftest)."""
+    return make_searchable_vault(tmp_path)
 
 
 @pytest.fixture
 def index(vault):
     """Build and return an index for the test vault."""
     return search_index_mod.build_index(vault).index
-
-
-def build_and_persist_index(vault):
-    """Build and persist the retrieval index for CLI wrapper tests."""
-    index = search_index_mod.build_index(vault).index
-    search_index_mod.persist_retrieval_index(vault, index)
-    return index
 
 
 def write_local_config(vault, body):
@@ -107,6 +55,7 @@ class TestTokenise:
 
 
 class TestSemanticRuntime:
+    @pytest.mark.semantic
     def test_rank_against_requires_matrix_and_metadata_lengths_to_match(self):
         np = pytest.importorskip("numpy")
         matrix = np.array([[1.0, 0.0], [0.0, 1.0]])
@@ -339,6 +288,7 @@ class TestSemanticSearch:
 
         assert search_mode.default_search_mode(vault, config=cfg) == "hybrid"
 
+    @pytest.mark.semantic
     def test_semantic_search_uses_document_vectors(self, index, vault, monkeypatch):
         np = pytest.importorskip("numpy")
         monkeypatch.setattr(
@@ -369,6 +319,7 @@ class TestSemanticSearch:
         assert len(results) == 3
         assert results[0]["path"] == "Designs/brain-tooling.md"
 
+    @pytest.mark.semantic
     def test_semantic_search_respects_filters(self, index, vault, monkeypatch):
         np = pytest.importorskip("numpy")
         monkeypatch.setattr(
@@ -412,6 +363,7 @@ class TestSemanticSearch:
         with pytest.raises(search_mode.SearchModeUnavailableError, match="corrupt sidecars"):
             semantic_query.search_semantic("brain", vault)
 
+    @pytest.mark.semantic
     def test_load_doc_embeddings_reports_stale_router_sidecars(self, vault):
         np = pytest.importorskip("numpy")
         local_dir = vault / ".brain" / "local"
@@ -438,6 +390,7 @@ class TestSemanticSearch:
         ):
             semantic_query.load_doc_embeddings_or_unavailable(vault)
 
+    @pytest.mark.semantic
     def test_semantic_search_wraps_semantic_model_errors(self, vault, monkeypatch):
         np = pytest.importorskip("numpy")
 
@@ -454,6 +407,7 @@ class TestSemanticSearch:
                 embeddings_meta={"documents": [{"path": "Wiki/python-basics.md"}]},
             )
 
+    @pytest.mark.semantic
     def test_hybrid_search_combines_lexical_and_semantic_results(self, index, vault, monkeypatch):
         np = pytest.importorskip("numpy")
         monkeypatch.setattr(
@@ -541,6 +495,7 @@ class TestSemanticSearch:
         assert hybrid_query._core_title_tokens("Brain MCP Server") == ["mcp", "server"]
         assert hybrid_query._core_title_tokens("Atlas MCP Server") == ["atlas", "mcp", "server"]
 
+    @pytest.mark.semantic
     def test_hybrid_search_end_to_end_promotes_semantic_champion(self, vault, monkeypatch):
         self._write_doc(
             vault,
@@ -613,6 +568,7 @@ class TestSemanticSearch:
         assert baseline[0]["path"] == "Wiki/lattice-harbour-guide.md"
         assert boosted[0]["path"] == "Wiki/conceptual-docking-notes.md"
 
+    @pytest.mark.semantic
     def test_hybrid_search_end_to_end_promotes_brain_title_champion(self, vault, monkeypatch):
         self._write_doc(
             vault,
@@ -689,6 +645,7 @@ class TestSemanticSearch:
         assert baseline[0]["path"] == "Wiki/mcp-server-logging.md"
         assert boosted[0]["path"] == "Wiki/brain-mcp-server.md"
 
+    @pytest.mark.semantic
     def test_hybrid_search_end_to_end_applies_semantic_rescue(self, vault, monkeypatch):
         self._write_doc(
             vault,
