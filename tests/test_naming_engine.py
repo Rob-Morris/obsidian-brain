@@ -181,7 +181,7 @@ class TestValidateFilename:
             is True
         )
 
-    def test_shipped_filename_against_unshipped_rule_invalid(self):
+    def test_shipped_filename_accepted_as_title_under_unshipped_rule(self):
         # A version-led filename fails validation when status is planned
         # because the unshipped rule is {Title}.md — matches anything with .md
         # including this one. Verify that the behaviour is rule-bound, not

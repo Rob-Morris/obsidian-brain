@@ -3523,18 +3523,18 @@ class TestBrainActionShapePresentation:
 
     def test_missing_params_returns_error(self, initialized):
         result = server.brain_action("shape-presentation")
-        _assert_error(result)
+        _assert_error(result, "requires params")
 
     def test_missing_source_returns_error(self, initialized):
         result = server.brain_action("shape-presentation", params={"slug": "test"})
-        _assert_error(result)
+        _assert_error(result, "requires params")
 
     def test_missing_slug_returns_error(self, initialized):
         result = server.brain_action(
             "shape-presentation",
             params={"source": "Wiki/brain-overview-abc123.md"},
         )
-        _assert_error(result)
+        _assert_error(result, "requires params")
 
     def test_source_not_found_returns_error(self, initialized):
         result = server.brain_action(
@@ -3646,18 +3646,18 @@ class TestBrainActionShapePrintable:
 
     def test_missing_params_returns_error(self, initialized):
         result = server.brain_action("shape-printable")
-        _assert_error(result)
+        _assert_error(result, "requires params")
 
     def test_missing_source_returns_error(self, initialized):
         result = server.brain_action("shape-printable", params={"slug": "brief"})
-        _assert_error(result)
+        _assert_error(result, "requires params")
 
     def test_missing_slug_returns_error(self, initialized):
         result = server.brain_action(
             "shape-printable",
             params={"source": "Wiki/brain-overview-abc123.md"},
         )
-        _assert_error(result)
+        _assert_error(result, "requires params")
 
     def test_source_not_found_returns_error(self, initialized):
         result = server.brain_action(
@@ -3880,11 +3880,11 @@ class TestBrainActionStartShaping:
 
     def test_missing_params_returns_error(self):
         result = server.brain_action("start-shaping")
-        _assert_error(result)
+        _assert_error(result, "requires params")
 
     def test_missing_target_returns_error(self):
         result = server.brain_action("start-shaping", params={"title": "Missing target"})
-        _assert_error(result)
+        _assert_error(result, "requires params")
 
     def test_target_not_found_returns_error(self):
         result = server.brain_action("start-shaping", params={"target": "Nonexistent File"})

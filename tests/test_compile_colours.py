@@ -132,10 +132,11 @@ class TestComputeAvailableArcs:
 
     def test_arcs_are_sorted(self):
         arcs = cc.compute_available_arcs(cc.EXCLUSION_ZONES)
-        starts = [a[0] for a in arcs]
-        # All start values should be ascending (modulo wrapping)
-        for i in range(len(starts) - 1):
-            assert starts[i] < starts[i + 1] or starts[i + 1] < starts[i]
+        # A single wrap-around arc (end past 360°) may lead; the remaining
+        # arcs are emitted in ascending start order.
+        non_wrap_starts = [start for start, end in arcs if end <= 360]
+        assert non_wrap_starts == sorted(non_wrap_starts)
+        assert len(arcs) - len(non_wrap_starts) <= 1
 
 
 # ---------------------------------------------------------------------------
