@@ -55,10 +55,15 @@ def test_reconcile_fills_created_from_mtime_when_no_prefix(tmp_path):
 
 
 def test_reconcile_falls_back_to_now_when_no_signal(tmp_path):
+    # Bracket the call so a local-midnight crossing between reconcile's internal
+    # now() and the test's clock can't flake the assertion: the stamped date
+    # must be one of the local dates spanning the call.
+    before = datetime.now(timezone.utc).astimezone().date()
     out = reconcile_timestamps({}, str(tmp_path / "does_not_exist.md"))
-    today = datetime.now(timezone.utc).astimezone().date().isoformat()
-    assert out["created"].startswith(today)
-    assert out["modified"].startswith(today)
+    after = datetime.now(timezone.utc).astimezone().date()
+    valid = {before.isoformat(), after.isoformat()}
+    assert out["created"][:10] in valid, out["created"]
+    assert out["modified"][:10] in valid, out["modified"]
 
 
 def test_reconcile_fills_modified_from_mtime(tmp_path):

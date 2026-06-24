@@ -180,6 +180,29 @@ def _read_until_id(proc, target_id: int | str, *, timeout: float = 15.0) -> list
     return _read_json_messages(proc, timeout=timeout, stop_id=target_id)
 
 
+def _call_until_result(proc, params, *, start_id: int, timeout: float = 10.0):
+    """Send ``tools/call`` with an incrementing id until a result arrives.
+
+    A request that lands during a child restart gets a transient
+    "server restarting, please retry" error; retrying until a result (or the
+    deadline) removes the race on how long the subprocess restart takes under
+    load. Returns ``(collected_messages, result_response_or_None)``.
+    """
+    collected: list[dict] = []
+    rid = start_id
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        proc.stdin.write(_make_jsonrpc("tools/call", id=rid, params=params))
+        proc.stdin.flush()
+        msgs = _read_until_id(proc, rid, timeout=5.0)
+        collected += msgs
+        resp = _find_by_id(msgs, rid)
+        if resp is not None and "result" in resp:
+            return collected, resp
+        rid += 1
+    return collected, None
+
+
 def _find_by_id(messages: list[dict], id: int | str) -> dict | None:
     """Return the first message whose 'id' matches."""
     for m in messages:
@@ -954,15 +977,30 @@ class TestInitialStartRecovery:
                 "initialize should fail fast during initial-start recovery"
             )
 
-            time.sleep(0.6)
-            proc.stdin.write(_make_jsonrpc("initialize", id=2,
-                                           params={"protocolVersion": "2024-11-05",
-                                                   "clientInfo": {"name": "test", "version": "0"}}))
-            proc.stdin.flush()
-
-            later_msgs = _read_until_id(proc, 2, timeout=10.0)
-            init_resp = _find_by_id(later_msgs, 2)
-            assert init_resp is not None, f"Expected initialize response, got: {later_msgs}"
+            # No list_changed is emitted during bootstrap recovery, so there is
+            # no restart-complete signal to wait on. Poll the initialize
+            # handshake until it succeeds (retrying the soft "server restarting"
+            # error with a fresh id each time) instead of a fixed sleep that
+            # races the child's cold start under load.
+            later_msgs = []
+            init_resp = None
+            retry_id = 2
+            deadline = time.monotonic() + 10.0
+            while time.monotonic() < deadline:
+                proc.stdin.write(_make_jsonrpc("initialize", id=retry_id,
+                                               params={"protocolVersion": "2024-11-05",
+                                                       "clientInfo": {"name": "test", "version": "0"}}))
+                proc.stdin.flush()
+                msgs = _read_until_id(proc, retry_id, timeout=5.0)
+                later_msgs += msgs
+                resp = _find_by_id(msgs, retry_id)
+                if resp is not None and "result" in resp:
+                    init_resp = resp
+                    break
+                retry_id += 1
+            assert init_resp is not None, (
+                f"initialize never succeeded after recovery, got: {later_msgs}"
+            )
             assert "result" in init_resp, f"Expected success result, got: {init_resp}"
 
             # No list_changed should be sent during bootstrap recovery — the
@@ -977,9 +1015,11 @@ class TestInitialStartRecovery:
             assert len(id1_responses) == 1, (
                 f"Expected exactly one soft error for id=1, got: {id1_responses}"
             )
-            id2_responses = [m for m in later_msgs if m.get("id") == 2]
-            assert len(id2_responses) == 1, (
-                f"Expected exactly one initialize success for id=2, got: {id2_responses}"
+            init_successes = [
+                m for m in later_msgs if "result" in m and m.get("id") is not None
+            ]
+            assert len(init_successes) == 1, (
+                f"Expected exactly one successful initialize, got: {init_successes}"
             )
 
             with open(fail_counter, "r") as f:
@@ -1283,26 +1323,20 @@ class TestVersionDriftRestart:
             proc.stdin.write(_make_jsonrpc("tools/call", id=2, params={"name": "anything"}))
             proc.stdin.flush()
 
-            # Give the proxy time to detect exit, restart, and send list_changed
-            time.sleep(0.5)
+            # Retry the follow-up request until the restarted child serves a
+            # result, instead of a fixed sleep that races the restart. A request
+            # landing mid-restart gets a transient "server restarting" error
+            # even after list_changed is emitted.
+            all_msgs, resp = _call_until_result(proc, {"name": "anything"}, start_id=3)
 
-            # Second request — should succeed through restarted child
-            proc.stdin.write(_make_jsonrpc("tools/call", id=3, params={"name": "anything"}))
-            proc.stdin.flush()
-
-            # Read all messages; we expect a list_changed notification + response for id=3
-            all_msgs = _read_all_responses(proc, timeout=10.0, max_count=10)
-
-            # Check for tools/list_changed notification
+            # Restart must announce the tool list changed.
             notif = _find_notification(all_msgs, "notifications/tools/list_changed")
             assert notif is not None, (
                 f"Expected notifications/tools/list_changed after restart. Got: {all_msgs}"
             )
 
-            # Check that id=3 gets a success response
-            resp = _find_by_id(all_msgs, 3)
-            assert resp is not None, f"No response with id=3. Got: {all_msgs}"
-            assert "result" in resp, f"Expected result, got error: {resp}"
+            # The restarted child answers successfully.
+            assert resp is not None, f"No successful response after restart. Got: {all_msgs}"
             assert resp["result"]["content"][0]["text"] == "ok after restart"
 
         finally:
@@ -1523,24 +1557,12 @@ class TestProxyDrift:
             proc.stdin.write(_make_jsonrpc("tools/call", id=2, params={"name": "anything"}))
             proc.stdin.flush()
 
-            # Wait for restart + list_changed to be sent
-            time.sleep(0.5)
+            # Retry the follow-up until the restarted child serves a result; a
+            # request mid-restart gets a transient "server restarting" error
+            # (with the drift note appended), not the success we assert on.
+            all_msgs, resp = _call_until_result(proc, {"name": "anything"}, start_id=3)
 
-            # Second request — restarted child answers; proxy injects drift note
-            proc.stdin.write(_make_jsonrpc("tools/call", id=3, params={"name": "anything"}))
-            proc.stdin.flush()
-
-            all_msgs = _read_all_responses(proc, timeout=10.0, max_count=15)
-
-            # Find response for id=3
-            resp = _find_by_id(all_msgs, 3)
-            if resp is None:
-                more = _read_all_responses(proc, timeout=5.0, max_count=10)
-                all_msgs.extend(more)
-                resp = _find_by_id(all_msgs, 3)
-
-            assert resp is not None, f"No response with id=3. Got: {all_msgs}"
-            assert "result" in resp, f"Expected result, got: {resp}"
+            assert resp is not None, f"No successful response after restart. Got: {all_msgs}"
 
             content_items = resp["result"].get("content", [])
             text_content = " ".join(
