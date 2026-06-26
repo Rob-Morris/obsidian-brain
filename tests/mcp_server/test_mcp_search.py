@@ -864,4 +864,3 @@ class TestIndexStaleness:
         assert hasattr(server, "_ROUTER_CHECK_TTL")
         assert hasattr(server, "_INDEX_CHECK_TTL")
         assert server._ROUTER_CHECK_TTL != server._INDEX_CHECK_TTL
-

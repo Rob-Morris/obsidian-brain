@@ -194,10 +194,36 @@ def _call_until_result(proc, params, *, start_id: int, timeout: float = 10.0):
     while time.monotonic() < deadline:
         proc.stdin.write(_make_jsonrpc("tools/call", id=rid, params=params))
         proc.stdin.flush()
-        msgs = _read_until_id(proc, rid, timeout=5.0)
+        remaining = max(0.0, deadline - time.monotonic())
+        msgs = _read_until_id(proc, rid, timeout=max(0.05, min(5.0, remaining)))
         collected += msgs
         resp = _find_by_id(msgs, rid)
         if resp is not None and "result" in resp:
+            return collected, resp
+        if resp is not None and "error" in resp:
+            message = resp["error"].get("message", "")
+            if "server restarting, please retry" not in message:
+                raise AssertionError(
+                    f"Unexpected error while waiting for restart result: {resp}; "
+                    f"collected: {collected}"
+                )
+        rid += 1
+    return collected, None
+
+
+def _call_until_error(proc, params, predicate, *, start_id: int, timeout: float = 10.0):
+    """Send ``tools/call`` with incrementing ids until an expected error appears."""
+    collected: list[dict] = []
+    rid = start_id
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        proc.stdin.write(_make_jsonrpc("tools/call", id=rid, params=params))
+        proc.stdin.flush()
+        remaining = max(0.0, deadline - time.monotonic())
+        msgs = _read_until_id(proc, rid, timeout=max(0.05, min(5.0, remaining)))
+        collected += msgs
+        resp = _find_by_id(msgs, rid)
+        if resp is not None and "error" in resp and predicate(resp):
             return collected, resp
         rid += 1
     return collected, None
@@ -973,7 +999,7 @@ class TestInitialStartRecovery:
             assert early_resp is not None, f"Expected immediate soft error, got: {early_msgs}"
             assert "error" in early_resp, f"Expected soft restart error, got: {early_resp}"
             assert early_resp["error"]["message"] == "server restarting, please retry"
-            assert time.monotonic() - start < 2.0, (
+            assert time.monotonic() - start < 0.35, (
                 "initialize should fail fast during initial-start recovery"
             )
 
@@ -1029,8 +1055,7 @@ class TestInitialStartRecovery:
             proc.wait(timeout=5)
 
     def test_subprocess_initial_start_permanent_failure_returns_give_up(self, tmp_path):
-        """End-to-end: ChildProcess.start() always fails. Requests soft-fail
-        during recovery, then hard-fail with restart-MCP guidance after give-up."""
+        """End-to-end: ChildProcess.start() always fails and returns give-up guidance."""
         _write_vault(tmp_path)
         server_script = _echo_server_script(tmp_path)
 
@@ -1042,32 +1067,14 @@ class TestInitialStartRecovery:
 
         proc = _run_proxy_wrapper(tmp_path, server_script, patch_body, backoff="0,0,0")
         try:
-            proc.stdin.write(_make_jsonrpc("tools/call", id=1, params={"name": "ping"}))
-            proc.stdin.flush()
-
-            early_msgs = _read_until_id(proc, 1, timeout=5.0)
-            early_resp = _find_by_id(early_msgs, 1)
-            assert early_resp is not None, f"Expected early error response for id=1, got: {early_msgs}"
-            assert "error" in early_resp, f"Expected error, got: {early_resp}"
-            # With instant backoff (0,0,0) the three recovery attempts collapse
-            # to a near-zero window, so id=1 may land either mid-recovery (soft
-            # retry) or after give-up — both are correct. The deterministic
-            # mid-recovery soft-fail is covered by TestAsyncRecoveryThread; here
-            # we only require a valid recovery error. id=2 below pins give-up.
-            early_msg = early_resp["error"]["message"]
-            assert (
-                early_msg == "server restarting, please retry"
-                or "MCP unrecoverable" in early_msg
-            ), early_msg
-
-            time.sleep(0.2)
-            proc.stdin.write(_make_jsonrpc("tools/call", id=2, params={"name": "ping"}))
-            proc.stdin.flush()
-
-            all_msgs = _read_until_id(proc, 2, timeout=5.0)
-            resp = _find_by_id(all_msgs, 2)
-            assert resp is not None, f"Expected give-up error response for id=2, got: {all_msgs}"
-            assert "error" in resp, f"Expected error, got: {resp}"
+            all_msgs, resp = _call_until_error(
+                proc,
+                {"name": "ping"},
+                lambda r: "MCP unrecoverable" in r["error"].get("message", ""),
+                start_id=1,
+                timeout=10.0,
+            )
+            assert resp is not None, f"Expected give-up error response, got: {all_msgs}"
             error_msg = resp["error"]["message"]
             assert "MCP unrecoverable" in error_msg, (
                 f"Expected unrecoverable prefix. Got: {error_msg!r}"

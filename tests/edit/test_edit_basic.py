@@ -360,4 +360,3 @@ class TestAppendToArtefact:
         )
         content = (vault / "Wiki" / "test-page.md").read_text()
         assert "No ext append." in content
-

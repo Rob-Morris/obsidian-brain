@@ -1,38 +1,15 @@
 """Shared fixtures for the MCP server test suite."""
 
-import asyncio
-import contextlib
-import json
 import logging
-import os
-import subprocess
-import tempfile
 import threading
-import time
 import types
 from unittest.mock import patch
 
 import pytest
 
-from mcp.types import CallToolResult
-
-import _lifecycle.retrieval_assets as retrieval_assets
-import _lifecycle.retrieval_errors as retrieval_errors
-import _search.paths as search_paths
-import _search.semantic_query as semantic_query
-import _semantic.assets as semantic_assets
-import _semantic.model as semantic_model
-import _semantic.runtime as semantic_runtime
-from brain_mcp import _server_artefacts, _server_content, _server_reading, server
-import compile_router
+from brain_mcp import server
 import obsidian_cli
-import process
 import retrieval_embeddings
-import workspace_registry
-import config as config_mod
-from _common._yaml import dump_mapping_text
-
-
 
 
 @pytest.fixture
@@ -245,9 +222,18 @@ def gated_semantic_warmup(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _clean_logger():
-    """Clear handlers from the brain-core logger between tests."""
-    yield
+    """Keep test logging isolated from third-party root logger setup."""
+    root = logging.getLogger()
+    root_handlers = list(root.handlers)
+    root_level = root.level
+    root.handlers.clear()
+
     logger = logging.getLogger("brain-core")
+    old_propagate = logger.propagate
+    logger.propagate = False
+    yield
     logger.handlers.clear()
     logger.setLevel(logging.WARNING)  # reset to default
-
+    logger.propagate = old_propagate
+    root.handlers[:] = root_handlers
+    root.setLevel(root_level)

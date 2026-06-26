@@ -1,20 +1,10 @@
 """Shared plain helpers for the check test suite."""
 
 import json
-import os
-import sys
-import time
 
-import pytest
-
-import check
 import compile_router as cr
-import _lifecycle.semantic_repairs as semantic_repairs
-import _search.index as search_index
-import _search.paths as search_paths
 
-from brain_test_support import make_router, write_md
-from brain_test_support import filesystem_is_case_sensitive
+from brain_test_support import write_md
 
 
 def compile_minimal_router(vault_root):
@@ -44,4 +34,3 @@ def compile_minimal_router(vault_root):
     brain_local.mkdir(parents=True, exist_ok=True)
     (brain_local / "compiled-router.json").write_text(json.dumps(router, indent=2) + "\n")
     return router
-

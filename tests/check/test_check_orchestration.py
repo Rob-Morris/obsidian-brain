@@ -362,4 +362,3 @@ class TestCheckCli:
         assert payload["findings"][0]["severity"] == "error"
         assert payload["findings"][0]["message"] == "managed runtime unavailable"
         assert payload["findings"][0]["repair"]["scope"] == "runtime"
-

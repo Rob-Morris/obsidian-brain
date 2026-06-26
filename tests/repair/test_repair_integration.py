@@ -618,4 +618,3 @@ class TestCheckRepairHints:
 
         semantic_hits = [f["check"] for f in result["findings"] if f["check"].startswith("semantic:")]
         assert expected_check in semantic_hits
-

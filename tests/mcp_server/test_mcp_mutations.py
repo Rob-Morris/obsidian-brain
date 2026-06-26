@@ -34,6 +34,7 @@ from _common._yaml import dump_mapping_text
 
 
 from _mcp_helpers import (
+    _assert_any_error,
     _assert_error,
     _bump_mtime,
     _extract_create_path,
@@ -72,7 +73,7 @@ class TestBrainCreate:
 
     def test_create_unknown_type_error(self, initialized):
         result = server.brain_create(type="nonexistent", title="Test")
-        _assert_error(result)
+        _assert_any_error(result)
 
     def test_create_temporal_subfolder(self, initialized):
         result = server.brain_create(type="logs", title="My Session")
@@ -394,7 +395,7 @@ class TestBrainEdit:
             target=":body",
             scope="section",
         )
-        _assert_error(result)
+        _assert_any_error(result)
 
     def test_file_not_found(self, initialized):
         result = server.brain_edit(
@@ -404,7 +405,7 @@ class TestBrainEdit:
             target=":body",
             scope="section",
         )
-        _assert_error(result)
+        _assert_any_error(result)
 
     def test_unknown_operation(self, initialized):
         result = server.brain_edit(
@@ -412,7 +413,7 @@ class TestBrainEdit:
             path="Wiki/brain-overview-abc123.md",
             body="test"
         )
-        _assert_error(result)
+        _assert_any_error(result)
 
     def test_prepend_works(self, initialized):
         result = server.brain_edit(
@@ -1400,7 +1401,7 @@ class TestBrainMove:
             source="Wiki/nonexistent.md",
             dest="Wiki/other.md",
         )
-        _assert_error(result)
+        _assert_any_error(result)
 
     def test_rename_rejects_non_artefact_destination(self, initialized):
         result = server.brain_move(
@@ -1606,7 +1607,7 @@ class TestBrainMoveConvert:
             path="Wiki/brain-overview-abc123.md",
             target_type="nonexistent",
         )
-        _assert_error(result)
+        _assert_any_error(result)
 
 
 class TestBrainAction:
@@ -1645,11 +1646,11 @@ class TestBrainActionDelete:
 
     def test_delete_missing_params(self, initialized):
         result = server.brain_action("delete")
-        _assert_error(result)
+        _assert_any_error(result)
 
     def test_delete_not_found(self, initialized):
         result = server.brain_action("delete", params={"path": "Wiki/gone.md"})
-        _assert_error(result)
+        _assert_any_error(result)
 
     def test_delete_rejects_mismatched_shape_params_at_runtime(self, initialized):
         result = server.brain_action(
@@ -1771,4 +1772,3 @@ class TestMutationSerialization:
         assert results == ["ok", "ok"]
         assert second_entered.is_set()
         assert max_active == 1
-

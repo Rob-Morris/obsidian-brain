@@ -943,4 +943,3 @@ class TestRepairScopes:
 
         with pytest.raises(TypeError, match="bad refresh"):
             repair_runtime.repair_router(repair_vault, dry_run=False)
-

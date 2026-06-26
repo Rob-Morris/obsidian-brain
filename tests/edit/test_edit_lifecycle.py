@@ -842,4 +842,3 @@ class TestUnarchiveArtefact:
         result = edit.unarchive_artefact(str(vault), router, rel)
         content = (vault / "Wiki" / "linker.md").read_text()
         assert "my-idea" in content
-

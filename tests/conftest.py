@@ -1,14 +1,10 @@
 """Shared test fixtures and helpers for brain-core tests."""
 
-import atexit
-import functools
 import os
 from pathlib import Path
-import re
 import shutil
 import subprocess
 import sys
-import tempfile
 import time
 
 import pytest
@@ -63,26 +59,6 @@ for _path in (PACKAGE_ROOT, SCRIPTS_DIR, MIGRATIONS_DIR):
 
 # Plain helper functions live in brain_test_support (importable from any
 # subdirectory); conftest holds only fixtures, which cascade automatically.
-
-
-# ---------------------------------------------------------------------------
-# Shared helpers
-# ---------------------------------------------------------------------------
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 # ---------------------------------------------------------------------------
@@ -243,11 +219,3 @@ def non_tmp_vault():
         f.write("# Session Core\n")
     yield vault_dir
     shutil.rmtree(vault_dir, ignore_errors=True)
-
-
-# ---------------------------------------------------------------------------
-# Searchable-vault builders (shared by the retrieval test suites)
-# ---------------------------------------------------------------------------
-
-
-

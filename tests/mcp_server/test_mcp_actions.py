@@ -34,6 +34,7 @@ from _common._yaml import dump_mapping_text
 
 
 from _mcp_helpers import (
+    _assert_any_error,
     _assert_error,
     _bump_mtime,
     _extract_create_path,
@@ -87,7 +88,7 @@ class TestBrainActionShapePresentation:
             "shape-presentation",
             params={"source": "Wiki/nonexistent.md", "slug": "test"},
         )
-        _assert_error(result)
+        _assert_any_error(result)
 
     @staticmethod
     def _fake_marp_run(cmd, capture_output, text):
@@ -206,7 +207,7 @@ class TestBrainActionShapePrintable:
             "shape-printable",
             params={"source": "Wiki/nonexistent.md", "slug": "brief"},
         )
-        _assert_error(result)
+        _assert_any_error(result)
 
     @staticmethod
     def _fake_which_default(cmd):
@@ -426,7 +427,7 @@ class TestBrainActionStartShaping:
 
     def test_target_not_found_returns_error(self):
         result = server.brain_action("start-shaping", params={"target": "Nonexistent File"})
-        _assert_error(result)
+        _assert_any_error(result)
 
     def test_happy_path_creates_transcript(self):
         server._index_pending.clear()
@@ -632,4 +633,3 @@ class TestBrainProcessFeatureGate:
         )
         assert isinstance(result, str)
         assert "context_assembly" in result
-

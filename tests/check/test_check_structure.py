@@ -349,4 +349,3 @@ class TestCheckMissingTimestamps:
         (tmp_path / "Wiki" / "plain.md").write_text("# No frontmatter\n")
         findings = check.check_missing_timestamps(str(tmp_path), router)
         assert not any("plain" in f.get("file", "") for f in findings)
-

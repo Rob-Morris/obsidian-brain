@@ -827,4 +827,3 @@ class TestHeadingBodyPayloadValidation:
             target="## Notes", scope="section",
         )
         assert "## Splice" in result
-

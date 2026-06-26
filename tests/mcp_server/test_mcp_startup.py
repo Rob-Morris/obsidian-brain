@@ -882,4 +882,3 @@ class TestWorkspaceStartup:
         server.startup(vault_root=str(vault))
         assert server._wait_for_warmup(timeout=5.0), "warmup did not complete"
         assert "pre-existing" in server._workspace_registry
-

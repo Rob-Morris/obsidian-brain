@@ -322,4 +322,3 @@ def vault_cr(tmp_path):
     )
 
     return tmp_path
-

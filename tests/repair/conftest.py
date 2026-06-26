@@ -2,30 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
-import json
-import os
 from pathlib import Path
-import subprocess
-import sys
 
 import pytest
 
-import _bootstrap.diagnostics as bootstrap_diagnostics
-import _bootstrap.mcp_state as bootstrap_mcp_state
-import _bootstrap.runtime as bootstrap_runtime
-from _common import _shell
-import _lifecycle.frontmatter_repairs as frontmatter_repairs
-from _lifecycle.derived_cache_state import CacheState
-import _lifecycle.semantic_repairs as semantic_repairs
-import _semantic.config as semantic_config
-import _semantic.model as semantic_model
-import _repair_common as repair_common
-import _repair_runtime as repair_runtime
-import check
-import migrate_to_0_48_2
-import repair
-from brain_test_support import make_router, write_md
+from brain_test_support import write_md
 
 
 @pytest.fixture(autouse=True)
@@ -71,4 +52,3 @@ def repair_vault(tmp_path):
         "# Test Page",
     )
     return tmp_path
-

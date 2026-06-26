@@ -34,6 +34,7 @@ from _common._yaml import dump_mapping_text
 
 
 from _mcp_helpers import (
+    _assert_any_error,
     _assert_error,
     _bump_mtime,
     _extract_create_path,
@@ -64,7 +65,7 @@ class TestBrainRead:
 
     def test_read_type_not_found(self, initialized):
         result = server.brain_read("type", name="nonexistent")
-        _assert_error(result)
+        _assert_any_error(result)
 
     def test_read_trigger_requires_name(self, initialized):
         result = server.brain_read("trigger")
@@ -80,7 +81,7 @@ class TestBrainRead:
 
     def test_read_style_not_found(self, initialized):
         result = server.brain_read("style", name="nonexistent")
-        _assert_error(result)
+        _assert_any_error(result)
 
     def test_read_template(self, initialized):
         result = server.brain_read("template", name="wiki")
@@ -88,7 +89,7 @@ class TestBrainRead:
 
     def test_read_template_requires_name(self, initialized):
         result = server.brain_read("template")
-        _assert_error(result)
+        _assert_any_error(result)
 
     def test_read_skill_requires_name(self, initialized):
         result = server.brain_read("skill")
@@ -195,7 +196,7 @@ class TestBrainReadMemory:
 
     def test_not_found(self):
         result = server.brain_read("memory", name="nonexistent-thing")
-        _assert_error(result)
+        _assert_any_error(result)
 
     def test_brain_session_includes_memories_after_restart(self):
         result = json.loads(server.brain_session())
@@ -476,7 +477,7 @@ class TestWorkspaceRead:
 
     def test_resolve_unknown_workspace(self):
         result = server.brain_read("workspace", name="nonexistent")
-        _assert_error(result)
+        _assert_any_error(result)
 
     def test_read_workspace_reflects_script_registration_without_restart(self, tmp_path):
         ext_path = tmp_path / "proj"
@@ -502,4 +503,3 @@ class TestWorkspaceRead:
         result = server.brain_read("workspace", name="proj")
         _assert_error(result, "Unknown workspace")
         assert "proj" not in server._workspace_registry
-

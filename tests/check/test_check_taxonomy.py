@@ -47,4 +47,3 @@ class TestCheckTaxonomyTypeConsistency:
         type_consistency = [f for f in findings if f["check"] == "taxonomy_type_consistency"]
         projects_findings = [f for f in type_consistency if "projects" in f["message"]]
         assert len(projects_findings) == 0
-

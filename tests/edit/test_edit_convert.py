@@ -293,4 +293,3 @@ class TestConvertArtefact:
         assert re.search(r" [a-z0-9]{3}\.md$", second["new_path"])
         assert "First body." in (vault / first["new_path"]).read_text()
         assert "Second body." in (vault / second["new_path"]).read_text()
-

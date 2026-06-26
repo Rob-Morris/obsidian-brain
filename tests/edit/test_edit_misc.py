@@ -708,4 +708,3 @@ class TestSectionReplaceBoundaryGuard:
                 "## Alpha\n\nUpdated.\n\n# Omega\n",
                 target="## Alpha", scope="section",
             )
-

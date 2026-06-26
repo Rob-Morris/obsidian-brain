@@ -375,4 +375,3 @@ class TestCheckUnconfiguredType:
         tmp_path, router = vault
         findings = check.check_unconfigured_type(str(tmp_path), router)
         assert not any("Wiki" in f["message"] for f in findings)
-

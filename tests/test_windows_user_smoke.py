@@ -56,9 +56,13 @@ def _parse_environment(text: str) -> dict[str, str]:
     """
     env: dict[str, str] = {}
     for line in text.splitlines():
-        if "=" in line:
-            key, value = line.split("=", 1)
-            env[key] = value
+        if not line:
+            continue
+        assert "=" in line, f"environment line is not key=value: {line!r}"
+        key, value = line.split("=", 1)
+        env[key] = value
+    missing = {"vault_root", "platform"} - set(env)
+    assert not missing, f"environment payload missing keys {sorted(missing)}: {text!r}"
     return env
 
 
@@ -99,10 +103,13 @@ async def _call_installed_brain_read(vault_root: Path, env: dict[str, str]) -> d
                     payload = None
                 status = payload.get("status") if isinstance(payload, dict) else None
                 assert status == "starting", text
-                assert asyncio.get_running_loop().time() < deadline, (
+                now = asyncio.get_running_loop().time()
+                assert now < deadline, (
                     f"brain_read environment never became ready: {payload}"
                 )
                 retry_after_s = payload.get("retry_after_ms", 1000) / 1000
+                remaining = max(0, deadline - now)
+                retry_after_s = min(max(retry_after_s, 0.05), remaining)
                 await asyncio.sleep(retry_after_s)
 
 

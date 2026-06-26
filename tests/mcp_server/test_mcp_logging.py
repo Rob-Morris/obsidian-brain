@@ -1,53 +1,15 @@
 """Tests for Brain MCP server — unit tests with a minimal vault fixture."""
 
-import asyncio
-import contextlib
-import json
 import os
-import subprocess
-import tempfile
 import threading
 import time
-import types
-from unittest.mock import patch
+import logging
+from logging.handlers import RotatingFileHandler
 
 import pytest
 
-from mcp.types import CallToolResult
+from brain_mcp import server
 
-import _lifecycle.retrieval_assets as retrieval_assets
-import _lifecycle.retrieval_errors as retrieval_errors
-import _search.paths as search_paths
-import _search.semantic_query as semantic_query
-import _semantic.assets as semantic_assets
-import _semantic.model as semantic_model
-import _semantic.runtime as semantic_runtime
-from brain_mcp import _server_artefacts, _server_content, _server_reading, server
-import compile_router
-import obsidian_cli
-import process
-import retrieval_embeddings
-import workspace_registry
-import config as config_mod
-from _common._yaml import dump_mapping_text
-
-
-
-from _mcp_helpers import (
-    _assert_error,
-    _bump_mtime,
-    _extract_create_path,
-    _list_result_lines,
-    _list_text,
-    _progress_payload,
-    _search_result_lines,
-    _search_text,
-    _write_config_text,
-    _write_config_yaml,
-)
-
-import logging
-from logging.handlers import RotatingFileHandler
 
 def _file_handler(logger):
     """Extract the single RotatingFileHandler from a logger."""
@@ -460,4 +422,3 @@ class TestNoStdoutContamination:
         server.brain_read(resource="type")
         captured = capsys.readouterr()
         assert captured.out == ""
-

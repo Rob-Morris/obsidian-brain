@@ -226,4 +226,3 @@ class TestCheckBrokenWikilinks:
         broken = [f for f in findings if f["check"] == "broken_wikilinks"
                   and "totally-nonexistent-target" in f["message"]]
         assert broken == []
-

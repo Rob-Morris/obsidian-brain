@@ -34,6 +34,7 @@ from _common._yaml import dump_mapping_text
 
 
 from _mcp_helpers import (
+    _assert_any_error,
     _assert_error,
     _bump_mtime,
     _extract_create_path,
@@ -889,7 +890,7 @@ class TestBrainSession:
         server._vault_root = None
         try:
             result = server.brain_session()
-            _assert_error(result)
+            _assert_any_error(result)
         finally:
             server._router = saved_router
             server._vault_root = saved_root
@@ -1950,4 +1951,3 @@ class TestConfigFreshness:
         content = session_path.read_text()
         assert "`default_profile`: `reader`" in content
         assert "`default_profile`: `operator`" not in content
-
