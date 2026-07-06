@@ -2,14 +2,20 @@
 
 import os
 import re
-import sys
 from datetime import datetime, timezone, timedelta
 from unittest.mock import patch
 
 import pytest
 
 import edit
-from _common import file_index_from_documents, parse_frontmatter, validate_artefact_folder
+import rename
+from _common import (
+    HasDescendantsError,
+    ParentChainError,
+    PartialApplyError,
+    parse_frontmatter,
+    resolve_parent_reference,
+)
 
 
 class TestEditTimestamps:
@@ -200,6 +206,330 @@ class TestFrontmatterMerge:
 # ---------------------------------------------------------------------------
 
 class TestOwnershipEditPaths:
+    def _write_nested_design_tree(self, vault):
+        (vault / "Designs" / "project~brain" / "parent").mkdir(parents=True, exist_ok=True)
+        (vault / "Designs" / "project~brain" / "Parent.md").write_text(
+            "---\n"
+            "type: living/designs\n"
+            "tags:\n"
+            "  - project/brain\n"
+            "key: parent\n"
+            "parent: project/brain\n"
+            "status: shaping\n"
+            "---\n\n"
+            "# Parent\n"
+        )
+        (vault / "Designs" / "project~brain" / "parent" / "Child.md").write_text(
+            "---\n"
+            "type: living/designs\n"
+            "tags:\n"
+            "  - designs/parent\n"
+            "key: child\n"
+            "parent: designs/parent\n"
+            "status: shaping\n"
+            "---\n\n"
+            "# Child\n"
+        )
+        grand_dir = vault / "Wiki" / "project~brain" / "designs~parent" / "designs~child"
+        grand_dir.mkdir(parents=True, exist_ok=True)
+        (grand_dir / "Grand.md").write_text(
+            "---\n"
+            "type: living/wiki\n"
+            "tags:\n"
+            "  - designs/child\n"
+            "key: grand\n"
+            "parent: designs/child\n"
+            "---\n\n"
+            "# Grand\n"
+        )
+
+    def test_ancestor_key_change_relocates_deep_descendant_by_traversal(self, vault, router):
+        self._write_nested_design_tree(vault)
+        import compile_router
+        router = compile_router.compile(str(vault))
+
+        result = edit.edit_artefact(
+            str(vault),
+            router,
+            "Projects/Brain.md",
+            "",
+            frontmatter_changes={"key": "brain2"},
+        )
+
+        assert result["path"] == "Projects/Brain.md"
+        assert (vault / "Designs" / "project~brain2" / "Parent.md").is_file()
+        assert (vault / "Designs" / "project~brain2" / "parent" / "Child.md").is_file()
+        grand = vault / "Wiki" / "project~brain2" / "designs~parent" / "designs~child" / "Grand.md"
+        assert grand.is_file()
+        fields, _ = parse_frontmatter(grand.read_text())
+        assert fields["parent"] == "designs/child"
+        assert "project/brain2" not in fields.get("tags", [])
+        assert not (vault / "Designs" / "project~brain").exists()
+        assert not (vault / "Wiki" / "project~brain").exists()
+        assert (vault / "Designs").is_dir()
+        assert (vault / "Wiki").is_dir()
+
+    def test_parent_change_relocates_nested_descendant_subtree(self, vault, router):
+        (vault / "Projects" / "Custom.md").write_text(
+            "---\n"
+            "type: living/project\n"
+            "tags:\n"
+            "  - project/custom\n"
+            "key: custom\n"
+            "---\n\n"
+            "# Custom\n"
+        )
+        self._write_nested_design_tree(vault)
+        import compile_router
+        router = compile_router.compile(str(vault))
+
+        result = edit.edit_artefact(
+            str(vault),
+            router,
+            "Designs/project~brain/Parent.md",
+            "",
+            frontmatter_changes={"parent": "project/custom"},
+        )
+
+        assert result["path"] == "Designs/project~custom/Parent.md"
+        assert (vault / "Designs" / "project~custom" / "parent" / "Child.md").is_file()
+        grand = vault / "Wiki" / "project~custom" / "designs~parent" / "designs~child" / "Grand.md"
+        assert grand.is_file()
+        assert not (vault / "Designs" / "project~brain").exists()
+        assert not (vault / "Wiki" / "project~brain").exists()
+
+    def test_parent_change_to_descendant_rejected_before_writes(self, vault, router, monkeypatch):
+        self._write_nested_design_tree(vault)
+        import compile_router
+        router = compile_router.compile(str(vault))
+        parent = vault / "Designs" / "project~brain" / "Parent.md"
+        child = vault / "Designs" / "project~brain" / "parent" / "Child.md"
+        parent_before = parent.read_text()
+        child_before = child.read_text()
+
+        def fail_move(*_args, **_kwargs):
+            raise AssertionError("move should not run")
+
+        monkeypatch.setattr(edit, "move_and_update_links", fail_move)
+
+        with pytest.raises(ParentChainError) as exc_info:
+            edit.edit_artefact(
+                str(vault),
+                router,
+                "Designs/project~brain/Parent.md",
+                "",
+                frontmatter_changes={"parent": "designs/child"},
+            )
+
+        assert "child of descendant designs/child" in str(exc_info.value)
+        assert parent.read_text() == parent_before
+        assert child.read_text() == child_before
+
+    def test_parent_change_self_parent_rejected_before_writes(self, vault, router):
+        self._write_nested_design_tree(vault)
+        import compile_router
+        router = compile_router.compile(str(vault))
+        parent = vault / "Designs" / "project~brain" / "Parent.md"
+        before = parent.read_text()
+
+        with pytest.raises(ParentChainError) as exc_info:
+            edit.edit_artefact(
+                str(vault),
+                router,
+                "Designs/project~brain/Parent.md",
+                "",
+                frontmatter_changes={"parent": "designs/parent"},
+            )
+
+        assert "parent itself" in str(exc_info.value)
+        assert parent.read_text() == before
+
+    def test_ownership_edit_shared_preflight_rejects_before_writes(
+        self, vault, router, monkeypatch
+    ):
+        self._write_nested_design_tree(vault)
+        import compile_router
+        router = compile_router.compile(str(vault))
+        source = vault / "Projects" / "Brain.md"
+        before = source.read_text()
+
+        def fail_preflight(*_args, **_kwargs):
+            raise ValueError("Cyclic move set involving: Projects/Brain.md")
+
+        monkeypatch.setattr(edit, "preflight_move_set", fail_preflight)
+
+        with pytest.raises(ValueError, match="Cyclic move set"):
+            edit.edit_artefact(
+                str(vault),
+                router,
+                "Projects/Brain.md",
+                "",
+                frontmatter_changes={"key": "brain2"},
+            )
+
+        assert source.read_text() == before
+
+    def test_parent_change_with_broken_grandparent_chain_fails_loud(self, vault, router):
+        (vault / "Projects" / "Custom.md").write_text(
+            "---\ntype: living/project\ntags:\n  - project/custom\nkey: custom\nparent: project/missing\n---\n\n# Custom\n"
+        )
+        (vault / "Ideas" / "Idea.md").write_text(
+            "---\ntype: living/ideas\ntags: []\nkey: idea\nstatus: shaping\n---\n\nIdea.\n"
+        )
+        import compile_router
+        router = compile_router.compile(str(vault))
+
+        with pytest.raises(ParentChainError, match="project/missing"):
+            edit.edit_artefact(
+                str(vault),
+                router,
+                "Ideas/Idea.md",
+                body="Idea.\n",
+                target=":body",
+                scope="section",
+                frontmatter_changes={"parent": "project/custom"},
+            )
+
+        assert (vault / "Ideas" / "Idea.md").is_file()
+        assert not (vault / "Ideas" / "project~custom" / "Idea.md").exists()
+
+    def test_path_resolved_parent_missing_from_index_reports_stale_index(self, vault, router):
+        (vault / "Projects" / "Custom.md").write_text(
+            "---\n"
+            "type: living/project\n"
+            "tags:\n"
+            "  - project/custom\n"
+            "key: custom\n"
+            "---\n\n"
+            "# Custom\n"
+        )
+
+        with pytest.raises(ParentChainError) as exc_info:
+            resolve_parent_reference(str(vault), router, "Projects/Custom.md")
+
+        message = str(exc_info.value)
+        assert "resolved parent Projects/Custom.md" in message
+        assert "missing from the compiled living index" in message
+
+    def test_key_change_stale_index_descendant_aborts_before_writes(self, vault, router):
+        self._write_nested_design_tree(vault)
+        import compile_router
+        router = compile_router.compile(str(vault))
+        source = vault / "Projects" / "Brain.md"
+        before = source.read_text()
+        missing = (
+            vault
+            / "Wiki"
+            / "project~brain"
+            / "designs~parent"
+            / "designs~child"
+            / "Grand.md"
+        )
+        missing.unlink()
+
+        with pytest.raises(ParentChainError) as exc_info:
+            edit.edit_artefact(
+                str(vault),
+                router,
+                "Projects/Brain.md",
+                "",
+                frontmatter_changes={"key": "brain2"},
+            )
+
+        assert "missing on disk" in str(exc_info.value)
+        assert source.read_text() == before
+        assert not (vault / "Designs" / "project~brain2" / "Parent.md").exists()
+
+    def test_key_change_unindexed_parent_reference_aborts_before_writes(self, vault, router):
+        source = vault / "Projects" / "Brain.md"
+        child = vault / "Designs" / "project~brain" / "Keyless Child.md"
+        child.parent.mkdir(parents=True, exist_ok=True)
+        child.write_text(
+            "---\n"
+            "type: living/designs\n"
+            "tags:\n"
+            "  - project/brain\n"
+            "parent: project/brain\n"
+            "status: shaping\n"
+            "---\n\n"
+            "# Keyless Child\n"
+        )
+        import compile_router
+        router = compile_router.compile(str(vault))
+        source_before = source.read_text()
+        child_before = child.read_text()
+
+        with pytest.raises(ParentChainError) as exc_info:
+            edit.edit_artefact(
+                str(vault),
+                router,
+                "Projects/Brain.md",
+                "",
+                frontmatter_changes={"key": "brain2"},
+            )
+
+        message = str(exc_info.value)
+        assert "parent reference to project/brain" in message
+        assert "absent from the compiled living index" in message
+        assert source.read_text() == source_before
+        assert child.read_text() == child_before
+        assert not (vault / "Designs" / "project~brain2" / "Keyless Child.md").exists()
+
+    def test_key_change_move_failure_leaves_documented_partial_state(
+        self, vault, router, monkeypatch
+    ):
+        self._write_nested_design_tree(vault)
+        import compile_router
+        router = compile_router.compile(str(vault))
+
+        def fail_move(*_args, **_kwargs):
+            raise PartialApplyError("move set partially applied")
+
+        monkeypatch.setattr(edit, "move_and_update_links", fail_move)
+
+        with pytest.raises(PartialApplyError, match="move set partially applied") as exc_info:
+            edit.edit_artefact(
+                str(vault),
+                router,
+                "Projects/Brain.md",
+                "",
+                frontmatter_changes={"key": "brain2"},
+            )
+
+        assert isinstance(exc_info.value.__cause__, PartialApplyError)
+        assert "metadata files written ['Projects/Brain.md', 'Designs/project~brain/Parent.md']" in str(exc_info.value)
+        source_fields, _ = parse_frontmatter((vault / "Projects" / "Brain.md").read_text())
+        assert source_fields["key"] == "brain2"
+        parent_path = vault / "Designs" / "project~brain" / "Parent.md"
+        parent_fields, _ = parse_frontmatter(parent_path.read_text())
+        assert parent_fields["parent"] == "project/brain2"
+        assert not (vault / "Designs" / "project~brain2" / "Parent.md").exists()
+
+    def test_reference_mutation_write_failure_reports_written_context(
+        self, vault, router, monkeypatch
+    ):
+        calls = []
+
+        def flaky_write(*_args, **_kwargs):
+            calls.append(True)
+            if len(calls) == 2:
+                raise OSError("disk full")
+
+        monkeypatch.setattr(edit, "safe_write", flaky_write)
+
+        with pytest.raises(PartialApplyError, match="reference mutation partially applied") as exc_info:
+            edit._write_frontmatter_mutations(
+                str(vault),
+                [
+                    {"path": "Wiki/a.md", "fields": {"type": "living/wiki"}, "body": "A"},
+                    {"path": "Wiki/b.md", "fields": {"type": "living/wiki"}, "body": "B"},
+                ],
+                operation="reference mutation",
+            )
+
+        assert isinstance(exc_info.value.__cause__, OSError)
+        assert "files written ['Wiki/a.md']" in str(exc_info.value)
+
     def test_temporal_parent_edit_persists_without_rehoming(self, vault, router):
         month = vault / "_Temporal" / "Research" / "2026-04"
         month.mkdir(parents=True, exist_ok=True)
@@ -241,6 +571,8 @@ class TestOwnershipEditPaths:
             "---\n\n"
             "# Child Idea\n\nBody.\n"
         )
+        import compile_router
+        router = compile_router.compile(str(vault))
 
         result = edit.edit_artefact(
             str(vault),
@@ -315,6 +647,7 @@ class TestOwnershipEditPaths:
             "---\n\n"
             "# Adopted Idea\n\nBody.\n"
         )
+        router = compile_router.compile(str(vault))
 
         result = edit.edit_artefact(
             str(vault),
@@ -790,6 +1123,620 @@ class TestArchiveArtefact:
         new_stem = os.path.splitext(os.path.basename(result["new_path"]))[0]
         assert new_stem in content
 
+    def _make_archive_tree(self, vault):
+        (vault / "Ideas" / "parent").mkdir(parents=True, exist_ok=True)
+        (vault / "Ideas" / "Parent.md").write_text(
+            "---\n"
+            "type: living/ideas\n"
+            "tags: []\n"
+            "key: parent\n"
+            "status: adopted\n"
+            "---\n\n"
+            "Parent.\n"
+        )
+        (vault / "Ideas" / "parent" / "Child.md").write_text(
+            "---\n"
+            "type: living/ideas\n"
+            "tags:\n"
+            "  - ideas/parent\n"
+            "key: child\n"
+            "parent: ideas/parent\n"
+            "status: adopted\n"
+            "---\n\n"
+            "Child.\n"
+        )
+        (vault / "Wiki" / "ideas~parent" / "ideas~child").mkdir(parents=True, exist_ok=True)
+        (vault / "Wiki" / "ideas~parent" / "ideas~child" / "Grand.md").write_text(
+            "---\n"
+            "type: living/wiki\n"
+            "tags:\n"
+            "  - ideas/child\n"
+            "key: grand\n"
+            "parent: ideas/child\n"
+            "---\n\n"
+            "Grand.\n"
+        )
+        import compile_router
+        return compile_router.compile(str(vault))
+
+    def test_archive_refuses_living_descendants_by_default(self, vault, router):
+        router = self._make_archive_tree(vault)
+
+        with pytest.raises(HasDescendantsError) as exc_info:
+            edit.archive_artefact(str(vault), router, "Ideas/Parent.md")
+
+        payload = exc_info.value.to_payload()
+        assert payload["code"] == "HAS_DESCENDANTS"
+        assert payload["operation"] == "archive"
+        assert payload["source"] == "Ideas/Parent.md"
+        assert [entry["key"] for entry in payload["descendants"]] == [
+            "ideas/child",
+            "wiki/grand",
+        ]
+        assert (vault / "Ideas" / "Parent.md").is_file()
+        assert (vault / "Ideas" / "parent" / "Child.md").is_file()
+
+    def test_archive_source_missing_from_index_reports_stale_index(self, vault, router):
+        router = self._make_archive_tree(vault)
+        source_before = (vault / "Ideas" / "Parent.md").read_text()
+        router["artefact_index"].pop("ideas/parent")
+
+        with pytest.raises(ParentChainError) as exc_info:
+            edit.archive_artefact(str(vault), router, "Ideas/Parent.md")
+
+        message = str(exc_info.value)
+        assert "source artefact key is not in the compiled living index" in message
+        assert "ideas/parent" in message
+        assert "Broken parent reference: ideas/parent" not in message
+        assert (vault / "Ideas" / "Parent.md").read_text() == source_before
+        assert not (vault / "_Archive" / "Ideas").exists()
+
+    def test_archive_recursive_cascades_living_subtree(self, vault, router):
+        router = self._make_archive_tree(vault)
+
+        result = edit.archive_artefact(
+            str(vault), router, "Ideas/Parent.md", recursive=True
+        )
+
+        archived_paths = {entry["old_path"]: entry["new_path"] for entry in result["archived"]}
+        assert set(archived_paths) == {
+            "Ideas/Parent.md",
+            "Ideas/parent/Child.md",
+            "Wiki/ideas~parent/ideas~child/Grand.md",
+        }
+        for old_path, new_path in archived_paths.items():
+            assert not (vault / old_path).exists()
+            assert (vault / new_path).is_file()
+            fields, _ = parse_frontmatter((vault / new_path).read_text())
+            assert "archiveddate" in fields
+        assert archived_paths["Wiki/ideas~parent/ideas~child/Grand.md"].startswith(
+            "_Archive/Wiki/ideas~parent/ideas~child/"
+        )
+        assert not (vault / "Ideas" / "parent").exists()
+        assert not (vault / "Wiki" / "ideas~parent").exists()
+        assert (vault / "Ideas").is_dir()
+        assert (vault / "Wiki").is_dir()
+
+    def test_archive_recursive_cascades_non_terminal_living_descendant(self, vault, router):
+        router = self._make_archive_tree(vault)
+        child = vault / "Ideas" / "parent" / "Child.md"
+        fields, body = parse_frontmatter(child.read_text())
+        fields["status"] = "shaping"
+        child.write_text(
+            "---\n"
+            "type: living/ideas\n"
+            "tags:\n"
+            "  - ideas/parent\n"
+            "key: child\n"
+            "parent: ideas/parent\n"
+            "status: shaping\n"
+            "---\n\n"
+            f"{body}"
+        )
+
+        result = edit.archive_artefact(
+            str(vault), router, "Ideas/Parent.md", recursive=True
+        )
+
+        archived_paths = {entry["old_path"]: entry["new_path"] for entry in result["archived"]}
+        archived_child = vault / archived_paths["Ideas/parent/Child.md"]
+        assert archived_child.is_file()
+        fields, _ = parse_frontmatter(archived_child.read_text())
+        assert fields["status"] == "shaping"
+        assert "archiveddate" in fields
+
+    def test_archive_recursive_refuses_write_protected_descendant(self, vault, router, monkeypatch):
+        router = self._make_archive_tree(vault)
+        original = edit.check_write_allowed
+
+        def guard(rel_path):
+            if rel_path == "Ideas/parent/Child.md":
+                raise ValueError("Cannot write to protected descendant")
+            return original(rel_path)
+
+        monkeypatch.setattr(edit, "check_write_allowed", guard)
+
+        with pytest.raises(ValueError, match="protected descendant"):
+            edit.archive_artefact(
+                str(vault), router, "Ideas/Parent.md", recursive=True
+            )
+
+        fields, _ = parse_frontmatter((vault / "Ideas" / "Parent.md").read_text())
+        assert "archiveddate" not in fields
+        assert (vault / "Ideas" / "parent" / "Child.md").is_file()
+
+    def test_archive_with_only_temporal_children_proceeds(self, vault, router):
+        rel = self._make_idea(vault, name="Parent.md", status="adopted")
+        (vault / rel).write_text(
+            "---\n"
+            "type: living/ideas\n"
+            "tags: []\n"
+            "key: parent\n"
+            "status: adopted\n"
+            "---\n\n"
+            "Parent.\n"
+        )
+        month = vault / "_Temporal" / "Research" / "2026-04"
+        month.mkdir(parents=True, exist_ok=True)
+        temporal = month / "20260413-research~Child.md"
+        temporal.write_text(
+            "---\n"
+            "type: temporal/research\n"
+            "tags:\n"
+            "  - ideas/parent\n"
+            "parent: ideas/parent\n"
+            "created: 2026-04-13T09:00:00+10:00\n"
+            "---\n\n"
+            "Temporal.\n"
+        )
+        import compile_router
+        router = compile_router.compile(str(vault))
+
+        result = edit.archive_artefact(str(vault), router, rel)
+
+        assert (vault / result["new_path"]).is_file()
+        assert temporal.is_file()
+
+    def test_archive_cyclic_graph_aborts_before_writes(self, vault, router):
+        router = self._make_archive_tree(vault)
+        router["artefact_index"]["ideas/parent"]["parent"] = "wiki/grand"
+
+        with pytest.raises(Exception, match="Cyclic descendant chain"):
+            edit.archive_artefact(
+                str(vault), router, "Ideas/Parent.md", recursive=True
+            )
+
+        fields, _ = parse_frontmatter((vault / "Ideas" / "Parent.md").read_text())
+        assert "archiveddate" not in fields
+        assert (vault / "Ideas" / "parent" / "Child.md").is_file()
+
+    def test_archive_write_failure_reports_written_context(self, vault, router, monkeypatch):
+        router = self._make_archive_tree(vault)
+        original = edit.safe_write
+        calls = []
+
+        def flaky_write(path, content, **kwargs):
+            calls.append(path)
+            if len(calls) == 2:
+                raise OSError("disk full")
+            return original(path, content, **kwargs)
+
+        monkeypatch.setattr(edit, "safe_write", flaky_write)
+
+        with pytest.raises(PartialApplyError, match="archive partially applied") as exc_info:
+            edit.archive_artefact(
+                str(vault), router, "Ideas/Parent.md", recursive=True
+            )
+
+        assert isinstance(exc_info.value.__cause__, OSError)
+        assert "files written ['Ideas/Parent.md']" in str(exc_info.value)
+
+    def test_archive_move_failure_reports_metadata_written_context(self, vault, router, monkeypatch):
+        router = self._make_archive_tree(vault)
+
+        def fail_move(*_args, **_kwargs):
+            raise PartialApplyError("move set partially applied")
+
+        monkeypatch.setattr(edit, "move_and_update_links", fail_move)
+
+        with pytest.raises(PartialApplyError, match="archive partially applied") as exc_info:
+            edit.archive_artefact(
+                str(vault), router, "Ideas/Parent.md", recursive=True
+            )
+
+        assert isinstance(exc_info.value.__cause__, PartialApplyError)
+        message = str(exc_info.value)
+        assert "metadata files written ['Ideas/Parent.md', 'Ideas/parent/Child.md', 'Wiki/ideas~parent/ideas~child/Grand.md']" in message
+        assert "move failure: move set partially applied" in message
+
+    def test_archive_shared_preflight_rejects_before_writes(self, vault, router, monkeypatch):
+        router = self._make_archive_tree(vault)
+        parent = vault / "Ideas" / "Parent.md"
+        before = parent.read_text()
+
+        def fail_preflight(*_args, **_kwargs):
+            raise ValueError("Cyclic move set involving: Ideas/Parent.md")
+
+        monkeypatch.setattr(edit, "preflight_move_set", fail_preflight)
+
+        with pytest.raises(ValueError, match="Cyclic move set"):
+            edit.archive_artefact(
+                str(vault), router, "Ideas/Parent.md", recursive=True
+            )
+
+        assert parent.read_text() == before
+
+
+class TestReparentChildren:
+    def _write_reparent_tree(self, vault):
+        (vault / "Projects" / "Custom.md").write_text(
+            "---\ntype: living/project\ntags:\n  - project/custom\nkey: custom\n---\n\n# Custom\n"
+        )
+        (vault / "Ideas" / "project~brain" / "child").mkdir(parents=True, exist_ok=True)
+        (vault / "Ideas" / "project~brain" / "Child.md").write_text(
+            "---\n"
+            "type: living/ideas\n"
+            "tags:\n"
+            "  - project/brain\n"
+            "key: child\n"
+            "parent: project/brain\n"
+            "status: shaping\n"
+            "---\n\n"
+            "Child.\n"
+        )
+        (vault / "Wiki" / "project~brain" / "ideas~child").mkdir(parents=True, exist_ok=True)
+        (vault / "Wiki" / "project~brain" / "ideas~child" / "Grand.md").write_text(
+            "---\n"
+            "type: living/wiki\n"
+            "tags:\n"
+            "  - ideas/child\n"
+            "key: grand\n"
+            "parent: ideas/child\n"
+            "---\n\n"
+            "Grand.\n"
+        )
+        import compile_router
+        return compile_router.compile(str(vault))
+
+    def test_reparent_to_new_parent_moves_each_child_subtree(self, vault, router, monkeypatch):
+        router = self._write_reparent_tree(vault)
+        calls = []
+        original = edit.move_and_update_links
+        monkeypatch.setattr(
+            edit,
+            "move_and_update_links",
+            lambda vault_root, moves, **kwargs: calls.append(list(moves))
+            or original(vault_root, moves, **kwargs),
+        )
+
+        result = edit.reparent_children(
+            str(vault), router, "Projects/Brain.md", "project/custom", to_provided=True
+        )
+
+        assert len(calls) == 1
+        assert result["to"] == "project/custom"
+        child = vault / "Ideas" / "project~custom" / "Child.md"
+        grand = vault / "Wiki" / "project~custom" / "ideas~child" / "Grand.md"
+        assert child.is_file()
+        assert grand.is_file()
+        fields, _ = parse_frontmatter(child.read_text())
+        assert fields["parent"] == "project/custom"
+        assert "project/custom" in fields["tags"]
+        assert "project/brain" not in fields["tags"]
+        assert not (vault / "Wiki" / "project~brain").exists()
+        assert (vault / "Ideas").is_dir()
+        assert (vault / "Wiki").is_dir()
+        assert {
+            "source": "Ideas/project~brain/Child.md",
+            "dest": "Ideas/project~custom/Child.md",
+        } in result["moves"]
+
+    def test_reparent_to_self_rejected_before_writes(self, vault, router):
+        router = self._write_reparent_tree(vault)
+        child = vault / "Ideas" / "project~brain" / "Child.md"
+        before = child.read_text()
+
+        with pytest.raises(ParentChainError) as exc_info:
+            edit.reparent_children(
+                str(vault), router, "Projects/Brain.md", "project/brain", to_provided=True
+            )
+
+        assert "parent itself" in str(exc_info.value)
+        assert child.read_text() == before
+
+    def test_reparent_to_descendant_rejected_before_writes(self, vault, router):
+        router = self._write_reparent_tree(vault)
+        child = vault / "Ideas" / "project~brain" / "Child.md"
+        before = child.read_text()
+
+        with pytest.raises(ParentChainError) as exc_info:
+            edit.reparent_children(
+                str(vault), router, "Projects/Brain.md", "ideas/child", to_provided=True
+            )
+
+        assert "child of descendant ideas/child" in str(exc_info.value)
+        assert child.read_text() == before
+
+    def test_reparent_shared_preflight_rejects_before_writes(self, vault, router, monkeypatch):
+        router = self._write_reparent_tree(vault)
+        child = vault / "Ideas" / "project~brain" / "Child.md"
+        before = child.read_text()
+
+        def fail_preflight(*_args, **_kwargs):
+            raise ValueError("Cyclic move set involving: Ideas/project~brain/Child.md")
+
+        monkeypatch.setattr(edit, "preflight_move_set", fail_preflight)
+
+        with pytest.raises(ValueError, match="Cyclic move set"):
+            edit.reparent_children(
+                str(vault), router, "Projects/Brain.md", "project/custom", to_provided=True
+            )
+
+        assert child.read_text() == before
+
+    def test_reparent_source_missing_from_index_reports_stale_index(self, vault, router):
+        router = self._write_reparent_tree(vault)
+        source_before = (vault / "Projects" / "Brain.md").read_text()
+        child_before = (vault / "Ideas" / "project~brain" / "Child.md").read_text()
+        router["artefact_index"].pop("project/brain")
+
+        with pytest.raises(ParentChainError) as exc_info:
+            edit.reparent_children(
+                str(vault), router, "Projects/Brain.md", "project/custom", to_provided=True
+            )
+
+        message = str(exc_info.value)
+        assert "source artefact key is not in the compiled living index" in message
+        assert "project/brain" in message
+        assert (vault / "Projects" / "Brain.md").read_text() == source_before
+        assert (vault / "Ideas" / "project~brain" / "Child.md").read_text() == child_before
+        assert not (vault / "Ideas" / "project~custom" / "Child.md").exists()
+
+    def test_reparent_omitted_to_dissolves_to_grandparent(self, vault, router, monkeypatch):
+        (vault / "Projects" / "Brain.md").unlink()
+        (vault / "Projects" / "Root.md").write_text(
+            "---\ntype: living/project\ntags:\n  - project/root\nkey: root\n---\n\n# Root\n"
+        )
+        (vault / "Projects" / "project~root").mkdir(parents=True, exist_ok=True)
+        (vault / "Projects" / "project~root" / "Brain.md").write_text(
+            "---\ntype: living/project\ntags:\n  - project/brain\nkey: brain\nparent: project/root\n---\n\n# Brain\n"
+        )
+        (vault / "Ideas" / "project~root" / "project~brain").mkdir(parents=True, exist_ok=True)
+        (vault / "Ideas" / "project~root" / "project~brain" / "Child.md").write_text(
+            "---\n"
+            "type: living/ideas\n"
+            "tags:\n"
+            "  - project/brain\n"
+            "key: child\n"
+            "parent: project/brain\n"
+            "status: shaping\n"
+            "---\n\n"
+            "Child.\n"
+        )
+        import compile_router
+        router = compile_router.compile(str(vault))
+        calls = []
+        original = edit.move_and_update_links
+        monkeypatch.setattr(
+            edit,
+            "move_and_update_links",
+            lambda vault_root, moves, **kwargs: calls.append(list(moves))
+            or original(vault_root, moves, **kwargs),
+        )
+
+        edit.reparent_children(str(vault), router, "Projects/project~root/Brain.md")
+
+        assert len(calls) == 1
+        child = vault / "Ideas" / "project~root" / "Child.md"
+        assert child.is_file()
+        fields, _ = parse_frontmatter(child.read_text())
+        assert fields["parent"] == "project/root"
+        assert "project/root" in fields["tags"]
+        assert "project/brain" not in fields["tags"]
+
+    def test_reparent_cleared_to_moves_children_top_level(self, vault, router, monkeypatch):
+        router = self._write_reparent_tree(vault)
+        calls = []
+        original = edit.move_and_update_links
+        monkeypatch.setattr(
+            edit,
+            "move_and_update_links",
+            lambda vault_root, moves, **kwargs: calls.append(list(moves))
+            or original(vault_root, moves, **kwargs),
+        )
+
+        result = edit.reparent_children(
+            str(vault), router, "Projects/Brain.md", None, to_provided=True
+        )
+
+        assert len(calls) == 1
+        assert result["to"] is None
+        child = vault / "Ideas" / "Child.md"
+        grand = vault / "Wiki" / "ideas~child" / "Grand.md"
+        assert child.is_file()
+        assert grand.is_file()
+        fields, _ = parse_frontmatter(child.read_text())
+        assert "parent" not in fields
+        assert "project/brain" not in fields["tags"]
+
+    def test_reparent_write_failure_reports_written_context(self, vault, router, monkeypatch):
+        router = self._write_reparent_tree(vault)
+
+        def fail_write(*_args, **_kwargs):
+            raise OSError("disk full")
+
+        monkeypatch.setattr(edit, "safe_write", fail_write)
+
+        with pytest.raises(OSError, match="reparent failed before writing") as exc_info:
+            edit.reparent_children(
+                str(vault), router, "Projects/Brain.md", "project/custom", to_provided=True
+            )
+
+        assert isinstance(exc_info.value.__cause__, OSError)
+        assert "Ideas/project~brain/Child.md" in str(exc_info.value)
+
+    def test_reparent_move_failure_reports_metadata_written_context(self, vault, router, monkeypatch):
+        router = self._write_reparent_tree(vault)
+
+        def fail_move(*_args, **_kwargs):
+            raise PartialApplyError("move set partially applied")
+
+        monkeypatch.setattr(edit, "move_and_update_links", fail_move)
+
+        with pytest.raises(PartialApplyError, match="reparent partially applied") as exc_info:
+            edit.reparent_children(
+                str(vault), router, "Projects/Brain.md", "project/custom", to_provided=True
+            )
+
+        assert isinstance(exc_info.value.__cause__, PartialApplyError)
+        message = str(exc_info.value)
+        assert "metadata files written ['Ideas/project~brain/Child.md']" in message
+        assert "move failure: move set partially applied" in message
+
+
+class TestDeleteLivingDescendants:
+    def _write_delete_tree(self, vault):
+        (vault / "Ideas" / "parent").mkdir(parents=True, exist_ok=True)
+        (vault / "Ideas" / "Parent.md").write_text(
+            "---\n"
+            "type: living/ideas\n"
+            "tags: []\n"
+            "key: parent\n"
+            "status: shaping\n"
+            "---\n\n"
+            "Parent.\n"
+        )
+        (vault / "Ideas" / "parent" / "Child.md").write_text(
+            "---\n"
+            "type: living/ideas\n"
+            "tags:\n"
+            "  - ideas/parent\n"
+            "key: child\n"
+            "parent: ideas/parent\n"
+            "status: shaping\n"
+            "---\n\n"
+            "Child links [[Ideas/Parent|Parent]].\n"
+        )
+        (vault / "Wiki" / "linker.md").write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\nSee [[Ideas/parent/Child|Child]].\n"
+        )
+        import compile_router
+        return compile_router.compile(str(vault))
+
+    def test_delete_refuses_living_descendants_by_default(self, vault, router):
+        router = self._write_delete_tree(vault)
+
+        with pytest.raises(HasDescendantsError) as exc_info:
+            rename.delete_and_clean_links(
+                str(vault), "Ideas/Parent.md", router=router
+            )
+
+        payload = exc_info.value.to_payload()
+        assert payload["code"] == "HAS_DESCENDANTS"
+        assert payload["operation"] == "delete"
+        assert payload["descendants"][0]["key"] == "ideas/child"
+        assert (vault / "Ideas" / "Parent.md").is_file()
+        assert (vault / "Ideas" / "parent" / "Child.md").is_file()
+
+    def test_delete_source_missing_from_index_reports_stale_index(self, vault, router):
+        router = self._write_delete_tree(vault)
+        source_before = (vault / "Ideas" / "Parent.md").read_text()
+        router["artefact_index"].pop("ideas/parent")
+
+        with pytest.raises(ParentChainError) as exc_info:
+            rename.delete_and_clean_links(
+                str(vault), "Ideas/Parent.md", router=router
+            )
+
+        message = str(exc_info.value)
+        assert "source artefact key is not in the compiled living index" in message
+        assert "ideas/parent" in message
+        assert "Broken parent reference: ideas/parent" not in message
+        assert (vault / "Ideas" / "Parent.md").read_text() == source_before
+
+    def test_delete_recursive_cascades_living_subtree(self, vault, router):
+        router = self._write_delete_tree(vault)
+
+        count = rename.delete_and_clean_links(
+            str(vault), "Ideas/Parent.md", router=router, recursive=True
+        )
+
+        assert count == 2
+        assert not (vault / "Ideas" / "Parent.md").exists()
+        assert not (vault / "Ideas" / "parent" / "Child.md").exists()
+        assert "~~Child~~" in (vault / "Wiki" / "linker.md").read_text()
+
+    def test_delete_recursive_remove_failure_reports_partial_state(self, vault, router, monkeypatch):
+        router = self._write_delete_tree(vault)
+        real_remove = os.remove
+        calls = []
+
+        def flaky_remove(path):
+            calls.append(path)
+            if len(calls) == 2:
+                raise OSError("cloud sync busy")
+            return real_remove(path)
+
+        monkeypatch.setattr(rename.os, "remove", flaky_remove)
+
+        with pytest.raises(rename.PartialApplyError) as exc_info:
+            rename.delete_and_clean_links(
+                str(vault), "Ideas/Parent.md", router=router, recursive=True
+            )
+
+        assert isinstance(exc_info.value.__cause__, OSError)
+        message = str(exc_info.value)
+        assert "delete set partially applied" in message
+        assert "removed ['Ideas/Parent.md']" in message
+        assert "failed at Ideas/parent/Child.md" in message
+        assert not (vault / "Ideas" / "Parent.md").exists()
+        assert (vault / "Ideas" / "parent" / "Child.md").is_file()
+        assert "~~Child~~" in (vault / "Wiki" / "linker.md").read_text()
+
+    def test_delete_with_only_temporal_children_proceeds(self, vault, router):
+        (vault / "Ideas" / "Parent.md").write_text(
+            "---\n"
+            "type: living/ideas\n"
+            "tags: []\n"
+            "key: parent\n"
+            "status: shaping\n"
+            "---\n\n"
+            "Parent.\n"
+        )
+        month = vault / "_Temporal" / "Research" / "2026-04"
+        month.mkdir(parents=True, exist_ok=True)
+        temporal = month / "20260413-research~Child.md"
+        temporal.write_text(
+            "---\n"
+            "type: temporal/research\n"
+            "tags:\n"
+            "  - ideas/parent\n"
+            "parent: ideas/parent\n"
+            "created: 2026-04-13T09:00:00+10:00\n"
+            "---\n\n"
+            "Temporal.\n"
+        )
+        import compile_router
+        router = compile_router.compile(str(vault))
+
+        rename.delete_and_clean_links(str(vault), "Ideas/Parent.md", router=router)
+
+        assert not (vault / "Ideas" / "Parent.md").exists()
+        assert temporal.is_file()
+
+    def test_delete_cyclic_graph_aborts_before_removing_files(self, vault, router):
+        router = self._write_delete_tree(vault)
+        router["artefact_index"]["ideas/parent"]["parent"] = "ideas/child"
+
+        with pytest.raises(Exception, match="Cyclic descendant chain"):
+            rename.delete_and_clean_links(
+                str(vault), "Ideas/Parent.md", router=router, recursive=True
+            )
+
+        assert (vault / "Ideas" / "Parent.md").is_file()
+        assert (vault / "Ideas" / "parent" / "Child.md").is_file()
+
+
 
 class TestUnarchiveArtefact:
     """Tests for brain_move(op='unarchive') — unarchive_artefact()."""
@@ -842,3 +1789,36 @@ class TestUnarchiveArtefact:
         result = edit.unarchive_artefact(str(vault), router, rel)
         content = (vault / "Wiki" / "linker.md").read_text()
         assert "my-idea" in content
+
+    def test_unarchive_move_failure_reports_metadata_written_context(
+        self, vault, router, monkeypatch
+    ):
+        rel = self._make_archived(vault)
+
+        def fail_rename(*_args, **_kwargs):
+            raise PartialApplyError("move set partially applied")
+
+        monkeypatch.setattr(edit, "rename_and_update_links", fail_rename)
+
+        with pytest.raises(PartialApplyError, match="unarchive partially applied") as exc_info:
+            edit.unarchive_artefact(str(vault), router, rel)
+
+        assert isinstance(exc_info.value.__cause__, PartialApplyError)
+        message = str(exc_info.value)
+        assert f"metadata file written {rel}" in message
+        assert "move failure: move set partially applied" in message
+
+    def test_unarchive_destination_collision_preflights_before_metadata_write(
+        self, vault, router
+    ):
+        rel = self._make_archived(vault)
+        (vault / "Ideas" / "my-idea.md").write_text(
+            "---\ntype: living/ideas\ntags: []\n---\n\nExisting.\n"
+        )
+
+        with pytest.raises(FileExistsError, match="Destination file already exists"):
+            edit.unarchive_artefact(str(vault), router, rel)
+
+        archived_fields, _ = parse_frontmatter((vault / rel).read_text())
+        assert "archiveddate" in archived_fields
+        assert (vault / "Ideas" / "my-idea.md").is_file()

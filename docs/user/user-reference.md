@@ -176,12 +176,13 @@ If your vault runs the Brain MCP server (`.brain-core/brain_mcp/server.py`), ten
 - Flat top-level move tool for artefact path/classification transitions
 - `rename` — request shape: `{op: "rename", source, dest}`; artefact-aware same-type move with automatic wikilink updates (uses Obsidian CLI when available)
 - `convert` — request shape: `{op: "convert", path, target_type, parent?}`; changes artefact type, moves the file, reconciles frontmatter, updates wikilinks, and generates a distinctive living `key` when converting temporal artefacts to living types
-- `archive` — request shape: `{op: "archive", path}`; archives a terminal-status artefact to `_Archive/` with date-prefix rename and wikilink updates
+- `archive` — request shape: `{op: "archive", path, recursive?}`; archives a terminal-status artefact to `_Archive/` with date-prefix rename and wikilink updates. Artefacts with living descendants return `HAS_DESCENDANTS` unless `recursive: true` is supplied
 - `unarchive` — request shape: `{op: "unarchive", path}`; restores an archived artefact to its original type folder and removes `archiveddate`
 
 **brain_action** (vault-wide/destructive, requires approval)
 - Smaller workflow/utility bucket using `action + params`
-- `delete` — request shape: `{action: "delete", params: {path}}`; deletes an artefact file and replaces wikilinks with strikethrough text
+- `delete` — request shape: `{action: "delete", params: {path, recursive?}}`; deletes an artefact file and replaces wikilinks with strikethrough text. Artefacts with living descendants return `HAS_DESCENDANTS` unless `recursive: true` is supplied
+- `reparent` — request shape: `{action: "reparent", params: {source, to?}}`; reparents the direct children of a living artefact, updates child frontmatter/tags, moves descendant files, and prunes emptied owner folders
 - `shape-printable` — request shape: `{action: "shape-printable", params: {source, slug, render?, keep_heading_with_next?, pdf_engine?}}`; creates a printable artefact and renders `_Assets/Generated/Printables/{stem}.pdf` via pandoc
 - `shape-presentation` — request shape: `{action: "shape-presentation", params: {source, slug, render?, preview?}}`; creates a presentation artefact, renders `_Assets/Generated/Presentations/{stem}.pdf`, and optionally launches Marp live preview
 - `start-shaping` — request shape: `{action: "start-shaping", params: {target, title?, skill_type?}}`; bootstraps a shaping session for an existing artefact and revives `+Status/` artefacts back into the active folder when shaping resumes
@@ -222,7 +223,7 @@ The same is now true for the managed operational wrappers: `build_index.py`, `se
 | `read.py` | Query compiled router resources (artefacts, triggers, styles, templates, skills, etc.) |
 | `create.py` | Create a new artefact with template/naming resolution |
 | `edit.py` | Edit artefacts via explicit `target + selector + scope`; the importable helpers also back editable `_Config/` resources |
-| `rename.py` | Rename a file with automatic wikilink updates; refuses existing-destination collisions before touching links |
+| `rename.py` | Rename/delete with automatic wikilink updates; refuses unsafe move sets before touching links |
 | `repair.py` | Explicit Brain repair entry point. Bootstraps from any compatible Python 3.12+ launcher, converges into the central managed runtime at `~/.brain/venvs/py<X.Y>-<sha16>/`, and then repairs one named scope: `runtime`, `mcp`, `router`, `lexical`, `registry`, `frontmatter`, or `semantic`. |
 | `session.py` | Build the canonical session model and refresh `.brain/local/session.md`; keeps a launcher-safe SessionStart shim and hands substantive work into the managed runtime |
 | `obsidian_cli.py` | IPC client for native Obsidian CLI (library module used by MCP) |
@@ -231,6 +232,7 @@ The same is now true for the managed operational wrappers: `build_index.py`, `se
 | `shape_presentation.py` | Create presentation + render PDF + launch preview |
 | `start_shaping.py` | Bootstrap a shaping session for an existing artefact |
 | `upgrade.py` | Canonical brain-core upgrade entry point from a source directory, including versioned pre-compile compatibility patches, binary-safe rollback snapshots for `.brain/` / `_Config/`, post-compile migration rollback of touched artefact roots, applied-migration tracking in `.brain/local/`, running stage snapshots in `.brain/local/last-upgrade.json`, self-contained atomic writes, provisioning of the central managed runtime at `~/.brain/venvs/` when requirements change, and post-upgrade retrieval-asset reconciliation through `repair.py lexical` or `repair.py semantic` |
+| `migrations/migrate_to_0_50_0.py` | Recursive owner-folder migration for v0.50.0; direct CLI supports dry-run/apply and JSON blocker diagnostics |
 | `vault_registry.py` | User-home authoritative Brain registry for local Brain IDs (currently typed `local` entries pointing at vault roots), plus an optional machine default Brain pointer stored separately |
 | `workspace_registry.py` | Workspace key→path resolution and registration |
 | `install.py` | Shared Python installer core used by `install.sh` and `install.ps1`; normal users invoke a platform launcher, while the core owns scaffold/runtime/MCP policy and lifecycle output. |

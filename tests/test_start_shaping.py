@@ -174,6 +174,43 @@ class TestStartShaping:
         assert "**Transcripts:**" in source_content
         assert payload["transcript_path"].replace(".md", "") in source_content
 
+    def test_cli_main_reports_status_revive_move_failure_without_traceback(
+        self, vault, monkeypatch, capsys
+    ):
+        status_dir = vault / "Designs" / "+Ready"
+        status_dir.mkdir()
+        source = vault / "Designs" / "My Design.md"
+        target = status_dir / "My Design.md"
+        source.rename(target)
+        import compile_router
+        router = compile_router.compile(str(vault))
+        _write_compiled_router(vault, router)
+
+        def fail_rename(*_args, **_kwargs):
+            raise RuntimeError("move set partially applied")
+
+        monkeypatch.setattr(start_shaping, "rename_and_update_links", fail_rename)
+        monkeypatch.setattr(
+            start_shaping.sys,
+            "argv",
+            [
+                "start_shaping.py",
+                "--target",
+                "Designs/+Ready/My Design.md",
+                "--vault",
+                str(vault),
+            ],
+        )
+
+        with pytest.raises(SystemExit) as exc_info:
+            start_shaping.main()
+
+        assert exc_info.value.code == 1
+        captured = capsys.readouterr()
+        assert "Error: Could not revive artefact from status folder" in captured.err
+        assert "move set partially applied" in captured.err
+        assert "Traceback" not in captured.err
+
     def test_missing_target_returns_error(self, vault, router):
         result = start_shaping.start_shaping(str(vault), router, {})
         assert "error" in result

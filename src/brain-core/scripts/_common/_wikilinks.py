@@ -92,6 +92,52 @@ def find_duplicate_basenames(vault_root, basename_stem, limit=None):
     return matches
 
 
+def build_md_basename_counts(vault_root):
+    """Return ``{basename-stem: count}`` for markdown files in user-facing dirs."""
+    counts = {}
+    for _dirpath, fname in _iter_vault_md_files(vault_root):
+        stem = os.path.splitext(fname)[0]
+        counts[stem] = counts.get(stem, 0) + 1
+    return counts
+
+
+def basename_is_unambiguous(basename_counts, basename_stem):
+    """Return whether ``basename_stem`` resolves to at most one markdown file."""
+    return basename_counts.get(basename_stem, 0) <= 1
+
+
+def wikilink_stems_for_path_change(old_path, new_path=None, *, basename_counts):
+    """Return ``(stems, stem_map)`` for one rename/delete path change.
+
+    Full path-qualified links are always included. Filename-only links are
+    included only when the old basename is unambiguous and, for renames, the
+    basename actually changes. Folder-only moves therefore leave basename-only
+    links untouched.
+    """
+    old_stem = strip_md_ext(old_path)
+    old_basename = os.path.splitext(os.path.basename(old_path))[0]
+
+    stems = [old_stem]
+    stem_map = {}
+
+    if new_path is None:
+        stem_map[old_stem] = old_basename
+        basename_replacement = old_basename
+        include_basename = old_basename != old_stem
+    else:
+        new_stem = strip_md_ext(new_path)
+        new_basename = os.path.splitext(os.path.basename(new_path))[0]
+        stem_map[old_stem] = new_stem
+        basename_replacement = new_basename
+        include_basename = old_basename != old_stem and old_basename != new_basename
+
+    if include_basename and basename_is_unambiguous(basename_counts, old_basename):
+        stems.append(old_basename)
+        stem_map[old_basename] = basename_replacement
+
+    return stems, stem_map
+
+
 def resolve_wikilink_stems(vault_root, old_path, new_path=None):
     """Build multi-stem matching data for wikilink rewriting.
 
@@ -102,27 +148,10 @@ def resolve_wikilink_stems(vault_root, old_path, new_path=None):
     When *new_path* is ``None`` (delete case) the map values are the
     basename stem (used for strikethrough display).
     """
-    old_stem = strip_md_ext(old_path)
-    old_basename = os.path.splitext(os.path.basename(old_path))[0]
-
-    stems = [old_stem]
-    stem_map = {}
-
-    if new_path is not None:
-        new_stem = strip_md_ext(new_path)
-        new_basename = os.path.splitext(os.path.basename(new_path))[0]
-        stem_map[old_stem] = new_stem
-    else:
-        stem_map[old_stem] = old_basename
-
-    if old_basename != old_stem:
-        if len(find_duplicate_basenames(vault_root, old_basename, limit=2)) <= 1:
-            stems.append(old_basename)
-            if new_path is not None:
-                stem_map[old_basename] = new_basename
-            else:
-                stem_map[old_basename] = old_basename
-
+    basename_counts = build_md_basename_counts(vault_root)
+    stems, stem_map = wikilink_stems_for_path_change(
+        old_path, new_path, basename_counts=basename_counts
+    )
     pattern = build_wikilink_pattern(*stems)
     return pattern, stem_map
 

@@ -29,6 +29,7 @@ from _common import (
     PLACEHOLDER_TOKEN_RE,
     TEMPORAL_DIR,
     artefact_type_prefix,
+    finalize_living_artefact_index,
     find_vault_root,
     is_system_dir,
     iter_artefact_paths,
@@ -40,6 +41,7 @@ from _common import (
     scan_living_types,
     scan_temporal_types,
     is_valid_key,
+    living_artefact_index_entry,
 )
 from _common._artefacts import pattern_has_date_tokens
 from _repair_common import build_repair_command
@@ -876,22 +878,13 @@ def build_living_artefact_index(vault_root, artefacts, *, return_sources=False):
                     f"Duplicate artefact key '{artefact_key}' for {index[artefact_key]['path']} and {rel_path}"
                 )
 
-            index[artefact_key] = {
-                "path": rel_path,
-                "type": artefact["frontmatter_type"],
-                "type_key": artefact["key"],
-                "type_prefix": type_prefix,
-                "key": key_val,
-                "parent": normalize_artefact_key(fields.get("parent")),
-                "children_count": 0,
-            }
+            index[artefact_key] = living_artefact_index_entry(
+                artefact,
+                rel_path,
+                fields,
+            )
 
-    for entry in index.values():
-        parent_key = entry.get("parent")
-        if parent_key and parent_key in index:
-            index[parent_key]["children_count"] += 1
-
-    sorted_index = dict(sorted(index.items()))
+    sorted_index = finalize_living_artefact_index(index)
     sorted_sources = dict(sorted(source_signatures.items()))
     if return_sources:
         return sorted_index, sorted_sources

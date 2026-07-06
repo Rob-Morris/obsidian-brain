@@ -11,7 +11,7 @@ import pytest
 
 import create
 import fix_links as _fix_links
-from _common import file_index_from_documents, parse_frontmatter, resolve_naming_pattern
+from _common import ParentChainError, file_index_from_documents, parse_frontmatter, resolve_naming_pattern
 
 
 # ---------------------------------------------------------------------------
@@ -175,6 +175,20 @@ class TestCreateArtefact:
         # File exists on disk
         abs_path = os.path.join(str(vault), result["path"])
         assert os.path.isfile(abs_path)
+
+    def test_create_with_broken_grandparent_chain_fails_loud(self, vault, router):
+        router["artefact_index"]["project/brain"]["parent"] = "project/missing"
+
+        with pytest.raises(ParentChainError, match="project/missing"):
+            create.create_artefact(
+                str(vault),
+                router,
+                "wiki",
+                "Nested Child",
+                parent="project/brain",
+            )
+
+        assert not (vault / "Wiki" / "project~brain" / "Nested Child.md").exists()
 
     def test_created_file_has_correct_frontmatter(self, vault, router):
         result = create.create_artefact(str(vault), router, "wiki", "Test FM")

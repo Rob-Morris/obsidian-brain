@@ -9,7 +9,12 @@ from unittest.mock import patch
 import pytest
 
 import edit
-from _common import file_index_from_documents, parse_frontmatter, validate_artefact_folder
+from _common import (
+    PartialApplyError,
+    file_index_from_documents,
+    parse_frontmatter,
+    validate_artefact_folder,
+)
 
 
 class TestDeleteSection:
@@ -429,6 +434,41 @@ class TestTempPathFlag:
         assert exc_info.value.code == 1
         err = capsys.readouterr().err
         assert "Error: --within-occurrence expects an integer" in err
+
+    def test_cli_formats_partial_apply_error_without_traceback(
+        self, vault, monkeypatch, capsys
+    ):
+        def fail_apply(*_args, **_kwargs):
+            raise PartialApplyError("edit partially applied")
+
+        monkeypatch.setattr(edit, "apply_to_artefact", fail_apply)
+        monkeypatch.setattr(edit, "load_compiled_router", lambda _vault_root: {})
+        with patch.object(
+            sys,
+            "argv",
+            ["edit.py", "edit", "--path", "Wiki/test-page.md", "--vault", str(vault)],
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                edit.main()
+
+        assert exc_info.value.code == 1
+        err = capsys.readouterr().err
+        assert "Error: edit partially applied" in err
+        assert "Traceback" not in err
+
+    def test_cli_propagates_unrelated_runtime_error(self, vault, monkeypatch):
+        def fail_apply(*_args, **_kwargs):
+            raise RuntimeError("programmer bug")
+
+        monkeypatch.setattr(edit, "apply_to_artefact", fail_apply)
+        monkeypatch.setattr(edit, "load_compiled_router", lambda _vault_root: {})
+        with patch.object(
+            sys,
+            "argv",
+            ["edit.py", "edit", "--path", "Wiki/test-page.md", "--vault", str(vault)],
+        ):
+            with pytest.raises(RuntimeError, match="programmer bug"):
+                edit.main()
 
 
 class TestEditWikilinkWarnings:

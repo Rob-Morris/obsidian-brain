@@ -41,6 +41,7 @@ from _common import (
     is_valid_key,
     make_artefact_key,
     normalize_artefact_key,
+    ParentChainError,
     read_frontmatter,
     build_vault_file_index,
     inspect_duplicate_frontmatter_document,
@@ -51,6 +52,7 @@ from _common import (
     resolve_artefact_key_entry,
     resolve_folder,
     select_rule,
+    terminal_status_folder,
     validate_artefact_folder,
     validate_filename,
     resolve_and_validate_folder,
@@ -453,12 +455,22 @@ def check_parent_contract(vault_root, router, *, ctx=None):
                 })
                 continue
 
-            expected_folder = resolve_folder(
-                art,
-                parent=parent_key,
-                fields=fields,
-                router=router,
-            )
+            try:
+                expected_folder = resolve_folder(
+                    art,
+                    parent=parent_key,
+                    fields=fields,
+                    router=router,
+                )
+            except ParentChainError as exc:
+                findings.append({
+                    "check": "parent_contract",
+                    "severity": "warning",
+                    "file": rel_path,
+                    "message": f"Broken parent chain: {exc}",
+                    "fix": "Point every parent in the chain to an existing living artefact or clear the broken parent",
+                })
+                continue
             if base_folder != expected_folder:
                 findings.append({
                     "check": "parent_contract",
@@ -563,17 +575,14 @@ def check_status_folders(vault_root, router, *, ctx=None):
             current_folder = os.path.dirname(rel_path)
             folder_name = os.path.basename(current_folder)
             in_status_folder = folder_name.startswith(STATUS_FOLDER_PREFIX)
-            expected_folder = None
-            status = fields.get("status")
-            if status in terminal:
-                expected_folder = f"{STATUS_FOLDER_PREFIX}{status.capitalize()}"
+            expected_folder = terminal_status_folder(art, fields)
 
             if expected_folder and folder_name != expected_folder:
                 findings.append({
                     "check": "status_folders",
                     "severity": "warning",
                     "file": rel_path,
-                    "message": f"Terminal-status drift: status '{status}' expects folder '{expected_folder}'",
+                    "message": f"Terminal-status drift: status '{fields.get('status')}' expects folder '{expected_folder}'",
                     "fix": f"Move into {expected_folder}/",
                 })
             elif not expected_folder and in_status_folder:

@@ -69,7 +69,7 @@ experimental while the content-processing workflow settles.
 | `brain_create` | Additive — safe to auto-approve | Create a new vault artefact or config resource |
 | `brain_edit` | Single-file mutation | Edit, append, prepend, or delete a section from one file |
 | `brain_move` | Vault-wide / destructive — require explicit approval | Rename, convert, archive, or unarchive an artefact with flat top-level fields |
-| `brain_action` | Vault-wide / destructive — require explicit approval | Workflow/utility bucket for delete, shaping helpers, and fix-links |
+| `brain_action` | Vault-wide / destructive — require explicit approval | Workflow/utility bucket for delete, reparent, shaping helpers, and fix-links |
 | `brain_process` | Classify/resolve: read-only; ingest: creates/updates files | Experimental content classification, duplicate resolution, and ingestion; embedding-backed behavior is controlled by `defaults.flags.semantic_processing`, but degraded non-embedding behavior remains available by default |
 
 Mutating MCP calls are serialized within one server process. This applies to
@@ -263,6 +263,9 @@ Single-file mutation. Write-guarded: same folder restrictions as `brain_create`.
 
 **Behaviour:**
 - For artefacts: path validated against compiled router — wrong folder or naming rejected with helpful error; auto-updates `modified` frontmatter field on every write; auto-sets `statusdate` (YYYY-MM-DD) whenever `status` actually changes; terminal status auto-moves to `+Status/` subfolder with vault-wide wikilink updates, reverts on non-terminal
+- Living ownership edits are recursive when `key:` or `parent:` changes. The edited artefact is rendered through the same owner-folder projection as creation, descendant `parent:` references and owner tags are updated, descendant files are moved with the source subtree, and emptied owner folders are pruned up to the type root.
+- Ownership mutations fail before writes when the compiled router/index, scanned parent references, and rendered owner paths disagree. These stale-router/index failures are returned as actionable parent-chain errors that name the stale or unindexed artefact; refresh or rebuild the router/index before retrying.
+- Requests that would create a parent cycle are rejected before writes. This includes setting an artefact's parent to itself or to one of its descendants.
 - For non-artefact resources: resolves via `_Config/` conventions; no terminal status auto-move or `modified` injection. Memory edits dirty the in-memory router immediately so trigger lookups reflect the write on the next call; non-artefact `_Config/` edits do not queue artefact-index updates
 - Body mutations are explicit: omitted `target` no longer means "whole body". Use `target=":body"` plus `scope`.
 - Heading structure defines intro/section boundaries. Callouts are individually targetable, but they do not terminate `target=":body", scope="intro"`.
@@ -285,13 +288,17 @@ Vault-wide and destructive content-move operations, gated by explicit approval.
 - `path` — used by `convert`, `archive`, and `unarchive`
 - `target_type` — used only when `op="convert"`
 - `parent` — optional parent artefact reference used only when `op="convert"`
+- `recursive` — optional boolean used only when `op="archive"`; required to archive an artefact that has living descendants
 
 **Behaviour:**
 - Flat top-level request shape for caller ergonomics, matching the `brain_edit` pattern: field-level schema plus explicit runtime validation of op-specific requirements
 - **`rename`** — request shape: `{op: "rename", source, dest}`. Artefact-aware same-type move only: source and destination must both live in configured artefact folders for the same type, and destination naming is validated against the type contract. Delegates to `rename.py`'s `rename_and_update_links()`, with Obsidian CLI override when available. Wikilink updates match full-path (`[[Wiki/topic-a]]`), filename-only (`[[topic-a]]`), heading anchors, block references, embeds, and aliases while preserving the original format; filename-only matching is skipped when basename is ambiguous
 - **`convert`** — request shape: `{op: "convert", path, target_type, parent?}`. Changes artefact type, moves file, reconciles frontmatter, and updates wikilinks vault-wide. Crossing the living/temporal boundary reconciles the key contract: temporal→living generates a canonical `key:` from the clearest free title-derived words before using a random suffix; living→temporal drops the key and heals descendants by removing their `parent:` field plus the owner-tag and relocating them out of the parent's key- or scope-based child folder
-- **`archive`** — request shape: `{op: "archive", path}`. Moves a terminal-status artefact to `_Archive/{Type}/{Project}/` with date-prefix rename, sets `archiveddate`, and updates vault-wide wikilinks
-- **`unarchive`** — request shape: `{op: "unarchive", path}`. Restores an archived artefact to its original type folder, strips the date prefix, removes `archiveddate`, and updates vault-wide wikilinks
+- **`archive`** — request shape: `{op: "archive", path, recursive?}`. Moves a terminal-status artefact to `_Archive/{Type}/{Project}/` with date-prefix rename, sets `archiveddate`, and updates vault-wide wikilinks. If the artefact has living descendants, the default is a `HAS_DESCENDANTS` error with a descendant list; pass `recursive: true` to archive the subtree in one move set.
+- **`unarchive`** — request shape: `{op: "unarchive", path}`. Restores an archived artefact to its original type folder, strips the date prefix, removes `archiveddate`, and updates vault-wide wikilinks. Deterministic destination blockers are preflighted before archive metadata is changed.
+- All move operations share the move-set preflight used by `rename.py`: duplicate sources/destinations, destination collisions, cyclic move sets, path bounds, protected folders, symlink endpoints, and destination parent components that are files or broken symlinks fail before link rewrites or filesystem mutation.
+- Nested ownership move planning is fail-loud. A stale compiled router/index, an indexed descendant missing on disk, or a scanned child `parent:` reference absent from the compiled living index returns an actionable stale-index/parent-chain error rather than `Unexpected error`.
+- Documented partial-apply failures return repair context and mark the MCP router/index dirty because durable state may already have changed. The error text names the operation, committed metadata/files when known, and the underlying move failure.
 
 **Response format:** Plain text status lines for rename/archive/unarchive and JSON for convert, where the path and link-update counts are part of the structured payload.
 
@@ -302,9 +309,10 @@ Vault-wide and destructive content-move operations, gated by explicit approval.
 Vault-wide and destructive operations, gated by explicit approval.
 
 **Parameters:**
-- `action` (required) — one of: `delete`, `shape-printable`, `shape-presentation`, `start-shaping`, `fix-links`
-- `params` (optional) — action-specific parameter object. The generated schema publishes five named variants:
-  - `delete={path}`
+- `action` (required) — one of: `delete`, `reparent`, `shape-printable`, `shape-presentation`, `start-shaping`, `fix-links`
+- `params` (optional) — action-specific parameter object. The generated schema publishes six named variants:
+  - `delete={path, recursive?}`
+  - `reparent={source, to?}`
   - `shape-printable={source, slug, render?, keep_heading_with_next?, pdf_engine?}`
   - `shape-presentation={source, slug, render?, preview?}`
   - `start-shaping={target, title?, skill_type?}`
@@ -312,13 +320,14 @@ Vault-wide and destructive operations, gated by explicit approval.
   - The schema exposes those nested field sets for discoverability, but it does not structurally discriminate `action -> params` pairings. Mismatched pairings are rejected by runtime validation in the handler layer.
 
 **Actions:**
-- **`delete`** — request shape: `{action: "delete", params: {path}}`. Removes an artefact file and replaces wikilinks with strikethrough text
+- **`delete`** — request shape: `{action: "delete", params: {path, recursive?}}`. Removes an artefact file and replaces wikilinks with strikethrough text. Living artefacts with descendants return `HAS_DESCENDANTS` unless `recursive: true` is supplied; recursive delete removes the descendant subtree and rewrites links in one batch.
+- **`reparent`** — request shape: `{action: "reparent", params: {source, to?}}`. Moves the direct children of a living source artefact to a new parent, to the source's current parent when `to` is omitted, or to top level when `to` is `null`/`""`. The action updates child `parent:` fields/tags, moves descendant files through the shared move-set preflight, prunes emptied owner folders, and rejects self/descendant parent cycles before writes.
 - **`shape-printable`** — request shape: `{action: "shape-printable", params: {source, slug, render?, keep_heading_with_next?, pdf_engine?}}`. Creates a printable artefact, queues it for incremental retrieval-index refresh, and renders `_Assets/Generated/Printables/{stem}.pdf` via pandoc
 - **`shape-presentation`** — request shape: `{action: "shape-presentation", params: {source, slug, render?, preview?}}`. Creates a Marp presentation artefact, queues it for incremental retrieval-index refresh, renders `_Assets/Generated/Presentations/{stem}.pdf`, and optionally launches live preview
 - **`start-shaping`** — request shape: `{action: "start-shaping", params: {target, title?, skill_type?}}`. Bootstraps a shaping session against an existing artefact, creating or appending the transcript, reviving `+Status/` artefacts back into the active folder when it sets `status: shaping`, and queuing the touched artefacts for incremental retrieval-index refresh
 - **`fix-links`** — request shape: `{action: "fix-links", params: {fix?, path?, links?}}`. Scans for broken wikilinks and attempts auto-resolution using naming convention heuristics (slug→title, double-dash→tilde, temporal prefix matching). `fix: true` applies unambiguous fixes; `path: "..."` scopes scan/fix to a single file; `links: [...]` narrows a single-file fix to specific target stems. `brain_create` and `brain_edit` accept a `fix_links: true` convenience flag that runs the single-file fixer on the written artefact
 
-**Response format:** Plain text status lines for delete and JSON for the shaping/fix-links flows where structured payloads add value.
+**Response format:** Plain text status lines for delete and JSON for reparent plus the shaping/fix-links flows where structured payloads add value.
 
 ---
 
@@ -354,7 +363,7 @@ Recommended auto-approve settings:
 - **`brain_edit`** — mutates a single validated file — approve-once or auto-approve depending on trust level
 - **`brain_move`** — destructive vault moves — require explicit approval per call
 - **`brain_process`** — experimental; `classify`/`resolve` are read-only and `ingest` can create/update files, so treat it like `brain_create`/`brain_edit` combined. `defaults.flags.semantic_processing` only controls whether embedding-backed behavior is available.
-- **`brain_action`** — delete, shaping, and fix-links utilities — require explicit approval per call
+- **`brain_action`** — delete, reparent, shaping, and fix-links utilities — require explicit approval per call
 
 ## Response Format Conventions
 
@@ -406,9 +415,8 @@ if not isinstance(data, dict):
 
 This catches the case where a cache file contains valid JSON of the wrong type (e.g. after a partial write, encoding error, or manual edit).
 
-**Status:** `v0.35.7` adds `brain_process` to the released MCP surface. The
-tool remains explicitly experimental while the content-processing contract
-settles.
+**Status:** `brain_process` is part of the released MCP surface, but the tool
+remains explicitly experimental while the content-processing contract settles.
 
 ## Server Runtime
 
@@ -416,7 +424,7 @@ settles.
 
 Loads vault config via three-layer merge (template → `.brain/config.yaml` → `.brain/local/config.yaml`). Config freshness is rechecked before profile enforcement and before `brain_session` authentication, so on-disk config edits take effect without restarting the MCP server. Malformed or unreadable config fails closed for guarded tools and is reported through `brain_init(debug=true)`. Auto-compiles router and auto-builds index if stale (compares timestamps against source file mtimes). Both artefacts loaded into memory for the session lifetime. Loads workspace registry from `.brain/local/workspaces.json` (empty dict if absent). Derives vault name from config `brain_name`, then `BRAIN_VAULT_NAME` env var, then directory basename. Obsidian CLI availability is probed lazily on demand rather than during startup.
 
-Router freshness is also enforced mid-session when needed: `brain_session`, `brain_read`, `brain_search`, `brain_list`, `brain_create`, `brain_edit`, all `brain_move` ops, and `brain_action` flows that depend on current router state (`delete`, `start-shaping`).
+Router freshness is also enforced mid-session when needed: `brain_session`, `brain_read`, `brain_search`, `brain_list`, `brain_create`, `brain_edit`, all `brain_move` ops, and `brain_action` flows that depend on current router state (`delete`, `reparent`, `start-shaping`).
 
 ### Logging
 

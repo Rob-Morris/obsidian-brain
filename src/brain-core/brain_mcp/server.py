@@ -14,7 +14,7 @@ and exposes the MCP tool surface:
   brain_edit    — modify existing vault artefacts (single-file mutation)
   brain_process — experimental content classification, resolution, and ingestion
   brain_move    — destructive content-move ops: rename, convert, archive, unarchive
-  brain_action  — workflow/utility bucket: delete, shaping helpers, fix-links
+  brain_action  — workflow/utility bucket: delete, reparent, shaping helpers, fix-links
 
 Why this pattern: scripts are the source of truth for all vault operations.
 The MCP server gets in-memory caching for free (router/index loaded once at
@@ -76,12 +76,14 @@ import _semantic.model as semantic_model
 import _search.index as search_index
 import _search.paths as search_paths
 from _common import (
+    ParentChainError,
     SELECTOR_OCCURRENCE_DESCRIPTION,
     SELECTOR_WITHIN_DESCRIPTION,
     SELECTOR_WITHIN_OCCURRENCE_DESCRIPTION,
     SELECTOR_WITHIN_TARGET_DESCRIPTION,
     cleanup_temp_body_file,
     iter_artefact_paths,
+    parent_chain_error_message,
     safe_write_json,
     temp_body_file_cleanup_path,
 )
@@ -2207,6 +2209,7 @@ def _build_brain_move_params(
     path: str | None,
     target_type: str | None,
     parent: str | None,
+    recursive: bool | None,
 ):
     """Validate flat brain_move fields and collapse them into handler params."""
     spec = _server_actions.MOVE_SPECS.get(op)
@@ -2220,6 +2223,7 @@ def _build_brain_move_params(
         "path": path,
         "target_type": target_type,
         "parent": parent,
+        "recursive": recursive,
     }
     return validate_spec(
         spec,
@@ -2418,6 +2422,28 @@ class _BrainActionDeleteParams(BaseModel):
         str,
         Field(description="Vault-relative path to the artefact file to delete."),
     ]
+    recursive: Annotated[
+        bool | None,
+        Field(description="When true, delete the living descendant subtree too."),
+    ] = None
+
+
+class _BrainActionReparentParams(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source: Annotated[
+        str,
+        Field(description="Artefact whose direct living children should be reparented."),
+    ]
+    to: Annotated[
+        str | None,
+        Field(
+            description=(
+                "New parent reference. Omit to lift children to source's parent; "
+                "pass null or an empty string to clear children to top-level."
+            )
+        ),
+    ] = None
 
 
 class _BrainActionShapePrintableParams(BaseModel):
@@ -2882,6 +2908,9 @@ def brain_create(
                     runtime=_runtime(),
                     file_index=file_index,
                 )
+        except ParentChainError as e:
+            cleanup_temp_body_file(cleanup_path)
+            return _fmt_error(parent_chain_error_message(e))
         except (ValueError, FileNotFoundError) as e:
             cleanup_temp_body_file(cleanup_path)
             return _fmt_error(str(e))
@@ -3000,6 +3029,9 @@ def brain_edit(
                     runtime=_runtime(),
                     file_index=file_index,
                 )
+        except ParentChainError as e:
+            cleanup_temp_body_file(cleanup_path)
+            return _fmt_error(parent_chain_error_message(e))
         except (ValueError, FileNotFoundError) as e:
             cleanup_temp_body_file(cleanup_path)
             return _fmt_error(str(e))
@@ -3044,6 +3076,10 @@ def brain_move(
         str | None,
         Field(description="Optional parent artefact reference used only when op='convert'."),
     ] = None,
+    recursive: Annotated[
+        bool | None,
+        Field(description="When true, archive the living descendant subtree too."),
+    ] = None,
 ):
     """Perform a destructive content move while preserving artefact semantics.
 
@@ -3058,6 +3094,7 @@ def brain_move(
         ("path", path),
         ("target_type", target_type),
         ("parent", parent),
+        ("recursive", recursive),
     ):
         if value is not None:
             trace_payload[key] = value
@@ -3071,6 +3108,7 @@ def brain_move(
                 path=path,
                 target_type=target_type,
                 parent=parent,
+                recursive=recursive,
             )
             with _serialize_mutation(f"brain_move:{op}"):
                 return _server_actions.handle_brain_move(
@@ -3078,6 +3116,8 @@ def brain_move(
                     params=params,
                     runtime=_runtime(),
                 )
+        except ParentChainError as e:
+            return _fmt_error(parent_chain_error_message(e))
         except ValueError as e:
             return _fmt_error(str(e))
         except Exception as e:
@@ -3095,6 +3135,7 @@ def brain_action(
     action: Annotated[
         Literal[
             "delete",
+            "reparent",
             "shape-printable",
             "shape-presentation",
             "start-shaping",
@@ -3102,12 +3143,13 @@ def brain_action(
         ],
         Field(description=(
             "Workflow or utility action selector. The remaining brain_action "
-            "surface covers delete, shaping helpers, and fix-links."
+            "surface covers delete, reparent, shaping helpers, and fix-links."
         )),
     ],
     params: Annotated[
         (
             _BrainActionDeleteParams
+            | _BrainActionReparentParams
             | _BrainActionShapePrintableParams
             | _BrainActionShapePresentationParams
             | _BrainActionStartShapingParams
@@ -3116,7 +3158,7 @@ def brain_action(
         ),
         Field(description=(
             "Action-specific parameters object. The schema expands into named variants "
-            "for delete, shaping helpers, and fix-links."
+            "for delete, reparent, shaping helpers, and fix-links."
         )),
     ] = None,
 ):
@@ -3126,7 +3168,11 @@ def brain_action(
     action-plus-params contract. Mutating actions are serialised and validated
     by the existing handler and script layers.
     """
-    params_payload = _dump_model_payload(params)
+    params_payload = (
+        params.model_dump(exclude_unset=True)
+        if isinstance(params, BaseModel)
+        else params
+    )
     with _trace_tool("brain_action", action=action, params=params_payload):
         try:
             with _serialize_mutation(f"brain_action:{action}"):
@@ -3135,6 +3181,8 @@ def brain_action(
                     params=params_payload,
                     runtime=_runtime(),
                 )
+        except ParentChainError as e:
+            return _fmt_error(parent_chain_error_message(e))
         except Exception as e:
             if _logger:
                 _logger.error("brain_action: %s", e, exc_info=True)

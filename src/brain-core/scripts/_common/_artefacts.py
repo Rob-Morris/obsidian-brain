@@ -1,5 +1,6 @@
 """Shared artefact and config-resource helpers."""
 
+import json
 import os
 import re
 from datetime import datetime, timezone
@@ -19,6 +20,60 @@ STATUS_FOLDER_PREFIX = "+"
 # Living types whose ownership tag should be stamped on the artefact itself
 # (e.g. a project named ``brain`` carries ``project/brain`` in its own tags).
 SELF_TAG_PREFIXES = {"project", "person", "workspace", "journal"}
+
+
+class ParentChainError(ValueError):
+    """Base error for invalid recursive parent-chain resolution."""
+
+
+class BrokenParentChainError(ParentChainError):
+    """Raised when a parent key cannot be resolved as a living artefact."""
+
+
+class StaleArtefactIndexError(ParentChainError):
+    """Raised when disk state and the compiled living artefact index disagree."""
+
+
+class CyclicParentChainError(ParentChainError):
+    """Raised when parent references form a cycle."""
+
+
+def parent_chain_error_message(exc):
+    """Return the user-facing mutation-boundary message for parent-chain errors."""
+    if isinstance(exc, StaleArtefactIndexError):
+        return (
+            "Stale compiled artefact index: "
+            f"{exc}. Recompile or repair the router/index, resolve any keyless "
+            "or newly-created living artefacts, then retry the mutation."
+        )
+    return (
+        "Invalid living parent chain: "
+        f"{exc}. Run check/doctor, reconcile the broken or cyclic parent "
+        "metadata, then retry the mutation."
+    )
+
+
+class HasDescendantsError(ValueError):
+    """Raised when a removal would strand living descendants."""
+
+    code = "HAS_DESCENDANTS"
+
+    def __init__(self, operation, source, descendants):
+        self.operation = operation
+        self.source = source
+        self.descendants = descendants
+        super().__init__(self.detailed_message())
+
+    def to_payload(self):
+        return {
+            "code": self.code,
+            "operation": self.operation,
+            "source": self.source,
+            "descendants": list(self.descendants),
+        }
+
+    def detailed_message(self):
+        return json.dumps(self.to_payload(), sort_keys=True)
 
 
 def read_file_content(vault_root, rel_path):
@@ -57,6 +112,49 @@ def make_artefact_key(type_prefix, key):
     return f"{type_prefix}/{validate_key(key)}"
 
 
+def canonical_living_artefact_key(artefact, fields):
+    """Return the canonical key for a living artefact/frontmatter pair."""
+    key = fields.get("key") if isinstance(fields, dict) else None
+    if artefact.get("classification") != "living" or not is_valid_key(key):
+        return None
+    return make_artefact_key(artefact_type_prefix(artefact), key)
+
+
+def living_artefact_index_entry(artefact, rel_path, fields):
+    """Return the compiled-router living-index entry for parsed frontmatter."""
+    type_prefix = artefact_type_prefix(artefact)
+    key_value = fields.get("key")
+    return {
+        "path": rel_path,
+        "type": artefact["frontmatter_type"],
+        "classification": artefact.get("classification", "living"),
+        "type_key": artefact["key"],
+        "type_prefix": type_prefix,
+        "key": key_value,
+        "parent": normalize_artefact_key(fields.get("parent")),
+        "children_count": 0,
+    }
+
+
+def finalize_living_artefact_index(entries):
+    """Return sorted living-index entries with direct children_count populated."""
+    index = {key: dict(entry) for key, entry in entries.items()}
+    for entry in index.values():
+        entry["children_count"] = 0
+    for entry in index.values():
+        parent_key = entry.get("parent")
+        if parent_key and parent_key in index:
+            index[parent_key]["children_count"] += 1
+    return dict(sorted(index.items()))
+
+
+def _is_living_index_entry(entry):
+    classification = entry.get("classification")
+    if classification:
+        return classification == "living"
+    return str(entry.get("type") or "").startswith("living/")
+
+
 def parse_artefact_key(value):
     """Parse canonical slash form or cross-type scope form."""
     if not isinstance(value, str):
@@ -93,6 +191,171 @@ def resolve_artefact_key_entry(router, value):
     if not key:
         return None
     return (router.get("artefact_index") or {}).get(key)
+
+
+def owner_folder_segment(target_artefact, owner_entry):
+    """Render one owner-folder segment for ``owner_entry``.
+
+    Segments are rendered relative to the target artefact type: same-type
+    owners use ``{key}``; cross-type owners use ``{type-prefix}~{key}``.
+    """
+    target_prefix = artefact_type_prefix(target_artefact)
+    owner_prefix = owner_entry.get("type_prefix")
+    owner_key = owner_entry.get("key")
+    if not owner_prefix or not owner_key:
+        raise BrokenParentChainError("Owner entry is missing type_prefix or key")
+    if owner_prefix == target_prefix:
+        return owner_key
+    return f"{owner_prefix}~{owner_key}"
+
+
+def parent_chain_entries(router, parent, *, include_parent=True):
+    """Return living parent-chain entries from root ancestor to ``parent``.
+
+    The compiled artefact index remains direct-child-oriented. This helper
+    derives the recursive chain on demand and treats absent or cyclic parents
+    as structural errors for recursive placement/planning.
+    """
+    parent_key = normalize_artefact_key(parent)
+    if not parent_key:
+        return []
+
+    artefact_index = (router or {}).get("artefact_index") or {}
+    chain = []
+    visiting = {}
+    current_key = parent_key
+
+    while current_key:
+        if current_key in visiting:
+            cycle_entries = chain[visiting[current_key]:]
+            cycle = [entry.get("artefact_key") for entry in cycle_entries]
+            cycle.append(current_key)
+            raise CyclicParentChainError(
+                "Cyclic parent chain: " + " -> ".join(cycle)
+            )
+
+        entry = artefact_index.get(current_key)
+        if not entry:
+            raise BrokenParentChainError(
+                f"Broken parent reference: {current_key}"
+            )
+        if not _is_living_index_entry(entry):
+            raise BrokenParentChainError(
+                f"Parent is not a living artefact: {current_key}"
+            )
+        if not entry.get("type_prefix") or not entry.get("key"):
+            raise BrokenParentChainError(
+                f"Invalid living parent entry: {current_key}"
+            )
+
+        visiting[current_key] = len(chain)
+        entry_with_key = dict(entry)
+        entry_with_key["artefact_key"] = current_key
+        chain.append(entry_with_key)
+        current_key = normalize_artefact_key(entry.get("parent"))
+
+    ordered = list(reversed(chain))
+    if not include_parent and ordered:
+        ordered = ordered[:-1]
+    return ordered
+
+
+def resolve_living_owner_folder(artefact, parent=None, router=None):
+    """Resolve recursive living owner-folder projection for ``artefact``."""
+    base_path = artefact["path"]
+    parent_key = normalize_artefact_key(parent)
+    if not parent_key:
+        return base_path
+    if not router:
+        return os.path.join(base_path, parent)
+
+    segments = [
+        owner_folder_segment(artefact, entry)
+        for entry in parent_chain_entries(router, parent_key)
+    ]
+    return os.path.join(base_path, *segments) if segments else base_path
+
+
+def direct_child_entries(router, parent):
+    """Return direct living children of ``parent`` from the compiled index."""
+    parent_key = normalize_artefact_key(parent)
+    if not parent_key:
+        return []
+    artefact_index = (router or {}).get("artefact_index") or {}
+    children = []
+    for child_key, entry in artefact_index.items():
+        if not _is_living_index_entry(entry):
+            continue
+        if normalize_artefact_key(entry.get("parent")) != parent_key:
+            continue
+        child = dict(entry)
+        child["artefact_key"] = child_key
+        children.append(child)
+    return sorted(children, key=lambda entry: entry["artefact_key"])
+
+
+def descendant_entries(router, parent):
+    """Return all living descendants of ``parent`` in parent-before-child order."""
+    parent_key = normalize_artefact_key(parent)
+    if not parent_key:
+        return []
+    artefact_index = (router or {}).get("artefact_index") or {}
+    parent_entry = artefact_index.get(parent_key)
+    if not parent_entry:
+        raise StaleArtefactIndexError(
+            f"source artefact key is not in the compiled living index: {parent_key}"
+        )
+    if not _is_living_index_entry(parent_entry):
+        raise BrokenParentChainError(
+            f"Parent is not a living artefact: {parent_key}"
+        )
+
+    descendants = []
+    active = {parent_key}
+    visited = set()
+    children_by_parent = {}
+    for child_key, entry in artefact_index.items():
+        if not _is_living_index_entry(entry):
+            continue
+        child_parent = normalize_artefact_key(entry.get("parent"))
+        if child_parent:
+            child = dict(entry)
+            child["artefact_key"] = child_key
+            children_by_parent.setdefault(child_parent, []).append(child)
+    for children in children_by_parent.values():
+        children.sort(key=lambda entry: entry["artefact_key"])
+
+    def visit(current_key):
+        for child in children_by_parent.get(current_key, []):
+            child_key = child["artefact_key"]
+            if child_key in active:
+                cycle = list(active) + [child_key]
+                raise CyclicParentChainError(
+                    "Cyclic descendant chain: " + " -> ".join(cycle)
+                )
+            if child_key in visited:
+                continue
+            active.add(child_key)
+            visited.add(child_key)
+            descendants.append(child)
+            visit(child_key)
+            active.remove(child_key)
+
+    visit(parent_key)
+    return descendants
+
+
+def descendant_payload(entries):
+    """Return stable structured descendant records for gate diagnostics."""
+    return [
+        {
+            "key": entry.get("artefact_key"),
+            "path": entry.get("path"),
+            "type": entry.get("type"),
+            "parent": entry.get("parent"),
+        }
+        for entry in entries
+    ]
 
 
 def terminal_status_folder(artefact, fields):
@@ -335,9 +598,8 @@ def resolve_parent_reference(vault_root, router, parent):
         # The file exists and parses, but the compiled index doesn't know it.
         # Prefer a loud failure over a fabricated entry with a wrong children_count;
         # a missing entry after a path/name resolve means the router is stale.
-        raise ValueError(
-            f"INDEX_STALE: '{resolved_path}' resolved but is missing from the "
-            "compiled artefact index; recompile the router and retry"
+        raise StaleArtefactIndexError(
+            f"resolved parent {resolved_path} is missing from the compiled living index"
         )
     return key, entry
 
@@ -504,13 +766,8 @@ def resolve_folder(artefact, parent=None, fields=None, router=None):
             )
         month_folder = dt.strftime("%Y-%m")
         return os.path.join(base_path, month_folder)
-    if parent and router:
-        entry = resolve_artefact_key_entry(router, parent)
-        if entry:
-            if entry["type_prefix"] == artefact_type_prefix(artefact):
-                return os.path.join(base_path, entry["key"])
-            scope = f"{entry['type_prefix']}~{entry['key']}"
-            return os.path.join(base_path, scope)
+    if artefact.get("classification") == "living":
+        return resolve_living_owner_folder(artefact, parent=parent, router=router)
     if parent:
         return os.path.join(base_path, parent)
     return base_path

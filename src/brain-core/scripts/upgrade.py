@@ -287,6 +287,15 @@ class MigrationDefinitionError(ValueError):
     """Raised when a migration file violates the static discovery contract."""
 
 
+class MigrationResultError(RuntimeError):
+    """Raised when a migration returns a structured fatal result."""
+
+    def __init__(self, result: dict):
+        self.result = result
+        message = result.get("message") or result.get("error") or "migration returned status=error"
+        super().__init__(message)
+
+
 def _discover_migrations(migrations_dir: str) -> list[tuple[tuple, str]]:
     """Find all migration scripts and return sorted (version_tuple, path) pairs."""
     pattern = re.compile(_MIGRATION_RE_PATTERN)
@@ -311,11 +320,16 @@ def _require_known_migration_target(target: str) -> None:
 
 def _load_migration_module(version_str: str, script_path: str, target: str):
     """Load a migration module from disk with a target-specific module name."""
+    module_name = f"migration_{version_str}_{target}"
     spec = importlib.util.spec_from_file_location(
-        f"migration_{version_str}_{target}", script_path,
+        module_name, script_path,
     )
     mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
+    sys.modules[module_name] = mod
+    try:
+        spec.loader.exec_module(mod)
+    finally:
+        sys.modules.pop(module_name, None)
     return mod
 
 
@@ -612,14 +626,19 @@ def _run_migrations(
                         and "validate_compile" in context
                     ):
                         context["compile_error"] = context["validate_compile"]()
-                if result.get("status") == "error":
-                    raise RuntimeError(result.get("message", "migration returned status=error"))
                 result["version"] = version_str
                 result["target"] = target
+                if result.get("status") == "error":
+                    if raise_on_error:
+                        raise MigrationResultError(result)
+                    results.append(result)
+                    break
             results.append(result)
             ledger = _record_migration_result(
                 vault_root, ledger, version_str, script_path, result, target=target,
             )
+        except MigrationResultError:
+            raise
         except Exception as e:
             if raise_on_error:
                 raise RuntimeError(
@@ -631,6 +650,7 @@ def _run_migrations(
                 "status": "error",
                 "message": str(e),
             })
+            break
     return results, ledger
 
 def _pending_migrations_summary(
@@ -1538,7 +1558,7 @@ def upgrade(
     postcompile_snapshots: dict[str, dict] = {}
     postcompile_snapshot_roots: set[str] = set()
 
-    def _rollback(msg):
+    def _rollback(msg, *, migration_result: Optional[dict] = None):
         if precompile_snapshots:
             _restore_snapshots(precompile_snapshots, roots=precompile_snapshot_roots)
         if postcompile_snapshots:
@@ -1551,6 +1571,8 @@ def upgrade(
             "new_version": new_version,
             "message": f"Upgrade rolled back — {msg}",
         }
+        if migration_result is not None:
+            err_result["migration_result"] = migration_result
         _write_upgrade_log(vault_root, err_result)
         return err_result
 
@@ -1611,6 +1633,11 @@ def upgrade(
                 context=compile_context,
                 raise_on_error=True,
             )
+        except MigrationResultError as e:
+            return _rollback(
+                f"pre-compile patch failed: {e}",
+                migration_result=e.result,
+            )
         except RuntimeError as e:
             return _rollback(f"pre-compile patch failed: {e}")
         if precompile_patches:
@@ -1654,6 +1681,11 @@ def upgrade(
         )
         migrations, ledger = _run_migrations(
             vault_root, old_version, new_version, force=force, raise_on_error=True,
+        )
+    except MigrationResultError as e:
+        return _rollback(
+            f"post-compile migration failed: {e}",
+            migration_result=e.result,
         )
     except RuntimeError as e:
         return _rollback(f"post-compile migration failed: {e}")

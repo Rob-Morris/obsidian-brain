@@ -57,6 +57,7 @@ That `python3.12` process is the launcher, not the managed runtime itself.
 | `migrations/migrate_to_0_29_0.py` | v0.29.0 migration bundle: `pre_compile_patch` remediates blocking missing-`date_source` taxonomies, then `post_compile` backfills `created`/`modified`/`date_source` across the vault | `python3 migrations/migrate_to_0_29_0.py [--vault V] [--dry-run] [--json]` |
 | `migrations/migrate_to_0_31_0.py` | v0.31.0 migration: three-phase upgrade-runner pass that backfills missing living-artefact `key:`/`parent:` fields, relocates child folders to canonical key/scope paths, and reconciles `_Workspaces/` data folders + `.brain/local/workspaces.json` keys to canonical keys | `python3 migrations/migrate_to_0_31_0.py [--vault V] [--dry-run] [--json]` |
 | `migrations/migrate_to_0_34_0.py` | v0.34.0 release-artefact migration: normalises legacy `Goal / Gates / Changelog / Sources` bodies to the milestone-first release structure, strips the old literal project placeholder, refreshes canonical parent tags when a resolvable `parent:` already exists, and rehomes/renames releases to the current status-based naming contract without inferring new ownership | `python3 migrations/migrate_to_0_34_0.py [--vault V] [--dry-run]` |
+| `migrations/migrate_to_0_50_0.py` | v0.50.0 recursive owner-folder migration: backfills missing living `parent:` fields from immediate owner folders, validates parent chains and move sets, then relocates living descendants into recursive owner paths with wikilink updates | `python3 migrations/migrate_to_0_50_0.py [--vault V] [--dry-run] [--json]` |
 | `fix_links.py` | Auto-repair broken wikilinks | `python3 fix_links.py [--fix] [--json] [--vault V]` |
 | `sync_definitions.py` | Install / sync artefact library definitions and classify vault state | `python3 sync_definitions.py [--vault V] [--dry-run] [--force] [--types t1,t2] [--status] [--json]` |
 | `config.py` | Vault configuration loader (three-layer merge) | `python3 config.py` |
@@ -110,7 +111,7 @@ The MCP server is a thin wrapper that imports functions from scripts and holds t
 | `environment` | Platform/runtime detection |
 | `always_rules` | Merged rules from session-core.md (system) + router.md (vault) |
 | `artefacts` | Discovered types with naming patterns, frontmatter requirements, status enums, terminal statuses, triggers, template paths |
-| `artefact_index` | Living-only index keyed by canonical `{type}/{key}`. Each entry records the artefact's path, parent, and `children_count` for emergent-hub detection. Built at compile time from the `key:` and `parent:` frontmatter fields introduced in v0.31.0. |
+| `artefact_index` | Living-only index keyed by canonical `{type}/{key}`. Each entry records the artefact's path, parent, `classification="living"`, and `children_count` for emergent-hub detection. Built at compile time from the `key:` and `parent:` frontmatter fields introduced in v0.31.0. |
 | `triggers` | Merged conditional triggers from router.md and taxonomy files |
 | `skills`, `plugins`, `styles`, `memories` | Discovered enrichment documents |
 
@@ -492,6 +493,79 @@ python3 upgrade.py --source src/brain-core --sync      # upgrade + sync definiti
 python3 upgrade.py --source src/brain-core --no-sync    # upgrade without sync
 python3 upgrade.py --source src/brain-core --no-sync-deps  # skip upgrade-time MCP dep sync
 ```
+
+## migrations/migrate_to_0_50_0.py
+
+The v0.50.0 migration is the recursive owner-folder projection migration for
+living artefacts. It is normally run by `upgrade.py` after the new core has
+compiled the router, but it also has a direct operator CLI for inspection and
+manual recovery.
+
+**What it changes:**
+
+- reads all living artefacts with canonical `key:` fields and builds a planned
+  living index from their `parent:` metadata
+- backfills a missing `parent:` only when the artefact already sits under an
+  immediate owner folder that uniquely resolves to one living artefact
+- validates parent chains before writes, then renders every living artefact's
+  expected recursive owner path through the same runtime folder rules used by
+  create/edit/convert/archive
+- moves files through the shared `rename.py` move-set preflight and wikilink
+  updater, so full-path and filename-only links are rewritten consistently with
+  runtime moves
+
+**Dry-run/apply contract:**
+
+```bash
+python3 migrations/migrate_to_0_50_0.py --vault /path/to/vault --dry-run
+python3 migrations/migrate_to_0_50_0.py --vault /path/to/vault --dry-run --json
+python3 migrations/migrate_to_0_50_0.py --vault /path/to/vault --json
+```
+
+- Dry-run returns the same `parent_updates`, `moves`, and blocker diagnostics
+  as apply mode without mutating files.
+- Apply mode aborts before any parent write when blockers exist. Operator-facing
+  direct CLI attempts return `status: "blocked"` and exit non-zero.
+- When run by `upgrade.py`, the migration adapts blocked direct-CLI results to
+  runner-facing `status: "error"` so rollback, migration-ledger, and
+  `.brain/local/last-upgrade.json` handling treat the condition as fatal while
+  preserving the structured diagnostics.
+- A blocked or error result is not recorded in `.brain/local/migrations.json`,
+  no `.brain/local/.migrated-version` marker is advanced, and later pending
+  migrations are not run.
+
+**Blocker diagnostics:**
+
+JSON output preserves the following arrays so operators and agents can repair
+the vault without scraping prose:
+
+| Field | Meaning |
+|---|---|
+| `duplicate_keys` | Two living artefacts compile to the same canonical key |
+| `read_errors` | A markdown file that must be inspected could not be read, often because a cloud placeholder is not materialised |
+| `keyless_living` | A living artefact lacks a valid canonical `key:` and cannot be indexed safely |
+| `invalid_chains` | A `parent:` chain is broken, cyclic, or otherwise fails the shared parent-chain contract |
+| `conflicts` | An existing canonical `parent:` disagrees with the containing owner folder; the canonical `parent:` wins, but the conflict is listed |
+| `collisions` | A planned destination is unsafe: existing destination file, duplicate move source/destination, or a destination parent component that is a file or broken symlink |
+| `cyclic_moves` | The planned move set contains a cycle that cannot be applied safely |
+
+Human output lists the same per-item categories, including duplicate keys,
+parent conflicts, move collisions, and cyclic move errors.
+
+**Partial-apply diagnostics:**
+
+The migration writes parent backfills before applying the batch move. If the
+shared move engine reports a documented `PartialApplyError` after that point,
+the migration returns `status: "error"` with:
+
+- `written_parent_updates` — files whose parent metadata was already written
+- `move_result.status="error"`
+- `move_result.moves` — the planned move set
+- `move_result.error` — the underlying move-engine repair context
+
+`upgrade.py` preserves this migration result inside rollback output and
+`.brain/local/last-upgrade.json` so the operator can see both the migration
+context and the low-level move failure.
 
 ## sync_definitions.py
 

@@ -60,6 +60,24 @@ def _validate_action_params(action: str, params: dict | None):
             f"{action_contract_hint(action)}"
         )
 
+    if action == "reparent":
+        allowed = {"source", "to"}
+        extras = [name for name in payload if name not in allowed]
+        if extras:
+            raise ValueError(
+                f"Action '{action}' does not accept params field '{extras[0]}'. "
+                f"{action_contract_hint(action)}"
+            )
+        if payload.get("source") in (None, ""):
+            raise ValueError(
+                f"Action '{action}' requires params field 'source'. "
+                f"{action_contract_hint(action)}"
+            )
+        result = {"source": payload["source"]}
+        if "to" in payload:
+            result["to"] = payload.get("to")
+        return result
+
     # Delegate to the shared validator; map its generic error terms to the
     # brain_action-specific wording ("Action 'X' does not accept params field 'Y'").
     return validate_spec(
@@ -78,6 +96,12 @@ def _validate_artefact_path(vault_root: str, router: dict, path: str, *, label: 
             "Use brain_move(op='archive'/'unarchive') for archive transitions."
         )
     return _common.validate_artefact_folder(vault_root, router, path)
+
+
+def _format_partial_apply_error(runtime: ServerRuntime, exc: _common.PartialApplyError):
+    runtime.mark_router_dirty()
+    runtime.mark_index_dirty()
+    return runtime.fmt_error(str(exc))
 
 
 def _action_rename(runtime: ServerRuntime, params: dict):
@@ -105,14 +129,18 @@ def _action_rename(runtime: ServerRuntime, params: dict):
             dest,
             router=state.router,
         )
-    except ValueError as e:
+        rename.validate_destination_parent_directory(state.vault_root, dest)
+    except (OSError, ValueError) as e:
         return runtime.fmt_error(str(e))
 
     runtime.refresh_cli_available()
     state = runtime.get_state()
     if state.cli_available and state.vault_name:
-        abs_dest = os.path.join(state.vault_root, dest)
-        os.makedirs(os.path.dirname(abs_dest), exist_ok=True)
+        try:
+            abs_dest = os.path.join(state.vault_root, dest)
+            os.makedirs(os.path.dirname(abs_dest), exist_ok=True)
+        except OSError as e:
+            return runtime.fmt_error(str(e))
 
         result = obsidian_cli.move(state.vault_name, source, dest)
         if result is True:
@@ -130,7 +158,11 @@ def _action_rename(runtime: ServerRuntime, params: dict):
         runtime.mark_router_dirty()
         runtime.mark_index_dirty()
         return f"**Renamed** (grep_replace): {source} → {dest}, {links_updated} links updated"
-    except (FileNotFoundError, ValueError) as e:
+    except _common.ParentChainError as e:
+        return runtime.fmt_error(_common.parent_chain_error_message(e))
+    except _common.PartialApplyError as e:
+        return _format_partial_apply_error(runtime, e)
+    except (OSError, ValueError) as e:
         return runtime.fmt_error(str(e))
 
 
@@ -144,10 +176,19 @@ def _action_delete(runtime: ServerRuntime, params: dict | None):
         _validate_artefact_path(
             state.vault_root, state.router, params["path"], label="Delete path",
         )
-        links_replaced = rename.delete_and_clean_links(state.vault_root, params["path"])
+        links_replaced = rename.delete_and_clean_links(
+            state.vault_root,
+            params["path"],
+            router=state.router,
+            recursive=bool(params.get("recursive")),
+        )
         runtime.mark_router_dirty()
         runtime.mark_index_dirty()
         return f"**Deleted:** {params['path']}, {links_replaced} links replaced"
+    except _common.ParentChainError as e:
+        return runtime.fmt_error(_common.parent_chain_error_message(e))
+    except _common.PartialApplyError as e:
+        return _format_partial_apply_error(runtime, e)
     except (FileNotFoundError, ValueError) as e:
         return runtime.fmt_error(str(e))
 
@@ -176,6 +217,10 @@ def _action_convert(runtime: ServerRuntime, params: dict):
             },
             indent=2,
         )
+    except _common.ParentChainError as e:
+        return runtime.fmt_error(_common.parent_chain_error_message(e))
+    except _common.PartialApplyError as e:
+        return _format_partial_apply_error(runtime, e)
     except (ValueError, FileNotFoundError, OSError) as e:
         return runtime.fmt_error(str(e))
 
@@ -266,6 +311,39 @@ def _action_fix_links(runtime: ServerRuntime, params: dict | None):
         return runtime.fmt_error(str(e))
 
 
+def _action_reparent(runtime: ServerRuntime, params: dict | None):
+    state = runtime.get_state()
+    if state.vault_root is None or state.router is None:
+        return runtime.fmt_error("server not initialized")
+    try:
+        result = edit.reparent_children(
+            state.vault_root,
+            state.router,
+            params["source"],
+            params.get("to"),
+            to_provided="to" in params,
+        )
+        runtime.mark_router_dirty()
+        runtime.mark_index_dirty()
+        return json.dumps(
+            {
+                "status": "ok",
+                "source": result["source"],
+                "to": result["to"],
+                "children": result["children"],
+                "moves": result["moves"],
+                "links_updated": result["links_updated"],
+            },
+            indent=2,
+        )
+    except _common.ParentChainError as e:
+        return runtime.fmt_error(_common.parent_chain_error_message(e))
+    except _common.PartialApplyError as e:
+        return _format_partial_apply_error(runtime, e)
+    except (ValueError, FileNotFoundError, OSError) as e:
+        return runtime.fmt_error(str(e))
+
+
 def _action_archive(runtime: ServerRuntime, params: dict):
     state = runtime.get_state()
     if state.router is None:
@@ -273,13 +351,22 @@ def _action_archive(runtime: ServerRuntime, params: dict):
     if state.vault_root is None:
         return runtime.fmt_error("server not initialized")
     try:
-        result = edit.archive_artefact(state.vault_root, state.router, params["path"])
+        result = edit.archive_artefact(
+            state.vault_root,
+            state.router,
+            params["path"],
+            recursive=bool(params.get("recursive")),
+        )
         runtime.mark_router_dirty()
         runtime.mark_index_dirty()
         return (
             f"**Archived:** {result['old_path']} → {result['new_path']}"
             f" ({result['links_updated']} links updated)"
         )
+    except _common.ParentChainError as e:
+        return runtime.fmt_error(_common.parent_chain_error_message(e))
+    except _common.PartialApplyError as e:
+        return _format_partial_apply_error(runtime, e)
     except (ValueError, FileNotFoundError, OSError) as e:
         return runtime.fmt_error(str(e))
 
@@ -298,6 +385,10 @@ def _action_unarchive(runtime: ServerRuntime, params: dict):
             f"**Unarchived:** {result['old_path']} → {result['new_path']}"
             f" ({result['links_updated']} links updated)"
         )
+    except _common.ParentChainError as e:
+        return runtime.fmt_error(_common.parent_chain_error_message(e))
+    except _common.PartialApplyError as e:
+        return _format_partial_apply_error(runtime, e)
     except (ValueError, FileNotFoundError, OSError) as e:
         return runtime.fmt_error(str(e))
 
@@ -316,6 +407,7 @@ MOVE_SPECS = {
     ),
     "archive": MoveSpec(
         required_fields=("path",),
+        optional_fields=("recursive",),
         handler=_action_archive,
         requires_router_refresh=True,
     ),
@@ -330,7 +422,14 @@ MOVE_SPECS = {
 ACTION_SPECS = {
     "delete": ActionSpec(
         required_fields=("path",),
+        optional_fields=("recursive",),
         handler=_action_delete,
+        requires_router_refresh=True,
+    ),
+    "reparent": ActionSpec(
+        required_fields=("source",),
+        optional_fields=("to",),
+        handler=_action_reparent,
         requires_router_refresh=True,
     ),
     "shape-printable": ActionSpec(

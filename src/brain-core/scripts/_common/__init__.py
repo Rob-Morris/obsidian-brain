@@ -9,6 +9,10 @@ these functions.
 This package re-exports all public names from its internal modules.
 """
 
+from ._exceptions import (
+    PartialApplyError,
+)
+
 from ._vault import (
     BOOTSTRAP_VARIANTS,
     LOCAL_OVERRIDE_VARIANTS,
@@ -33,11 +37,20 @@ from ._router import (
 )
 
 from ._artefacts import (
+    BrokenParentChainError,
+    CyclicParentChainError,
+    HasDescendantsError,
+    ParentChainError,
     SELF_TAG_PREFIXES,
     STATUS_FOLDER_PREFIX,
+    StaleArtefactIndexError,
     apply_terminal_status_folder,
     artefact_type_prefix,
+    canonical_living_artefact_key,
     config_resource_rel_path,
+    direct_child_entries,
+    descendant_entries,
+    descendant_payload,
     ensure_parent_tag,
     ensure_self_tag,
     ensure_tags_list,
@@ -45,9 +58,14 @@ from ._artefacts import (
     iter_artefact_paths,
     iter_living_markdown_files,
     iter_markdown_under,
+    finalize_living_artefact_index,
     living_key_set,
+    living_artefact_index_entry,
     make_artefact_key,
     normalize_artefact_key,
+    owner_folder_segment,
+    parent_chain_entries,
+    parent_chain_error_message,
     parse_date_value,
     parse_artefact_key,
     read_file_content,
@@ -55,6 +73,7 @@ from ._artefacts import (
     resolve_artefact_definition_for_prefix,
     resolve_folder,
     resolve_artefact_key_entry,
+    resolve_living_owner_folder,
     resolve_naming_pattern,
     resolve_parent_reference,
     resolve_type,
@@ -109,6 +128,7 @@ from ._wikilinks import (
     Resolution,
     add_file_index_rel_path,
     build_vault_file_index,
+    build_md_basename_counts,
     build_wikilink_pattern,
     check_wikilinks_in_file,
     clone_file_index,
@@ -127,6 +147,7 @@ from ._wikilinks import (
     resolve_wikilink_stems,
     strip_md_ext,
     temporal_display_name,
+    wikilink_stems_for_path_change,
 )
 
 from ._markdown import (

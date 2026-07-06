@@ -43,7 +43,12 @@ def _revive_from_status_folder(vault_root, rel_path):
         return rel_path
 
     revived_path = os.path.join(os.path.dirname(parent_dir), os.path.basename(rel_path))
-    rename_and_update_links(vault_root, rel_path, revived_path)
+    try:
+        rename_and_update_links(vault_root, rel_path, revived_path)
+    except (RuntimeError, OSError) as exc:
+        raise RuntimeError(
+            f"Could not revive artefact from status folder: {rel_path} -> {revived_path}: {exc}"
+        ) from exc
 
     abs_old_dir = os.path.join(vault_root, parent_dir)
     try:
@@ -263,7 +268,11 @@ def main():
     if title:
         params["title"] = title
 
-    result = start_shaping(vault_root, router, params)
+    try:
+        result = start_shaping(vault_root, router, params)
+    except (RuntimeError, OSError) as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
 
     if "error" in result:
         print(f"Error: {result['error']}", file=sys.stderr)

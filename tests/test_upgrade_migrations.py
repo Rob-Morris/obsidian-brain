@@ -9,6 +9,7 @@ import shutil
 
 import pytest
 
+import compile_router
 import upgrade
 
 
@@ -106,6 +107,36 @@ def _ledger(vault: Path) -> dict:
 
 def _counter(vault: Path, name: str) -> int:
     return int((vault / ".brain" / "local" / name).read_text().strip())
+
+
+def _write_artefact(path: Path, fields: dict, body: str = "") -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = ["---"]
+    for key, value in fields.items():
+        if isinstance(value, list):
+            if value:
+                lines.append(f"{key}:")
+                for item in value:
+                    lines.append(f"  - {item}")
+            else:
+                lines.append(f"{key}: []")
+        else:
+            lines.append(f"{key}: {value}")
+    lines.extend(["---", "", body])
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _write_taxonomy(root: Path, classification: str, folder: str, frontmatter_type: str) -> None:
+    subdir = "Living" if classification == "living" else "Temporal"
+    path = root / "_Config" / "Taxonomy" / subdir / f"{folder.lower()}.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        f"# {folder}\n\n"
+        f"## Naming\n\n`{{Title}}.md` in `{folder}/`.\n\n"
+        f"## Frontmatter\n\n"
+        f"```yaml\n---\ntype: {frontmatter_type}\ntags: []\n---\n```\n",
+        encoding="utf-8",
+    )
 
 
 def test_run_pending_migrations_records_ledger_and_skips_repeat(tmp_path):
@@ -220,6 +251,125 @@ def test_upgrade_backfills_old_versions_and_prevents_startup_rerun(tmp_path):
     assert _counter(vault, "count-new.txt") == 1
     assert not (vault / ".brain" / "local" / "count-old.txt").exists()
     assert (vault / ".brain" / "local" / ".migrated-version").read_text().strip() == "2.0.0"
+
+
+def test_run_migrations_does_not_record_blocked_0_50_0_migration_and_halts(tmp_path):
+    source = _make_source(
+        tmp_path,
+        "0.50.1",
+        migrations=None,
+    )
+    (source / "scripts" / "migrations" / "migrate_to_0_50_1.py").write_text(
+        _counter_migration("after-blocked.txt")
+    )
+    vault = _make_vault(tmp_path, "0.49.9")
+    (vault / "Designs").mkdir()
+    _write_taxonomy(vault, "living", "Designs", "living/design")
+    _write_artefact(
+        vault / "Designs" / "Broken.md",
+        {"type": "living/design", "tags": [], "key": "broken", "parent": "design/missing"},
+    )
+    compiled = compile_router.compile(str(vault))
+    (vault / ".brain" / "local" / "compiled-router.json").write_text(
+        json.dumps(compiled, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    shutil.rmtree(vault / ".brain-core" / "scripts")
+    shutil.copytree(source / "scripts", vault / ".brain-core" / "scripts")
+    (vault / ".brain-core" / "VERSION").write_text("0.50.1\n")
+
+    with pytest.raises(RuntimeError, match=r"Cannot apply migration with blockers: invalid_chains"):
+        upgrade._run_migrations(
+            str(vault),
+            "0.49.9",
+            "0.50.1",
+            raise_on_error=True,
+        )
+
+    ledger = _ledger(vault)
+    assert "0.50.0" not in ledger["migrations"]
+    assert "0.50.1" not in ledger["migrations"]
+    assert not (vault / ".brain" / "local" / "after-blocked.txt").exists()
+
+
+def test_run_migrations_default_path_halts_after_blocked_0_50_0_migration(tmp_path):
+    source = _make_source(
+        tmp_path,
+        "0.50.1",
+        migrations=None,
+    )
+    (source / "scripts" / "migrations" / "migrate_to_0_50_1.py").write_text(
+        _counter_migration("after-blocked.txt")
+    )
+    vault = _make_vault(tmp_path, "0.49.9")
+    (vault / "Designs").mkdir()
+    _write_taxonomy(vault, "living", "Designs", "living/design")
+    _write_artefact(
+        vault / "Designs" / "Broken.md",
+        {"type": "living/design", "tags": [], "key": "broken", "parent": "design/missing"},
+    )
+    compiled = compile_router.compile(str(vault))
+    (vault / ".brain" / "local" / "compiled-router.json").write_text(
+        json.dumps(compiled, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    shutil.rmtree(vault / ".brain-core" / "scripts")
+    shutil.copytree(source / "scripts", vault / ".brain-core" / "scripts")
+    (vault / ".brain-core" / "VERSION").write_text("0.50.1\n")
+
+    results, ledger = upgrade._run_migrations(
+        str(vault),
+        "0.49.9",
+        "0.50.1",
+    )
+
+    assert [result["version"] for result in results] == ["0.50.0"]
+    assert results[0]["status"] == "error"
+    assert results[0]["message"] == "Cannot apply migration with blockers: invalid_chains"
+    assert results[0]["invalid_chains"][0]["parent"] == "design/missing"
+    assert "0.50.0" not in ledger["migrations"]
+    assert "0.50.1" not in ledger["migrations"]
+    assert not (vault / ".brain" / "local" / "after-blocked.txt").exists()
+    assert not (vault / ".brain" / "local" / ".migrated-version").exists()
+
+
+def test_upgrade_rollback_preserves_blocked_0_50_0_migration_diagnostics(tmp_path):
+    source = _make_source(
+        tmp_path,
+        "0.50.1",
+        migrations=None,
+    )
+    (source / "scripts" / "migrations" / "migrate_to_0_50_1.py").write_text(
+        _counter_migration("after-blocked.txt")
+    )
+    vault = _make_vault(tmp_path, "0.49.9")
+    (vault / "Designs").mkdir()
+    _write_taxonomy(vault, "living", "Designs", "living/design")
+    _write_artefact(
+        vault / "Designs" / "Broken.md",
+        {"type": "living/design", "tags": [], "key": "broken", "parent": "design/missing"},
+    )
+    compiled = compile_router.compile(str(vault))
+    (vault / ".brain" / "local" / "compiled-router.json").write_text(
+        json.dumps(compiled, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    result = upgrade.upgrade(str(vault), str(source), sync=False)
+
+    assert result["status"] == "error"
+    assert "post-compile migration failed" in result["message"]
+    assert result["migration_result"]["version"] == "0.50.0"
+    assert result["migration_result"]["target"] == "post_compile"
+    assert result["migration_result"]["invalid_chains"][0]["parent"] == "design/missing"
+    upgrade_log = json.loads((vault / ".brain" / "local" / "last-upgrade.json").read_text())
+    assert upgrade_log["status"] == "error"
+    assert upgrade_log["migration_result"]["version"] == "0.50.0"
+    assert upgrade_log["migration_result"]["invalid_chains"][0]["parent"] == "design/missing"
+    assert not (vault / ".brain" / "local" / "migrations.json").exists()
+    assert not (vault / ".brain" / "local" / "after-blocked.txt").exists()
+    assert not (vault / ".brain" / "local" / ".migrated-version").exists()
+    assert (vault / ".brain-core" / "VERSION").read_text().strip() == "0.49.9"
 
 
 def test_target_specific_patch_migration_has_distinct_ledger_key(tmp_path):

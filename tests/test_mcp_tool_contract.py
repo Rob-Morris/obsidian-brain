@@ -218,7 +218,15 @@ def test_brain_move_schema_is_flat_and_first_class(registered_tools):
     schema = tool.inputSchema
     assert "oneOf" not in schema
     props = schema["properties"]
-    assert set(props) == {"op", "source", "dest", "path", "target_type", "parent"}
+    assert set(props) == {
+        "op",
+        "source",
+        "dest",
+        "path",
+        "target_type",
+        "parent",
+        "recursive",
+    }
     assert props["op"]["enum"] == ["rename", "convert", "archive", "unarchive"]
     assert props["op"]["description"].strip()
     assert props["source"]["description"].strip()
@@ -226,6 +234,7 @@ def test_brain_move_schema_is_flat_and_first_class(registered_tools):
     assert props["path"]["description"].strip()
     assert props["target_type"]["description"].strip()
     assert props["parent"]["description"].strip()
+    assert props["recursive"]["description"].strip()
 
 
 def test_brain_action_schema_exposes_nested_param_variants(registered_tools):
@@ -236,6 +245,7 @@ def test_brain_action_schema_exposes_nested_param_variants(registered_tools):
     assert set(props) == {"action", "params"}
     assert props["action"]["enum"] == [
         "delete",
+        "reparent",
         "shape-printable",
         "shape-presentation",
         "start-shaping",
@@ -248,14 +258,15 @@ def test_brain_action_schema_exposes_nested_param_variants(registered_tools):
         variant["$ref"] for variant in props["params"]["anyOf"]
         if "$ref" in variant
     ]
-    assert len(variant_refs) == 5
+    assert len(variant_refs) == 6
 
     variant_shapes = {
         frozenset(_resolve_local_ref(schema, ref)["properties"]): ref
         for ref in variant_refs
     }
     assert set(variant_shapes) == {
-        frozenset({"path"}),
+        frozenset({"path", "recursive"}),
+        frozenset({"source", "to"}),
         frozenset({"source", "slug", "render", "keep_heading_with_next", "pdf_engine"}),
         frozenset({"source", "slug", "render", "preview"}),
         frozenset({"target", "title", "skill_type"}),

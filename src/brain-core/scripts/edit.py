@@ -21,15 +21,21 @@ from _resource_contract import RESOURCE_KINDS
 from _common import (
     SELF_TAG_PREFIXES,
     apply_terminal_status_folder,
+    canonical_living_artefact_key,
     check_write_allowed,
     collect_headings,
     config_resource_rel_path,
+    direct_child_entries,
+    descendant_entries,
+    descendant_payload,
     ensure_parent_tag,
     ensure_self_tag,
     ensure_tags_list,
     extract_title,
     find_vault_root,
     derive_distinctive_slug,
+    HasDescendantsError,
+    CyclicParentChainError,
     is_archived_path,
     is_valid_key,
     living_key_set,
@@ -39,6 +45,8 @@ from _common import (
     make_temp_path,
     normalize_artefact_key,
     now_iso,
+    PartialApplyError,
+    parent_chain_entries,
     parse_leading_frontmatter,
     parse_frontmatter,
     read_file_content,
@@ -55,12 +63,13 @@ from _common import (
     scan_artefact_key_references,
     safe_write,
     serialize_frontmatter,
+    StaleArtefactIndexError,
     parse_structural_anchor_line,
     unique_filename,
     validate_key,
     artefact_type_prefix,
 )
-from rename import rename_and_update_links
+from rename import move_and_update_links, preflight_move_set, rename_and_update_links
 import fix_links as _fix_links
 
 
@@ -113,14 +122,8 @@ def _reject_leading_body_frontmatter(body, *, resource_label):
 def _open_artefact(vault_root, router, path):
     """Validate, read, and parse an artefact. Returns (path, abs_path, fields, body, artefact)."""
     vault_root = str(vault_root)
-    path, art = resolve_and_validate_folder(vault_root, router, path)
+    path, abs_path, fields, body, art = _read_open_path(vault_root, router, path)
     check_write_allowed(path)
-    abs_path = os.path.join(vault_root, path)
-    if not os.path.isfile(abs_path):
-        raise FileNotFoundError(f"File not found: {path}")
-    with open(abs_path, "r", encoding="utf-8") as f:
-        content = f.read()
-    fields, body = parse_frontmatter(content)
     return path, abs_path, fields, body, art
 
 
@@ -834,50 +837,34 @@ def _normalise_ownership_changes(vault_root, router, art, frontmatter_changes):
     return changes
 
 
-def _preflight_destination(vault_root, source_path, dest_path):
-    """Raise if a planned destination already exists on disk."""
-    if dest_path == source_path:
-        return
-    abs_source = os.path.join(vault_root, source_path)
-    abs_dest = os.path.join(vault_root, dest_path)
-    if not os.path.exists(abs_dest):
-        return
-    try:
-        same = os.path.samefile(abs_source, abs_dest)
-    except OSError:
-        same = False
-    if not same:
-        raise FileExistsError(f"Destination file already exists: {dest_path}")
-
-
-def _router_with_pending_artefact_key(router, old_key, new_key, entry):
-    """Return a router view whose artefact index reflects an in-flight key update."""
+def _router_with_pending_ownership(router, old_key, new_key, entry):
+    """Return a router view for in-flight owner key/parent updates."""
     updated_router = dict(router)
-    artefact_index = dict(router.get("artefact_index") or {})
+    artefact_index = {
+        key: dict(value)
+        for key, value in (router.get("artefact_index") or {}).items()
+    }
     if old_key:
         artefact_index.pop(old_key, None)
-    artefact_index[new_key] = entry
+    if new_key:
+        artefact_index[new_key] = dict(entry)
+    if old_key and old_key != new_key:
+        for value in artefact_index.values():
+            if normalize_artefact_key(value.get("parent")) == old_key:
+                value["parent"] = new_key
     updated_router["artefact_index"] = artefact_index
     return updated_router
 
-
-def _commit_with_possible_rename(vault_root, path, new_path, fields, body):
-    """Serialize + safe_write frontmatter and body, then rename if path changed.
-
-    Caller handles _preflight_destination; this helper is the commit step.
-    """
-    abs_path = os.path.join(vault_root, path)
-    safe_write(
-        abs_path,
-        serialize_frontmatter(fields, body=body),
-        bounds=vault_root,
-    )
-    if new_path != path:
-        rename_and_update_links(vault_root, path, new_path)
-
-
-def _apply_reference_mutation(vault_root, router, old_key, new_key, *, skip_paths=None):
-    """Rewrite canonical key references and move affected direct children."""
+def _plan_reference_mutation(
+    vault_root,
+    router,
+    old_key,
+    new_key,
+    *,
+    skip_paths=None,
+    operation,
+):
+    """Plan canonical key reference rewrites without moving files."""
     if not old_key or old_key == new_key:
         return []
 
@@ -889,38 +876,164 @@ def _apply_reference_mutation(vault_root, router, old_key, new_key, *, skip_path
             continue
         content = read_file_content(vault_root, rel_path)
         if content.startswith("Error:"):
-            continue
+            _raise_stale_index_missing(rel_path, operation)
         fields, body = parse_frontmatter(content)
         if not replace_artefact_key_references(fields, old_key, new_key):
             continue
         _resolved, art = resolve_and_validate_folder(vault_root, router, rel_path)
-        new_path = rel_path
-        if ref.get("parent"):
-            new_path, fields = _render_existing_artefact_path(
-                vault_root, router, art, rel_path, fields
-            )
         operations.append(
             {
                 "path": rel_path,
-                "new_path": new_path,
                 "fields": fields,
                 "body": body,
+                "art": art,
+                "parent_reference": bool(ref.get("parent")),
             }
-        )
-
-    for op in operations:
-        _preflight_destination(vault_root, op["path"], op["new_path"])
-
-    for op in operations:
-        _commit_with_possible_rename(
-            vault_root, op["path"], op["new_path"], op["fields"], op["body"]
         )
 
     return operations
 
 
+def _write_frontmatter_mutations(vault_root, operations, *, operation):
+    """Write planned frontmatter mutations and report the committed set."""
+    written = []
+    for op in operations:
+        try:
+            safe_write(
+                os.path.join(vault_root, op["path"]),
+                serialize_frontmatter(op["fields"], body=op["body"]),
+                bounds=vault_root,
+            )
+        except OSError as exc:
+            if not written:
+                raise OSError(
+                    f"{operation} failed before writing {op['path']}: {exc}"
+                ) from exc
+            raise PartialApplyError(
+                f"{operation} partially applied — "
+                f"files written {written}, failed at {op['path']}: {exc}"
+            ) from exc
+        written.append(op["path"])
+    return written
+
+
+def _owner_folder_stop_dirs(vault_root, router):
+    stop_dirs = {os.path.abspath(vault_root)}
+    for artefact in (router or {}).get("artefacts", []):
+        path = artefact.get("path")
+        if path:
+            stop_dirs.add(os.path.abspath(os.path.join(vault_root, path)))
+    stop_dirs.add(os.path.abspath(os.path.join(vault_root, "_Archive")))
+    return stop_dirs
+
+
+def _prune_vacated_owner_folders(vault_root, source_paths, router):
+    """Remove empty owner folders vacated by a successful move set."""
+    stop_dirs = _owner_folder_stop_dirs(vault_root, router)
+    for source_path in source_paths:
+        current = os.path.abspath(os.path.join(vault_root, os.path.dirname(source_path)))
+        while current not in stop_dirs and current.startswith(os.path.abspath(vault_root)):
+            try:
+                os.rmdir(current)
+            except OSError:
+                break
+            parent = os.path.dirname(current)
+            if parent == current:
+                break
+            current = parent
+
+
+def _raise_stale_index_missing(rel_path, operation):
+    raise StaleArtefactIndexError(
+        f"{operation} found indexed artefact {rel_path} missing on disk; "
+        "materialise cloud placeholder files if needed"
+    )
+
+
+def _raise_unindexed_parent_reference(rel_path, old_key, operation):
+    raise StaleArtefactIndexError(
+        f"{operation} found a parent reference to {old_key} in {rel_path}, "
+        "but that child is absent from the compiled living index"
+    )
+
+
+def _validate_preserved_parent(router, parent):
+    if parent:
+        parent_chain_entries(router, parent)
+
+
+def _validate_not_parented_to_descendant(router, source_key, target_parent, operation, *, aliases=()):
+    target_key = normalize_artefact_key(target_parent)
+    if not source_key or not target_key:
+        return
+    forbidden_self_keys = {normalize_artefact_key(source_key)}
+    forbidden_self_keys.update(
+        key for key in (normalize_artefact_key(alias) for alias in aliases) if key
+    )
+    if target_key in forbidden_self_keys:
+        raise CyclicParentChainError(
+            f"{operation} would make {source_key} parent itself via {target_key}"
+        )
+    for entry in descendant_entries(router, source_key):
+        if entry.get("artefact_key") == target_key:
+            raise CyclicParentChainError(
+                f"{operation} would make {source_key} a child of descendant {target_key}"
+            )
+
+
+def _plan_descendant_moves(
+    vault_root,
+    router,
+    old_key,
+    mutation_router,
+    reference_ops,
+    *,
+    operation,
+):
+    reference_by_path = {op["path"]: op for op in reference_ops}
+    moves = []
+    if not old_key:
+        return moves
+    index = router.get("artefact_index") or {}
+    indexed_descendants = descendant_entries(router, old_key)
+    indexed_descendant_paths = {entry["path"] for entry in indexed_descendants}
+    for op in reference_ops:
+        is_living_parent_ref = (
+            op.get("parent_reference")
+            and (op.get("art") or {}).get("classification") == "living"
+        )
+        if is_living_parent_ref and op["path"] not in indexed_descendant_paths:
+            _raise_unindexed_parent_reference(op["path"], old_key, operation)
+    for entry in indexed_descendants:
+        rel_path = entry["path"]
+        op = reference_by_path.get(rel_path)
+        if op is not None:
+            fields = op["fields"]
+            desc_art = op["art"]
+        else:
+            content = read_file_content(vault_root, rel_path)
+            if content.startswith("Error:"):
+                _raise_stale_index_missing(rel_path, operation)
+            fields, _body = parse_frontmatter(content)
+            _resolved, desc_art = resolve_and_validate_folder(
+                vault_root, router, rel_path
+            )
+        desc_path, desc_fields = _render_existing_artefact_path(
+            vault_root, mutation_router, desc_art, rel_path, fields
+        )
+        if op is not None:
+            op["fields"] = desc_fields
+        moves.append({"source": rel_path, "dest": desc_path})
+    return moves
+
+
 def _maybe_restructure_living_ownership(vault_root, router, path, art, old_fields, new_fields, new_body):
-    """Rewrite canonical key references and move artefacts when ownership changes."""
+    """Rewrite key references and move the affected subtree when ownership changes.
+
+    This operation shares the move-set engine's non-atomic contract: frontmatter
+    writes happen before the batch move, and a later move failure propagates
+    with the move-set engine's partial-apply context.
+    """
     old_key_value = old_fields.get("key")
     new_key_value = new_fields.get("key")
     old_parent = normalize_artefact_key(old_fields.get("parent"))
@@ -940,6 +1053,13 @@ def _maybe_restructure_living_ownership(vault_root, router, path, art, old_field
     ownership_changed = old_key != new_key or old_parent != new_parent
     if not ownership_changed:
         return path, False
+    _validate_not_parented_to_descendant(
+        router,
+        old_key,
+        new_parent,
+        "edit",
+        aliases=[new_key],
+    )
 
     if old_key and old_key != new_key:
         replacement = new_key if type_prefix in SELF_TAG_PREFIXES else None
@@ -952,39 +1072,69 @@ def _maybe_restructure_living_ownership(vault_root, router, path, art, old_field
             vault_root, router, art, new_key_value, exclude_path=path
         )
 
+    pending_entry = {
+        "path": path,
+        "type": art.get("frontmatter_type", art.get("type")),
+        "type_key": art.get("key"),
+        "type_prefix": type_prefix,
+        "key": new_key_value,
+        "parent": new_parent,
+    }
+    mutation_router = _router_with_pending_ownership(
+        router, old_key, new_key, pending_entry
+    )
     new_path, rendered_fields = _render_existing_artefact_path(
-        vault_root, router, art, path, new_fields
+        vault_root, mutation_router, art, path, new_fields
     )
+    if new_key:
+        mutation_router["artefact_index"][new_key]["path"] = new_path
 
-    mutation_router = router
-    if old_key and new_key:
-        # The inbound-reference scan below uses folder derivations from the
-        # router's artefact_index entry for this key. Swap in a pending entry
-        # under the new key so children resolve their forthcoming positions
-        # (new folder, new parent pointer) rather than the now-stale old ones.
-        old_entry = (router.get("artefact_index") or {}).get(old_key) or {}
-        pending_entry = dict(old_entry)
-        pending_entry.update(
-            {
-                "path": new_path,
-                "type": art.get("frontmatter_type", art.get("type")),
-                "type_key": art.get("key"),
-                "type_prefix": type_prefix,
-                "key": new_key_value,
-                "parent": new_parent,
-            }
-        )
-        mutation_router = _router_with_pending_artefact_key(
-            router, old_key, new_key, pending_entry
-        )
-        _apply_reference_mutation(
-            vault_root, mutation_router, old_key, new_key, skip_paths={path}
+    reference_ops = []
+    if old_key and old_key != new_key:
+        reference_ops = _plan_reference_mutation(
+            vault_root,
+            router,
+            old_key,
+            new_key,
+            skip_paths={path},
+            operation="edit",
         )
 
-    _preflight_destination(vault_root, path, new_path)
-    _commit_with_possible_rename(
-        vault_root, path, new_path, rendered_fields, new_body
+    moves = [{"source": path, "dest": new_path}]
+    moves.extend(
+        _plan_descendant_moves(
+            vault_root,
+            router,
+            old_key,
+            mutation_router,
+            reference_ops,
+            operation="edit",
+        )
     )
+
+    preflight_move_set(vault_root, moves)
+    write_ops = [
+        {"path": path, "fields": rendered_fields, "body": new_body},
+        *reference_ops,
+    ]
+    _write_frontmatter_mutations(
+        vault_root, write_ops, operation="ownership mutation"
+    )
+    real_moves = [move for move in moves if move["source"] != move["dest"]]
+    if real_moves:
+        try:
+            result = move_and_update_links(vault_root, real_moves)
+        except PartialApplyError as exc:
+            metadata_written = [op["path"] for op in write_ops]
+            raise PartialApplyError(
+                "ownership mutation partially applied — "
+                f"metadata files written {metadata_written}; move failure: {exc}"
+            ) from exc
+        _prune_vacated_owner_folders(
+            vault_root,
+            [move["source"] for move in result.get("applied", [])],
+            router,
+        )
     if new_path != path:
         return new_path, True
     return path, True
@@ -1128,19 +1278,20 @@ def _finish_artefact(vault_root, router, abs_path, fields, old_body, new_body, p
         (frontmatter_changes or {}).get("created")
     )
     reconcile_fields_for_render(fields, art, abs_path, os.path.basename(path))
-    _save_artefact(abs_path, fields, new_body, vault_root)
     resolved_path = path
-    if art.get("classification") == "temporal" and had_explicit_created:
-        new_path = _maybe_relocate_temporal_month(vault_root, path, art, fields)
-        if new_path != path:
-            path = new_path
-            abs_path = os.path.join(vault_root, path)
     ownership_handled = False
     if art.get("classification") == "living" and old_fields is not None:
         path, ownership_handled = _maybe_restructure_living_ownership(
             vault_root, router, path, art, old_fields, fields, new_body
         )
         abs_path = os.path.join(vault_root, path)
+    if not ownership_handled:
+        _save_artefact(abs_path, fields, new_body, vault_root)
+    if art.get("classification") == "temporal" and had_explicit_created:
+        new_path = _maybe_relocate_temporal_month(vault_root, path, art, fields)
+        if new_path != path:
+            path = new_path
+            abs_path = os.path.join(vault_root, path)
     if old_fields is not None and not ownership_handled:
         new_path = _maybe_rename_on_field_change(vault_root, path, art, old_fields, fields)
         if new_path != path:
@@ -1326,6 +1477,7 @@ def convert_artefact(vault_root, router, path, target_type, parent=None):
                 vault_root, router, parent
             )
         elif old_parent:
+            _validate_preserved_parent(router, old_parent)
             target_parent = old_parent
 
         fields["key"] = target_key
@@ -1342,6 +1494,7 @@ def convert_artefact(vault_root, router, path, target_type, parent=None):
                 vault_root, router, parent
             )
         else:
+            _validate_preserved_parent(router, old_parent)
             target_parent = old_parent
         if target_parent:
             fields["parent"] = target_parent
@@ -1350,14 +1503,30 @@ def convert_artefact(vault_root, router, path, target_type, parent=None):
             fields.pop("parent", None)
         new_key = None
 
+    _validate_not_parented_to_descendant(
+        router,
+        old_key,
+        target_parent,
+        "convert",
+        aliases=[new_key],
+    )
+
     if source_art.get("frontmatter_type"):
         fields["type"] = target_art.get("frontmatter_type", target_art["type"])
 
+    reference_ops = []
     if old_key and old_key != new_key:
         if source_prefix in SELF_TAG_PREFIXES:
             replacement = new_key if new_key and target_prefix in SELF_TAG_PREFIXES else None
             _replace_exact_tag(fields, old_key, replacement)
-        _apply_reference_mutation(vault_root, router, old_key, new_key, skip_paths={path})
+        reference_ops = _plan_reference_mutation(
+            vault_root,
+            router,
+            old_key,
+            new_key,
+            skip_paths={path},
+            operation="convert",
+        )
     elif new_key:
         ensure_self_tag(fields, target_prefix, target_key)
 
@@ -1365,11 +1534,24 @@ def convert_artefact(vault_root, router, path, target_type, parent=None):
     reconcile_fields_for_render(
         rendered_fields, target_art, abs_source, os.path.basename(path)
     )
+    pending_entry = None
+    if new_key:
+        pending_entry = {
+            "path": path,
+            "type": target_art.get("frontmatter_type", target_art.get("type")),
+            "type_key": target_art.get("key"),
+            "type_prefix": target_prefix,
+            "key": fields.get("key"),
+            "parent": normalize_artefact_key(rendered_fields.get("parent")),
+        }
+    mutation_router = _router_with_pending_ownership(
+        router, old_key, new_key, pending_entry
+    )
     target_folder = resolve_folder(
         target_art,
         parent=normalize_artefact_key(rendered_fields.get("parent")),
         fields=rendered_fields,
-        router=router,
+        router=mutation_router,
     )
     target_basename = render_filename_or_default(
         target_art.get("naming"), title, rendered_fields
@@ -1381,17 +1563,48 @@ def convert_artefact(vault_root, router, path, target_type, parent=None):
         target_abs_folder = os.path.join(vault_root, folder)
         unique_name = unique_filename(target_abs_folder, stem, ext or ".md")
         new_path = os.path.join(folder, unique_name)
+    if new_key:
+        mutation_router["artefact_index"][new_key]["path"] = new_path
     check_write_allowed(new_path)
-    _preflight_destination(vault_root, path, new_path)
 
-    safe_write(
-        abs_source,
-        serialize_frontmatter(rendered_fields, body=body),
-        bounds=vault_root,
+    moves = [{"source": path, "dest": new_path}]
+    moves.extend(
+        _plan_descendant_moves(
+            vault_root,
+            router,
+            old_key,
+            mutation_router,
+            reference_ops,
+            operation="convert",
+        )
+    )
+
+    preflight_move_set(vault_root, moves)
+
+    write_ops = [
+        {"path": path, "fields": rendered_fields, "body": body},
+        *reference_ops,
+    ]
+    _write_frontmatter_mutations(
+        vault_root, write_ops, operation="convert mutation"
     )
     links_updated = 0
-    if new_path != path:
-        links_updated = rename_and_update_links(vault_root, path, new_path)
+    real_moves = [move for move in moves if move["source"] != move["dest"]]
+    if real_moves:
+        try:
+            result = move_and_update_links(vault_root, real_moves)
+        except PartialApplyError as exc:
+            metadata_written = [op["path"] for op in write_ops]
+            raise PartialApplyError(
+                "convert mutation partially applied — "
+                f"metadata files written {metadata_written}; move failure: {exc}"
+            ) from exc
+        links_updated = result["links_updated"]
+        _prune_vacated_owner_folders(
+            vault_root,
+            [move["source"] for move in result.get("applied", [])],
+            router,
+        )
 
     return {
         "old_path": path,
@@ -1408,7 +1621,209 @@ def convert_artefact(vault_root, router, path, target_type, parent=None):
 _DATE_PREFIX_RE = re.compile(r"^\d{8}-")
 
 
-def archive_artefact(vault_root, router, path):
+def _living_descendants_or_empty(router, source_key):
+    if not source_key:
+        return []
+    return descendant_entries(router, source_key)
+
+
+def _refuse_living_descendants(operation, source, descendants):
+    if descendants:
+        raise HasDescendantsError(operation, source, descendant_payload(descendants))
+
+
+def _archive_destination(path, art, today):
+    filename = os.path.basename(path)
+    date_prefix = today.replace("-", "")
+    if not _DATE_PREFIX_RE.match(filename):
+        filename = f"{date_prefix}-{filename}"
+
+    type_folder = art["path"]
+    rel_from_type = os.path.relpath(os.path.dirname(path), type_folder)
+    # Strip +Status/ folders from the path (archived files don't need them).
+    parts = rel_from_type.split(os.sep)
+    parts = [p for p in parts if not p.startswith("+")]
+    rel_from_type = os.path.join(*parts) if parts and parts != ["."] else "."
+
+    if rel_from_type == ".":
+        return os.path.join("_Archive", type_folder, filename)
+    return os.path.join("_Archive", type_folder, rel_from_type, filename)
+
+
+def _read_open_path(vault_root, router, path):
+    resolved_path, art = resolve_and_validate_folder(vault_root, router, path)
+    abs_path = os.path.join(vault_root, resolved_path)
+    if not os.path.isfile(abs_path):
+        raise FileNotFoundError(f"File not found: {resolved_path}")
+    with open(abs_path, "r", encoding="utf-8") as f:
+        content = f.read()
+    fields, body = parse_frontmatter(content)
+    return resolved_path, abs_path, fields, body, art
+
+
+def _plan_archive_entry(vault_root, router, path, today, *, require_terminal):
+    path, abs_path, fields, body, art = _read_open_path(vault_root, router, path)
+    if is_archived_path(path):
+        raise ValueError(f"'{path}' is already archived.")
+    check_write_allowed(path)
+
+    if require_terminal:
+        terminal = art.get("frontmatter", {}).get("terminal_statuses") or []
+        if not terminal:
+            raise ValueError(
+                f"Type '{art['type']}' has no terminal statuses — cannot archive."
+            )
+
+        status = fields.get("status", "")
+        if status not in terminal:
+            raise ValueError(
+                f"Cannot archive '{path}': status '{status}' is not terminal. "
+                f"Terminal statuses for {art['type']}: {', '.join(terminal)}"
+            )
+
+    archived_fields = dict(fields)
+    if "archiveddate" not in archived_fields:
+        archived_fields["archiveddate"] = today
+
+    return {
+        "path": path,
+        "abs_path": abs_path,
+        "fields": archived_fields,
+        "body": body,
+        "dest": _archive_destination(path, art, today),
+    }
+
+
+def _move_plan_for_reparent(vault_root, router, child_entries, target_parent):
+    mutation_router = dict(router)
+    artefact_index = {
+        key: dict(value)
+        for key, value in (router.get("artefact_index") or {}).items()
+    }
+    for child in child_entries:
+        child_key = child["artefact_key"]
+        artefact_index[child_key]["parent"] = target_parent
+    mutation_router["artefact_index"] = artefact_index
+
+    moves = []
+    write_ops = []
+    seen = set()
+    for child in child_entries:
+        entries = [child] + descendant_entries(router, child["artefact_key"])
+        for entry in entries:
+            key = entry["artefact_key"]
+            if key in seen:
+                continue
+            seen.add(key)
+            rel_path = entry["path"]
+            content = read_file_content(vault_root, rel_path)
+            if content.startswith("Error:"):
+                _raise_stale_index_missing(rel_path, "reparent")
+            fields, body = parse_frontmatter(content)
+            _resolved, art = resolve_and_validate_folder(
+                vault_root, router, rel_path
+            )
+            if key == child["artefact_key"]:
+                old_parent = normalize_artefact_key(fields.get("parent"))
+                if old_parent:
+                    replace_artefact_key_references(fields, old_parent, target_parent)
+                if target_parent:
+                    fields["parent"] = target_parent
+                    ensure_parent_tag(fields)
+                else:
+                    fields.pop("parent", None)
+            dest, rendered_fields = _render_existing_artefact_path(
+                vault_root, mutation_router, art, rel_path, fields
+            )
+            moves.append({"source": rel_path, "dest": dest})
+            if key == child["artefact_key"]:
+                write_ops.append({
+                    "path": rel_path,
+                    "fields": rendered_fields,
+                    "body": body,
+                })
+
+    preflight_move_set(vault_root, moves)
+    return moves, write_ops
+
+
+def reparent_children(vault_root, router, source, to_marker=None, *, to_provided=False):
+    """Reparent all direct living children of ``source`` in one move set.
+
+    ``to_provided=False`` dissolves the source by lifting children to the
+    source's own parent.  ``to_marker`` set to ``None`` or ``""`` clears the
+    children to top-level.  Otherwise it is resolved as the new parent.
+    """
+    vault_root = str(vault_root)
+    source_path, _abs_path, source_fields, _body, source_art = _read_open_path(
+        vault_root, router, source
+    )
+    source_key = canonical_living_artefact_key(source_art, source_fields)
+    if not source_key:
+        raise ValueError(
+            "Cannot reparent children of non-living/keyless artefact: "
+            f"{source_path}"
+        )
+    if source_key not in (router.get("artefact_index") or {}):
+        raise StaleArtefactIndexError(
+            f"source artefact key is not in the compiled living index: {source_key}"
+        )
+
+    if to_provided:
+        if to_marker in (None, ""):
+            target_parent = None
+        else:
+            target_parent, _target_entry = resolve_parent_reference(
+                vault_root, router, to_marker
+            )
+    else:
+        target_parent = normalize_artefact_key(source_fields.get("parent"))
+    _validate_not_parented_to_descendant(
+        router,
+        source_key,
+        target_parent,
+        "reparent",
+    )
+
+    children = direct_child_entries(router, source_key)
+    moves, write_ops = _move_plan_for_reparent(vault_root, router, children, target_parent)
+
+    _write_frontmatter_mutations(vault_root, write_ops, operation="reparent")
+    written = [op["path"] for op in write_ops]
+
+    real_moves = [move for move in moves if move["source"] != move["dest"]]
+    links_updated = 0
+    if real_moves:
+        try:
+            result = move_and_update_links(vault_root, real_moves)
+        except PartialApplyError as exc:
+            raise PartialApplyError(
+                "reparent partially applied — "
+                f"metadata files written {written}; move failure: {exc}"
+            ) from exc
+        links_updated = result["links_updated"]
+        _prune_vacated_owner_folders(
+            vault_root,
+            [move["source"] for move in result.get("applied", [])],
+            router,
+        )
+
+    return {
+        "source": source_path,
+        "to": target_parent,
+        "children": [
+            {
+                "key": child["artefact_key"],
+                "old_path": child["path"],
+            }
+            for child in children
+        ],
+        "moves": moves,
+        "links_updated": links_updated,
+    }
+
+
+def archive_artefact(vault_root, router, path, recursive=False):
     """Archive a living artefact to the top-level _Archive/ directory.
 
     1. Resolve path, read frontmatter, validate type has terminal statuses.
@@ -1419,58 +1834,65 @@ def archive_artefact(vault_root, router, path):
 
     Returns dict with old_path, new_path, links_updated.
     """
-    path, abs_path, fields, body, art = _open_artefact(vault_root, router, path)
     vault_root = str(vault_root)
+    path, abs_path, fields, body, art = _open_artefact(vault_root, router, path)
 
-    if is_archived_path(path):
-        raise ValueError(f"'{path}' is already archived.")
-
-    terminal = art.get("frontmatter", {}).get("terminal_statuses") or []
-    if not terminal:
-        raise ValueError(
-            f"Type '{art['type']}' has no terminal statuses — cannot archive."
-        )
-
-    status = fields.get("status", "")
-    if status not in terminal:
-        raise ValueError(
-            f"Cannot archive '{path}': status '{status}' is not terminal. "
-            f"Terminal statuses for {art['type']}: {', '.join(terminal)}"
-        )
+    source_key = canonical_living_artefact_key(art, fields)
+    descendants = _living_descendants_or_empty(router, source_key)
+    if not recursive:
+        _refuse_living_descendants("archive", path, descendants)
 
     today = now_iso()[:10]
-    if "archiveddate" not in fields:
-        fields["archiveddate"] = today
-
-    filename = os.path.basename(path)
-    date_prefix = today.replace("-", "")
-    if not _DATE_PREFIX_RE.match(filename):
-        filename = f"{date_prefix}-{filename}"
-
-    type_folder = art["path"]
-    rel_from_type = os.path.relpath(os.path.dirname(path), type_folder)
-    # Strip +Status/ folders from the path (archived files don't need them)
-    parts = rel_from_type.split(os.sep)
-    parts = [p for p in parts if not p.startswith("+")]
-    rel_from_type = os.path.join(*parts) if parts and parts != ["."] else "."
-
-    if rel_from_type == ".":
-        dest = os.path.join("_Archive", type_folder, filename)
-    else:
-        dest = os.path.join("_Archive", type_folder, rel_from_type, filename)
-
-    _save_artefact(abs_path, fields, body, vault_root)
-    links_updated = rename_and_update_links(
+    archive_paths = [path] + [entry["path"] for entry in descendants]
+    plans = [
+        _plan_archive_entry(
+            vault_root,
+            router,
+            rel_path,
+            today,
+            require_terminal=(idx == 0),
+        )
+        for idx, rel_path in enumerate(archive_paths)
+    ]
+    moves = [{"source": plan["path"], "dest": plan["dest"]} for plan in plans]
+    preflight_move_set(
         vault_root,
-        path,
-        dest,
+        moves,
         allow_archive_paths=True,
+    )
+
+    write_ops = [
+        {"path": plan["path"], "fields": plan["fields"], "body": plan["body"]}
+        for plan in plans
+    ]
+    _write_frontmatter_mutations(vault_root, write_ops, operation="archive")
+    written = [op["path"] for op in write_ops]
+
+    try:
+        result = move_and_update_links(
+            vault_root,
+            moves,
+            allow_archive_paths=True,
+        )
+    except PartialApplyError as exc:
+        raise PartialApplyError(
+            "archive partially applied — "
+            f"metadata files written {written}; move failure: {exc}"
+        ) from exc
+    _prune_vacated_owner_folders(
+        vault_root,
+        [move["source"] for move in result.get("applied", [])],
+        router,
     )
 
     return {
         "old_path": path,
-        "new_path": dest,
-        "links_updated": links_updated,
+        "new_path": plans[0]["dest"],
+        "links_updated": result["links_updated"],
+        "archived": [
+            {"old_path": plan["path"], "new_path": plan["dest"]}
+            for plan in plans
+        ],
     }
 
 
@@ -1508,13 +1930,24 @@ def unarchive_artefact(vault_root, router, path):
     check_write_allowed(dest)
 
     fields.pop("archiveddate", None)
-    _save_artefact(abs_path, fields, body, vault_root)
-    links_updated = rename_and_update_links(
+    preflight_move_set(
         vault_root,
-        path,
-        dest,
+        [{"source": path, "dest": dest}],
         allow_archive_paths=True,
     )
+    _save_artefact(abs_path, fields, body, vault_root)
+    try:
+        links_updated = rename_and_update_links(
+            vault_root,
+            path,
+            dest,
+            allow_archive_paths=True,
+        )
+    except (PartialApplyError, FileNotFoundError, FileExistsError, ValueError, OSError) as exc:
+        raise PartialApplyError(
+            "unarchive partially applied — "
+            f"metadata file written {path}; move failure: {exc}"
+        ) from exc
 
     return {
         "old_path": path,
@@ -1639,7 +2072,7 @@ def main():
             frontmatter_changes=fm_changes,
             target=target, selector=selector, scope=scope,
         )
-    except (ValueError, FileNotFoundError) as e:
+    except (ValueError, FileNotFoundError, PartialApplyError) as e:
         if json_mode:
             print(json.dumps({"error": str(e)}))
         else:

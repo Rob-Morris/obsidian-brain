@@ -53,6 +53,7 @@ from _common import (
     load_compiled_router,
     make_artefact_key,
     normalize_artefact_key,
+    PartialApplyError,
     parse_artefact_key,
     read_artefact,
     read_frontmatter,
@@ -449,6 +450,15 @@ def apply_folder_relocations(vault_root, moves, router):
                 "links_updated": links,
                 "reason": move["reason"],
             })
+        except PartialApplyError as exc:
+            results.append({
+                "source": move["source"],
+                "dest": move["dest"],
+                "error": str(exc),
+                "reason": move["reason"],
+                "partial_apply": True,
+            })
+            break
         except (FileNotFoundError, FileExistsError, ValueError, OSError) as exc:
             results.append({
                 "source": move["source"],
@@ -587,14 +597,23 @@ def migrate_vault(vault_root, *, apply=False, router=None):
     phase2_applied = []
     if apply and phase2_moves:
         phase2_applied = apply_folder_relocations(vault_root, phase2_moves, router)
+    phase2_partial_apply = any(
+        move.get("partial_apply") for move in phase2_applied
+    )
 
     # Phase 3
-    phase3_plan = plan_workspace_reconciliation(vault_root, router)
+    phase3_plan = {"folder_renames": [], "registry_remaps": []}
     phase3_applied = {"folder_renames": [], "registry_remaps": []}
-    if apply and (phase3_plan["folder_renames"] or phase3_plan["registry_remaps"]):
+    if not (apply and phase2_partial_apply):
+        phase3_plan = plan_workspace_reconciliation(vault_root, router)
+    if (
+        apply
+        and not phase2_partial_apply
+        and (phase3_plan["folder_renames"] or phase3_plan["registry_remaps"])
+    ):
         phase3_applied = apply_workspace_reconciliation(vault_root, phase3_plan)
 
-    return {
+    result = {
         "dry_run": not apply,
         "phase1": {
             "planned": len(phase1_plans),
@@ -618,13 +637,45 @@ def migrate_vault(vault_root, *, apply=False, router=None):
         },
         "phase3": phase3_applied if apply else phase3_plan,
     }
+    if apply:
+        phase_errors = _applied_phase_errors(result)
+        if phase_errors:
+            result["error"] = (
+                "Applied migration completed with row errors; "
+                "repair the listed phase diagnostics before rerunning."
+            )
+            result["phase_errors"] = phase_errors
+    return result
+
+
+def _applied_phase_errors(result):
+    """Return applied phase row errors that should fail the migration overall."""
+    errors = []
+    for move in result.get("phase2", {}).get("moves", []):
+        if "error" in move:
+            errors.append({
+                "phase": "phase2",
+                "source": move.get("source"),
+                "dest": move.get("dest"),
+                "error": move.get("error"),
+                "partial_apply": bool(move.get("partial_apply")),
+            })
+    for rename in result.get("phase3", {}).get("folder_renames", []):
+        if "error" in rename:
+            errors.append({
+                "phase": "phase3",
+                "source": rename.get("from"),
+                "dest": rename.get("to"),
+                "error": rename.get("error"),
+            })
+    return errors
 
 
 def migrate(vault_root: str) -> dict:
     """Entry point used by upgrade.py after compile succeeds."""
     result = migrate_vault(vault_root, apply=True)
     if result.get("error"):
-        return {"status": "error", "version": VERSION, "error": result["error"]}
+        return {"status": "error", "version": VERSION, **result}
     return {"status": "ok", "version": VERSION, **result}
 
 
@@ -637,6 +688,14 @@ def _print_human(result):
 
     if result.get("error"):
         print(f"Error: {result['error']}", file=sys.stderr)
+        for err in result.get("phase_errors", []):
+            source = err.get("source") or "?"
+            dest = err.get("dest") or "?"
+            print(
+                f"  {err.get('phase', '?')} ERROR {source} → {dest}: "
+                f"{err.get('error')}",
+                file=sys.stderr,
+            )
         return 1
 
     p1 = result["phase1"]

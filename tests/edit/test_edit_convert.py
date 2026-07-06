@@ -2,14 +2,15 @@
 
 import os
 import re
-import sys
-from datetime import datetime, timezone, timedelta
-from unittest.mock import patch
 
 import pytest
 
 import edit
-from _common import file_index_from_documents, parse_frontmatter, validate_artefact_folder
+from _common import (
+    ParentChainError,
+    PartialApplyError,
+    parse_frontmatter,
+)
 
 
 class TestConvertArtefact:
@@ -29,6 +30,339 @@ class TestConvertArtefact:
             content = f.read()
         fields, _ = parse_frontmatter(content)
         assert fields["type"] == "living/designs"
+
+    def test_convert_nested_parent_rehomes_descendant_subtree(self, vault, router):
+        (vault / "Designs" / "project~brain" / "parent").mkdir(parents=True, exist_ok=True)
+        (vault / "Designs" / "project~brain" / "Parent.md").write_text(
+            "---\n"
+            "type: living/designs\n"
+            "tags:\n"
+            "  - project/brain\n"
+            "key: parent\n"
+            "parent: project/brain\n"
+            "status: shaping\n"
+            "---\n\n"
+            "# Parent\n"
+        )
+        (vault / "Designs" / "project~brain" / "parent" / "Child.md").write_text(
+            "---\n"
+            "type: living/designs\n"
+            "tags:\n"
+            "  - designs/parent\n"
+            "key: child\n"
+            "parent: designs/parent\n"
+            "status: shaping\n"
+            "---\n\n"
+            "# Child\n"
+        )
+        grand_dir = vault / "Wiki" / "project~brain" / "designs~parent" / "designs~child"
+        grand_dir.mkdir(parents=True, exist_ok=True)
+        (grand_dir / "Grand.md").write_text(
+            "---\n"
+            "type: living/wiki\n"
+            "tags:\n"
+            "  - designs/child\n"
+            "key: grand\n"
+            "parent: designs/child\n"
+            "---\n\n"
+            "# Grand\n"
+        )
+        import compile_router
+        router = compile_router.compile(str(vault))
+
+        result = edit.convert_artefact(
+            str(vault), router, "Designs/project~brain/Parent.md", "ideas"
+        )
+
+        assert result["new_path"] == "Ideas/project~brain/Parent.md"
+        child = vault / "Designs" / "project~brain" / "ideas~parent" / "Child.md"
+        assert child.is_file()
+        fields, _ = parse_frontmatter(child.read_text())
+        assert fields["parent"] == "ideas/parent"
+        grand = vault / "Wiki" / "project~brain" / "ideas~parent" / "designs~child" / "Grand.md"
+        assert grand.is_file()
+        assert not (vault / "Designs" / "project~brain" / "parent").exists()
+        assert (vault / "Designs").is_dir()
+        assert (vault / "Wiki" / "project~brain").is_dir()
+
+    def test_convert_living_to_temporal_deparents_descendant_subtree(self, vault, router):
+        (vault / "Designs" / "project~brain" / "parent").mkdir(parents=True, exist_ok=True)
+        (vault / "Designs" / "project~brain" / "Parent.md").write_text(
+            "---\n"
+            "type: living/designs\n"
+            "tags:\n"
+            "  - project/brain\n"
+            "key: parent\n"
+            "parent: project/brain\n"
+            "status: shaping\n"
+            "---\n\n"
+            "# Parent\n"
+        )
+        (vault / "Designs" / "project~brain" / "parent" / "Child.md").write_text(
+            "---\n"
+            "type: living/designs\n"
+            "tags:\n"
+            "  - designs/parent\n"
+            "key: child\n"
+            "parent: designs/parent\n"
+            "status: shaping\n"
+            "---\n\n"
+            "# Child\n"
+        )
+        grand_dir = vault / "Wiki" / "project~brain" / "designs~parent" / "designs~child"
+        grand_dir.mkdir(parents=True, exist_ok=True)
+        (grand_dir / "Grand.md").write_text(
+            "---\n"
+            "type: living/wiki\n"
+            "tags:\n"
+            "  - designs/child\n"
+            "key: grand\n"
+            "parent: designs/child\n"
+            "---\n\n"
+            "# Grand\n"
+        )
+        import compile_router
+        router = compile_router.compile(str(vault))
+
+        result = edit.convert_artefact(
+            str(vault), router, "Designs/project~brain/Parent.md", "research"
+        )
+
+        assert result["type"] == "temporal/research"
+        assert result["new_path"].startswith("_Temporal/Research/")
+        child = vault / "Designs" / "Child.md"
+        assert child.is_file()
+        fields, _ = parse_frontmatter(child.read_text())
+        assert "parent" not in fields
+        assert "designs/parent" not in fields.get("tags", [])
+        grand = vault / "Wiki" / "designs~child" / "Grand.md"
+        assert grand.is_file()
+        fields, _ = parse_frontmatter(grand.read_text())
+        assert fields["parent"] == "designs/child"
+
+    def test_convert_stale_index_descendant_aborts_before_writes(self, vault, router):
+        (vault / "Designs" / "project~brain" / "parent").mkdir(parents=True, exist_ok=True)
+        parent = vault / "Designs" / "project~brain" / "Parent.md"
+        parent.write_text(
+            "---\n"
+            "type: living/designs\n"
+            "tags:\n"
+            "  - project/brain\n"
+            "key: parent\n"
+            "parent: project/brain\n"
+            "status: shaping\n"
+            "---\n\n"
+            "# Parent\n"
+        )
+        (vault / "Designs" / "project~brain" / "parent" / "Child.md").write_text(
+            "---\n"
+            "type: living/designs\n"
+            "tags:\n"
+            "  - designs/parent\n"
+            "key: child\n"
+            "parent: designs/parent\n"
+            "status: shaping\n"
+            "---\n\n"
+            "# Child\n"
+        )
+        import compile_router
+        router = compile_router.compile(str(vault))
+        before = parent.read_text()
+        (vault / "Designs" / "project~brain" / "parent" / "Child.md").unlink()
+
+        with pytest.raises(ParentChainError) as exc_info:
+            edit.convert_artefact(
+                str(vault), router, "Designs/project~brain/Parent.md", "ideas"
+            )
+
+        assert "missing on disk" in str(exc_info.value)
+        assert parent.read_text() == before
+        assert not (vault / "Ideas" / "project~brain" / "Parent.md").exists()
+
+    def test_convert_unindexed_parent_reference_aborts_before_writes(self, vault, router):
+        parent = vault / "Designs" / "project~brain" / "Parent.md"
+        child = vault / "Designs" / "project~brain" / "parent" / "Keyless Child.md"
+        child.parent.mkdir(parents=True, exist_ok=True)
+        parent.write_text(
+            "---\n"
+            "type: living/designs\n"
+            "tags:\n"
+            "  - project/brain\n"
+            "key: parent\n"
+            "parent: project/brain\n"
+            "status: shaping\n"
+            "---\n\n"
+            "# Parent\n"
+        )
+        child.write_text(
+            "---\n"
+            "type: living/designs\n"
+            "tags:\n"
+            "  - designs/parent\n"
+            "parent: designs/parent\n"
+            "status: shaping\n"
+            "---\n\n"
+            "# Keyless Child\n"
+        )
+        import compile_router
+        router = compile_router.compile(str(vault))
+        parent_before = parent.read_text()
+        child_before = child.read_text()
+
+        with pytest.raises(ParentChainError) as exc_info:
+            edit.convert_artefact(
+                str(vault), router, "Designs/project~brain/Parent.md", "ideas"
+            )
+
+        message = str(exc_info.value)
+        assert "parent reference to designs/parent" in message
+        assert "absent from the compiled living index" in message
+        assert parent.read_text() == parent_before
+        assert child.read_text() == child_before
+        assert not (vault / "Ideas" / "project~brain" / "Parent.md").exists()
+
+    def test_convert_parent_change_to_descendant_rejected_before_writes(
+        self, vault, router
+    ):
+        (vault / "Designs" / "project~brain" / "parent").mkdir(parents=True, exist_ok=True)
+        parent = vault / "Designs" / "project~brain" / "Parent.md"
+        parent.write_text(
+            "---\n"
+            "type: living/designs\n"
+            "tags:\n"
+            "  - project/brain\n"
+            "key: parent\n"
+            "parent: project/brain\n"
+            "status: shaping\n"
+            "---\n\n"
+            "# Parent\n"
+        )
+        child = vault / "Designs" / "project~brain" / "parent" / "Child.md"
+        child.write_text(
+            "---\n"
+            "type: living/designs\n"
+            "tags:\n"
+            "  - designs/parent\n"
+            "key: child\n"
+            "parent: designs/parent\n"
+            "status: shaping\n"
+            "---\n\n"
+            "# Child\n"
+        )
+        import compile_router
+        router = compile_router.compile(str(vault))
+        parent_before = parent.read_text()
+        child_before = child.read_text()
+
+        with pytest.raises(ParentChainError) as exc_info:
+            edit.convert_artefact(
+                str(vault),
+                router,
+                "Designs/project~brain/Parent.md",
+                "ideas",
+                parent="designs/child",
+            )
+
+        assert "child of descendant designs/child" in str(exc_info.value)
+        assert parent.read_text() == parent_before
+        assert child.read_text() == child_before
+        assert not (vault / "Ideas" / "project~brain" / "Parent.md").exists()
+
+    def test_convert_shared_preflight_rejects_before_writes(
+        self, vault, router, monkeypatch
+    ):
+        (vault / "Designs" / "project~brain" / "parent").mkdir(parents=True, exist_ok=True)
+        parent = vault / "Designs" / "project~brain" / "Parent.md"
+        parent.write_text(
+            "---\n"
+            "type: living/designs\n"
+            "tags:\n"
+            "  - project/brain\n"
+            "key: parent\n"
+            "parent: project/brain\n"
+            "status: shaping\n"
+            "---\n\n"
+            "# Parent\n"
+        )
+        child = vault / "Designs" / "project~brain" / "parent" / "Child.md"
+        child.write_text(
+            "---\n"
+            "type: living/designs\n"
+            "tags:\n"
+            "  - designs/parent\n"
+            "key: child\n"
+            "parent: designs/parent\n"
+            "status: shaping\n"
+            "---\n\n"
+            "# Child\n"
+        )
+        import compile_router
+        router = compile_router.compile(str(vault))
+        parent_before = parent.read_text()
+        child_before = child.read_text()
+
+        def reject_preflight(*_args, **_kwargs):
+            raise ValueError("Cyclic move set involving: Designs/project~brain/Parent.md")
+
+        monkeypatch.setattr(edit, "preflight_move_set", reject_preflight)
+
+        with pytest.raises(ValueError, match="Cyclic move set"):
+            edit.convert_artefact(
+                str(vault), router, "Designs/project~brain/Parent.md", "ideas"
+            )
+
+        assert parent.read_text() == parent_before
+        assert child.read_text() == child_before
+        assert not (vault / "Ideas" / "project~brain" / "Parent.md").exists()
+
+    def test_convert_move_failure_leaves_documented_partial_state(
+        self, vault, router, monkeypatch
+    ):
+        (vault / "Designs" / "project~brain" / "parent").mkdir(parents=True, exist_ok=True)
+        parent = vault / "Designs" / "project~brain" / "Parent.md"
+        parent.write_text(
+            "---\n"
+            "type: living/designs\n"
+            "tags:\n"
+            "  - project/brain\n"
+            "key: parent\n"
+            "parent: project/brain\n"
+            "status: shaping\n"
+            "---\n\n"
+            "# Parent\n"
+        )
+        child = vault / "Designs" / "project~brain" / "parent" / "Child.md"
+        child.write_text(
+            "---\n"
+            "type: living/designs\n"
+            "tags:\n"
+            "  - designs/parent\n"
+            "key: child\n"
+            "parent: designs/parent\n"
+            "status: shaping\n"
+            "---\n\n"
+            "# Child\n"
+        )
+        import compile_router
+        router = compile_router.compile(str(vault))
+
+        def fail_move(*_args, **_kwargs):
+            raise PartialApplyError("move set partially applied")
+
+        monkeypatch.setattr(edit, "move_and_update_links", fail_move)
+
+        with pytest.raises(PartialApplyError, match="move set partially applied") as exc_info:
+            edit.convert_artefact(
+                str(vault), router, "Designs/project~brain/Parent.md", "ideas"
+            )
+
+        assert isinstance(exc_info.value.__cause__, PartialApplyError)
+        assert "metadata files written ['Designs/project~brain/Parent.md', 'Designs/project~brain/parent/Child.md']" in str(exc_info.value)
+        parent_fields, _ = parse_frontmatter(parent.read_text())
+        assert parent_fields["type"] == "living/ideas"
+        child_fields, _ = parse_frontmatter(child.read_text())
+        assert child_fields["parent"] == "ideas/parent"
+        assert not (vault / "Ideas" / "project~brain" / "Parent.md").exists()
 
     def test_convert_generates_distinctive_key_without_suffix(self, vault, router):
         result = edit.convert_artefact(str(vault), router, "Wiki/test-page.md", "designs")
@@ -89,6 +423,8 @@ class TestConvertArtefact:
             "---\n\n"
             "# My Idea\n\nBody.\n"
         )
+        import compile_router
+        router = compile_router.compile(str(vault))
         result = edit.convert_artefact(
             str(vault), router, "Ideas/project~brain/my-idea.md", "designs"
         )
@@ -104,6 +440,8 @@ class TestConvertArtefact:
         (vault / "Ideas" / "flat-idea.md").write_text(
             "---\ntype: living/ideas\ntags: []\nkey: flat-idea\n---\n\n# Flat Idea\n\nBody.\n"
         )
+        import compile_router
+        router = compile_router.compile(str(vault))
         result = edit.convert_artefact(str(vault), router, "Ideas/flat-idea.md", "designs")
         assert result["new_path"].startswith("Designs/")
         assert "/" not in result["new_path"][len("Designs/"):]
@@ -136,6 +474,7 @@ class TestConvertArtefact:
             "---\n\n"
             "# Overridden\n\nBody.\n"
         )
+        router = compile_router.compile(str(vault))
         result = edit.convert_artefact(
             str(vault), router, "Ideas/project~brain/overridden.md", "designs", parent="project/custom"
         )
@@ -169,6 +508,8 @@ class TestConvertArtefact:
             "---\n\n"
             "# Child Idea\n\nBody.\n"
         )
+        import compile_router
+        router = compile_router.compile(str(vault))
 
         result = edit.convert_artefact(
             str(vault), router, "Ideas/project~brain/child-idea.md", "reports"
@@ -179,6 +520,37 @@ class TestConvertArtefact:
         fields, _ = parse_frontmatter((vault / result["new_path"]).read_text())
         assert fields["parent"] == "project/brain"
         assert "project/brain" in fields["tags"]
+
+    def test_convert_living_child_to_temporal_validates_preserved_parent(self, vault, router):
+        child_dir = vault / "Ideas" / "project~brain"
+        child_dir.mkdir(parents=True, exist_ok=True)
+        source = child_dir / "child-idea.md"
+        source.write_text(
+            "---\n"
+            "type: living/ideas\n"
+            "tags:\n"
+            "  - project/brain\n"
+            "key: child-idea\n"
+            "parent: project/brain\n"
+            "status: shaping\n"
+            "---\n\n"
+            "# Child Idea\n\nBody.\n"
+        )
+        import compile_router
+        router = compile_router.compile(str(vault))
+        router["artefact_index"].pop("project/brain")
+        before = source.read_text()
+
+        with pytest.raises(ParentChainError) as exc_info:
+            edit.convert_artefact(
+                str(vault), router, "Ideas/project~brain/child-idea.md", "reports"
+            )
+
+        message = str(exc_info.value)
+        assert "project/brain" in message
+        assert "compiled living index" in message or "Broken parent reference" in message
+        assert source.read_text() == before
+        assert not any((vault / "_Temporal" / "Reports").glob("**/*.md"))
 
     def test_convert_owner_to_temporal_removes_child_owner_reference_cleanly(self, vault, router):
         child_dir = vault / "Ideas" / "project~brain"

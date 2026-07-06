@@ -18,6 +18,143 @@ from brain_test_support import filesystem_is_case_sensitive
 
 
 class TestOwnershipChecks:
+    def _add_index_entry(
+        self,
+        router,
+        canonical_key,
+        *,
+        path,
+        type_,
+        type_key,
+        type_prefix,
+        key,
+        parent=None,
+        children_count=0,
+    ):
+        router["artefact_index"][canonical_key] = {
+            "path": path,
+            "type": type_,
+            "type_key": type_key,
+            "type_prefix": type_prefix,
+            "key": key,
+            "parent": parent,
+            "children_count": children_count,
+        }
+
+    def test_recursive_parent_contract_allows_nested_same_cross_mixed_chains(self, vault):
+        tmp_path, router = vault
+        self._add_index_entry(
+            router,
+            "design/desktop",
+            path="Designs/auth-redesign/Desktop.md",
+            type_="living/design",
+            type_key="designs",
+            type_prefix="design",
+            key="desktop",
+            parent="design/auth-redesign",
+            children_count=1,
+        )
+        self._add_index_entry(
+            router,
+            "wiki/oauth",
+            path="Wiki/design~auth-redesign/design~desktop/OAuth.md",
+            type_="living/wiki",
+            type_key="wiki",
+            type_prefix="wiki",
+            key="oauth",
+            parent="design/desktop",
+        )
+        design_dir = tmp_path / "Designs" / "auth-redesign"
+        design_dir.mkdir(parents=True)
+        write_md(
+            design_dir / "Desktop.md",
+            {
+                "type": "living/design",
+                "tags": ["design/auth-redesign"],
+                "status": "shaping",
+                "key": "desktop",
+                "parent": "design/auth-redesign",
+            },
+            "# Desktop",
+        )
+        wiki_dir = tmp_path / "Wiki" / "design~auth-redesign" / "design~desktop"
+        wiki_dir.mkdir(parents=True)
+        write_md(
+            wiki_dir / "OAuth.md",
+            {
+                "type": "living/wiki",
+                "tags": ["design/desktop"],
+                "key": "oauth",
+                "parent": "design/desktop",
+            },
+            "# OAuth",
+        )
+
+        findings = check.check_parent_contract(str(tmp_path), router)
+
+        files = {f.get("file") for f in findings}
+        assert "Designs/auth-redesign/Desktop.md" not in files
+        assert "Wiki/design~auth-redesign/design~desktop/OAuth.md" not in files
+
+    def test_recursive_parent_contract_flags_misplaced_nested_artefact(self, vault):
+        tmp_path, router = vault
+        self._add_index_entry(
+            router,
+            "design/desktop",
+            path="Designs/auth-redesign/Desktop.md",
+            type_="living/design",
+            type_key="designs",
+            type_prefix="design",
+            key="desktop",
+            parent="design/auth-redesign",
+            children_count=1,
+        )
+        self._add_index_entry(
+            router,
+            "wiki/oauth",
+            path="Wiki/design~auth-redesign/OAuth.md",
+            type_="living/wiki",
+            type_key="wiki",
+            type_prefix="wiki",
+            key="oauth",
+            parent="design/desktop",
+        )
+        design_dir = tmp_path / "Designs" / "auth-redesign"
+        design_dir.mkdir(parents=True)
+        write_md(
+            design_dir / "Desktop.md",
+            {
+                "type": "living/design",
+                "tags": ["design/auth-redesign"],
+                "status": "shaping",
+                "key": "desktop",
+                "parent": "design/auth-redesign",
+            },
+            "# Desktop",
+        )
+        misplaced_dir = tmp_path / "Wiki" / "design~auth-redesign"
+        misplaced_dir.mkdir(parents=True)
+        write_md(
+            misplaced_dir / "OAuth.md",
+            {
+                "type": "living/wiki",
+                "tags": ["design/desktop"],
+                "key": "oauth",
+                "parent": "design/desktop",
+            },
+            "# OAuth",
+        )
+
+        findings = check.check_parent_contract(str(tmp_path), router)
+
+        hits = [
+            f for f in findings
+            if f.get("file") == "Wiki/design~auth-redesign/OAuth.md"
+        ]
+        assert len(hits) == 1
+        assert "Parent-folder drift" in hits[0]["message"]
+        assert "expected 'Wiki/design~auth-redesign/design~desktop'" in hits[0]["message"]
+
     def test_missing_key_flagged(self, vault):
         tmp_path, router = vault
         write_md(tmp_path / "Wiki" / "no-key.md",
@@ -38,6 +175,65 @@ class TestOwnershipChecks:
         findings = check.check_parent_contract(str(tmp_path), router)
         assert any("Broken parent reference" in f["message"] for f in findings)
 
+    def test_broken_grandparent_reference_warns_without_crashing(self, vault):
+        tmp_path, router = vault
+        router["artefact_index"]["design/auth-redesign"]["parent"] = "project/missing"
+        child_dir = tmp_path / "Wiki" / "design~auth-redesign"
+        child_dir.mkdir(parents=True)
+        write_md(
+            child_dir / "child.md",
+            {
+                "type": "living/wiki",
+                "tags": ["design/auth-redesign"],
+                "key": "child",
+                "parent": "design/auth-redesign",
+            },
+            "# Child",
+        )
+
+        findings = check.check_parent_contract(str(tmp_path), router)
+
+        hits = [f for f in findings if f.get("file") == "Wiki/design~auth-redesign/child.md"]
+        assert len(hits) == 1
+        assert "Broken parent chain" in hits[0]["message"]
+        assert "project/missing" in hits[0]["message"]
+
+    def test_cyclic_grandparent_chain_warns_without_crashing(self, vault):
+        tmp_path, router = vault
+        self._add_index_entry(
+            router,
+            "design/desktop",
+            path="Designs/auth-redesign/Desktop.md",
+            type_="living/design",
+            type_key="designs",
+            type_prefix="design",
+            key="desktop",
+            parent="design/auth-redesign",
+        )
+        router["artefact_index"]["design/auth-redesign"]["parent"] = "design/desktop"
+        child_dir = tmp_path / "Wiki" / "design~auth-redesign" / "design~desktop"
+        child_dir.mkdir(parents=True)
+        write_md(
+            child_dir / "child.md",
+            {
+                "type": "living/wiki",
+                "tags": ["design/desktop"],
+                "key": "child",
+                "parent": "design/desktop",
+            },
+            "# Child",
+        )
+
+        findings = check.check_parent_contract(str(tmp_path), router)
+
+        hits = [
+            f for f in findings
+            if f.get("file") == "Wiki/design~auth-redesign/design~desktop/child.md"
+        ]
+        assert len(hits) == 1
+        assert "Broken parent chain" in hits[0]["message"]
+        assert "Cyclic parent chain" in hits[0]["message"]
+
     def test_parent_folder_drift_flagged(self, vault):
         tmp_path, router = vault
         write_md(tmp_path / "Wiki" / "child.md",
@@ -45,6 +241,93 @@ class TestOwnershipChecks:
                  "# Child")
         findings = check.check_parent_contract(str(tmp_path), router)
         assert any("Parent-folder drift" in f["message"] for f in findings)
+
+    def test_recursive_parent_contract_allows_trailing_status_folder(self, vault):
+        tmp_path, router = vault
+        router["artefact_index"]["design/desktop"] = {
+            "path": "Designs/auth-redesign/Desktop.md",
+            "type": "living/design",
+            "type_key": "designs",
+            "type_prefix": "design",
+            "key": "desktop",
+            "parent": "design/auth-redesign",
+            "children_count": 1,
+        }
+        router["artefact_index"]["design/desktop-client"] = {
+            "path": "Designs/auth-redesign/desktop/+Implemented/Desktop Client.md",
+            "type": "living/design",
+            "type_key": "designs",
+            "type_prefix": "design",
+            "key": "desktop-client",
+            "parent": "design/desktop",
+            "children_count": 0,
+        }
+        status_dir = tmp_path / "Designs" / "auth-redesign" / "desktop" / "+Implemented"
+        status_dir.mkdir(parents=True)
+        write_md(
+            status_dir / "Desktop Client.md",
+            {
+                "type": "living/design",
+                "tags": ["design", "design/desktop"],
+                "status": "implemented",
+                "key": "desktop-client",
+                "parent": "design/desktop",
+            },
+            "# Desktop Client",
+        )
+
+        findings = check.check_parent_contract(str(tmp_path), router)
+
+        hits = [
+            f for f in findings
+            if f.get("file") == "Designs/auth-redesign/desktop/+Implemented/Desktop Client.md"
+        ]
+        assert hits == []
+
+    def test_release_status_folder_under_deep_owner_chain_is_clean(self, vault):
+        tmp_path, router = vault
+        router["artefact_index"]["design/auth-redesign"]["parent"] = "project/brain"
+        self._add_index_entry(
+            router,
+            "release/v1",
+            path="Releases/project~brain/design~auth-redesign/+Shipped/v1.md",
+            type_="living/release",
+            type_key="releases",
+            type_prefix="release",
+            key="v1",
+            parent="design/auth-redesign",
+        )
+        release_dir = (
+            tmp_path
+            / "Releases"
+            / "project~brain"
+            / "design~auth-redesign"
+            / "+Shipped"
+        )
+        release_dir.mkdir(parents=True)
+        write_md(
+            release_dir / "v1.md",
+            {
+                "type": "living/release",
+                "tags": ["design/auth-redesign"],
+                "status": "shipped",
+                "key": "v1",
+                "parent": "design/auth-redesign",
+            },
+            "# v1",
+        )
+
+        parent_findings = check.check_parent_contract(str(tmp_path), router)
+        status_findings = check.check_status_folders(str(tmp_path), router)
+
+        assert [
+            f for f in parent_findings
+            if f.get("file") == "Releases/project~brain/design~auth-redesign/+Shipped/v1.md"
+        ] == []
+        assert [
+            f for f in status_findings
+            if f.get("file") == "Releases/project~brain/design~auth-redesign/+Shipped/v1.md"
+        ] == []
 
     def test_subfolder_without_parent_flagged(self, vault):
         """A file in a hub subfolder whose name resolves emits a missing-parent warning

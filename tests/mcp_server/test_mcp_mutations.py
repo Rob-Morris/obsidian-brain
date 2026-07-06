@@ -29,6 +29,12 @@ import process
 import retrieval_embeddings
 import workspace_registry
 import config as config_mod
+from _common import (
+    CyclicParentChainError,
+    HasDescendantsError,
+    PartialApplyError,
+    parse_frontmatter,
+)
 from _common._yaml import dump_mapping_text
 
 
@@ -46,6 +52,38 @@ from _mcp_helpers import (
     _write_config_text,
     _write_config_yaml,
 )
+
+
+def _assert_partial_apply_error(result, expected):
+    _assert_error(result, expected)
+    assert "Unexpected error" not in result
+    assert "Traceback" not in result
+
+
+def _write_parent_child_tree(vault):
+    parent = vault / "Ideas" / "Parent.md"
+    child = vault / "Wiki" / "ideas~parent" / "Child.md"
+    child.parent.mkdir(parents=True, exist_ok=True)
+    parent.write_text(
+        "---\n"
+        "type: living/ideas\n"
+        "tags: []\n"
+        "key: parent\n"
+        "status: shaping\n"
+        "---\n\n"
+        "Parent.\n"
+    )
+    child.write_text(
+        "---\n"
+        "type: living/wiki\n"
+        "tags:\n"
+        "  - ideas/parent\n"
+        "key: child\n"
+        "parent: ideas/parent\n"
+        "---\n\n"
+        "Child.\n"
+    )
+    return parent, child
 
 
 class TestBrainCreate:
@@ -373,6 +411,30 @@ class TestBrainEdit:
         from _common import parse_frontmatter
         fields, _ = parse_frontmatter(content)
         assert fields["status"] == "archived"
+
+    def test_edit_parent_change_to_descendant_surfaces_actionably(self, initialized):
+        parent, child = _write_parent_child_tree(initialized)
+        router = compile_router.compile(str(initialized))
+        server._set_router(router)
+        parent_before = parent.read_text()
+        child_before = child.read_text()
+
+        with patch.object(server, "_ensure_router_fresh"):
+            result = server.brain_edit(
+                operation="edit",
+                path="Ideas/Parent.md",
+                body="Parent.\n",
+                target=":body",
+                scope="section",
+                frontmatter={"parent": "wiki/child"},
+            )
+
+        _assert_error(result, "Invalid living parent chain")
+        _assert_error(result, "child of descendant wiki/child")
+        assert "Unexpected error" not in result
+        assert "Traceback" not in result
+        assert parent.read_text() == parent_before
+        assert child.read_text() == child_before
 
     def test_append_works(self, initialized):
         result = server.brain_edit(
@@ -1360,8 +1422,10 @@ class TestBrainMove:
         content = (vault / "Wiki" / "linker-xyz000.md").read_text()
         assert "[[Wiki/brain-intro-abc123]]" in content
 
-    def test_rename_with_mocked_cli(self, initialized, cli_available):
+    def test_rename_with_mocked_cli(self, initialized, cli_available, monkeypatch):
         """Rename via CLI when available."""
+        monkeypatch.setattr(server, "_cli_probed_at", 0)
+        monkeypatch.setattr(obsidian_cli, "check_available", lambda: True)
         with patch.object(obsidian_cli, "move", return_value=True):
             result = server.brain_move(
                 op="rename",
@@ -1370,6 +1434,119 @@ class TestBrainMove:
             )
             assert "obsidian_cli" in result
             assert "wikilinks auto-updated" in result
+
+    def test_rename_refreshes_cli_availability_before_cli_path(
+        self, initialized, cli_available, monkeypatch
+    ):
+        monkeypatch.setattr(server, "_cli_probed_at", 0)
+        monkeypatch.setattr(obsidian_cli, "check_available", lambda: False)
+
+        with patch.object(obsidian_cli, "move", return_value=True) as mock_move:
+            result = server.brain_move(
+                op="rename",
+                source="Wiki/brain-overview-abc123.md",
+                dest="Wiki/brain-intro-abc123.md",
+            )
+
+        assert "grep_replace" in result
+        mock_move.assert_not_called()
+        assert (initialized / "Wiki" / "brain-intro-abc123.md").is_file()
+
+    def test_rename_cli_path_rejects_symlink_source_before_obsidian_cli(
+        self, initialized, cli_available
+    ):
+        target = initialized / "Wiki" / "target.md"
+        alias = initialized / "Wiki" / "alias.md"
+        target.write_text("---\ntype: living/wiki\ntags: []\n---\n\n# Target\n")
+        alias.symlink_to(target)
+
+        with patch.object(obsidian_cli, "move", return_value=True) as mock_move:
+            result = server.brain_move(
+                op="rename",
+                source="Wiki/alias.md",
+                dest="Wiki/moved.md",
+            )
+
+        _assert_error(result, "Move source cannot be a symlink: Wiki/alias.md")
+        mock_move.assert_not_called()
+        assert target.is_file()
+        assert alias.is_symlink()
+        assert not (initialized / "Wiki" / "moved.md").exists()
+        assert "Unexpected error" not in result
+        assert "Traceback" not in result
+
+    def test_rename_destination_parent_file_surfaces_actionably_without_dirtying(
+        self, initialized
+    ):
+        (initialized / "Wiki" / "blocked").write_text("not a directory\n")
+        server._router_dirty = False
+        server._index_dirty = False
+
+        result = server.brain_move(
+            op="rename",
+            source="Wiki/brain-overview-abc123.md",
+            dest="Wiki/blocked/brain-intro-abc123.md",
+        )
+
+        _assert_error(result, "Destination parent is not a directory: Wiki/blocked")
+        assert "Unexpected error" not in result
+        assert "Traceback" not in result
+        assert (initialized / "Wiki" / "brain-overview-abc123.md").is_file()
+        assert (initialized / "Wiki" / "blocked").is_file()
+        assert server._router_dirty is False
+        assert server._index_dirty is False
+
+    def test_rename_cli_path_destination_parent_file_surfaces_actionably_without_dirtying(
+        self, initialized, cli_available, monkeypatch
+    ):
+        (initialized / "Wiki" / "blocked").write_text("not a directory\n")
+        server._router_dirty = False
+        server._index_dirty = False
+        monkeypatch.setattr(server, "_cli_probed_at", 0)
+        monkeypatch.setattr(obsidian_cli, "check_available", lambda: True)
+
+        with patch.object(obsidian_cli, "move", return_value=True) as mock_move:
+            result = server.brain_move(
+                op="rename",
+                source="Wiki/brain-overview-abc123.md",
+                dest="Wiki/blocked/brain-intro-abc123.md",
+            )
+
+        _assert_error(result, "Destination parent is not a directory: Wiki/blocked")
+        mock_move.assert_not_called()
+        assert "Unexpected error" not in result
+        assert "Traceback" not in result
+        assert (initialized / "Wiki" / "brain-overview-abc123.md").is_file()
+        assert (initialized / "Wiki" / "blocked").is_file()
+        assert server._router_dirty is False
+        assert server._index_dirty is False
+
+    def test_rename_cli_path_broken_symlink_parent_surfaces_actionably_without_dirtying(
+        self, initialized, cli_available, monkeypatch
+    ):
+        blocked = initialized / "Wiki" / "blocked"
+        blocked.symlink_to(initialized / "Wiki" / "missing-target")
+        server._router_dirty = False
+        server._index_dirty = False
+        monkeypatch.setattr(server, "_cli_probed_at", 0)
+        monkeypatch.setattr(obsidian_cli, "check_available", lambda: True)
+
+        with patch.object(obsidian_cli, "move", return_value=True) as mock_move:
+            result = server.brain_move(
+                op="rename",
+                source="Wiki/brain-overview-abc123.md",
+                dest="Wiki/blocked/brain-intro-abc123.md",
+            )
+
+        _assert_error(result, "Destination parent is not a directory: Wiki/blocked")
+        mock_move.assert_not_called()
+        assert "Unexpected error" not in result
+        assert "Traceback" not in result
+        assert (initialized / "Wiki" / "brain-overview-abc123.md").is_file()
+        assert blocked.is_symlink()
+        assert not (initialized / "Wiki" / "missing-target" / "brain-intro-abc123.md").exists()
+        assert server._router_dirty is False
+        assert server._index_dirty is False
 
     def test_rename_forces_router_refresh(self, initialized):
         with patch.object(server, "_ensure_router_fresh") as mock_ensure:
@@ -1464,6 +1641,41 @@ class TestBrainMove:
             content = (vault / "Wiki" / "linker-fallback.md").read_text()
             assert "[[Wiki/brain-moved-abc123]]" in content
 
+    def test_rename_surfaces_partial_apply_context(self, initialized):
+        def fake_rename(vault_root, source, dest, router=None, *, allow_archive_paths=False):
+            raise PartialApplyError(
+                "move set partially applied — links already rewritten; "
+                "committed [], failed at "
+                "Wiki/brain-overview-abc123.md->Wiki/brain-moved-abc123.md"
+            )
+
+        server._router_dirty = False
+        server._index_dirty = False
+        with patch("brain_mcp._server_actions.rename.rename_and_update_links", fake_rename):
+            result = server.brain_move(
+                op="rename",
+                source="Wiki/brain-overview-abc123.md",
+                dest="Wiki/brain-moved-abc123.md",
+            )
+
+        _assert_partial_apply_error(result, "move set partially applied")
+        _assert_error(result, "links already rewritten")
+        assert server._router_dirty is True
+        assert server._index_dirty is True
+
+    def test_rename_unrelated_runtime_error_remains_unexpected(self, initialized):
+        def fake_rename(vault_root, source, dest, router=None, *, allow_archive_paths=False):
+            raise RuntimeError("programmer bug")
+
+        with patch("brain_mcp._server_actions.rename.rename_and_update_links", fake_rename):
+            result = server.brain_move(
+                op="rename",
+                source="Wiki/brain-overview-abc123.md",
+                dest="Wiki/brain-moved-abc123.md",
+            )
+
+        _assert_error(result, "Unexpected error: programmer bug")
+
     def test_rename_cross_directory_without_cli(self, initialized):
         """Rename across directories creates destination dir (regression test)."""
         vault = initialized
@@ -1476,8 +1688,10 @@ class TestBrainMove:
         assert not (vault / "Wiki" / "brain-overview-abc123.md").exists()
         assert (vault / "Wiki" / "subdir" / "brain-overview-abc123.md").exists()
 
-    def test_rename_cli_mkdir_before_move(self, initialized, cli_available):
+    def test_rename_cli_mkdir_before_move(self, initialized, cli_available, monkeypatch):
         """CLI path creates destination directory before calling obsidian_cli.move."""
+        monkeypatch.setattr(server, "_cli_probed_at", 0)
+        monkeypatch.setattr(obsidian_cli, "check_available", lambda: True)
         with patch.object(obsidian_cli, "move", return_value=True) as mock_move, \
              patch.object(os, "makedirs") as mock_makedirs:
             server.brain_move(
@@ -1524,6 +1738,89 @@ class TestBrainMove:
         )
         _assert_error(result, "does not accept top-level field 'source'")
 
+    def test_archive_passes_recursive_to_script_layer(self, initialized):
+        calls = []
+
+        def fake_archive(vault_root, router, path, recursive=False):
+            calls.append((path, recursive))
+            return {
+                "old_path": path,
+                "new_path": "_Archive/Ideas/my-idea.md",
+                "links_updated": 0,
+            }
+
+        with patch("brain_mcp._server_actions.edit.archive_artefact", fake_archive):
+            result = server.brain_move(
+                op="archive",
+                path="Ideas/my-idea.md",
+                recursive=True,
+            )
+
+        assert result.startswith("**Archived:**")
+        assert calls == [("Ideas/my-idea.md", True)]
+
+    def test_archive_surfaces_parent_chain_error_distinct_from_descendant_gate(self, initialized):
+        def fake_archive(vault_root, router, path, recursive=False):
+            raise CyclicParentChainError("Cyclic descendant chain: ideas/parent -> ideas/child -> ideas/parent")
+
+        with patch("brain_mcp._server_actions.edit.archive_artefact", fake_archive):
+            result = server.brain_move(
+                op="archive",
+                path="Ideas/my-idea.md",
+                recursive=True,
+            )
+
+        _assert_error(result, "Invalid living parent chain")
+        _assert_error(result, "Run check/doctor")
+        assert "HAS_DESCENDANTS" not in result
+
+    def test_archive_surfaces_stale_index_error_actionably(self, initialized):
+        (initialized / "Ideas" / "Parent.md").write_text(
+            "---\n"
+            "type: living/ideas\n"
+            "tags: []\n"
+            "key: parent\n"
+            "status: adopted\n"
+            "---\n\n"
+            "Parent.\n"
+        )
+        router = compile_router.compile(str(initialized))
+        router["artefact_index"].pop("ideas/parent")
+        server._set_router(router)
+
+        with patch.object(server, "_ensure_router_fresh"):
+            result = server.brain_move(
+                op="archive",
+                path="Ideas/Parent.md",
+            )
+
+        _assert_error(result, "Stale compiled artefact index")
+        _assert_error(result, "ideas/parent")
+        _assert_error(result, "Recompile or repair the router/index")
+        assert "Unexpected error" not in result
+        assert "Traceback" not in result
+        assert "Invalid living parent chain" not in result
+
+    def test_archive_surfaces_partial_apply_context(self, initialized):
+        def fake_archive(vault_root, router, path, recursive=False):
+            raise PartialApplyError(
+                "archive partially applied — metadata files written; "
+                "move failure: move set partially applied — links already rewritten"
+            )
+
+        server._router_dirty = False
+        server._index_dirty = False
+        with patch("brain_mcp._server_actions.edit.archive_artefact", fake_archive):
+            result = server.brain_move(
+                op="archive",
+                path="Ideas/my-idea.md",
+            )
+
+        _assert_partial_apply_error(result, "archive partially applied")
+        _assert_error(result, "move failure")
+        assert server._router_dirty is True
+        assert server._index_dirty is True
+
     def test_unarchive_restores_archived_artefact(self, initialized):
         rel = self._make_archived(initialized)
         result = server.brain_move(op="unarchive", path=rel)
@@ -1544,6 +1841,46 @@ class TestBrainMove:
         result = server.brain_move(op="unarchive", path=rel)
         assert result.startswith("**Unarchived:**")
         assert server._router_dirty is True
+
+    def test_unarchive_surfaces_partial_apply_context(self, initialized):
+        rel = self._make_archived(initialized)
+
+        def fake_unarchive(vault_root, router, path):
+            raise PartialApplyError(
+                "unarchive partially applied — metadata file written "
+                "_Archive/Ideas/20260101-my-idea.md; "
+                "move failure: move set partially applied"
+            )
+
+        server._router_dirty = False
+        server._index_dirty = False
+        with patch("brain_mcp._server_actions.edit.unarchive_artefact", fake_unarchive):
+            result = server.brain_move(op="unarchive", path=rel)
+
+        _assert_partial_apply_error(result, "unarchive partially applied")
+        _assert_error(result, "move failure")
+        assert server._router_dirty is True
+        assert server._index_dirty is True
+
+    def test_unarchive_destination_collision_preflights_without_dirtying(
+        self, initialized
+    ):
+        rel = self._make_archived(initialized)
+        (initialized / "Ideas" / "my-idea.md").write_text(
+            "---\ntype: living/ideas\ntags: []\n---\n\nExisting.\n"
+        )
+
+        server._router_dirty = False
+        server._index_dirty = False
+        result = server.brain_move(op="unarchive", path=rel)
+
+        _assert_error(result, "Destination file already exists: Ideas/my-idea.md")
+        assert "unarchive partially applied" not in result
+        assert "Unexpected error" not in result
+        assert server._router_dirty is False
+        assert server._index_dirty is False
+        content = (initialized / rel).read_text()
+        assert "archiveddate" in content
 
     def test_unarchive_requires_path(self, initialized):
         result = server.brain_move(op="unarchive")
@@ -1586,6 +1923,66 @@ class TestBrainMoveConvert:
             )
         assert '"status": "ok"' in result
         mock_ensure.assert_called_once_with()
+
+    def test_convert_surfaces_stale_indexed_descendant_missing_actionably(self, initialized):
+        (initialized / "Ideas" / "parent").mkdir(parents=True, exist_ok=True)
+        (initialized / "Ideas" / "Parent.md").write_text(
+            "---\n"
+            "type: living/ideas\n"
+            "tags: []\n"
+            "key: parent\n"
+            "status: shaping\n"
+            "---\n\n"
+            "Parent.\n"
+        )
+        child = initialized / "Ideas" / "parent" / "Child.md"
+        child.write_text(
+            "---\n"
+            "type: living/ideas\n"
+            "tags:\n"
+            "  - ideas/parent\n"
+            "key: child\n"
+            "parent: ideas/parent\n"
+            "status: shaping\n"
+            "---\n\n"
+            "Child.\n"
+        )
+        router = compile_router.compile(str(initialized))
+        child.unlink()
+        server._set_router(router)
+
+        with patch.object(server, "_ensure_router_fresh"):
+            result = server.brain_move(
+                op="convert",
+                path="Ideas/Parent.md",
+                target_type="wiki",
+            )
+
+        _assert_error(result, "Stale compiled artefact index")
+        _assert_error(result, "Ideas/parent/Child.md")
+        assert "Unexpected error" not in result
+        assert "Traceback" not in result
+
+    def test_convert_surfaces_partial_apply_context(self, initialized):
+        def fake_convert(vault_root, router, path, target_type, parent=None):
+            raise PartialApplyError(
+                "convert mutation partially applied — metadata files written; "
+                "move failure: move set partially applied — links already rewritten"
+            )
+
+        server._router_dirty = False
+        server._index_dirty = False
+        with patch("brain_mcp._server_actions.edit.convert_artefact", fake_convert):
+            result = server.brain_move(
+                op="convert",
+                path="Wiki/brain-overview-abc123.md",
+                target_type="ideas",
+            )
+
+        _assert_partial_apply_error(result, "convert mutation partially applied")
+        _assert_error(result, "move failure")
+        assert server._router_dirty is True
+        assert server._index_dirty is True
 
     def test_convert_marks_router_dirty(self, initialized):
         server._router_dirty = False
@@ -1669,6 +2066,290 @@ class TestBrainActionDelete:
     def test_delete_rejects_protected_source(self, initialized):
         result = server.brain_action("delete", params={"path": ".brain-core/VERSION"})
         _assert_error(result, ".brain-core")
+
+    def test_delete_surfaces_has_descendants_payload(self, initialized):
+        def fake_delete(vault_root, path, router=None, recursive=False):
+            raise HasDescendantsError(
+                "delete",
+                path,
+                [{"key": "wiki/child", "path": "Wiki/child.md"}],
+            )
+
+        with patch("brain_mcp._server_actions.rename.delete_and_clean_links", fake_delete):
+            result = server.brain_action(
+                "delete",
+                params={"path": "Wiki/python-guide-def456.md"},
+            )
+
+        _assert_error(result, "HAS_DESCENDANTS")
+        _assert_error(result, '"descendants"')
+
+    def test_delete_surfaces_parent_chain_error_distinct_from_descendant_gate(self, initialized):
+        def fake_delete(vault_root, path, router=None, recursive=False):
+            raise CyclicParentChainError("Cyclic descendant chain: ideas/parent -> ideas/child -> ideas/parent")
+
+        with patch("brain_mcp._server_actions.rename.delete_and_clean_links", fake_delete):
+            result = server.brain_action(
+                "delete",
+                params={"path": "Wiki/python-guide-def456.md", "recursive": True},
+            )
+
+        _assert_error(result, "Invalid living parent chain")
+        _assert_error(result, "Run check/doctor")
+        assert "HAS_DESCENDANTS" not in result
+
+    def test_delete_surfaces_partial_apply_context(self, initialized):
+        def fake_delete(vault_root, path, router=None, recursive=False):
+            raise PartialApplyError(
+                "delete set partially applied — links already rewritten; "
+                "removed [], failed at Wiki/python-guide-def456.md"
+            )
+
+        server._router_dirty = False
+        server._index_dirty = False
+        with patch("brain_mcp._server_actions.rename.delete_and_clean_links", fake_delete):
+            result = server.brain_action(
+                "delete",
+                params={"path": "Wiki/python-guide-def456.md"},
+            )
+
+        _assert_partial_apply_error(result, "delete set partially applied")
+        _assert_error(result, "failed at Wiki/python-guide-def456.md")
+        assert server._router_dirty is True
+        assert server._index_dirty is True
+
+    def test_delete_unrelated_runtime_error_remains_unexpected(self, initialized):
+        def fake_delete(vault_root, path, router=None, recursive=False):
+            raise RuntimeError("programmer bug")
+
+        with patch("brain_mcp._server_actions.rename.delete_and_clean_links", fake_delete):
+            result = server.brain_action(
+                "delete",
+                params={"path": "Wiki/python-guide-def456.md"},
+            )
+
+        _assert_error(result, "Unexpected error: programmer bug")
+
+
+class TestBrainActionReparent:
+    def _fake_reparent(self):
+        calls = []
+
+        def fake_reparent(vault_root, router, source, to_marker=None, *, to_provided=False):
+            calls.append((source, to_marker, to_provided))
+            return {
+                "source": source,
+                "to": to_marker,
+                "children": [],
+                "moves": [],
+                "links_updated": 0,
+            }
+
+        return calls, fake_reparent
+
+    def test_reparent_omitted_to_lifts_to_source_parent(self, initialized):
+        calls, fake_reparent = self._fake_reparent()
+        params = server._BrainActionReparentParams(source="Projects/Brain.md")
+
+        with patch("brain_mcp._server_actions.edit.reparent_children", fake_reparent):
+            result = server.brain_action("reparent", params=params)
+
+        payload = json.loads(result)
+        assert payload["status"] == "ok"
+        assert calls == [("Projects/Brain.md", None, False)]
+
+    def test_reparent_preserves_null_to_as_clear_to_top_level(self, initialized):
+        calls, fake_reparent = self._fake_reparent()
+        params = server._BrainActionReparentParams(
+            source="Projects/Brain.md",
+            to=None,
+        )
+
+        with patch("brain_mcp._server_actions.edit.reparent_children", fake_reparent):
+            result = server.brain_action("reparent", params=params)
+
+        payload = json.loads(result)
+        assert payload["status"] == "ok"
+        assert calls == [("Projects/Brain.md", None, True)]
+
+    def test_reparent_empty_to_clears_to_top_level(self, initialized):
+        calls, fake_reparent = self._fake_reparent()
+        params = server._BrainActionReparentParams(
+            source="Projects/Brain.md",
+            to="",
+        )
+
+        with patch("brain_mcp._server_actions.edit.reparent_children", fake_reparent):
+            result = server.brain_action("reparent", params=params)
+
+        payload = json.loads(result)
+        assert payload["status"] == "ok"
+        assert calls == [("Projects/Brain.md", "", True)]
+
+    def test_reparent_target_to_reparents_to_new_parent(self, initialized):
+        calls, fake_reparent = self._fake_reparent()
+        params = server._BrainActionReparentParams(
+            source="Projects/Brain.md",
+            to="Projects/Custom.md",
+        )
+
+        with patch("brain_mcp._server_actions.edit.reparent_children", fake_reparent):
+            result = server.brain_action("reparent", params=params)
+
+        payload = json.loads(result)
+        assert payload["status"] == "ok"
+        assert calls == [("Projects/Brain.md", "Projects/Custom.md", True)]
+
+    def test_reparent_real_success_moves_child_subtree_and_marks_dirty(self, initialized):
+        (initialized / "Ideas" / "Brain.md").write_text(
+            "---\n"
+            "type: living/ideas\n"
+            "tags:\n"
+            "  - ideas/brain\n"
+            "key: brain\n"
+            "status: shaping\n"
+            "---\n\n"
+            "# Brain\n"
+        )
+        (initialized / "Ideas" / "Custom.md").write_text(
+            "---\n"
+            "type: living/ideas\n"
+            "tags:\n"
+            "  - ideas/custom\n"
+            "key: custom\n"
+            "status: shaping\n"
+            "---\n\n"
+            "# Custom\n"
+        )
+        (initialized / "Wiki" / "ideas~brain").mkdir(parents=True, exist_ok=True)
+        (initialized / "Wiki" / "ideas~brain" / "Child.md").write_text(
+            "---\n"
+            "type: living/wiki\n"
+            "tags:\n"
+            "  - ideas/brain\n"
+            "key: child\n"
+            "parent: ideas/brain\n"
+            "---\n\n"
+            "Child.\n"
+        )
+        (initialized / "Wiki" / "ideas~brain" / "wiki~child").mkdir(
+            parents=True, exist_ok=True
+        )
+        (initialized / "Wiki" / "ideas~brain" / "wiki~child" / "Grand.md").write_text(
+            "---\n"
+            "type: living/wiki\n"
+            "tags:\n"
+            "  - wiki/child\n"
+            "key: grand\n"
+            "parent: wiki/child\n"
+            "---\n\n"
+            "Grand.\n"
+        )
+        server._set_router(compile_router.compile(str(initialized)))
+        server._router_dirty = False
+        server._index_dirty = False
+
+        result = server.brain_action(
+            "reparent",
+            params={"source": "Ideas/Brain.md", "to": "ideas/custom"},
+        )
+
+        payload = json.loads(result)
+        assert payload["status"] == "ok"
+        assert payload["to"] == "ideas/custom"
+        assert {
+            "source": "Wiki/ideas~brain/Child.md",
+            "dest": "Wiki/ideas~custom/Child.md",
+        } in payload["moves"]
+        child = initialized / "Wiki" / "ideas~custom" / "Child.md"
+        grand = initialized / "Wiki" / "ideas~custom" / "child" / "Grand.md"
+        assert child.is_file()
+        assert grand.is_file()
+        fields, _body = parse_frontmatter(child.read_text())
+        assert fields["parent"] == "ideas/custom"
+        assert "ideas/custom" in fields["tags"]
+        assert "ideas/brain" not in fields["tags"]
+        assert not (initialized / "Wiki" / "ideas~brain").exists()
+        assert server._router_dirty is True
+        assert server._index_dirty is True
+
+    def test_reparent_source_missing_from_index_surfaces_actionably(self, initialized):
+        (initialized / "Ideas" / "parent").mkdir(parents=True, exist_ok=True)
+        (initialized / "Ideas" / "Parent.md").write_text(
+            "---\n"
+            "type: living/ideas\n"
+            "tags: []\n"
+            "key: parent\n"
+            "status: shaping\n"
+            "---\n\n"
+            "Parent.\n"
+        )
+        (initialized / "Wiki" / "ideas~parent").mkdir(parents=True, exist_ok=True)
+        (initialized / "Wiki" / "ideas~parent" / "Child.md").write_text(
+            "---\n"
+            "type: living/wiki\n"
+            "tags:\n"
+            "  - ideas/parent\n"
+            "key: child\n"
+            "parent: ideas/parent\n"
+            "---\n\n"
+            "Child.\n"
+        )
+        router = compile_router.compile(str(initialized))
+        router["artefact_index"].pop("ideas/parent")
+        server._set_router(router)
+
+        with patch.object(server, "_ensure_router_fresh"):
+            result = server.brain_action(
+                "reparent",
+                params={"source": "Ideas/Parent.md", "to": None},
+            )
+
+        _assert_error(result, "Stale compiled artefact index")
+        _assert_error(result, "ideas/parent")
+        assert "Unexpected error" not in result
+        assert "Traceback" not in result
+
+    def test_reparent_to_descendant_surfaces_actionably(self, initialized):
+        parent, child = _write_parent_child_tree(initialized)
+        router = compile_router.compile(str(initialized))
+        server._set_router(router)
+        parent_before = parent.read_text()
+        child_before = child.read_text()
+
+        with patch.object(server, "_ensure_router_fresh"):
+            result = server.brain_action(
+                "reparent",
+                params={"source": "Ideas/Parent.md", "to": "wiki/child"},
+            )
+
+        _assert_error(result, "Invalid living parent chain")
+        _assert_error(result, "child of descendant wiki/child")
+        assert "Unexpected error" not in result
+        assert "Traceback" not in result
+        assert parent.read_text() == parent_before
+        assert child.read_text() == child_before
+
+    def test_reparent_surfaces_partial_apply_context(self, initialized):
+        def fake_reparent(vault_root, router, source, to_marker=None, *, to_provided=False):
+            raise PartialApplyError(
+                "reparent partially applied — metadata files written; "
+                "move failure: move set partially applied — links already rewritten"
+            )
+
+        params = server._BrainActionReparentParams(
+            source="Projects/Brain.md",
+            to=None,
+        )
+        server._router_dirty = False
+        server._index_dirty = False
+        with patch("brain_mcp._server_actions.edit.reparent_children", fake_reparent):
+            result = server.brain_action("reparent", params=params)
+
+        _assert_partial_apply_error(result, "reparent partially applied")
+        _assert_error(result, "move failure")
+        assert server._router_dirty is True
+        assert server._index_dirty is True
 
 
 class TestBrainActionFixLinks:

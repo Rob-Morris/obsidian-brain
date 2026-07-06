@@ -211,9 +211,12 @@ snapshot the affected artefact roots before mutating them, so a failed migration
 restores both vault content and `.brain-core/` instead of leaving a half-moved
 artefact tree behind.
 
-`rename.py` now also fails closed on destination collisions: if the target path
-already exists, it raises before any wikilink rewrite begins. That keeps a
-path-valid but unsafe rename plan from clobbering an existing artefact.
+`rename.py` now also fails closed on unsafe move sets before any wikilink
+rewrite begins: existing-destination collisions, duplicate/cyclic batch moves,
+symlink endpoints, and destination parent components that are files or broken
+symlinks all raise during preflight. That keeps a path-valid but unsafe rename
+or ownership move plan from clobbering an existing artefact or rewriting links
+to a path that will not be created.
 
 See: [DD-036: Safe write pattern](decisions/dd-036-safe-write-pattern.md)
 

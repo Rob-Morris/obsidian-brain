@@ -9,7 +9,7 @@ import pytest
 
 import compile_router
 import migrate_to_0_31_0
-from _common import parse_frontmatter
+from _common import PartialApplyError, parse_frontmatter
 
 
 # ---------------------------------------------------------------------------
@@ -376,6 +376,73 @@ class TestPhase2Relocations:
         assert result["phase2"]["planned"] == 0
         assert (vault / "Projects" / "Obsidian Brain.md").is_file()
 
+    def test_folder_relocations_stop_after_partial_apply_error(
+        self, vault, router, monkeypatch
+    ):
+        calls = []
+        moves = [
+            {
+                "source": "Wiki/First.md",
+                "dest": "Wiki/first/First.md",
+                "reason": "first",
+            },
+            {
+                "source": "Wiki/Second.md",
+                "dest": "Wiki/second/Second.md",
+                "reason": "second",
+            },
+        ]
+
+        def fake_rename(vault_root, source, dest, router=None):
+            calls.append(source)
+            if source == "Wiki/First.md":
+                raise PartialApplyError(
+                    "move set partially applied — links already rewritten; "
+                    "committed [], failed at Wiki/First.md->Wiki/first/First.md"
+                )
+            return 4
+
+        monkeypatch.setattr(
+            migrate_to_0_31_0,
+            "rename_and_update_links",
+            fake_rename,
+        )
+
+        results = migrate_to_0_31_0.apply_folder_relocations(
+            str(vault),
+            moves,
+            router,
+        )
+
+        assert results[0]["error"].startswith("move set partially applied")
+        assert results[0]["source"] == "Wiki/First.md"
+        assert results[0]["partial_apply"] is True
+        assert len(results) == 1
+        assert calls == ["Wiki/First.md"]
+
+    def test_folder_relocations_propagate_unrelated_runtime_error(
+        self, vault, router, monkeypatch
+    ):
+        def fake_rename(vault_root, source, dest, router=None):
+            raise RuntimeError("programmer bug")
+
+        monkeypatch.setattr(
+            migrate_to_0_31_0,
+            "rename_and_update_links",
+            fake_rename,
+        )
+
+        with pytest.raises(RuntimeError, match="programmer bug"):
+            migrate_to_0_31_0.apply_folder_relocations(
+                str(vault),
+                [{
+                    "source": "Wiki/First.md",
+                    "dest": "Wiki/first/First.md",
+                    "reason": "first",
+                }],
+                router,
+            )
+
 
 # ---------------------------------------------------------------------------
 # Phase 3 — workspace reconciliation
@@ -463,3 +530,199 @@ class TestMigrateEntry:
         assert result["status"] == "ok"
         assert result["version"] == "0.31.0"
         assert result["phase1"]["applied"] >= 1
+
+    def test_migrate_returns_error_when_applied_phase_rows_fail(
+        self, vault, monkeypatch
+    ):
+        _write(vault / "Wiki" / "Claude Code.md",
+               {"type": "living/wiki", "tags": [], "key": "claude-code"})
+        _write(vault / "Wiki" / "Claude Code" / "Sub Page.md",
+               {"type": "living/wiki", "tags": [],
+                "key": "sub-page", "parent": "wiki/claude-code"})
+        local = vault / ".brain" / "local"
+        local.mkdir(parents=True, exist_ok=True)
+        (local / "compiled-router.json").write_text(
+            json.dumps(compile_router.compile(str(vault)))
+        )
+
+        def fail_rename(vault_root, source, dest, router=None):
+            raise PartialApplyError(
+                "move set partially applied — links already rewritten; "
+                "committed [], failed at Wiki/Claude Code/Sub Page.md"
+            )
+
+        monkeypatch.setattr(
+            migrate_to_0_31_0,
+            "rename_and_update_links",
+            fail_rename,
+        )
+
+        result = migrate_to_0_31_0.migrate(str(vault))
+
+        assert result["status"] == "error"
+        assert result["version"] == "0.31.0"
+        assert "Applied migration completed with row errors" in result["error"]
+        assert result["phase_errors"][0]["phase"] == "phase2"
+        assert result["phase_errors"][0]["source"] == "Wiki/Claude Code/Sub Page.md"
+        assert result["phase2"]["moves"][0]["error"].startswith(
+            "move set partially applied"
+        )
+
+    def test_migrate_skips_phase3_after_phase2_partial_apply(
+        self, vault, monkeypatch
+    ):
+        _write(vault / "Wiki" / "Claude Code.md",
+               {"type": "living/wiki", "tags": [], "key": "claude-code"})
+        _write(vault / "Wiki" / "Claude Code" / "Sub Page.md",
+               {"type": "living/wiki", "tags": [],
+                "key": "sub-page", "parent": "wiki/claude-code"})
+        _write(vault / "Workspaces" / "Foo Bar.md",
+               {"type": "living/workspace", "tags": ["workspace/foo-bar"],
+                "key": "foo-bar"})
+        (vault / "_Workspaces" / "Foo Bar").mkdir(parents=True)
+        local = vault / ".brain" / "local"
+        local.mkdir(parents=True, exist_ok=True)
+        (local / "compiled-router.json").write_text(
+            json.dumps(compile_router.compile(str(vault)))
+        )
+
+        def fail_rename(vault_root, source, dest, router=None):
+            raise PartialApplyError(
+                "move set partially applied — links already rewritten; "
+                "committed [], failed at Wiki/Claude Code/Sub Page.md"
+            )
+
+        monkeypatch.setattr(
+            migrate_to_0_31_0,
+            "rename_and_update_links",
+            fail_rename,
+        )
+        planning_calls = []
+
+        def fail_phase3_planning(*_args, **_kwargs):
+            planning_calls.append(True)
+            raise AssertionError("phase 3 planning should not run")
+
+        monkeypatch.setattr(
+            migrate_to_0_31_0,
+            "plan_workspace_reconciliation",
+            fail_phase3_planning,
+        )
+
+        result = migrate_to_0_31_0.migrate(str(vault))
+
+        assert result["status"] == "error"
+        assert result["phase_errors"][0]["partial_apply"] is True
+        assert result["phase3"]["folder_renames"] == []
+        assert planning_calls == []
+        assert (vault / "_Workspaces" / "Foo Bar").is_dir()
+        assert not (vault / "_Workspaces" / "foo-bar").exists()
+
+    def test_migrate_promotes_ordinary_phase_row_error_without_partial_apply(
+        self, vault, monkeypatch
+    ):
+        _write(vault / "Wiki" / "Claude Code.md",
+               {"type": "living/wiki", "tags": [], "key": "claude-code"})
+        _write(vault / "Wiki" / "Claude Code" / "Sub Page.md",
+               {"type": "living/wiki", "tags": [],
+                "key": "sub-page", "parent": "wiki/claude-code"})
+        local = vault / ".brain" / "local"
+        local.mkdir(parents=True, exist_ok=True)
+        (local / "compiled-router.json").write_text(
+            json.dumps(compile_router.compile(str(vault)))
+        )
+
+        def fail_rename(vault_root, source, dest, router=None):
+            raise FileNotFoundError("source vanished")
+
+        monkeypatch.setattr(
+            migrate_to_0_31_0,
+            "rename_and_update_links",
+            fail_rename,
+        )
+
+        result = migrate_to_0_31_0.migrate(str(vault))
+
+        assert result["status"] == "error"
+        assert result["phase_errors"][0]["phase"] == "phase2"
+        assert result["phase_errors"][0]["partial_apply"] is False
+        assert "source vanished" in result["phase_errors"][0]["error"]
+        assert "partial_apply" not in result["phase2"]["moves"][0]
+
+    def test_cli_json_returns_nonzero_when_applied_phase_rows_fail(
+        self, vault, monkeypatch, capsys
+    ):
+        _write(vault / "Wiki" / "Claude Code.md",
+               {"type": "living/wiki", "tags": [], "key": "claude-code"})
+        _write(vault / "Wiki" / "Claude Code" / "Sub Page.md",
+               {"type": "living/wiki", "tags": [],
+                "key": "sub-page", "parent": "wiki/claude-code"})
+        local = vault / ".brain" / "local"
+        local.mkdir(parents=True, exist_ok=True)
+        (local / "compiled-router.json").write_text(
+            json.dumps(compile_router.compile(str(vault)))
+        )
+
+        def fail_rename(vault_root, source, dest, router=None):
+            raise PartialApplyError(
+                "move set partially applied — links already rewritten; "
+                "committed [], failed at Wiki/Claude Code/Sub Page.md"
+            )
+
+        monkeypatch.setattr(
+            migrate_to_0_31_0,
+            "rename_and_update_links",
+            fail_rename,
+        )
+
+        exit_code = migrate_to_0_31_0.main([
+            "--vault",
+            str(vault),
+            "--json",
+        ])
+
+        assert exit_code == 1
+        payload = json.loads(capsys.readouterr().out)
+        assert "Applied migration completed with row errors" in payload["error"]
+        assert payload["phase_errors"][0]["phase"] == "phase2"
+        assert payload["phase2"]["moves"][0]["error"].startswith(
+            "move set partially applied"
+        )
+
+    def test_cli_human_prints_phase_diagnostics_for_applied_row_errors(
+        self, vault, monkeypatch, capsys
+    ):
+        _write(vault / "Wiki" / "Claude Code.md",
+               {"type": "living/wiki", "tags": [], "key": "claude-code"})
+        _write(vault / "Wiki" / "Claude Code" / "Sub Page.md",
+               {"type": "living/wiki", "tags": [],
+                "key": "sub-page", "parent": "wiki/claude-code"})
+        local = vault / ".brain" / "local"
+        local.mkdir(parents=True, exist_ok=True)
+        (local / "compiled-router.json").write_text(
+            json.dumps(compile_router.compile(str(vault)))
+        )
+
+        def fail_rename(vault_root, source, dest, router=None):
+            raise PartialApplyError(
+                "move set partially applied — links already rewritten; "
+                "committed [], failed at Wiki/Claude Code/Sub Page.md"
+            )
+
+        monkeypatch.setattr(
+            migrate_to_0_31_0,
+            "rename_and_update_links",
+            fail_rename,
+        )
+
+        exit_code = migrate_to_0_31_0.main([
+            "--vault",
+            str(vault),
+        ])
+
+        assert exit_code == 1
+        stderr = capsys.readouterr().err
+        assert "Applied migration completed with row errors" in stderr
+        assert "phase2 ERROR Wiki/Claude Code/Sub Page.md" in stderr
+        assert " → " in stderr
+        assert "move set partially applied" in stderr

@@ -29,6 +29,7 @@ from _common import (
     find_vault_root,
     iter_artefact_paths,
     load_compiled_router,
+    PartialApplyError,
     read_frontmatter,
     reconcile_fields_for_render,
     render_filename,
@@ -224,13 +225,20 @@ def migrate_vault(vault_root, router=None, dry_run=False):
                 "dest": new_rel_path,
                 "links_updated": links,
             })
+        except PartialApplyError as e:
+            errors.append({
+                "file": rel_path,
+                "target": new_rel_path,
+                "error": str(e),
+                "partial_apply": True,
+            })
+            break
         except (FileNotFoundError, FileExistsError, OSError) as e:
             errors.append({
                 "file": rel_path,
                 "target": new_rel_path,
                 "error": str(e),
             })
-            break
 
     return {
         "dry_run": dry_run,
