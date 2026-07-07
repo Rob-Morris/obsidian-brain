@@ -292,8 +292,9 @@ class TestCheckRepairHints:
 
         result = migrate_to_0_48_2.migrate(str(repair_vault))
 
-        assert result["status"] == "noop"
+        assert result["status"] == "skipped"
         assert [step["name"] for step in result["steps"]] == ["claude_project", "codex_project"]
+        assert [step["status"] for step in result["steps"]] == ["noop", "noop"]
         assert not (repair_vault / ".mcp.json").exists()
         assert not (repair_vault / ".codex" / "config.toml").exists()
         assert not (repair_vault / ".claude" / "settings.local.json").exists()
@@ -324,7 +325,8 @@ class TestCheckRepairHints:
         second = migrate_to_0_48_2.migrate(str(repair_vault))
 
         assert first["status"] == "ok"
-        assert second["status"] == "noop"
+        assert second["status"] == "skipped"
+        assert all(step["status"] == "noop" for step in second["steps"])
         settings = json.loads((repair_vault / ".claude" / "settings.local.json").read_text())
         hook_commands = [
             command

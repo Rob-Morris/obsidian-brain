@@ -10,6 +10,7 @@ import shutil
 import pytest
 
 import compile_router
+import migrate_to_0_48_2
 import upgrade
 
 
@@ -180,6 +181,43 @@ def test_run_pending_migrations_force_reruns_recorded_migration(tmp_path):
     assert len(forced) == 1
     assert _counter(vault, "count-force.txt") == 2
     assert _ledger(vault)["migrations"]["1.0.0"]["status"] == "ok"
+
+
+def test_0_48_2_migration_noop_normalises_to_skipped_for_runner(tmp_path):
+    vault = _make_vault(tmp_path, "0.48.2")
+
+    result = migrate_to_0_48_2.migrate(str(vault))
+
+    assert result["status"] == "skipped"
+    assert [step["status"] for step in result["steps"]] == ["noop", "noop"]
+
+
+def test_force_run_accepts_legacy_0_48_2_noop_as_skipped(tmp_path):
+    source = _make_source(
+        tmp_path,
+        "0.48.2",
+        migrations={
+            "migrate_to_0_48_2.py": (
+                _REAL_SCRIPTS / "migrations" / "migrate_to_0_48_2.py"
+            ).read_text(encoding="utf-8"),
+        },
+    )
+    vault = _make_vault(tmp_path, "0.48.2")
+    shutil.rmtree(vault / ".brain-core" / "scripts")
+    shutil.copytree(source / "scripts", vault / ".brain-core" / "scripts")
+
+    results, ledger = upgrade._run_migrations(
+        str(vault),
+        "0.48.2",
+        "0.48.2",
+        force=True,
+        raise_on_error=True,
+    )
+
+    assert [result["version"] for result in results] == ["0.48.2"]
+    assert results[0]["status"] == "skipped"
+    assert [step["status"] for step in results[0]["steps"]] == ["noop", "noop"]
+    assert ledger["migrations"]["0.48.2"]["status"] == "skipped"
 
 
 def test_dry_run_lists_pending_migrations_without_running_them(tmp_path):

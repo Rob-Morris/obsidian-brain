@@ -126,7 +126,11 @@ def _strict_repair_result(result: dict) -> dict:
 
 def migrate(vault_root: str) -> dict:
     """Upgrade runner entry point."""
-    return _strict_repair_result(converge_mcp(vault_root, dry_run=False))
+    result = _strict_repair_result(converge_mcp(vault_root, dry_run=False))
+    if result.get("status") == "noop":
+        result = dict(result)
+        result["status"] = "skipped"
+    return result
 
 
 def main(argv: list[str] | None = None) -> int:
