@@ -22,6 +22,7 @@ import sys
 from datetime import datetime, timezone
 
 from _resource_contract import RESOURCE_KINDS
+from _lifecycle.derived_cache_state import load_fresh_compiled_router
 from _common import (
     apply_terminal_status_folder,
     artefact_type_prefix,
@@ -35,7 +36,6 @@ from _common import (
     derive_distinctive_slug,
     has_leading_frontmatter,
     living_key_set,
-    load_compiled_router,
     make_temp_path,
     make_artefact_key,
     normalize_artefact_key,
@@ -154,8 +154,8 @@ def create_artefact(vault_root, router, type_key, title, body="", frontmatter_ov
                 Accepts canonical key form (e.g. "project/brain"), or a
                 resolvable name/path; persists as canonical `{type}/{key}`.
                 Living children then file into same-type `{key}/` folders
-                or cross-type `{scope}/` folders. Temporal artefacts keep
-                their normal date-based folders.
+                or cross-type `{scope}/` folders. Temporal artefacts file
+                under the same owner chain before their date folder.
         template_vars: Optional dict of placeholder→value substitutions applied
                 to the template body (e.g. {"SOURCE_TYPE": "designs"}).
                 ``{{date:FORMAT}}`` placeholders are always substituted when the
@@ -458,7 +458,7 @@ def main():
     vault_root = str(find_vault_root(vault_arg))
 
     # Load router
-    router = load_compiled_router(vault_root)
+    router = load_fresh_compiled_router(vault_root)
     if "error" in router:
         if json_mode:
             print(json.dumps(router))

@@ -38,9 +38,9 @@ That `python3.12` process is the launcher, not the managed runtime itself.
 | `construct_benchmark_fixture.py` | Derive a vault-native retrieval benchmark fixture plus audit JSON from an existing vault, including semantic-variant audit diagnostics and optional externally seeded semantic or hybrid candidates; unreadable source files now fail explicitly | `python3 construct_benchmark_fixture.py --fixture-out PATH [--audit-out PATH] [--semantic-strategy S] [--semantic-seed-file PATH] [--hybrid-seed-file PATH] [--json]` |
 | `evaluate_search.py` | Benchmark lexical, semantic, and hybrid retrieval against a JSON query set | `python3 evaluate_search.py --benchmark PATH [--mode M]... [--json]` |
 | `read.py` | Query compiled router resources | `python3 read.py RESOURCE [--name N] [--vault V]` |
-| `create.py` | Create new artefact, generating living keys from the clearest free title-derived words before random suffix fallback | `python3 create.py --type T --title "Title" [--body B] [--body-file PATH] [--parent NAME] [--vault PATH] [--temp-path [SUFFIX]] [--json]` |
-| `edit.py` | Edit artefacts via CLI; importable helpers also back `brain_edit` for editable `_Config/` resources | `python3 edit.py edit\|append\|prepend\|delete_section --path P [--body B\|--body-file PATH] [--frontmatter JSON] [--target T] [--scope S] [--occurrence N] [--within T --within-occurrence N]... [--temp-path [SUFFIX]] [--vault V] [--json]` |
-| `rename.py` | Rename/delete file + update wikilinks (full-path and filename-only), refusing existing-destination collisions | `python3 rename.py "source" "dest" [--json]` |
+| `create.py` | Create new artefact, generating living keys from the clearest free title-derived words before random suffix fallback; parented temporal artefacts file under their owner chain before the month folder; mutation mode refuses stale compiled router state | `python3 create.py --type T --title "Title" [--body B] [--body-file PATH] [--parent NAME] [--vault PATH] [--temp-path [SUFFIX]] [--json]` |
+| `edit.py` | Edit artefacts via CLI; importable helpers also back `brain_edit` for editable `_Config/` resources; mutation mode refuses stale compiled router state and reports post-metadata move failures as partial applies | `python3 edit.py edit\|append\|prepend\|delete_section --path P [--body B\|--body-file PATH] [--frontmatter JSON] [--target T] [--scope S] [--occurrence N] [--within T --within-occurrence N]... [--temp-path [SUFFIX]] [--vault V] [--json]` |
+| `rename.py` | Rename/delete file + update wikilinks (full-path and filename-only), refusing stale compiled router state and unsafe move sets before rewrites | `python3 rename.py "source" "dest" [--json]` |
 | `check.py` | Structural compliance checks; launcher-safe bootstrap diagnostics are added first, then managed semantic findings from the canonical semantic owner run after managed-runtime handoff | `python3 check.py [--json] [--actionable] [--severity S] [--vault V]` |
 | `setup.py` | Public workspace setup owner: converge `brain + slug` binding plus Brain-owned local scaffold/ignore state, with an optional guided wizard over the same explicit configure surfaces | `python3 setup.py workspace [PATH] [--vault V] [--brain ID] [--slug S] [--guided] [--force] [--json]` |
 | `configure.py` | Explicit installed-vault configuration entry point: `workspace binding`, `workspace metadata`, `workspace bootstrap`, `mcp`, and `semantic` live here so targeted changes do not have to go through the setup wrapper | `python3 configure.py {workspace,mcp,semantic} ...` |
@@ -58,7 +58,7 @@ That `python3.12` process is the launcher, not the managed runtime itself.
 | `migrations/migrate_to_0_31_0.py` | v0.31.0 migration: three-phase upgrade-runner pass that backfills missing living-artefact `key:`/`parent:` fields, relocates child folders to canonical key/scope paths, and reconciles `_Workspaces/` data folders + `.brain/local/workspaces.json` keys to canonical keys | `python3 migrations/migrate_to_0_31_0.py [--vault V] [--dry-run] [--json]` |
 | `migrations/migrate_to_0_34_0.py` | v0.34.0 release-artefact migration: normalises legacy `Goal / Gates / Changelog / Sources` bodies to the milestone-first release structure, strips the old literal project placeholder, refreshes canonical parent tags when a resolvable `parent:` already exists, and rehomes/renames releases to the current status-based naming contract without inferring new ownership | `python3 migrations/migrate_to_0_34_0.py [--vault V] [--dry-run]` |
 | `migrations/migrate_to_0_50_0.py` | v0.50.0 recursive owner-folder migration: backfills missing living `parent:` fields from immediate owner folders, validates parent chains and move sets, then relocates living descendants into recursive owner paths with wikilink updates | `python3 migrations/migrate_to_0_50_0.py [--vault V] [--dry-run] [--json]` |
-| `fix_links.py` | Auto-repair broken wikilinks | `python3 fix_links.py [--fix] [--json] [--vault V]` |
+| `fix_links.py` | Auto-repair broken wikilinks, refusing stale compiled router state before scanning or applying fixes | `python3 fix_links.py [--fix] [--json] [--vault V]` |
 | `sync_definitions.py` | Install / sync artefact library definitions and classify vault state | `python3 sync_definitions.py [--vault V] [--dry-run] [--force] [--types t1,t2] [--status] [--json]` |
 | `config.py` | Vault configuration loader (three-layer merge) | `python3 config.py` |
 | `doctor.py` | Launcher-safe composed Doctor owner used by `brain doctor` when a source Brain is available; renders CLI/PATH/Python basics, machine-level shared-runtime diagnosis from `doctor_machine.py`, and the current vault's own `check.py` as a separate vault-local section | (internal helper, called by `brain doctor`) |
@@ -153,6 +153,7 @@ python3 compile_router.py --json    # output JSON to stdout
 | `status_values` | warning | Status field values match `frontmatter.status_enum` from compiled router |
 | `broken_wikilinks` | warning | Wikilink target file does not exist. Scans both body and YAML frontmatter property-links (e.g. `parent: "[[foo]]"`); wikilinks inside fenced/inline code, HTML comments, `$$` math, and raw HTML blocks are treated as literal text and ignored. |
 | `ambiguous_wikilinks` | info | Basename-only wikilink matches multiple files. Same region-aware scanning scope as `broken_wikilinks`. |
+| `table_wikilink_alias` | warning | An aliased wikilink appears inside a markdown table row, where the alias separator can split columns after a rewrite. |
 | `unconfigured_type` | info | Folder has no taxonomy file |
 | `missing_timestamps` | warning | Artefact frontmatter missing `created` or `modified` (naming-contract source of truth) |
 | `living_key_fields` | error | Living artefact missing a valid canonical `key:` — v0.31.0+ upgrade chain backfills these, so a miss means manual authoring bypassed the tooling |
@@ -279,6 +280,7 @@ See [DD-054](../architecture/decisions/dd-054-machine-resolution-runtime.md).
 **Contract notes:**
 
 - Body mutations are explicit. Omitted `target` no longer means "whole body"; use `--target :body --scope section`.
+- Artefact mutation mode refuses stale compiled router state before writing. If post-metadata moves such as terminal-status relocation fail, the CLI reports a partial-apply error with the written metadata path and the underlying move failure.
 - `delete_section` uses the same `target` / selector model, but does not accept `--scope`.
 - `:body` is only valid as the top-level target, not inside `--within`.
 - Legacy spellings are migration errors:

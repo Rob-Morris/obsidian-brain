@@ -121,6 +121,22 @@ class TestBrainCreate:
         # Path should contain yyyy-mm subfolder
         assert re.search(r"\d{4}-\d{2}", path)
 
+    def test_create_parented_temporal_files_under_owner_scope(self, initialized):
+        parent_result = server.brain_create(type="wiki", title="Parent Page", key="parent-page")
+        assert parent_result.startswith("**Created** living/wiki: ")
+
+        result = server.brain_create(
+            type="logs", title="Scoped Session", parent="wiki/parent-page"
+        )
+
+        path = _extract_create_path(result)
+        assert path.startswith("_Temporal/Logs/wiki~parent-page/")
+        with open(os.path.join(str(initialized), path)) as f:
+            content = f.read()
+        from _common import parse_frontmatter
+        fields, _ = parse_frontmatter(content)
+        assert fields["parent"] == "wiki/parent-page"
+
     def test_create_body_override(self, initialized):
         result = server.brain_create(
             type="wiki", title="Custom Body", body="# Custom\n\nMy content.\n"

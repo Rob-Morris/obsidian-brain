@@ -19,13 +19,13 @@ import sys
 from datetime import datetime, timezone
 
 from _portable.links import check_broken_wikilinks
+from _lifecycle.derived_cache_state import load_fresh_compiled_router
 from _common import (
     build_vault_file_index,
     build_wikilink_pattern,
     check_wikilinks_in_file,
     discover_temporal_prefixes,
     find_vault_root,
-    load_compiled_router,
     make_wikilink_replacer,
     overlay_file_index_result,
     replace_wikilinks_in_text,
@@ -156,7 +156,9 @@ def scan_and_resolve(vault_root, router=None):
         summary   — {total_broken, fixed, ambiguous, unresolvable}
     """
     if router is None:
-        router = load_compiled_router(vault_root)
+        router = load_fresh_compiled_router(vault_root)
+    if isinstance(router, dict) and "error" in router:
+        raise ValueError(router["error"])
 
     file_index = build_vault_file_index(vault_root)
     findings = check_broken_wikilinks(vault_root, router, file_index=file_index)
@@ -305,7 +307,14 @@ def main():
     do_fix, json_mode, vault_path = parse_args(sys.argv)
     vault_root = vault_path if vault_path else str(find_vault_root())
 
-    result = scan_and_resolve(vault_root)
+    try:
+        result = scan_and_resolve(vault_root)
+    except ValueError as exc:
+        if json_mode:
+            print(json.dumps({"error": str(exc)}))
+        else:
+            print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
     summary = result["summary"]
 
     if do_fix and result["fixed"]:

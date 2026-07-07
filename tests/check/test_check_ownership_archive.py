@@ -426,7 +426,7 @@ class TestOwnershipChecks:
         assert len(hits) == 1
         assert "Parent-folder drift" in hits[0]["message"]
 
-    def test_temporal_child_parent_is_valid_without_folder_drift(self, vault):
+    def test_temporal_child_parent_in_flat_month_folder_reports_folder_drift(self, vault):
         tmp_path, router = vault
         month_dir = tmp_path / "_Temporal" / "Logs" / "2026-03"
         month_dir.mkdir(parents=True, exist_ok=True)
@@ -441,7 +441,10 @@ class TestOwnershipChecks:
             "# Log",
         )
         findings = check.check_parent_contract(str(tmp_path), router)
-        assert not any(f.get("file") == "_Temporal/Logs/2026-03/20260315-log.md" for f in findings)
+        hits = [f for f in findings if f.get("file") == "_Temporal/Logs/2026-03/20260315-log.md"]
+        assert len(hits) == 1
+        assert "Parent-folder drift" in hits[0]["message"]
+        assert "expected '_Temporal/Logs/design~auth-redesign/2026-03'" in hits[0]["message"]
 
     def test_temporal_child_broken_parent_reference_flagged(self, vault):
         tmp_path, router = vault

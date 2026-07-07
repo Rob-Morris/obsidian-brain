@@ -18,6 +18,7 @@ import re
 import sys
 
 from _resource_contract import RESOURCE_KINDS
+from _lifecycle.derived_cache_state import load_fresh_compiled_router
 from _common import (
     SELF_TAG_PREFIXES,
     apply_terminal_status_folder,
@@ -39,11 +40,11 @@ from _common import (
     is_valid_key,
     living_key_set,
     legacy_target_migration_error,
-    load_compiled_router,
     make_artefact_key,
     make_temp_path,
     normalize_artefact_key,
     now_iso,
+    ParentChainError,
     PartialApplyError,
     parent_chain_entries,
     parse_leading_frontmatter,
@@ -1002,6 +1003,47 @@ def _plan_descendant_moves(
     return moves
 
 
+def _plan_temporal_reference_moves(
+    vault_root,
+    router,
+    affected_key,
+    mutation_router,
+    reference_ops,
+    *,
+    operation,
+):
+    """Plan owner-scope relocation for temporal children of an ownership edit."""
+    if not affected_key:
+        return []
+    reference_by_path = {op["path"]: op for op in reference_ops}
+    moves = []
+    for ref in scan_artefact_key_references(vault_root, router, affected_key):
+        if not ref.get("parent"):
+            continue
+        rel_path = ref["path"]
+        op = reference_by_path.get(rel_path)
+        if op is not None:
+            fields = op["fields"]
+            art = op.get("art") or {}
+        else:
+            content = read_file_content(vault_root, rel_path)
+            if content.startswith("Error:"):
+                _raise_stale_index_missing(rel_path, operation)
+            fields, _body = parse_frontmatter(content)
+            _resolved, art = resolve_and_validate_folder(vault_root, router, rel_path)
+        if art.get("classification") != "temporal":
+            continue
+        dest_path = _temporal_month_relocation_path(
+            mutation_router,
+            rel_path,
+            art,
+            fields,
+        )
+        if dest_path != rel_path:
+            moves.append({"source": rel_path, "dest": dest_path})
+    return moves
+
+
 def _maybe_restructure_living_ownership(vault_root, router, path, art, old_fields, new_fields, new_body):
     """Rewrite key references and move the affected subtree when ownership changes.
 
@@ -1079,6 +1121,16 @@ def _maybe_restructure_living_ownership(vault_root, router, path, art, old_field
     moves = [{"source": path, "dest": new_path}]
     moves.extend(
         _plan_descendant_moves(
+            vault_root,
+            router,
+            old_key,
+            mutation_router,
+            reference_ops,
+            operation="edit",
+        )
+    )
+    moves.extend(
+        _plan_temporal_reference_moves(
             vault_root,
             router,
             old_key,
@@ -1193,28 +1245,32 @@ def _apply_status_change_hooks(fields, old_fields, art):
         fields[default_field] = today
 
 
-def _maybe_relocate_temporal_month(vault_root, path, art, fields):
-    """Relocate a temporal artefact to ``_Temporal/<Type>/yyyy-mm/`` for its ``created``.
+def _temporal_month_relocation_path(router, path, art, fields):
+    """Return the owner-scoped month path for a temporal artefact.
 
-    Returns the (possibly-updated) path. No-op for living artefacts, archived
-    files, or artefacts already in the correct month folder.
+    Returns the original path for living artefacts, archived files, artefacts
+    already in the correct month folder, or non-parent render errors that
+    historically meant "do not relocate".
     """
     if (art or {}).get("classification") != "temporal":
         return path
     if is_archived_path(path):
         return path
     try:
-        target_folder = resolve_folder(art, fields=fields)
+        target_folder = resolve_folder(
+            art,
+            parent=normalize_artefact_key(fields.get("parent")),
+            fields=fields,
+            router=router,
+        )
+    except ParentChainError:
+        raise
     except ValueError:
         return path
     current_folder = os.path.dirname(path)
     if current_folder == target_folder:
         return path
-    new_path = os.path.join(target_folder, os.path.basename(path))
-    abs_target = os.path.join(vault_root, target_folder)
-    os.makedirs(abs_target, exist_ok=True)
-    rename_and_update_links(vault_root, path, new_path)
-    return new_path
+    return os.path.join(target_folder, os.path.basename(path))
 
 
 def _maybe_rename_on_field_change(vault_root, path, art, old_fields, new_fields):
@@ -1257,6 +1313,15 @@ def _finish_artefact(vault_root, router, abs_path, fields, old_body, new_body, p
     reconcile_fields_for_render(fields, art, abs_path, os.path.basename(path))
     resolved_path = path
     ownership_handled = False
+    temporal_relocation_path = path
+    should_check_temporal_relocation = (
+        art.get("classification") == "temporal"
+        and (had_explicit_created or normalize_artefact_key(fields.get("parent")))
+    )
+    if should_check_temporal_relocation:
+        temporal_relocation_path = _temporal_month_relocation_path(
+            router, path, art, fields
+        )
     if art.get("classification") == "living" and old_fields is not None:
         path, ownership_handled = _maybe_restructure_living_ownership(
             vault_root, router, path, art, old_fields, fields, new_body
@@ -1264,18 +1329,23 @@ def _finish_artefact(vault_root, router, abs_path, fields, old_body, new_body, p
         abs_path = os.path.join(vault_root, path)
     if not ownership_handled:
         _save_artefact(abs_path, fields, new_body, vault_root)
-    if art.get("classification") == "temporal" and had_explicit_created:
-        new_path = _maybe_relocate_temporal_month(vault_root, path, art, fields)
-        if new_path != path:
-            path = new_path
+    try:
+        if should_check_temporal_relocation and temporal_relocation_path != path:
+            rename_and_update_links(vault_root, path, temporal_relocation_path)
+            path = temporal_relocation_path
             abs_path = os.path.join(vault_root, path)
-    if old_fields is not None and not ownership_handled:
-        new_path = _maybe_rename_on_field_change(vault_root, path, art, old_fields, fields)
-        if new_path != path:
-            path = new_path
-            abs_path = os.path.join(vault_root, path)
-    terminal = (art.get("frontmatter") or {}).get("terminal_statuses")
-    path = _maybe_status_move(vault_root, path, terminal, frontmatter_changes)
+        if old_fields is not None and not ownership_handled:
+            new_path = _maybe_rename_on_field_change(vault_root, path, art, old_fields, fields)
+            if new_path != path:
+                path = new_path
+                abs_path = os.path.join(vault_root, path)
+        terminal = (art.get("frontmatter") or {}).get("terminal_statuses")
+        path = _maybe_status_move(vault_root, path, terminal, frontmatter_changes)
+    except (PartialApplyError, FileNotFoundError, FileExistsError, ValueError, OSError) as exc:
+        raise PartialApplyError(
+            f"{operation} partially applied — metadata file written {path}; "
+            f"move failure: {exc}"
+        ) from exc
     return _result_payload(
         path,
         resolved_path,
@@ -1400,7 +1470,7 @@ def convert_artefact(vault_root, router, path, target_type, parent=None, recursi
         target_type: Target type key or full type (e.g. "design" or "living/design").
         parent: Optional canonical parent artefact reference. If omitted, an existing
                 parent is preserved when the target contract permits it. Temporal targets
-                keep their normal date-based folders.
+                file under their owner chain before the date folder when parent is set.
         recursive: Required to convert a living parent with living descendants
                 into a temporal artefact, because descendants are deparented.
 
@@ -2044,7 +2114,7 @@ def main():
 
     vault_root = str(find_vault_root(vault_arg))
 
-    router = load_compiled_router(vault_root)
+    router = load_fresh_compiled_router(vault_root)
     if "error" in router:
         if json_mode:
             print(json.dumps(router))

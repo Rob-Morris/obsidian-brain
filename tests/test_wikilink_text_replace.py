@@ -102,6 +102,51 @@ class TestReplaceWikilinksInText:
         assert new_text == "See LINK(foo) and `[[bar]]`."
         assert count == 1
 
+    def test_table_row_replacement_drops_alias(self):
+        pattern, replacer = _rewriter({"old": "new"})
+        text = "| Name | Link |\n|---|---|\n| A | [[old|Old label]] |\n"
+
+        new_text, count = replace_wikilinks_in_text(text, pattern, replacer)
+
+        assert count == 1
+        assert "| A | [[new]] |" in new_text
+        assert "[[new|Old label]]" not in new_text
+
+    def test_later_table_body_row_replacement_drops_alias(self):
+        pattern, replacer = _rewriter({"old": "new"})
+        text = (
+            "| Name | Link |\n"
+            "|---|---|\n"
+            "| A | [[old|One]] |\n"
+            "| B | [[old|Two]] |\n"
+        )
+
+        new_text, count = replace_wikilinks_in_text(text, pattern, replacer)
+
+        assert count == 2
+        assert "| A | [[new]] |" in new_text
+        assert "| B | [[new]] |" in new_text
+        assert "[[new|One]]" not in new_text
+        assert "[[new|Two]]" not in new_text
+
+    def test_no_outer_pipe_table_row_replacement_drops_alias(self):
+        pattern, replacer = _rewriter({"old": "new"})
+        text = "Name | Link\n---|---\nA | [[old|One]]\n"
+
+        new_text, count = replace_wikilinks_in_text(text, pattern, replacer)
+
+        assert count == 1
+        assert "A | [[new]]" in new_text
+        assert "[[new|One]]" not in new_text
+
+    def test_non_table_replacement_preserves_alias(self):
+        pattern, replacer = _rewriter({"old": "new"})
+
+        new_text, count = replace_wikilinks_in_text("See [[old|Old label]].", pattern, replacer)
+
+        assert count == 1
+        assert new_text == "See [[new|Old label]]."
+
 
 # ---------------------------------------------------------------------------
 # extract_wikilinks(literals=...)

@@ -183,7 +183,8 @@ def replace_wikilinks_in_text(text, pattern, replacement):
         if in_any_range(start, skip):
             continue
         out.append(text[cursor:start])
-        out.append(replacement(m) if callable(replacement) else m.expand(replacement))
+        replacement_text = replacement(m) if callable(replacement) else m.expand(replacement)
+        out.append(table_safe_wikilink_replacement(text, start, replacement_text))
         cursor = m.end()
         count += 1
     if count == 0:
@@ -222,6 +223,94 @@ def replace_wikilinks_in_vault(vault_root, pattern, replacement):
 # ---------------------------------------------------------------------------
 
 _WIKILINK_EXTRACT_RE = re.compile(r"(!?)\[\[([^\]]+)\]\]")
+_WIKILINK_ALIAS_RE = re.compile(r"(?P<head>!?\[\[[^\]\n|]+)\|[^\]\n]*\]\]")
+_TABLE_SEPARATOR_RE = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$")
+
+
+def _line_bounds(text, offset):
+    start = text.rfind("\n", 0, offset) + 1
+    end = text.find("\n", offset)
+    if end == -1:
+        end = len(text)
+    return start, end
+
+
+def _looks_like_table_row(line):
+    stripped = line.strip()
+    return "|" in stripped and not _is_table_separator(stripped)
+
+
+def _is_table_separator(line):
+    return bool(_TABLE_SEPARATOR_RE.match(line.strip()))
+
+
+def is_markdown_table_row_at(text, offset):
+    """Return whether *offset* sits on a GFM-style markdown table row."""
+    start, end = _line_bounds(text, offset)
+    line = text[start:end]
+    if not _looks_like_table_row(line):
+        return False
+
+    lines = text.splitlines()
+    line_index = text.count("\n", 0, start)
+    top = line_index
+    while top > 0 and (
+        _looks_like_table_row(lines[top - 1])
+        or _is_table_separator(lines[top - 1])
+    ):
+        top -= 1
+    bottom = line_index
+    while bottom + 1 < len(lines) and (
+        _looks_like_table_row(lines[bottom + 1])
+        or _is_table_separator(lines[bottom + 1])
+    ):
+        bottom += 1
+
+    for idx in range(top + 1, bottom + 1):
+        if _is_table_separator(lines[idx]) and any(
+            _looks_like_table_row(lines[row_idx]) for row_idx in range(top, idx)
+        ):
+            return True
+    return False
+
+
+def drop_wikilink_aliases(text):
+    """Drop aliases from wikilinks in *text*, preserving targets and anchors."""
+    return _WIKILINK_ALIAS_RE.sub(r"\g<head>]]", text)
+
+
+def table_safe_wikilink_replacement(text, offset, replacement_text):
+    """Return replacement text that cannot split a markdown table row."""
+    if "|" not in replacement_text:
+        return replacement_text
+    if not is_markdown_table_row_at(text, offset):
+        return replacement_text
+    return drop_wikilink_aliases(replacement_text)
+
+
+def table_breaking_wikilink_findings(text, rel_path):
+    """Return aliased wikilinks that can split markdown table rows."""
+    skip = literal_ranges(text)
+    findings = []
+    for match in _WIKILINK_EXTRACT_RE.finditer(text):
+        if in_any_range(match.start(), skip):
+            continue
+        inner = match.group(2)
+        if "|" not in inner:
+            continue
+        if not is_markdown_table_row_at(text, match.start()):
+            continue
+        line = text.count("\n", 0, match.start()) + 1
+        findings.append({
+            "file": rel_path,
+            "line": line,
+            "link": match.group(0),
+            "message": (
+                "Aliased wikilink inside markdown table row can split columns: "
+                f"{match.group(0)}"
+            ),
+        })
+    return findings
 
 # Directories to skip entirely when building the vault file index
 INDEX_SKIP_DIRS = {".git", ".obsidian", ".venv", ".brain-core", "__pycache__", "_Archive"}

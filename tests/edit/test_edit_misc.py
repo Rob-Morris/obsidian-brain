@@ -442,7 +442,7 @@ class TestTempPathFlag:
             raise PartialApplyError("edit partially applied")
 
         monkeypatch.setattr(edit, "apply_to_artefact", fail_apply)
-        monkeypatch.setattr(edit, "load_compiled_router", lambda _vault_root: {})
+        monkeypatch.setattr(edit, "load_fresh_compiled_router", lambda _vault_root: {})
         with patch.object(
             sys,
             "argv",
@@ -461,7 +461,7 @@ class TestTempPathFlag:
             raise RuntimeError("programmer bug")
 
         monkeypatch.setattr(edit, "apply_to_artefact", fail_apply)
-        monkeypatch.setattr(edit, "load_compiled_router", lambda _vault_root: {})
+        monkeypatch.setattr(edit, "load_fresh_compiled_router", lambda _vault_root: {})
         with patch.object(
             sys,
             "argv",
@@ -469,6 +469,32 @@ class TestTempPathFlag:
         ):
             with pytest.raises(RuntimeError, match="programmer bug"):
                 edit.main()
+
+    def test_cli_refuses_stale_compiled_router_before_editing(self, vault, monkeypatch, capsys):
+        calls = []
+
+        def fail_if_called(*_args, **_kwargs):
+            calls.append(True)
+            raise AssertionError("edit should not run with a stale router")
+
+        monkeypatch.setattr(
+            edit,
+            "load_fresh_compiled_router",
+            lambda _vault_root: {"error": "Compiled router cache is stale or unreadable (source-newer-than-router)."},
+        )
+        monkeypatch.setattr(edit, "apply_to_artefact", fail_if_called)
+        with patch.object(
+            sys,
+            "argv",
+            ["edit.py", "edit", "--path", "Wiki/test-page.md", "--vault", str(vault)],
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                edit.main()
+
+        assert exc_info.value.code == 1
+        assert calls == []
+        err = capsys.readouterr().err
+        assert "Compiled router cache is stale or unreadable" in err
 
 
 class TestEditWikilinkWarnings:
@@ -525,6 +551,25 @@ class TestEditFixLinks:
         content = (vault / "Wiki" / "test-page.md").read_text()
         assert "[[Real Target]]" in content
         assert "[[real-target]]" not in content
+
+    def test_fix_links_drops_alias_inside_table(self, vault, router):
+        (vault / "Wiki" / "Real Target.md").write_text("# Real\n")
+        import compile_router
+        router2 = compile_router.compile(str(vault))
+        result = edit.edit_resource(
+            str(vault), router2, resource="artefact", operation="edit",
+            path="Wiki/test-page.md",
+            body=(
+                "| Name | Link |\n"
+                "|---|---|\n"
+                "| Target | [[real-target|Real target]] |\n"
+            ),
+            target=":body", scope="section", fix_links=True,
+        )
+        assert "wikilink_fixes" in result
+        content = (vault / "Wiki" / "test-page.md").read_text()
+        assert "| Target | [[Real Target]] |" in content
+        assert "[[Real Target|Real target]]" not in content
 
     def test_fix_links_leaves_unresolvable_as_warning(self, vault, router):
         result = edit.edit_resource(

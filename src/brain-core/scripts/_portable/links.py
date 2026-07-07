@@ -7,6 +7,7 @@ from _common import (
     build_vault_file_index,
     check_wikilinks_in_file,
     discover_temporal_prefixes,
+    table_breaking_wikilink_findings,
 )
 
 
@@ -32,6 +33,21 @@ def check_broken_wikilinks(vault_root, router, file_index=None, *, ctx=None):
             if not fname.endswith(".md"):
                 continue
             rel_path = os.path.relpath(os.path.join(dirpath, fname), vault_root)
+
+            try:
+                with open(os.path.join(dirpath, fname), encoding="utf-8") as handle:
+                    text = handle.read()
+            except OSError:
+                text = ""
+            for table_finding in table_breaking_wikilink_findings(text, rel_path):
+                findings.append({
+                    "check": "table_wikilink_alias",
+                    "severity": "warning",
+                    "file": rel_path,
+                    "line": table_finding["line"],
+                    "message": table_finding["message"],
+                    "fix": "Remove the alias or rewrite the table cell with a plain wikilink.",
+                })
 
             file_findings = check_wikilinks_in_file(
                 vault_root, rel_path,

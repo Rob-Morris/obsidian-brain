@@ -1,6 +1,7 @@
 """Tests for fix_links.py — broken wikilink auto-repair."""
 import json
 import os
+import sys
 
 import pytest
 
@@ -59,6 +60,35 @@ def router():
 class TestScanAndResolve:
     def test_uses_portable_broken_link_seam(self):
         assert fix_links.check_broken_wikilinks.__module__ == "_portable.links"
+
+    def test_cli_refuses_stale_compiled_router_before_scanning(
+        self, vault, monkeypatch, capsys
+    ):
+        calls = []
+
+        def fail_if_called(*_args, **_kwargs):
+            calls.append(True)
+            raise AssertionError("scan should not continue with a stale router")
+
+        monkeypatch.setattr(
+            fix_links,
+            "load_fresh_compiled_router",
+            lambda _vault_root: {"error": "Compiled router cache is stale or unreadable (artefact-index-count-drift)."},
+        )
+        monkeypatch.setattr(fix_links, "check_broken_wikilinks", fail_if_called)
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            ["fix_links.py", "--vault", str(vault)],
+        )
+
+        with pytest.raises(SystemExit) as exc_info:
+            fix_links.main()
+
+        assert exc_info.value.code == 1
+        assert calls == []
+        err = capsys.readouterr().err
+        assert "Compiled router cache is stale or unreadable" in err
 
     def test_no_broken_links(self, vault, router):
         write_md(vault / "Wiki" / "My Page.md",
@@ -138,6 +168,20 @@ class TestApplyFixes:
         fix_links.apply_fixes(str(vault), result["fixed"])
         content = (vault / "Wiki" / "linker.md").read_text()
         assert "[[Brain Inbox|my inbox]]" in content
+
+    def test_fix_drops_alias_inside_table(self, vault, router):
+        write_md(vault / "Wiki" / "Brain Inbox.md",
+                 {"type": "living/wiki", "tags": ["test"]}, "# Brain Inbox")
+        write_md(vault / "Wiki" / "linker.md",
+                 {"type": "living/wiki", "tags": ["test"]},
+                 "| Name | Link |\n"
+                 "|---|---|\n"
+                 "| Inbox | [[brain-inbox|my inbox]] |\n")
+        result = fix_links.scan_and_resolve(str(vault), router)
+        fix_links.apply_fixes(str(vault), result["fixed"])
+        content = (vault / "Wiki" / "linker.md").read_text()
+        assert "| Inbox | [[Brain Inbox]] |" in content
+        assert "[[Brain Inbox|my inbox]]" not in content
 
     def test_fix_preserves_literal_wikilink_in_inline_code(self, vault, router):
         """fix_links must not rewrite a documentation example inside backticks."""

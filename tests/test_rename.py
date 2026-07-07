@@ -72,6 +72,35 @@ class TestRenameAndUpdateLinks:
         content = (vault / "Wiki" / "topic-b.md").read_text()
         assert "[[Wiki/new-name|Topic A]]" in content
 
+    def test_drops_alias_when_rewriting_wikilink_inside_table(self, vault):
+        (vault / "Wiki" / "table.md").write_text(
+            "| Name | Link |\n"
+            "|---|---|\n"
+            "| A | [[Wiki/topic-a|Topic A]] |\n"
+            "| B | [[Wiki/topic-a|Topic B]] |\n"
+        )
+
+        rename.rename_and_update_links(str(vault), "Wiki/topic-a.md", "Wiki/new-name.md")
+
+        content = (vault / "Wiki" / "table.md").read_text()
+        assert "| A | [[Wiki/new-name]] |" in content
+        assert "| B | [[Wiki/new-name]] |" in content
+        assert "[[Wiki/new-name|Topic A]]" not in content
+        assert "[[Wiki/new-name|Topic B]]" not in content
+
+    def test_drops_alias_in_no_outer_pipe_table_row(self, vault):
+        (vault / "Wiki" / "table.md").write_text(
+            "Name | Link\n"
+            "---|---\n"
+            "A | [[Wiki/topic-a|Topic A]]\n"
+        )
+
+        rename.rename_and_update_links(str(vault), "Wiki/topic-a.md", "Wiki/new-name.md")
+
+        content = (vault / "Wiki" / "table.md").read_text()
+        assert "A | [[Wiki/new-name]]" in content
+        assert "[[Wiki/new-name|Topic A]]" not in content
+
     def test_raises_on_missing_source(self, vault):
         with pytest.raises(FileNotFoundError, match="Source file not found"):
             rename.rename_and_update_links(str(vault), "Wiki/nonexistent.md", "Wiki/dest.md")
@@ -136,6 +165,7 @@ class TestRenameAndUpdateLinks:
         def fail_rename(*_args, **_kwargs):
             raise rename.PartialApplyError("move set partially applied")
 
+        monkeypatch.setattr(rename, "load_fresh_compiled_router", lambda _vault_root: {"artefacts": []})
         monkeypatch.setattr(rename, "rename_and_update_links", fail_rename)
         monkeypatch.setattr(
             rename.sys,
@@ -161,6 +191,7 @@ class TestRenameAndUpdateLinks:
         def fail_rename(*_args, **_kwargs):
             raise RuntimeError("programmer bug")
 
+        monkeypatch.setattr(rename, "load_fresh_compiled_router", lambda _vault_root: {"artefacts": []})
         monkeypatch.setattr(rename, "rename_and_update_links", fail_rename)
         monkeypatch.setattr(
             rename.sys,
@@ -176,6 +207,41 @@ class TestRenameAndUpdateLinks:
 
         with pytest.raises(RuntimeError, match="programmer bug"):
             rename.main()
+
+    def test_cli_refuses_stale_compiled_router_before_mutating(self, vault, monkeypatch, capsys):
+        calls = []
+
+        def fail_if_called(*_args, **_kwargs):
+            calls.append(True)
+            raise AssertionError("rename should not run with a stale router")
+
+        monkeypatch.setattr(
+            rename,
+            "load_fresh_compiled_router",
+            lambda _vault_root: {"error": "Compiled router cache is stale or unreadable (source-newer-than-router)."},
+        )
+        monkeypatch.setattr(rename, "rename_and_update_links", fail_if_called)
+        monkeypatch.setattr(
+            rename.sys,
+            "argv",
+            [
+                "rename.py",
+                "Wiki/topic-a.md",
+                "Wiki/topic-a-renamed.md",
+                "--vault",
+                str(vault),
+            ],
+        )
+
+        with pytest.raises(SystemExit) as exc_info:
+            rename.main()
+
+        assert exc_info.value.code == 1
+        assert calls == []
+        captured = capsys.readouterr()
+        assert "Compiled router cache is stale or unreadable" in captured.err
+        assert (vault / "Wiki" / "topic-a.md").exists()
+        assert not (vault / "Wiki" / "topic-a-renamed.md").exists()
 
 
 class TestMoveAndUpdateLinks:

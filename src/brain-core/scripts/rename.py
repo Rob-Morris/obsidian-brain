@@ -16,6 +16,7 @@ import json
 import os
 import sys
 
+from _lifecycle.derived_cache_state import load_fresh_compiled_router
 from _common import (
     build_md_basename_counts,
     build_wikilink_pattern,
@@ -28,7 +29,6 @@ from _common import (
     HasDescendantsError,
     PartialApplyError,
     is_archived_path,
-    load_compiled_router,
     make_wikilink_replacer,
     parse_frontmatter,
     replace_wikilinks_in_vault,
@@ -589,9 +589,13 @@ def main():
     source, dest = positional
     vault_root = str(find_vault_root(vault_arg))
 
-    router = load_compiled_router(vault_root)
+    router = load_fresh_compiled_router(vault_root)
     if "error" in router:
-        router = None  # rename can still run without a router
+        if json_mode:
+            print(json.dumps(router))
+        else:
+            print(f"Error: {router['error']}", file=sys.stderr)
+        sys.exit(1)
 
     try:
         links_updated = rename_and_update_links(vault_root, source, dest, router=router)

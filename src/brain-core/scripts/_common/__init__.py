@@ -149,6 +149,8 @@ from ._wikilinks import (
     resolve_broken_link,
     resolve_wikilink_stems,
     strip_md_ext,
+    table_breaking_wikilink_findings,
+    table_safe_wikilink_replacement,
     temporal_display_name,
     wikilink_stems_for_path_change,
 )

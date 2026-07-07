@@ -2856,7 +2856,7 @@ def brain_create(
         Field(description=(
             "Parent artefact reference. Accepts canonical key, resolvable name, "
             "or relative path. Living children use owner folders; temporal "
-            "children keep date-based filing."
+            "children use owner-scoped date folders."
         )),
     ] = None,
     key: Annotated[

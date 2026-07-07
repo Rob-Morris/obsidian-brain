@@ -777,7 +777,8 @@ def resolve_type(router, type_key):
 def resolve_folder(artefact, parent=None, fields=None, router=None):
     """Resolve the target folder for a new artefact.
 
-    Temporal artefacts go into ``{base}/yyyy-mm/`` where ``yyyy-mm`` is
+    Temporal artefacts go into ``{base}/{owner-chain}/yyyy-mm/`` when a
+    living parent is set, or ``{base}/yyyy-mm/`` otherwise. The month is
     derived from the selected naming rule's ``date_source`` when one is
     declared, else ``created``. Callers must reconcile timestamps and any
     explicit ``date_source`` field before calling — this function does not
@@ -806,6 +807,18 @@ def resolve_folder(artefact, parent=None, fields=None, router=None):
                 f"'{source_field}' in fields. Reconcile render fields before calling."
             )
         month_folder = dt.strftime("%Y-%m")
+        parent_key = normalize_artefact_key(parent)
+        if parent_key and router:
+            segments = [
+                owner_folder_segment(artefact, entry)
+                for entry in parent_chain_entries(router, parent_key)
+            ]
+            return os.path.join(base_path, *segments, month_folder)
+        if parent_key:
+            raise BrokenParentChainError(
+                parent_key,
+                "Parent-scoped temporal filing requires a compiled router.",
+            )
         return os.path.join(base_path, month_folder)
     if artefact.get("classification") == "living":
         return resolve_living_owner_folder(artefact, parent=parent, router=router)

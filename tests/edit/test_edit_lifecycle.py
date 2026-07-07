@@ -609,7 +609,7 @@ class TestOwnershipEditPaths:
         assert isinstance(exc_info.value.__cause__, OSError)
         assert "files written ['Wiki/a.md']" in str(exc_info.value)
 
-    def test_temporal_parent_edit_persists_without_rehoming(self, vault, router):
+    def test_temporal_parent_edit_rehomes_under_owner_scope(self, vault, router):
         month = vault / "_Temporal" / "Research" / "2026-04"
         month.mkdir(parents=True, exist_ok=True)
         path = month / "20260413-research~Sample Title.md"
@@ -631,10 +631,48 @@ class TestOwnershipEditPaths:
             frontmatter_changes={"parent": "project/brain"},
         )
 
-        assert result["path"] == "_Temporal/Research/2026-04/20260413-research~Sample Title.md"
-        fields, _ = parse_frontmatter(path.read_text())
+        new_path = "_Temporal/Research/project~brain/2026-04/20260413-research~Sample Title.md"
+        assert result["path"] == new_path
+        assert not path.exists()
+        fields, _ = parse_frontmatter((vault / new_path).read_text())
         assert fields["parent"] == "project/brain"
         assert "project/brain" in fields["tags"]
+
+    def test_temporal_existing_broken_parent_fails_before_write(self, vault, router):
+        month = vault / "_Temporal" / "Research" / "2026-04"
+        month.mkdir(parents=True, exist_ok=True)
+        path = month / "20260413-research~Broken Parent.md"
+        original = (
+            "---\n"
+            "type: temporal/research\n"
+            "tags:\n"
+            "  - research\n"
+            "created: 2026-04-13T09:00:00+10:00\n"
+            "parent: project/missing\n"
+            "---\n\n"
+            "Original body.\n"
+        )
+        path.write_text(original)
+
+        with pytest.raises(ParentChainError, match="project/missing"):
+            edit.edit_artefact(
+                str(vault),
+                router,
+                "_Temporal/Research/2026-04/20260413-research~Broken Parent.md",
+                "Changed body.\n",
+                target=":body",
+                scope="section",
+            )
+
+        assert path.read_text() == original
+        assert not (
+            vault
+            / "_Temporal"
+            / "Research"
+            / "project~missing"
+            / "2026-04"
+            / "20260413-research~Broken Parent.md"
+        ).exists()
 
     def test_parent_key_change_rehomes_children_using_canonical_owner_folder(self, vault, router):
         child_dir = vault / "Ideas" / "project~brain"
@@ -669,7 +707,7 @@ class TestOwnershipEditPaths:
         assert fields["parent"] == "project/brain2"
         assert "project/brain2" in fields["tags"]
 
-    def test_parent_key_change_updates_temporal_children_without_rehoming(self, vault, router):
+    def test_parent_key_change_rehomes_temporal_children_under_new_owner_scope(self, vault, router):
         month = vault / "_Temporal" / "Research" / "2026-04"
         month.mkdir(parents=True, exist_ok=True)
         path = month / "20260413-research~Sample Title.md"
@@ -694,11 +732,147 @@ class TestOwnershipEditPaths:
         )
 
         assert result["path"] == "Projects/Brain.md"
-        assert path.is_file()
-        fields, _ = parse_frontmatter(path.read_text())
+        new_path = (
+            vault
+            / "_Temporal"
+            / "Research"
+            / "project~brain2"
+            / "2026-04"
+            / "20260413-research~Sample Title.md"
+        )
+        assert new_path.is_file()
+        assert not path.exists()
+        fields, _ = parse_frontmatter(new_path.read_text())
         assert fields["parent"] == "project/brain2"
         assert "project/brain2" in fields["tags"]
         assert "project/brain" not in fields["tags"]
+
+    def test_same_key_parent_change_rehomes_temporal_children_under_new_owner_chain(
+        self, vault, router
+    ):
+        (vault / "Projects" / "Old Parent.md").write_text(
+            "---\n"
+            "type: living/project\n"
+            "tags:\n"
+            "  - project/old-parent\n"
+            "key: old-parent\n"
+            "---\n\n"
+            "# Old Parent\n"
+        )
+        (vault / "Projects" / "New Parent.md").write_text(
+            "---\n"
+            "type: living/project\n"
+            "tags:\n"
+            "  - project/new-parent\n"
+            "key: new-parent\n"
+            "---\n\n"
+            "# New Parent\n"
+        )
+        child_dir = vault / "Projects" / "old-parent"
+        child_dir.mkdir(parents=True, exist_ok=True)
+        (child_dir / "Child.md").write_text(
+            "---\n"
+            "type: living/project\n"
+            "tags:\n"
+            "  - project/child\n"
+            "key: child\n"
+            "parent: project/old-parent\n"
+            "---\n\n"
+            "# Child\n"
+        )
+        old_temporal_dir = (
+            vault
+            / "_Temporal"
+            / "Research"
+            / "project~old-parent"
+            / "project~child"
+            / "2026-04"
+        )
+        old_temporal_dir.mkdir(parents=True, exist_ok=True)
+        old_temporal_path = old_temporal_dir / "20260413-research~Sample Title.md"
+        old_temporal_path.write_text(
+            "---\n"
+            "type: temporal/research\n"
+            "tags:\n"
+            "  - research\n"
+            "  - project/child\n"
+            "parent: project/child\n"
+            "created: 2026-04-13T09:00:00+10:00\n"
+            "---\n\n"
+            "Body.\n"
+        )
+        import compile_router
+        router = compile_router.compile(str(vault))
+
+        result = edit.edit_artefact(
+            str(vault),
+            router,
+            "Projects/old-parent/Child.md",
+            "",
+            frontmatter_changes={"parent": "project/new-parent"},
+        )
+
+        assert result["path"] == "Projects/new-parent/Child.md"
+        new_temporal_path = (
+            vault
+            / "_Temporal"
+            / "Research"
+            / "project~new-parent"
+            / "project~child"
+            / "2026-04"
+            / "20260413-research~Sample Title.md"
+        )
+        assert new_temporal_path.is_file()
+        assert not old_temporal_path.exists()
+        fields, _ = parse_frontmatter(new_temporal_path.read_text())
+        assert fields["parent"] == "project/child"
+
+    def test_parent_key_change_temporal_rehome_failure_reports_partial_context(
+        self, vault, router, monkeypatch
+    ):
+        month = vault / "_Temporal" / "Research" / "2026-04"
+        month.mkdir(parents=True, exist_ok=True)
+        path = month / "20260413-research~Sample Title.md"
+        path.write_text(
+            "---\n"
+            "type: temporal/research\n"
+            "tags:\n"
+            "  - research\n"
+            "  - project/brain\n"
+            "parent: project/brain\n"
+            "created: 2026-04-13T09:00:00+10:00\n"
+            "---\n\n"
+            "Body.\n"
+        )
+
+        def fail_move(*_args, **_kwargs):
+            raise PartialApplyError("move set partially applied")
+
+        monkeypatch.setattr(edit, "move_and_update_links", fail_move)
+
+        with pytest.raises(PartialApplyError, match="ownership mutation partially applied") as exc_info:
+            edit.edit_artefact(
+                str(vault),
+                router,
+                "Projects/Brain.md",
+                "",
+                frontmatter_changes={"key": "brain2"},
+            )
+
+        message = str(exc_info.value)
+        assert isinstance(exc_info.value.__cause__, PartialApplyError)
+        assert "Projects/Brain.md" in message
+        assert "_Temporal/Research/2026-04/20260413-research~Sample Title.md" in message
+        fields, _ = parse_frontmatter(path.read_text())
+        assert fields["parent"] == "project/brain2"
+        assert not (
+            vault
+            / "_Temporal"
+            / "Research"
+            / "project~brain2"
+            / "2026-04"
+            / "20260413-research~Sample Title.md"
+        ).exists()
 
     def test_parent_edit_keeps_existing_terminal_status_folder(self, vault, router):
         (vault / "Projects" / "Custom.md").write_text(
@@ -801,6 +975,29 @@ class TestTerminalStatusMove:
         assert result["path"] == "Ideas/+Adopted/my-idea.md"
         assert (vault / "Ideas" / "+Adopted" / "my-idea.md").is_file()
         assert not (vault / "Ideas" / "my-idea.md").exists()
+
+    def test_terminal_status_move_failure_reports_metadata_written_context(
+        self, vault, router, monkeypatch
+    ):
+        self._make_idea(vault, "Ideas/my-idea.md")
+
+        def fail_move(*_args, **_kwargs):
+            raise OSError("disk refused move")
+
+        monkeypatch.setattr(edit, "rename_and_update_links", fail_move)
+
+        with pytest.raises(PartialApplyError) as exc_info:
+            edit.edit_artefact(
+                str(vault), router, "Ideas/my-idea.md", "",
+                frontmatter_changes={"status": "adopted"},
+            )
+
+        assert "metadata file written Ideas/my-idea.md" in str(exc_info.value)
+        assert "disk refused move" in str(exc_info.value)
+        assert isinstance(exc_info.value.__cause__, OSError)
+        fields, _ = parse_frontmatter((vault / "Ideas" / "my-idea.md").read_text())
+        assert fields["status"] == "adopted"
+        assert not (vault / "Ideas" / "+Adopted" / "my-idea.md").exists()
 
     def test_edit_terminal_status_creates_folder(self, vault, router):
         self._make_idea(vault, "Ideas/new-idea.md")

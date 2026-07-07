@@ -68,6 +68,37 @@ class TestCheckBrokenWikilinks:
                   and "rust-lifetimes" in f["message"]]
         assert broken == []
 
+    def test_aliased_wikilink_inside_table_warns(self, vault):
+        tmp_path, router = vault
+        write_md(tmp_path / "Wiki" / "table-alias.md",
+                 {"type": "living/wiki", "tags": ["test"]},
+                 "| Name | Link |\n"
+                 "|---|---|\n"
+                 "| Rust | [[rust-lifetimes|Rust Ownership]] |\n"
+                 "| Rust 2 | [[rust-lifetimes|Rust Ownership 2]] |\n")
+        findings = check.check_broken_wikilinks(str(tmp_path), router)
+        table = [f for f in findings if f["check"] == "table_wikilink_alias"]
+        assert len(table) == 2
+        assert table[0]["file"] == "Wiki/table-alias.md"
+        assert table[0]["line"] == 8
+        assert "[[rust-lifetimes|Rust Ownership]]" in table[0]["message"]
+        assert table[1]["line"] == 9
+        assert "[[rust-lifetimes|Rust Ownership 2]]" in table[1]["message"]
+
+    def test_aliased_wikilink_inside_no_outer_pipe_table_warns(self, vault):
+        tmp_path, router = vault
+        write_md(tmp_path / "Wiki" / "table-alias-no-outer.md",
+                 {"type": "living/wiki", "tags": ["test"]},
+                 "Name | Link\n"
+                 "---|---\n"
+                 "Rust | [[rust-lifetimes|Rust Ownership]]\n")
+        findings = check.check_broken_wikilinks(str(tmp_path), router)
+        table = [f for f in findings if f["check"] == "table_wikilink_alias"]
+        assert len(table) == 1
+        assert table[0]["file"] == "Wiki/table-alias-no-outer.md"
+        assert table[0]["line"] == 8
+        assert "[[rust-lifetimes|Rust Ownership]]" in table[0]["message"]
+
     def test_embed_resolves(self, vault):
         tmp_path, router = vault
         assets = tmp_path / "_Assets"

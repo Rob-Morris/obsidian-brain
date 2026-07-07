@@ -569,8 +569,7 @@ class TestConvertArtefact:
             str(vault), router, "Ideas/project~brain/child-idea.md", "reports"
         )
 
-        assert result["new_path"].startswith("_Temporal/Reports/")
-        assert "project~brain" not in result["new_path"]
+        assert result["new_path"].startswith("_Temporal/Reports/project~brain/")
         fields, _ = parse_frontmatter((vault / result["new_path"]).read_text())
         assert fields["parent"] == "project/brain"
         assert "project/brain" in fields["tags"]

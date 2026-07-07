@@ -398,14 +398,13 @@ class TestCreateArtefact:
         )
         assert os.path.isdir(os.path.join(str(vault), "Wiki", "project~brain"))
 
-    def test_temporal_parent_persists_without_parent_subfolder(self, vault, router):
-        """Temporal children persist parent metadata but stay in yyyy-mm/ folders."""
+    def test_temporal_parent_scopes_before_month_folder(self, vault, router):
+        """Temporal children persist parent metadata and file under owner scope."""
         result = create.create_artefact(
             str(vault), router, "logs", "Session", parent="project/brain"
         )
         assert result["parent"] == "project/brain"
-        assert "_Temporal/Logs/" in result["path"]
-        assert "project~brain" not in result["path"]
+        assert result["path"].startswith("_Temporal/Logs/project~brain/")
         content = open(os.path.join(str(vault), result["path"])).read()
         fields, _ = parse_frontmatter(content)
         assert fields["parent"] == "project/brain"
@@ -832,6 +831,43 @@ class TestTempPathFlag:
         finally:
             if os.path.exists(out):
                 os.remove(out)
+
+
+class TestCreateCliFreshRouter:
+    def test_cli_refuses_stale_compiled_router_before_creating(self, vault, monkeypatch, capsys):
+        calls = []
+
+        def fail_if_called(*_args, **_kwargs):
+            calls.append(True)
+            raise AssertionError("create should not run with a stale router")
+
+        monkeypatch.setattr(
+            create,
+            "load_fresh_compiled_router",
+            lambda _vault_root: {"error": "Compiled router cache is stale or unreadable (artefact-index-source-drift)."},
+        )
+        monkeypatch.setattr(create, "create_artefact", fail_if_called)
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "create.py",
+                "--type",
+                "wiki",
+                "--title",
+                "Stale Router",
+                "--vault",
+                str(vault),
+            ],
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                create.main()
+
+        assert exc_info.value.code == 1
+        assert calls == []
+        err = capsys.readouterr().err
+        assert "Compiled router cache is stale or unreadable" in err
+        assert not (vault / "Wiki" / "Stale Router.md").exists()
 
 
 class TestCreateWikilinkWarnings:

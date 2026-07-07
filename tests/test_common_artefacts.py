@@ -170,6 +170,39 @@ class TestRecursiveOwnerFolders:
 
         assert folder == os.path.join("Ideas", "design~brain", "design~brain-app")
 
+    def test_temporal_parent_chain_scopes_before_month_folder(self):
+        report = _art("temporal/report", os.path.join("_Temporal", "Reports"))
+        router = _router({
+            "project/brain": _entry("living/project", "brain", "Projects/Brain.md"),
+            "design/search": _entry(
+                "living/design",
+                "search",
+                "Designs/project~brain/Search.md",
+                parent="project/brain",
+            ),
+        })
+
+        folder = resolve_folder(
+            report,
+            parent="design/search",
+            fields={"created": "2026-07-07T09:30:00+02:00"},
+            router=router,
+        )
+
+        assert folder == os.path.join(
+            "_Temporal", "Reports", "project~brain", "design~search", "2026-07"
+        )
+
+    def test_temporal_parent_requires_router_for_owner_scope(self):
+        report = _art("temporal/report", os.path.join("_Temporal", "Reports"))
+
+        with pytest.raises(BrokenParentChainError, match="compiled router"):
+            resolve_folder(
+                report,
+                parent="project/brain",
+                fields={"created": "2026-07-07T09:30:00+02:00"},
+            )
+
     def test_mixed_chain_segments_are_relative_to_target_type(self):
         design = _art("living/design", "Designs")
         router = _router({

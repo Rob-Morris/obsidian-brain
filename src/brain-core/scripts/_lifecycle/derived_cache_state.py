@@ -99,6 +99,19 @@ def inspect_router_cache(vault_root: str | Path) -> CacheState:
     return CacheState(False, "fresh", rel_path, data)
 
 
+def load_fresh_compiled_router(vault_root: str | Path) -> dict[str, Any]:
+    """Load the compiled router only when the cache is fresh enough to mutate."""
+    state = inspect_router_cache(vault_root)
+    if state.stale:
+        return {
+            "error": (
+                "Compiled router cache is stale or unreadable "
+                f"({state.reason}). Run compile_router.py or repair.py before mutating."
+            )
+        }
+    return dict(state.payload or {})
+
+
 def inspect_lexical_cache(vault_root: str | Path) -> CacheState:
     """Inspect the lexical retrieval index cache without mutating it."""
     from _common import iter_artefact_paths

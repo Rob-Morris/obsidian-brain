@@ -136,7 +136,7 @@ If your vault runs the Brain MCP server (`.brain-core/brain_mcp/server.py`), ten
 **brain_create** (additive, safe to auto-approve)
 - Create a new vault resource. Default `resource="artefact"` for artefact creation from type, title, and optional body/frontmatter/parent. Also creates `skill`, `memory`, `style`, and `template` resources in `_Config/` (use `name` instead of `type`/`title`)
 - Body contract is explicit: artefacts plus `skill` / `memory` / `style` take markdown body content after frontmatter; `template` takes a full markdown document with its own frontmatter block. Separate `frontmatter` input is rejected for `template`
-- Artefacts: resolves template and naming pattern from the compiled router; living artefacts get a generated `key` from the clearest free title-derived words before using a random suffix
+- Artefacts: resolves template and naming pattern from the compiled router; living artefacts get a generated `key` from the clearest free title-derived words before using a random suffix. When a temporal artefact has a living `parent`, it files under that owner chain before the `yyyy-mm` folder instead of flattening into the global temporal namespace
 - Non-artefact resources: `skill` → `_Config/Skills/{name}/SKILL.md`, `memory` → `_Config/Memories/{name}.md`, `style` → `_Config/Styles/{name}.md`, `template` → `_Config/Templates/{classification}/{Type}.md`
 - Resource-specific fields are enforced strictly: artefact creation requires `type` + `title`, non-artefact creation requires `name`, and cross-resource extras are rejected
 - Returns confirmation message with path
@@ -174,7 +174,7 @@ If your vault runs the Brain MCP server (`.brain-core/brain_mcp/server.py`), ten
 
 **brain_move** (vault-wide/destructive, requires approval)
 - Flat top-level move tool for artefact path/classification transitions
-- `rename` — request shape: `{op: "rename", source, dest}`; artefact-aware same-type move with automatic wikilink updates (uses Obsidian CLI when available)
+- `rename` — request shape: `{op: "rename", source, dest}`; artefact-aware same-type move with automatic wikilink updates (uses Obsidian CLI when available). When a link rewrite occurs inside a markdown table row, Brain drops wikilink aliases that would insert `|` into a cell
 - `convert` — request shape: `{op: "convert", path, target_type, parent?, recursive?}`; changes artefact type, moves the file, reconciles frontmatter, updates wikilinks, and generates a distinctive living `key` when converting temporal artefacts to living types. Living parents with living descendants return `HAS_DESCENDANTS` unless `recursive: true` is supplied for living→temporal conversion.
 - `archive` — request shape: `{op: "archive", path, recursive?}`; archives a terminal-status artefact to `_Archive/` with date-prefix rename and wikilink updates. Artefacts with living descendants return `HAS_DESCENDANTS` unless `recursive: true` is supplied
 - `unarchive` — request shape: `{op: "unarchive", path}`; restores an archived artefact to its original type folder and removes `archiveddate`
@@ -221,9 +221,9 @@ The same is now true for the managed operational wrappers: `build_index.py`, `se
 | `setup.py` | Public workspace setup owner: bind a workspace to a Brain, converge the Brain-owned local scaffold, and optionally run a guided setup wizard over the explicit workspace/MCP configure surfaces. |
 | `configure.py` | Explicit installed-vault configuration entry point: targeted `workspace binding`, `workspace metadata`, `workspace bootstrap`, `mcp`, and `semantic` surfaces without going through the setup wrapper. |
 | `read.py` | Query compiled router resources (artefacts, triggers, styles, templates, skills, etc.) |
-| `create.py` | Create a new artefact with template/naming resolution |
-| `edit.py` | Edit artefacts via explicit `target + selector + scope`; the importable helpers also back editable `_Config/` resources |
-| `rename.py` | Rename/delete with automatic wikilink updates; refuses unsafe move sets before touching links |
+| `create.py` | Create a new artefact with template/naming resolution; parented temporal artefacts file under the owner chain before the month folder |
+| `edit.py` | Edit artefacts via explicit `target + selector + scope`; the importable helpers also back editable `_Config/` resources; post-metadata move failures report partial-apply repair context |
+| `rename.py` | Rename/delete with automatic wikilink updates; refuses stale router state and unsafe move sets before touching links |
 | `repair.py` | Explicit Brain repair entry point. Bootstraps from any compatible Python 3.12+ launcher, converges into the central managed runtime at `~/.brain/venvs/py<X.Y>-<sha16>/`, and then repairs one named scope: `runtime`, `mcp`, `router`, `lexical`, `registry`, `frontmatter`, or `semantic`. |
 | `session.py` | Build the canonical session model and refresh `.brain/local/session.md`; keeps a launcher-safe SessionStart shim and hands substantive work into the managed runtime |
 | `obsidian_cli.py` | IPC client for native Obsidian CLI (library module used by MCP) |
@@ -238,7 +238,7 @@ The same is now true for the managed operational wrappers: `build_index.py`, `se
 | `install.py` | Shared Python installer core used by `install.sh` and `install.ps1`; normal users invoke a platform launcher, while the core owns scaffold/runtime/MCP policy and lifecycle output. |
 | `check.py` | Structural compliance checker — validates naming, frontmatter, month folders, archives, status values, and now routes launcher-safe runtime/MCP/registry diagnostics through the shared bootstrap seam before adding managed semantic diagnostics |
 | `migrate_naming.py` | Migrate vault filenames from old aggressive slugs to generous naming conventions |
-| `fix_links.py` | Auto-repair broken wikilinks using naming convention heuristics |
+| `fix_links.py` | Auto-repair broken wikilinks using naming convention heuristics; refuses stale router state before scanning or applying fixes |
 | `sync_definitions.py` | Sync artefact library definitions to vault `_Config/` using tracked source hashes plus markdown-aware comparison for `.md` files, so harmless pipe-table rewrites do not surface as conflicts |
 | `config.py` | Vault configuration loader (three-layer merge: template → vault → local) |
 | `generate_key.py` | Generate operator key + SHA-256 hash for pasting into `config.yaml` |
@@ -247,7 +247,7 @@ The same is now true for the managed operational wrappers: `build_index.py`, `se
 
 Complementary tools:
 
-**`check.py`** (structural compliance) — deep scan that validates all files against the compiled router: naming patterns, frontmatter type and required fields, month folders for temporal files, archive metadata, status values, duplicate frontmatter corruption, and broken or ambiguous wikilinks (including YAML frontmatter property-links like `parent: "[[foo]]"`; wikilinks inside code, HTML comments, `$$` math, and raw HTML blocks are treated as literal text). When runtime, router, lexical-index, MCP, semantic, local workspace-registry drift, or duplicate artefact frontmatter is detected, normal output prints the exact `repair.py` command to run and JSON/compliance output includes structured `repair` metadata. Run on demand or during maintenance. Flags: `--json` (structured output), `--actionable` (fix suggestions), `--severity <level>` (filter).
+**`check.py`** (structural compliance) — deep scan that validates all files against the compiled router: naming patterns, frontmatter type and required fields, owner-scoped month folders for temporal files, archive metadata, status values, duplicate frontmatter corruption, broken or ambiguous wikilinks, and aliased wikilinks inside markdown tables (including YAML frontmatter property-links like `parent: "[[foo]]"`; wikilinks inside code, HTML comments, `$$` math, and raw HTML blocks are treated as literal text). When runtime, router, lexical-index, MCP, semantic, local workspace-registry drift, or duplicate artefact frontmatter is detected, normal output prints the exact `repair.py` command to run and JSON/compliance output includes structured `repair` metadata. Run on demand or during maintenance. Flags: `--json` (structured output), `--actionable` (fix suggestions), `--severity <level>` (filter).
 
 ```bash
 python3 .brain-core/scripts/check.py                    # human-readable

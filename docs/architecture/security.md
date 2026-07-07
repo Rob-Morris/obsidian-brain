@@ -218,6 +218,12 @@ symlinks all raise during preflight. That keeps a path-valid but unsafe rename
 or ownership move plan from clobbering an existing artefact or rewriting links
 to a path that will not be created.
 
+Direct mutation scripts (`create.py`, `edit.py`, `rename.py`, and
+`fix_links.py`) also refuse stale or unreadable compiled router state before
+writing. This keeps local non-MCP operations aligned with the MCP server's
+mid-session freshness gate: stale derived state is either repaired/recompiled
+or surfaced as an actionable error, not used to drive a mutation.
+
 See: [DD-036: Safe write pattern](decisions/dd-036-safe-write-pattern.md)
 
 ---
