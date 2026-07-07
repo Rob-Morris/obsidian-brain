@@ -628,7 +628,14 @@ def _run_migrations(
                         context["compile_error"] = context["validate_compile"]()
                 result["version"] = version_str
                 result["target"] = target
-                if result.get("status") == "error":
+                if result.get("status") not in {"ok", "skipped"}:
+                    if (
+                        target == _PRECOMPILE_PATCH_TARGET
+                        and context is not None
+                        and context.get("compile_error")
+                        and not (result.get("message") or result.get("error"))
+                    ):
+                        result["message"] = context["compile_error"]
                     if raise_on_error:
                         raise MigrationResultError(result)
                     results.append(result)

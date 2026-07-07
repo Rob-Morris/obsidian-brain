@@ -83,6 +83,13 @@ def _counter_migration(filename: str) -> str:
     )
 
 
+def _blocked_migration(message: str = "blocked by preflight") -> str:
+    return (
+        "def migrate(vault_root):\n"
+        f"    return {{'status': 'blocked', 'message': {message!r}, 'blockers': ['stub']}}\n"
+    )
+
+
 def _precompile_counter_migration(filename: str) -> str:
     """Return a target-specific patch migration that increments a counter."""
     return (
@@ -331,6 +338,62 @@ def test_run_migrations_default_path_halts_after_blocked_0_50_0_migration(tmp_pa
     assert "0.50.1" not in ledger["migrations"]
     assert not (vault / ".brain" / "local" / "after-blocked.txt").exists()
     assert not (vault / ".brain" / "local" / ".migrated-version").exists()
+
+
+def test_run_migrations_treats_blocked_result_as_fatal_in_default_path(tmp_path):
+    source = _make_source(
+        tmp_path,
+        "0.52.0",
+        migrations={
+            "migrate_to_0_51_0.py": _blocked_migration(),
+            "migrate_to_0_52_0.py": _counter_migration("after-blocked.txt"),
+        },
+    )
+    vault = _make_vault(tmp_path, "0.50.0")
+    shutil.rmtree(vault / ".brain-core" / "scripts")
+    shutil.copytree(source / "scripts", vault / ".brain-core" / "scripts")
+    (vault / ".brain-core" / "VERSION").write_text("0.52.0\n")
+
+    results, ledger = upgrade._run_migrations(
+        str(vault),
+        "0.50.0",
+        "0.52.0",
+    )
+
+    assert [result["version"] for result in results] == ["0.51.0"]
+    assert results[0]["status"] == "blocked"
+    assert results[0]["blockers"] == ["stub"]
+    assert "0.51.0" not in ledger["migrations"]
+    assert "0.52.0" not in ledger["migrations"]
+    assert not (vault / ".brain" / "local" / "after-blocked.txt").exists()
+
+
+def test_run_migrations_treats_blocked_result_as_fatal_in_raise_path(tmp_path):
+    source = _make_source(
+        tmp_path,
+        "0.52.0",
+        migrations={
+            "migrate_to_0_51_0.py": _blocked_migration(),
+            "migrate_to_0_52_0.py": _counter_migration("after-blocked.txt"),
+        },
+    )
+    vault = _make_vault(tmp_path, "0.50.0")
+    shutil.rmtree(vault / ".brain-core" / "scripts")
+    shutil.copytree(source / "scripts", vault / ".brain-core" / "scripts")
+    (vault / ".brain-core" / "VERSION").write_text("0.52.0\n")
+
+    with pytest.raises(upgrade.MigrationResultError) as exc_info:
+        upgrade._run_migrations(
+            str(vault),
+            "0.50.0",
+            "0.52.0",
+            raise_on_error=True,
+        )
+
+    assert exc_info.value.result["status"] == "blocked"
+    assert exc_info.value.result["blockers"] == ["stub"]
+    assert not (vault / ".brain" / "local" / "migrations.json").exists()
+    assert not (vault / ".brain" / "local" / "after-blocked.txt").exists()
 
 
 def test_upgrade_rollback_preserves_blocked_0_50_0_migration_diagnostics(tmp_path):

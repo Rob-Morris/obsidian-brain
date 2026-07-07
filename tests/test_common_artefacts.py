@@ -350,6 +350,26 @@ class TestDescendantTraversal:
         with pytest.raises(StaleArtefactIndexError, match="source artefact key"):
             descendant_entries(_router({}), "project/missing")
 
+    def test_descendant_entries_cycle_message_uses_ordered_path(self):
+        router = _router({
+            "design/brain": _entry("living/design", "brain", "Designs/Brain.md"),
+            "project/app": _entry(
+                "living/project", "app", "Projects/App.md", parent="design/brain"
+            ),
+            "wiki/readme": _entry(
+                "living/wiki", "readme", "Wiki/Readme.md", parent="project/app"
+            ),
+        })
+        router["artefact_index"]["design/brain"]["parent"] = "wiki/readme"
+
+        with pytest.raises(CyclicParentChainError) as exc_info:
+            descendant_entries(router, "design/brain")
+
+        assert (
+            str(exc_info.value)
+            == "Cyclic descendant chain: design/brain -> project/app -> wiki/readme -> design/brain"
+        )
+
     def test_stale_index_error_message_points_to_reconciliation(self):
         exc = StaleArtefactIndexError(
             "source artefact key is not in the compiled living index: project/missing"

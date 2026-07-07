@@ -37,11 +37,17 @@ TARGET_HANDLERS = {
 }
 
 def patch_pre_compile(vault_root: str, *, context: dict | None = None) -> dict:
-    """Return {"status": "ok", ...}, {"status": "warnings", ...}, or {"status": "skipped", ...}."""
+    """Return {"status": "ok", ...} or {"status": "skipped", ...}."""
 ```
 
 Use a plain string function name in `TARGET_HANDLERS` so the runner can discover the handler without importing the module.
 Other shapes are rejected during upgrade-time discovery: no computed dicts, no variable indirection for handler names, and no missing functions.
+
+Migration result status is intentionally strict: `ok` and `skipped` are the
+only non-fatal statuses. Any other status, including `blocked` or `warnings`,
+halts the upgrade and is not recorded in the migration ledger. If a migration
+has non-fatal warnings, return `status: "ok"` or `status: "skipped"` and put
+details in a `warnings` field.
 
 ## Import constraints
 

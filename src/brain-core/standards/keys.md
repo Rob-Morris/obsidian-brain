@@ -98,7 +98,7 @@ Key uniqueness is enforced per artefact type. Two distinct `living/project` arte
 Converting an artefact's type can cross the living/temporal boundary:
 
 - **Temporal → living** — the target gains hub capability, so tooling must generate a valid `key:` during conversion. A key-less living artefact breaks the canonical-key contract.
-- **Living → temporal** — the key becomes vestigial (a temporal artefact carrying a key isn't broken, but it has no function). Any children that referenced the converted artefact via `parent:` are left pointing at a non-hub; those references should be healed or removed by the conversion flow.
+- **Living → temporal** — the key becomes vestigial (a temporal artefact carrying a key isn't broken, but it has no function). If the living artefact has living descendants, conversion refuses by default with `HAS_DESCENDANTS`; callers must pass explicit recursive intent before tooling removes descendant `parent:` references, removes owner tags, and relocates those descendants out of the converted artefact's owner folder.
 
 ## See also
 

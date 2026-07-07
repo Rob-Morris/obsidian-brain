@@ -44,16 +44,17 @@ from _common import (
     is_archived_path,
     is_valid_key,
     iter_artefact_paths,
+    iter_vault_md_files,
     living_artefact_index_entry,
     load_compiled_router,
     make_artefact_key,
     normalize_artefact_key,
     parse_frontmatter,
+    prune_vacated_owner_folders,
     safe_write,
     serialize_frontmatter,
     resolve_folder,
 )
-from _common._wikilinks import _iter_vault_md_files
 from rename import move_and_update_links, preflight_move_set
 
 
@@ -201,7 +202,7 @@ def _read_living_records(vault_root, router):
 def _whole_vault_read_errors(vault_root):
     """Return markdown files that cannot be read before migration writes."""
     errors = []
-    for dirpath, fname in _iter_vault_md_files(vault_root):
+    for dirpath, fname in iter_vault_md_files(vault_root):
         fpath = os.path.join(dirpath, fname)
         rel_path = os.path.relpath(fpath, vault_root)
         try:
@@ -291,11 +292,6 @@ def _backfill_missing_parents(records, index):
         fields = _insert_parent_field(record.fields, inferred)
         updated_record = replace(record, fields=fields)
         updated.append(updated_record)
-        index[record.artefact_key] = living_artefact_index_entry(
-            updated_record.artefact,
-            updated_record.rel_path,
-            updated_record.fields,
-        )
         parent_updates.append({
             "path": record.rel_path,
             "parent": inferred,
@@ -366,7 +362,12 @@ def _move_preflight_blockers(vault_root, moves):
         message = str(exc)
         if "Cyclic move set" in message:
             return [], [{"error": message}]
-        if "Duplicate move destination" in message or "Duplicate move source" in message:
+        if (
+            "Duplicate move destination" in message
+            or "Duplicate move source" in message
+            or "Move source cannot be a symlink" in message
+            or "Move destination cannot be a symlink" in message
+        ):
             return collision(message), []
         raise
     return [], []
@@ -477,6 +478,11 @@ def migrate_vault(vault_root, *, apply=False, router=None):
             move_result = move_and_update_links(
                 plan.vault_root,
                 list(plan.moves),
+            )
+            prune_vacated_owner_folders(
+                plan.vault_root,
+                [move["source"] for move in move_result.get("applied", [])],
+                plan.router,
             )
         except PartialApplyError as exc:
             result = {

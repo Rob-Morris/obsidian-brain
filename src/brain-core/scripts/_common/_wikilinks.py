@@ -74,6 +74,11 @@ def _iter_vault_md_files(vault_root):
                 yield dirpath, fname
 
 
+def iter_vault_md_files(vault_root):
+    """Yield ``(dirpath, filename)`` for every user-facing vault markdown file."""
+    yield from _iter_vault_md_files(vault_root)
+
+
 def find_duplicate_basenames(vault_root, basename_stem, limit=None):
     """Return relative paths of .md files whose basename stem matches.
 

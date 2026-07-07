@@ -505,6 +505,85 @@ class TestOwnershipEditPaths:
         assert parent_fields["parent"] == "project/brain2"
         assert not (vault / "Designs" / "project~brain2" / "Parent.md").exists()
 
+    def test_key_change_stamps_root_modified_but_not_descendant(self, vault, router):
+        self._write_nested_design_tree(vault)
+        source = vault / "Projects" / "Brain.md"
+        source.write_text(
+            source.read_text().replace(
+                "key: brain\n",
+                "key: brain\nmodified: 2020-01-01T00:00:00+00:00\n",
+            )
+        )
+        parent_path = vault / "Designs" / "project~brain" / "Parent.md"
+        parent_path.write_text(
+            parent_path.read_text().replace(
+                "status: shaping\n",
+                "status: shaping\nmodified: 2020-01-01T00:00:00+00:00\n",
+            )
+        )
+        import compile_router
+        router = compile_router.compile(str(vault))
+
+        result = edit.edit_artefact(
+            str(vault),
+            router,
+            "Projects/Brain.md",
+            "",
+            frontmatter_changes={"key": "brain2"},
+        )
+
+        assert result["path"] == "Projects/Brain.md"
+        source_fields, _ = parse_frontmatter(source.read_text())
+        assert source_fields["modified"] != "2020-01-01T00:00:00+00:00"
+        moved_parent = vault / "Designs" / "project~brain2" / "Parent.md"
+        parent_fields, _ = parse_frontmatter(moved_parent.read_text())
+        assert parent_fields["parent"] == "project/brain2"
+        assert parent_fields["modified"] == "2020-01-01T00:00:00+00:00"
+
+    def test_key_change_bare_living_type_with_child_uses_pending_classification(self, vault, router):
+        taxonomy = vault / "_Config" / "Taxonomy" / "Living" / "quests.md"
+        taxonomy.write_text(
+            "# Quests\n\n"
+            "## Naming\n\n`{Title}.md` in `Quests/`.\n\n"
+            "## Frontmatter\n\n"
+            "```yaml\n---\ntype: quest\ntags: []\n---\n```\n"
+        )
+        (vault / "Quests" / "parent").mkdir(parents=True)
+        (vault / "Quests" / "Parent.md").write_text(
+            "---\n"
+            "type: quest\n"
+            "tags: []\n"
+            "key: parent\n"
+            "---\n\n"
+            "# Parent\n"
+        )
+        (vault / "Quests" / "parent" / "Child.md").write_text(
+            "---\n"
+            "type: quest\n"
+            "tags:\n"
+            "  - quest/parent\n"
+            "key: child\n"
+            "parent: quest/parent\n"
+            "---\n\n"
+            "# Child\n"
+        )
+        import compile_router
+        router = compile_router.compile(str(vault))
+
+        edit.edit_artefact(
+            str(vault),
+            router,
+            "Quests/Parent.md",
+            "",
+            frontmatter_changes={"key": "parent2"},
+        )
+
+        assert (vault / "Quests" / "parent2" / "Child.md").is_file()
+        child_fields, _ = parse_frontmatter(
+            (vault / "Quests" / "parent2" / "Child.md").read_text()
+        )
+        assert child_fields["parent"] == "quest/parent2"
+
     def test_reference_mutation_write_failure_reports_written_context(
         self, vault, router, monkeypatch
     ):

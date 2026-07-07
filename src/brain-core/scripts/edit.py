@@ -35,7 +35,6 @@ from _common import (
     find_vault_root,
     derive_distinctive_slug,
     HasDescendantsError,
-    CyclicParentChainError,
     is_archived_path,
     is_valid_key,
     living_key_set,
@@ -49,6 +48,7 @@ from _common import (
     parent_chain_entries,
     parse_leading_frontmatter,
     parse_frontmatter,
+    prune_vacated_owner_folders,
     read_file_content,
     replace_artefact_key_references,
     reconcile_fields_for_render,
@@ -64,6 +64,7 @@ from _common import (
     safe_write,
     serialize_frontmatter,
     StaleArtefactIndexError,
+    RequestCycleError,
     parse_structural_anchor_line,
     unique_filename,
     validate_key,
@@ -917,32 +918,6 @@ def _write_frontmatter_mutations(vault_root, operations, *, operation):
     return written
 
 
-def _owner_folder_stop_dirs(vault_root, router):
-    stop_dirs = {os.path.abspath(vault_root)}
-    for artefact in (router or {}).get("artefacts", []):
-        path = artefact.get("path")
-        if path:
-            stop_dirs.add(os.path.abspath(os.path.join(vault_root, path)))
-    stop_dirs.add(os.path.abspath(os.path.join(vault_root, "_Archive")))
-    return stop_dirs
-
-
-def _prune_vacated_owner_folders(vault_root, source_paths, router):
-    """Remove empty owner folders vacated by a successful move set."""
-    stop_dirs = _owner_folder_stop_dirs(vault_root, router)
-    for source_path in source_paths:
-        current = os.path.abspath(os.path.join(vault_root, os.path.dirname(source_path)))
-        while current not in stop_dirs and current.startswith(os.path.abspath(vault_root)):
-            try:
-                os.rmdir(current)
-            except OSError:
-                break
-            parent = os.path.dirname(current)
-            if parent == current:
-                break
-            current = parent
-
-
 def _raise_stale_index_missing(rel_path, operation):
     raise StaleArtefactIndexError(
         f"{operation} found indexed artefact {rel_path} missing on disk; "
@@ -971,12 +946,12 @@ def _validate_not_parented_to_descendant(router, source_key, target_parent, oper
         key for key in (normalize_artefact_key(alias) for alias in aliases) if key
     )
     if target_key in forbidden_self_keys:
-        raise CyclicParentChainError(
+        raise RequestCycleError(
             f"{operation} would make {source_key} parent itself via {target_key}"
         )
     for entry in descendant_entries(router, source_key):
         if entry.get("artefact_key") == target_key:
-            raise CyclicParentChainError(
+            raise RequestCycleError(
                 f"{operation} would make {source_key} a child of descendant {target_key}"
             )
 
@@ -1075,6 +1050,7 @@ def _maybe_restructure_living_ownership(vault_root, router, path, art, old_field
     pending_entry = {
         "path": path,
         "type": art.get("frontmatter_type", art.get("type")),
+        "classification": "living",
         "type_key": art.get("key"),
         "type_prefix": type_prefix,
         "key": new_key_value,
@@ -1113,6 +1089,7 @@ def _maybe_restructure_living_ownership(vault_root, router, path, art, old_field
     )
 
     preflight_move_set(vault_root, moves)
+    rendered_fields["modified"] = now_iso()
     write_ops = [
         {"path": path, "fields": rendered_fields, "body": new_body},
         *reference_ops,
@@ -1130,7 +1107,7 @@ def _maybe_restructure_living_ownership(vault_root, router, path, art, old_field
                 "ownership mutation partially applied — "
                 f"metadata files written {metadata_written}; move failure: {exc}"
             ) from exc
-        _prune_vacated_owner_folders(
+        prune_vacated_owner_folders(
             vault_root,
             [move["source"] for move in result.get("applied", [])],
             router,
@@ -1413,7 +1390,7 @@ def prepend_to_artefact(vault_root, router, path, content="", frontmatter_change
 # Type conversion
 # ---------------------------------------------------------------------------
 
-def convert_artefact(vault_root, router, path, target_type, parent=None):
+def convert_artefact(vault_root, router, path, target_type, parent=None, recursive=False):
     """Convert artefact to a different type: move to target folder, reconcile FM, update wikilinks.
 
     Args:
@@ -1424,6 +1401,8 @@ def convert_artefact(vault_root, router, path, target_type, parent=None):
         parent: Optional canonical parent artefact reference. If omitted, an existing
                 parent is preserved when the target contract permits it. Temporal targets
                 keep their normal date-based folders.
+        recursive: Required to convert a living parent with living descendants
+                into a temporal artefact, because descendants are deparented.
 
     Returns:
         Dict with old_path, new_path, type, and links_updated.
@@ -1461,6 +1440,19 @@ def convert_artefact(vault_root, router, path, target_type, parent=None):
         else None
     )
     old_parent = normalize_artefact_key(fields.get("parent"))
+    descendants = []
+    if (
+        source_art.get("classification") == "living"
+        and target_art.get("classification") == "temporal"
+        and old_key
+    ):
+        descendants = descendant_entries(router, old_key)
+        if descendants and not recursive:
+            raise HasDescendantsError(
+                "convert",
+                {"key": old_key, "path": path},
+                descendant_payload(descendants),
+            )
 
     if target_art.get("classification") == "living":
         target_key = _choose_living_key(
@@ -1539,6 +1531,7 @@ def convert_artefact(vault_root, router, path, target_type, parent=None):
         pending_entry = {
             "path": path,
             "type": target_art.get("frontmatter_type", target_art.get("type")),
+            "classification": "living",
             "type_key": target_art.get("key"),
             "type_prefix": target_prefix,
             "key": fields.get("key"),
@@ -1600,7 +1593,7 @@ def convert_artefact(vault_root, router, path, target_type, parent=None):
                 f"metadata files written {metadata_written}; move failure: {exc}"
             ) from exc
         links_updated = result["links_updated"]
-        _prune_vacated_owner_folders(
+        prune_vacated_owner_folders(
             vault_root,
             [move["source"] for move in result.get("applied", [])],
             router,
@@ -1802,7 +1795,7 @@ def reparent_children(vault_root, router, source, to_marker=None, *, to_provided
                 f"metadata files written {written}; move failure: {exc}"
             ) from exc
         links_updated = result["links_updated"]
-        _prune_vacated_owner_folders(
+        prune_vacated_owner_folders(
             vault_root,
             [move["source"] for move in result.get("applied", [])],
             router,
@@ -1879,7 +1872,7 @@ def archive_artefact(vault_root, router, path, recursive=False):
             "archive partially applied — "
             f"metadata files written {written}; move failure: {exc}"
         ) from exc
-    _prune_vacated_owner_folders(
+    prune_vacated_owner_folders(
         vault_root,
         [move["source"] for move in result.get("applied", [])],
         router,

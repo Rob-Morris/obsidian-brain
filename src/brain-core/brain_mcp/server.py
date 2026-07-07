@@ -77,6 +77,7 @@ import _search.index as search_index
 import _search.paths as search_paths
 from _common import (
     ParentChainError,
+    PartialApplyError,
     SELECTOR_OCCURRENCE_DESCRIPTION,
     SELECTOR_WITHIN_DESCRIPTION,
     SELECTOR_WITHIN_OCCURRENCE_DESCRIPTION,
@@ -3032,6 +3033,11 @@ def brain_edit(
         except ParentChainError as e:
             cleanup_temp_body_file(cleanup_path)
             return _fmt_error(parent_chain_error_message(e))
+        except PartialApplyError as e:
+            cleanup_temp_body_file(cleanup_path)
+            _mark_router_dirty()
+            _mark_index_dirty()
+            return _fmt_error(str(e))
         except (ValueError, FileNotFoundError) as e:
             cleanup_temp_body_file(cleanup_path)
             return _fmt_error(str(e))
@@ -3078,7 +3084,10 @@ def brain_move(
     ] = None,
     recursive: Annotated[
         bool | None,
-        Field(description="When true, archive the living descendant subtree too."),
+        Field(description=(
+            "When true, archive the living descendant subtree, or allow convert "
+            "from a living parent to a temporal type by deparenting descendants."
+        )),
     ] = None,
 ):
     """Perform a destructive content move while preserving artefact semantics.

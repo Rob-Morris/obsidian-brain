@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.50.1](changelog/v0.50.1.md) | 2026-07-07 | Harden recursive nested ownership safety and diagnostics |
 | [v0.50.0](changelog/v0.50.0.md) | 2026-07-07 | Add recursive nested ownership migration and mutation safety |
 | [v0.49.5](changelog/v0.49.5.md) | 2026-06-23 | Correct tool count and script-usage drift in shipped Brain docs |
 | [v0.49.4](changelog/v0.49.4.md) | 2026-06-22 | Degrade the Obsidian CLI client gracefully on native Windows |

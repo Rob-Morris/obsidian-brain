@@ -175,7 +175,7 @@ If your vault runs the Brain MCP server (`.brain-core/brain_mcp/server.py`), ten
 **brain_move** (vault-wide/destructive, requires approval)
 - Flat top-level move tool for artefact path/classification transitions
 - `rename` — request shape: `{op: "rename", source, dest}`; artefact-aware same-type move with automatic wikilink updates (uses Obsidian CLI when available)
-- `convert` — request shape: `{op: "convert", path, target_type, parent?}`; changes artefact type, moves the file, reconciles frontmatter, updates wikilinks, and generates a distinctive living `key` when converting temporal artefacts to living types
+- `convert` — request shape: `{op: "convert", path, target_type, parent?, recursive?}`; changes artefact type, moves the file, reconciles frontmatter, updates wikilinks, and generates a distinctive living `key` when converting temporal artefacts to living types. Living parents with living descendants return `HAS_DESCENDANTS` unless `recursive: true` is supplied for living→temporal conversion.
 - `archive` — request shape: `{op: "archive", path, recursive?}`; archives a terminal-status artefact to `_Archive/` with date-prefix rename and wikilink updates. Artefacts with living descendants return `HAS_DESCENDANTS` unless `recursive: true` is supplied
 - `unarchive` — request shape: `{op: "unarchive", path}`; restores an archived artefact to its original type folder and removes `archiveddate`
 

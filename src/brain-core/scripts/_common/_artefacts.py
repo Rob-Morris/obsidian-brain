@@ -38,6 +38,10 @@ class CyclicParentChainError(ParentChainError):
     """Raised when parent references form a cycle."""
 
 
+class RequestCycleError(CyclicParentChainError):
+    """Raised when a mutation request would create a parent cycle."""
+
+
 def parent_chain_error_message(exc):
     """Return the user-facing mutation-boundary message for parent-chain errors."""
     if isinstance(exc, StaleArtefactIndexError):
@@ -46,6 +50,8 @@ def parent_chain_error_message(exc):
             f"{exc}. Recompile or repair the router/index, resolve any keyless "
             "or newly-created living artefacts, then retry the mutation."
         )
+    if isinstance(exc, RequestCycleError):
+        return f"Invalid living parent chain: {exc}."
     return (
         "Invalid living parent chain: "
         f"{exc}. Run check/doctor, reconcile the broken or cyclic parent "
@@ -311,7 +317,8 @@ def descendant_entries(router, parent):
         )
 
     descendants = []
-    active = {parent_key}
+    active = [parent_key]
+    active_keys = {parent_key}
     visited = set()
     children_by_parent = {}
     for child_key, entry in artefact_index.items():
@@ -328,18 +335,20 @@ def descendant_entries(router, parent):
     def visit(current_key):
         for child in children_by_parent.get(current_key, []):
             child_key = child["artefact_key"]
-            if child_key in active:
-                cycle = list(active) + [child_key]
+            if child_key in active_keys:
+                cycle = active[active.index(child_key):] + [child_key]
                 raise CyclicParentChainError(
                     "Cyclic descendant chain: " + " -> ".join(cycle)
                 )
             if child_key in visited:
                 continue
-            active.add(child_key)
+            active.append(child_key)
+            active_keys.add(child_key)
             visited.add(child_key)
             descendants.append(child)
             visit(child_key)
-            active.remove(child_key)
+            active.pop()
+            active_keys.remove(child_key)
 
     visit(parent_key)
     return descendants
@@ -432,6 +441,38 @@ def iter_living_markdown_files(vault_root, router, *, include_status_folders=Fal
         classifications={"living"},
         include_status_folders=include_status_folders,
     )
+
+
+def owner_folder_stop_dirs(vault_root, router):
+    """Return directories where vacated owner-folder pruning must stop."""
+    stop_dirs = {os.path.abspath(vault_root)}
+    for artefact in (router or {}).get("artefacts", []):
+        path = artefact.get("path")
+        if path:
+            stop_dirs.add(os.path.abspath(os.path.join(vault_root, path)))
+    stop_dirs.add(os.path.abspath(os.path.join(vault_root, "_Archive")))
+    return stop_dirs
+
+
+def prune_vacated_owner_folders(vault_root, source_paths, router):
+    """Remove empty owner folders vacated by a successful move set.
+
+    Pruning is intentionally rmdir-only and bounded by artefact type roots and
+    ``_Archive``. Non-empty directories and type roots are left untouched.
+    """
+    stop_dirs = owner_folder_stop_dirs(vault_root, router)
+    vault_abs = os.path.abspath(vault_root)
+    for source_path in source_paths:
+        current = os.path.abspath(os.path.join(vault_root, os.path.dirname(source_path)))
+        while current not in stop_dirs and current.startswith(vault_abs):
+            try:
+                os.rmdir(current)
+            except OSError:
+                break
+            parent = os.path.dirname(current)
+            if parent == current:
+                break
+            current = parent
 
 
 def ensure_tags_list(fields):

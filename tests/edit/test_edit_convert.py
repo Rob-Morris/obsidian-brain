@@ -7,6 +7,7 @@ import pytest
 
 import edit
 from _common import (
+    HasDescendantsError,
     ParentChainError,
     PartialApplyError,
     parse_frontmatter,
@@ -85,7 +86,60 @@ class TestConvertArtefact:
         assert (vault / "Designs").is_dir()
         assert (vault / "Wiki" / "project~brain").is_dir()
 
-    def test_convert_living_to_temporal_deparents_descendant_subtree(self, vault, router):
+    def test_convert_living_to_temporal_refuses_descendants_without_recursive(self, vault, router):
+        (vault / "Designs" / "project~brain" / "parent").mkdir(parents=True, exist_ok=True)
+        (vault / "Designs" / "project~brain" / "Parent.md").write_text(
+            "---\n"
+            "type: living/designs\n"
+            "tags:\n"
+            "  - project/brain\n"
+            "key: parent\n"
+            "parent: project/brain\n"
+            "status: shaping\n"
+            "---\n\n"
+            "# Parent\n"
+        )
+        (vault / "Designs" / "project~brain" / "parent" / "Child.md").write_text(
+            "---\n"
+            "type: living/designs\n"
+            "tags:\n"
+            "  - designs/parent\n"
+            "key: child\n"
+            "parent: designs/parent\n"
+            "status: shaping\n"
+            "---\n\n"
+            "# Child\n"
+        )
+        grand_dir = vault / "Wiki" / "project~brain" / "designs~parent" / "designs~child"
+        grand_dir.mkdir(parents=True, exist_ok=True)
+        (grand_dir / "Grand.md").write_text(
+            "---\n"
+            "type: living/wiki\n"
+            "tags:\n"
+            "  - designs/child\n"
+            "key: grand\n"
+            "parent: designs/child\n"
+            "---\n\n"
+            "# Grand\n"
+        )
+        import compile_router
+        router = compile_router.compile(str(vault))
+        parent_before = (vault / "Designs" / "project~brain" / "Parent.md").read_text()
+        child_before = (vault / "Designs" / "project~brain" / "parent" / "Child.md").read_text()
+
+        with pytest.raises(HasDescendantsError) as exc_info:
+            edit.convert_artefact(
+                str(vault), router, "Designs/project~brain/Parent.md", "research"
+            )
+
+        payload = exc_info.value.to_payload()
+        assert payload["code"] == "HAS_DESCENDANTS"
+        assert payload["operation"] == "convert"
+        assert payload["descendants"][0]["key"] == "designs/child"
+        assert (vault / "Designs" / "project~brain" / "Parent.md").read_text() == parent_before
+        assert (vault / "Designs" / "project~brain" / "parent" / "Child.md").read_text() == child_before
+
+    def test_convert_living_to_temporal_recursive_deparents_descendant_subtree(self, vault, router):
         (vault / "Designs" / "project~brain" / "parent").mkdir(parents=True, exist_ok=True)
         (vault / "Designs" / "project~brain" / "Parent.md").write_text(
             "---\n"
@@ -125,7 +179,7 @@ class TestConvertArtefact:
         router = compile_router.compile(str(vault))
 
         result = edit.convert_artefact(
-            str(vault), router, "Designs/project~brain/Parent.md", "research"
+            str(vault), router, "Designs/project~brain/Parent.md", "research", recursive=True
         )
 
         assert result["type"] == "temporal/research"
@@ -570,7 +624,7 @@ class TestConvertArtefact:
         router = compile_router.compile(str(vault))
 
         result = edit.convert_artefact(
-            str(vault), router, "Projects/Brain.md", "reports"
+            str(vault), router, "Projects/Brain.md", "reports", recursive=True
         )
 
         assert result["new_path"].startswith("_Temporal/Reports/")
@@ -594,7 +648,9 @@ class TestConvertArtefact:
         import compile_router
         router = compile_router.compile(str(vault))
 
-        edit.convert_artefact(str(vault), router, "Projects/Brain.md", "reports")
+        edit.convert_artefact(
+            str(vault), router, "Projects/Brain.md", "reports", recursive=True
+        )
 
         tagged = vault / "Wiki" / "tagged.md"
         assert tagged.is_file()

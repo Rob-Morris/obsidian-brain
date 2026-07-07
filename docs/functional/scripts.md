@@ -513,6 +513,8 @@ manual recovery.
 - moves files through the shared `rename.py` move-set preflight and wikilink
   updater, so full-path and filename-only links are rewritten consistently with
   runtime moves
+- prunes empty vacated owner folders after successful moves, stopping at
+  artefact type roots and `_Archive/` and leaving non-empty folders alone
 
 **Dry-run/apply contract:**
 
@@ -546,7 +548,7 @@ the vault without scraping prose:
 | `keyless_living` | A living artefact lacks a valid canonical `key:` and cannot be indexed safely |
 | `invalid_chains` | A `parent:` chain is broken, cyclic, or otherwise fails the shared parent-chain contract |
 | `conflicts` | An existing canonical `parent:` disagrees with the containing owner folder; the canonical `parent:` wins, but the conflict is listed |
-| `collisions` | A planned destination is unsafe: existing destination file, duplicate move source/destination, or a destination parent component that is a file or broken symlink |
+| `collisions` | A planned move endpoint is unsafe: existing destination file, duplicate move source/destination, symlink source/destination, or a destination parent component that is a file or broken symlink |
 | `cyclic_moves` | The planned move set contains a cycle that cannot be applied safely |
 
 Human output lists the same per-item categories, including duplicate keys,

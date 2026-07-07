@@ -431,6 +431,8 @@ class TestBrainEdit:
 
         _assert_error(result, "Invalid living parent chain")
         _assert_error(result, "child of descendant wiki/child")
+        assert "Run check/doctor" not in result
+        assert "reconcile the broken or cyclic parent metadata" not in result
         assert "Unexpected error" not in result
         assert "Traceback" not in result
         assert parent.read_text() == parent_before
@@ -1374,6 +1376,54 @@ class TestBrainEditFixLinksIndex:
         assert "Broken wikilinks" not in result
         assert "Resolvable wikilinks" not in result
 
+    def test_brain_edit_partial_apply_marks_dirty_and_preserves_context(
+        self, initialized, monkeypatch
+    ):
+        (initialized / "Ideas" / "Parent.md").write_text(
+            "---\n"
+            "type: living/ideas\n"
+            "tags: []\n"
+            "key: parent\n"
+            "status: shaping\n"
+            "---\n\n"
+            "# Parent\n"
+        )
+        child_dir = initialized / "Wiki" / "ideas~parent"
+        child_dir.mkdir(parents=True)
+        (child_dir / "Child.md").write_text(
+            "---\n"
+            "type: living/wiki\n"
+            "tags:\n"
+            "  - ideas/parent\n"
+            "key: child\n"
+            "parent: ideas/parent\n"
+            "---\n\n"
+            "# Child\n"
+        )
+        server._set_router(compile_router.compile(str(initialized)))
+
+        def fail_move(*_args, **_kwargs):
+            raise PartialApplyError(
+                "move set partially applied — links already rewritten; disk full"
+            )
+
+        monkeypatch.setattr(server.edit, "move_and_update_links", fail_move)
+        server._router_dirty = False
+        server._index_dirty = False
+
+        result = server.brain_edit(
+            operation="edit",
+            path="Ideas/Parent.md",
+            frontmatter={"key": "parent2"},
+        )
+
+        _assert_partial_apply_error(result, "ownership mutation partially applied")
+        _assert_error(result, "disk full")
+        assert server._router_dirty is True
+        assert server._index_dirty is True
+        fields, _ = parse_frontmatter((initialized / "Ideas" / "Parent.md").read_text())
+        assert fields["key"] == "parent2"
+
 
 class TestBrainMove:
     def _make_idea(self, vault, name="my-idea.md", status="adopted", project=None):
@@ -1964,7 +2014,7 @@ class TestBrainMoveConvert:
         assert "Traceback" not in result
 
     def test_convert_surfaces_partial_apply_context(self, initialized):
-        def fake_convert(vault_root, router, path, target_type, parent=None):
+        def fake_convert(vault_root, router, path, target_type, parent=None, recursive=False):
             raise PartialApplyError(
                 "convert mutation partially applied — metadata files written; "
                 "move failure: move set partially applied — links already rewritten"
@@ -1983,6 +2033,39 @@ class TestBrainMoveConvert:
         _assert_error(result, "move failure")
         assert server._router_dirty is True
         assert server._index_dirty is True
+
+    def test_convert_living_parent_to_temporal_requires_recursive(self, initialized):
+        _write_parent_child_tree(initialized)
+        server._set_router(compile_router.compile(str(initialized)))
+
+        result = server.brain_move(
+            op="convert",
+            path="Ideas/Parent.md",
+            target_type="logs",
+        )
+
+        _assert_error(result, "HAS_DESCENDANTS")
+        assert (initialized / "Ideas" / "Parent.md").is_file()
+        assert (initialized / "Wiki" / "ideas~parent" / "Child.md").is_file()
+
+    def test_convert_living_parent_to_temporal_accepts_recursive(self, initialized):
+        _write_parent_child_tree(initialized)
+        server._set_router(compile_router.compile(str(initialized)))
+
+        result = json.loads(server.brain_move(
+            op="convert",
+            path="Ideas/Parent.md",
+            target_type="logs",
+            recursive=True,
+        ))
+
+        assert result["status"] == "ok"
+        assert result["new_path"].startswith("_Temporal/Logs/")
+        assert not (initialized / "Ideas" / "Parent.md").exists()
+        child = initialized / "Wiki" / "Child.md"
+        assert child.is_file()
+        fields, _ = parse_frontmatter(child.read_text())
+        assert "parent" not in fields
 
     def test_convert_marks_router_dirty(self, initialized):
         server._router_dirty = False
@@ -2325,6 +2408,8 @@ class TestBrainActionReparent:
 
         _assert_error(result, "Invalid living parent chain")
         _assert_error(result, "child of descendant wiki/child")
+        assert "Run check/doctor" not in result
+        assert "reconcile the broken or cyclic parent metadata" not in result
         assert "Unexpected error" not in result
         assert "Traceback" not in result
         assert parent.read_text() == parent_before

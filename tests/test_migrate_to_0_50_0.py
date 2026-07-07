@@ -132,6 +132,33 @@ def test_flat_same_type_grandchild_moves_to_recursive_owner_chain(tmp_path):
     assert "[[Designs/child/Grand]]" not in (vault / "Wiki" / "Reference.md").read_text()
 
 
+def test_migration_prunes_empty_vacated_owner_folders_but_leaves_nonempty(tmp_path):
+    vault = _setup_vault(tmp_path)
+    _write(vault / "Designs" / "Parent.md", {"type": "living/design", "tags": [], "key": "parent"})
+    _write(
+        vault / "Designs" / "parent" / "Child.md",
+        {"type": "living/design", "tags": [], "key": "child", "parent": "design/parent"},
+    )
+    _write(
+        vault / "Designs" / "child" / "Grand.md",
+        {"type": "living/design", "tags": [], "key": "grand", "parent": "design/child"},
+    )
+    _write(
+        vault / "Wiki" / "design~child" / "Leaf.md",
+        {"type": "living/wiki", "tags": [], "key": "leaf", "parent": "design/child"},
+    )
+    (vault / "Wiki" / "design~child" / "keep.txt").write_text("keep\n", encoding="utf-8")
+
+    result = migrate_to_0_50_0.migrate_vault(str(vault), apply=True, router=_router(vault))
+
+    assert result["status"] == "ok"
+    assert (vault / "Designs" / "parent" / "child" / "Grand.md").is_file()
+    assert (vault / "Wiki" / "design~parent" / "design~child" / "Leaf.md").is_file()
+    assert not (vault / "Designs" / "child").exists()
+    assert (vault / "Wiki" / "design~child").is_dir()
+    assert (vault / "Wiki" / "design~child" / "keep.txt").is_file()
+
+
 def test_cross_type_descendant_moves_under_full_mixed_chain(tmp_path):
     vault = _setup_vault(tmp_path)
     _write(vault / "Projects" / "Brain.md", {"type": "living/project", "tags": [], "key": "brain"})
@@ -628,6 +655,36 @@ def test_broken_symlink_destination_parent_blocks_without_parent_writes_or_moves
     assert grand.is_file()
     assert blocked.is_symlink()
     assert not (vault / "Wiki" / "missing-target" / "design~child" / "Grand.md").exists()
+
+
+def test_symlinked_living_artefact_source_blocks_without_traceback_or_writes(tmp_path):
+    vault = _setup_vault(tmp_path)
+    _write(vault / "Designs" / "Parent.md", {"type": "living/design", "tags": [], "key": "parent"})
+    target = tmp_path / "real-child.md"
+    _write(
+        target,
+        {"type": "living/design", "tags": [], "key": "child", "parent": "design/parent"},
+    )
+    source = vault / "Designs" / "child" / "Child.md"
+    source.parent.mkdir(parents=True)
+    source.symlink_to(target)
+
+    dry = migrate_to_0_50_0.migrate_vault(str(vault), apply=False, router=_router(vault))
+    applied = migrate_to_0_50_0.migrate_vault(str(vault), apply=True, router=_router(vault))
+
+    assert dry["status"] == "blocked"
+    assert dry["collisions"] == [
+        {
+            "source": None,
+            "dest": None,
+            "reason": "Move source cannot be a symlink: Designs/child/Child.md",
+        }
+    ]
+    assert applied["status"] == "blocked"
+    assert applied["collisions"] == dry["collisions"]
+    assert source.is_symlink()
+    assert target.is_file()
+    assert not (vault / "Designs" / "parent" / "child" / "Child.md").exists()
 
 
 def test_cyclic_move_set_blocks_before_parent_writes(tmp_path, monkeypatch):

@@ -139,7 +139,7 @@ def validate_destination_parent_directory(vault_root, dest, *, allow_archive_pat
     _validate_destination_parent_directory(vault_root, dest, abs_dest)
 
 
-def move_destination_collision(vault_root, source, dest, sources):
+def move_destination_collision(vault_root, source, dest, sources, *, source_ids=None):
     """Return a collision reason for a planned move destination, or None.
 
     Mirrors the batch move preflight rule: an existing destination is allowed
@@ -156,10 +156,11 @@ def move_destination_collision(vault_root, source, dest, sources):
         return None
     if _same_existing_file(abs_source, abs_dest):
         return None
-    source_ids = {
-        _path_identity(os.path.join(vault_root, planned_source))
-        for planned_source in sources
-    }
+    if source_ids is None:
+        source_ids = {
+            _path_identity(os.path.join(vault_root, planned_source))
+            for planned_source in sources
+        }
     if dest_id in source_ids:
         return None
     return "destination already exists"
@@ -210,12 +211,15 @@ def preflight_move_set(vault_root, moves, router=None, *, allow_archive_paths=Fa
         })
 
     sources = {move["source"] for move in planned}
+    source_ids = {move["source_id"] for move in planned}
     for move in planned:
         source = move["source"]
         dest = move["dest"]
         if move["source_id"] == move["dest_id"]:
             continue
-        collision = move_destination_collision(vault_root, source, dest, sources)
+        collision = move_destination_collision(
+            vault_root, source, dest, sources, source_ids=source_ids
+        )
         if collision:
             raise FileExistsError(f"Destination file already exists: {dest}")
 

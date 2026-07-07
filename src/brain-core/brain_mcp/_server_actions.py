@@ -204,6 +204,7 @@ def _action_convert(runtime: ServerRuntime, params: dict):
             params["path"],
             params["target_type"],
             parent=params.get("parent"),
+            recursive=bool(params.get("recursive")),
         )
         runtime.mark_router_dirty()
         runtime.mark_index_dirty()
@@ -401,7 +402,7 @@ MOVE_SPECS = {
     ),
     "convert": MoveSpec(
         required_fields=("path", "target_type"),
-        optional_fields=("parent",),
+        optional_fields=("parent", "recursive"),
         handler=_action_convert,
         requires_router_refresh=True,
     ),
