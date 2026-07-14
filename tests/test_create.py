@@ -40,6 +40,9 @@ def vault(tmp_path):
     # Living type: Ideas
     (tmp_path / "Ideas").mkdir()
 
+    # Living type: Designs
+    (tmp_path / "Designs").mkdir()
+
     # Living type: Releases
     (tmp_path / "Releases").mkdir()
 
@@ -67,6 +70,15 @@ def vault(tmp_path):
         "## Naming\n\n`{Title}.md` in `Ideas/`.\n\n"
         "## Frontmatter\n\n```yaml\n---\ntype: living/ideas\ntags:\n  - idea-tag\nstatus: shaping\n---\n```\n\n"
         "## Template\n\n[[_Config/Templates/Living/Ideas]]\n"
+    )
+
+    # Taxonomy: Designs
+    (tax_living / "designs.md").write_text(
+        "# Designs\n\n"
+        "## Naming\n\n`{Title}.md` in `Designs/`.\n\n"
+        "## Frontmatter\n\n```yaml\n---\ntype: living/design\ntags:\n"
+        "  - design\nstatus: shaping\n---\n```\n\n"
+        "## Template\n\n[[_Config/Templates/Living/Designs]]\n"
     )
 
     # Taxonomy: Releases
@@ -123,6 +135,10 @@ def vault(tmp_path):
     )
     (templates_living / "Ideas.md").write_text(
         "---\ntype: living/ideas\ntags: []\nstatus: shaping\n---\n\n# {{title}}\n\nWhat if...\n"
+    )
+    (templates_living / "Designs.md").write_text(
+        "---\ntype: living/design\ntags: [design]\nstatus: shaping\n---\n\n"
+        "# {{title}}\n\n"
     )
     (templates_living / "Releases.md").write_text(
         "---\ntype: living/release\ntags:\n  - release\nstatus: planned\nversion:\ntag:\ncommit:\nshipped:\n---\n\n"
@@ -231,6 +247,42 @@ class TestCreateArtefact:
         content = open(os.path.join(str(vault), result["path"])).read()
         fields, _ = parse_frontmatter(content)
         assert re.fullmatch(r"pistols-dawn-[a-z2-9]{3}", fields["key"])
+
+    def test_reused_router_reserves_created_living_keys(self, vault, router):
+        import compile_router
+
+        first = create.create_artefact(
+            str(vault),
+            router,
+            "designs",
+            "Test Artefact Subcortex Design",
+            parent="project/brain",
+        )
+        second = create.create_artefact(
+            str(vault),
+            router,
+            "designs",
+            "The Test Artefact Subcortex Design",
+            parent="project/brain",
+        )
+
+        assert first["key"] != second["key"]
+        assert second["parent_context"]["related"] == [first["path"]]
+        first_key = f"design/{first['key']}"
+        second_key = f"design/{second['key']}"
+        assert router["artefact_index"][first_key]["path"] == first["path"]
+        assert router["artefact_index"][second_key]["path"] == second["path"]
+
+        rebuilt = compile_router.compile(str(vault))
+        assert router["artefact_index"][first_key] == rebuilt["artefact_index"][
+            first_key
+        ]
+        assert router["artefact_index"][second_key] == rebuilt["artefact_index"][
+            second_key
+        ]
+        assert router["artefact_index"]["project/brain"] == rebuilt[
+            "artefact_index"
+        ]["project/brain"]
 
     def test_create_temporal_type(self, vault, router):
         result = create.create_artefact(str(vault), router, "logs", "My Session")

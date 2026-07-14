@@ -35,6 +35,7 @@ from _common import (
     find_vault_root,
     derive_distinctive_slug,
     has_leading_frontmatter,
+    living_artefact_index_entry,
     living_key_set,
     make_temp_path,
     make_artefact_key,
@@ -145,7 +146,9 @@ def create_artefact(vault_root, router, type_key, title, body="", frontmatter_ov
 
     Args:
         vault_root: Absolute path to the vault root.
-        router: Compiled router dict.
+        router: Compiled router dict. Successful living creates update its
+                artefact index in place so the router can be reused for
+                sequential creates. Concurrent direct calls are unsupported.
         type_key: Artefact type key (e.g. "idea") or full type (e.g. "living/idea").
         title: Human-readable title, used for filename generation.
         body: Markdown body content (optional, template body used if empty).
@@ -249,7 +252,24 @@ def create_artefact(vault_root, router, type_key, title, body="", frontmatter_ov
     check_write_allowed(rel_path)
     abs_path = os.path.join(vault_root, rel_path)
     content = serialize_frontmatter(fields, body=final_body)
+    parent_context = _build_parent_context(
+        router, artefact, fields, resolved_parent, parent_entry
+    )
     safe_write(abs_path, content, bounds=vault_root, exclusive=True)
+
+    artefact_index = router.get("artefact_index")
+    if artefact_index is not None and artefact.get("classification") == "living":
+        canonical_key = make_artefact_key(
+            artefact_type_prefix(artefact), fields["key"]
+        )
+        entry = living_artefact_index_entry(artefact, rel_path, fields)
+        artefact_index[canonical_key] = entry
+        parent_key = entry.get("parent")
+        if parent_key in artefact_index:
+            indexed_parent = artefact_index[parent_key]
+            indexed_parent["children_count"] = (
+                indexed_parent.get("children_count", 0) + 1
+            )
 
     result = {
         "path": rel_path,
@@ -260,9 +280,6 @@ def create_artefact(vault_root, router, type_key, title, body="", frontmatter_ov
         result["key"] = fields["key"]
     if resolved_parent:
         result["parent"] = resolved_parent
-    parent_context = _build_parent_context(
-        router, artefact, fields, resolved_parent, parent_entry
-    )
     if parent_context:
         result["parent_context"] = parent_context
     _fix_links.attach_wikilink_warnings(vault_root, result, apply_fixes=fix_links, file_index=file_index)
