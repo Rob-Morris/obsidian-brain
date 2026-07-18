@@ -2,7 +2,7 @@
 """
 process.py — Content classification, duplicate resolution, and ingestion
 
-Provides three operations for the brain_process MCP tool:
+Provides the domain operations exposed by brain_classify, brain_resolve, and brain_ingest:
   classify   — Determine the best artefact type for content.
   resolve    — Check if content should create or update an existing artefact.
   ingest     — Full pipeline: classify -> resolve -> create/update.

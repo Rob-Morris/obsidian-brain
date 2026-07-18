@@ -12,6 +12,7 @@ Usage:
     python3 rename.py "source.md" "dest.md" --json
 """
 
+import argparse
 import json
 import os
 import sys
@@ -30,11 +31,14 @@ from _common import (
     PartialApplyError,
     is_archived_path,
     make_wikilink_replacer,
+    MutationLockError,
+    public_mutation_error_message,
     parse_frontmatter,
     replace_wikilinks_in_vault,
     resolve_and_check_bounds,
     validate_artefact_folder,
     validate_filename,
+    vault_mutation_lock,
     wikilink_stems_for_path_change,
 )
 
@@ -559,54 +563,42 @@ def delete_and_clean_links(vault_root, path, router=None, recursive=False):
 # CLI
 # ---------------------------------------------------------------------------
 
-def main():
-    vault_arg = None
-    json_mode = False
-    positional = []
+def _build_parser():
+    parser = argparse.ArgumentParser(
+        description="Rename a vault file and update matching wikilinks."
+    )
+    parser.add_argument("source")
+    parser.add_argument("dest")
+    parser.add_argument("--vault")
+    parser.add_argument("--json", action="store_true")
+    return parser
 
-    i = 1
-    while i < len(sys.argv):
-        arg = sys.argv[i]
-        if arg == "--vault" and i + 1 < len(sys.argv):
-            vault_arg = sys.argv[i + 1]
-            i += 2
-        elif arg == "--json":
-            json_mode = True
-            i += 1
-        elif not arg.startswith("--"):
-            positional.append(arg)
-            i += 1
-        else:
-            i += 1
 
-    if len(positional) != 2:
-        print(
-            'Usage: rename.py "source.md" "dest.md" [--vault PATH] [--json]',
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
-    source, dest = positional
-    vault_root = str(find_vault_root(vault_arg))
+def main(argv=None):
+    args = _build_parser().parse_args(argv)
+    source, dest = args.source, args.dest
+    vault_root = str(find_vault_root(args.vault))
 
     router = load_fresh_compiled_router(vault_root)
     if "error" in router:
-        if json_mode:
+        if args.json:
             print(json.dumps(router))
         else:
             print(f"Error: {router['error']}", file=sys.stderr)
         sys.exit(1)
 
     try:
-        links_updated = rename_and_update_links(vault_root, source, dest, router=router)
-    except (FileNotFoundError, ValueError, PartialApplyError, OSError) as e:
-        if json_mode:
-            print(json.dumps({"error": str(e)}))
+        with vault_mutation_lock(vault_root):
+            links_updated = rename_and_update_links(vault_root, source, dest, router=router)
+    except (MutationLockError, FileNotFoundError, ValueError, PartialApplyError, OSError) as e:
+        message = public_mutation_error_message(e)
+        if args.json:
+            print(json.dumps({"error": message}))
         else:
-            print(f"Error: {e}", file=sys.stderr)
+            print(f"Error: {message}", file=sys.stderr)
         sys.exit(1)
 
-    if json_mode:
+    if args.json:
         print(json.dumps({
             "status": "ok",
             "method": "grep_replace",

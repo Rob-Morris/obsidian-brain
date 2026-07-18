@@ -13,10 +13,10 @@ class TestListArtefactsTypeFilter:
     def _make_index(self):
         return {
             "documents": [
-                {"path": "Ideas/project~brain/foo.md", "type": "living/idea", "tags": ["project/brain"], "parent": "project/brain", "status": "new", "modified": "2026-04-01", "title": "foo", "key": "foo"},
-                {"path": "Ideas/bar.md", "type": "living/idea", "tags": [], "status": "new", "modified": "2026-04-02", "title": "bar", "key": "bar"},
-                {"path": "Wiki/baz.md", "type": "living/wiki", "tags": [], "status": None, "modified": "2026-04-03", "title": "baz", "key": "baz"},
-                {"path": "_Temporal/Reports/2026-04/20260404-report~audit.md", "type": "temporal/report", "tags": ["project/brain"], "parent": "project/brain", "status": None, "modified": "2026-04-04", "title": "20260404-report~audit", "key": None},
+                {"path": "Ideas/project~brain/foo.md", "type": "living/idea", "tags": ["project/brain"], "parent": "project/brain", "status": "new", "created": "2026-03-01", "modified": "2026-04-04", "title": "foo", "key": "foo"},
+                {"path": "Ideas/bar.md", "type": "living/idea", "tags": [], "status": "new", "created": "2026-03-02", "modified": "2026-04-03", "title": "bar", "key": "bar"},
+                {"path": "Wiki/baz.md", "type": "living/wiki", "tags": [], "status": None, "created": "2026-03-03", "modified": "2026-04-02", "title": "baz", "key": "baz"},
+                {"path": "_Temporal/Reports/2026-04/20260404-report~audit.md", "type": "temporal/report", "tags": ["project/brain"], "parent": "project/brain", "status": None, "created": "2026-03-04", "modified": "2026-04-01", "title": "20260404-report~audit", "key": None},
             ],
         }
 
@@ -115,3 +115,71 @@ class TestListArtefactsTypeFilter:
             assert "No artefact matching parent" in str(exc)
         else:
             raise AssertionError("Expected ValueError for unknown parent")
+
+    def test_unknown_type_is_rejected_with_guidance(self):
+        try:
+            la.list_artefacts(
+                self._make_index(), self._make_router(), type_filter="living/missing"
+            )
+        except ValueError as exc:
+            assert "No artefact type matching" in str(exc)
+            assert "living/wiki" in str(exc)
+        else:
+            raise AssertionError("Expected ValueError for unknown type")
+
+    def test_created_and_modified_filters_are_independent(self):
+        created = la.list_artefacts(
+            self._make_index(), self._make_router(), since="2026-03-03"
+        )
+        modified = la.list_artefacts(
+            self._make_index(), self._make_router(), modified_since="2026-04-03"
+        )
+        assert {r["title"] for r in created} == {"baz", "audit"}
+        assert {r["title"] for r in modified} == {"foo", "bar"}
+
+    def test_creation_filter_reports_artefacts_with_unknown_created_date(self):
+        index = self._make_index()
+        index["documents"].append(
+            {
+                "path": "Wiki/imported.md",
+                "type": "living/wiki",
+                "tags": [],
+                "created": None,
+                "modified": "2026-04-05",
+                "title": "imported",
+                "key": "imported",
+            }
+        )
+
+        page = la.list_artefacts_page(
+            index,
+            self._make_router(),
+            since="2026-01-01",
+        )
+
+        assert page["omitted_missing_created"] == 1
+        assert "imported" not in {item["title"] for item in page["items"]}
+
+        unbounded = la.list_artefacts_page(index, self._make_router())
+        imported = next(item for item in unbounded["items"] if item["title"] == "imported")
+        assert imported["created"] == ""
+        assert unbounded["omitted_missing_created"] == 0
+
+    def test_page_reports_truncation_and_continuation(self):
+        first = la.list_artefacts_page(
+            self._make_index(), self._make_router(), top_k=2
+        )
+        assert first["total"] == 4
+        assert first["returned"] == 2
+        assert first["truncated"] is True
+        assert first["next_cursor"] == "2"
+
+        second = la.list_artefacts_page(
+            self._make_index(), self._make_router(), top_k=2,
+            cursor=first["next_cursor"],
+        )
+        assert second["returned"] == 2
+        assert second["truncated"] is False
+        assert {r["path"] for r in first["items"]}.isdisjoint(
+            {r["path"] for r in second["items"]}
+        )

@@ -22,9 +22,20 @@ Contributor skills used to work on brain-core are separate from vault plugin ski
 
 The plugin data folder lives at `_Plugins/{Name}/` inside the vault. Use title case for the display name, for example `Undertask`, `Bookmarks`, or `Contacts`. The folder inherits gold styling automatically.
 
+If the plugin should be discoverable through Brain's plugin resource, package a
+complete plugin definition at `_Plugins/{Name}/SKILL.md`. `brain_define` and
+`brain define plugin` are the guarded authoring paths for that one file: create
+fails on an existing definition, while replace requires the SHA-256 of the
+reviewed current definition. They do not edit the plugin's other data, install
+its binary, or configure its MCP transport.
+
 ### 2. Write the skill doc
 
-The skill doc teaches agents how to interact with your tool. It lives at `_Config/Skills/{name}/SKILL.md` in the vault.
+An optional reusable skill teaches agents how to interact with your tool through
+the normal Brain skill collection. It lives at `_Config/Skills/{name}/SKILL.md`.
+This is distinct from the plugin definition in `_Plugins/{Name}/SKILL.md`, though
+packagers may derive both from the same upstream source when their content is
+identical.
 
 ```yaml
 ---
@@ -122,6 +133,7 @@ Include a `{tool}_version` field in the skill doc frontmatter. When the external
 ## Design Constraints
 
 - Plugins own their `_Plugins/{Name}/` data folder and its internal schema.
+- Brain's guarded plugin-definition workflow owns only `_Plugins/{Name}/SKILL.md` and preserves display-case directory names.
 - The skill doc is optional, but recommended for any plugin with MCP tools or CLI commands.
 - The router entry is optional; only add it when the plugin should be visible to agents by default.
 - User-facing install guidance belongs in the plugin's own README and in `docs/user/plugins.md`, not here.

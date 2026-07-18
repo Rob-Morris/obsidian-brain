@@ -25,14 +25,24 @@ brain install <path>
 | `brain` form | Dispatches to | Notes |
 |---|---|---|
 | `brain check [--actionable] [--severity S]` | `check.py` | Structural compliance check; same as `python3 check.py`. |
-| `brain create --type T --title "Title" [...]` | `create.py` | Create a new artefact. |
-| `brain edit edit\|append\|prepend\|delete_section [...]` | `edit.py` | Edit existing artefacts. |
+| `brain create --type T --title "Title" [...]` | `create.py` | Create a new artefact; accepts retry-safe `--body-handle`. |
+| `brain edit edit\|append\|prepend\|replace_text\|delete_section [...]` | `edit.py` | Strict structural or exact-text edit. |
+| `brain outline PATH` | `outline.py` | List exact editable heading/callout selectors. |
+| `brain list [...]` | `list_artefacts.py` | Exhaustive filtered, paginated enumeration. |
+| `brain search QUERY [...]` | `search_index.py` | Relevance-ranked search. |
+| `brain stage --body\|--body-file ...` | `stage.py` | Create a retry-safe opaque body handle. |
+| `brain discard-stage HANDLE` | `discard_stage.py` | Release an unused staged body immediately. |
+| `brain reparent PATH --parent P\|--clear` | `lifecycle.py reparent` | Change authoritative parent and derived paths. |
+| `brain set-status PATH STATUS` | `lifecycle.py set-status` | Change status through its lifecycle handler. |
+| `brain set-key PATH KEY` | `lifecycle.py set-key` | Change living key and derived ownership. |
+| `brain set-naming-field PATH FIELD VALUE` | `lifecycle.py set-naming-field` | Change a naming-driving field safely. |
+| `brain define {type\|trigger\|plugin} ...` | `define.py` | Guarded runtime-definition authoring; replacements use optimistic preconditions. |
 | `brain rename "source" "dest"` | `rename.py` | Rename + update wikilinks. |
 | `brain setup workspace [PATH] [...]` | `setup.py` | Bind a workspace to a Brain and converge the Brain-owned local scaffold. |
 | `brain configure workspace {binding\|metadata\|bootstrap} [...]` | `configure.py` | Targeted workspace-owned configuration surfaces. |
 | `brain configure mcp [...]` | `configure.py` | Explicit MCP transport configuration. |
 | `brain configure semantic --enable [...]` | `configure.py` | Vault lifecycle configuration. |
-| `brain repair {runtime\|mcp\|router\|lexical\|registry\|frontmatter\|semantic}` | `repair.py` | Infrastructure repair. |
+| `brain repair {runtime\|mcp\|router\|lexical\|registry\|frontmatter\|semantic\|ownership}` | `repair.py` | Infrastructure and explicit metadata-authoritative ownership repair. |
 | `brain upgrade --source P [...]` | `upgrade.py` | In-place brain-core upgrade. |
 | `brain session [--json]` | `session.py` | Build the session bootstrap model. With no directly scoped vault, this command first resolves the target Brain through the machine-level resolution runtime, then dispatches to only that Brain's own `session.py`. |
 | `brain read RESOURCE [--name N]` | `read.py` | Query compiled router resources. |

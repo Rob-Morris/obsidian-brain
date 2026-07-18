@@ -419,9 +419,9 @@ class TestTempPathFlag:
         with patch.object(sys, "argv", ["edit.py", "edit", "--occurrence", "abc"]):
             with pytest.raises(SystemExit) as exc_info:
                 edit.main()
-        assert exc_info.value.code == 1
+        assert exc_info.value.code == 2
         err = capsys.readouterr().err
-        assert "Error: --occurrence expects an integer" in err
+        assert "argument --occurrence: invalid int value" in err
 
     def test_within_occurrence_invalid_int_prints_error_and_exits(self, capsys):
         with patch.object(
@@ -431,9 +431,9 @@ class TestTempPathFlag:
         ):
             with pytest.raises(SystemExit) as exc_info:
                 edit.main()
-        assert exc_info.value.code == 1
+        assert exc_info.value.code == 2
         err = capsys.readouterr().err
-        assert "Error: --within-occurrence expects an integer" in err
+        assert "argument --within-occurrence: invalid int value" in err
 
     def test_cli_formats_partial_apply_error_without_traceback(
         self, vault, monkeypatch, capsys
@@ -625,8 +625,8 @@ class TestEditFileIndexThreading:
         # The supplied index treats the link as ambiguous-or-resolved; we don't assert wikilink_fixes here
         # because the synthetic stem doesn't exactly match. The point is the walk was skipped.
 
-    def test_no_file_index_falls_back_to_walk(self, vault, router, monkeypatch):
-        """Backward-compat: omitting file_index still triggers the walk (legacy CLI/tests)."""
+    def test_no_wikilinks_skips_file_index_walk(self, vault, router, monkeypatch):
+        """A body without wikilinks avoids the full-vault file-index walk."""
         import fix_links as _fix_links
         called = {"count": 0}
         original = _fix_links.build_vault_file_index
@@ -640,7 +640,7 @@ class TestEditFileIndexThreading:
             path="Wiki/test-page.md", body="No links.\n",
             target=":body", scope="section",
         )
-        assert called["count"] == 1, "build_vault_file_index must be called when file_index is None"
+        assert called["count"] == 0
 
 
 class TestSectionReplaceBoundaryGuard:

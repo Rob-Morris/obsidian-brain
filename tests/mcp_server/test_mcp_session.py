@@ -158,7 +158,7 @@ class TestWarmupBoundary:
                 lambda: server.brain_list(resource="artefact"),
             ),
             (
-                "brain_process",
+                "brain_resolve",
                 lambda: server.brain_process(
                     operation="resolve",
                     content="some content",
@@ -627,7 +627,7 @@ class TestSemanticWarmup:
 
         for tool_name, payload in (
             ("brain_search", search_payload),
-            ("brain_process", process_payload),
+            ("brain_classify", process_payload),
         ):
             assert payload["status"] == "starting"
             assert payload["tool"] == tool_name
@@ -1271,6 +1271,15 @@ class TestOperatorProfiles:
         )
         _assert_error(result, "does not allow brain_move")
 
+        define_request = server._BrainDefinePluginRequest.model_validate({
+            "kind": "plugin",
+            "name": "not-authorised",
+            "mutation": {"operation": "create", "definition": "# Denied\n"},
+        })
+        result = server.brain_define(define_request)
+        _assert_error(result, "does not allow brain_define")
+        assert not (initialized / "_Plugins/not-authorised/SKILL.md").exists()
+
     def test_reader_create_does_not_force_router_refresh(self, initialized):
         key = "timber-compass-violet"
         server._config["vault"]["operators"] = [
@@ -1358,6 +1367,15 @@ class TestOperatorProfiles:
             dest="Wiki/brain-overview-renamed.md",
         )
         _assert_error(result, "does not allow brain_move")
+
+        define_request = server._BrainDefinePluginRequest.model_validate({
+            "kind": "plugin",
+            "name": "contributor-denied",
+            "mutation": {"operation": "create", "definition": "# Denied\n"},
+        })
+        result = server.brain_define(define_request)
+        _assert_error(result, "does not allow brain_define")
+        assert not (initialized / "_Plugins/contributor-denied/SKILL.md").exists()
 
     def test_config_error_blocks_guarded_tools(self, initialized):
         """Config reload errors fail closed before profile enforcement."""

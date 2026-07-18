@@ -49,12 +49,14 @@ def vault(tmp_path):
     wiki_dir = tmp_path / "Wiki"
     wiki_dir.mkdir()
     (wiki_dir / "brain-overview-abc123.md").write_text(
-        "---\ntype: living/wiki\ntags: [brain-core, overview]\nstatus: active\n---\n\n"
+        "---\ntype: living/wiki\ntags: [brain-core, overview]\nstatus: active\n"
+        "created: 2026-03-01T00:00:00+00:00\nmodified: 2026-03-02T00:00:00+00:00\n---\n\n"
         "# Brain Overview\n\n"
         "The Brain is a personal knowledge management system.\n"
     )
     (wiki_dir / "python-guide-def456.md").write_text(
-        "---\ntype: living/wiki\ntags: [python, guide]\nstatus: draft\n---\n\n"
+        "---\ntype: living/wiki\ntags: [python, guide]\nstatus: draft\n"
+        "created: 2026-03-03T00:00:00+00:00\nmodified: 2026-03-04T00:00:00+00:00\n---\n\n"
         "# Python Guide\n\n"
         "Python is a versatile programming language used for scripting.\n"
     )
@@ -67,7 +69,8 @@ def vault(tmp_path):
     month_dir = logs_dir / "2026-03"
     month_dir.mkdir()
     (month_dir / "log-test-ghi789.md").write_text(
-        "---\ntype: temporal/logs\ntags: [session]\n---\n\n"
+        "---\ntype: temporal/logs\ntags: [session]\n"
+        "created: 2026-03-05T00:00:00+00:00\nmodified: 2026-03-06T00:00:00+00:00\n---\n\n"
         "# Test Log\n\n"
         "Tested the MCP server implementation.\n"
     )

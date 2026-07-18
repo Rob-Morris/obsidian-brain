@@ -14,7 +14,12 @@ import pytest
 import _bootstrap.diagnostics as bootstrap_diagnostics
 import _bootstrap.mcp_state as bootstrap_mcp_state
 import _bootstrap.runtime as bootstrap_runtime
-from _common import _shell
+from _common import (
+    MutationLockError,
+    PartialApplyError,
+    _shell,
+    finalize_living_artefact_index,
+)
 import _lifecycle.frontmatter_repairs as frontmatter_repairs
 from _lifecycle.derived_cache_state import CacheState
 import _lifecycle.semantic_repairs as semantic_repairs
@@ -186,6 +191,211 @@ class TestBootstrapSummary:
 
 
 class TestRepairScopes:
+    def test_ownership_repair_reconciles_real_parent_drift(self, repair_vault, monkeypatch):
+        router = _wiki_router()
+        write_md(
+            repair_vault / "Wiki" / "Parent.md",
+            {"type": "living/wiki", "tags": ["parent"], "key": "parent"},
+            "# Parent",
+        )
+        write_md(
+            repair_vault / "Wiki" / "Child.md",
+            {
+                "type": "living/wiki",
+                "tags": ["parent"],
+                "key": "child",
+                "parent": "wiki/parent",
+            },
+            "# Child",
+        )
+        write_md(
+            repair_vault / "Wiki" / "Reference.md",
+            {"type": "living/wiki", "tags": ["reference"], "key": "reference"},
+            "See [[Wiki/Child]].",
+        )
+        router["artefact_index"] = finalize_living_artefact_index({
+            "wiki/parent": {
+                "path": "Wiki/Parent.md", "type": "living/wiki",
+                "classification": "living", "type_key": "wiki", "type_prefix": "wiki",
+                "key": "parent", "parent": None,
+            },
+            "wiki/child": {
+                "path": "Wiki/Child.md", "type": "living/wiki",
+                "classification": "living", "type_key": "wiki", "type_prefix": "wiki",
+                "key": "child", "parent": "wiki/parent",
+            },
+            "wiki/reference": {
+                "path": "Wiki/Reference.md", "type": "living/wiki",
+                "classification": "living", "type_key": "wiki", "type_prefix": "wiki",
+                "key": "reference", "parent": None,
+            },
+        })
+        monkeypatch.setattr(repair_runtime.compile_router, "compile", lambda _vault: router)
+
+        preview = repair_runtime.repair_ownership(repair_vault, dry_run=True)
+        assert preview["status"] == "planned"
+        assert preview["notes"] == ["Wiki/Child.md -> Wiki/parent/Child.md"]
+
+        result = repair_runtime.repair_ownership(repair_vault, dry_run=False)
+        assert result["status"] == "ok"
+        assert not (repair_vault / "Wiki" / "Child.md").exists()
+        assert (repair_vault / "Wiki" / "parent" / "Child.md").exists()
+        assert "[[Wiki/parent/Child]]" in (repair_vault / "Wiki" / "Reference.md").read_text()
+        assert not [
+            finding
+            for finding in check.check_parent_contract(str(repair_vault), router)
+            if finding.get("repairable")
+        ]
+
+    def test_ownership_repair_previews_complete_move_set(self, repair_vault, monkeypatch):
+        monkeypatch.setattr(repair_runtime.compile_router, "compile", lambda _vault: {})
+        monkeypatch.setattr(
+            repair_runtime.check_mod,
+            "check_parent_contract",
+            lambda *_args, **_kwargs: [
+                {"file": "Ideas/Child.md", "repairable": True}
+            ],
+        )
+        monkeypatch.setattr(
+            repair_runtime.edit,
+            "plan_parent_projection_repair",
+            lambda *_args, **_kwargs: {
+                "moves": [
+                    {"source": "Ideas/Child.md", "dest": "Ideas/parent/Child.md"},
+                    {"source": "Wiki/Child Note.md", "dest": "Wiki/ideas~child/Child Note.md"},
+                ]
+            },
+        )
+        monkeypatch.setattr(
+            repair_runtime.edit,
+            "move_and_update_links",
+            lambda *_args, **_kwargs: pytest.fail("dry-run must not mutate"),
+        )
+
+        result = repair_runtime.repair_ownership(repair_vault, dry_run=True)
+
+        assert result["status"] == "planned"
+        assert result["steps"][-1]["status"] == "planned"
+        assert len(result["notes"]) == 2
+
+    def test_ownership_repair_builds_reference_index_once(self, repair_vault, monkeypatch):
+        findings = [
+            {"file": "Ideas/One.md", "repairable": True},
+            {"file": "Ideas/Two.md", "repairable": True},
+        ]
+        reference_index = {"ideas/one": []}
+        calls = []
+        monkeypatch.setattr(repair_runtime.compile_router, "compile", lambda _vault: {})
+        monkeypatch.setattr(
+            repair_runtime.check_mod, "check_parent_contract", lambda *_args: findings
+        )
+        monkeypatch.setattr(
+            repair_runtime,
+            "scan_artefact_key_reference_index",
+            lambda *_args: calls.append("scan") or reference_index,
+        )
+
+        def plan(_vault, _router, path, *, reference_index):
+            calls.append((path, reference_index))
+            return {"moves": []}
+
+        monkeypatch.setattr(
+            repair_runtime.edit, "plan_parent_projection_repair", plan
+        )
+
+        result = repair_runtime.repair_ownership(repair_vault, dry_run=True)
+
+        assert result["status"] == "noop"
+        assert calls == [
+            "scan",
+            ("Ideas/One.md", reference_index),
+            ("Ideas/Two.md", reference_index),
+        ]
+
+    def test_ownership_repair_applies_previewed_moves(self, repair_vault, monkeypatch):
+        moves = [{"source": "Ideas/Child.md", "dest": "Ideas/parent/Child.md"}]
+        monkeypatch.setattr(repair_runtime.compile_router, "compile", lambda _vault: {})
+        monkeypatch.setattr(
+            repair_runtime.check_mod,
+            "check_parent_contract",
+            lambda *_args, **_kwargs: [{"file": "Ideas/Child.md", "repairable": True}],
+        )
+        monkeypatch.setattr(
+            repair_runtime.edit,
+            "plan_parent_projection_repair",
+            lambda *_args, **_kwargs: {"moves": moves},
+        )
+        applied = {}
+        monkeypatch.setattr(
+            repair_runtime.edit,
+            "move_and_update_links",
+            lambda _vault, planned: applied.setdefault(
+                "result", {"moves": planned, "links_updated": 2}
+            ),
+        )
+        monkeypatch.setattr(
+            repair_runtime.edit, "prune_vacated_owner_folders", lambda *_args: None
+        )
+
+        result = repair_runtime.repair_ownership(repair_vault, dry_run=False)
+
+        assert result["status"] == "ok"
+        assert applied["result"]["moves"] == moves
+        assert "updated 2 wikilink" in result["steps"][-1]["message"]
+
+    def test_ownership_repair_envelopes_partial_apply_failure(
+        self, repair_vault, monkeypatch
+    ):
+        moves = [{"source": "Ideas/Child.md", "dest": "Ideas/parent/Child.md"}]
+        monkeypatch.setattr(repair_runtime.compile_router, "compile", lambda _vault: {})
+        monkeypatch.setattr(
+            repair_runtime.check_mod,
+            "check_parent_contract",
+            lambda *_args, **_kwargs: [{"file": "Ideas/Child.md", "repairable": True}],
+        )
+        monkeypatch.setattr(
+            repair_runtime.edit,
+            "plan_parent_projection_repair",
+            lambda *_args, **_kwargs: {"moves": moves},
+        )
+        monkeypatch.setattr(
+            repair_runtime.edit,
+            "move_and_update_links",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                PartialApplyError("one move committed before collision")
+            ),
+        )
+
+        result = repair_runtime.repair_ownership(repair_vault, dry_run=False)
+
+        assert result["status"] == "partial"
+        assert result["steps"][-1] == {
+            "name": "ownership",
+            "status": "error",
+            "message": "one move committed before collision",
+        }
+        assert result["notes"] == ["Ideas/Child.md -> Ideas/parent/Child.md"]
+
+    def test_ownership_repair_envelopes_lock_contention(
+        self, repair_vault, monkeypatch
+    ):
+        class BusyLock:
+            def __enter__(self):
+                raise MutationLockError("timed out acquiring mutation.lock")
+
+            def __exit__(self, *_args):
+                return False
+
+        monkeypatch.setattr(
+            repair_runtime, "vault_mutation_lock", lambda _vault: BusyLock()
+        )
+
+        result = repair_runtime.repair_ownership(repair_vault, dry_run=False)
+
+        assert result["status"] == "error"
+        assert result["steps"][-1]["status"] == "error"
+        assert "Vault is busy; retry" in result["steps"][-1]["message"]
+
     def test_runtime_verification_is_noop_when_runtime_is_healthy(self, repair_vault, monkeypatch):
         runtime_python = repair_vault / ".brain" / "managed-runtime" / "bin" / "python"
         runtime_python.parent.mkdir(parents=True)

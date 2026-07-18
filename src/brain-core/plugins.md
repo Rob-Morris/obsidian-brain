@@ -7,7 +7,8 @@ Plugins integrate external tools into a Brain vault. Each plugin gets its own fo
 A plugin consists of:
 
 - **Data folder** — `_Plugins/{Name}/` stores the plugin's files. The plugin owns this folder and its file format. Do not hand-edit plugin files unless the plugin's documentation says otherwise.
-- **Skill document** — `_Config/Skills/{name}/SKILL.md` teaches agents how to use the plugin's tools. Optional but recommended for any plugin with MCP tools or CLI commands.
+- **Plugin definition** — `_Plugins/{Name}/SKILL.md` makes the installation discoverable through the Brain plugin resource. `brain_define` is the guarded authoring path for this file.
+- **Reusable skill document** — `_Config/Skills/{name}/SKILL.md` optionally teaches agents through the normal Brain skill collection.
 - **MCP configuration** — Claude uses `.mcp.json`; Codex uses `.codex/config.toml`. Only needed for plugins that expose MCP tools.
 - **Router entry** — `_Config/router.md` makes the plugin visible to agents each session when needed
 
@@ -18,7 +19,7 @@ Only the data folder is strictly required. The other pieces depend on whether th
 When working in a vault with plugins installed:
 
 1. Look in `_Plugins/{Name}/` for the plugin's data.
-2. If `_Config/Skills/{name}/SKILL.md` exists, read it before using the plugin's MCP tools or CLI.
+2. Read `_Plugins/{Name}/SKILL.md` through `brain_read(resource="plugin", name="{Name}")` when present; load any separate `_Config/Skills/{name}/SKILL.md` when the workflow calls for that reusable skill.
 3. Treat plugin-owned files as managed by the plugin unless its docs explicitly say they are safe to edit by hand.
 4. If the plugin should be visible to agents by default, confirm it has a router entry in `_Config/router.md`.
 
@@ -29,8 +30,8 @@ Skills are the operational instructions. This file explains the plugin model; th
 Each plugin provides its own install instructions, typically in the tool's repo or packaged Brain integration files. The usual vault-side steps are:
 
 1. Install the tool's binary or application.
-2. Create `_Plugins/{Name}/` in the vault.
-3. Copy the plugin skill doc into `_Config/Skills/{name}/SKILL.md` if one is provided.
+2. Create `_Plugins/{Name}/` in the vault and add its plugin definition when supplied. Use `brain_define` or `brain define plugin` to create/replace only `_Plugins/{Name}/SKILL.md` safely.
+3. Copy a separate reusable skill into `_Config/Skills/{name}/SKILL.md` if one is provided.
 4. Add MCP config to `.mcp.json` or `.codex/config.toml` if the plugin exposes MCP tools.
 5. Update `_Config/router.md` if the plugin should be visible to agents each session.
 

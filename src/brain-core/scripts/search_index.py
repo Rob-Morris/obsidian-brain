@@ -53,6 +53,7 @@ def parse_args(argv):
     parser.add_argument("--status", dest="status_filter")
     parser.add_argument("--top-k", dest="top_k", type=int)
     parser.add_argument("--mode")
+    parser.add_argument("--vault")
     parser.add_argument("--json", dest="json_mode", action="store_true")
     args = parser.parse_args(argv[1:])
     return (
@@ -63,11 +64,12 @@ def parse_args(argv):
         args.top_k,
         args.json_mode,
         args.mode,
+        args.vault,
     )
 
 
 def main():
-    query, type_filter, tag_filter, status_filter, top_k, json_mode, mode = parse_args(sys.argv)
+    query, type_filter, tag_filter, status_filter, top_k, json_mode, mode, vault_arg = parse_args(sys.argv)
     if not query:
         print(
             "Usage: search_index.py \"query\" [--type TYPE] [--tag TAG] "
@@ -76,7 +78,7 @@ def main():
         )
         sys.exit(1)
 
-    vault_root = find_vault_root()
+    vault_root = find_vault_root(vault_arg)
     try:
         handoff_current_script_to_managed_runtime(
             vault_root,

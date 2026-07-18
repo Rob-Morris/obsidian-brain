@@ -8,6 +8,12 @@ How to extend the vault. Follow the relevant link below.
 - [Add a living artefact type](adding-living-type.md)
 - [Add a temporal artefact type](adding-temporal-type.md)
 
+For a custom type, prefer the guarded `brain define type create` CLI or
+`brain_define` MCP workflow after drafting the taxonomy and linked template.
+It validates and writes the taxonomy, template, and discoverable artefact folder
+as one bundle. Use `brain define trigger` for the optional router entry. Direct
+file steps in the detailed guides remain useful for understanding and recovery.
+
 ## Other Extensions
 
 - [Add a memory](adding-memory.md)

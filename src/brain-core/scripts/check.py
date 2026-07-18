@@ -16,6 +16,7 @@ Usage:
     python3 check.py --vault /path/to/vault  # check a specific vault
 """
 
+import argparse
 import json
 import os
 from pathlib import Path
@@ -52,6 +53,7 @@ from _common import (
     resolve_artefact_key_entry,
     resolve_folder,
     select_rule,
+    taxonomy_rel_path,
     terminal_status_folder,
     validate_artefact_folder,
     validate_filename,
@@ -167,17 +169,52 @@ def _repairable_lexical_finding(vault_root, reason):
     return attach_repair_guidance(finding, vault_root, "lexical")
 
 
-def _result_envelope(vault_root, version, findings):
-    summary = {
+def _summarize_findings(findings):
+    return {
         "errors": sum(1 for f in findings if f["severity"] == "error"),
         "warnings": sum(1 for f in findings if f["severity"] == "warning"),
         "info": sum(1 for f in findings if f["severity"] == "info"),
     }
+
+
+def filter_and_summarize_findings(
+    result, *, severity=None, check_name=None, path=None
+):
+    """Return a filtered check envelope whose summary matches visible findings."""
+    findings = result["findings"]
+    if severity:
+        findings = [item for item in findings if item["severity"] == severity]
+    if check_name:
+        findings = [item for item in findings if item["check"] == check_name]
+    if path:
+        prefix = path.rstrip("/") + "/"
+        findings = [
+            item for item in findings
+            if item.get("file") == path or (item.get("file") or "").startswith(prefix)
+        ]
+    filtered = dict(result)
+    filtered["findings"] = findings
+    filtered["summary"] = _summarize_findings(findings)
+    return filtered
+
+
+def project_findings(result, *, actionable=False):
+    """Return a non-mutating public projection of finding repair guidance."""
+    projected = dict(result)
+    findings = [dict(item) for item in result.get("findings", [])]
+    if not actionable:
+        for item in findings:
+            item.pop("fix", None)
+    projected["findings"] = findings
+    return projected
+
+
+def _result_envelope(vault_root, version, findings):
     return {
         "vault_root": vault_root,
         "brain_core_version": version,
         "checked_at": datetime.now(timezone.utc).astimezone().isoformat(),
-        "summary": summary,
+        "summary": _summarize_findings(findings),
         "findings": findings,
     }
 
@@ -472,7 +509,7 @@ def check_parent_contract(vault_root, router, *, ctx=None):
                 })
                 continue
             if base_folder != expected_folder:
-                findings.append({
+                finding = {
                     "check": "parent_contract",
                     "severity": "warning",
                     "file": rel_path,
@@ -480,8 +517,15 @@ def check_parent_contract(vault_root, router, *, ctx=None):
                         f"Parent-folder drift: stored under '{base_folder}', "
                         f"expected '{expected_folder}'"
                     ),
-                    "fix": f"Move to {expected_folder}/ or update parent",
-                })
+                    "fix": (
+                        "Preview the metadata-authoritative repair with "
+                        "`brain repair ownership --dry-run`, then apply it explicitly"
+                    ),
+                    "declared_parent": parent_key,
+                    "expected_folder": expected_folder,
+                    "repairable": True,
+                }
+                findings.append(attach_repair_guidance(finding, vault_root, "ownership"))
             continue
 
         if classification != "living":
@@ -510,7 +554,12 @@ def check_parent_contract(vault_root, router, *, ctx=None):
                 "severity": "warning",
                 "file": rel_path,
                 "message": f"Child artefact missing canonical parent field (folder implies `{resolved_parent}`).",
-                "fix": f"Set `parent: {resolved_parent}` to match the owning artefact.",
+                "fix": (
+                    "Set parent explicitly with `brain_reparent`; Brain will not infer "
+                    "authoritative metadata from the current folder"
+                ),
+                "folder_implies": resolved_parent,
+                "repairable": False,
             })
         else:
             findings.append({
@@ -747,7 +796,10 @@ def check_unconfigured_type(vault_root, router, *, ctx=None):
                 "severity": "info",
                 "file": None,
                 "message": f"Folder '{art['folder']}' ({art['type']}) has no taxonomy file",
-                "fix": f"Create taxonomy at _Config/Taxonomy/{'Living' if art.get('classification') == 'living' else 'Temporal'}/{art['key']}.md",
+                "fix": (
+                    "Create taxonomy at "
+                    + taxonomy_rel_path(art.get("classification"), art["key"])
+                ),
             })
     return findings
 
@@ -871,24 +923,13 @@ def run_checks(vault_root, router=None):
 
 def parse_args(argv):
     """Parse CLI arguments. Returns (json_mode, actionable, severity_filter, vault_path)."""
-    json_mode = "--json" in argv
-    actionable = "--actionable" in argv
-    severity = None
-    vault_path = None
-    if "--severity" in argv:
-        idx = argv.index("--severity")
-        if idx + 1 < len(argv):
-            severity = argv[idx + 1]
-            if severity not in VALID_SEVERITIES:
-                raise SystemExit(
-                    "check.py: --severity must be one of: "
-                    + ", ".join(VALID_SEVERITIES)
-                )
-    if "--vault" in argv:
-        idx = argv.index("--vault")
-        if idx + 1 < len(argv):
-            vault_path = argv[idx + 1]
-    return json_mode, actionable, severity, vault_path
+    parser = argparse.ArgumentParser(description="Check Brain vault compliance.")
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument("--actionable", action="store_true")
+    parser.add_argument("--severity", choices=VALID_SEVERITIES)
+    parser.add_argument("--vault")
+    args = parser.parse_args(list(argv))
+    return args.json, args.actionable, args.severity, args.vault
 
 
 def render_human_findings(result, *, actionable=False):
@@ -929,7 +970,7 @@ def render_human_summary(result):
 
 
 def main():
-    json_mode, actionable, severity_filter, vault_path = parse_args(sys.argv)
+    json_mode, actionable, severity_filter, vault_path = parse_args(sys.argv[1:])
     vault_root = vault_path if vault_path else str(find_vault_root())
     try:
         handoff_current_script_to_managed_runtime(
@@ -965,19 +1006,9 @@ def main():
         sys.exit(2)
     result = run_checks(vault_root)
 
-    # Apply severity filter
-    if severity_filter:
-        result["findings"] = [f for f in result["findings"] if f["severity"] == severity_filter]
-        result["summary"] = {
-            "errors": sum(1 for f in result["findings"] if f["severity"] == "error"),
-            "warnings": sum(1 for f in result["findings"] if f["severity"] == "warning"),
-            "info": sum(1 for f in result["findings"] if f["severity"] == "info"),
-        }
+    result = filter_and_summarize_findings(result, severity=severity_filter)
 
-    # Strip fix keys unless --actionable
-    if not actionable:
-        for f in result["findings"]:
-            f.pop("fix", None)
+    result = project_findings(result, actionable=actionable)
 
     if json_mode:
         print(json.dumps(result, indent=2, ensure_ascii=False))

@@ -40,6 +40,10 @@ REPAIR_SCOPES = {
         "description": "Repair duplicate artefact frontmatter blocks by merging nested frontmatter into the document frontmatter.",
         "check_message": "Artefact frontmatter is malformed and needs duplicate-frontmatter normalisation.",
     },
+    "ownership": {
+        "description": "Reconcile derived owner folders and paths towards valid authoritative parent metadata.",
+        "check_message": "Parent metadata is valid but its derived filesystem projection has drifted.",
+    },
     "semantic": {
         "description": "Repair semantic runtime provisioning and embeddings sidecars for this vault.",
         "check_message": "Semantic retrieval is configured on but the local semantic runtime is unavailable or stale.",

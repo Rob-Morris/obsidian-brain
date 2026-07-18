@@ -9,19 +9,25 @@ A plugin has up to four pieces:
 | Piece | Location | Purpose |
 |-------|----------|---------|
 | Data folder | `_Plugins/{Name}/` | Files managed by the tool — do not hand-edit unless the plugin says you can |
-| Skill doc | `_Config/Skills/{name}/SKILL.md` | Teaches agents how to use the tool's MCP tools or CLI |
+| Plugin definition | `_Plugins/{Name}/SKILL.md` | Makes the installed plugin discoverable through `brain_read(resource="plugin")` |
+| Reusable agent skill | `_Config/Skills/{name}/SKILL.md` | Optional standalone skill surfaced with other Brain skills |
 | MCP config | Claude: `.mcp.json`; Codex: `.codex/config.toml` | Starts the tool's MCP server in the chosen client |
 | Router entry | `_Config/router.md` | Makes the plugin visible to agents each session |
 
-Only the data folder is strictly required. The other pieces depend on whether the tool has an MCP server, a CLI, or needs agent awareness.
+Only the data folder is strictly required. Add the plugin definition when Brain
+should discover the installation as a plugin. A reusable `_Config/Skills/` copy
+is separate and optional; it is appropriate when the same guidance should be
+loaded and listed as a normal Brain skill.
 
 ## Installing a Plugin
 
 Each tool provides its own install instructions, typically in its own repo. The usual vault-side steps are:
 
 1. Install the tool's binary or application.
-2. Create the plugin data folder: `mkdir -p _Plugins/{Name}`.
-3. Copy the skill doc to `_Config/Skills/{name}/SKILL.md` if one is provided.
+2. Create the plugin data folder and its definition. Operators can use
+   `brain_define` (or `brain define plugin create --name "{Name}" --definition-file SKILL.md`)
+   to write only `_Plugins/{Name}/SKILL.md` through the guarded path.
+3. Copy a reusable agent skill to `_Config/Skills/{name}/SKILL.md` if the plugin provides one separately.
 4. Add MCP config to `.mcp.json` or `.codex/config.toml` if the tool exposes MCP tools.
 5. Update `_Config/router.md` if the plugin should be visible to agents each session.
 
@@ -31,6 +37,7 @@ If the plugin ships both a README and a Brain skill doc, treat the plugin README
 
 Plugins own their data folder completely. Brain does not impose an internal schema within `_Plugins/{Name}/`. However:
 
+- Brain owns only the optional top-level `SKILL.md` definition when it is managed through `brain_define`; the tool owns its remaining data.
 - Markdown with YAML frontmatter is strongly preferred when the plugin stores human-readable records.
 - Flat frontmatter keeps files compatible with Dataview and similar Obsidian tooling.
 - Files under `_Plugins/` are browsable in Obsidian and inherit the gold plugin theme.

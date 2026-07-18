@@ -144,12 +144,16 @@ python3 .brain-core/scripts/sync_definitions.py
 
 Bare sync never installs new types — it only updates already-installed ones. After a CLI upgrade (`install.sh` or `upgrade.py`), this runs automatically governed by the `artefact_sync` preference in `.brain/preferences.json`: `auto` applies safe updates, `ask` (default) returns a preview, `skip` does nothing. CLI flags `--sync` / `--no-sync` override. Use `force` for conflicts, or `artefact_sync_exclude` to permanently skip specific files.
 
-**Manual install** (equivalent to the automated path; useful for sandbox debugging):
+**Custom or unpackaged type:**
 
-1. Copy `taxonomy.md` to `_Config/Taxonomy/{Living|Temporal}/{key}.md`
-2. Copy `template.md` to `_Config/Templates/{Living|Temporal}/{Type Name}.md`
-3. Create the storage folder (e.g. `_Temporal/{Type Name}/` or `{Type Name}/`)
-4. Optionally add a conditional trigger to `_Config/router.md`
-5. Run `python3 .brain-core/scripts/compile_router.py` — colours are auto-generated from the compiled router
+Library types should use `sync_definitions.py` so manifest/tracking provenance
+is retained. For a custom type, follow the guarded six-step workflow:
+
+1. Draft the taxonomy and linked template in reviewed local files.
+2. Run `brain define type create --name <key> --classification <living|temporal> --definition-file taxonomy.md --template-file template.md`; this validates and creates the taxonomy, template, and storage folder as one bundle.
+3. If needed, add its router entry with `brain define trigger create --condition "..." --target "_Config/Taxonomy/{Living|Temporal}/<key>"`.
+4. Run `python3 .brain-core/scripts/compile_router.py` — colours are auto-generated from the compiled router.
+5. Validate with `python3 .brain-core/scripts/check.py` (use `--actionable` for repair guidance).
+6. Log the addition.
 
 Each type's README includes the specific paths and an optional router trigger line.

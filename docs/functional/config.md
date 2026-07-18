@@ -78,9 +78,9 @@ defaults:
     semantic_retrieval: true
 ```
 
-- `semantic_processing` enables embedding-backed classification, duplicate
-  resolution, and ingest improvements inside `brain_process`. When false,
-  `brain_process` still runs in degraded non-embedding modes.
+- `semantic_processing` enables embedding-backed `brain_classify`,
+  `brain_resolve`, and `brain_ingest` behaviour. When false, degraded
+  non-embedding modes remain available.
 - `semantic_retrieval` enables semantic and hybrid artefact search. When true,
   `brain_search` accepts `mode="semantic"` and `mode="hybrid"`, and omitted
   `mode` defaults to hybrid when the embeddings sidecars and dependencies are
@@ -138,9 +138,9 @@ The config system supports three built-in operator profiles with different level
 
 | Profile | Intended use |
 |---------|-------------|
-| `reader` | Read-only access — `brain_init`, `brain_session`, `brain_read`, `brain_search`, `brain_list` |
-| `contributor` | Read + create/edit — adds `brain_create`, `brain_edit`, `brain_process` |
-| `operator` | Full access — all tools including `brain_process`, `brain_move`, and `brain_action` |
+| `reader` | Read-only access, including `brain_outline`, `brain_check`, `brain_classify`, and `brain_resolve` |
+| `contributor` | Read + create/edit/lifecycle and `brain_ingest` |
+| `operator` | Full access including guarded `brain_define`, `brain_move`, and `brain_action` |
 
 Each profile has a per-tool allow-list defined in the vault config. Tools not on the active profile's allow-list return an error `CallToolResult` — no silent failures.
 

@@ -13,6 +13,8 @@ from datetime import datetime
 from pathlib import Path
 
 import compile_router
+import check as check_mod
+import edit
 from _bootstrap import mcp_transport
 import workspace_registry
 import _search.index as search_index
@@ -26,6 +28,13 @@ from _bootstrap.runtime import iso_now, step as _step
 from _lifecycle.derived_cache_state import inspect_lexical_cache, inspect_router_cache
 from _lifecycle.frontmatter_repairs import normalize_duplicate_frontmatter_documents
 from _lifecycle_common import make_result_envelope
+from _common import (
+    MutationLockError,
+    PartialApplyError,
+    mutation_lock_error_message,
+    scan_artefact_key_reference_index,
+    vault_mutation_lock,
+)
 
 
 def _finalise_result(
@@ -34,6 +43,7 @@ def _finalise_result(
     dry_run: bool,
     steps: list[dict],
     notes: list[str] | None = None,
+    status: str | None = None,
 ) -> dict:
     return make_result_envelope(
         scope=scope,
@@ -43,6 +53,7 @@ def _finalise_result(
         steps=steps,
         checked_at=iso_now(),
         notes=notes,
+        status=status,
     )
 
 
@@ -246,6 +257,107 @@ def repair_frontmatter(vault_root: Path, dry_run: bool, bootstrap_steps: list[di
     return _finalise_result("frontmatter", vault_root, dry_run, steps, notes=notes)
 
 
+def repair_ownership(vault_root: Path, dry_run: bool, bootstrap_steps: list[dict] | None = None) -> dict:
+    """Reconcile derived paths towards valid authoritative parent metadata."""
+    try:
+        with vault_mutation_lock(vault_root):
+            return _repair_ownership_locked(vault_root, dry_run, bootstrap_steps)
+    except MutationLockError as exc:
+        steps = list(bootstrap_steps or [])
+        steps.append(_step("ownership", "error", mutation_lock_error_message(exc)))
+        return _finalise_result("ownership", vault_root, dry_run, steps)
+
+
+def _repair_ownership_locked(
+    vault_root: Path,
+    dry_run: bool,
+    bootstrap_steps: list[dict] | None = None,
+) -> dict:
+    """Plan and apply ownership repair while the vault mutation lock is held."""
+    steps = list(bootstrap_steps or [])
+    router = compile_router.compile(str(vault_root))
+    findings = [
+        item
+        for item in check_mod.check_parent_contract(str(vault_root), router)
+        if item.get("repairable") is True
+    ]
+    plans = []
+    moves = []
+    seen = set()
+    try:
+        reference_index = (
+            scan_artefact_key_reference_index(str(vault_root), router)
+            if findings
+            else {}
+        )
+        for finding in findings:
+            plan = edit.plan_parent_projection_repair(
+                str(vault_root), router, finding["file"],
+                reference_index=reference_index,
+            )
+            plans.append(plan)
+            for move in plan["moves"]:
+                pair = (move["source"], move["dest"])
+                if pair not in seen:
+                    seen.add(pair)
+                    moves.append(move)
+    except (ValueError, FileNotFoundError) as exc:
+        steps.append(_step("ownership", "error", str(exc)))
+        return _finalise_result("ownership", vault_root, dry_run, steps)
+
+    if not moves:
+        steps.append(
+            _step("ownership", "noop", "Parent metadata and derived ownership paths agree.")
+        )
+        return _finalise_result("ownership", vault_root, dry_run, steps)
+
+    notes = [f"{move['source']} -> {move['dest']}" for move in moves]
+    if dry_run:
+        steps.append(
+            _step(
+                "ownership",
+                "planned",
+                f"Would move {len(moves)} artefact(s) for {len(plans)} authoritative parent repair(s).",
+            )
+        )
+        return _finalise_result("ownership", vault_root, dry_run, steps, notes=notes)
+
+    try:
+        result = edit.move_and_update_links(str(vault_root), moves)
+    except PartialApplyError as exc:
+        steps.append(_step("ownership", "error", str(exc)))
+        return _finalise_result(
+            "ownership", vault_root, dry_run, steps, notes=notes, status="partial"
+        )
+    except (FileNotFoundError, FileExistsError, OSError, ValueError) as exc:
+        steps.append(_step("ownership", "error", str(exc)))
+        return _finalise_result("ownership", vault_root, dry_run, steps, notes=notes)
+
+    try:
+        edit.prune_vacated_owner_folders(
+            str(vault_root), [move["source"] for move in moves], router
+        )
+    except (FileNotFoundError, OSError, ValueError) as exc:
+        steps.append(
+            _step(
+                "ownership",
+                "error",
+                f"Moves applied but vacated owner folders could not be pruned: {exc}",
+            )
+        )
+        return _finalise_result(
+            "ownership", vault_root, dry_run, steps, notes=notes, status="partial"
+        )
+    steps.append(
+        _step(
+            "ownership",
+            "changed",
+            f"Moved {len(moves)} artefact(s); updated {result['links_updated']} wikilink(s).",
+        )
+    )
+    return _finalise_result("ownership", vault_root, dry_run, steps, notes=notes)
+
+
 def run_scope(
     scope: str,
     vault_root: Path,
@@ -265,6 +377,8 @@ def run_scope(
         return repair_registry(vault_root, dry_run, bootstrap_steps)
     if scope == "frontmatter":
         return repair_frontmatter(vault_root, dry_run, bootstrap_steps)
+    if scope == "ownership":
+        return repair_ownership(vault_root, dry_run, bootstrap_steps)
     if scope == "semantic":
         from _lifecycle import semantic_repairs
 

@@ -95,6 +95,7 @@ Each DD captures the reasoning behind an architectural decision at the time it w
 | DD-053 | Explicit vault-self flag (rung 1) + unified `.brain-core/VERSION` vault predicate single-sourced in `_common`; vault-self install mode, refuse-guard, exclusive install scope; sign-off refinements — Decision-#2 anchor hard-error, DD-049 dispatch surface includes `setup` | Implemented (v0.47.0, refined v0.48.0) | [dd-053](dd-053-explicit-vault-self-flag-and-unified-predicate.md) |
 | DD-054 | Machine-level resolution runtime for non-MCP `brain session` bootstrap; no unrelated Brain execution, stdlib-only deployed resolver, structured pre-vault degraded payloads | Accepted | [dd-054](dd-054-machine-resolution-runtime.md) |
 | DD-055 | Retire init.py and consolidate transport CLI onto configure | Accepted | [dd-055](dd-055-retire-init-configure-transport.md) |
+| DD-056 | Lifecycle metadata is authoritative; explicit handlers own derived mutations and Doctor repairs external drift | Implemented (v0.52.0) | [dd-056](dd-056-authoritative-lifecycle-metadata.md) |
 
 ---
 
@@ -109,4 +110,4 @@ Related decisions grouped by domain. Arrows show supersede/extend chains.
 - **Plugins & platforms:** DD-004, DD-005, DD-006, DD-007, DD-021, DD-022
 - **Agent methodology:** DD-024, DD-035
 - **Workspaces:** DD-040 → DD-051 → DD-052 → DD-053 → DD-054 (DD-051 extends DD-023, DD-039, DD-040; DD-052 adds the runtime resolution ladder; DD-053 adds the explicit vault-self flag + the unified vault predicate single-sourced in `_common`, and — extending DD-049 — its sign-off refinements add the Decision-#2 anchor hard-error and record that the `brain` dispatch surface includes `setup`; DD-054 carries that ladder into no-MCP `brain session` through machine-owned resolution infrastructure; DD-055 retires the legacy `init.py` shell and consolidates transport CLI onto `configure`)
-- **Artefact lifecycle & folder convention:** DD-029, DD-030 → DD-050
+- **Artefact lifecycle & folder convention:** DD-029, DD-030 → DD-050 → DD-056, DD-041 → DD-056

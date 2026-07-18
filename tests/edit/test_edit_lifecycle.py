@@ -82,6 +82,29 @@ class TestEditTimestamps:
 # ---------------------------------------------------------------------------
 
 class TestFrontmatterMerge:
+    def test_generic_frontmatter_edit_opens_artefact_once(
+        self, vault, router, monkeypatch
+    ):
+        original = edit._open_artefact
+        calls = []
+
+        def tracked_open(*args, **kwargs):
+            calls.append(args[2])
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(edit, "_open_artefact", tracked_open)
+
+        edit.edit_resource(
+            str(vault),
+            router,
+            resource="artefact",
+            operation="edit",
+            path="Wiki/test-page.md",
+            frontmatter_changes={"tags": ["single-open"]},
+        )
+
+        assert calls == ["Wiki/test-page.md"]
+
     def test_edit_overwrites_list_field(self, vault, router):
         (vault / "Wiki" / "test-page.md").write_text(
             "---\ntype: living/wiki\ntags:\n  - existing-1\n  - existing-2\n---\n\nBody.\n"
@@ -922,6 +945,41 @@ class TestOwnershipEditPaths:
 # Terminal status auto-move tests
 # ---------------------------------------------------------------------------
 
+class TestExplicitLifecycleFields:
+    def _make_idea(self, vault):
+        path = vault / "Ideas" / "Lifecycle.md"
+        path.write_text(
+            "---\ntype: living/ideas\ntags: []\nkey: lifecycle\nstatus: shaping\n---\n\nBody.\n"
+        )
+        return "Ideas/Lifecycle.md"
+
+    @pytest.mark.parametrize("value", [None, ""])
+    def test_status_cannot_be_empty(self, vault, router, value):
+        path = self._make_idea(vault)
+
+        with pytest.raises(ValueError, match="status cannot be empty"):
+            edit.update_lifecycle_field(str(vault), router, path, "status", value)
+
+    def test_invalid_status_lists_valid_values(self, vault, router):
+        path = self._make_idea(vault)
+
+        with pytest.raises(ValueError, match="Invalid status 'invented'"):
+            edit.update_lifecycle_field(
+                str(vault), router, path, "status", "invented"
+            )
+
+    def test_key_cannot_be_empty(self, vault, router):
+        path = self._make_idea(vault)
+
+        with pytest.raises(ValueError, match="key cannot be empty"):
+            edit.update_lifecycle_field(str(vault), router, path, "key", "")
+
+    def test_non_owned_field_is_rejected(self, vault, router):
+        path = self._make_idea(vault)
+
+        with pytest.raises(ValueError, match="is not lifecycle-owned"):
+            edit.update_lifecycle_field(str(vault), router, path, "summary", "No")
+
 class TestTerminalStatusMove:
     """Tests for automatic file movement on terminal status changes."""
 
@@ -1081,6 +1139,51 @@ class TestTerminalStatusMove:
         )
         assert result["path"] == "Releases/project~brain/+Shipped/v0.28.6 - Search Hardening.md"
         assert (vault / "Releases" / "project~brain" / "+Shipped" / "v0.28.6 - Search Hardening.md").is_file()
+
+    def test_lifecycle_status_preflight_rejects_missing_naming_field_atomically(
+        self, vault, router
+    ):
+        path = "Releases/project~brain/Missing Version.md"
+        self._make_release(vault, path, version="")
+        source = vault / path
+        before = source.read_text()
+
+        with pytest.raises(ValueError, match="requires frontmatter field 'version'"):
+            edit.update_lifecycle_field(
+                str(vault), router, path, "status", "shipped"
+            )
+
+        assert source.read_text() == before
+        assert not (vault / "Releases" / "project~brain" / "+Shipped").exists()
+
+    def test_naming_field_preflight_rejects_regex_mismatch_atomically(
+        self, vault, router
+    ):
+        path = "Releases/project~brain/+Shipped/v0.28.6 - Invalid Version.md"
+        self._make_release(vault, path, status="shipped", version="v0.28.6")
+        source = vault / path
+        before = source.read_text()
+
+        with pytest.raises(ValueError, match="does not match.*regex"):
+            edit.update_lifecycle_field(
+                str(vault), router, path, "version", "definitely-not-semver"
+            )
+
+        assert source.read_text() == before
+
+    def test_inactive_naming_field_regex_does_not_block_tentative_value(
+        self, vault, router
+    ):
+        path = "Releases/project~brain/Tentative Version.md"
+        self._make_release(vault, path, status="planned", version="v0.28.6")
+
+        result = edit.update_lifecycle_field(
+            str(vault), router, path, "version", "TBD"
+        )
+
+        assert result["path"] == path
+        fields, _body = parse_frontmatter((vault / path).read_text())
+        assert fields["version"] == "TBD"
 
     def test_release_cancelled_moves_to_project_status_folder(self, vault, router):
         # Cancelled releases stay title-led — no version in the filename.
@@ -1492,6 +1595,25 @@ class TestArchiveArtefact:
         assert not (vault / "Wiki" / "ideas~parent").exists()
         assert (vault / "Ideas").is_dir()
         assert (vault / "Wiki").is_dir()
+
+    def test_recursive_unarchive_restores_archived_subtree(self, vault, router):
+        router = self._make_archive_tree(vault)
+        archived = edit.archive_artefact(
+            str(vault), router, "Ideas/Parent.md", recursive=True
+        )
+        restored = edit.unarchive_artefact(
+            str(vault), router, archived["new_path"], recursive=True
+        )
+
+        assert {item["new_path"] for item in restored["restored"]} == {
+            "Ideas/Parent.md",
+            "Ideas/parent/+Adopted/Child.md",
+            "Wiki/ideas~parent/ideas~child/Grand.md",
+        }
+        for item in restored["restored"]:
+            assert (vault / item["new_path"]).is_file()
+            fields, _ = parse_frontmatter((vault / item["new_path"]).read_text())
+            assert "archiveddate" not in fields
 
     def test_archive_recursive_cascades_non_terminal_living_descendant(self, vault, router):
         router = self._make_archive_tree(vault)
@@ -2066,6 +2188,30 @@ class TestUnarchiveArtefact:
         content = (vault / "Wiki" / "linker.md").read_text()
         assert "my-idea" in content
 
+    def test_recursive_unarchive_reports_uninspected_archive_candidates(
+        self, vault, router
+    ):
+        source = vault / "_Archive" / "Wiki" / "20260101-parent.md"
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_text(
+            "---\ntype: living/wiki\ntags: []\nkey: parent\n"
+            "archiveddate: 2026-01-01\n---\n\nParent.\n"
+        )
+        candidate = vault / "_Archive" / "Wiki" / "20260101-child.md"
+        candidate.write_text(
+            "---\ntype: living/unknown\ntags: []\nkey: child\n"
+            "parent: wiki/parent\narchiveddate: 2026-01-01\n---\n\nChild.\n"
+        )
+
+        result = edit.unarchive_artefact(
+            str(vault), router, "_Archive/Wiki/20260101-parent.md", recursive=True
+        )
+
+        assert len(result["uninspected"]) == 1
+        assert result["uninspected"][0]["path"] == "_Archive/Wiki/20260101-child.md"
+        assert "Unknown artefact type 'living/unknown'" in result["uninspected"][0]["reason"]
+        assert candidate.is_file()
+
     def test_unarchive_move_failure_reports_metadata_written_context(
         self, vault, router, monkeypatch
     ):
@@ -2074,14 +2220,14 @@ class TestUnarchiveArtefact:
         def fail_rename(*_args, **_kwargs):
             raise PartialApplyError("move set partially applied")
 
-        monkeypatch.setattr(edit, "rename_and_update_links", fail_rename)
+        monkeypatch.setattr(edit, "move_and_update_links", fail_rename)
 
         with pytest.raises(PartialApplyError, match="unarchive partially applied") as exc_info:
             edit.unarchive_artefact(str(vault), router, rel)
 
         assert isinstance(exc_info.value.__cause__, PartialApplyError)
         message = str(exc_info.value)
-        assert f"metadata file written {rel}" in message
+        assert f"metadata files written ['{rel}']" in message
         assert "move failure: move set partially applied" in message
 
     def test_unarchive_destination_collision_preflights_before_metadata_write(

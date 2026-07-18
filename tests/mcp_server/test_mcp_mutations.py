@@ -32,8 +32,10 @@ import config as config_mod
 from _common import (
     CyclicParentChainError,
     HasDescendantsError,
+    MutationLockError,
     PartialApplyError,
     parse_frontmatter,
+    vault_mutation_lock,
 )
 from _common._yaml import dump_mapping_text
 
@@ -47,6 +49,7 @@ from _mcp_helpers import (
     _list_result_lines,
     _list_text,
     _progress_payload,
+    _result_text,
     _search_result_lines,
     _search_text,
     _write_config_text,
@@ -56,8 +59,8 @@ from _mcp_helpers import (
 
 def _assert_partial_apply_error(result, expected):
     _assert_error(result, expected)
-    assert "Unexpected error" not in result
-    assert "Traceback" not in result
+    assert "Unexpected error" not in _result_text(result)
+    assert "Traceback" not in _result_text(result)
 
 
 def _write_parent_child_tree(vault):
@@ -89,9 +92,39 @@ def _write_parent_child_tree(vault):
 class TestBrainCreate:
     def test_create_returns_path(self, initialized):
         result = server.brain_create(type="wiki", title="New Page")
-        assert result.startswith("**Created** living/wiki: ")
+        assert _result_text(result).startswith("**Created** living/wiki: ")
+
+    def test_stage_handle_is_consumed_only_after_success(self, initialized):
+        staged = server.brain_stage("# Staged\n\nBody from Brain staging.\n")
+        handle = staged.structuredContent["handle"]
+        staged_path = (
+            initialized / ".brain" / "local" / "staging" /
+            f"{handle.removeprefix('body:')}.body"
+        )
+        assert staged_path.is_file()
+
+        failed = server.brain_create(
+            type="missing-type", title="Retry Me", body_handle=handle
+        )
+        _assert_any_error(failed)
+        assert staged_path.is_file()
+
+        result = server.brain_create(
+            type="wiki", title="Staged Page", body_handle=handle
+        )
+        path = _extract_create_path(result)
+        assert "Body from Brain staging" in (initialized / path).read_text()
+        assert not staged_path.exists()
         path = _extract_create_path(result)
         assert path.startswith("Wiki/")
+
+    def test_unused_stage_handle_can_be_discarded(self, initialized):
+        staged = server.brain_stage("unused")
+        handle = staged.structuredContent["handle"]
+        result = server.brain_discard_stage(handle)
+        assert result.structuredContent == {"handle": handle, "discarded": True}
+        again = server.brain_discard_stage(handle)
+        assert again.structuredContent["discarded"] is False
 
     def test_create_file_on_disk(self, initialized):
         result = server.brain_create(type="wiki", title="Disk Test")
@@ -123,7 +156,7 @@ class TestBrainCreate:
 
     def test_create_parented_temporal_files_under_owner_scope(self, initialized):
         parent_result = server.brain_create(type="wiki", title="Parent Page", key="parent-page")
-        assert parent_result.startswith("**Created** living/wiki: ")
+        assert _result_text(parent_result).startswith("**Created** living/wiki: ")
 
         result = server.brain_create(
             type="logs", title="Scoped Session", parent="wiki/parent-page"
@@ -179,7 +212,7 @@ class TestBrainCreate:
 
     def test_create_with_canonical_parent(self, initialized):
         parent_result = server.brain_create(type="wiki", title="Parent Page", key="parent-page")
-        assert parent_result.startswith("**Created** living/wiki: ")
+        assert _result_text(parent_result).startswith("**Created** living/wiki: ")
         child_result = server.brain_create(
             type="ideas", title="Child Idea", parent="wiki/parent-page"
         )
@@ -196,7 +229,7 @@ class TestBrainCreate:
             resource="skill", name="test-skill",
             body="# Test Skill\n\nDo something.\n",
         )
-        assert "**Created** skill:" in result
+        assert "**Created** skill:" in _result_text(result)
         path = _extract_create_path(result)
         assert path == "_Config/Skills/test-skill/SKILL.md"
         assert os.path.isfile(os.path.join(str(initialized), path))
@@ -207,7 +240,7 @@ class TestBrainCreate:
             body="Remember this.\n",
             frontmatter={"triggers": ["keyword"]},
         )
-        assert "**Created** memory:" in result
+        assert "**Created** memory:" in _result_text(result)
         path = _extract_create_path(result)
         assert path == "_Config/Memories/test-memory.md"
 
@@ -216,7 +249,7 @@ class TestBrainCreate:
             resource="style", name="test-style",
             body="# Test Style\n\nWrite this way.\n",
         )
-        assert "**Created** style:" in result
+        assert "**Created** style:" in _result_text(result)
         path = _extract_create_path(result)
         assert path == "_Config/Styles/test-style.md"
 
@@ -225,7 +258,7 @@ class TestBrainCreate:
         result = server.brain_create(
             resource="template", name="wiki", body=body,
         )
-        assert "**Created** template:" in result
+        assert "**Created** template:" in _result_text(result)
         path = _extract_create_path(result)
         assert (initialized / path).read_text() == body
 
@@ -271,7 +304,7 @@ class TestBrainCreate:
         result = server.brain_create(type="wiki")
         _assert_error(result, "requires top-level field 'title'")
 
-    def test_create_error_cleans_up_temp_body_file(self, initialized):
+    def test_create_error_preserves_caller_owned_temp_body_file(self, initialized):
         with tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8") as f:
             f.write("temporary body\n")
             temp_path = f.name
@@ -282,7 +315,7 @@ class TestBrainCreate:
                 body_file=temp_path,
             )
             _assert_error(result, "requires top-level field 'type'")
-            assert not os.path.exists(temp_path), "temp body_file was not cleaned up"
+            assert os.path.exists(temp_path), "caller-owned body_file must remain retryable"
         finally:
             if os.path.exists(temp_path):
                 os.remove(temp_path)
@@ -295,7 +328,7 @@ class TestBrainCreateFixLinks:
                 "brain_create", True, None
             )
 
-    def test_mcp_create_with_fix_links_prepares_index_before_mutation(
+    def test_mcp_create_with_fix_links_prepares_index_inside_mutation(
         self, initialized, monkeypatch
     ):
         import fix_links as _fix_links
@@ -306,7 +339,7 @@ class TestBrainCreateFixLinks:
         original_script = _fix_links.build_vault_file_index
 
         def prepare_spy(*args, **kwargs):
-            assert in_mutation["value"] is False
+            assert in_mutation["value"] is True
             called["prepared"] += 1
             return original_prepare(*args, **kwargs)
 
@@ -335,10 +368,10 @@ class TestBrainCreateFixLinks:
             fix_links=True,
         )
 
-        assert "Error" not in str(result), f"brain_create unexpectedly returned error: {result}"
+        assert "Error" not in _result_text(result), f"brain_create unexpectedly returned error: {result}"
         assert called == {"prepared": 1, "script": 0}
-        assert "Broken wikilinks" not in result
-        assert "Resolvable wikilinks" not in result
+        assert "Broken wikilinks" not in _result_text(result)
+        assert "Resolvable wikilinks" not in _result_text(result)
 
     def test_mcp_create_with_fix_links_does_not_require_search_index(
         self, initialized
@@ -352,9 +385,9 @@ class TestBrainCreateFixLinks:
             fix_links=True,
         )
 
-        assert "Error" not in str(result), f"brain_create unexpectedly returned error: {result}"
-        assert "Broken wikilinks" not in result
-        assert "Resolvable wikilinks" not in result
+        assert "Error" not in _result_text(result), f"brain_create unexpectedly returned error: {result}"
+        assert "Broken wikilinks" not in _result_text(result)
+        assert "Resolvable wikilinks" not in _result_text(result)
 
 
 class TestBrainEdit:
@@ -362,16 +395,23 @@ class TestBrainEdit:
         tool = asyncio.run(server.mcp.list_tools())
         brain_edit_tool = next(item for item in tool if item.name == "brain_edit")
         schema = brain_edit_tool.inputSchema
-        props = schema["properties"]
-
-        assert props["resource"]["enum"] == [
+        request = schema["$defs"]["_BrainEditRequest"]
+        assert set(request["properties"]["subject"]["discriminator"]["mapping"]) == {
             "artefact",
             "skill",
             "memory",
             "style",
             "template",
-        ]
-        assert props["scope"]["anyOf"] == [
+        }
+        assert set(request["properties"]["mutation"]["discriminator"]["mapping"]) == {
+            "append",
+            "delete_section",
+            "edit",
+            "prepend",
+            "replace_text",
+        }
+        scope = schema["$defs"]["_BrainEditMutation"]["properties"]["scope"]
+        assert scope["anyOf"] == [
             {
                 "enum": ["section", "intro", "body", "heading", "header"],
                 "type": "string",
@@ -387,7 +427,7 @@ class TestBrainEdit:
             target=":body",
             scope="section",
         )
-        assert result == "**Edited:** Wiki/brain-overview-abc123.md (body section)"
+        assert _result_text(result) == "**Edited:** Wiki/brain-overview-abc123.md (body section)"
         content = (initialized / "Wiki" / "brain-overview-abc123.md").read_text()
         assert "Replaced." in content
 
@@ -414,19 +454,52 @@ class TestBrainEdit:
         )
         _assert_error(result, "must not start with a frontmatter block")
 
+    def test_replace_text_replaces_unique_match(self, initialized):
+        result = server.brain_edit(
+            operation="replace_text",
+            path="Wiki/brain-overview-abc123.md",
+            old_text="personal knowledge management",
+            new_text="shared knowledge management",
+        )
+        assert "**Replaced text in:**" in _result_text(result)
+        content = (initialized / "Wiki" / "brain-overview-abc123.md").read_text()
+        assert "shared knowledge management" in content
+
+    def test_replace_text_ambiguous_match_is_actionable(self, initialized):
+        path = initialized / "Wiki" / "brain-overview-abc123.md"
+        path.write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\nRepeated. Repeated.\n"
+        )
+        result = server.brain_edit(
+            operation="replace_text",
+            path="Wiki/brain-overview-abc123.md",
+            old_text="Repeated.",
+            new_text="Changed.",
+        )
+        _assert_error(result, "found 2 exact matches")
+
     def test_edit_merges_frontmatter(self, initialized):
-        server.brain_edit(
+        result = server.brain_edit(
             operation="edit",
             path="Wiki/brain-overview-abc123.md",
             body="# New\n",
-            frontmatter={"status": "archived"},
+            frontmatter={"summary": "Updated"},
             target=":body",
             scope="section",
         )
+        assert "Error" not in _result_text(result)
         content = (initialized / "Wiki" / "brain-overview-abc123.md").read_text()
         from _common import parse_frontmatter
         fields, _ = parse_frontmatter(content)
-        assert fields["status"] == "archived"
+        assert fields["summary"] == "Updated"
+
+    def test_edit_rejects_lifecycle_owned_status(self, initialized):
+        result = server.brain_edit(
+            operation="edit",
+            path="Wiki/brain-overview-abc123.md",
+            frontmatter={"status": "archived"},
+        )
+        _assert_error(result, "Use brain_set_status")
 
     def test_edit_parent_change_to_descendant_surfaces_actionably(self, initialized):
         parent, child = _write_parent_child_tree(initialized)
@@ -436,23 +509,104 @@ class TestBrainEdit:
         child_before = child.read_text()
 
         with patch.object(server, "_ensure_router_fresh"):
-            result = server.brain_edit(
-                operation="edit",
+            result = server.brain_reparent(
                 path="Ideas/Parent.md",
-                body="Parent.\n",
-                target=":body",
-                scope="section",
-                frontmatter={"parent": "wiki/child"},
+                parent="wiki/child",
             )
 
         _assert_error(result, "Invalid living parent chain")
         _assert_error(result, "child of descendant wiki/child")
-        assert "Run check/doctor" not in result
-        assert "reconcile the broken or cyclic parent metadata" not in result
-        assert "Unexpected error" not in result
-        assert "Traceback" not in result
+        assert "Run check/doctor" not in _result_text(result)
+        assert "reconcile the broken or cyclic parent metadata" not in _result_text(result)
+        assert "Unexpected error" not in _result_text(result)
+        assert "Traceback" not in _result_text(result)
         assert parent.read_text() == parent_before
         assert child.read_text() == child_before
+
+    def test_explicit_lifecycle_tools_return_structured_changes(self, initialized):
+        parent, child = _write_parent_child_tree(initialized)
+        server._set_router(compile_router.compile(str(initialized)))
+
+        reparented = server.brain_reparent(path="Wiki/ideas~parent/Child.md", parent=None)
+        assert reparented.structuredContent["lifecycle_field"] == "parent"
+        assert reparented.structuredContent["path"] == "Wiki/Child.md"
+
+        created = server.brain_create(type="ideas", title="Lifecycle Example")
+        idea_path = created.structuredContent["path"]
+        server._set_router(compile_router.compile(str(initialized)))
+        keyed = server.brain_set_key(path=idea_path, key="lifecycle-example-renamed")
+        assert keyed.structuredContent["new_value"] == "lifecycle-example-renamed"
+
+        server._set_router(compile_router.compile(str(initialized)))
+        status = server.brain_set_status(
+            path=keyed.structuredContent["path"], status="adopted"
+        )
+        assert status.structuredContent["path"].startswith("Ideas/+Adopted/")
+        assert status.structuredContent["lifecycle_field"] == "status"
+
+    def test_naming_field_handler_renames_and_generic_edit_rejects(self, initialized):
+        source = initialized / "Wiki" / "old-Brain Overview.md"
+        original = initialized / "Wiki" / "brain-overview-abc123.md"
+        original.rename(source)
+        source.write_text(
+            "---\ntype: living/wiki\ntags: []\ncode: old\n---\n\n# Brain Overview\n"
+        )
+        router = compile_router.compile(str(initialized))
+        wiki = next(item for item in router["artefacts"] if item["folder"] == "Wiki")
+        wiki["naming"] = {
+            "pattern": "{Code}-{Title}.md",
+            "folder": "Wiki/",
+            "rules": [{
+                "match_field": None,
+                "match_values": None,
+                "pattern": "{Code}-{Title}.md",
+                "date_source": None,
+            }],
+            "placeholders": [{
+                "name": "Code",
+                "field": "code",
+                "required_when_field": None,
+                "required_values": None,
+                "regex": None,
+            }],
+        }
+        server._set_router(router)
+
+        rejected = server.brain_edit(
+            operation="edit",
+            path="Wiki/old-Brain Overview.md",
+            frontmatter={"code": "new"},
+        )
+        _assert_error(rejected, "Use brain_set_naming_field")
+
+        changed = server.brain_set_naming_field(
+            path="Wiki/old-Brain Overview.md", field="code", value="new"
+        )
+        assert changed.structuredContent["path"] == "Wiki/new-Brain Overview.md"
+        assert (initialized / "Wiki" / "new-Brain Overview.md").is_file()
+
+    def test_lifecycle_lock_contention_is_an_expected_error(self, initialized, monkeypatch):
+        monkeypatch.setattr(
+            server,
+            "vault_mutation_lock",
+            lambda root: vault_mutation_lock(root, timeout=0.05),
+        )
+        with vault_mutation_lock(initialized):
+            with pytest.raises(ValueError, match="Vault is busy; retry") as exc_info:
+                with server._serialize_mutation("test"):
+                    pass
+            assert isinstance(exc_info.value.__cause__, MutationLockError)
+            result = server.brain_set_status(
+                path="Wiki/brain-overview-abc123.md", status="active"
+            )
+
+        _assert_error(result, "Vault is busy; retry the mutation")
+        assert "Unexpected error" not in _result_text(result)
+
+    def test_mutation_lock_error_from_body_is_not_relabelled(self, initialized):
+        with pytest.raises(MutationLockError, match="body failure"):
+            with server._serialize_mutation("test"):
+                raise MutationLockError("body failure")
 
     def test_append_works(self, initialized):
         result = server.brain_edit(
@@ -462,7 +616,7 @@ class TestBrainEdit:
             target=":body",
             scope="section",
         )
-        assert result == "**Appended:** Wiki/brain-overview-abc123.md (body section)"
+        assert _result_text(result) == "**Appended:** Wiki/brain-overview-abc123.md (body section)"
         content = (initialized / "Wiki" / "brain-overview-abc123.md").read_text()
         assert "Appended text." in content
         assert "Brain Overview" in content  # original preserved
@@ -503,7 +657,7 @@ class TestBrainEdit:
             target=":body",
             scope="section",
         )
-        assert result == "**Prepended:** Wiki/brain-overview-abc123.md (body section)"
+        assert _result_text(result) == "**Prepended:** Wiki/brain-overview-abc123.md (body section)"
         content = (initialized / "Wiki" / "brain-overview-abc123.md").read_text()
         assert "Prepended text." in content
         assert "Brain Overview" in content  # original preserved
@@ -560,16 +714,16 @@ class TestBrainEdit:
             target="Alpha",
             scope="body",
         )
-        assert "**Edited:**" in result
+        assert "**Edited:**" in _result_text(result)
 
     def test_frontmatter_only_append_allowed(self, initialized):
         """append with just frontmatter changes is valid, not a no-op."""
         result = server.brain_edit(
             operation="append",
             path="Wiki/brain-overview-abc123.md",
-            frontmatter={"status": "archived"},
+            frontmatter={"aliases": ["overview"]},
         )
-        assert "**Appended:**" in result
+        assert "**Appended:**" in _result_text(result)
 
     def test_targeted_frontmatter_only_append_omits_structural_summary(self, initialized):
         from _common import parse_frontmatter
@@ -586,7 +740,7 @@ class TestBrainEdit:
             target="## Alpha",
             scope="body",
         )
-        assert result == "**Appended:** Wiki/brain-overview-abc123.md"
+        assert _result_text(result) == "**Appended:** Wiki/brain-overview-abc123.md"
         fields, body = parse_frontmatter(path.read_text())
         assert "server-tag" in fields["tags"]
         assert body == "## Alpha\n\nBody.\n"
@@ -606,7 +760,7 @@ class TestBrainEdit:
             target="## Alpha",
             scope="body",
         )
-        assert result == "**Prepended:** Wiki/brain-overview-abc123.md"
+        assert _result_text(result) == "**Prepended:** Wiki/brain-overview-abc123.md"
         fields, body = parse_frontmatter(path.read_text())
         assert "server-tag" in fields["tags"]
         assert body == "## Alpha\n\nBody.\n"
@@ -619,7 +773,7 @@ class TestBrainEdit:
             path="Wiki/brain-overview-abc123.md",
             frontmatter={"tags": ["new-tag"]},
         )
-        assert "**Appended:**" in result
+        assert "**Appended:**" in _result_text(result)
         content = (initialized / "Wiki" / "brain-overview-abc123.md").read_text()
         fields, _ = parse_frontmatter(content)
         assert "new-tag" in fields["tags"]
@@ -642,7 +796,7 @@ class TestBrainEdit:
             path=path,
             target="Notes"
         )
-        assert "Error" not in str(result)
+        assert "Error" not in _result_text(result)
         content = (initialized / path).read_text()
         assert "## Notes" not in content
         assert "Notes content." not in content
@@ -679,7 +833,7 @@ class TestBrainEdit:
             target="Beta",
             scope="body",
         )
-        assert result == (
+        assert _result_text(result) == (
             "**Edited:** Wiki/brain-overview-abc123.md "
             "(heading body: ## Beta)"
         )
@@ -699,7 +853,7 @@ class TestBrainEdit:
             target="## Alpha",
             scope="intro",
         )
-        assert result == (
+        assert _result_text(result) == (
             "**Edited:** Wiki/brain-overview-abc123.md "
             "(heading intro: ## Alpha)"
         )
@@ -726,7 +880,7 @@ class TestBrainEdit:
             target="## Alpha",
             scope="intro",
         )
-        assert result == (
+        assert _result_text(result) == (
             "**Appended:** Wiki/brain-overview-abc123.md "
             "(heading intro: ## Alpha)"
         )
@@ -750,7 +904,7 @@ class TestBrainEdit:
             scope="section",
             body="Replacement.\n",
         )
-        assert result == "**Edited:** Wiki/brain-overview-abc123.md (body section)"
+        assert _result_text(result) == "**Edited:** Wiki/brain-overview-abc123.md (body section)"
 
     def test_body_target_response_uses_scope_not_context(self, initialized):
         path = initialized / "Wiki" / "brain-overview-abc123.md"
@@ -765,7 +919,7 @@ class TestBrainEdit:
             scope="section",
             body="Replacement.\n",
         )
-        assert result == "**Edited:** Wiki/brain-overview-abc123.md (body section)"
+        assert _result_text(result) == "**Edited:** Wiki/brain-overview-abc123.md (body section)"
 
     def test_body_section_append_and_prepend_work_explicitly(self, initialized):
         path = initialized / "Wiki" / "brain-overview-abc123.md"
@@ -786,8 +940,8 @@ class TestBrainEdit:
             scope="section",
             body="\nAfter.\n",
         )
-        assert prepend_result == "**Prepended:** Wiki/brain-overview-abc123.md (body section)"
-        assert append_result == "**Appended:** Wiki/brain-overview-abc123.md (body section)"
+        assert _result_text(prepend_result) == "**Prepended:** Wiki/brain-overview-abc123.md (body section)"
+        assert _result_text(append_result) == "**Appended:** Wiki/brain-overview-abc123.md (body section)"
         content = path.read_text()
         assert "Before." in content
         assert "After." in content
@@ -809,7 +963,7 @@ class TestBrainEdit:
             scope="intro",
             body="Updated intro.\n",
         )
-        assert result == "**Edited:** Wiki/brain-overview-abc123.md (body intro)"
+        assert _result_text(result) == "**Edited:** Wiki/brain-overview-abc123.md (body intro)"
         content = path.read_text()
         assert "Updated intro.\n## Alpha" in content
         assert "Intro text." not in content
@@ -830,7 +984,7 @@ class TestBrainEdit:
             scope="intro",
             body="Lead text.\n",
         )
-        assert result == "**Edited:** Wiki/brain-overview-abc123.md (body intro)"
+        assert _result_text(result) == "**Edited:** Wiki/brain-overview-abc123.md (body intro)"
         content = path.read_text()
         assert "Lead text.\n## Alpha" in content
 
@@ -848,7 +1002,7 @@ class TestBrainEdit:
             scope="intro",
             body="Lead text.\n",
         )
-        assert result == "**Edited:** Wiki/brain-overview-abc123.md (body intro)"
+        assert _result_text(result) == "**Edited:** Wiki/brain-overview-abc123.md (body intro)"
         content = path.read_text()
         from _common import parse_frontmatter
         _fields, body = parse_frontmatter(content)
@@ -904,7 +1058,7 @@ class TestBrainEdit:
         _assert_error(result, "scope='body' -> the callout body")
         _assert_error(result, "scope='section' -> the whole callout")
 
-    def test_invalid_scope_error_cleans_up_temp_body_file(self, initialized):
+    def test_invalid_scope_error_preserves_caller_owned_temp_body_file(self, initialized):
         path = initialized / "Wiki" / "brain-overview-abc123.md"
         path.write_text(
             "---\ntype: living/wiki\ntags: []\n---\n\n"
@@ -924,7 +1078,7 @@ class TestBrainEdit:
                 body_file=temp_path,
             )
             _assert_error(result, "scope='header' is not valid for append on callout targets")
-            assert not os.path.exists(temp_path), "temp body_file was not cleaned up"
+            assert os.path.exists(temp_path), "caller-owned body_file must remain retryable"
         finally:
             if os.path.exists(temp_path):
                 os.remove(temp_path)
@@ -937,7 +1091,7 @@ class TestBrainEdit:
             "> Old status content.\n"
         )
         with patch(
-            "brain_mcp._server_artefacts.resolve_body_file",
+            "_staging.resolve_body_file",
             side_effect=AssertionError("resolve_body_file should not be called"),
         ):
             result = server.brain_edit(
@@ -1018,7 +1172,7 @@ class TestBrainEdit:
             scope="body",
             body="### Overview\n\nPromoted content.\n",
         )
-        assert "Error" not in str(result)
+        assert "Error" not in _result_text(result)
         content = path.read_text()
         assert "## Alpha" in content
         assert "### Overview" in content
@@ -1036,7 +1190,7 @@ class TestBrainEdit:
             scope="body",
             body="> [!note] Fresh note\n> Promoted content.\n",
         )
-        assert "Error" not in str(result)
+        assert "Error" not in _result_text(result)
         content = path.read_text()
         assert "## Alpha" in content
         assert "[!note] Fresh note" in content
@@ -1054,7 +1208,7 @@ class TestBrainEdit:
             scope="section",
             body="# Renamed Alpha\n\nUpdated alpha.\n",
         )
-        assert result == (
+        assert _result_text(result) == (
             "**Edited:** Wiki/brain-overview-abc123.md "
             "(heading section: ## Alpha)"
         )
@@ -1078,7 +1232,7 @@ class TestBrainEdit:
             scope="header",
             body="> [!warning] Updated status\n",
         )
-        assert result == (
+        assert _result_text(result) == (
             "**Edited:** Wiki/brain-overview-abc123.md "
             "(callout header: [!note] Implementation status)"
         )
@@ -1102,7 +1256,7 @@ class TestBrainEdit:
             scope="body",
             body="Selected notes.\n",
         )
-        assert result == (
+        assert _result_text(result) == (
             "**Edited:** Wiki/brain-overview-abc123.md "
             "(heading body: # API [2] > ## Notes)"
         )
@@ -1143,8 +1297,8 @@ class TestBrainEdit:
             target=":body",
             scope="section",
         )
-        assert "**Edited:**" in result
-        assert "_Config/Skills/test-skill/SKILL.md" in result
+        assert "**Edited:**" in _result_text(result)
+        assert "_Config/Skills/test-skill/SKILL.md" in _result_text(result)
         content = (skill_dir / "SKILL.md").read_text()
         assert "New content." in content
 
@@ -1160,7 +1314,7 @@ class TestBrainEdit:
             target=":body",
             scope="section",
         )
-        assert "**Appended:**" in result
+        assert "**Appended:**" in _result_text(result)
 
     def test_edit_memory_trigger_is_immediately_readable(self, initialized):
         mem_dir = initialized / "_Config" / "Memories"
@@ -1178,7 +1332,7 @@ class TestBrainEdit:
             frontmatter={"triggers": ["new-trigger"]},
         )
 
-        assert "**Appended:**" in result
+        assert "**Appended:**" in _result_text(result)
         read_result = server.brain_read("memory", name="new-trigger")
         assert "Original." in read_result
 
@@ -1203,7 +1357,7 @@ class TestBrainEdit:
             scope="section",
         )
 
-        assert "**Appended:**" in result
+        assert "**Appended:**" in _result_text(result)
         search_result = _search_text(server.brain_search("xenocrypticmemorytoken"))
         assert "0 results" in search_result
         assert "_Config/Memories/test-memory.md" not in search_result
@@ -1253,8 +1407,8 @@ class TestBrainEdit:
         )
         _assert_error(result, "does not accept top-level field 'fix_links'")
 
-    def test_edit_error_cleans_up_temp_body_file(self, initialized):
-        """Spec validation before resolve_body_file still triggers body_file cleanup."""
+    def test_edit_error_preserves_caller_owned_temp_body_file(self, initialized):
+        """Spec validation never deletes a caller-owned body file."""
         with tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8") as f:
             f.write("temporary body\n")
             temp_path = f.name
@@ -1265,7 +1419,7 @@ class TestBrainEdit:
                 body_file=temp_path,
             )
             _assert_error(result, "requires top-level field 'path'")
-            assert not os.path.exists(temp_path), "temp body_file was not cleaned up"
+            assert os.path.exists(temp_path), "caller-owned body_file must remain retryable"
         finally:
             if os.path.exists(temp_path):
                 os.remove(temp_path)
@@ -1274,10 +1428,10 @@ class TestBrainEdit:
 class TestBrainEditFixLinksIndex:
     """Regression guards for MCP mutation-time wikilink index preparation."""
 
-    def test_mcp_edit_with_fix_links_prepares_index_before_mutation(
+    def test_mcp_edit_with_fix_links_skips_index_for_link_free_body(
         self, initialized, monkeypatch
     ):
-        """brain_edit prepares the filesystem index before entering mutation."""
+        """brain_edit avoids a full vault scan when no wikilinks need checking."""
         import fix_links as _fix_links
 
         called = {"prepared": 0, "script": 0}
@@ -1286,7 +1440,7 @@ class TestBrainEditFixLinksIndex:
         original_script = _fix_links.build_vault_file_index
 
         def prepare_spy(*args, **kwargs):
-            assert in_mutation["value"] is False
+            assert in_mutation["value"] is True
             called["prepared"] += 1
             return original_prepare(*args, **kwargs)
 
@@ -1319,8 +1473,8 @@ class TestBrainEditFixLinksIndex:
             fix_links=True,
         )
 
-        assert "Error" not in str(result), f"brain_edit unexpectedly returned error: {result}"
-        assert called == {"prepared": 1, "script": 0}
+        assert "Error" not in _result_text(result), f"brain_edit unexpectedly returned error: {result}"
+        assert called == {"prepared": 0, "script": 0}
 
     def test_mcp_edit_with_fix_links_uses_filesystem_index_for_external_targets(
         self, initialized
@@ -1354,9 +1508,9 @@ class TestBrainEditFixLinksIndex:
             fix_links=True,
         )
 
-        assert "Error" not in str(result), f"brain_edit unexpectedly returned error: {result}"
-        assert "Broken wikilinks" not in result
-        assert "Resolvable wikilinks" not in result
+        assert "Error" not in _result_text(result), f"brain_edit unexpectedly returned error: {result}"
+        assert "Broken wikilinks" not in _result_text(result)
+        assert "Resolvable wikilinks" not in _result_text(result)
 
     def test_mcp_edit_with_fix_links_flushes_pending_index_updates(self, initialized):
         server.brain_create(type="wiki", title="Fresh Target")
@@ -1370,9 +1524,9 @@ class TestBrainEditFixLinksIndex:
             fix_links=True,
         )
 
-        assert "Error" not in str(result), f"brain_edit unexpectedly returned error: {result}"
-        assert "Broken wikilinks" not in result
-        assert "Resolvable wikilinks" not in result
+        assert "Error" not in _result_text(result), f"brain_edit unexpectedly returned error: {result}"
+        assert "Broken wikilinks" not in _result_text(result)
+        assert "Resolvable wikilinks" not in _result_text(result)
 
     def test_mcp_edit_with_fix_links_does_not_require_search_index(
         self, initialized
@@ -1388,9 +1542,9 @@ class TestBrainEditFixLinksIndex:
             fix_links=True,
         )
 
-        assert "Error" not in str(result), f"brain_edit unexpectedly returned error: {result}"
-        assert "Broken wikilinks" not in result
-        assert "Resolvable wikilinks" not in result
+        assert "Error" not in _result_text(result), f"brain_edit unexpectedly returned error: {result}"
+        assert "Broken wikilinks" not in _result_text(result)
+        assert "Resolvable wikilinks" not in _result_text(result)
 
     def test_brain_edit_partial_apply_marks_dirty_and_preserves_context(
         self, initialized, monkeypatch
@@ -1427,10 +1581,9 @@ class TestBrainEditFixLinksIndex:
         server._router_dirty = False
         server._index_dirty = False
 
-        result = server.brain_edit(
-            operation="edit",
+        result = server.brain_set_key(
             path="Ideas/Parent.md",
-            frontmatter={"key": "parent2"},
+            key="parent2",
         )
 
         _assert_partial_apply_error(result, "ownership mutation partially applied")
@@ -1481,8 +1634,8 @@ class TestBrainMove:
             source="Wiki/brain-overview-abc123.md",
             dest="Wiki/brain-intro-abc123.md",
         )
-        assert "grep_replace" in result
-        assert "links updated" in result
+        assert "grep_replace" in _result_text(result)
+        assert "links updated" in _result_text(result)
         assert not (vault / "Wiki" / "brain-overview-abc123.md").exists()
         assert (vault / "Wiki" / "brain-intro-abc123.md").exists()
         content = (vault / "Wiki" / "linker-xyz000.md").read_text()
@@ -1498,8 +1651,8 @@ class TestBrainMove:
                 source="Wiki/old.md",
                 dest="Wiki/new.md",
             )
-            assert "obsidian_cli" in result
-            assert "wikilinks auto-updated" in result
+            assert "obsidian_cli" in _result_text(result)
+            assert "wikilinks auto-updated" in _result_text(result)
 
     def test_rename_refreshes_cli_availability_before_cli_path(
         self, initialized, cli_available, monkeypatch
@@ -1514,7 +1667,7 @@ class TestBrainMove:
                 dest="Wiki/brain-intro-abc123.md",
             )
 
-        assert "grep_replace" in result
+        assert "grep_replace" in _result_text(result)
         mock_move.assert_not_called()
         assert (initialized / "Wiki" / "brain-intro-abc123.md").is_file()
 
@@ -1538,8 +1691,8 @@ class TestBrainMove:
         assert target.is_file()
         assert alias.is_symlink()
         assert not (initialized / "Wiki" / "moved.md").exists()
-        assert "Unexpected error" not in result
-        assert "Traceback" not in result
+        assert "Unexpected error" not in _result_text(result)
+        assert "Traceback" not in _result_text(result)
 
     def test_rename_destination_parent_file_surfaces_actionably_without_dirtying(
         self, initialized
@@ -1555,8 +1708,8 @@ class TestBrainMove:
         )
 
         _assert_error(result, "Destination parent is not a directory: Wiki/blocked")
-        assert "Unexpected error" not in result
-        assert "Traceback" not in result
+        assert "Unexpected error" not in _result_text(result)
+        assert "Traceback" not in _result_text(result)
         assert (initialized / "Wiki" / "brain-overview-abc123.md").is_file()
         assert (initialized / "Wiki" / "blocked").is_file()
         assert server._router_dirty is False
@@ -1580,8 +1733,8 @@ class TestBrainMove:
 
         _assert_error(result, "Destination parent is not a directory: Wiki/blocked")
         mock_move.assert_not_called()
-        assert "Unexpected error" not in result
-        assert "Traceback" not in result
+        assert "Unexpected error" not in _result_text(result)
+        assert "Traceback" not in _result_text(result)
         assert (initialized / "Wiki" / "brain-overview-abc123.md").is_file()
         assert (initialized / "Wiki" / "blocked").is_file()
         assert server._router_dirty is False
@@ -1606,8 +1759,8 @@ class TestBrainMove:
 
         _assert_error(result, "Destination parent is not a directory: Wiki/blocked")
         mock_move.assert_not_called()
-        assert "Unexpected error" not in result
-        assert "Traceback" not in result
+        assert "Unexpected error" not in _result_text(result)
+        assert "Traceback" not in _result_text(result)
         assert (initialized / "Wiki" / "brain-overview-abc123.md").is_file()
         assert blocked.is_symlink()
         assert not (initialized / "Wiki" / "missing-target" / "brain-intro-abc123.md").exists()
@@ -1621,7 +1774,7 @@ class TestBrainMove:
                 source="Wiki/brain-overview-abc123.md",
                 dest="Wiki/brain-intro-abc123.md",
             )
-        assert "Renamed" in result
+        assert "Renamed" in _result_text(result)
         mock_ensure.assert_called_once_with()
 
     def test_rename_marks_router_dirty(self, initialized):
@@ -1631,7 +1784,7 @@ class TestBrainMove:
             source="Wiki/brain-overview-abc123.md",
             dest="Wiki/brain-intro-abc123.md",
         )
-        assert "Renamed" in result
+        assert "Renamed" in _result_text(result)
         assert server._router_dirty is True
 
     def test_rename_missing_source(self, initialized):
@@ -1701,7 +1854,7 @@ class TestBrainMove:
                 source="Wiki/brain-overview-abc123.md",
                 dest="Wiki/brain-moved-abc123.md",
             )
-            assert "grep_replace" in result
+            assert "grep_replace" in _result_text(result)
             assert not (vault / "Wiki" / "brain-overview-abc123.md").exists()
             assert (vault / "Wiki" / "brain-moved-abc123.md").exists()
             content = (vault / "Wiki" / "linker-fallback.md").read_text()
@@ -1750,7 +1903,7 @@ class TestBrainMove:
             source="Wiki/brain-overview-abc123.md",
             dest="Wiki/subdir/brain-overview-abc123.md",
         )
-        assert "grep_replace" in result
+        assert "grep_replace" in _result_text(result)
         assert not (vault / "Wiki" / "brain-overview-abc123.md").exists()
         assert (vault / "Wiki" / "subdir" / "brain-overview-abc123.md").exists()
 
@@ -1838,7 +1991,7 @@ class TestBrainMove:
 
         _assert_error(result, "Invalid living parent chain")
         _assert_error(result, "Run check/doctor")
-        assert "HAS_DESCENDANTS" not in result
+        assert "HAS_DESCENDANTS" not in _result_text(result)
 
     def test_archive_surfaces_stale_index_error_actionably(self, initialized):
         (initialized / "Ideas" / "Parent.md").write_text(
@@ -1863,9 +2016,9 @@ class TestBrainMove:
         _assert_error(result, "Stale compiled artefact index")
         _assert_error(result, "ideas/parent")
         _assert_error(result, "Recompile or repair the router/index")
-        assert "Unexpected error" not in result
-        assert "Traceback" not in result
-        assert "Invalid living parent chain" not in result
+        assert "Unexpected error" not in _result_text(result)
+        assert "Traceback" not in _result_text(result)
+        assert "Invalid living parent chain" not in _result_text(result)
 
     def test_archive_surfaces_partial_apply_context(self, initialized):
         def fake_archive(vault_root, router, path, recursive=False):
@@ -1911,7 +2064,7 @@ class TestBrainMove:
     def test_unarchive_surfaces_partial_apply_context(self, initialized):
         rel = self._make_archived(initialized)
 
-        def fake_unarchive(vault_root, router, path):
+        def fake_unarchive(vault_root, router, path, recursive=False):
             raise PartialApplyError(
                 "unarchive partially applied — metadata file written "
                 "_Archive/Ideas/20260101-my-idea.md; "
@@ -1928,6 +2081,29 @@ class TestBrainMove:
         assert server._router_dirty is True
         assert server._index_dirty is True
 
+    def test_recursive_unarchive_warns_about_uninspected_candidates(self, initialized):
+        def fake_unarchive(_vault, _router, path, recursive=False):
+            assert recursive is True
+            return {
+                "old_path": path,
+                "new_path": "Ideas/Parent.md",
+                "links_updated": 0,
+                "uninspected": [{
+                    "path": "_Archive/Ideas/Child.md",
+                    "reason": "Unknown artefact type",
+                }],
+            }
+
+        with patch("brain_mcp._server_actions.edit.unarchive_artefact", fake_unarchive):
+            result = server.brain_move(
+                op="unarchive",
+                path="_Archive/Ideas/Parent.md",
+                recursive=True,
+            )
+
+        assert "recursive restore could not inspect archived candidate" in _result_text(result)
+        assert "_Archive/Ideas/Child.md: Unknown artefact type" in _result_text(result)
+
     def test_unarchive_destination_collision_preflights_without_dirtying(
         self, initialized
     ):
@@ -1941,8 +2117,8 @@ class TestBrainMove:
         result = server.brain_move(op="unarchive", path=rel)
 
         _assert_error(result, "Destination file already exists: Ideas/my-idea.md")
-        assert "unarchive partially applied" not in result
-        assert "Unexpected error" not in result
+        assert "unarchive partially applied" not in _result_text(result)
+        assert "Unexpected error" not in _result_text(result)
         assert server._router_dirty is False
         assert server._index_dirty is False
         content = (initialized / rel).read_text()
@@ -1987,7 +2163,7 @@ class TestBrainMoveConvert:
                 path="Wiki/brain-overview-abc123.md",
                 target_type="ideas",
             )
-        assert '"status": "ok"' in result
+        assert '"status": "ok"' in _result_text(result)
         mock_ensure.assert_called_once_with()
 
     def test_convert_surfaces_stale_indexed_descendant_missing_actionably(self, initialized):
@@ -2026,8 +2202,8 @@ class TestBrainMoveConvert:
 
         _assert_error(result, "Stale compiled artefact index")
         _assert_error(result, "Ideas/parent/Child.md")
-        assert "Unexpected error" not in result
-        assert "Traceback" not in result
+        assert "Unexpected error" not in _result_text(result)
+        assert "Traceback" not in _result_text(result)
 
     def test_convert_surfaces_partial_apply_context(self, initialized):
         def fake_convert(vault_root, router, path, target_type, parent=None, recursive=False):
@@ -2090,7 +2266,7 @@ class TestBrainMoveConvert:
             path="Wiki/brain-overview-abc123.md",
             target_type="ideas",
         )
-        assert '"status": "ok"' in result
+        assert '"status": "ok"' in _result_text(result)
         assert server._router_dirty is True
 
     def test_convert_missing_params(self, initialized):
@@ -2136,7 +2312,7 @@ class TestBrainActionDelete:
             "---\ntype: living/wiki\ntags: []\n---\n\nSee [[Wiki/python-guide-def456|Python]].\n"
         )
         result = server.brain_action("delete", params={"path": "Wiki/python-guide-def456.md"})
-        assert "links replaced" in result
+        assert "links replaced" in _result_text(result)
         content = (initialized / "Wiki" / "linker-aaa000.md").read_text()
         assert "~~Python~~" in content
 
@@ -2195,7 +2371,7 @@ class TestBrainActionDelete:
 
         _assert_error(result, "Invalid living parent chain")
         _assert_error(result, "Run check/doctor")
-        assert "HAS_DESCENDANTS" not in result
+        assert "HAS_DESCENDANTS" not in _result_text(result)
 
     def test_delete_surfaces_partial_apply_context(self, initialized):
         def fake_delete(vault_root, path, router=None, recursive=False):
@@ -2406,8 +2582,8 @@ class TestBrainActionReparent:
 
         _assert_error(result, "Stale compiled artefact index")
         _assert_error(result, "ideas/parent")
-        assert "Unexpected error" not in result
-        assert "Traceback" not in result
+        assert "Unexpected error" not in _result_text(result)
+        assert "Traceback" not in _result_text(result)
 
     def test_reparent_to_descendant_surfaces_actionably(self, initialized):
         parent, child = _write_parent_child_tree(initialized)
@@ -2424,10 +2600,10 @@ class TestBrainActionReparent:
 
         _assert_error(result, "Invalid living parent chain")
         _assert_error(result, "child of descendant wiki/child")
-        assert "Run check/doctor" not in result
-        assert "reconcile the broken or cyclic parent metadata" not in result
-        assert "Unexpected error" not in result
-        assert "Traceback" not in result
+        assert "Run check/doctor" not in _result_text(result)
+        assert "reconcile the broken or cyclic parent metadata" not in _result_text(result)
+        assert "Unexpected error" not in _result_text(result)
+        assert "Traceback" not in _result_text(result)
         assert parent.read_text() == parent_before
         assert child.read_text() == child_before
 

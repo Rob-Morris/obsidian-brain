@@ -69,7 +69,10 @@ brain_action(
 `brain_create` and `brain_edit` accept an optional `fix_links` boolean (default `false`). When `true`, every resolvable link in the written artefact is rewritten to its canonical target immediately after the write. Remaining broken or ambiguous links are still reported as warnings.
 
 ```python
-brain_edit("edit", path="People/Fidel.md", body=..., fix_links=True)
+brain_edit(request={
+    "subject": {"resource": "artefact", "path": "People/Fidel.md", "fix_links": True},
+    "mutation": {"operation": "edit", "content": {"source": "inline", "content": ...}},
+})
 ```
 
 Use `fix_links=True` when you're confident the resolvable suggestions are correct — e.g. you wrote the slug form and the fixer is mapping it to the canonical title. Leave it off (the default) when you want to review suggestions before applying.

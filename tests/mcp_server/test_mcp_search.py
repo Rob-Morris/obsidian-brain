@@ -195,7 +195,7 @@ class TestBrainSearch:
         result = server.brain_create(type="ideas", title="Editable Idea", body="Original content here.")
         server.brain_search("editable")
         # Extract created path from result
-        created_path = result.split(": ", 1)[1]
+        created_path = result.structuredContent["path"]
         # Verify unique term not yet present
         text = _search_text(server.brain_search("qwertymorphic"))
         assert "0 results" in text

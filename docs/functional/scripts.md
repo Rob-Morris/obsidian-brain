@@ -32,20 +32,25 @@ That `python3.12` process is the launcher, not the managed runtime itself.
 | `compile_colours.py` | Generate folder colour CSS | (called by compile_router) |
 | `build_lexical_index.py` | Build the portable lexical retrieval index only | `python3 build_lexical_index.py [--json]` |
 | `build_index.py` | Build retrieval index and optional embeddings sidecars from the provisioned local semantic model; unreadable retrieval sources and persistence failures now fail explicitly | `python3 build_index.py [--json]` |
-| `list_artefacts.py` | Enumerate vault artefacts and resources (unranked, no cap) | `python3 list_artefacts.py [RESOURCE] [--query Q] [--type T] [--parent P] [--since D] [--until D] [--tag TAG] [--top-k N] [--sort S] [--vault V] [--json]` |
+| `list_artefacts.py` | Enumerate vault artefacts/resources with honest creation/modified filters and stable cursor pagination | `python3 list_artefacts.py [RESOURCE] [--type T] [--since D] [--modified-since D] [--cursor C] [--top-k N] [--json]` |
 | `search_lexical.py` | Run portable lexical-only retrieval search | `python3 search_lexical.py "query" [--type T] [--tag TAG] [--status S] [--top-k N] [--json]` |
 | `search_index.py` | Lexical, semantic, or hybrid local search | `python3 search_index.py "query" [--type T] [--tag TAG] [--status S] [--mode M] [--top-k N] [--json]` |
 | `construct_benchmark_fixture.py` | Derive a vault-native retrieval benchmark fixture plus audit JSON from an existing vault, including semantic-variant audit diagnostics and optional externally seeded semantic or hybrid candidates; unreadable source files now fail explicitly | `python3 construct_benchmark_fixture.py --fixture-out PATH [--audit-out PATH] [--semantic-strategy S] [--semantic-seed-file PATH] [--hybrid-seed-file PATH] [--json]` |
 | `evaluate_search.py` | Benchmark lexical, semantic, and hybrid retrieval against a JSON query set | `python3 evaluate_search.py --benchmark PATH [--mode M]... [--json]` |
 | `read.py` | Query compiled router resources | `python3 read.py RESOURCE [--name N] [--vault V]` |
-| `create.py` | Create new artefact, generating living keys from the clearest free title-derived words before random suffix fallback; successful living creates update a supplied router's in-memory artefact index for safe sequential reuse; parented temporal artefacts file under their owner chain before the month folder; mutation mode refuses stale compiled router state | `python3 create.py --type T --title "Title" [--body B] [--body-file PATH] [--parent NAME] [--vault PATH] [--temp-path [SUFFIX]] [--json]` |
-| `edit.py` | Edit artefacts via CLI; importable helpers also back `brain_edit` for editable `_Config/` resources; mutation mode refuses stale compiled router state and reports post-metadata move failures as partial applies | `python3 edit.py edit\|append\|prepend\|delete_section --path P [--body B\|--body-file PATH] [--frontmatter JSON] [--target T] [--scope S] [--occurrence N] [--within T --within-occurrence N]... [--temp-path [SUFFIX]] [--vault V] [--json]` |
+| `create.py` | Strict create CLI with retry-safe body handles and shared vault mutation locking | `python3 create.py --type T --title "Title" [--body B\|--body-file PATH\|--body-handle H] [--parent NAME] [--vault PATH] [--json]` |
+| `define.py` | Guarded type, trigger, and plugin definition workflows with fixed paths and optimistic replacement checks | `python3 define.py {type,trigger,plugin} ... [--vault V] [--json]` |
+| `edit.py` | Strict structural/exact-text edit CLI; handler-owned lifecycle fields are rejected | `python3 edit.py edit\|append\|prepend\|replace_text\|delete_section --path P [...]` |
+| `outline.py` | List exact structural selectors accepted by edit operations | `python3 outline.py PATH [--vault V] [--json]` |
+| `stage.py` | Store large content under a Brain-owned retry-safe body handle | `python3 stage.py (--body B\|--body-file P) [--vault V] [--json]` |
+| `discard_stage.py` | Discard an unused body handle before its 24-hour expiry | `python3 discard_stage.py HANDLE [--vault V] [--json]` |
+| `lifecycle.py` | Explicit parent/status/key/naming-field mutations with derived path/link handling | `python3 lifecycle.py {reparent,set-status,set-key,set-naming-field} ...` |
 | `rename.py` | Rename/delete file + update wikilinks (full-path and filename-only), refusing stale compiled router state and unsafe move sets before rewrites | `python3 rename.py "source" "dest" [--json]` |
 | `check.py` | Structural compliance checks; launcher-safe bootstrap diagnostics are added first, then managed semantic findings from the canonical semantic owner run after managed-runtime handoff | `python3 check.py [--json] [--actionable] [--severity S] [--vault V]` |
 | `setup.py` | Public workspace setup owner: converge `brain + slug` binding plus Brain-owned local scaffold/ignore state, with an optional guided wizard over the same explicit configure surfaces | `python3 setup.py workspace [PATH] [--vault V] [--brain ID] [--slug S] [--guided] [--force] [--json]` |
 | `configure.py` | Explicit installed-vault configuration entry point: `workspace binding`, `workspace metadata`, `workspace bootstrap`, `mcp`, and `semantic` live here so targeted changes do not have to go through the setup wrapper | `python3 configure.py {workspace,mcp,semantic} ...` |
 | `install.py` | Shared Python installer core used by `install.sh` and `install.ps1` for fresh/existing-vault installs: scaffolds the vault, installs `.brain-core/`, provisions the machine resolution runtime, provisions the managed runtime, configures MCP, and emits lifecycle results | `python3 install.py VAULT [--source-root REPO] [--launcher PY] [--mcp-scope {project,user,skip}] [--client {claude,codex,all}] [--id ID] [--json]` |
-| `repair.py` | Explicit Brain repair entry point with bootstrap-to-managed-runtime handoff, including dedicated managed-runtime recovery, duplicate-frontmatter normalisation, and semantic runtime/model/sidecar recovery | `python3 repair.py {runtime,mcp,router,lexical,registry,frontmatter,semantic} [--vault V] [--dry-run] [--json]` |
+| `repair.py` | Explicit Brain repair entry point, including metadata-authoritative ownership projection with preview/apply | `python3 repair.py {runtime,mcp,router,lexical,registry,frontmatter,semantic,ownership} [--vault V] [--dry-run] [--json]` |
 | `_common/_venv.py` | Resolve and create the central managed runtime under `~/.brain/venvs/py<X.Y>-<sha16>/`. Importable helper used by `install.py` and lifecycle entry points, with a small diagnostic/repair CLI surface | `python3 _common/_venv.py {python,ensure} --vault V [--launcher PY]` |
 | `shape_printable.py` | Create printable + render PDF | `python3 shape_printable.py --source P --slug S [--no-render] [--pdf-engine E] [--keep-heading-with-next]` |
 | `shape_presentation.py` | Create presentation + render PDF + launch preview | `python3 shape_presentation.py --source P --slug S [--no-render] [--no-preview]` |
@@ -67,14 +72,14 @@ That `python3.12` process is the launcher, not the managed runtime itself.
 | `retrieval_embeddings.py` | Library-only compatibility facade that re-exports semantic config/runtime helpers for script callers | (library only) |
 | `session.py` | Build the canonical session model and refresh `.brain/local/session.md`; keeps a launcher-safe SessionStart shim but hands substantive work off into the managed runtime. Cross-Brain workspace resolution is owned by `brain session` before it dispatches with `--vault`. | `python3 session.py --vault V [--json] [--workspace-dir PATH]` |
 | `obsidian_cli.py` | IPC client for native Obsidian CLI | (library module, used by MCP server) |
-| `process.py` | Experimental content classification, duplicate resolution, ingestion | (library module, used by `brain_process` in the MCP server) |
+| `process.py` | Experimental content classification, duplicate resolution, ingestion | (library module, exposed separately as `brain_classify`, `brain_resolve`, and `brain_ingest`) |
 | `generate_key.py` | Generate operator key + hash for config.yaml | `python3 generate_key.py [--count N]` |
 
 > The `migrations/` rows above are representative; the full set of `migrate_to_*.py` one-shots (run by `upgrade.py`) lives in `src/brain-core/scripts/migrations/`.
 
 ## Architecture
 
-The MCP server is a thin wrapper that imports functions from scripts and holds the compiled router and search index in memory. Scripts are the single implementation — the server adds MCP transport, in-memory caching, process-local mutation serialization for mutating tool calls, and Obsidian CLI delegation. This means:
+The MCP server is a thin wrapper that imports functions from scripts and holds the compiled router and search index in memory. Scripts are the single implementation — the server adds MCP transport, in-memory caching, shared vault-scoped mutation locking, and Obsidian CLI delegation. This means:
 
 - Agents without MCP use scripts directly — same logic, same results
 - No logic duplication between MCP and CLI paths
@@ -281,6 +286,7 @@ See [DD-054](../architecture/decisions/dd-054-machine-resolution-runtime.md).
 
 - Body mutations are explicit. Omitted `target` no longer means "whole body"; use `--target :body --scope section`.
 - Artefact mutation mode refuses stale compiled router state before writing. If post-metadata moves such as terminal-status relocation fail, the CLI reports a partial-apply error with the written metadata path and the underlying move failure.
+- Explicit lifecycle commands preflight the resulting naming rule, required placeholder values, and placeholder regexes before metadata is written, so an invalid status or naming-field transition leaves the artefact unchanged.
 - `delete_section` uses the same `target` / selector model, but does not accept `--scope`.
 - `:body` is only valid as the top-level target, not inside `--within`.
 - Legacy spellings are migration errors:
@@ -656,7 +662,7 @@ generation is presentation-only and omits `snippet` when a source file cannot
 be reread, but `build_index.py` and `construct_benchmark_fixture.py` now fail
 explicitly on unreadable source bodies or retrieval-index persistence failures
 instead of silently skipping coverage. In MCP, index-backed `brain_search`,
-`brain_list`, and `brain_process` calls block with the typed rebuild error
+`brain_list`, `brain_classify`, `brain_resolve`, and `brain_ingest` calls block with the typed rebuild error
 until a successful rebuild clears it, rather than serving stale retrieval
 state.
 

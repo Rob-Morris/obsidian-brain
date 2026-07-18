@@ -313,7 +313,7 @@ class TestAdvancedNaming:
             "### Rules\n\n"
             "| Match field | Match values | Pattern |\n"
             "|---|---|---|\n"
-            "| `status` | `done` | `{slug}-done.md` |\n"
+            "| `status` | `done` | `{Title}-done.md` |\n"
             "| `status` | `*` | `{Title}.md` |\n"
         )
         result = cr.parse_taxonomy_file(str(f))
@@ -333,6 +333,34 @@ class TestAdvancedNaming:
         )
         with pytest.raises(ValueError, match="undeclared placeholder"):
             cr.parse_taxonomy_file(str(f))
+
+    def test_simple_form_custom_placeholder_compiles_to_same_name_field(self, tmp_path):
+        f = tmp_path / "tax.md"
+        f.write_text(
+            "# Test\n\n"
+            "## Naming\n\n"
+            "`{Code} - {Title}.md` in `Things/`.\n"
+        )
+        result = cr.parse_taxonomy_file(str(f))
+        assert result["naming"]["placeholders"] == [
+            {
+                "name": "Code",
+                "field": "code",
+                "required_when_field": None,
+                "required_values": None,
+                "regex": None,
+            }
+        ]
+
+    def test_legacy_slug_placeholder_remains_builtin(self, tmp_path):
+        f = tmp_path / "tax.md"
+        f.write_text(
+            "# Test\n\n"
+            "## Naming\n\n"
+            "`{slug}.md` in `Things/`.\n"
+        )
+        result = cr.parse_taxonomy_file(str(f))
+        assert result["naming"]["placeholders"] == []
 
     def test_blank_match_values_raises(self, tmp_path):
         f = tmp_path / "tax.md"

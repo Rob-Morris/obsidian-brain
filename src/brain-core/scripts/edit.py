@@ -12,6 +12,7 @@ Usage:
     python3 edit.py edit --path "Wiki/my-page.md" --target "## Notes" --scope "body" --within "# API" --within-occurrence 2 --body "New body" --vault /path --json
 """
 
+import argparse
 import json
 import os
 import re
@@ -42,6 +43,9 @@ from _common import (
     legacy_target_migration_error,
     make_artefact_key,
     make_temp_path,
+    MutationLockError,
+    public_mutation_error_message,
+    naming_driver_fields,
     normalize_artefact_key,
     now_iso,
     ParentChainError,
@@ -56,9 +60,9 @@ from _common import (
     render_filename,
     render_filename_or_default,
     resolve_folder,
+    resolve_artefact_key_entry,
     resolve_and_validate_folder,
     resolve_parent_reference,
-    resolve_body_file,
     resolve_type,
     resolve_structural_target,
     scan_artefact_key_references,
@@ -70,9 +74,11 @@ from _common import (
     unique_filename,
     validate_key,
     artefact_type_prefix,
+    vault_mutation_lock,
 )
 from rename import move_and_update_links, preflight_move_set, rename_and_update_links
 import fix_links as _fix_links
+from _staging import finalise_staged_body, resolve_mutation_body
 
 
 # ---------------------------------------------------------------------------
@@ -84,6 +90,7 @@ OPERATION_LABELS = {
     "append": "Appended",
     "prepend": "Prepended",
     "delete_section": "Deleted section from",
+    "replace_text": "Replaced text in",
 }
 
 BODY_TARGET = ":body"
@@ -609,6 +616,74 @@ def _apply_delete_section(existing_body, resolved):
     return _delete_range(existing_body, _resolve_scope_span(resolved, "section"))
 
 
+def _replace_text_matches(text, old_text):
+    """Return non-overlapping exact-match start offsets."""
+    matches = []
+    start = 0
+    while True:
+        found = text.find(old_text, start)
+        if found < 0:
+            return matches
+        matches.append(found)
+        start = found + len(old_text)
+
+
+def _apply_replace_text(existing_body, old_text, new_text, *, target=None,
+                        selector=None, scope=None, match_occurrence=None,
+                        replace_all=False):
+    """Apply a fail-safe exact-text replacement and return result metadata."""
+    if not old_text:
+        raise ValueError("replace_text requires non-empty old_text")
+    if new_text is None:
+        raise ValueError("replace_text requires new_text (use an empty string to delete)")
+    if match_occurrence is not None and match_occurrence < 1:
+        raise ValueError("match_occurrence must be a positive integer")
+    if replace_all and match_occurrence is not None:
+        raise ValueError("replace_all and match_occurrence are mutually exclusive")
+    if bool(target) != bool(scope):
+        raise ValueError("replace_text target and scope must be supplied together")
+    if selector and not target:
+        raise ValueError("replace_text selector requires target and scope")
+
+    resolved = None
+    start, end = 0, len(existing_body)
+    if target:
+        resolved = resolve_structural_target(existing_body, target, selector=selector)
+        valid = _valid_scopes_for(resolved["kind"], "edit")
+        if scope not in valid:
+            raise InvalidScopeError("replace_text", scope, resolved["kind"], valid)
+        start, end = _resolve_scope_span(resolved, scope)
+
+    selected = existing_body[start:end]
+    matches = _replace_text_matches(selected, old_text)
+    count = len(matches)
+    if count == 0:
+        target_label = _describe_structural_target(resolved, scope) if resolved else "body"
+        raise ValueError(f"replace_text found no exact match in {target_label}")
+
+    if replace_all:
+        replaced = selected.replace(old_text, new_text)
+        replacement_count = count
+    else:
+        if match_occurrence is None and count != 1:
+            raise ValueError(
+                f"replace_text found {count} exact matches; pass match_occurrence "
+                "or set replace_all=true"
+            )
+        occurrence = match_occurrence or 1
+        if occurrence > count:
+            raise ValueError(
+                f"replace_text match_occurrence={occurrence} exceeds {count} exact matches"
+            )
+        match_start = matches[occurrence - 1]
+        match_end = match_start + len(old_text)
+        replaced = selected[:match_start] + new_text + selected[match_end:]
+        replacement_count = 1
+
+    new_body = existing_body[:start] + replaced + existing_body[end:]
+    return new_body, resolved, replacement_count, count
+
+
 def _apply_body_operation(existing_body, operation, body, *, target=None,
                           selector=None, scope=None):
     """Apply the requested body mutation and return ``(new_body, resolved)``."""
@@ -641,11 +716,144 @@ def _apply_body_operation(existing_body, operation, body, *, target=None,
 
 EDITABLE_RESOURCES = RESOURCE_KINDS
 
+_LIFECYCLE_FIELD_COMMANDS = {
+    "parent": "brain_reparent",
+    "key": "brain_set_key",
+    "status": "brain_set_status",
+}
+
+
+def handler_owned_frontmatter_fields(art):
+    """Map protected metadata fields to their explicit public command."""
+    result = dict(_LIFECYCLE_FIELD_COMMANDS)
+    for field in naming_driver_fields((art or {}).get("naming")):
+        result.setdefault(field, "brain_set_naming_field")
+    return result
+
+
+def _reject_handler_owned_frontmatter(art, changes):
+    if not changes:
+        return
+    handlers = handler_owned_frontmatter_fields(art)
+    protected = [field for field in changes if field in handlers]
+    if not protected:
+        return
+    field = protected[0]
+    raise ValueError(
+        f"frontmatter.{field} is lifecycle-owned and cannot be changed with "
+        f"brain_edit. Use {handlers[field]} so Brain can preflight and preserve "
+        "derived paths, ownership, links, and indexes."
+    )
+
+
+def update_lifecycle_field(vault_root, router, path, field, value):
+    """Apply one explicit lifecycle field change through the invariant engine."""
+    resolved_path, _abs_path, fields, _body, art = _open_artefact(
+        vault_root, router, path
+    )
+    handlers = handler_owned_frontmatter_fields(art)
+    if field not in handlers:
+        raise ValueError(
+            f"frontmatter.{field} is not lifecycle-owned for '{resolved_path}'"
+        )
+    if field == "status":
+        if value in (None, ""):
+            raise ValueError("status cannot be empty; pass a valid lifecycle status")
+        valid = ((art.get("frontmatter") or {}).get("status_enum")) or []
+        if valid and value not in valid:
+            raise ValueError(
+                f"Invalid status '{value}' for {art.get('frontmatter_type') or art.get('key')}. "
+                f"Valid statuses: {', '.join(valid)}"
+            )
+    if field == "key" and value in (None, ""):
+        raise ValueError("key cannot be empty")
+    naming = art.get("naming") or {}
+    if field in naming_driver_fields(naming):
+        candidate_fields = dict(fields)
+        if value is None:
+            candidate_fields.pop(field, None)
+        else:
+            candidate_fields[field] = value
+        # Naming-driven mutations must be proven valid before apply_to_artefact
+        # persists metadata or performs any derived move.
+        _render_existing_artefact_path(
+            vault_root, router, art, resolved_path, candidate_fields
+        )
+    result = apply_to_artefact(
+        "edit",
+        vault_root,
+        router,
+        resolved_path,
+        "",
+        frontmatter_changes={field: value},
+    )
+    result["lifecycle_field"] = field
+    result["old_value"] = fields.get(field)
+    result["new_value"] = value
+    result["command"] = handlers[field]
+    return result
+
+
+def plan_parent_projection_repair(vault_root, router, path, *, reference_index=None):
+    """Plan filesystem moves that reconcile a valid authoritative parent field."""
+    path, _abs_path, fields, _body, art = _open_artefact(vault_root, router, path)
+    parent = normalize_artefact_key(fields.get("parent"))
+    if not parent:
+        raise ValueError(
+            f"'{path}' has no valid parent metadata; structure cannot be used to infer it"
+        )
+    expected_path, _rendered_fields = _render_existing_artefact_path(
+        vault_root, router, art, path, fields
+    )
+    moves = [{"source": path, "dest": expected_path}]
+    if art.get("classification") == "living":
+        key_value = fields.get("key")
+        if not is_valid_key(key_value):
+            raise ValueError(f"'{path}' has no valid living key")
+        artefact_key = make_artefact_key(artefact_type_prefix(art), key_value)
+        moves.extend(
+            _plan_descendant_moves(
+                vault_root,
+                router,
+                artefact_key,
+                router,
+                [],
+                operation="parent projection repair",
+            )
+        )
+        moves.extend(
+            _plan_temporal_reference_moves(
+                vault_root,
+                router,
+                artefact_key,
+                router,
+                [],
+                operation="parent projection repair",
+                reference_index=reference_index,
+            )
+        )
+    unique = []
+    seen = set()
+    for move in moves:
+        pair = (move["source"], move["dest"])
+        if pair in seen or move["source"] == move["dest"]:
+            continue
+        seen.add(pair)
+        unique.append(move)
+    preflight_move_set(vault_root, unique)
+    return {
+        "path": path,
+        "parent": parent,
+        "moves": unique,
+        "files_affected": len(unique),
+    }
+
 
 def edit_resource(vault_root, router, resource="artefact", operation="edit",
                   path=None, name=None, body="", frontmatter_changes=None,
                   target=None, selector=None, scope=None, fix_links=False,
-                  file_index=None):
+                  file_index=None, old_text=None, new_text=None,
+                  match_occurrence=None, replace_all=False):
     """Edit a vault resource. Dispatches to the appropriate handler.
 
     For artefacts: delegates to existing edit/append/prepend/delete_section functions.
@@ -677,13 +885,54 @@ def edit_resource(vault_root, router, resource="artefact", operation="edit",
     if resource == "artefact":
         if not path:
             raise ValueError("path is required when resource='artefact'")
-        if operation not in {"edit", "append", "prepend", "delete_section"}:
+        if operation not in {"edit", "append", "prepend", "delete_section", "replace_text"}:
             raise ValueError(f"Unknown operation '{operation}'")
-        result = apply_to_artefact(
-            operation, vault_root, router, path, body,
-            frontmatter_changes=frontmatter_changes,
-            target=target, selector=selector, scope=scope,
-        )
+        if operation == "replace_text":
+            if frontmatter_changes:
+                raise ValueError("replace_text does not accept frontmatter changes")
+            result = replace_text_in_artefact(
+                vault_root,
+                router,
+                path,
+                old_text=old_text,
+                new_text=new_text,
+                target=target,
+                selector=selector,
+                scope=scope,
+                match_occurrence=match_occurrence,
+                replace_all=replace_all,
+            )
+        else:
+            if frontmatter_changes:
+                body, scope = _prepare_artefact_operation(
+                    operation,
+                    body,
+                    frontmatter_changes,
+                    target,
+                    selector,
+                    scope,
+                )
+                opened = _open_artefact(
+                    vault_root, router, path
+                )
+                art = opened[4]
+                _reject_handler_owned_frontmatter(art, frontmatter_changes)
+                result = _apply_to_open_artefact(
+                    operation,
+                    vault_root,
+                    router,
+                    opened,
+                    body,
+                    frontmatter_changes=frontmatter_changes,
+                    target=target,
+                    selector=selector,
+                    scope=scope,
+                )
+            else:
+                result = apply_to_artefact(
+                    operation, vault_root, router, path, body,
+                    target=target, selector=selector, scope=scope,
+                )
         _fix_links.attach_wikilink_warnings(vault_root, result, apply_fixes=fix_links, file_index=file_index)
         return result
 
@@ -708,6 +957,37 @@ def edit_resource(vault_root, router, resource="artefact", operation="edit",
             f"{resource.capitalize()} '{name}' not found at {rel_path}"
         ) from None
     fields, existing_body = parse_frontmatter(content)
+
+    if operation == "replace_text":
+        if frontmatter_changes:
+            raise ValueError("replace_text does not accept frontmatter changes")
+        new_body, resolved, replacement_count, match_count = _apply_replace_text(
+            existing_body,
+            old_text,
+            new_text,
+            target=target,
+            selector=selector,
+            scope=scope,
+            match_occurrence=match_occurrence,
+            replace_all=replace_all,
+        )
+        safe_write(
+            abs_path,
+            serialize_frontmatter(fields, body=new_body),
+            bounds=vault_root,
+        )
+        result = _result_payload(
+            rel_path,
+            rel_path,
+            operation,
+            existing_body,
+            new_body,
+            resolved=resolved,
+            scope=scope,
+        )
+        result["match_count"] = match_count
+        result["replacement_count"] = replacement_count
+        return result
 
     _validate_request_contract(
         operation,
@@ -1011,13 +1291,19 @@ def _plan_temporal_reference_moves(
     reference_ops,
     *,
     operation,
+    reference_index=None,
 ):
     """Plan owner-scope relocation for temporal children of an ownership edit."""
     if not affected_key:
         return []
     reference_by_path = {op["path"]: op for op in reference_ops}
     moves = []
-    for ref in scan_artefact_key_references(vault_root, router, affected_key):
+    references = (
+        reference_index.get(affected_key, [])
+        if reference_index is not None
+        else scan_artefact_key_references(vault_root, router, affected_key)
+    )
+    for ref in references:
         if not ref.get("parent"):
             continue
         rel_path = ref["path"]
@@ -1361,15 +1647,10 @@ def _finish_artefact(vault_root, router, abs_path, fields, old_body, new_body, p
 # Core operations
 # ---------------------------------------------------------------------------
 
-def apply_to_artefact(operation, vault_root, router, path, body="",
-                      frontmatter_changes=None, target=None, selector=None,
-                      scope=None):
-    """Apply an edit/append/prepend/delete_section to an artefact.
-
-    Single shared implementation for all four artefact mutations. The public
-    ``edit_artefact``/``append_to_artefact``/``prepend_to_artefact``/
-    ``delete_section_artefact`` functions are thin wrappers around this.
-    """
+def _prepare_artefact_operation(
+    operation, body, frontmatter_changes, target, selector, scope
+):
+    """Validate and normalise one artefact mutation request before file access."""
     if operation == "delete_section":
         body = ""
         scope = None
@@ -1382,7 +1663,14 @@ def apply_to_artefact(operation, vault_root, router, path, body="",
         scope,
     )
     _reject_leading_body_frontmatter(body, resource_label="Artefact")
-    path, abs_path, fields, existing_body, art = _open_artefact(vault_root, router, path)
+    return body, scope
+
+
+def _apply_to_open_artefact(operation, vault_root, router, opened, body="",
+                            frontmatter_changes=None, target=None, selector=None,
+                            scope=None):
+    """Apply one validated mutation to state returned by ``_open_artefact``."""
+    path, abs_path, fields, existing_body, art = opened
     old_fields = dict(fields)
     frontmatter_changes = _normalise_ownership_changes(
         vault_root, router, art, frontmatter_changes
@@ -1414,6 +1702,73 @@ def apply_to_artefact(operation, vault_root, router, path, body="",
         resolved=resolved,
         scope=result_scope,
     )
+
+
+def apply_to_artefact(operation, vault_root, router, path, body="",
+                      frontmatter_changes=None, target=None, selector=None,
+                      scope=None):
+    """Apply an edit/append/prepend/delete_section to an artefact.
+
+    Single shared implementation for all four artefact mutations. The public
+    ``edit_artefact``/``append_to_artefact``/``prepend_to_artefact``/
+    ``delete_section_artefact`` functions are thin wrappers around this.
+    """
+    body, scope = _prepare_artefact_operation(
+        operation,
+        body,
+        frontmatter_changes,
+        target,
+        selector,
+        scope,
+    )
+    opened = _open_artefact(vault_root, router, path)
+    return _apply_to_open_artefact(
+        operation,
+        vault_root,
+        router,
+        opened,
+        body,
+        frontmatter_changes=frontmatter_changes,
+        target=target,
+        selector=selector,
+        scope=scope,
+    )
+
+
+def replace_text_in_artefact(vault_root, router, path, *, old_text, new_text,
+                             target=None, selector=None, scope=None,
+                             match_occurrence=None, replace_all=False):
+    """Replace exact text in an artefact body without rewriting its surroundings."""
+    path, abs_path, fields, existing_body, art = _open_artefact(vault_root, router, path)
+    old_fields = dict(fields)
+    new_body, resolved, replacement_count, match_count = _apply_replace_text(
+        existing_body,
+        old_text,
+        new_text,
+        target=target,
+        selector=selector,
+        scope=scope,
+        match_occurrence=match_occurrence,
+        replace_all=replace_all,
+    )
+    result = _finish_artefact(
+        vault_root,
+        router,
+        abs_path,
+        fields,
+        existing_body,
+        new_body,
+        path,
+        art,
+        None,
+        "replace_text",
+        old_fields=old_fields,
+        resolved=resolved,
+        scope=scope,
+    )
+    result["match_count"] = match_count
+    result["replacement_count"] = replacement_count
+    return result
 
 
 def edit_artefact(vault_root, router, path, body="", frontmatter_changes=None,
@@ -1959,63 +2314,137 @@ def archive_artefact(vault_root, router, path, recursive=False):
     }
 
 
-def unarchive_artefact(vault_root, router, path):
-    """Restore an archived artefact from _Archive/ to its original type folder.
+def _plan_unarchive_entry(vault_root, router, path):
+    """Return metadata and derived destination for one archived artefact."""
+    abs_path = os.path.join(vault_root, path)
+    if not os.path.isfile(abs_path):
+        raise FileNotFoundError(f"File not found: {path}")
+    with open(abs_path, "r", encoding="utf-8") as handle:
+        fields, body = parse_frontmatter(handle.read())
+    art = resolve_type(router, fields.get("type"))
+    filename = _DATE_PREFIX_RE.sub("", os.path.basename(path))
+    restored_fields = dict(fields)
+    restored_fields.pop("archiveddate", None)
+    restored_parent = normalize_artefact_key(restored_fields.get("parent"))
+    if restored_parent and resolve_artefact_key_entry(router, restored_parent):
+        provisional = os.path.join(art["path"], filename)
+        dest, restored_fields = _render_existing_artefact_path(
+            vault_root, router, art, provisional, restored_fields
+        )
+    else:
+        # Archive placement is the transaction's restoration record when old
+        # metadata has no authoritative parent. Preserve that recorded path;
+        # doctor will separately report any missing-parent contract violation.
+        rel_from_archive = os.path.relpath(os.path.dirname(path), "_Archive")
+        dest = os.path.join(rel_from_archive, filename)
+    return {
+        "path": path,
+        "abs_path": abs_path,
+        "fields": restored_fields,
+        "body": body,
+        "dest": dest,
+        "art": art,
+    }
 
-    1. Validate path is in _Archive/.
-    2. Strip yyyymmdd- date prefix from filename.
-    3. Compute original type folder destination.
-    4. Remove archiveddate from frontmatter.
-    5. Move via rename_and_update_links.
 
-    Returns dict with old_path, new_path, links_updated.
-    """
+def _archived_living_descendant_paths(vault_root, router, source_plan):
+    source_fields = source_plan["fields"]
+    source_key = canonical_living_artefact_key(source_plan["art"], source_fields)
+    if not source_key:
+        return [], []
+    entries = []
+    uninspected = []
+    archive_root = os.path.join(vault_root, "_Archive")
+    for root, _dirs, files in os.walk(archive_root):
+        for filename in files:
+            if not filename.endswith(".md"):
+                continue
+            rel_path = os.path.relpath(os.path.join(root, filename), vault_root)
+            if rel_path == source_plan["path"]:
+                continue
+            try:
+                plan = _plan_unarchive_entry(vault_root, router, rel_path)
+            except (ValueError, OSError) as exc:
+                uninspected.append({"path": rel_path, "reason": str(exc)})
+                continue
+            key = canonical_living_artefact_key(plan["art"], plan["fields"])
+            if key:
+                entries.append((key, normalize_artefact_key(plan["fields"].get("parent")), plan))
+    children_by_parent = {}
+    for key, parent, plan in entries:
+        children_by_parent.setdefault(parent, []).append((key, plan))
+
+    wanted = {source_key}
+    descendants = []
+    pending = [source_key]
+    cursor = 0
+    while cursor < len(pending):
+        parent = pending[cursor]
+        cursor += 1
+        for key, plan in children_by_parent.get(parent, []):
+            if key not in wanted:
+                wanted.add(key)
+                descendants.append(plan)
+                pending.append(key)
+    return descendants, uninspected
+
+
+def unarchive_artefact(vault_root, router, path, recursive=False):
+    """Restore one archived artefact or subtree through current metadata projection."""
     vault_root = str(vault_root)
 
     if not is_archived_path(path):
         raise ValueError(f"'{path}' is not in _Archive/.")
 
-    abs_path = os.path.join(vault_root, path)
-    if not os.path.isfile(abs_path):
-        raise FileNotFoundError(f"File not found: {path}")
-
-    with open(abs_path, "r", encoding="utf-8") as f:
-        content = f.read()
-    fields, body = parse_frontmatter(content)
-
-    filename = os.path.basename(path)
-    if _DATE_PREFIX_RE.match(filename):
-        filename = _DATE_PREFIX_RE.sub("", filename)
-
-    # _Archive/Ideas/Brain/20260101-old-idea.md → Ideas/Brain/old-idea.md
-    rel_from_archive = os.path.relpath(os.path.dirname(path), "_Archive")
-    dest = os.path.join(rel_from_archive, filename)
-    check_write_allowed(dest)
-
-    fields.pop("archiveddate", None)
+    plans = [_plan_unarchive_entry(vault_root, router, path)]
+    uninspected = []
+    if recursive:
+        descendants, uninspected = _archived_living_descendant_paths(
+            vault_root, router, plans[0]
+        )
+        plans.extend(descendants)
+    moves = [{"source": plan["path"], "dest": plan["dest"]} for plan in plans]
+    for plan in plans:
+        check_write_allowed(plan["dest"])
     preflight_move_set(
         vault_root,
-        [{"source": path, "dest": dest}],
+        moves,
         allow_archive_paths=True,
     )
-    _save_artefact(abs_path, fields, body, vault_root)
+    written = []
+    for plan in plans:
+        try:
+            _save_artefact(
+                plan["abs_path"], plan["fields"], plan["body"], vault_root
+            )
+            written.append(plan["path"])
+        except OSError as exc:
+            if not written:
+                raise
+            raise PartialApplyError(
+                f"unarchive partially applied — metadata files written {written}; "
+                f"write failure at {plan['path']}: {exc}"
+            ) from exc
     try:
-        links_updated = rename_and_update_links(
-            vault_root,
-            path,
-            dest,
+        result = move_and_update_links(
+            vault_root, moves,
             allow_archive_paths=True,
         )
     except (PartialApplyError, FileNotFoundError, FileExistsError, ValueError, OSError) as exc:
         raise PartialApplyError(
             "unarchive partially applied — "
-            f"metadata file written {path}; move failure: {exc}"
+            f"metadata files written {written}; move failure: {exc}"
         ) from exc
 
     return {
         "old_path": path,
-        "new_path": dest,
-        "links_updated": links_updated,
+        "new_path": plans[0]["dest"],
+        "links_updated": result["links_updated"],
+        "restored": [
+            {"old_path": plan["path"], "new_path": plan["dest"]}
+            for plan in plans
+        ],
+        "uninspected": uninspected,
     }
 
 
@@ -2023,129 +2452,171 @@ def unarchive_artefact(vault_root, router, path):
 # CLI
 # ---------------------------------------------------------------------------
 
-def main():
-    def _parse_selector_int(arg_name, raw):
-        try:
-            return int(raw)
-        except ValueError:
-            print(f"Error: {arg_name} expects an integer", file=sys.stderr)
-            sys.exit(1)
+class _WithinAction(argparse.Action):
+    def __call__(self, parser, namespace, values, option_string=None):
+        within = list(getattr(namespace, self.dest, None) or [])
+        within.append({"target": values})
+        setattr(namespace, self.dest, within)
 
-    operation = None
-    path = None
-    body = ""
-    body_file_path = ""
-    vault_arg = None
-    json_mode = False
-    fm_json = None
-    target = None
-    scope = None
-    occurrence = None
-    within = []
 
-    i = 1
-    while i < len(sys.argv):
-        arg = sys.argv[i]
-        if arg == "--path" and i + 1 < len(sys.argv):
-            path = sys.argv[i + 1]
-            i += 2
-        elif arg == "--body" and i + 1 < len(sys.argv):
-            body = sys.argv[i + 1]
-            i += 2
-        elif arg == "--body-file" and i + 1 < len(sys.argv):
-            body_file_path = sys.argv[i + 1]
-            i += 2
-        elif arg == "--frontmatter" and i + 1 < len(sys.argv):
-            fm_json = sys.argv[i + 1]
-            i += 2
-        elif arg == "--target" and i + 1 < len(sys.argv):
-            target = sys.argv[i + 1]
-            i += 2
-        elif arg == "--scope" and i + 1 < len(sys.argv):
-            scope = sys.argv[i + 1]
-            i += 2
-        elif arg == "--occurrence" and i + 1 < len(sys.argv):
-            occurrence = _parse_selector_int("--occurrence", sys.argv[i + 1])
-            i += 2
-        elif arg == "--within" and i + 1 < len(sys.argv):
-            within.append({"target": sys.argv[i + 1]})
-            i += 2
-        elif arg == "--within-occurrence" and i + 1 < len(sys.argv):
-            if not within:
-                print("Error: --within-occurrence requires a preceding --within", file=sys.stderr)
-                sys.exit(1)
-            within[-1]["occurrence"] = _parse_selector_int(
-                "--within-occurrence", sys.argv[i + 1]
+class _WithinOccurrenceAction(argparse.Action):
+    def __call__(self, parser, namespace, values, option_string=None):
+        within = list(getattr(namespace, "within", None) or [])
+        if not within:
+            parser.error("--within-occurrence requires a preceding --within")
+        within[-1]["occurrence"] = values
+        setattr(namespace, "within", within)
+
+
+def _build_parser():
+    parser = argparse.ArgumentParser(
+        description="Edit a Brain artefact or configuration resource."
+    )
+    parser.add_argument(
+        "operation",
+        choices=("edit", "append", "prepend", "delete_section", "replace_text"),
+        nargs="?",
+    )
+    parser.add_argument("--resource", choices=RESOURCE_KINDS, default="artefact")
+    parser.add_argument("--path")
+    parser.add_argument("--name")
+    parser.add_argument("--body", default="")
+    parser.add_argument("--body-file", default="")
+    parser.add_argument("--body-handle", default="")
+    parser.add_argument("--old-text")
+    parser.add_argument("--new-text")
+    parser.add_argument("--match-occurrence", type=int)
+    parser.add_argument("--replace-all", action="store_true")
+    parser.add_argument("--frontmatter", help="JSON object with frontmatter changes")
+    parser.add_argument("--target")
+    parser.add_argument(
+        "--scope", choices=("section", "intro", "body", "heading", "header")
+    )
+    parser.add_argument("--occurrence", type=int)
+    parser.add_argument("--within", action=_WithinAction, default=[])
+    parser.add_argument("--within-occurrence", type=int, action=_WithinOccurrenceAction)
+    parser.add_argument("--fix-links", action="store_true")
+    parser.add_argument("--vault")
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument(
+        "--temp-path",
+        nargs="?",
+        const=".md",
+        metavar="SUFFIX",
+        help="create a temporary body file and exit",
+    )
+    return parser
+
+
+def main(argv=None):
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+
+    if args.temp_path is not None:
+        print(make_temp_path(suffix=args.temp_path))
+        raise SystemExit(0)
+
+    if args.operation is None:
+        parser.error("an operation is required")
+    if args.resource == "artefact":
+        if not args.path:
+            parser.error("resource='artefact' requires --path")
+        if args.name:
+            parser.error("resource='artefact' does not accept --name")
+    else:
+        if not args.name:
+            parser.error(f"resource='{args.resource}' requires --name")
+        if args.path or args.fix_links:
+            parser.error(
+                f"resource='{args.resource}' does not accept artefact-only options "
+                "(--path, --fix-links)"
             )
-            i += 2
-        elif arg == "--vault" and i + 1 < len(sys.argv):
-            vault_arg = sys.argv[i + 1]
-            i += 2
-        elif arg == "--json":
-            json_mode = True
-            i += 1
-        elif arg == "--temp-path":
-            suffix = ".md"
-            if i + 1 < len(sys.argv) and not sys.argv[i + 1].startswith("--"):
-                suffix = sys.argv[i + 1]
-            print(make_temp_path(suffix=suffix))
-            sys.exit(0)
-        elif not arg.startswith("--") and operation is None:
-            operation = arg
-            i += 1
-        else:
-            i += 1
 
-    if operation not in ("edit", "append", "prepend", "delete_section") or not path:
-        print(
-            "Usage: edit.py edit|append|prepend|delete_section --path PATH "
-            "[--target TARGET] [--scope SCOPE] [--occurrence N] "
-            "[--within TARGET --within-occurrence N]... [--vault PATH] "
-            "[--json] [--temp-path [SUFFIX]]",
-            file=sys.stderr,
+    replace_fields_used = (
+        args.old_text is not None
+        or args.new_text is not None
+        or args.match_occurrence is not None
+        or args.replace_all
+    )
+    if args.operation == "replace_text":
+        if not args.old_text:
+            parser.error("replace_text requires --old-text")
+        if args.new_text is None:
+            parser.error("replace_text requires --new-text (use '' to delete)")
+        if args.body or args.body_file or args.body_handle or args.frontmatter:
+            parser.error("replace_text does not accept --body, --body-file, --body-handle, or --frontmatter")
+    elif replace_fields_used:
+        parser.error(
+            "--old-text, --new-text, --match-occurrence, and --replace-all "
+            "are accepted only by replace_text"
         )
-        sys.exit(1)
 
-    try:
-        body, _ = resolve_body_file(body, body_file_path)
-    except ValueError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
-
-    vault_root = str(find_vault_root(vault_arg))
-
+    vault_root = str(find_vault_root(args.vault))
     router = load_fresh_compiled_router(vault_root)
     if "error" in router:
-        if json_mode:
+        if args.json:
             print(json.dumps(router))
         else:
             print(f"Error: {router['error']}", file=sys.stderr)
         sys.exit(1)
 
-    fm_changes = json.loads(fm_json) if fm_json else None
-    selector = None
-    if within or occurrence is not None:
-        selector = {"within": within}
-        if occurrence is not None:
-            selector["occurrence"] = occurrence
-
     try:
-        result = apply_to_artefact(
-            operation, vault_root, router, path, body,
-            frontmatter_changes=fm_changes,
-            target=target, selector=selector, scope=scope,
-        )
-    except (ValueError, FileNotFoundError, PartialApplyError) as e:
-        if json_mode:
-            print(json.dumps({"error": str(e)}))
+        fm_changes = json.loads(args.frontmatter) if args.frontmatter else None
+    except json.JSONDecodeError as exc:
+        parser.error(f"--frontmatter must be a JSON object: {exc.msg}")
+    if fm_changes is not None and not isinstance(fm_changes, dict):
+        parser.error("--frontmatter must be a JSON object")
+
+    selector = None
+    if args.within or args.occurrence is not None:
+        selector = {"within": args.within}
+        if args.occurrence is not None:
+            selector["occurrence"] = args.occurrence
+
+    staging_warning = None
+    try:
+        with vault_mutation_lock(vault_root):
+            body, _staged_handle = resolve_mutation_body(
+                vault_root,
+                body=args.body,
+                body_file=args.body_file,
+                body_handle=args.body_handle,
+            )
+            result = edit_resource(
+                vault_root,
+                router,
+                resource=args.resource,
+                operation=args.operation,
+                path=args.path,
+                name=args.name,
+                body=body,
+                frontmatter_changes=fm_changes,
+                target=args.target,
+                selector=selector,
+                scope=args.scope,
+                fix_links=args.fix_links,
+                old_text=args.old_text,
+                new_text=args.new_text,
+                match_occurrence=args.match_occurrence,
+                replace_all=args.replace_all,
+            )
+            staging_warning = finalise_staged_body(vault_root, args.body_handle)
+    except (MutationLockError, ValueError, FileNotFoundError, PartialApplyError) as e:
+        message = public_mutation_error_message(e)
+        if args.json:
+            print(json.dumps({"error": message}))
         else:
-            print(f"Error: {e}", file=sys.stderr)
+            print(f"Error: {message}", file=sys.stderr)
         sys.exit(1)
 
-    if json_mode:
+    if staging_warning:
+        result["staging_warning"] = staging_warning
+        print(f"Warning: {staging_warning}", file=sys.stderr)
+
+    if args.json:
         print(json.dumps(result, indent=2))
     else:
-        op_label = OPERATION_LABELS[operation]
+        op_label = OPERATION_LABELS[args.operation]
         print(f"{op_label} {result['path']}", file=sys.stderr)
 
 

@@ -4,6 +4,7 @@ import pytest
 
 from _common._naming import (
     extract_title,
+    naming_driver_fields,
     render_filename,
     select_rule,
     validate_filename,
@@ -122,12 +123,28 @@ class TestRenderFilename:
         )
         assert name == "Upcoming.md"
 
+    def test_render_unshipped_ignores_invalid_unused_version(self):
+        name = render_filename(
+            RELEASE_NAMING,
+            "Upcoming",
+            {"status": "planned", "version": "not-a-version"},
+        )
+        assert name == "Upcoming.md"
+
     def test_missing_required_placeholder_field_raises(self):
         with pytest.raises(ValueError, match="requires frontmatter field 'version'"):
             render_filename(
                 RELEASE_NAMING,
                 "Broken",
                 {"status": "shipped"},
+            )
+
+    def test_placeholder_value_must_match_declared_regex(self):
+        with pytest.raises(ValueError, match="does not match.*regex"):
+            render_filename(
+                RELEASE_NAMING,
+                "Broken",
+                {"status": "shipped", "version": "not-a-version"},
             )
 
     def test_no_matching_rule_raises(self):
@@ -258,3 +275,39 @@ class TestBackwardsCompatSimpleForm:
 
     def test_simple_form_no_placeholders_required(self):
         render_filename(SIMPLE_NAMING, "My Note", {"anything": "here"})
+
+    def test_legacy_slug_renders_from_title(self):
+        naming = {
+            "pattern": "{slug}.md",
+            "folder": "Wiki/",
+            "rules": [
+                {"match_field": None, "match_values": None, "pattern": "{slug}.md"}
+            ],
+            "placeholders": [],
+        }
+        assert render_filename(naming, "My Legacy Note", {}) == "my-legacy-note.md"
+        assert extract_title(naming, {}, "my-legacy-note.md") == "my-legacy-note"
+
+    def test_simple_custom_placeholder_renders_and_is_handler_owned(self):
+        naming = {
+            "pattern": "{Code} - {Title}.md",
+            "folder": "Things/",
+            "rules": [
+                {
+                    "match_field": None,
+                    "match_values": None,
+                    "pattern": "{Code} - {Title}.md",
+                }
+            ],
+            "placeholders": [
+                {
+                    "name": "Code",
+                    "field": "code",
+                    "required_when_field": None,
+                    "required_values": None,
+                    "regex": None,
+                }
+            ],
+        }
+        assert render_filename(naming, "Example", {"code": "ABC"}) == "ABC - Example.md"
+        assert naming_driver_fields(naming) == {"code"}

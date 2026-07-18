@@ -13,6 +13,17 @@ from ._exceptions import (
     PartialApplyError,
 )
 
+from ._config_layout import (
+    PLUGINS_DIR,
+    ROUTER_REL_PATH,
+    classification_subdir,
+    markdown_rel_path,
+    plugin_skill_rel_path,
+    taxonomy_rel_path,
+    template_dir,
+    template_rel_path,
+)
+
 from ._vault import (
     BOOTSTRAP_VARIANTS,
     LOCAL_OVERRIDE_VARIANTS,
@@ -79,6 +90,7 @@ from ._artefacts import (
     resolve_naming_pattern,
     resolve_parent_reference,
     resolve_type,
+    scan_artefact_key_reference_index,
     scan_artefact_key_references,
     terminal_status_folder,
 )
@@ -86,6 +98,7 @@ from ._artefacts import (
 from ._naming import (
     PLACEHOLDER_TOKEN_RE,
     extract_title,
+    naming_driver_fields,
     render_filename,
     render_filename_or_default,
     select_rule,
@@ -112,6 +125,14 @@ from ._filesystem import (
     safe_write_via,
     safe_write_json,
     temp_body_file_cleanup_path,
+)
+
+from ._file_lock import (
+    exclusive_file_lock,
+    MutationLockError,
+    mutation_lock_error_message,
+    public_mutation_error_message,
+    vault_mutation_lock,
 )
 
 from ._frontmatter import (
@@ -162,6 +183,7 @@ from ._markdown import (
     REGION_MATH_BLOCK,
     REGION_RAW_HTML,
     collect_headings,
+    outline_structural_nodes,
     fenced_ranges,
     legacy_target_migration_error,
     html_comment_ranges,

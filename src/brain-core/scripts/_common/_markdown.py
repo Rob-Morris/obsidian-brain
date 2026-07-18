@@ -328,6 +328,41 @@ def _scan_structural_nodes(body):
     return root, nodes
 
 
+def outline_structural_nodes(body):
+    """Return the editable heading/callout outline for a markdown body.
+
+    The result deliberately uses the same scanner as structural edits, so every
+    advertised target is accepted by ``brain_edit``. Occurrence numbers are
+    scoped to siblings with the same target text; ``within`` gives the heading
+    ancestry needed to build a selector when a target is duplicated.
+    """
+    _root, nodes = _scan_structural_nodes(body)
+    seen = {}
+    result = []
+    line = 1
+    scanned_to = 0
+    for node in nodes:
+        line += body.count("\n", scanned_to, node["start"])
+        scanned_to = node["start"]
+        parent = node.get("parent")
+        parent_key = parent["start"] if parent is not None else None
+        key = (parent_key, node["kind"], node["raw"].casefold())
+        occurrence = seen.get(key, 0) + 1
+        seen[key] = occurrence
+        within = [ancestor["raw"] for ancestor in _node_chain(node)[:-1]]
+        result.append(
+            {
+                "kind": node["kind"],
+                "target": node["raw"],
+                "level": node["level"],
+                "line": line,
+                "occurrence": occurrence,
+                "within": within,
+            }
+        )
+    return result
+
+
 def _container_descendants(container, nodes):
     """Return nodes inside ``container``'s search space in document order."""
     start = 0 if container["kind"] == "body" else container["body_start"]

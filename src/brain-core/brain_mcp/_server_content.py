@@ -137,11 +137,13 @@ def handle_brain_process(
     operation: Literal["classify", "resolve", "ingest"],
     params: dict,
     runtime: ServerRuntime,
+    *,
+    tool_name: str,
 ):
-    """Execute a validated brain_process request."""
+    """Execute one validated content-processing request."""
     runtime.check_version_drift()
 
-    denied = runtime.enforce_profile("brain_process")
+    denied = runtime.enforce_profile(tool_name)
     if denied:
         return denied
 
@@ -150,7 +152,7 @@ def handle_brain_process(
     title = params.get("title")
     mode = params.get("mode", "auto")
 
-    state, progress = _server_readiness.require_router(runtime, "brain_process")
+    state, progress = _server_readiness.require_router(runtime, tool_name)
     if progress is not None:
         return progress
     if operation == "classify":
@@ -160,16 +162,16 @@ def handle_brain_process(
         if state.index is not None:
             needs_semantic = _semantic_embeddings_requested(state, operation, mode)
             if needs_semantic:
-                gated = _server_readiness.require_semantic(runtime, "brain_process")
+                gated = _server_readiness.require_semantic(runtime, tool_name)
                 if gated is not None:
                     return gated
     else:
-        state, progress = _server_readiness.require_index(runtime, "brain_process")
+        state, progress = _server_readiness.require_index(runtime, tool_name)
         if progress is not None:
             return progress
         needs_semantic = _semantic_embeddings_requested(state, operation, mode)
         if needs_semantic:
-            gated = _server_readiness.require_semantic(runtime, "brain_process")
+            gated = _server_readiness.require_semantic(runtime, tool_name)
             if gated is not None:
                 return gated
 

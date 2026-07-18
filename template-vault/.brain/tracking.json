@@ -128,11 +128,11 @@
       }
     },
     "living/writing": {
-      "brain_core_version": "0.42.4",
-      "installed_at": "2026-05-25T03:17:24.742922+00:00",
+      "brain_core_version": "0.52.0",
+      "installed_at": "2026-07-15T18:06:31.905424+00:00",
       "files": {
         "taxonomy": {
-          "source_hash": "sha256:39be25ffae6ff630d2f58e968e4db810d2b6dc1bfa355692e629ec1664e0350a",
+          "source_hash": "sha256:83ddaa78cd56038de0a3b232f11499b9073dfbb6fb045965ae3bca493a4ce5e4",
           "target": "_Config/Taxonomy/Living/writing.md"
         },
         "template": {
@@ -170,8 +170,8 @@
       }
     },
     "temporal/cookies": {
-      "brain_core_version": "0.25.1",
-      "installed_at": "2026-04-12T11:43:51.537639+00:00",
+      "brain_core_version": "0.52.0",
+      "installed_at": "2026-07-15T18:31:54.501382+00:00",
       "files": {
         "taxonomy": {
           "source_hash": "sha256:635518267a87d3fe807b0f36e36711b6aaacc54d25f041cc60827326cebb423c",
@@ -182,7 +182,7 @@
           "target": "_Config/Templates/Temporal/Cookies.md"
         },
         "skill": {
-          "source_hash": "sha256:0c32d7560028c3380316e6fc30555f595d27fb4059905fa2ba56d0feed2a944f",
+          "source_hash": "sha256:e912609f61eb97e61ae304fcf597998ea2c1291b663aa67e463d73c7020ebe53",
           "target": "_Config/Skills/cookies/SKILL.md"
         }
       }

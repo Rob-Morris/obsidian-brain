@@ -22,6 +22,7 @@ Usage:
     python3 read.py file --name "obsidian-brain-dev"
 """
 
+import argparse
 import json
 import os
 import sys
@@ -329,37 +330,24 @@ def load_compiled_router(vault_root):
 # CLI
 # ---------------------------------------------------------------------------
 
-def main():
-    resource = None
-    name = None
-    vault_arg = None
+def _build_parser():
+    parser = argparse.ArgumentParser(description="Read one Brain vault resource.")
+    parser.add_argument("resource", choices=tuple(RESOURCES))
+    parser.add_argument("--name")
+    parser.add_argument("--vault")
+    return parser
 
-    i = 1
-    while i < len(sys.argv):
-        arg = sys.argv[i]
-        if arg == "--name" and i + 1 < len(sys.argv):
-            name = sys.argv[i + 1]
-            i += 2
-        elif arg == "--vault" and i + 1 < len(sys.argv):
-            vault_arg = sys.argv[i + 1]
-            i += 2
-        elif not arg.startswith("--") and resource is None:
-            resource = arg
-            i += 1
-        else:
-            i += 1
 
-    if not resource:
-        print(
-            f"Usage: read.py RESOURCE [--name NAME] [--vault PATH]\n"
-            f"Resources: {', '.join(RESOURCES)}",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+def main(argv=None):
+    parser = _build_parser()
+    args = parser.parse_args(argv)
 
-    vault_root = str(find_vault_root(vault_arg))
+    vault_root = str(find_vault_root(args.vault))
     router = load_compiled_router(vault_root)
-    result = read_resource(router, vault_root, resource, name)
+    try:
+        result = read_resource(router, vault_root, args.resource, args.name)
+    except ValueError as exc:
+        parser.error(str(exc))
 
     if isinstance(result, str):
         print(result)

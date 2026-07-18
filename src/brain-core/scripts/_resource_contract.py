@@ -33,11 +33,10 @@ class Spec:
 
 # Per-resource field contracts for brain_create.
 #
-# body/body_file are mutually exclusive alternatives; neither is mandatory at
-# the spec layer because the handler resolves body_file → body using vault_root
-# (available only at runtime). body is optional here so callers can pass
-# body_file alone. The handler still enforces "at least one of body/body_file"
-# for non-artefact resources after resolution.
+# body, body_file, and body_handle are mutually exclusive alternatives. None is
+# mandatory at the spec layer because the runtime resolver owns source loading
+# and artefacts may legitimately be created without explicit body content.
+# Named resources still require resolved content at the handler boundary.
 #
 # fix_links uses bool | None = None at the MCP layer (None = absent) so that
 # _is_present(False) doesn't incorrectly flag the default as an extra for
@@ -46,23 +45,23 @@ class Spec:
 CREATE_SPECS: dict[str, Spec] = {
     "artefact": Spec(
         required_fields=("type", "title"),
-        optional_fields=("body", "body_file", "frontmatter", "parent", "key", "fix_links"),
+        optional_fields=("body", "body_file", "body_handle", "frontmatter", "parent", "key", "fix_links"),
     ),
     "skill": Spec(
         required_fields=("name",),
-        optional_fields=("body", "body_file", "frontmatter"),
+        optional_fields=("body", "body_file", "body_handle", "frontmatter"),
     ),
     "memory": Spec(
         required_fields=("name",),
-        optional_fields=("body", "body_file", "frontmatter"),
+        optional_fields=("body", "body_file", "body_handle", "frontmatter"),
     ),
     "style": Spec(
         required_fields=("name",),
-        optional_fields=("body", "body_file", "frontmatter"),
+        optional_fields=("body", "body_file", "body_handle", "frontmatter"),
     ),
     "template": Spec(
         required_fields=("name",),
-        optional_fields=("body", "body_file", "frontmatter"),
+        optional_fields=("body", "body_file", "body_handle", "frontmatter"),
     ),
 }
 
@@ -100,7 +99,10 @@ READ_SPECS: dict[str, Spec] = {
 LIST_SPECS: dict[str, Spec] = {
     "artefact": Spec(
         required_fields=(),
-        optional_fields=("type", "parent", "since", "until", "tag", "top_k", "sort"),
+        optional_fields=(
+            "type", "parent", "since", "until", "modified_since",
+            "modified_until", "tag", "top_k", "sort", "cursor",
+        ),
     ),
     "workspace": Spec(required_fields=()),
     "archive": Spec(required_fields=()),
@@ -118,17 +120,11 @@ LIST_SPECS: dict[str, Spec] = {
 # Per-(resource, operation) field contracts for brain_edit.
 #
 # Two discriminators: resource (artefact vs. non-artefact config resources) and
-# operation (edit/append/prepend/delete_section).
+# operation (edit/append/prepend/delete_section/replace_text).
 #
 # fix_links is coerced to None at the MCP boundary when False (bool default) so
 # that _is_present(False) does not misfire as an extra for non-artefact specs.
 # Non-artefact specs omit it; artefact specs list it as optional.
-#
-# body/body_file are listed as optional on delete_section so the spec layer does
-# not reject them — the script already ignores body for delete_section and
-# preflight_request_contract enforces the scope prohibition.  The strict-extras
-# rejection handles cross-discriminator mistakes (name on artefact, path on
-# skill, fix_links on non-artefact, etc.).
 #
 # target is REQUIRED for delete_section (both artefact and non-artefact).
 # For edit/append/prepend it is optional at the presence layer; the inter-field
@@ -137,16 +133,23 @@ LIST_SPECS: dict[str, Spec] = {
 # ---------------------------------------------------------------------------
 
 _ARTEFACT_EDIT_OPS_OPTIONAL = (
-    "body", "body_file", "frontmatter", "target", "selector", "scope", "fix_links"
+    "body", "body_file", "body_handle", "frontmatter", "target", "selector", "scope", "fix_links"
 )
 _ARTEFACT_DELETE_OPTIONAL = (
-    "body", "body_file", "frontmatter", "selector", "scope", "fix_links"
+    "frontmatter", "selector", "fix_links"
 )
 _NON_ARTEFACT_EDIT_OPS_OPTIONAL = (
-    "body", "body_file", "frontmatter", "target", "selector", "scope"
+    "body", "body_file", "body_handle", "frontmatter", "target", "selector", "scope"
 )
 _NON_ARTEFACT_DELETE_OPTIONAL = (
-    "body", "body_file", "frontmatter", "selector", "scope"
+    "frontmatter", "selector"
+)
+_ARTEFACT_REPLACE_OPTIONAL = (
+    "new_text", "target", "selector", "scope", "match_occurrence",
+    "replace_all", "fix_links",
+)
+_NON_ARTEFACT_REPLACE_OPTIONAL = (
+    "new_text", "target", "selector", "scope", "match_occurrence", "replace_all",
 )
 
 _NON_ARTEFACT_RESOURCES = ("skill", "memory", "style", "template")
@@ -165,6 +168,10 @@ EDIT_SPECS: dict[tuple[str, str], Spec] = {
         required_fields=("path", "target"),
         optional_fields=_ARTEFACT_DELETE_OPTIONAL,
     ),
+    ("artefact", "replace_text"): Spec(
+        required_fields=("path", "old_text"),
+        optional_fields=_ARTEFACT_REPLACE_OPTIONAL,
+    ),
     # non-artefact resources — edit / append / prepend
     **{
         (resource, op): Spec(
@@ -179,6 +186,13 @@ EDIT_SPECS: dict[tuple[str, str], Spec] = {
         (resource, "delete_section"): Spec(
             required_fields=("name", "target"),
             optional_fields=_NON_ARTEFACT_DELETE_OPTIONAL,
+        )
+        for resource in _NON_ARTEFACT_RESOURCES
+    },
+    **{
+        (resource, "replace_text"): Spec(
+            required_fields=("name", "old_text"),
+            optional_fields=_NON_ARTEFACT_REPLACE_OPTIONAL,
         )
         for resource in _NON_ARTEFACT_RESOURCES
     },

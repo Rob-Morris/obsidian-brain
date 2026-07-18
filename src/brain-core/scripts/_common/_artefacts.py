@@ -574,13 +574,9 @@ def replace_artefact_key_references(fields, old_key, new_key):
     return changed
 
 
-def scan_artefact_key_references(vault_root, router, key):
-    """Return artefacts whose frontmatter references ``key``."""
-    normalized = normalize_artefact_key(key)
-    if not normalized:
-        return []
-
-    findings = []
+def scan_artefact_key_reference_index(vault_root, router):
+    """Index frontmatter references by canonical artefact key in one vault pass."""
+    references = {}
     for rel_path in iter_artefact_markdown_files(
         vault_root, router, classifications={"living", "temporal"}, include_status_folders=True
     ):
@@ -588,23 +584,31 @@ def scan_artefact_key_references(vault_root, router, key):
         if content.startswith("Error:"):
             continue
         fields, _ = parse_frontmatter(content)
-        parent_matches = normalize_artefact_key(fields.get("parent")) == normalized
-        tag_matches = [
-            tag
-            for tag in fields.get("tags", [])
-            if normalize_artefact_key(tag) == normalized
-        ]
-        if not parent_matches and not tag_matches:
-            continue
-        findings.append(
-            {
+        parent_key = normalize_artefact_key(fields.get("parent"))
+        tags_by_key = {}
+        for tag in fields.get("tags", []):
+            tag_key = normalize_artefact_key(tag)
+            if tag_key:
+                tags_by_key.setdefault(tag_key, []).append(tag)
+        referenced_keys = set(tags_by_key)
+        if parent_key:
+            referenced_keys.add(parent_key)
+        for referenced_key in referenced_keys:
+            references.setdefault(referenced_key, []).append({
                 "path": rel_path,
                 "fields": fields,
-                "parent": parent_matches,
-                "tags": tag_matches,
-            }
-        )
-    return findings
+                "parent": referenced_key == parent_key,
+                "tags": tags_by_key.get(referenced_key, []),
+            })
+    return references
+
+
+def scan_artefact_key_references(vault_root, router, key):
+    """Return artefacts whose frontmatter references ``key``."""
+    normalized = normalize_artefact_key(key)
+    if not normalized:
+        return []
+    return scan_artefact_key_reference_index(vault_root, router).get(normalized, [])
 
 
 def resolve_parent_reference(vault_root, router, parent):
@@ -747,6 +751,10 @@ def resolve_naming_pattern(pattern, title, variables=None, date_source=None):
         for name in placeholder_names:
             result = result.replace(f"{{{name}}}", safe_value)
 
+    # ``{slug}`` was a historical title-derived built-in. Preserve an explicit
+    # frontmatter ``slug`` value when supplied; otherwise derive it from title.
+    result = result.replace("{slug}", title_to_slug(title))
+
     unresolved = sorted({f"{{{name}}}" for name in PLACEHOLDER_TOKEN_RE.findall(result)})
     if unresolved:
         placeholders = ", ".join(unresolved)
@@ -838,7 +846,13 @@ def config_resource_rel_path(router, resource, name):
         return os.path.join("_Config", "Styles", slug + ".md")
     if resource == "template":
         artefact = resolve_type(router, name)
+        configured_path = artefact.get("template_file")
+        if configured_path:
+            from ._config_layout import markdown_rel_path
+
+            return markdown_rel_path(configured_path)
         classification = artefact.get("classification", "living")
-        subdir = "Living" if classification == "living" else "Temporal"
-        return os.path.join("_Config", "Templates", subdir, artefact["folder"] + ".md")
+        from ._config_layout import template_rel_path
+
+        return template_rel_path(classification, artefact["folder"])
     raise ValueError(f"Unknown config resource: {resource}")

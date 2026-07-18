@@ -17,6 +17,7 @@ Usage:
 """
 
 import argparse
+from datetime import date
 import json
 import os
 import sys
@@ -34,33 +35,62 @@ from _common import (
 )
 
 
-def list_artefacts(index, router, type_filter=None, since=None, until=None,
-                   tag=None, parent=None, top_k=500, sort="date_desc"):
-    """Return all vault artefacts matching the given filters, sorted and capped.
+def _validate_iso_date(value, field):
+    if value is None:
+        return None
+    try:
+        return date.fromisoformat(value).isoformat()
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field} must be an ISO date in YYYY-MM-DD form") from exc
 
-    Args:
-        index:       the in-memory BM25 index dict (index["documents"])
-        router:      compiled router dict (router["artefacts"])
-        type_filter: optional type key or full type string (e.g. "research" or
-                     "temporal/research"); resolved via match_artefact
-        since:       optional ISO date string (e.g. "2026-03-20"); inclusive lower bound
-        until:       optional ISO date string (e.g. "2026-04-04"); inclusive upper bound
-        tag:         optional tag string; only docs containing this tag are returned
-        parent:      optional canonical parent artefact key; only owned children are returned
-        top_k:       maximum results to return (default 500)
-        sort:        "date_desc" (default), "date_asc", or "title"
 
-    Returns:
-        list of dicts: [{path, title, type, date, status}, ...]
+def _cursor_offset(cursor):
+    if cursor in (None, ""):
+        return 0
+    try:
+        offset = int(cursor)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("cursor must be the next_cursor value from a prior list") from exc
+    if offset < 0:
+        raise ValueError("cursor must not be negative")
+    return offset
+
+
+def _collect_artefacts(index, router, type_filter=None, since=None, until=None,
+                       modified_since=None, modified_until=None, tag=None,
+                       parent=None, sort="date_desc"):
+    """Return every matching artefact with stable ordering.
+
+    ``since``/``until`` filter authoritative created metadata. The explicit
+    modified bounds filter authoritative modified metadata.
     """
+    since = _validate_iso_date(since, "since")
+    until = _validate_iso_date(until, "until")
+    modified_since = _validate_iso_date(modified_since, "modified_since")
+    modified_until = _validate_iso_date(modified_until, "modified_until")
+    if since and until and since > until:
+        raise ValueError("since must be on or before until")
+    if modified_since and modified_until and modified_since > modified_until:
+        raise ValueError("modified_since must be on or before modified_until")
+
     resolved_type = None
     if type_filter and router:
         art = match_artefact(router.get("artefacts", []), type_filter)
         if art:
             resolved_type = art["frontmatter_type"]
         else:
-            # Unknown type — return empty list (not an error)
-            return []
+            valid = sorted(
+                {
+                    value
+                    for entry in router.get("artefacts", [])
+                    for value in (entry.get("key"), entry.get("frontmatter_type"))
+                    if value
+                }
+            )
+            raise ValueError(
+                f"No artefact type matching '{type_filter}'. "
+                f"Valid type keys and values: {', '.join(valid)}"
+            )
 
     resolved_parent = None
     if parent:
@@ -74,6 +104,7 @@ def list_artefacts(index, router, type_filter=None, since=None, until=None,
 
     docs = index.get("documents", [])
     results = []
+    omitted_missing_created = 0
     artefact_index = router.get("artefact_index") or {}
     by_path = {entry["path"]: entry for entry in artefact_index.values()}
 
@@ -83,14 +114,22 @@ def list_artefacts(index, router, type_filter=None, since=None, until=None,
         if resolved_parent and doc.get("parent") != resolved_parent:
             continue
 
-        # ISO date prefix — lexicographic comparison is valid for YYYY-MM-DD
-        doc_date = (doc.get("modified") or "")[:10]
-        if since and doc_date < since:
+        created_date = (doc.get("created") or "")[:10]
+        modified_date = (doc.get("modified") or "")[:10]
+        missing_created_for_bound = bool((since or until) and not created_date)
+        if since and created_date and created_date < since:
             continue
-        if until and doc_date > until:
+        if until and created_date and created_date > until:
+            continue
+        if modified_since and (not modified_date or modified_date < modified_since):
+            continue
+        if modified_until and (not modified_date or modified_date > modified_until):
             continue
 
         if tag and tag not in doc.get("tags", []):
+            continue
+        if missing_created_for_bound:
+            omitted_missing_created += 1
             continue
 
         stem = doc.get("title", "")
@@ -102,7 +141,8 @@ def list_artefacts(index, router, type_filter=None, since=None, until=None,
             "path": doc.get("path", ""),
             "title": title,
             "type": doc.get("type", ""),
-            "date": doc_date,
+            "created": created_date,
+            "modified": modified_date,
             "status": doc.get("status", ""),
         }
         key = doc.get("key") or (artefact_meta or {}).get("key")
@@ -116,13 +156,74 @@ def list_artefacts(index, router, type_filter=None, since=None, until=None,
         results.append(result)
 
     if sort == "date_asc":
-        results.sort(key=lambda r: r["date"])
+        results.sort(key=lambda r: (r["created"], r["path"]))
+    elif sort == "modified_desc":
+        results.sort(key=lambda r: (r["modified"], r["path"]), reverse=True)
+    elif sort == "modified_asc":
+        results.sort(key=lambda r: (r["modified"], r["path"]))
     elif sort == "title":
-        results.sort(key=lambda r: r["title"].lower())
+        results.sort(key=lambda r: (r["title"].lower(), r["path"]))
     else:  # date_desc (default)
-        results.sort(key=lambda r: r["date"], reverse=True)
+        results.sort(key=lambda r: (r["created"], r["path"]), reverse=True)
 
-    return results[:top_k]
+    return results, omitted_missing_created
+
+
+def list_artefacts_page(index, router, type_filter=None, since=None, until=None,
+                        modified_since=None, modified_until=None, tag=None,
+                        parent=None, top_k=500, sort="date_desc", cursor=None):
+    """Return one stable page plus explicit completeness metadata."""
+    if top_k is None:
+        top_k = 500
+    if top_k < 1:
+        raise ValueError("top_k must be at least 1")
+    offset = _cursor_offset(cursor)
+    results, omitted_missing_created = _collect_artefacts(
+        index,
+        router,
+        type_filter=type_filter,
+        since=since,
+        until=until,
+        modified_since=modified_since,
+        modified_until=modified_until,
+        tag=tag,
+        parent=parent,
+        sort=sort,
+    )
+    total = len(results)
+    items = results[offset:offset + top_k]
+    next_offset = offset + len(items)
+    truncated = next_offset < total
+    return {
+        "items": items,
+        "total": total,
+        "returned": len(items),
+        "truncated": truncated,
+        "next_cursor": str(next_offset) if truncated else None,
+        "omitted_missing_created": omitted_missing_created,
+    }
+
+
+def list_artefacts(index, router, type_filter=None, since=None, until=None,
+                   modified_since=None, modified_until=None, tag=None, parent=None,
+                   top_k=500, sort="date_desc", cursor=None):
+    """Return one artefact page as a list for script-library compatibility."""
+    page = list_artefacts_page(
+        index,
+        router,
+        type_filter=type_filter,
+        since=since,
+        until=until,
+        modified_since=modified_since,
+        modified_until=modified_until,
+        tag=tag,
+        parent=parent,
+        top_k=top_k,
+        sort=sort,
+        cursor=cursor,
+    )
+
+    return page["items"]
 
 
 # ---------------------------------------------------------------------------
@@ -300,13 +401,16 @@ def _build_parser():
     parser.add_argument("--parent", help="artefact parent canonical key filter")
     parser.add_argument("--since", help="inclusive ISO start date filter (artefacts only)")
     parser.add_argument("--until", help="inclusive ISO end date filter (artefacts only)")
+    parser.add_argument("--modified-since", help="inclusive modified-date lower bound")
+    parser.add_argument("--modified-until", help="inclusive modified-date upper bound")
     parser.add_argument("--tag", help="artefact tag filter")
     parser.add_argument("--top-k", type=int, help="max artefact results")
     parser.add_argument(
         "--sort",
-        choices=("date_desc", "date_asc", "title"),
+        choices=("date_desc", "date_asc", "modified_desc", "modified_asc", "title"),
         help="artefact sort order",
     )
+    parser.add_argument("--cursor", help="continuation cursor from a prior list")
     parser.add_argument("--vault", help="explicit vault path")
     parser.add_argument("--json", action="store_true", help="emit structured JSON")
     return parser
@@ -320,9 +424,12 @@ def _validate_cli_args(args, parser):
             args.parent,
             args.since,
             args.until,
+            args.modified_since,
+            args.modified_until,
             args.tag,
             args.top_k,
             args.sort,
+            args.cursor,
         )
     )
 
@@ -334,7 +441,8 @@ def _validate_cli_args(args, parser):
     if artefact_filters_used:
         parser.error(
             f"resource='{args.resource}' does not accept artefact-only filters "
-            "(--type, --parent, --since, --until, --tag, --top-k, --sort)"
+            "(--type, --parent, --since, --until, --modified-since, "
+            "--modified-until, --tag, --top-k, --sort, --cursor)"
         )
 
     if args.resource in {"workspace", "archive"} and args.query is not None:
@@ -357,9 +465,20 @@ def _load_index_for_cli(vault_root):
         raise SystemExit(1) from exc
 
 
-def _fmt_artefact_results(results, type_filter=None):
+def _fmt_artefact_results(page, type_filter=None):
+    results = page["items"]
     type_part = f" (type: {type_filter})" if type_filter else ""
-    lines = [f"Listed: {len(results)} results{type_part}"]
+    lines = [
+        f"Listed: {page['returned']} of {page['total']} results{type_part}; "
+        f"truncated={'yes' if page['truncated'] else 'no'}"
+    ]
+    if page["next_cursor"] is not None:
+        lines[0] += f"; next_cursor={page['next_cursor']}"
+    if page["omitted_missing_created"]:
+        lines[0] += (
+            f"; omitted_missing_created={page['omitted_missing_created']} "
+            "(run brain doctor)"
+        )
     if not results:
         return "\n".join(lines)
     body = []
@@ -374,7 +493,7 @@ def _fmt_artefact_results(results, type_filter=None):
             extras.append(f"children={result['children_count']}")
         extras_part = f"\t{', '.join(extras)}" if extras else ""
         body.append(
-            f"{result['date']}\t{result['title']}\t{result['path']}\t"
+            f"{result['created']}\t{result['title']}\t{result['path']}\t"
             f"{result['type']}{status_part}{extras_part}"
         )
     return "\n".join([*lines, *body])
@@ -414,20 +533,29 @@ def main(argv=None):
     index = {} if args.resource != "artefact" else _load_index_for_cli(vault_root)
 
     try:
-        results = list_resources(
-            index,
-            router,
-            vault_root,
-            resource=args.resource,
-            query=args.query,
-            type_filter=args.type_filter,
-            parent=args.parent,
-            since=args.since,
-            until=args.until,
-            tag=args.tag,
-            top_k=args.top_k or 500,
-            sort=args.sort or "date_desc",
-        )
+        if args.resource == "artefact":
+            results = list_artefacts_page(
+                index,
+                router,
+                type_filter=args.type_filter,
+                parent=args.parent,
+                since=args.since,
+                until=args.until,
+                modified_since=args.modified_since,
+                modified_until=args.modified_until,
+                tag=args.tag,
+                top_k=args.top_k or 500,
+                sort=args.sort or "date_desc",
+                cursor=args.cursor,
+            )
+        else:
+            results = list_resources(
+                index,
+                router,
+                vault_root,
+                resource=args.resource,
+                query=args.query,
+            )
     except ValueError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc

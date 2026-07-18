@@ -251,41 +251,78 @@ class TestCheckContext:
 # TestParseArgs
 # ---------------------------------------------------------------------------
 
+def test_filter_and_summarize_findings_applies_all_filters():
+    result = {
+        "findings": [
+            {"check": "owner", "severity": "warning", "file": "Wiki/A.md"},
+            {"check": "owner", "severity": "error", "file": "Ideas/B.md"},
+            {"check": "links", "severity": "warning", "file": "Wiki/C.md"},
+        ],
+        "summary": {"errors": 1, "warnings": 2, "info": 0},
+    }
+
+    filtered = check.filter_and_summarize_findings(
+        result, severity="warning", check_name="owner", path="Wiki"
+    )
+
+    assert filtered["findings"] == [result["findings"][0]]
+    assert filtered["summary"] == {"errors": 0, "warnings": 1, "info": 0}
+    assert len(result["findings"]) == 3
+
+
+def test_project_findings_strips_non_actionable_fixes_without_mutating_source():
+    result = {
+        "findings": [{"severity": "warning", "fix": "Do the thing"}],
+        "summary": {"errors": 0, "warnings": 1, "info": 0},
+    }
+
+    projected = check.project_findings(result, actionable=False)
+
+    assert "fix" not in projected["findings"][0]
+    assert result["findings"][0]["fix"] == "Do the thing"
+    assert check.project_findings(result, actionable=True)["findings"][0]["fix"] == "Do the thing"
+
 class TestParseArgs:
     def test_defaults(self):
-        json_mode, actionable, severity, vault = check.parse_args(["check.py"])
+        json_mode, actionable, severity, vault = check.parse_args([])
         assert not json_mode
         assert not actionable
         assert severity is None
         assert vault is None
 
     def test_json_flag(self):
-        json_mode, _, _, _ = check.parse_args(["check.py", "--json"])
+        json_mode, _, _, _ = check.parse_args(["--json"])
         assert json_mode
 
     def test_actionable_flag(self):
-        _, actionable, _, _ = check.parse_args(["check.py", "--actionable"])
+        _, actionable, _, _ = check.parse_args(["--actionable"])
         assert actionable
 
     def test_severity_filter(self):
-        _, _, severity, _ = check.parse_args(["check.py", "--severity", "warning"])
+        _, _, severity, _ = check.parse_args(["--severity", "warning"])
         assert severity == "warning"
 
     def test_invalid_severity_filter(self):
-        with pytest.raises(SystemExit, match="--severity must be one of"):
-            check.parse_args(["check.py", "--severity", "fatal"])
+        with pytest.raises(SystemExit) as exc_info:
+            check.parse_args(["--severity", "fatal"])
+        assert exc_info.value.code == 2
 
     def test_vault_flag(self):
-        _, _, _, vault = check.parse_args(["check.py", "--vault", "/path/to/vault"])
+        _, _, _, vault = check.parse_args(["--vault", "/path/to/vault"])
         assert vault == "/path/to/vault"
 
     def test_combined_flags(self):
         json_mode, actionable, severity, vault = check.parse_args(
-            ["check.py", "--json", "--actionable", "--severity", "error", "--vault", "/tmp/v"])
+            ["--json", "--actionable", "--severity", "error", "--vault", "/tmp/v"])
         assert json_mode
         assert actionable
         assert severity == "error"
         assert vault == "/tmp/v"
+
+    def test_unknown_positional_is_rejected(self):
+        with pytest.raises(SystemExit) as exc_info:
+            check.parse_args(["not-a-program-name"])
+        assert exc_info.value.code == 2
 
 
 # ---------------------------------------------------------------------------

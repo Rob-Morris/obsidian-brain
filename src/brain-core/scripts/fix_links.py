@@ -59,15 +59,23 @@ def attach_wikilink_warnings(vault_root, result, apply_fixes=False, file_index=N
     Applied fixes are attached as ``wikilink_fixes``. Reuses a single vault
     file index across the pre- and post-fix scans to avoid double-walking.
 
-    When ``file_index`` is provided, it is overlaid with the just-written file
-    and used directly. Supplying an authoritative index is the caller's
-    responsibility. Pass ``None`` (the default) to build the index from the
-    vault on demand.
+    When ``file_index`` is provided, it may be an authoritative index or a
+    zero-argument factory for one; factories are invoked only after the cheap
+    link-presence check. The index is then overlaid with the just-written file.
+    Pass ``None`` (the default) to build the index from the vault on demand.
     """
     path = result.get("path")
     if not path:
         return
     vault_root = str(vault_root)
+    try:
+        with open(os.path.join(vault_root, path), "r", encoding="utf-8") as handle:
+            if "[[" not in handle.read():
+                return
+    except OSError:
+        return
+    if callable(file_index):
+        file_index = file_index()
     if file_index is None:
         file_index = build_vault_file_index(vault_root)
     else:

@@ -93,7 +93,7 @@ Folders starting with `_` or `.` are infrastructure — excluded from content in
 
 ### Archive
 
-Living artefacts with a terminal status (e.g. `adopted`, `published`, `completed`) stay in their type namespace and move into a `+Status/` folder such as `Ideas/+Adopted/`, `Writing/+Published/`, or `Tasks/+Done/`. They remain searchable and indexed, and `brain_edit` handles the move automatically when `status` changes. `_Archive/` is a separate deliberate-removal path for taking artefacts out of the active vault namespace entirely. Archived files move to a top-level `_Archive/` directory at the vault root, preserve type/project structure inside (for example `_Archive/Ideas/Brain/20260101-old-idea.md`), and are excluded from the vault file index, search, and normal artefact operations. Use `brain_move(op="archive", path="...")` and `brain_move(op="unarchive", path="...")` for archive operations; `brain_list(resource="archive")` to list archived files, `brain_read(resource="archive", name="...")` to read a specific one.
+Living artefacts with a terminal status (e.g. `adopted`, `published`, `completed`) stay in their type namespace and move into a `+Status/` folder such as `Ideas/+Adopted/`, `Writing/+Published/`, or `Tasks/+Done/`. They remain searchable and indexed; use `brain_set_status` so the lifecycle handler applies the move and related timestamps/links. `_Archive/` is a separate deliberate-removal path for taking artefacts out of the active vault namespace entirely. Archived files move to a top-level `_Archive/` directory at the vault root, preserve type/project structure inside (for example `_Archive/Ideas/Brain/20260101-old-idea.md`), and are excluded from the vault file index, search, and normal artefact operations. Use `brain_move(op="archive", path="...")` and `brain_move(op="unarchive", path="...", recursive=true)` for archive operations; `brain_list(resource="archive")` to list archived files, `brain_read(resource="archive", name="...")` to read a specific one.
 
 ---
 
@@ -175,7 +175,7 @@ Why? Obsidian's backlinks and graph view resolve body wikilinks. Body text is vi
 - Top-level `_Archive/` at vault root, preserving type/project structure: `_Archive/{Type}/{Project}/`
 - Files renamed to `yyyymmdd-{Title}.md` before moving
 - Excluded from vault file index, search, and all normal artefact operations
-- Use `brain_move(op="archive", path="...")` / `brain_move(op="unarchive", path="...")` for archive operations
+- Use `brain_move(op="archive", path="...", recursive=true)` / `brain_move(op="unarchive", path="...", recursive=true)` for ownership subtrees; omit `recursive` for one artefact
 - Use `brain_list(resource="archive")` to list archived files, `brain_read(resource="archive", name="...")` to read a specific one
 
 ---
@@ -260,23 +260,25 @@ If it's a one-off, consider a subfolder or tag within an existing type instead.
 
 ### Adding a Living Artefact Type
 
-1. **Create the root folder** (e.g., `Projects/`)
-2. **Create taxonomy file** at `_Config/Taxonomy/Living/{key}.md`
-3. **Create template** at `_Config/Templates/Living/{Type Name}.md`
-4. **Add router trigger** in `_Config/router.md` (if the type has a trigger condition)
-5. **Run `python3 .brain-core/scripts/compile_router.py`** — colours are auto-generated
-6. **Validate** with `python3 .brain-core/scripts/check.py` (use `--actionable` for fix suggestions)
-7. **Log the addition**
+1. **Write the taxonomy and linked template** in reviewed local files.
+2. **Create the coherent bundle** with `brain define type create --name projects --classification living --definition-file taxonomy.md --template-file template.md`. This validates the definition and creates `Projects/`, the taxonomy, and its linked template together.
+3. **Add a router trigger** with `brain define trigger create --condition "..." --target "_Config/Taxonomy/Living/projects"` if the type has one.
+4. **Run `python3 .brain-core/scripts/compile_router.py`** — colours are auto-generated.
+5. **Validate** with `python3 .brain-core/scripts/check.py` (use `--actionable` for fix suggestions).
+6. **Log the addition.**
 
 ### Adding a Temporal Artefact Type
 
-1. **Create the folder** under `_Temporal/` (e.g., `_Temporal/Reports/`)
-2. **Create taxonomy file** at `_Config/Taxonomy/Temporal/{key}.md`
-3. **Create template** at `_Config/Templates/Temporal/{Type Name}.md`
-4. **Add router trigger** in `_Config/router.md` (most temporal types have one)
-5. **Run `python3 .brain-core/scripts/compile_router.py`** — rose-blended colours are auto-generated
-6. **Validate** with `python3 .brain-core/scripts/check.py` (use `--actionable` for fix suggestions)
-7. **Log the addition**
+1. **Write the taxonomy and linked template** in reviewed local files.
+2. **Create the coherent bundle** with `brain define type create --name reports --classification temporal --definition-file taxonomy.md --template-file template.md`. This validates the definition and creates `_Temporal/Reports/`, the taxonomy, and its linked template together.
+3. **Add a router trigger** with `brain define trigger create --condition "..." --target "_Config/Taxonomy/Temporal/reports"` (most temporal types have one).
+4. **Run `python3 .brain-core/scripts/compile_router.py`** — rose-blended colours are auto-generated.
+5. **Validate** with `python3 .brain-core/scripts/check.py` (use `--actionable` for fix suggestions).
+6. **Log the addition.**
+
+Use `brain_define` with the equivalent discriminated request from MCP. Replacing
+a custom type requires the reviewed SHA-256 values for both its taxonomy and
+template, preventing an external edit from being overwritten accidentally.
 
 For the full procedure — required taxonomy sections, parser-required formats, manifest schema for upstream contributions — see `.brain-core/standards/extending/adding-living-type.md` and `adding-temporal-type.md`. If the type has lineage or archiving, the taxonomy references `.brain-core/standards/provenance` and/or `.brain-core/standards/archiving`.
 

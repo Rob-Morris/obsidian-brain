@@ -42,7 +42,7 @@ _STRUCTURAL_PLACEHOLDERS = [
     ("{sourcedoctype}", r"[a-z]+(?:-[a-z]+)*"),
 ]
 
-_TITLE_PLACEHOLDERS = ("{Title}", "{title}", "{name}")
+_TITLE_PLACEHOLDERS = ("{Title}", "{title}", "{name}", "{slug}")
 
 
 def _rules_of(naming):
@@ -56,6 +56,33 @@ def _rules_of(naming):
     if pattern:
         return [{"match_field": None, "match_values": None, "pattern": pattern}]
     return []
+
+
+def naming_driver_fields(naming):
+    """Return every frontmatter field that can affect naming behaviour.
+
+    Keep this beside rule selection and rendering so new field-referencing
+    naming attributes cannot silently bypass lifecycle-owned edit handling.
+    """
+    if not naming:
+        return set()
+    fields = set()
+    patterns = [rule.get("pattern") or "" for rule in _rules_of(naming)]
+    for placeholder in naming.get("placeholders") or []:
+        name = str(placeholder.get("name") or "")
+        if not name or not any(
+            f"{{{name}}}" in pattern or f"{{{name.lower()}}}" in pattern
+            for pattern in patterns
+        ):
+            continue
+        for attribute in ("field", "required_when_field"):
+            if placeholder.get(attribute):
+                fields.add(placeholder[attribute])
+    for rule in _rules_of(naming):
+        for attribute in ("match_field", "date_source"):
+            if rule.get(attribute):
+                fields.add(rule[attribute])
+    return fields
 
 
 def select_rule(naming, fields):
@@ -81,23 +108,45 @@ def select_rule(naming, fields):
     return None
 
 
-def _required_placeholders_for_rule(naming, rule, fields):
-    """Yield placeholder dicts that are required in the current field state."""
-    pattern = rule.get("pattern") or ""
+def _placeholder_is_required(ph, fields):
+    """Return whether a placeholder is required in the current field state."""
     fields = fields or {}
+    when_field = ph.get("required_when_field")
+    if not when_field:
+        return True
+    when_values = ph.get("required_values") or []
+    current = fields.get(when_field)
+    return current in when_values or "*" in when_values
+
+
+def _validate_placeholders(naming, rule, fields):
+    """Validate backing values before rendering can mutate an artefact path."""
+    fields = fields or {}
+    pattern = rule.get("pattern") or ""
     for ph in naming.get("placeholders") or []:
-        name = ph.get("name")
-        if not name:
+        field_name = ph.get("field")
+        if not field_name:
             continue
-        if f"{{{name}}}" not in pattern and f"{{{name.lower()}}}" not in pattern:
+        value = fields.get(field_name)
+        is_referenced = (
+            f"{{{ph.get('name')}}}" in pattern
+            or f"{{{str(ph.get('name') or '').lower()}}}" in pattern
+        )
+        if not is_referenced:
             continue
-        when_field = ph.get("required_when_field")
-        if when_field:
-            when_values = ph.get("required_values") or []
-            current = fields.get(when_field)
-            if current not in when_values and "*" not in when_values:
+        if value in (None, "", [], {}):
+            if not _placeholder_is_required(ph, fields):
                 continue
-        yield ph
+            raise ValueError(
+                f"Naming pattern '{rule['pattern']}' requires frontmatter field "
+                f"'{field_name}' for placeholder '{{{ph['name']}}}'"
+            )
+        regex = ph.get("regex")
+        if regex and re.fullmatch(regex, str(value)) is None:
+            raise ValueError(
+                f"frontmatter field '{field_name}' value {value!r} does not match "
+                f"naming placeholder '{{{ph['name']}}}' regex {regex!r}"
+            )
 
 
 def render_filename(naming, title, fields):
@@ -117,16 +166,7 @@ def render_filename(naming, title, fields):
             "No naming rule matches the current frontmatter state "
             f"(fields={sorted((fields or {}).keys())})"
         )
-    for ph in _required_placeholders_for_rule(naming, rule, fields):
-        field_name = ph.get("field")
-        if not field_name:
-            continue
-        value = (fields or {}).get(field_name)
-        if value in (None, ""):
-            raise ValueError(
-                f"Naming pattern '{rule['pattern']}' requires frontmatter field "
-                f"'{field_name}' for placeholder '{{{ph['name']}}}'"
-            )
+    _validate_placeholders(naming, rule, fields)
     return resolve_naming_pattern(
         rule["pattern"],
         title,

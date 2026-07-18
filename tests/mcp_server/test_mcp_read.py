@@ -53,6 +53,36 @@ class TestBrainRead:
         result = server.brain_read("type")
         _assert_error(result, "requires top-level field 'name'")
 
+    def test_outline_returns_editable_targets_with_selectors(self, initialized):
+        path = initialized / "Wiki" / "brain-overview-abc123.md"
+        path.write_text(
+            path.read_text()
+            + "\n## Notes\n\n> [!note] Status\n> Ready.\n"
+        )
+        result = server.brain_outline("Wiki/brain-overview-abc123.md")
+
+        assert isinstance(result, CallToolResult)
+        targets = result.structuredContent["targets"]
+        assert [item["target"] for item in targets] == [
+            "# Brain Overview", "## Notes", "[!note] Status"
+        ]
+        assert targets[-1]["within"] == ["# Brain Overview", "## Notes"]
+
+    def test_check_returns_filterable_structured_findings(self, initialized):
+        (initialized / "Ideas" / "Invalid Status.md").write_text(
+            "---\ntype: living/ideas\ntags: []\nstatus: invented\n---\n\nInvalid.\n"
+        )
+        result = server.brain_check(
+            severity="warning", check="status_values", actionable=True
+        )
+
+        assert isinstance(result, CallToolResult)
+        payload = result.structuredContent
+        assert len(payload["findings"]) == 1
+        assert payload["findings"][0]["severity"] == "warning"
+        assert payload["findings"][0]["check"] == "status_values"
+        assert payload["summary"] == {"errors": 0, "warnings": 1, "info": 0}
+
     def test_read_type_by_name(self, initialized):
         result = json.loads(server.brain_read("type", name="wiki"))
         assert len(result) == 1
@@ -221,11 +251,21 @@ class TestBrainReadArchive:
         text = _search_text(result)
         assert "1 archive(s)" in text
         assert "_Archive/Ideas/20260101-old-idea.md" in text
+        assert isinstance(result, CallToolResult)
+        assert result.structuredContent["total"] == 1
+        assert result.structuredContent["items"][0]["path"].startswith("_Archive/")
 
     def test_list_empty_archive(self, initialized):
         result = server.brain_list(resource="archive")
         text = _search_text(result)
         assert "0 archive(s)" in text
+        assert result.structuredContent == {
+            "items": [],
+            "total": 0,
+            "returned": 0,
+            "truncated": False,
+            "next_cursor": None,
+        }
 
     def test_read_archive_requires_name(self, initialized):
         result = server.brain_read("archive")
@@ -406,16 +446,23 @@ class TestBrainList:
             assert titles == sorted(titles, key=str.lower)
 
     def test_list_top_k(self, initialized):
-        """top_k=1 returns at most 1 result."""
+        """top_k=1 returns one item plus explicit continuation metadata."""
         resp = server.brain_list(top_k=1)
         lines = _list_result_lines(resp)
         assert len(lines) <= 1
+        assert resp.structuredContent["returned"] == len(lines)
+        assert resp.structuredContent["total"] >= len(lines)
+        assert resp.structuredContent["truncated"] is True
+        assert resp.structuredContent["next_cursor"] == "1"
+
+        next_page = server.brain_list(top_k=1, cursor="1")
+        assert next_page.structuredContent["returned"] == 1
+        assert next_page.structuredContent["items"] != resp.structuredContent["items"]
 
     def test_list_unknown_type(self, initialized):
-        """Unknown type returns 0 results without raising an error."""
+        """Unknown type is rejected with valid-value guidance."""
         resp = server.brain_list(type="living/nonexistent")
-        text = _list_text(resp)
-        assert "0 results" in text
+        _assert_error(resp, "No artefact type matching 'living/nonexistent'")
 
     def test_list_by_parent(self, initialized):
         server.brain_create(type="wiki", title="Owner", key="owner")
@@ -459,6 +506,9 @@ class TestWorkspaceRead:
         result = server.brain_list(resource="workspace")
         text = _search_text(result)
         assert "analysis" in text
+        assert isinstance(result, CallToolResult)
+        assert result.structuredContent["total"] == 1
+        assert result.structuredContent["items"][0]["slug"] == "analysis"
 
     def test_list_workspace_shape(self):
         result = server.brain_list(resource="workspace")

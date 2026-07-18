@@ -999,7 +999,10 @@ class TestInitialStartRecovery:
             assert early_resp is not None, f"Expected immediate soft error, got: {early_msgs}"
             assert "error" in early_resp, f"Expected soft restart error, got: {early_resp}"
             assert early_resp["error"]["message"] == "server restarting, please retry"
-            assert time.monotonic() - start < 0.35, (
+            # Includes fresh Python process/import startup plus one deliberate
+            # 0.2s child-start failure; keep the bound well below the retry
+            # timeout without assuming sub-150ms host startup.
+            assert time.monotonic() - start < 0.55, (
                 "initialize should fail fast during initial-start recovery"
             )
 

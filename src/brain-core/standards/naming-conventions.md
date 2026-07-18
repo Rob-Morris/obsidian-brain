@@ -92,11 +92,11 @@ This section owns the **platform contract** for naming that depends on frontmatt
 
 Most types declare a single naming pattern as a one-line `## Naming` entry (e.g. `` `{Title}.md` in `Wiki/` ``). Types whose filename depends on frontmatter state use the canonical **advanced `## Naming`** form — a `### Rules` table keyed on a frontmatter field, plus a `### Placeholders` table declaring any non-built-in placeholder.
 
-**Built-in placeholders** (always available, need no declaration): `{Title}`, `{title}`, `{name}`, `yyyymmdd`, `yyyy-mm-dd`, `yyyy`, `mm`, `dd`, `ddd`, `{sourcedoctype}`. Filenames never use the key — `key` is a frontmatter-only machine identifier; see [[keys]].
+**Built-in placeholders** (always available, need no declaration): `{Title}`, `{title}`, `{name}`, `yyyymmdd`, `yyyy-mm-dd`, `yyyy`, `mm`, `dd`, `ddd`, `{sourcedoctype}`. The legacy `{slug}` built-in remains accepted for compatibility and derives a lowercase title slug when no explicit `slug` field is present; new taxonomies should use `{Title}` or an explicitly declared field. Filenames never use the key — `key` is a frontmatter-only machine identifier; see [[keys]].
 
 In `Primary folder:` metadata, cross-type child folders use `{scope}` for the tokenised canonical parent key (for example `project/brain` → `project~brain`). Same-type child folders continue to use raw key-based folders.
 
-Any other placeholder must be declared with a backing frontmatter field. Using an undeclared non-built-in placeholder is a type-definition error caught at compile time.
+In the canonical advanced form, every other placeholder must be declared with a backing frontmatter field. Legacy simple one-line patterns deterministically compile a custom token such as `{Code}` to the same-name lowercase field (`code`) so upgraded vaults keep working and lifecycle handlers can still guard the field. Use advanced form whenever the mapping is not same-name or needs conditional requiredness or a regex.
 
 **Canonical advanced form:**
 
@@ -132,6 +132,6 @@ Primary folder: `Releases/{scope}/`.
 
 - **Status-aware naming is declarative.** Taxonomies describe rule selection in `## Naming`; scripts read the compiled contract instead of hard-coding per-type filename branches.
 - **Frontmatter is authoritative.** Filenames are a projection of the selected rule plus declared placeholders, not an independent source of truth. If frontmatter and filename disagree, tooling reconciles to frontmatter and re-renders the filename.
-- **Custom placeholders are frontmatter-backed.** A placeholder exists only when declared in `### Placeholders`, with any required-field/value gates and regex checks enforced by the compiled contract. Missing or invalid data fails render instead of guessing.
+- **Custom placeholders are frontmatter-backed.** Advanced placeholders use their `### Placeholders` declaration; simple-form compatibility placeholders use their deterministic same-name lowercase field. Required-field/value gates and regex checks are enforced only for the active rule. Missing or invalid active data fails render instead of guessing.
 - **Rename-on-change is normal behaviour.** If an edit changes the active rule or a placeholder value, the filename changes too, and link-aware tooling updates wikilinks in place.
 - **Reverse parsing uses the same contract.** `edit`, `convert`, and `migrate_naming` recover titles and date-bearing fields through the compiled naming rules rather than bespoke per-type parsers.

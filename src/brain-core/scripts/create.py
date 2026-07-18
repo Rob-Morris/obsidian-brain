@@ -16,12 +16,14 @@ Usage:
     python3 create.py --resource skill --name my-skill --body "Skill content"
 """
 
+import argparse
 import json
 import os
 import sys
 from datetime import datetime, timezone
 
 from _resource_contract import RESOURCE_KINDS
+from _staging import finalise_staged_body, resolve_mutation_body
 from _lifecycle.derived_cache_state import load_fresh_compiled_router
 from _common import (
     apply_terminal_status_folder,
@@ -40,6 +42,8 @@ from _common import (
     make_temp_path,
     make_artefact_key,
     normalize_artefact_key,
+    MutationLockError,
+    public_mutation_error_message,
     parse_leading_frontmatter,
     parse_frontmatter,
     read_file_content,
@@ -47,7 +51,6 @@ from _common import (
     render_filename_or_default,
     resolve_and_validate_folder,
     resolve_artefact_key_entry,
-    resolve_body_file,
     resolve_folder,
     resolve_parent_reference,
     resolve_type,
@@ -57,6 +60,7 @@ from _common import (
     title_to_slug,
     unique_filename,
     validate_key,
+    vault_mutation_lock,
 )
 import fix_links as _fix_links
 
@@ -417,82 +421,117 @@ def _read_template(vault_root, artefact):
 # CLI
 # ---------------------------------------------------------------------------
 
-def main():
-    type_key = None
-    title = None
-    body = ""
-    body_file_path = ""
-    vault_arg = None
-    parent = None
-    json_mode = False
+def _build_parser():
+    parser = argparse.ArgumentParser(
+        description="Create a Brain artefact or configuration resource."
+    )
+    parser.add_argument("--resource", choices=RESOURCE_KINDS, default="artefact")
+    parser.add_argument("--type", dest="type_key")
+    parser.add_argument("--title")
+    parser.add_argument("--name")
+    parser.add_argument("--body", default="")
+    parser.add_argument("--body-file", default="")
+    parser.add_argument("--body-handle", default="")
+    parser.add_argument("--frontmatter", help="JSON object with frontmatter overrides")
+    parser.add_argument("--parent")
+    parser.add_argument("--key")
+    parser.add_argument("--fix-links", action="store_true")
+    parser.add_argument("--vault")
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument(
+        "--temp-path",
+        nargs="?",
+        const=".md",
+        metavar="SUFFIX",
+        help="create a temporary body file and exit",
+    )
+    return parser
 
-    i = 1
-    while i < len(sys.argv):
-        arg = sys.argv[i]
-        if arg == "--type" and i + 1 < len(sys.argv):
-            type_key = sys.argv[i + 1]
-            i += 2
-        elif arg == "--title" and i + 1 < len(sys.argv):
-            title = sys.argv[i + 1]
-            i += 2
-        elif arg == "--body" and i + 1 < len(sys.argv):
-            body = sys.argv[i + 1]
-            i += 2
-        elif arg == "--body-file" and i + 1 < len(sys.argv):
-            body_file_path = sys.argv[i + 1]
-            i += 2
-        elif arg == "--vault" and i + 1 < len(sys.argv):
-            vault_arg = sys.argv[i + 1]
-            i += 2
-        elif arg == "--parent" and i + 1 < len(sys.argv):
-            parent = sys.argv[i + 1]
-            i += 2
-        elif arg == "--json":
-            json_mode = True
-            i += 1
-        elif arg == "--temp-path":
-            suffix = ".md"
-            if i + 1 < len(sys.argv) and not sys.argv[i + 1].startswith("--"):
-                suffix = sys.argv[i + 1]
-            print(make_temp_path(suffix=suffix))
-            sys.exit(0)
-        else:
-            i += 1
 
-    if not type_key or not title:
-        print(
-            'Usage: create.py --type TYPE --title TITLE [--body BODY] [--body-file PATH] [--parent NAME] [--vault PATH] [--json] [--temp-path [SUFFIX]]',
-            file=sys.stderr,
-        )
-        sys.exit(1)
+def main(argv=None):
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+
+    if args.temp_path is not None:
+        print(make_temp_path(suffix=args.temp_path))
+        raise SystemExit(0)
+
+    if args.resource == "artefact":
+        if not args.type_key or not args.title:
+            parser.error("resource='artefact' requires --type and --title")
+        if args.name:
+            parser.error("resource='artefact' does not accept --name")
+    else:
+        if not args.name:
+            parser.error(f"resource='{args.resource}' requires --name")
+        if args.type_key or args.title or args.parent or args.key or args.fix_links:
+            parser.error(
+                f"resource='{args.resource}' does not accept artefact-only options "
+                "(--type, --title, --parent, --key, --fix-links)"
+            )
 
     try:
-        body, _ = resolve_body_file(body, body_file_path)
-    except ValueError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
+        frontmatter = json.loads(args.frontmatter) if args.frontmatter else None
+    except json.JSONDecodeError as exc:
+        parser.error(f"--frontmatter must be a JSON object: {exc.msg}")
+    if frontmatter is not None and not isinstance(frontmatter, dict):
+        parser.error("--frontmatter must be a JSON object")
 
-    vault_root = str(find_vault_root(vault_arg))
-
+    vault_root = str(find_vault_root(args.vault))
     # Load router
     router = load_fresh_compiled_router(vault_root)
     if "error" in router:
-        if json_mode:
+        if args.json:
             print(json.dumps(router))
         else:
             print(f"Error: {router['error']}", file=sys.stderr)
         sys.exit(1)
 
+    staging_warning = None
     try:
-        result = create_artefact(vault_root, router, type_key, title, body=body, parent=parent)
-    except ValueError as e:
-        if json_mode:
-            print(json.dumps({"error": str(e)}))
+        with vault_mutation_lock(vault_root):
+            body, _staged_handle = resolve_mutation_body(
+                vault_root,
+                body=args.body,
+                body_file=args.body_file,
+                body_handle=args.body_handle,
+            )
+            if args.resource == "artefact":
+                result = create_resource(
+                    vault_root,
+                    router,
+                    resource="artefact",
+                    type_key=args.type_key,
+                    title=args.title,
+                    body=body,
+                    frontmatter_overrides=frontmatter,
+                    parent=args.parent,
+                    key=args.key,
+                    fix_links=args.fix_links,
+                )
+            else:
+                result = create_resource(
+                    vault_root,
+                    router,
+                    resource=args.resource,
+                    name=args.name,
+                    body=body,
+                    frontmatter=frontmatter,
+                )
+            staging_warning = finalise_staged_body(vault_root, args.body_handle)
+    except (MutationLockError, ValueError) as e:
+        message = public_mutation_error_message(e)
+        if args.json:
+            print(json.dumps({"error": message}))
         else:
-            print(f"Error: {e}", file=sys.stderr)
+            print(f"Error: {message}", file=sys.stderr)
         sys.exit(1)
 
-    if json_mode:
+    if staging_warning:
+        result["staging_warning"] = staging_warning
+        print(f"Warning: {staging_warning}", file=sys.stderr)
+
+    if args.json:
         print(json.dumps(result, indent=2))
     else:
         print(f"Created {result['path']}", file=sys.stderr)

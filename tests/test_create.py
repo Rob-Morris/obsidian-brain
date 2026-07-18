@@ -767,6 +767,18 @@ class TestCreateResource:
         abs_path = os.path.join(str(vault), result["path"])
         assert open(abs_path).read() == body
 
+    def test_create_template_uses_taxonomy_linked_custom_path(self, vault, router):
+        wiki = next(art for art in router["artefacts"] if art["key"] == "wiki")
+        wiki["template_file"] = "_Config/Templates/Living/Custom Wiki Blueprint"
+        body = "---\ntype: living/wiki\ntags: []\n---\n\n# Custom Blueprint\n"
+
+        result = create.create_resource(
+            str(vault), router, resource="template", name="wiki", body=body
+        )
+
+        assert result["path"] == "_Config/Templates/Living/Custom Wiki Blueprint.md"
+        assert (vault / result["path"]).read_text() == body
+
     def test_create_template_requires_full_document_frontmatter(self, vault, router):
         with pytest.raises(ValueError, match="must be a full markdown document starting with a frontmatter block"):
             create.create_resource(
@@ -1021,7 +1033,7 @@ class TestCreateFileIndexThreading:
         assert called["count"] == 0
         assert "wikilink_warnings" not in result
 
-    def test_no_file_index_falls_back_to_walk(self, vault, router, monkeypatch):
+    def test_no_wikilinks_skips_file_index_walk(self, vault, router, monkeypatch):
         called = {"count": 0}
         original = _fix_links.build_vault_file_index
 
@@ -1038,4 +1050,4 @@ class TestCreateFileIndexThreading:
             "Walk Fallback",
             body="No links.\n",
         )
-        assert called["count"] == 1
+        assert called["count"] == 0

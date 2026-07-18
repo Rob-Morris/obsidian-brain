@@ -4,7 +4,7 @@ import json
 import os
 from typing import Literal
 
-from mcp.types import TextContent
+from mcp.types import CallToolResult, TextContent
 
 import _common
 import _lifecycle.retrieval_errors as retrieval_errors
@@ -17,6 +17,8 @@ import _search.semantic_query as semantic_query
 from _common import is_archived_path
 import list_artefacts
 import obsidian_cli
+import check as check_mod
+import outline as outline_mod
 import read as read_mod
 import retrieval_embeddings as _retrieval_embeddings
 import workspace_registry
@@ -35,7 +37,22 @@ def _fmt_workspace_list(workspaces):
         status = ws.get("status", "")
         status_part = f"\t[{status}]" if status else ""
         lines.append(f"{ws['slug']}\t{ws['mode']}\t{ws['path']}{status_part}")
-    return "\n".join(lines)
+    return CallToolResult(
+        content=[TextContent(type="text", text="\n".join(lines))],
+        structuredContent=_complete_list_page(workspaces),
+    )
+
+
+def _complete_list_page(items):
+    """Return the non-paginated form of brain_list's public page envelope."""
+    items = list(items)
+    return {
+        "items": items,
+        "total": len(items),
+        "returned": len(items),
+        "truncated": False,
+        "next_cursor": None,
+    }
 
 
 def _fmt_workspace_single(ws):
@@ -97,22 +114,96 @@ def _transform_cli_results(
 def _fmt_search(source, results):
     meta = f"**Searched:** {len(results)} results (source: {source})"
     if not results:
-        return [TextContent(type="text", text=meta)]
+        return CallToolResult(
+            content=[TextContent(type="text", text=meta)],
+            structuredContent={"source": source, "total": 0, "results": []},
+        )
     lines = []
     for r in results:
         status_part = f"\t{r['status']}" if r.get("status") else ""
         lines.append(f"{r['title']}\t{r['path']}\t{r['type']}{status_part}")
-    return [
-        TextContent(type="text", text=meta),
-        TextContent(type="text", text="\n".join(lines)),
+    return CallToolResult(
+        content=[
+            TextContent(type="text", text=meta),
+            TextContent(type="text", text="\n".join(lines)),
+        ],
+        structuredContent={"source": source, "total": len(results), "results": results},
+    )
+
+
+def handle_brain_outline(path: str, runtime: ServerRuntime):
+    """Return structural edit targets using the edit engine's own scanner."""
+    runtime.check_version_drift()
+    denied = runtime.enforce_profile("brain_outline")
+    if denied:
+        return denied
+    state, progress = _server_readiness.require_router(runtime, "brain_outline")
+    if progress is not None:
+        return progress
+    try:
+        result = outline_mod.outline_artefact(state.vault_root, state.router, path)
+    except (ValueError, FileNotFoundError) as exc:
+        return runtime.fmt_error(str(exc))
+    lines = [
+        f"{item['line']}\t{item['target']}\toccurrence={item['occurrence']}"
+        for item in result["targets"]
     ]
+    content = [
+        TextContent(
+            type="text",
+            text=f"**Outlined:** {len(result['targets'])} editable targets in {path}",
+        )
+    ]
+    if lines:
+        content.append(TextContent(type="text", text="\n".join(lines)))
+    return CallToolResult(content=content, structuredContent=result)
 
 
-def _fmt_list(results, type_filter=None):
+def handle_brain_check(
+    runtime: ServerRuntime,
+    *,
+    severity: str | None = None,
+    check_name: str | None = None,
+    path: str | None = None,
+    actionable: bool = False,
+):
+    """Run read-only vault checks and return a filterable result envelope."""
+    runtime.check_version_drift()
+    denied = runtime.enforce_profile("brain_check")
+    if denied:
+        return denied
+    state, progress = _server_readiness.require_router(runtime, "brain_check")
+    if progress is not None:
+        return progress
+    result = check_mod.run_checks(state.vault_root, router=state.router)
+    result = check_mod.filter_and_summarize_findings(
+        result, severity=severity, check_name=check_name, path=path
+    )
+    result = check_mod.project_findings(result, actionable=actionable)
+    summary = check_mod.render_human_summary(result)
+    lines = check_mod.render_human_findings(result, actionable=actionable)
+    text = "\n".join([summary, *lines])
+    return CallToolResult(
+        content=[TextContent(type="text", text=text)],
+        structuredContent=result,
+    )
+
+
+def _fmt_list(page, type_filter=None):
+    results = page["items"]
     type_part = f" (type: {type_filter})" if type_filter else ""
-    meta = f"**Listed:** {len(results)} results{type_part}"
-    if not results:
-        return [TextContent(type="text", text=meta)]
+    meta = (
+        f"**Listed:** {page['returned']} of {page['total']} results{type_part}; "
+        f"truncated={'yes' if page['truncated'] else 'no'}"
+    )
+    if page["next_cursor"] is not None:
+        meta += f"; next_cursor={page['next_cursor']}"
+    if page.get("omitted_missing_created"):
+        meta += (
+            f"; omitted_missing_created={page['omitted_missing_created']} "
+            "(run brain doctor)"
+        )
+    content = [TextContent(type="text", text=meta)]
     lines = []
     for r in results:
         status_part = f"\t{r['status']}" if r.get("status") else ""
@@ -125,12 +216,11 @@ def _fmt_list(results, type_filter=None):
             extras.append(f"children={r['children_count']}")
         extras_part = f"\t{', '.join(extras)}" if extras else ""
         lines.append(
-            f"{r['date']}\t{r['title']}\t{r['path']}\t{r['type']}{status_part}{extras_part}"
+            f"{r['created']}\t{r['title']}\t{r['path']}\t{r['type']}{status_part}{extras_part}"
         )
-    return [
-        TextContent(type="text", text=meta),
-        TextContent(type="text", text="\n".join(lines)),
-    ]
+    if lines:
+        content.append(TextContent(type="text", text="\n".join(lines)))
+    return CallToolResult(content=content, structuredContent=page)
 
 
 def handle_brain_read(
@@ -341,9 +431,12 @@ def handle_brain_list(
     parent = params.get("parent")
     since = params.get("since")
     until = params.get("until")
+    modified_since = params.get("modified_since")
+    modified_until = params.get("modified_until")
     tag = params.get("tag")
     top_k = params.get("top_k", 500)
     sort = params.get("sort", "date_desc")
+    cursor = params.get("cursor")
 
     if resource == "artefact":
         state, progress = _server_readiness.require_index(runtime, "brain_list")
@@ -360,36 +453,49 @@ def handle_brain_list(
         )
         return _fmt_workspace_list(results)
 
+    if resource == "artefact":
+        page = list_artefacts.list_artefacts_page(
+            state.index,
+            state.router,
+            type_filter=type_filter,
+            parent=parent,
+            since=since,
+            until=until,
+            modified_since=modified_since,
+            modified_until=modified_until,
+            tag=tag,
+            top_k=top_k,
+            sort=sort,
+            cursor=cursor,
+        )
+        return _fmt_list(page, type_filter)
+
     results = list_artefacts.list_resources(
         state.index,
         state.router,
         state.vault_root,
         resource=resource,
         query=query,
-        type_filter=type_filter,
-        parent=parent,
-        since=since,
-        until=until,
-        tag=tag,
-        top_k=top_k,
-        sort=sort,
     )
-
-    if resource == "artefact":
-        return _fmt_list(results, type_filter)
 
     meta = f"**Listed:** {len(results)} {resource}(s)"
     if query:
         meta += f" matching '{query}'"
     if not results:
-        return [TextContent(type="text", text=meta)]
+        return CallToolResult(
+            content=[TextContent(type="text", text=meta)],
+            structuredContent=_complete_list_page(results),
+        )
     lines = []
     for r in results:
         if isinstance(r, dict):
             lines.append(r.get("name", r.get("path", str(r))))
         else:
             lines.append(str(r))
-    return [
-        TextContent(type="text", text=meta),
-        TextContent(type="text", text="\n".join(lines)),
-    ]
+    return CallToolResult(
+        content=[
+            TextContent(type="text", text=meta),
+            TextContent(type="text", text="\n".join(lines)),
+        ],
+        structuredContent=_complete_list_page(results),
+    )

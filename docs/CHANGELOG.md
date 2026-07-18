@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.52.0](changelog/v0.52.0.md) | 2026-07-19 | Make Brain tooling explicit, retry-safe, and metadata-authoritative |
 | [v0.51.1](changelog/v0.51.1.md) | 2026-07-14 | Keep `create_artefact` keys unique across reused router snapshots |
 | [v0.51.0](changelog/v0.51.0.md) | 2026-07-08 | **Release: [Vault Tooling Maturity - Pass 2](changelog/releases/v0.51.0-vault-tooling-maturity-pass-2.md)** |
 | [v0.50.2](changelog/v0.50.2.md) | 2026-07-07 | Preserve strict migrations while accepting legacy no-op repair |

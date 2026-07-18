@@ -28,7 +28,7 @@ If the user says they're not sure, that's fine — make your best guess based on
 
 ### 3. Log it immediately
 
-Create the cookie artefact using `brain_create(type="cookies", title=..., body=...)`. Do not move on without logging. A cookie that isn't logged didn't happen.
+Create the cookie artefact using `brain_create(request={"resource": "artefact", "type": "cookies", "title": ..., "content": {"source": "inline", "content": ...}})`. Do not move on without logging. A cookie that isn't logged didn't happen.
 
 **In the body, capture:**
 - What was done (specific, not vague)

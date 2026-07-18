@@ -32,11 +32,24 @@ BRAIN_CLI_VERSION = _cli_shell_var("BRAIN_CLI_VERSION")
 PUBLIC_DISPATCH_CONTRACT = [
     "check", "create", "edit", "rename",
     "setup", "configure", "repair", "upgrade",
-    "session", "read", "migrate-naming", "fix-links",
+    "session", "read", "outline", "list", "search", "stage", "discard-stage", "reparent", "set-status",
+    "set-key", "set-naming-field", "define", "migrate-naming", "fix-links",
 ]
 DISPATCH_COMPAT = []
 GENERIC_DISPATCH_CONTRACT = [sub for sub in PUBLIC_DISPATCH_CONTRACT if sub != "session"] + DISPATCH_COMPAT
 SCRIPT_CONTRACT = PUBLIC_DISPATCH_CONTRACT + DISPATCH_COMPAT
+SCRIPT_BY_COMMAND = {
+    "outline": "outline.py",
+    "list": "list_artefacts.py",
+    "search": "search_index.py",
+    "stage": "stage.py",
+    "discard-stage": "discard_stage.py",
+    "reparent": "lifecycle.py",
+    "set-status": "lifecycle.py",
+    "set-key": "lifecycle.py",
+    "set-naming-field": "lifecycle.py",
+    "define": "define.py",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -67,7 +80,7 @@ def _build_fake_vault(root: Path) -> Path:
         "print(json.dumps({'argv': sys.argv[1:]}))\n"
     )
     for name in SCRIPT_CONTRACT:
-        script = scripts / f"{name.replace('-', '_')}.py"
+        script = scripts / SCRIPT_BY_COMMAND.get(name, f"{name.replace('-', '_')}.py")
         script.write_text(echo_body)
     return vault
 
@@ -188,7 +201,7 @@ def _run_cli(*args, cwd=None, env_extra=None, set_launcher_override=True):
 
 def test_dispatch_contract_matches_existing_scripts():
     for sub in SCRIPT_CONTRACT:
-        script = SCRIPTS_DIR / f"{sub.replace('-', '_')}.py"
+        script = SCRIPTS_DIR / SCRIPT_BY_COMMAND.get(sub, f"{sub.replace('-', '_')}.py")
         assert script.is_file(), (
             f"Dispatch contract names '{sub}' but {script} does not exist. "
             "Either rename the CLI subcommand (CLI major bump) or restore the script."

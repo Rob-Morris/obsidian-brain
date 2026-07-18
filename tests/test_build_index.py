@@ -317,7 +317,7 @@ class TestBuildIndex:
         index = built_index(vault)
         meta = index["meta"]
         assert meta["brain_core_version"] == "1.0.0"
-        assert meta["index_version"] == "1.0.0"
+        assert meta["index_version"] == "1.1.0"
         assert "built_at" in meta
         assert meta["document_count"] == 4
 

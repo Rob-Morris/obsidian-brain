@@ -25,7 +25,7 @@ When crafting a self-contained piece of written work — essay, post, chapter, l
 
 When a piece reaches a terminal status (`published` or `deprecated`), move it to the corresponding `+Status` folder:
 
-- **Published:** set `status: published`. `brain_edit` automatically moves it to `Writing/+Published/` and renames the file with a `yyyymmdd-` prefix (rendered from `publisheddate`). The `publisheddate` is set to today on the transition into `published` unless already present. Companion files (HTML pastes, exports) belong in `Assets/Attachments/` or `Assets/Generated/`, not alongside the writing file.
+- **Published:** use `brain_set_status(..., status="published")`. The handler moves it to `Writing/+Published/` and renames the file with a `yyyymmdd-` prefix (rendered from `publisheddate`). The `publisheddate` is set to today on the transition unless already present. Companion files (HTML pastes, exports) belong in `Assets/Attachments/` or `Assets/Generated/`, not alongside the writing file.
 - **Deprecated:** set `status: deprecated`, add a reason callout, move to `Writing/+Deprecated/`:
   ```markdown
   > [!info] Deprecated — superseded by [[link|successor piece]]

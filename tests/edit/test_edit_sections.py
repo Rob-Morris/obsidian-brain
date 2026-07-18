@@ -827,3 +827,74 @@ class TestHeadingBodyPayloadValidation:
             target="## Notes", scope="section",
         )
         assert "## Splice" in result
+
+
+class TestReplaceText:
+    def _write_page(self, vault, body):
+        path = vault / "Wiki" / "test-page.md"
+        path.write_text("---\ntype: living/wiki\ntags: []\n---\n\n" + body)
+        return path
+
+    def test_unique_exact_match_replaces_and_reports_count(self, vault, router):
+        path = self._write_page(vault, "Alpha sentence.\n\nUnrelated text.\n")
+        result = edit.replace_text_in_artefact(
+            str(vault), router, "Wiki/test-page.md",
+            old_text="Alpha sentence.", new_text="Improved sentence.",
+        )
+        assert result["match_count"] == 1
+        assert result["replacement_count"] == 1
+        assert "Improved sentence." in path.read_text()
+        assert "Unrelated text." in path.read_text()
+
+    def test_ambiguous_match_fails_without_writing(self, vault, router):
+        path = self._write_page(vault, "Repeated.\n\nRepeated.\n")
+        before = path.read_text()
+        with pytest.raises(ValueError, match="found 2 exact matches"):
+            edit.replace_text_in_artefact(
+                str(vault), router, "Wiki/test-page.md",
+                old_text="Repeated.", new_text="Changed.",
+            )
+        assert path.read_text() == before
+
+    def test_occurrence_selects_one_match(self, vault, router):
+        path = self._write_page(vault, "Repeated.\n\nRepeated.\n")
+        result = edit.replace_text_in_artefact(
+            str(vault), router, "Wiki/test-page.md",
+            old_text="Repeated.", new_text="Changed.", match_occurrence=2,
+        )
+        assert result["match_count"] == 2
+        assert path.read_text().count("Repeated.") == 1
+        assert path.read_text().count("Changed.") == 1
+
+    def test_replace_all_replaces_every_match(self, vault, router):
+        path = self._write_page(vault, "Repeated.\n\nRepeated.\n")
+        result = edit.replace_text_in_artefact(
+            str(vault), router, "Wiki/test-page.md",
+            old_text="Repeated.", new_text="Changed.", replace_all=True,
+        )
+        assert result["replacement_count"] == 2
+        assert "Repeated." not in path.read_text()
+
+    def test_structural_narrowing_ignores_matches_elsewhere(self, vault, router):
+        path = self._write_page(
+            vault,
+            "## First\n\nRepeated.\n\n## Second\n\nRepeated.\n",
+        )
+        result = edit.replace_text_in_artefact(
+            str(vault), router, "Wiki/test-page.md",
+            old_text="Repeated.", new_text="Changed.",
+            target="## Second", scope="body",
+        )
+        assert result["replacement_count"] == 1
+        content = path.read_text()
+        assert content.index("Repeated.") < content.index("## Second")
+        assert content.index("Changed.") > content.index("## Second")
+
+    def test_empty_replacement_deletes_exact_match(self, vault, router):
+        path = self._write_page(vault, "Remove me. Keep me.\n")
+        edit.replace_text_in_artefact(
+            str(vault), router, "Wiki/test-page.md",
+            old_text="Remove me. ", new_text="",
+        )
+        assert "Remove me." not in path.read_text()
+        assert "Keep me." in path.read_text()

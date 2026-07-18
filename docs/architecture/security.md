@@ -2,7 +2,7 @@
 
 Brain-core applies a layered security model to all vault writes. The layers are:
 path boundary enforcement, write-guard filtering, privilege-split profiles,
-process-local mutation serialization in the MCP wrapper, and atomic writes.
+vault-scoped cross-process mutation serialization, and atomic writes.
 Each layer is independent; all must pass for a write to succeed.
 
 ---
@@ -87,9 +87,9 @@ Three built-in profiles define what each agent can do:
 
 | Profile | Allowed tools |
 |---|---|
-| `reader` | `brain_init`, `brain_session`, `brain_read`, `brain_search`, `brain_list` |
-| `contributor` | All reader tools + `brain_create`, `brain_edit`, `brain_process` |
-| `operator` | All contributor tools + `brain_move`, `brain_action` |
+| `reader` | Read tools including `brain_outline`, `brain_check`, `brain_classify`, and `brain_resolve` |
+| `contributor` | All reader tools + staging, create/edit/lifecycle tools, and `brain_ingest` |
+| `operator` | All contributor tools + guarded `brain_define`, `brain_move`, `brain_action` |
 
 Profiles are defined in `defaults/config.yaml` under `vault.profiles` and can be
 extended or replaced in `.brain/config.yaml`. The default profile when no key is
@@ -230,22 +230,24 @@ See: [DD-036: Safe write pattern](decisions/dd-036-safe-write-pattern.md)
 
 ## MCP Mutation Serialization
 
-Within the MCP server process, mutating tool calls are serialized behind a
-process-local lock. This applies to:
+Mutating MCP and Brain CLI calls are serialized behind a vault-scoped
+cross-process lock. This applies to:
 
 - `brain_create`
 - `brain_edit`
+- lifecycle mutations and ownership repair
+- `brain_define`
 - `brain_move`
 - `brain_action`
+- `brain_ingest`
 
 **Why it exists:** some script paths that look single-file can trigger broader
 vault mutations, such as status-driven moves and vault-wide wikilink rewrites.
-Serializing mutating MCP calls prevents those flows from interleaving inside one
-shared server process.
+Serializing mutations prevents these flows from interleaving across agents,
+MCP servers, and CLI processes sharing one vault.
 
-**Why it lives in the MCP layer:** the script layer remains the source of truth
-for vault behavior. The lock is runtime orchestration policy, so it belongs in
-the wrapper rather than in the domain scripts themselves.
+The canonical lock lives in the shared script layer, with bounded acquisition
+and owner diagnostics; MCP adds an in-process lock for its own cached state.
 
 **Scope limit:** this protects one MCP server process only. Direct script users
 and multi-process callers still need their own coordination if they perform

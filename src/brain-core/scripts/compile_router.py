@@ -27,6 +27,8 @@ from _bootstrap.runtime import (
 )
 from _common import (
     PLACEHOLDER_TOKEN_RE,
+    PLUGINS_DIR,
+    ROUTER_REL_PATH,
     TEMPORAL_DIR,
     artefact_type_prefix,
     finalize_living_artefact_index,
@@ -42,6 +44,7 @@ from _common import (
     scan_temporal_types,
     is_valid_key,
     living_artefact_index_entry,
+    taxonomy_rel_path,
 )
 from _common._artefacts import pattern_has_date_tokens
 from _repair_common import build_repair_command
@@ -52,7 +55,6 @@ OUTPUT_PATH = os.path.join(".brain", "local", "compiled-router.json")
 
 SKILLS_DIR = os.path.join("_Config", "Skills")
 CORE_SKILLS_DIR = os.path.join(".brain-core", "skills")
-PLUGINS_DIR = "_Plugins"
 STYLES_DIR = os.path.join("_Config", "Styles")
 MEMORIES_DIR = os.path.join("_Config", "Memories")
 
@@ -84,6 +86,15 @@ def compute_source_hash(sources):
     for key in sorted(sources.keys()):
         h.update(sources[key].encode("utf-8"))
     return "sha256:" + h.hexdigest()
+
+
+def _is_file_with_exact_name(path):
+    """Avoid case-insensitive filesystems selecting a differently-cased source."""
+    directory, name = os.path.split(path)
+    try:
+        return name in os.listdir(directory) and os.path.isfile(path)
+    except OSError:
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -179,6 +190,47 @@ _BUILTIN_NAMING_PLACEHOLDERS = {
     "Title", "title", "slug", "name",
     "sourcedoctype",
 }
+
+
+def _validate_declared_naming_placeholders(rules, placeholders):
+    """Reject custom pattern tokens without an explicit backing-field contract."""
+    declared_names = {p["name"] for p in placeholders}
+    declared_names |= {p["name"].lower() for p in placeholders}
+    for rule in rules:
+        for token in PLACEHOLDER_TOKEN_RE.findall(rule["pattern"]):
+            if (
+                token in _BUILTIN_NAMING_PLACEHOLDERS
+                or token.lower() in _BUILTIN_NAMING_PLACEHOLDERS
+            ):
+                continue
+            if token in declared_names or token.lower() in declared_names:
+                continue
+            raise ValueError(
+                f"## Naming pattern '{rule['pattern']}' uses undeclared "
+                f"placeholder '{{{token}}}'. Declare it in ### Placeholders."
+            )
+
+
+def _simple_form_placeholders(rules):
+    """Compile legacy simple-form tokens into explicit same-name field mappings."""
+    placeholders = []
+    seen = set()
+    for rule in rules:
+        for token in PLACEHOLDER_TOKEN_RE.findall(rule["pattern"]):
+            token_key = token.lower()
+            if token_key in {value.lower() for value in _BUILTIN_NAMING_PLACEHOLDERS}:
+                continue
+            if token_key in seen:
+                continue
+            seen.add(token_key)
+            placeholders.append({
+                "name": token,
+                "field": token_key,
+                "required_when_field": None,
+                "required_values": None,
+                "regex": None,
+            })
+    return placeholders
 
 
 def _unwrap_backticks(cell):
@@ -321,18 +373,7 @@ def _parse_advanced_naming(naming_text):
                 "regex": _unwrap_backticks(regex_cell) if regex_cell else None,
             })
 
-    declared_names = {p["name"] for p in placeholders}
-    declared_names |= {p["name"].lower() for p in placeholders}
-    for rule in rules:
-        for token in PLACEHOLDER_TOKEN_RE.findall(rule["pattern"]):
-            if token in _BUILTIN_NAMING_PLACEHOLDERS or token.lower() in _BUILTIN_NAMING_PLACEHOLDERS:
-                continue
-            if token in declared_names:
-                continue
-            raise ValueError(
-                f"## Naming pattern '{rule['pattern']}' uses undeclared "
-                f"placeholder '{{{token}}}'. Declare it in ### Placeholders."
-            )
+    _validate_declared_naming_placeholders(rules, placeholders)
 
     return folder, rules, placeholders
 
@@ -388,11 +429,12 @@ def _parse_naming_section(content):
         if pattern
         else []
     )
+    placeholders = _simple_form_placeholders(rules)
     return {
         "pattern": pattern,
         "folder": folder,
         "rules": rules,
-        "placeholders": [],
+        "placeholders": placeholders,
     }
 
 
@@ -909,7 +951,7 @@ def compile(vault_root):
         return abs_path
 
     # Parse router
-    router_path = os.path.join("_Config", "router.md")
+    router_path = ROUTER_REL_PATH
     track(router_path)
     always_rules, conditionals = parse_router(
         os.path.join(vault_root, router_path)
@@ -943,15 +985,11 @@ def compile(vault_root):
     artefacts = []
     for t in all_types:
         classification = t["classification"]
-        tax_subdir = "Living" if classification == "living" else "Temporal"
-
         # Prefer exact folder name match (e.g. "Wiki.md"), fall back to key
         tax_rel = None
         for candidate in [t["folder"], t["key"]]:
-            candidate_rel = os.path.join(
-                "_Config", "Taxonomy", tax_subdir, candidate + ".md"
-            )
-            if os.path.isfile(os.path.join(vault_root, candidate_rel)):
+            candidate_rel = taxonomy_rel_path(classification, candidate)
+            if _is_file_with_exact_name(os.path.join(vault_root, candidate_rel)):
                 tax_rel = candidate_rel
                 break
 

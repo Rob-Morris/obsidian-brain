@@ -14,11 +14,11 @@ vault:
 
   profiles:
     reader:
-      allow: [brain_init, brain_session, brain_read, brain_search, brain_list]
+      allow: [brain_init, brain_session, brain_read, brain_outline, brain_check, brain_search, brain_list, brain_classify, brain_resolve]
     contributor:
-      allow: [brain_init, brain_session, brain_read, brain_search, brain_list, brain_create, brain_edit, brain_process]
+      allow: [brain_init, brain_session, brain_read, brain_outline, brain_check, brain_search, brain_list, brain_classify, brain_resolve, brain_stage, brain_discard_stage, brain_create, brain_edit, brain_reparent, brain_set_status, brain_set_key, brain_set_naming_field, brain_ingest]
     operator:
-      allow: [brain_init, brain_session, brain_read, brain_search, brain_list, brain_create, brain_edit, brain_process, brain_move, brain_action]
+      allow: [brain_init, brain_session, brain_read, brain_outline, brain_check, brain_search, brain_list, brain_classify, brain_resolve, brain_stage, brain_discard_stage, brain_create, brain_edit, brain_reparent, brain_set_status, brain_set_key, brain_set_naming_field, brain_ingest, brain_define, brain_move, brain_action]
 
   operators: []
 

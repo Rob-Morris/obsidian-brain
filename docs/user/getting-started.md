@@ -206,7 +206,7 @@ Designs/
     Brain Mcp Server.md
 ```
 
-This works for any living type — designs, ideas, wiki pages. Sub-artefacts inherit the parent type, so no separate taxonomy or CSS is needed. When a sub-artefact reaches a terminal status, update its `status`; `brain_edit` moves it into the matching `+Status/` folder automatically. Use `_Archive/` only for deliberate removal from the active vault namespace.
+This works for any living type — designs, ideas, wiki pages. Sub-artefacts inherit the parent type, so no separate taxonomy or CSS is needed. When a sub-artefact reaches a terminal status, use `brain_set_status`; the handler moves it into the matching `+Status/` folder. Use `_Archive/` only for deliberate removal from the active vault namespace.
 
 ### Giving Agents Context with Memories
 

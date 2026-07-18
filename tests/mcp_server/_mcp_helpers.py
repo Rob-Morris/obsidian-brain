@@ -29,24 +29,28 @@ def _bump_mtime(path, *, seconds: float = 10.0):
 
 def _extract_create_path(result):
     """Extract path from 'Created type: path' format."""
+    if isinstance(result, CallToolResult) and result.structuredContent:
+        return result.structuredContent["path"]
     return result.split(": ", 1)[1]
 
 
 def _result_lines(response, *, label):
     """Extract individual result lines from a content-block response."""
     assert not isinstance(response, str), f"Expected {label} content blocks, got {response!r}"
-    assert len(response) >= 1, f"Expected at least {label} metadata block, got {response!r}"
-    if len(response) == 1:
+    content = response.content if isinstance(response, CallToolResult) else response
+    assert len(content) >= 1, f"Expected at least {label} metadata block, got {response!r}"
+    if len(content) == 1:
         return []
-    assert hasattr(response[1], "text"), f"Expected text block at index 1, got {response[1]!r}"
-    return response[1].text.strip().split("\n")
+    assert hasattr(content[1], "text"), f"Expected text block at index 1, got {content[1]!r}"
+    return content[1].text.strip().split("\n")
 
 
 def _result_text(response):
     """Join TextContent blocks into a single string."""
     if isinstance(response, str):
         return response
-    return "\n".join(block.text for block in response)
+    content = response.content if isinstance(response, CallToolResult) else response
+    return "\n".join(block.text for block in content)
 
 
 def _list_result_lines(response):

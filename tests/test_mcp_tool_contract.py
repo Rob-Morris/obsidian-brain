@@ -29,8 +29,10 @@ from _resource_contract import RESOURCE_KINDS
 
 
 _TOOL_NAMES = (
-    "brain_action", "brain_create", "brain_edit", "brain_init", "brain_list", "brain_move",
-    "brain_process", "brain_read", "brain_search", "brain_session",
+    "brain_action", "brain_check", "brain_classify", "brain_create", "brain_define", "brain_discard_stage", "brain_edit",
+    "brain_ingest", "brain_init", "brain_list", "brain_move", "brain_outline", "brain_read",
+    "brain_reparent", "brain_search", "brain_session", "brain_set_key",
+    "brain_set_naming_field", "brain_set_status", "brain_stage", "brain_resolve",
 )
 
 _DOCSTRING_BANNED_HEADINGS = re.compile(
@@ -139,10 +141,12 @@ def test_heaviest_field_descriptions_stay_within_budget(
     budget,
 ):
     tool = next(t for t in registered_tools if t.name == tool_name)
-    description = tool.inputSchema["properties"][field_name]["description"]
+    descriptions = _find_property_descriptions(tool.inputSchema, field_name)
+    assert descriptions, f"{tool_name}.{field_name} is absent or undocumented"
 
-    assert len(description) <= budget, (
-        f"{tool_name}.{field_name} description is {len(description)} chars; "
+    longest = max(descriptions, key=len)
+    assert len(longest) <= budget, (
+        f"{tool_name}.{field_name} description is {len(longest)} chars; "
         f"budget is {budget}. Keep the schema semantically legible, but move "
         f"excess examples or long-form behaviour into docs/functional/mcp-tools.md."
     )
@@ -186,15 +190,29 @@ def _iter_exposed_properties(schema):
         yield from node.get("properties", {}).items()
 
 
+def _find_property_descriptions(schema, field_name):
+    """Find a field description at any level of a discriminated request schema."""
+    found = []
+
+    def visit(node):
+        if isinstance(node, dict):
+            prop = node.get("properties", {}).get(field_name)
+            if prop and prop.get("description"):
+                found.append(prop["description"])
+            for value in node.values():
+                visit(value)
+        elif isinstance(node, list):
+            for value in node:
+                visit(value)
+
+    visit(schema)
+    return found
+
+
 def test_brain_edit_selector_schema_is_structured(registered_tools):
     tool = next(t for t in registered_tools if t.name == "brain_edit")
     schema = tool.inputSchema
-    selector = schema["properties"]["selector"]
-    selector_ref = next(
-        variant["$ref"] for variant in selector["anyOf"]
-        if "$ref" in variant
-    )
-    selector_schema = _resolve_local_ref(schema, selector_ref)
+    selector_schema = schema["$defs"]["_StructuralSelector"]
 
     assert selector_schema.get("additionalProperties") is False
     selector_props = selector_schema["properties"]
@@ -240,56 +258,36 @@ def test_brain_move_schema_is_flat_and_first_class(registered_tools):
 def test_brain_action_schema_exposes_nested_param_variants(registered_tools):
     tool = next(t for t in registered_tools if t.name == "brain_action")
     schema = tool.inputSchema
-    assert "oneOf" not in schema
     props = schema["properties"]
-    assert set(props) == {"action", "params"}
-    assert props["action"]["enum"] == [
-        "delete",
-        "reparent",
-        "shape-printable",
-        "shape-presentation",
-        "start-shaping",
-        "fix-links",
-    ]
-    assert props["action"]["description"].strip()
-    assert props["params"]["description"].strip()
+    assert set(props) == {"request"}
+    request = props["request"]
+    assert request["description"].strip()
+    assert request["discriminator"]["propertyName"] == "action"
+    assert set(request["discriminator"]["mapping"]) == {
+        "delete", "reparent-children", "shape-printable", "shape-presentation",
+        "start-shaping", "fix-links",
+    }
 
     variant_refs = [
-        variant["$ref"] for variant in props["params"]["anyOf"]
+        variant["$ref"] for variant in request["oneOf"]
         if "$ref" in variant
     ]
     assert len(variant_refs) == 6
 
-    variant_shapes = {
-        frozenset(_resolve_local_ref(schema, ref)["properties"]): ref
-        for ref in variant_refs
-    }
-    assert set(variant_shapes) == {
-        frozenset({"path", "recursive"}),
-        frozenset({"source", "to"}),
-        frozenset({"source", "slug", "render", "keep_heading_with_next", "pdf_engine"}),
-        frozenset({"source", "slug", "render", "preview"}),
-        frozenset({"target", "title", "skill_type"}),
-        frozenset({"fix", "path", "links"}),
-    }
-
     for ref in variant_refs:
         variant_schema = _resolve_local_ref(schema, ref)
         assert variant_schema.get("additionalProperties") is False
-        for meta in variant_schema["properties"].values():
-            assert meta["description"].strip()
 
     validator = Draft202012Validator(schema)
-    assert not list(validator.iter_errors({"action": "delete", "params": {"path": "Wiki/x.md"}}))
-    assert list(validator.iter_errors({"action": "archive", "params": {"path": "Ideas/x.md"}}))
     assert not list(validator.iter_errors({
-        "action": "delete",
-        "params": {"source": "Wiki/x.md", "slug": "x"},
-    })), (
-        "brain_action currently exposes nested param variants for discoverability, "
-        "but action-to-params pairing remains a runtime contract rather than a "
-        "schema-discriminated one."
-    )
+        "request": {"action": "delete", "params": {"path": "Wiki/x.md"}}
+    }))
+    assert list(validator.iter_errors({
+        "request": {"action": "archive", "params": {"path": "Ideas/x.md"}}
+    }))
+    assert list(validator.iter_errors({
+        "request": {"action": "delete", "params": {"source": "Wiki/x.md", "slug": "x"}}
+    }))
 
 
 def test_brain_create_resource_schema_is_enumerated(registered_tools):
@@ -297,6 +295,104 @@ def test_brain_create_resource_schema_is_enumerated(registered_tools):
     schema = tool.inputSchema
     validator = Draft202012Validator(schema)
 
-    assert schema["properties"]["resource"]["enum"] == list(RESOURCE_KINDS)
-    assert not list(validator.iter_errors({"resource": "skill", "name": "x", "body": "y"}))
-    assert list(validator.iter_errors({"resource": "bogus", "name": "x", "body": "y"}))
+    request = schema["properties"]["request"]
+    assert set(request["discriminator"]["mapping"]) == set(RESOURCE_KINDS)
+    assert not list(validator.iter_errors({
+        "request": {
+            "resource": "skill",
+            "name": "x",
+            "content": {"source": "inline", "content": "y"},
+        }
+    }))
+    assert list(validator.iter_errors({
+        "request": {
+            "resource": "bogus",
+            "name": "x",
+            "content": {"source": "inline", "content": "y"},
+        }
+    }))
+    assert list(validator.iter_errors({
+        "request": {
+            "resource": "skill",
+            "name": "x",
+            "type": "living/idea",
+            "content": {"source": "inline", "content": "y"},
+        }
+    }))
+
+
+def test_brain_define_schema_binds_kind_and_operation_fields(registered_tools):
+    tool = next(t for t in registered_tools if t.name == "brain_define")
+    schema = tool.inputSchema
+    validator = Draft202012Validator(schema)
+
+    assert not list(validator.iter_errors({
+        "request": {
+            "kind": "trigger",
+            "mutation": {
+                "operation": "create",
+                "condition": "Before consequential work",
+                "target": "_Config/Taxonomy/Temporal/plans",
+            },
+        }
+    }))
+    assert list(validator.iter_errors({
+        "request": {
+            "kind": "plugin",
+            "name": "example",
+            "mutation": {"operation": "replace", "definition": "# Example"},
+        }
+    }))
+    assert list(validator.iter_errors({
+        "request": {
+            "kind": "trigger",
+            "mutation": {
+                "operation": "delete",
+                "condition": "Unused",
+                "definition": "not a trigger field",
+            },
+        }
+    }))
+
+
+def test_create_request_translation_preserves_staged_content(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(server, "brain_create", lambda **kwargs: captured.update(kwargs) or "ok")
+    request = server._BrainCreateArtefactRequest.model_validate({
+        "resource": "artefact",
+        "type": "living/idea",
+        "title": "Schema-shaped create",
+        "content": {"source": "stage", "handle": "brain-stage-abc"},
+    })
+
+    assert server._brain_create_tool(request) == "ok"
+    assert captured == {
+        "resource": "artefact",
+        "type": "living/idea",
+        "title": "Schema-shaped create",
+        "body_handle": "brain-stage-abc",
+    }
+
+
+def test_edit_request_translation_preserves_exact_empty_replacement(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(server, "brain_edit", lambda **kwargs: captured.update(kwargs) or "ok")
+    request = server._BrainEditRequest.model_validate({
+        "subject": {"resource": "artefact", "path": "idea/example"},
+        "mutation": {
+            "operation": "replace_text",
+            "old_text": "remove me",
+            "new_text": "",
+            "match_occurrence": 2,
+        },
+    })
+
+    assert server._brain_edit_tool(request) == "ok"
+    assert captured == {
+        "resource": "artefact",
+        "path": "idea/example",
+        "operation": "replace_text",
+        "old_text": "remove me",
+        "new_text": "",
+        "match_occurrence": 2,
+    }

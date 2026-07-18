@@ -97,7 +97,7 @@ Skill documents for MCP tools, CLI commands, or plugin workflows. One folder per
 
 ### MCP Tools
 
-If your vault runs the Brain MCP server (`.brain-core/brain_mcp/server.py`), ten tools are available:
+If your vault runs the Brain MCP server (`.brain-core/brain_mcp/server.py`), twenty-one focused tools are available:
 
 **brain_init** (safe, auto-approvable)
 - Additive bootstrap/orientation snapshot for the Brain runtime
@@ -128,25 +128,35 @@ If your vault runs the Brain MCP server (`.brain-core/brain_mcp/server.py`), ten
 
 **brain_list** (safe, no side effects)
 - List vault artefacts exhaustively — not relevance-ranked
-- `resource="artefact"` supports `type`, `parent`, `since`/`until` (ISO dates e.g. `"2026-03-20"`), `tag`, `top_k` (default 500), and sort by `"date_desc"` (default), `"date_asc"`, or `"title"`
+- `resource="artefact"` supports honest creation and modification date filters, stable sorting, bounded page sizes, and opaque cursor continuation. Unknown types fail clearly.
 - If index-backed retrieval state is blocked by an unreadable source file, compiled-router embeddings drift, or a retrieval-index persistence failure, artefact listing returns that explicit error instead of stale results
 - Non-artefact collections such as `skill`, `memory`, `template`, and `style` support only optional `query`; `workspace` and `archive` accept no filters
 - Use instead of `brain_search` when completeness matters (e.g. "all research from the last 2 weeks")
 
+**brain_outline / brain_check** (safe, no side effects)
+- `brain_outline(path)` returns exact heading/callout selectors accepted by `brain_edit`
+- `brain_check` returns filterable structured Doctor findings without applying repairs
+
+**brain_stage / brain_discard_stage** (local staging)
+- Stage a large body under an opaque retry-safe handle; failed writes preserve it and successful writes consume it
+- Handles expire after 24 hours; explicitly discard an unused handle to release it sooner
+
 **brain_create** (additive, safe to auto-approve)
-- Create a new vault resource. Default `resource="artefact"` for artefact creation from type, title, and optional body/frontmatter/parent. Also creates `skill`, `memory`, `style`, and `template` resources in `_Config/` (use `name` instead of `type`/`title`)
+- Takes one resource-discriminated `request`. Artefacts use `{resource: "artefact", type, title, ...}`; `skill`, `memory`, `style`, and `template` use `{resource, name, content, ...}` and cannot receive artefact-only fields
+- Body input is an explicit `content` variant: inline markdown, a retry-safe `brain_stage` handle, or a legacy caller-owned file path
 - Body contract is explicit: artefacts plus `skill` / `memory` / `style` take markdown body content after frontmatter; `template` takes a full markdown document with its own frontmatter block. Separate `frontmatter` input is rejected for `template`
 - Artefacts: resolves template and naming pattern from the compiled router; living artefacts get a generated `key` from the clearest free title-derived words before using a random suffix. When a temporal artefact has a living `parent`, it files under that owner chain before the `yyyy-mm` folder instead of flattening into the global temporal namespace
 - Non-artefact resources: `skill` → `_Config/Skills/{name}/SKILL.md`, `memory` → `_Config/Memories/{name}.md`, `style` → `_Config/Styles/{name}.md`, `template` → `_Config/Templates/{classification}/{Type}.md`
 - Resource-specific fields are enforced strictly: artefact creation requires `type` + `title`, non-artefact creation requires `name`, and cross-resource extras are rejected
-- Returns confirmation message with path
+- Returns structured path/resource metadata plus a concise confirmation
 
 **brain_edit** (single-file mutation)
-- `resource` parameter (default `"artefact"`) — also accepts `skill`, `memory`, `style`, `template` for editing `_Config/` resources
+- Takes `{subject, mutation}`. `subject` discriminates an artefact `path` from a named `skill`, `memory`, `style`, or `template`; `mutation` discriminates the operation and exposes only its valid fields
 - `edit` — replace body content, optionally merge frontmatter changes (overwrites fields)
 - `append` — add content to end of existing body
 - `prepend` — insert content before existing body or before a target section's heading
-- Body input is always post-frontmatter markdown content. To change frontmatter, use the `frontmatter` parameter rather than embedding a leading frontmatter block in `body`
+- `replace_text` — replace exact text; zero/ambiguous matches fail unless occurrence or replace-all intent is explicit
+- Inline mutation content is always post-frontmatter markdown. To change frontmatter, use the mutation's `frontmatter` member rather than embedding a leading frontmatter block
 - Optional `frontmatter` parameter — `edit` overwrites fields; `append`/`prepend` extend list fields (with dedup) and overwrite scalars. Set a field to `null` to delete it. All operations support frontmatter-only mutations (omit body)
 - Memory trigger edits refresh `brain_read(resource="memory", ...)` immediately; editing `_Config/` resources does not make them appear in `brain_search(resource="artefact")`
 - `target` identifies the structural node:
@@ -171,26 +181,31 @@ If your vault runs the Brain MCP server (`.brain-core/brain_mcp/server.py`), ten
 - For artefacts: `path` accepts canonical artefact key (for example `"design/brain"`), vault-relative path, or filename basename; for temporal artefacts the display-name portion of the dated filename also resolves (e.g. `"Colour Theory"` → `20260404-research~Colour Theory.md`); validated against the compiled router
 - For non-artefact resources: `name` identifies the resource (e.g. `"my-skill"`); for templates, name is the artefact type key (e.g. `"wiki"`). No terminal status auto-move or `modified` injection
 - Validation is resource/op-specific: artefacts require `path`, editable `_Config/` resources require `name`, `delete_section` requires `target`, and fields that belong to a different resource are rejected early
+- Generic edits reject `parent`, `key`, `status`, and naming-driving fields. Use `brain_reparent`, `brain_set_status`, `brain_set_key`, or `brain_set_naming_field`; these commands apply all derived moves, links, tags, descendants, and timestamps.
+
+**brain_define** (operator-only definition mutation)
+- Creates or replaces coherent type bundles (taxonomy, linked template, and discoverable artefact folder) and plugin definitions at fixed, validated destinations; replacement requires reviewed current hashes
+- Creates, replaces, or deletes an exact structured trigger entry; targets must exist and replacement checks the current target
+- Use this instead of generic editing for `_Config/Taxonomy/`, `_Config/router.md`, or `_Plugins/`
 
 **brain_move** (vault-wide/destructive, requires approval)
 - Flat top-level move tool for artefact path/classification transitions
 - `rename` — request shape: `{op: "rename", source, dest}`; artefact-aware same-type move with automatic wikilink updates (uses Obsidian CLI when available). When a link rewrite occurs inside a markdown table row, Brain drops wikilink aliases that would insert `|` into a cell
 - `convert` — request shape: `{op: "convert", path, target_type, parent?, recursive?}`; changes artefact type, moves the file, reconciles frontmatter, updates wikilinks, and generates a distinctive living `key` when converting temporal artefacts to living types. Living parents with living descendants return `HAS_DESCENDANTS` unless `recursive: true` is supplied for living→temporal conversion.
 - `archive` — request shape: `{op: "archive", path, recursive?}`; archives a terminal-status artefact to `_Archive/` with date-prefix rename and wikilink updates. Artefacts with living descendants return `HAS_DESCENDANTS` unless `recursive: true` is supplied
-- `unarchive` — request shape: `{op: "unarchive", path}`; restores an archived artefact to its original type folder and removes `archiveddate`
+- `unarchive` — request shape: `{op: "unarchive", path, recursive?}`; restores one artefact or an archived subtree through current metadata/status projection. If an archived candidate cannot be inspected, Brain restores the known subtree and warns with the skipped candidate's path and reason rather than claiming the restore was complete.
 
 **brain_action** (vault-wide/destructive, requires approval)
-- Smaller workflow/utility bucket using `action + params`
-- `delete` — request shape: `{action: "delete", params: {path, recursive?}}`; deletes an artefact file and replaces wikilinks with strikethrough text. Artefacts with living descendants return `HAS_DESCENDANTS` unless `recursive: true` is supplied
-- `reparent` — request shape: `{action: "reparent", params: {source, to?}}`; reparents the direct children of a living artefact, updates child frontmatter/tags, moves descendant files, and prunes emptied owner folders
-- `shape-printable` — request shape: `{action: "shape-printable", params: {source, slug, render?, keep_heading_with_next?, pdf_engine?}}`; creates a printable artefact and renders `_Assets/Generated/Printables/{stem}.pdf` via pandoc
-- `shape-presentation` — request shape: `{action: "shape-presentation", params: {source, slug, render?, preview?}}`; creates a presentation artefact, renders `_Assets/Generated/Presentations/{stem}.pdf`, and optionally launches Marp live preview
-- `start-shaping` — request shape: `{action: "start-shaping", params: {target, title?, skill_type?}}`; bootstraps a shaping session for an existing artefact and revives `+Status/` artefacts back into the active folder when shaping resumes
-- `fix-links` — request shape: `{action: "fix-links", params: {fix?, path?, links?}}`; scans for broken wikilinks and attempts auto-resolution
-**brain_process** (experimental content processing — classify/resolve are read-only, ingest can create/update; embedding-backed behavior is enabled with `defaults.flags.semantic_processing`, but degraded non-embedding behavior remains available by default)
-- `classify` — determine the best artefact type for content; returns ranked matches with confidence scores. Modes: `auto` (default), `embedding`, `bm25_only`, `context_assembly`
-- `resolve` — check if content should create a new artefact or update an existing one (requires `type` and `title`); returns create/update/ambiguous decision with candidate paths
-- `ingest` — full pipeline: classify → infer title → resolve → create/update. Optional `type`/`title` hints skip their respective steps
+- Smaller workflow/utility bucket using a schema-discriminated `{request: {action, params}}`
+- `delete` — request shape: `{request: {action: "delete", params: {path, recursive?}}}`; deletes an artefact file and replaces wikilinks with strikethrough text. Artefacts with living descendants return `HAS_DESCENDANTS` unless `recursive: true` is supplied
+- `reparent-children` reparents the direct children of a living artefact; `brain_reparent` changes one artefact's own parent
+- `shape-printable` — request shape: `{request: {action: "shape-printable", params: {source, slug, render?, keep_heading_with_next?, pdf_engine?}}}`; creates a printable artefact and renders `_Assets/Generated/Printables/{stem}.pdf` via pandoc
+- `shape-presentation` — request shape: `{request: {action: "shape-presentation", params: {source, slug, render?, preview?}}}`; creates a presentation artefact, renders `_Assets/Generated/Presentations/{stem}.pdf`, and optionally launches Marp live preview
+- `start-shaping` — request shape: `{request: {action: "start-shaping", params: {target, title?, skill_type?}}}`; bootstraps a shaping session for an existing artefact and revives `+Status/` artefacts back into the active folder when shaping resumes
+- `fix-links` — request shape: `{request: {action: "fix-links", params: {fix?, path?, links?}}}`; scans for broken wikilinks and attempts auto-resolution
+**brain_classify / brain_resolve / brain_ingest** (experimental content processing)
+- The read-only classify and resolve tools are permissioned separately from mutating ingest
+- `brain_ingest` runs classify → infer title → resolve → create/update; optional type/title hints skip their respective steps
 - If `classify` or `resolve` needs the shared retrieval index and that index is blocked by an unreadable source file, compiled-router embeddings drift, or a retrieval-index persistence failure, the tool returns that explicit rebuild error instead of stale retrieval state
 
 ### Server Logging
@@ -213,7 +228,7 @@ The same is now true for the managed operational wrappers: `build_index.py`, `se
 | `compile_colours.py` | Generate folder colour CSS and graph colour groups |
 | `build_lexical_index.py` | Build the shared lexical retrieval index only, without semantic sidecar work or managed-runtime handoff |
 | `build_index.py` | Build the retrieval index for search and refresh embeddings sidecars when `semantic_processing` or `semantic_retrieval` is enabled, router data is available, and the optional semantic runtime has been installed; unreadable retrieval sources and persistence failures now fail explicitly |
-| `list_artefacts.py` | Enumerate vault artefacts and resources via the direct script surface aligned to `brain_list` |
+| `list_artefacts.py` | Exhaustive structured pages with honest date filters and cursor continuation |
 | `search_lexical.py` | Query the shared lexical retrieval index through the portable lexical-only wrapper |
 | `search_index.py` | Search the local retrieval index from the command line via lexical, semantic, or hybrid modes; hybrid preserves obvious exact-anchor lexical wins, gives a small tie-break boost to a clearly dominant semantic top result, preserves strong lexical title champions when the query literally contains their core title phrase (stripping only the shipped `Brain` product namespace from first-party titles), and can apply a stronger semantic rescue when lexical and semantic leaders are clearly disjoint |
 | `construct_benchmark_fixture.py` | Mine a real vault for lexical / semantic / hybrid / cluster / filter-sensitive benchmark cases and emit both a benchmark fixture JSON and an audit JSON; unreadable source files now fail explicitly |
@@ -222,12 +237,15 @@ The same is now true for the managed operational wrappers: `build_index.py`, `se
 | `configure.py` | Explicit installed-vault configuration entry point: targeted `workspace binding`, `workspace metadata`, `workspace bootstrap`, `mcp`, and `semantic` surfaces without going through the setup wrapper. |
 | `read.py` | Query compiled router resources (artefacts, triggers, styles, templates, skills, etc.) |
 | `create.py` | Create a new artefact with template/naming resolution; parented temporal artefacts file under the owner chain before the month folder |
-| `edit.py` | Edit artefacts via explicit `target + selector + scope`; the importable helpers also back editable `_Config/` resources; post-metadata move failures report partial-apply repair context |
+| `edit.py` | Strict structural and exact-text edits; rejects lifecycle-owned metadata |
+| `outline.py` | List exact structural edit selectors |
+| `stage.py`, `discard_stage.py` | Create or release bounded retry-safe body handles |
+| `lifecycle.py` | Explicit parent/status/key/naming-field mutation commands |
 | `rename.py` | Rename/delete with automatic wikilink updates; refuses stale router state and unsafe move sets before touching links |
-| `repair.py` | Explicit Brain repair entry point. Bootstraps from any compatible Python 3.12+ launcher, converges into the central managed runtime at `~/.brain/venvs/py<X.Y>-<sha16>/`, and then repairs one named scope: `runtime`, `mcp`, `router`, `lexical`, `registry`, `frontmatter`, or `semantic`. |
+| `repair.py` | Named repairs including preview/apply metadata-authoritative ownership projection |
 | `session.py` | Build the canonical session model and refresh `.brain/local/session.md`; keeps a launcher-safe SessionStart shim and hands substantive work into the managed runtime |
 | `obsidian_cli.py` | IPC client for native Obsidian CLI (library module used by MCP) |
-| `process.py` | Experimental content classification, duplicate resolution, ingestion |
+| `process.py` | Domain logic behind split classify/resolve/ingest permissions |
 | `shape_printable.py` | Create printable + render PDF |
 | `shape_presentation.py` | Create presentation + render PDF + launch preview |
 | `start_shaping.py` | Bootstrap a shaping session for an existing artefact |

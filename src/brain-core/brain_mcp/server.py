@@ -8,11 +8,16 @@ and exposes the MCP tool surface:
   brain_init    — additive bootstrap/orientation snapshot, cheap and idempotent
   brain_session — bootstrap an agent session (compiled payload, one call)
   brain_read    — read compiled router resources (safe, no side effects)
+  brain_outline — list structural edit targets (safe, no side effects)
+  brain_check   — run structured vault checks (safe, no side effects)
   brain_search  — relevance-ranked lexical, semantic, or hybrid search
   brain_list    — exhaustive enumeration by type, date range, or tag (not relevance-ranked)
   brain_create  — create new vault artefacts (additive, safe to auto-approve)
   brain_edit    — modify existing vault artefacts (single-file mutation)
-  brain_process — experimental content classification, resolution, and ingestion
+  brain_define  — guarded type, trigger, and plugin definition authoring
+  brain_reparent / brain_set_* — explicit lifecycle mutations
+  brain_classify / brain_resolve — experimental read-only content processing
+  brain_ingest  — experimental content ingestion that may create/update files
   brain_move    — destructive content-move ops: rename, convert, archive, unarchive
   brain_action  — workflow/utility bucket: delete, reparent, shaping helpers, fix-links
 
@@ -69,6 +74,7 @@ SCRIPTS_DIR = os.path.join(os.path.dirname(__file__), "..", "scripts")
 sys.path.insert(0, os.path.abspath(SCRIPTS_DIR))
 
 import compile_router
+from _common import mutation_lock_error_message
 from _lifecycle.document_parts import EmbeddingParts
 import _lifecycle.retrieval_assets as retrieval_assets
 import _lifecycle.retrieval_errors as retrieval_errors
@@ -78,17 +84,19 @@ import _search.paths as search_paths
 from _common import (
     ParentChainError,
     PartialApplyError,
+    MutationLockError,
     SELECTOR_OCCURRENCE_DESCRIPTION,
     SELECTOR_WITHIN_DESCRIPTION,
     SELECTOR_WITHIN_OCCURRENCE_DESCRIPTION,
     SELECTOR_WITHIN_TARGET_DESCRIPTION,
-    cleanup_temp_body_file,
     iter_artefact_paths,
     parent_chain_error_message,
     safe_write_json,
-    temp_body_file_cleanup_path,
+    vault_mutation_lock,
 )
 import edit
+import define as definition_workflows
+from _staging import discard_staged_body, stage_body
 from _resource_contract import RESOURCE_KINDS
 import obsidian_cli
 import retrieval_embeddings as _retrieval_embeddings
@@ -787,22 +795,28 @@ def _fmt_progress(tool_name: str, needs: tuple[str, ...] = ()) -> CallToolResult
 
 @contextlib.contextmanager
 def _serialize_mutation(label: str):
-    """Serialize vault mutations within this MCP server process.
+    """Serialize vault mutations across MCP, CLI, and other Brain processes.
 
-    The script layer remains the source of truth for mutation behaviour; this
-    lock only prevents overlapping mutating MCP calls from interleaving writes
-    inside the shared server process.
+    The script layer remains the source of truth for mutation behaviour. The
+    thread lock protects shared in-memory state; the vault file lock extends
+    the same mutation boundary to public Brain CLI processes.
     """
     if _logger:
         _logger.debug("mutation wait: %s", label)
     with _mutation_lock:
-        if _logger:
-            _logger.debug("mutation enter: %s", label)
-        try:
-            yield
-        finally:
+        lock = vault_mutation_lock(_vault_root) if _vault_root else contextlib.nullcontext()
+        with contextlib.ExitStack() as stack:
+            try:
+                stack.enter_context(lock)
+            except MutationLockError as exc:
+                raise ValueError(mutation_lock_error_message(exc)) from exc
             if _logger:
-                _logger.debug("mutation exit: %s", label)
+                _logger.debug("mutation enter: %s", label)
+            try:
+                yield
+            finally:
+                if _logger:
+                    _logger.debug("mutation exit: %s", label)
 
 
 def _run_with_timeout(label, fn, timeout=_STARTUP_OP_TIMEOUT):
@@ -2144,10 +2158,15 @@ def _fmt_error(msg):
 # ---------------------------------------------------------------------------
 
 _BODY_FILE_DESCRIPTION = (
-    "Absolute path to a body-content file in the vault or system temp "
-    "directory. Mutually exclusive with body. Temp files are deleted after "
-    "reading; vault files are left in place. To stage content, run "
-    "`mktemp /tmp/brain-body-XXXXXX`, write the content, then pass that path."
+    "Legacy caller-owned body file inside the vault or system temp directory. "
+    "Mutually exclusive with body/body_handle and never deleted by Brain. Prefer "
+    "a retry-safe handle from brain_stage."
+)
+
+_BODY_HANDLE_DESCRIPTION = (
+    "Opaque retry-safe handle returned by brain_stage. Mutually exclusive with "
+    "body and body_file. Brain consumes it only after a successful mutation; "
+    "failed calls may be retried with the same handle."
 )
 
 _NAME_DESCRIPTION = (
@@ -2194,6 +2213,302 @@ class _StructuralSelector(BaseModel):
         list[_SelectorWithinStep] | None,
         Field(description=SELECTOR_WITHIN_DESCRIPTION),
     ] = None
+
+
+class _InlineMutationContent(BaseModel):
+    """Inline markdown supplied directly in a mutation request."""
+
+    model_config = ConfigDict(extra="forbid")
+    source: Literal["inline"]
+    content: Annotated[str, Field(description="Markdown content supplied inline.")]
+
+
+class _StagedMutationContent(BaseModel):
+    """Retry-safe content previously stored by brain_stage."""
+
+    model_config = ConfigDict(extra="forbid")
+    source: Literal["stage"]
+    handle: Annotated[str, Field(description=_BODY_HANDLE_DESCRIPTION)]
+
+
+class _FileMutationContent(BaseModel):
+    """Legacy caller-owned content file."""
+
+    model_config = ConfigDict(extra="forbid")
+    source: Literal["file"]
+    path: Annotated[str, Field(description=_BODY_FILE_DESCRIPTION)]
+
+
+_MutationContent = Annotated[
+    _InlineMutationContent | _StagedMutationContent | _FileMutationContent,
+    Field(discriminator="source"),
+]
+
+
+class _BrainCreateArtefactRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    resource: Literal["artefact"]
+    type: Annotated[str, Field(description="Artefact type key, such as living/idea.")]
+    title: Annotated[str, Field(description="Artefact title used by the type naming contract.")]
+    content: _MutationContent | None = None
+    frontmatter: Annotated[dict | None, Field(description="Non-lifecycle frontmatter overrides.")] = None
+    parent: Annotated[str | None, Field(description="Optional parent artefact reference.")] = None
+    key: Annotated[str | None, Field(description="Optional living-artefact key override.")] = None
+    fix_links: Annotated[bool, Field(description=_FIX_LINKS_DESCRIPTION)] = False
+
+
+class _BrainCreateNamedRequestBase(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: Annotated[str, Field(description=_NAME_DESCRIPTION)]
+    content: _MutationContent
+    frontmatter: Annotated[dict | None, Field(description="Optional resource frontmatter.")] = None
+
+
+class _BrainCreateSkillRequest(_BrainCreateNamedRequestBase):
+    resource: Literal["skill"]
+
+
+class _BrainCreateMemoryRequest(_BrainCreateNamedRequestBase):
+    resource: Literal["memory"]
+
+
+class _BrainCreateStyleRequest(_BrainCreateNamedRequestBase):
+    resource: Literal["style"]
+
+
+class _BrainCreateTemplateRequest(_BrainCreateNamedRequestBase):
+    resource: Literal["template"]
+
+
+_BrainCreateRequest = Annotated[
+    _BrainCreateArtefactRequest
+    | _BrainCreateSkillRequest
+    | _BrainCreateMemoryRequest
+    | _BrainCreateStyleRequest
+    | _BrainCreateTemplateRequest,
+    Field(discriminator="resource"),
+]
+
+
+class _BrainEditArtefactSubject(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    resource: Literal["artefact"]
+    path: Annotated[str, Field(description="Artefact key, relative path, or resolvable name.")]
+    fix_links: Annotated[bool, Field(description=_FIX_LINKS_DESCRIPTION)] = False
+
+
+class _BrainEditNamedSubjectBase(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: Annotated[str, Field(description=_NAME_DESCRIPTION)]
+
+
+class _BrainEditSkillSubject(_BrainEditNamedSubjectBase):
+    resource: Literal["skill"]
+
+
+class _BrainEditMemorySubject(_BrainEditNamedSubjectBase):
+    resource: Literal["memory"]
+
+
+class _BrainEditStyleSubject(_BrainEditNamedSubjectBase):
+    resource: Literal["style"]
+
+
+class _BrainEditTemplateSubject(_BrainEditNamedSubjectBase):
+    resource: Literal["template"]
+
+
+_BrainEditSubject = Annotated[
+    _BrainEditArtefactSubject
+    | _BrainEditSkillSubject
+    | _BrainEditMemorySubject
+    | _BrainEditStyleSubject
+    | _BrainEditTemplateSubject,
+    Field(discriminator="resource"),
+]
+
+
+class _BrainStructuralMutationBase(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    content: _MutationContent | None = None
+    frontmatter: Annotated[dict | None, Field(description="Non-lifecycle frontmatter changes.")] = None
+    target: Annotated[str | None, Field(description="Optional heading, callout, or :body target.")] = None
+    selector: _StructuralSelector | None = None
+    scope: Annotated[
+        Literal["section", "intro", "body", "heading", "header"] | None,
+        Field(description=edit.brain_edit_scope_description()),
+    ] = None
+
+
+class _BrainEditMutation(_BrainStructuralMutationBase):
+    operation: Literal["edit"]
+
+
+class _BrainAppendMutation(_BrainStructuralMutationBase):
+    operation: Literal["append"]
+
+
+class _BrainPrependMutation(_BrainStructuralMutationBase):
+    operation: Literal["prepend"]
+
+
+class _BrainDeleteSectionMutation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    operation: Literal["delete_section"]
+    target: Annotated[str, Field(description="Heading or callout section to remove.")]
+    selector: _StructuralSelector | None = None
+    frontmatter: Annotated[dict | None, Field(description="Non-lifecycle frontmatter changes.")] = None
+
+
+class _BrainReplaceTextMutation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    operation: Literal["replace_text"]
+    old_text: Annotated[str, Field(description="Exact text to find.")]
+    new_text: Annotated[str, Field(description="Replacement text; empty deletes the match.")]
+    target: Annotated[str | None, Field(description="Optional structural narrowing target.")] = None
+    selector: _StructuralSelector | None = None
+    scope: Annotated[
+        Literal["section", "intro", "body", "heading", "header"] | None,
+        Field(description=edit.brain_edit_scope_description()),
+    ] = None
+    match_occurrence: Annotated[int | None, Field(description="One-based match occurrence.", ge=1)] = None
+    replace_all: Annotated[bool, Field(description="Replace every exact match.")] = False
+
+
+_BrainEditMutationRequest = Annotated[
+    _BrainEditMutation
+    | _BrainAppendMutation
+    | _BrainPrependMutation
+    | _BrainDeleteSectionMutation
+    | _BrainReplaceTextMutation,
+    Field(discriminator="operation"),
+]
+
+
+class _BrainEditRequest(BaseModel):
+    """Schema-valid edit composed from an exact subject and mutation variant."""
+
+    model_config = ConfigDict(extra="forbid")
+    subject: _BrainEditSubject
+    mutation: _BrainEditMutationRequest
+
+
+class _CreateDefinitionMutation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    operation: Literal["create"]
+    definition: Annotated[str, Field(description="Complete markdown definition document.")]
+
+
+class _ReplaceDefinitionMutation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    operation: Literal["replace"]
+    definition: Annotated[str, Field(description="Complete replacement markdown document.")]
+    expected_sha256: Annotated[
+        str,
+        Field(description="SHA-256 of the reviewed current definition; stale replacements fail."),
+    ]
+
+
+_DefinitionDocumentMutation = Annotated[
+    _CreateDefinitionMutation | _ReplaceDefinitionMutation,
+    Field(discriminator="operation"),
+]
+
+
+class _CreateTypeDefinitionMutation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    operation: Literal["create"]
+    definition: Annotated[str, Field(description="Complete taxonomy markdown document.")]
+    template: Annotated[str, Field(description="Complete markdown template linked by the taxonomy.")]
+
+
+class _ReplaceTypeDefinitionMutation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    operation: Literal["replace"]
+    definition: Annotated[str, Field(description="Complete replacement taxonomy document.")]
+    template: Annotated[str, Field(description="Complete replacement type template.")]
+    expected_sha256: Annotated[str, Field(description="Reviewed current taxonomy SHA-256.")]
+    expected_template_sha256: Annotated[str, Field(description="Reviewed current template SHA-256.")]
+
+
+_TypeDefinitionMutation = Annotated[
+    _CreateTypeDefinitionMutation | _ReplaceTypeDefinitionMutation,
+    Field(discriminator="operation"),
+]
+
+
+class _BrainDefineTypeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["type"]
+    name: Annotated[str, Field(description="Lowercase hyphenated taxonomy filename stem.")]
+    classification: Annotated[
+        Literal["living", "temporal"],
+        Field(description="Taxonomy classification and destination folder."),
+    ]
+    mutation: _TypeDefinitionMutation
+
+
+class _BrainDefinePluginRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["plugin"]
+    name: Annotated[str, Field(description="Safe plugin data-directory name, preserving display case.")]
+    mutation: _DefinitionDocumentMutation
+
+
+class _CreateTriggerMutation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    operation: Literal["create"]
+    condition: Annotated[str, Field(description="Unique one-line trigger condition.")]
+    target: Annotated[str, Field(description="Existing vault-relative wikilink target.")]
+
+
+class _ReplaceTriggerMutation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    operation: Literal["replace"]
+    condition: Annotated[str, Field(description="Exact current trigger condition.")]
+    target: Annotated[str, Field(description="Exact current target used as an optimistic precondition.")]
+    new_condition: Annotated[str | None, Field(description="Optional replacement condition.")] = None
+    new_target: Annotated[str | None, Field(description="Optional replacement target.")] = None
+
+
+class _DeleteTriggerMutation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    operation: Literal["delete"]
+    condition: Annotated[str, Field(description="Exact current trigger condition.")]
+    target: Annotated[
+        str | None,
+        Field(description="Optional exact-current-target precondition."),
+    ] = None
+
+
+_TriggerDefinitionMutation = Annotated[
+    _CreateTriggerMutation | _ReplaceTriggerMutation | _DeleteTriggerMutation,
+    Field(discriminator="operation"),
+]
+
+
+class _BrainDefineTriggerRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["trigger"]
+    mutation: _TriggerDefinitionMutation
+
+
+_BrainDefineRequest = Annotated[
+    _BrainDefineTypeRequest | _BrainDefineTriggerRequest | _BrainDefinePluginRequest,
+    Field(discriminator="kind"),
+]
+
+
+def _flatten_mutation_content(content) -> dict:
+    """Translate a public content variant to the script-layer flat contract."""
+    if content is None:
+        return {}
+    payload = content.model_dump()
+    if payload["source"] == "inline":
+        return {"body": payload["content"]}
+    if payload["source"] == "stage":
+        return {"body_handle": payload["handle"]}
+    return {"body_file": payload["path"]}
 
 def _dump_model_payload(value):
     """Convert Pydantic tool arguments back to plain Python data for scripts."""
@@ -2242,6 +2557,7 @@ def _build_brain_create_params(
     title: str | None,
     body: str | None,
     body_file: str | None,
+    body_handle: str | None,
     frontmatter: dict | None,
     parent: str | None,
     key: str | None,
@@ -2260,6 +2576,7 @@ def _build_brain_create_params(
         "title": title,
         "body": body,
         "body_file": body_file,
+        "body_handle": body_handle,
         "frontmatter": frontmatter,
         "parent": parent,
         "key": key,
@@ -2282,12 +2599,17 @@ def _build_brain_edit_params(
     path: str | None,
     body: str | None,
     body_file: str | None,
+    body_handle: str | None,
     frontmatter: dict | None,
     target: str | None,
     selector: dict | None,
     scope: str | None,
     name: str | None,
     fix_links: bool | None,
+    old_text: str | None,
+    new_text: str | None,
+    match_occurrence: int | None,
+    replace_all: bool | None,
 ):
     """Validate flat brain_edit fields and collapse them into handler params."""
     key = (resource, operation)
@@ -2307,20 +2629,33 @@ def _build_brain_edit_params(
         "path": path,
         "body": body,
         "body_file": body_file,
+        "body_handle": body_handle,
         "frontmatter": frontmatter,
         "target": target,
         "selector": selector,
         "scope": scope,
         "name": name,
         "fix_links": fix_links,
+        "old_text": old_text,
+        "new_text": new_text,
+        "match_occurrence": match_occurrence,
+        "replace_all": replace_all,
     }
-    return validate_spec(
+    params = validate_spec(
         spec,
         payload,
         label=f"Resource '{resource}' op '{operation}'",
         hint=edit_contract_hint(resource, operation),
         field_term="top-level field",
     )
+    if operation == "replace_text":
+        if new_text is None:
+            raise ValueError(
+                f"Resource '{resource}' op 'replace_text' requires top-level field "
+                "'new_text'. Pass an empty string to delete the matched text."
+            )
+        params["new_text"] = new_text
+    return params
 
 
 def _build_brain_read_params(
@@ -2353,9 +2688,12 @@ def _build_brain_list_params(
     parent: str | None,
     since: str | None,
     until: str | None,
+    modified_since: str | None,
+    modified_until: str | None,
     tag: str | None,
     top_k: int | None,
     sort: str | None,
+    cursor: str | None,
 ):
     """Validate flat brain_list fields and collapse them into handler params."""
     spec = LIST_SPECS.get(resource)
@@ -2370,9 +2708,12 @@ def _build_brain_list_params(
         "parent": parent,
         "since": since,
         "until": until,
+        "modified_since": modified_since,
+        "modified_until": modified_until,
         "tag": tag,
         "top_k": top_k,
         "sort": sort,
+        "cursor": cursor,
     }
     return validate_spec(
         spec,
@@ -2383,7 +2724,7 @@ def _build_brain_list_params(
     )
 
 
-def _build_brain_process_params(
+def _build_process_params(
     operation: str,
     *,
     content: str | None,
@@ -2391,7 +2732,7 @@ def _build_brain_process_params(
     title: str | None,
     mode: str | None,
 ):
-    """Validate flat brain_process fields and collapse them into handler params."""
+    """Validate one split content-processing tool request."""
     spec = _server_content.PROCESS_SPECS.get(operation)
     if spec is None:
         raise ValueError(
@@ -2525,6 +2866,53 @@ class _BrainActionFixLinksParams(BaseModel):
         list[str] | None,
         Field(description="Optional list of target link stems to limit which resolvable links are rewritten."),
     ] = None
+
+
+class _BrainActionDeleteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    action: Literal["delete"]
+    params: _BrainActionDeleteParams
+
+
+class _BrainActionReparentChildrenRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    action: Literal["reparent-children"]
+    params: _BrainActionReparentParams
+
+
+class _BrainActionShapePrintableRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    action: Literal["shape-printable"]
+    params: _BrainActionShapePrintableParams
+
+
+class _BrainActionShapePresentationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    action: Literal["shape-presentation"]
+    params: _BrainActionShapePresentationParams
+
+
+class _BrainActionStartShapingRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    action: Literal["start-shaping"]
+    params: _BrainActionStartShapingParams
+
+
+class _BrainActionFixLinksRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    action: Literal["fix-links"]
+    params: _BrainActionFixLinksParams = _BrainActionFixLinksParams()
+
+
+_BrainActionRequest = Annotated[
+    _BrainActionDeleteRequest
+    | _BrainActionReparentChildrenRequest
+    | _BrainActionShapePrintableRequest
+    | _BrainActionShapePresentationRequest
+    | _BrainActionStartShapingRequest
+    | _BrainActionFixLinksRequest,
+    Field(discriminator="action"),
+]
 
 
 # ---------------------------------------------------------------------------
@@ -2661,6 +3049,58 @@ def brain_read(
 
 
 @mcp.tool()
+def brain_outline(
+    path: Annotated[
+        str,
+        Field(description="Artefact key, relative path, or resolvable name."),
+    ],
+):
+    """List headings and callouts that can be targeted by brain_edit."""
+    with _trace_tool("brain_outline", path=path):
+        try:
+            return _server_reading.handle_brain_outline(path, _runtime())
+        except Exception as e:
+            if _logger:
+                _logger.error("brain_outline: %s", e, exc_info=True)
+            return _fmt_error(f"Unexpected error: {e}")
+
+
+@mcp.tool()
+def brain_check(
+    severity: Annotated[
+        Literal["error", "warning", "info"] | None,
+        Field(description="Optional severity filter."),
+    ] = None,
+    check: Annotated[
+        str | None,
+        Field(description="Optional exact check-name filter, such as parent_contract."),
+    ] = None,
+    path: Annotated[
+        str | None,
+        Field(description="Optional artefact path or folder-prefix filter."),
+    ] = None,
+    actionable: Annotated[
+        bool,
+        Field(description="Include deterministic fix guidance when available."),
+    ] = False,
+):
+    """Run read-only Brain compliance checks with structured findings."""
+    with _trace_tool("brain_check", severity=severity, check=check, path=path):
+        try:
+            return _server_reading.handle_brain_check(
+                _runtime(),
+                severity=severity,
+                check_name=check,
+                path=path,
+                actionable=actionable,
+            )
+        except Exception as e:
+            if _logger:
+                _logger.error("brain_check: %s", e, exc_info=True)
+            return _fmt_error(f"Unexpected error: {e}")
+
+
+@mcp.tool()
 def brain_search(
     query: Annotated[
         str,
@@ -2770,19 +3210,36 @@ def brain_list(
             "Inclusive ISO end date on artefact created date. Artefact lists only."
         )),
     ] = None,
+    modified_since: Annotated[
+        str | None,
+        Field(description=(
+            "Inclusive ISO start date on artefact modified metadata. Artefact lists only."
+        )),
+    ] = None,
+    modified_until: Annotated[
+        str | None,
+        Field(description=(
+            "Inclusive ISO end date on artefact modified metadata. Artefact lists only."
+        )),
+    ] = None,
     tag: Annotated[
         str | None,
         Field(description=_ARTEFACT_TAG_FILTER_DESCRIPTION),
     ] = None,
     top_k: Annotated[
         int | None,
-        Field(description="Hard cap on results returned (the list is exhaustive up to this limit). Artefact lists only; default 500."),
+        Field(description="Page size. Artefact lists only; default 500.", ge=1),
     ] = None,
     sort: Annotated[
-        Literal["date_desc", "date_asc", "title"] | None,
+        Literal["date_desc", "date_asc", "modified_desc", "modified_asc", "title"] | None,
         Field(description=(
-            "Artefact list sort order: newest first, oldest first, or title. Artefact lists only; default date_desc."
+            "Artefact list sort order by created date, modified date, or title. "
+            "Artefact lists only; default date_desc."
         )),
+    ] = None,
+    cursor: Annotated[
+        str | None,
+        Field(description="Continuation cursor returned by a prior artefact list page."),
     ] = None,
 ):
     """List vault artefacts exhaustively, not relevance-ranked.
@@ -2800,9 +3257,12 @@ def brain_list(
                 parent=parent,
                 since=since,
                 until=until,
+                modified_since=modified_since,
+                modified_until=modified_until,
                 tag=tag,
                 top_k=top_k,
                 sort=sort,
+                cursor=cursor,
             )
             return _server_reading.handle_brain_list(
                 resource=resource,
@@ -2822,6 +3282,57 @@ def brain_list(
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
+def brain_stage(
+    content: Annotated[
+        str,
+        Field(description="Body content to hold for a later create/edit call."),
+    ],
+):
+    """Create a Brain-owned, retry-safe body handle for a later mutation."""
+    with _trace_tool("brain_stage", bytes=len(content.encode("utf-8"))):
+        denied = _enforce_profile("brain_stage")
+        if denied:
+            return denied
+        if _vault_root is None:
+            return _fmt_error("server not initialized")
+        try:
+            with _serialize_mutation("brain_stage"):
+                result = stage_body(_vault_root, content)
+            return CallToolResult(
+                content=[TextContent(type="text", text=f"**Staged:** {result['handle']}")],
+                structuredContent=result,
+            )
+        except (ValueError, OSError) as e:
+            return _fmt_error(str(e))
+
+
+@mcp.tool()
+def brain_discard_stage(
+    handle: Annotated[
+        str,
+        Field(description="Unused opaque body handle previously returned by brain_stage."),
+    ],
+):
+    """Discard an unused staged body explicitly before its automatic expiry."""
+    with _trace_tool("brain_discard_stage", handle=handle):
+        denied = _enforce_profile("brain_discard_stage")
+        if denied:
+            return denied
+        if _vault_root is None:
+            return _fmt_error("server not initialized")
+        try:
+            with _serialize_mutation("brain_discard_stage"):
+                discarded = discard_staged_body(_vault_root, handle)
+            result = {"handle": handle, "discarded": discarded}
+            return CallToolResult(
+                content=[TextContent(type="text", text=(
+                    "**Discarded staged body**" if discarded else "**Staged body already absent**"
+                ))],
+                structuredContent=result,
+            )
+        except (ValueError, OSError) as e:
+            return _fmt_error(str(e))
+
 def brain_create(
     type: Annotated[
         str,
@@ -2845,6 +3356,7 @@ def brain_create(
         )),
     ] = "",
     body_file: Annotated[str, Field(description=_BODY_FILE_DESCRIPTION)] = "",
+    body_handle: Annotated[str, Field(description=_BODY_HANDLE_DESCRIPTION)] = "",
     frontmatter: Annotated[
         dict | None,
         Field(description=(
@@ -2881,7 +3393,6 @@ def brain_create(
     For non-artefact resources (skill/memory/style/template), requires name + body.
     Returns the resolved path plus any wikilink warnings.
     """
-    cleanup_path = temp_body_file_cleanup_path(body_file)
     with _trace_tool("brain_create", resource=resource, type=type, title=title, name=name):
         try:
             params = _build_brain_create_params(
@@ -2890,49 +3401,66 @@ def brain_create(
                 title=title or None,
                 body=body or None,
                 body_file=body_file or None,
+                body_handle=body_handle or None,
                 frontmatter=frontmatter,
                 parent=parent,
                 key=key,
                 name=name or None,
                 fix_links=fix_links,
             )
-            file_index, progress = _server_artefacts.prepare_fix_links_file_index(
-                "brain_create", params.get("fix_links"), _runtime()
-            )
-            if progress:
-                return progress
             with _serialize_mutation(f"brain_create:{resource}:{type or name or title}"):
+                file_index, progress = _server_artefacts.prepare_fix_links_file_index(
+                    "brain_create", params.get("fix_links"), _runtime()
+                )
+                if progress:
+                    return progress
                 return _server_artefacts.handle_brain_create(
                     resource=resource,
                     params=params,
-                    cleanup_path=cleanup_path,
                     runtime=_runtime(),
                     file_index=file_index,
                 )
         except ParentChainError as e:
-            cleanup_temp_body_file(cleanup_path)
             return _fmt_error(parent_chain_error_message(e))
         except (ValueError, FileNotFoundError) as e:
-            cleanup_temp_body_file(cleanup_path)
             return _fmt_error(str(e))
         except Exception as e:
-            cleanup_temp_body_file(cleanup_path)
             if _logger:
                 _logger.error("brain_create: %s", e, exc_info=True)
             return _fmt_error(f"Unexpected error: {e}")
+
+
+@mcp.tool(name="brain_create")
+def _brain_create_tool(
+    request: Annotated[
+        _BrainCreateRequest,
+        Field(description="Resource-discriminated create request with one explicit content source."),
+    ],
+):
+    """Create a vault resource from a schema-valid resource variant.
+
+    Artefacts and named configuration resources expose different fields. Body
+    content is inline, staged, or caller-file-backed by an explicit source
+    discriminator, so invalid cross-product combinations fail at the MCP
+    boundary before any mutation begins.
+    """
+    payload = request.model_dump(exclude_unset=True, exclude_none=True)
+    payload.pop("content", None)
+    payload.update(_flatten_mutation_content(request.content))
+    return brain_create(**payload)
 
 
 # ---------------------------------------------------------------------------
 # brain_edit — single-file mutation
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
 def brain_edit(
     operation: Annotated[
-        Literal["edit", "append", "prepend", "delete_section"],
+        Literal["edit", "append", "prepend", "delete_section", "replace_text"],
         Field(description=(
             "Mutation kind. edit replaces, append/prepend insert, "
-            "delete_section removes a heading/callout section."
+            "delete_section removes a heading/callout section, and replace_text "
+            "performs fail-safe exact replacement."
         )),
     ],
     path: Annotated[
@@ -2951,6 +3479,29 @@ def brain_edit(
         )),
     ] = "",
     body_file: Annotated[str, Field(description=_BODY_FILE_DESCRIPTION)] = "",
+    body_handle: Annotated[str, Field(description=_BODY_HANDLE_DESCRIPTION)] = "",
+    old_text: Annotated[
+        str | None,
+        Field(description="Exact text to find. Required only for replace_text."),
+    ] = None,
+    new_text: Annotated[
+        str | None,
+        Field(description=(
+            "Replacement text. Required only for replace_text; pass an empty "
+            "string to delete the exact match."
+        )),
+    ] = None,
+    match_occurrence: Annotated[
+        int | None,
+        Field(description=(
+            "One-based exact-match occurrence to replace when multiple matches "
+            "exist. Mutually exclusive with replace_all."
+        ), ge=1),
+    ] = None,
+    replace_all: Annotated[
+        bool | None,
+        Field(description="Replace every exact match. Mutually exclusive with match_occurrence."),
+    ] = None,
     frontmatter: Annotated[
         dict | None,
         Field(description=(
@@ -2991,7 +3542,6 @@ def brain_edit(
     requires target only. Returns the resolved path plus any wikilink warnings.
     """
     selector_payload = _dump_model_payload(selector)
-    cleanup_path = temp_body_file_cleanup_path(body_file)
     with _trace_tool(
         "brain_edit",
         resource=resource,
@@ -3009,43 +3559,179 @@ def brain_edit(
                 path=path or None,
                 body=body or None,
                 body_file=body_file or None,
+                body_handle=body_handle or None,
                 frontmatter=frontmatter,
                 target=target,
                 selector=selector_payload,
                 scope=scope,
                 name=name or None,
                 fix_links=fix_links or None,
+                old_text=old_text,
+                new_text=new_text,
+                match_occurrence=match_occurrence,
+                replace_all=replace_all,
             )
-            file_index, progress = _server_artefacts.prepare_fix_links_file_index(
-                "brain_edit", params.get("fix_links"), _runtime()
-            )
-            if progress:
-                return progress
             with _serialize_mutation(f"brain_edit:{resource}:{path or name}"):
+                file_index, progress = _server_artefacts.prepare_fix_links_file_index(
+                    "brain_edit", params.get("fix_links"), _runtime()
+                )
+                if progress:
+                    return progress
                 return _server_artefacts.handle_brain_edit(
                     resource=resource,
                     operation=operation,
                     params=params,
-                    cleanup_path=cleanup_path,
                     runtime=_runtime(),
                     file_index=file_index,
                 )
         except ParentChainError as e:
-            cleanup_temp_body_file(cleanup_path)
             return _fmt_error(parent_chain_error_message(e))
         except PartialApplyError as e:
-            cleanup_temp_body_file(cleanup_path)
             _mark_router_dirty()
             _mark_index_dirty()
             return _fmt_error(str(e))
         except (ValueError, FileNotFoundError) as e:
-            cleanup_temp_body_file(cleanup_path)
             return _fmt_error(str(e))
         except Exception as e:
-            cleanup_temp_body_file(cleanup_path)
             if _logger:
                 _logger.error("brain_edit: %s", e, exc_info=True)
             return _fmt_error(f"Unexpected error: {e}")
+
+
+@mcp.tool(name="brain_edit")
+def _brain_edit_tool(
+    request: Annotated[
+        _BrainEditRequest,
+        Field(description="Edit request composed from a resource subject and operation variant."),
+    ],
+):
+    """Modify one vault resource through schema-valid subject and mutation variants.
+
+    The subject selects artefact path versus named configuration resource. The
+    mutation discriminator then exposes only fields valid for that operation.
+    Handler-owned lifecycle fields remain rejected by the shared mutation
+    implementation with an actionable dedicated-command error.
+    """
+    subject = request.subject.model_dump(exclude_unset=True, exclude_none=True)
+    mutation = request.mutation.model_dump(exclude_unset=True, exclude_none=True)
+    content = getattr(request.mutation, "content", None)
+    mutation.pop("content", None)
+    mutation.update(_flatten_mutation_content(content))
+    return brain_edit(**subject, **mutation)
+
+
+@mcp.tool()
+def brain_define(
+    request: Annotated[
+        _BrainDefineRequest,
+        Field(description="Guarded type, trigger, or plugin definition mutation."),
+    ],
+):
+    """Author runtime definitions through guarded, schema-valid workflows.
+
+    Type/plugin replacements require a reviewed SHA-256 precondition. Trigger
+    replacements identify the exact existing condition and target. The tool is
+    operator-only and dirties compiled state after a successful mutation.
+    """
+    with _trace_tool("brain_define", kind=request.kind):
+        denied = _enforce_profile("brain_define")
+        if denied:
+            return denied
+        if _vault_root is None:
+            return _fmt_error("server not initialized")
+        try:
+            mutation = request.mutation.model_dump(exclude_unset=True, exclude_none=True)
+            with _serialize_mutation(f"brain_define:{request.kind}"):
+                if request.kind == "trigger":
+                    result = definition_workflows.update_trigger(_vault_root, **mutation)
+                else:
+                    result = definition_workflows.write_definition(
+                        _vault_root,
+                        kind=request.kind,
+                        name=request.name,
+                        classification=getattr(request, "classification", None),
+                        **mutation,
+                    )
+                _mark_router_dirty()
+                _mark_index_dirty()
+            return CallToolResult(
+                content=[TextContent(
+                    type="text",
+                    text=f"**{result['operation'].capitalize()}d {result['kind']}:** {result['path']}",
+                )],
+                structuredContent=result,
+            )
+        except (OSError, ValueError) as e:
+            return _fmt_error(str(e))
+        except Exception as e:
+            if _logger:
+                _logger.error("brain_define: %s", e, exc_info=True)
+            return _fmt_error(f"Unexpected error: {e}")
+
+
+def _run_lifecycle_mutation(tool_name, path, field, value):
+    try:
+        with _serialize_mutation(f"{tool_name}:{path}"):
+            return _server_artefacts.handle_brain_lifecycle(
+                tool_name=tool_name,
+                path=path,
+                field=field,
+                value=value,
+                runtime=_runtime(),
+            )
+    except ValueError as e:
+        return _fmt_error(str(e))
+    except Exception as e:
+        if _logger:
+            _logger.error("%s: %s", tool_name, e, exc_info=True)
+        return _fmt_error(f"Unexpected error: {e}")
+
+
+@mcp.tool()
+def brain_reparent(
+    path: Annotated[
+        str,
+        Field(description="Artefact key, relative path, or resolvable name."),
+    ],
+    parent: Annotated[
+        str | None,
+        Field(description="New parent reference. Pass null to clear the parent."),
+    ] = None,
+):
+    """Change an artefact's authoritative parent and reconcile derived structure."""
+    with _trace_tool("brain_reparent", path=path, parent=parent):
+        return _run_lifecycle_mutation("brain_reparent", path, "parent", parent)
+
+
+@mcp.tool()
+def brain_set_status(
+    path: Annotated[str, Field(description="Artefact key, relative path, or resolvable name.")],
+    status: Annotated[str, Field(description="New status from the artefact type's status enum.")],
+):
+    """Change lifecycle status and reconcile status folders/naming hooks."""
+    with _trace_tool("brain_set_status", path=path, status=status):
+        return _run_lifecycle_mutation("brain_set_status", path, "status", status)
+
+
+@mcp.tool()
+def brain_set_key(
+    path: Annotated[str, Field(description="Living artefact key, relative path, or resolvable name.")],
+    key: Annotated[str, Field(description="New canonical key slug for the living artefact.")],
+):
+    """Change a living artefact key and rewrite ownership references."""
+    with _trace_tool("brain_set_key", path=path, key=key):
+        return _run_lifecycle_mutation("brain_set_key", path, "key", key)
+
+
+@mcp.tool()
+def brain_set_naming_field(
+    path: Annotated[str, Field(description="Artefact key, relative path, or resolvable name.")],
+    field: Annotated[str, Field(description="Type-defined frontmatter field that drives naming.")],
+    value: Annotated[str, Field(description="New naming-field value.")],
+):
+    """Change a type-defined naming driver and reconcile the filename."""
+    with _trace_tool("brain_set_naming_field", path=path, field=field):
+        return _run_lifecycle_mutation("brain_set_naming_field", path, field, value)
 
 
 # ---------------------------------------------------------------------------
@@ -3086,7 +3772,8 @@ def brain_move(
         bool | None,
         Field(description=(
             "When true, archive the living descendant subtree, or allow convert "
-            "from a living parent to a temporal type by deparenting descendants."
+            "from a living parent to a temporal type by deparenting descendants, "
+            "or restore an archived living subtree during unarchive."
         )),
     ] = None,
 ):
@@ -3139,44 +3826,42 @@ def brain_move(
 # brain_action — workflow/utility bucket, gated by approval
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
-def brain_action(
-    action: Annotated[
-        Literal[
-            "delete",
-            "reparent",
-            "shape-printable",
-            "shape-presentation",
-            "start-shaping",
-            "fix-links",
-        ],
-        Field(description=(
-            "Workflow or utility action selector. The remaining brain_action "
-            "surface covers delete, reparent, shaping helpers, and fix-links."
-        )),
+@mcp.tool(name="brain_action")
+def _brain_action_tool(
+    request: Annotated[
+        _BrainActionRequest,
+        Field(description="Discriminated workflow request; action determines the exact params schema."),
     ],
-    params: Annotated[
-        (
-            _BrainActionDeleteParams
-            | _BrainActionReparentParams
-            | _BrainActionShapePrintableParams
-            | _BrainActionShapePresentationParams
-            | _BrainActionStartShapingParams
-            | _BrainActionFixLinksParams
-            | None
-        ),
-        Field(description=(
-            "Action-specific parameters object. The schema expands into named variants "
-            "for delete, reparent, shaping helpers, and fix-links."
-        )),
-    ] = None,
 ):
     """Perform a workflow or utility action that may touch multiple files.
 
-    The smaller residual brain_action surface intentionally uses the simple
-    action-plus-params contract. Mutating actions are serialised and validated
-    by the existing handler and script layers.
+    The residual surface uses a schema-discriminated request so every action is
+    paired with its exact parameter shape before handler execution.
     """
+    action = request.action
+    params_payload = request.params.model_dump(exclude_unset=True)
+    with _trace_tool("brain_action", action=action, params=params_payload):
+        try:
+            with _serialize_mutation(f"brain_action:{action}"):
+                return _server_actions.handle_brain_action(
+                    action=action,
+                    params=params_payload,
+                    runtime=_runtime(),
+                )
+        except ParentChainError as e:
+            return _fmt_error(parent_chain_error_message(e))
+        except ValueError as e:
+            return _fmt_error(str(e))
+        except Exception as e:
+            if _logger:
+                _logger.error("brain_action: %s", e, exc_info=True)
+            return _fmt_error(f"Unexpected error: {e}")
+
+
+def brain_action(action: str, params: dict | BaseModel | None = None):
+    """Compatibility entry point for in-process callers; MCP uses a discriminated request."""
+    if action == "reparent":
+        action = "reparent-children"
     params_payload = (
         params.model_dump(exclude_unset=True)
         if isinstance(params, BaseModel)
@@ -3192,6 +3877,8 @@ def brain_action(
                 )
         except ParentChainError as e:
             return _fmt_error(parent_chain_error_message(e))
+        except ValueError as e:
+            return _fmt_error(str(e))
         except Exception as e:
             if _logger:
                 _logger.error("brain_action: %s", e, exc_info=True)
@@ -3199,66 +3886,112 @@ def brain_action(
 
 
 # ---------------------------------------------------------------------------
-# brain_process — experimental content classification, resolution, ingestion
+# Experimental content classification, resolution, and ingestion
 # ---------------------------------------------------------------------------
 
+def _run_process_tool(operation, *, content, type=None, title=None, mode=None, tool_name):
+    params = _build_process_params(
+        operation,
+        content=content or None,
+        type=type,
+        title=title,
+        mode=mode,
+    )
+    mutation = (
+        _serialize_mutation(tool_name)
+        if operation == "ingest"
+        else contextlib.nullcontext()
+    )
+    with mutation:
+        return _server_content.handle_brain_process(
+            operation=operation,
+            params=params,
+            runtime=_runtime(),
+            tool_name=tool_name,
+        )
+
+
 @mcp.tool()
-def brain_process(
-    operation: Annotated[
-        Literal["classify", "resolve", "ingest"],
-        Field(description=(
-            "Process operation: classify content, resolve create-vs-update, "
-            "or ingest via the full classify/resolve/create-update pipeline."
-        )),
-    ],
+def brain_classify(
     content: Annotated[
         str,
-        Field(description="Source content to classify, resolve, or ingest."),
+        Field(description="Source content to classify against the Brain taxonomy."),
     ],
-    type: Annotated[
-        str | None,
-        Field(description="Optional type key hint for ingest. Required for resolve. Not accepted for classify."),
-    ] = None,
-    title: Annotated[
-        str | None,
-        Field(description="Optional title hint for ingest. Required for resolve. Not accepted for classify."),
-    ] = None,
     mode: Annotated[
         Literal["auto", "embedding", "bm25_only", "context_assembly"] | None,
-        Field(description=(
-            "Optional classification mode for classify/ingest. Defaults to "
-            "'auto', which falls back from embeddings to BM25 to context "
-            "assembly. Not accepted for resolve."
-        )),
+        Field(description="Classification strategy. Defaults to auto with graceful fallbacks."),
     ] = None,
 ):
-    """Process content for vault operations.
+    """Classify content against the Brain taxonomy without changing the vault."""
+    with _trace_tool("brain_classify", mode=mode):
+        try:
+            return _run_process_tool(
+                "classify", content=content, mode=mode, tool_name="brain_classify"
+            )
+        except ValueError as e:
+            return _fmt_error(str(e))
+        except Exception as e:
+            if _logger:
+                _logger.error("brain_classify: %s", e, exc_info=True)
+            return _fmt_error(f"Unexpected error: {e}")
 
-    Experimental surface. `classify` and `resolve` are read-only. `ingest`
-    may create or update files. Embedding-backed behavior is controlled by
-    `defaults.flags.semantic_processing`; degraded non-embedding behavior
-    remains available when that flag is off.
-    """
+
+@mcp.tool()
+def brain_resolve(
+    content: Annotated[str, Field(description="Source content to compare with existing artefacts.")],
+    type: Annotated[str, Field(description="Resolved Brain type key for the candidate content.")],
+    title: Annotated[str, Field(description="Candidate title used for duplicate resolution.")],
+):
+    """Resolve whether classified content should create or update an artefact, without changing the vault."""
+    with _trace_tool("brain_resolve", type=type, title=title):
+        try:
+            return _run_process_tool(
+                "resolve", content=content, type=type, title=title, tool_name="brain_resolve"
+            )
+        except ValueError as e:
+            return _fmt_error(str(e))
+        except Exception as e:
+            if _logger:
+                _logger.error("brain_resolve: %s", e, exc_info=True)
+            return _fmt_error(f"Unexpected error: {e}")
+
+
+@mcp.tool()
+def brain_ingest(
+    content: Annotated[str, Field(description="Source content to classify, resolve, and create or update.")],
+    type: Annotated[str | None, Field(description="Optional Brain type-key hint.")] = None,
+    title: Annotated[str | None, Field(description="Optional title hint.")] = None,
+    mode: Annotated[
+        Literal["auto", "embedding", "bm25_only", "context_assembly"] | None,
+        Field(description="Classification strategy. Defaults to auto with graceful fallbacks."),
+    ] = None,
+):
+    """Ingest content through classification and duplicate resolution; may create or update an artefact."""
+    with _trace_tool("brain_ingest", type=type, title=title, mode=mode):
+        try:
+            return _run_process_tool(
+                "ingest", content=content, type=type, title=title, mode=mode,
+                tool_name="brain_ingest",
+            )
+        except ValueError as e:
+            return _fmt_error(str(e))
+        except Exception as e:
+            if _logger:
+                _logger.error("brain_ingest: %s", e, exc_info=True)
+            return _fmt_error(f"Unexpected error: {e}")
+
+
+def brain_process(operation, content, type=None, title=None, mode=None):
+    """Compatibility entry point for the former combined in-process surface."""
     with _trace_tool("brain_process", operation=operation, type=type, title=title, mode=mode):
         try:
-            params = _build_brain_process_params(
-                operation,
-                content=content or None,
-                type=type,
-                title=title,
-                mode=mode,
-            )
-            if operation == "ingest":
-                with _serialize_mutation(f"brain_process:{operation}"):
-                    return _server_content.handle_brain_process(
-                        operation=operation,
-                        params=params,
-                        runtime=_runtime(),
-                    )
-            return _server_content.handle_brain_process(
-                operation=operation,
-                params=params,
-                runtime=_runtime(),
+            return _run_process_tool(
+                operation, content=content, type=type, title=title, mode=mode,
+                tool_name={
+                    "classify": "brain_classify",
+                    "resolve": "brain_resolve",
+                    "ingest": "brain_ingest",
+                }.get(operation, "brain_process"),
             )
         except ValueError as e:
             return _fmt_error(str(e))

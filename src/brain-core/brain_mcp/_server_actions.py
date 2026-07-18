@@ -31,7 +31,7 @@ class MoveSpec:
 class ActionSpec:
     required_fields: tuple[str, ...] = ()
     optional_fields: tuple[str, ...] = ()
-    handler: Callable[[ServerRuntime, dict | None], str] | None = None
+    handler: Callable[[ServerRuntime, dict], str] | None = None
     requires_router_refresh: bool = False
 
 
@@ -60,7 +60,7 @@ def _validate_action_params(action: str, params: dict | None):
             f"{action_contract_hint(action)}"
         )
 
-    if action == "reparent":
+    if action == "reparent-children":
         allowed = {"source", "to"}
         extras = [name for name in payload if name not in allowed]
         if extras:
@@ -166,12 +166,10 @@ def _action_rename(runtime: ServerRuntime, params: dict):
         return runtime.fmt_error(str(e))
 
 
-def _action_delete(runtime: ServerRuntime, params: dict | None):
+def _action_delete(runtime: ServerRuntime, params: dict):
     state = runtime.get_state()
     if state.vault_root is None or state.router is None:
         return runtime.fmt_error("server not initialized")
-    if not params or "path" not in params:
-        return runtime.fmt_error("delete requires params: {path} (relative path)")
     try:
         _validate_artefact_path(
             state.vault_root, state.router, params["path"], label="Delete path",
@@ -226,12 +224,10 @@ def _action_convert(runtime: ServerRuntime, params: dict):
         return runtime.fmt_error(str(e))
 
 
-def _action_shape_presentation(runtime: ServerRuntime, params: dict | None):
+def _action_shape_presentation(runtime: ServerRuntime, params: dict):
     state = runtime.get_state()
     if state.vault_root is None:
         return runtime.fmt_error("server not initialized")
-    if not params or "source" not in params or "slug" not in params:
-        return runtime.fmt_error("shape-presentation requires params: {source, slug}")
     try:
         result = shape_presentation.shape(state.vault_root, params)
         if isinstance(result, dict) and "error" in result:
@@ -243,12 +239,10 @@ def _action_shape_presentation(runtime: ServerRuntime, params: dict | None):
         return runtime.fmt_error(str(e))
 
 
-def _action_shape_printable(runtime: ServerRuntime, params: dict | None):
+def _action_shape_printable(runtime: ServerRuntime, params: dict):
     state = runtime.get_state()
     if state.vault_root is None:
         return runtime.fmt_error("server not initialized")
-    if not params or "source" not in params or "slug" not in params:
-        return runtime.fmt_error("shape-printable requires params: {source, slug}")
     try:
         result = shape_printable.shape(state.vault_root, params)
         if isinstance(result, dict) and "error" in result:
@@ -260,7 +254,7 @@ def _action_shape_printable(runtime: ServerRuntime, params: dict | None):
         return runtime.fmt_error(str(e))
 
 
-def _action_start_shaping(runtime: ServerRuntime, params: dict | None):
+def _action_start_shaping(runtime: ServerRuntime, params: dict):
     state = runtime.get_state()
     if state.vault_root is None or state.router is None:
         return runtime.fmt_error("server not initialized")
@@ -275,14 +269,13 @@ def _action_start_shaping(runtime: ServerRuntime, params: dict | None):
         return runtime.fmt_error(str(e))
 
 
-def _action_fix_links(runtime: ServerRuntime, params: dict | None):
+def _action_fix_links(runtime: ServerRuntime, params: dict):
     state = runtime.get_state()
     if state.router is None:
         return runtime.fmt_error("router not initialized")
     if state.vault_root is None:
         return runtime.fmt_error("server not initialized")
     try:
-        params = params or {}
         do_fix = params.get("fix", False)
         path = params.get("path")
         links_filter = params.get("links")
@@ -312,7 +305,7 @@ def _action_fix_links(runtime: ServerRuntime, params: dict | None):
         return runtime.fmt_error(str(e))
 
 
-def _action_reparent(runtime: ServerRuntime, params: dict | None):
+def _action_reparent(runtime: ServerRuntime, params: dict):
     state = runtime.get_state()
     if state.vault_root is None or state.router is None:
         return runtime.fmt_error("server not initialized")
@@ -379,13 +372,28 @@ def _action_unarchive(runtime: ServerRuntime, params: dict):
     if state.vault_root is None:
         return runtime.fmt_error("server not initialized")
     try:
-        result = edit.unarchive_artefact(state.vault_root, state.router, params["path"])
+        result = edit.unarchive_artefact(
+            state.vault_root,
+            state.router,
+            params["path"],
+            recursive=bool(params.get("recursive")),
+        )
         runtime.mark_router_dirty()
         runtime.mark_index_dirty()
-        return (
+        message = (
             f"**Unarchived:** {result['old_path']} → {result['new_path']}"
             f" ({result['links_updated']} links updated)"
         )
+        if result.get("uninspected"):
+            details = "; ".join(
+                f"{item['path']}: {item['reason']}"
+                for item in result["uninspected"]
+            )
+            message += (
+                "\n**Warning:** recursive restore could not inspect archived "
+                f"candidate(s): {details}"
+            )
+        return message
     except _common.ParentChainError as e:
         return runtime.fmt_error(_common.parent_chain_error_message(e))
     except _common.PartialApplyError as e:
@@ -414,6 +422,7 @@ MOVE_SPECS = {
     ),
     "unarchive": MoveSpec(
         required_fields=("path",),
+        optional_fields=("recursive",),
         handler=_action_unarchive,
         requires_router_refresh=True,
     ),
@@ -427,7 +436,7 @@ ACTION_SPECS = {
         handler=_action_delete,
         requires_router_refresh=True,
     ),
-    "reparent": ActionSpec(
+    "reparent-children": ActionSpec(
         required_fields=("source",),
         optional_fields=("to",),
         handler=_action_reparent,

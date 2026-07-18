@@ -56,26 +56,32 @@ implementation.
 
 ## Tool Overview
 
-`brain_process` is part of the current MCP surface, but it remains explicitly
-experimental while the content-processing workflow settles.
+Content processing remains experimental, but read-only and mutating operations
+now have separate tools and permissions.
 
 | Tool | Safety Level | Purpose |
 |---|---|---|
 | `brain_init` | Safe — auto-approvable | Additive bootstrap/orientation snapshot with readiness and optional warmup hinting |
 | `brain_session` | Safe — auto-approvable | Agent bootstrap: session payload, authentication, profile resolution |
 | `brain_read` | Safe — auto-approvable | Read a specific vault resource by name |
+| `brain_outline` | Safe — auto-approvable | Discover exact structural selectors accepted by `brain_edit` |
+| `brain_check` | Safe — auto-approvable | Return filtered structured Doctor findings without repairs |
 | `brain_search` | Safe — auto-approvable | Relevance-ranked search over artefacts and config resources |
 | `brain_list` | Safe — auto-approvable | Exhaustive enumeration of artefacts or config collections |
+| `brain_stage`, `brain_discard_stage` | Local staging | Stage a large body under an opaque retry-safe handle, or discard it |
 | `brain_create` | Additive — safe to auto-approve | Create a new vault artefact or config resource |
-| `brain_edit` | Single-file mutation | Edit, append, prepend, or delete a section from one file |
+| `brain_edit` | Single-file mutation | Edit, append, prepend, exact-replace, or delete a section |
+| `brain_define` | Guarded definition mutation — operator only | Create/replace types and plugins; create/replace/delete triggers |
+| `brain_reparent`, `brain_set_status`, `brain_set_key`, `brain_set_naming_field` | Lifecycle mutation | Change handler-owned metadata and apply its derived changes |
 | `brain_move` | Vault-wide / destructive — require explicit approval | Rename, convert, archive, or unarchive an artefact with flat top-level fields |
 | `brain_action` | Vault-wide / destructive — require explicit approval | Workflow/utility bucket for delete, reparent, shaping helpers, and fix-links |
-| `brain_process` | Classify/resolve: read-only; ingest: creates/updates files | Experimental content classification, duplicate resolution, and ingestion; embedding-backed behavior is controlled by `defaults.flags.semantic_processing`, but degraded non-embedding behavior remains available by default |
+| `brain_classify`, `brain_resolve` | Safe — auto-approvable | Read-only classification and duplicate resolution |
+| `brain_ingest` | Creates/updates files | Full classify/resolve/create-update pipeline |
 
-Mutating MCP calls are serialized within one server process. This applies to
-`brain_create`, `brain_edit`, `brain_move`, `brain_action`, and `brain_process(operation="ingest")`. The lock lives in the MCP wrapper only: scripts remain
-the source of truth for mutation behavior, and direct script callers must still
-coordinate their own parallel writes.
+Mutating MCP and Brain CLI calls share a vault-scoped cross-process lock under
+`.brain/local/`. Create, edit, lifecycle, move, action, ingest, and ownership
+repair workflows hold it across validation and writes. Lock waits are bounded
+and identify the current owner so callers can retry.
 
 Warmup-dependent tools may return a structured `isError=true` progress payload
 while background warmup is still running or has failed. The payload includes
@@ -157,6 +163,28 @@ Resource-specific request validation is strict: missing required fields and reso
 
 ---
 
+### brain_outline and brain_check
+
+Both are read-only and safe to auto-approve. `brain_outline(path)` returns the
+headings and callouts in an artefact as exact `target`, `occurrence`, and
+`within` selectors for `brain_edit`. `brain_check` returns structured Doctor
+findings and can filter by `severity`, `check`, `path`, and `actionable`; it
+never applies a repair.
+
+---
+
+### brain_stage
+
+`brain_stage(content)` stores a large mutation body in Brain-owned local
+staging and returns an opaque `body_handle`. Pass it to exactly one create or
+edit request. Failed mutations preserve it for retry; successful mutations
+consume it. Cleanup failure is reported as a post-commit warning and never
+masks a successful mutation. Handles expire after 24 hours and staging has
+per-body/count/total-size bounds; `brain_discard_stage(handle)` releases an
+unused handle immediately.
+
+---
+
 ### brain_search
 
 Safe, no side effects, auto-approvable. Relevance-ranked search — not exhaustive.
@@ -177,7 +205,9 @@ Safe, no side effects, auto-approvable. Relevance-ranked search — not exhausti
 - If persisted retrieval state cannot be refreshed honestly because of an unreadable source file, compiled-router embeddings drift, or a retrieval-index persistence failure, index-backed artefact search returns that explicit error instead of silently serving stale results
 - For non-artefact resources: lexical text matching on name and file content only; `mode="semantic"` and `mode="hybrid"` are rejected
 
-**Response format:** Multi-block: bold past-tense metadata block (`**Searched:** N results (source)`) + results as a readable text list (one result per line: title, path, type, optional status). Includes `source` field (`"obsidian_cli"`, `"bm25"`, `"semantic"`, `"hybrid"`, or `"text"`).
+**Response format:** Structured content containing the source and complete result
+objects, plus a concise readable text rendering. Fields are not dropped merely
+to shorten the display.
 
 ---
 
@@ -188,17 +218,23 @@ Safe, no side effects, auto-approvable. Exhaustive enumeration — not relevance
 **Parameters:**
 - `resource` (default `"artefact"`) — also accepts `skill`, `trigger`, `style`, `plugin`, `memory`, `template`, `type`, `workspace`, `archive`
 - `query` (optional text filter for `type`, `template`, `skill`, `trigger`, `style`, `plugin`, and `memory`)
-- `type`, `parent`, `since`, `until` (ISO date strings), `tag`, `top_k` (default 500), `sort` (`"date_desc"` default, `"date_asc"`, `"title"`) — artefact-only filters
+- `type`, `parent`, `since`, `until` (creation timestamps), `modified_since`, `modified_until`, `tag`, `top_k` (page size), `sort` (`"date_desc"`, `"date_asc"`, `"modified_desc"`, `"modified_asc"`, `"title"`), and opaque `cursor` — artefact-only filters
 - `workspace` and `archive` accept no extra filters
 
 **Behaviour:**
-- For artefacts: filters the in-memory BM25 index directly — no filesystem walk
+- For artefacts: filters the in-memory index directly. Creation and modification
+  filters use their corresponding metadata; unknown types are errors rather
+  than successful empty pages. A creation-bounded page reports
+  `omitted_missing_created` when otherwise-matching malformed artefacts have no
+  authoritative creation timestamp; run Brain Doctor to identify those files.
 - If index-backed retrieval state is blocked by an unreadable source file, compiled-router embeddings drift, or a retrieval-index persistence failure, artefact listing returns that explicit error instead of stale results
 - For other resources: reads from the compiled router's small collections with optional `query` substring filtering
 
 Use `resource` to list non-artefact collections — this replaces the previous `brain_read` listing behaviour.
 
-**Response format:** Multi-block: bold past-tense metadata block (`**Listed:** N results`) + results as a readable text list. For artefacts: date, title, path, type, status. For non-artefact resources: name per line.
+**Response format:** Structured page envelope with `items`, `total`, `returned`,
+`truncated`, and `next_cursor`, plus a concise readable rendering. Stable sort
+keys make cursor continuation deterministic.
 
 Resource-specific request validation is strict here too: passing artefact-only filters such as `type` or `sort` to `resource="skill"` returns a clear error instead of being silently ignored.
 
@@ -208,17 +244,14 @@ Resource-specific request validation is strict here too: passing artefact-only f
 
 Additive, safe to auto-approve. Creates a new vault resource. Write-guarded: rejects paths targeting dot-prefixed folders (`.brain/`, `.obsidian/`, etc.) and protected underscore folders (`_Archive/`, `_Plugins/`, `_Workspaces/`, `_Assets/`); only `_Temporal/` and `_Config/` are writable.
 
-**Parameters:**
-- `resource` (default `"artefact"`) — also accepts `skill`, `memory`, `style`, `template`
-- `type` (required for artefacts) — key, full type, or singular form (e.g. `"ideas"`, `"living/ideas"`, or `"idea"`)
-- `title` (required for artefacts)
-- `name` (required for non-artefact resources) — slugified for filesystem paths; for templates, name is the artefact type key
-- `body` (optional; required for non-artefact resources) — for artefacts and body-only config resources (`skill`, `memory`, `style`), this is markdown body content after frontmatter; for `template`, this is the full markdown document, including its own frontmatter block
-- `body_file` (optional) — absolute path to a file containing body content; must be inside the vault or system temp directory; temp files deleted after reading, vault files left in place; mutually exclusive with `body`; use for large content to keep MCP call displays compact; to stage content, run `mktemp /tmp/brain-body-XXXXXX` to get a safe temp path, write content there, then pass that path here
-- `frontmatter` (optional overrides) — for memories, use `{"triggers": ["keyword1", "keyword2"]}`; not accepted for `resource="template"` because template bodies carry their own frontmatter
-- `parent` (optional) — parent artefact reference for child artefacts. Accepts canonical artefact key form (`"project/brain"`), or a resolvable name/path; persisted canonically as `{type}/{key}` for artefacts. Living children project it into same-type `{key}/` folders or cross-type `{scope}/` folders; temporal children project the same owner chain before their normal `yyyy-mm/` folder. Ignored for non-artefact resources
-- `key` (optional) — explicit key override for living artefacts; must be lowercase ASCII alnum plus single hyphens
-- `fix_links` (optional, default `false`) — when `true`, resolvable broken wikilinks in the written artefact are auto-rewritten to their canonical target immediately after creation; remaining unresolvable or ambiguous links are still reported as warnings. MCP create prepares a filesystem-backed wikilink index for this opt-in path so externally-created targets are considered even when the retrieval index is stale.
+**Request:** one required `request` object discriminated by `resource`.
+
+- Artefact variant: `{resource: "artefact", type, title, content?, frontmatter?, parent?, key?, fix_links?}`. `type` accepts a key, full type, or singular form (for example `ideas`, `living/ideas`, or `idea`).
+- Named-resource variants: `{resource: "skill" | "memory" | "style" | "template", name, content, frontmatter?}`. Cross-resource fields are absent from these schemas. For templates, `name` is the artefact type key and `frontmatter` is rejected because the full document carries its own frontmatter.
+- `content` is itself discriminated: `{source: "inline", content: "..."}`, `{source: "stage", handle: "..."}`, or the legacy caller-owned `{source: "file", path: "/absolute/path"}`. Staged content is consumed only after success and preserved after failure; Brain never deletes caller-owned files.
+- `parent` accepts a canonical artefact key (`project/brain`) or a resolvable name/path. Living children project it into owner folders; temporal children project the same owner chain before their normal `yyyy-mm/` folder.
+- `key` is an optional living key override and must be lowercase ASCII alphanumeric text separated by single hyphens.
+- `fix_links` defaults to `false`. When true, resolvable broken wikilinks are rewritten immediately; remaining unresolvable or ambiguous links are reported.
 
 **Behaviour:**
 - For artefacts: resolves type from compiled router, reads template, generates filename from naming pattern, writes file with merged frontmatter; naming patterns can also consume matching frontmatter/template values such as `{Version}`; unresolved placeholders return an error instead of writing a broken filename; auto-injects `created` and `modified` ISO 8601 timestamps (respects overrides); living artefacts also get a platform-owned `key` selected from the clearest free title-derived words before using a random suffix; any resolved `parent` is persisted canonically and stamped into tags, with same-type `{key}/` or cross-type `{scope}/` placement for living children and owner-scoped date folders for temporal children; auto-disambiguates basename collisions by appending `(type)`
@@ -226,7 +259,8 @@ Additive, safe to auto-approve. Creates a new vault resource. Write-guarded: rej
 - Every artefact write runs a per-file wikilink check; broken, resolvable, and ambiguous links are appended to the response as `⚠` warning lines (and auto-applied fixes as a `✔` block when `fix_links=true`)
 - Resource-specific request validation is strict: artefact-only fields (`type`, `title`, `parent`, `key`, `fix_links`) are rejected for non-artefact resources, and `name` is rejected for artefact creation
 
-**Response format:** Plain text confirmation: `"**Created** {type}: {path}"` for artefacts, `"**Created** {resource}: {path}"` for non-artefact resources.
+**Response format:** Structured mutation result containing the path and
+resource/type metadata, plus a concise text confirmation.
 
 ---
 
@@ -234,15 +268,16 @@ Additive, safe to auto-approve. Creates a new vault resource. Write-guarded: rej
 
 Single-file mutation. Write-guarded: same folder restrictions as `brain_create`.
 
-**Parameters:**
-- `resource` (default `"artefact"`) — also accepts `skill`, `memory`, `style`, `template`
-- `operation` (required) — `"edit"`, `"append"`, `"prepend"`, or `"delete_section"`
-- `path` (required when `resource="artefact"`) — canonical artefact key (e.g. `"design/brain"`), vault-relative path, or filename basename. For temporal artefacts the display-name portion of the dated filename also resolves (e.g. `"Colour Theory"` → `20260404-research~Colour Theory.md`)
-- `name` (required when resource is `skill`, `memory`, `style`, or `template`) — for templates, name is the artefact type key
-- `body` — omit for frontmatter-only changes; ignored for `delete_section`. When supplied, this is always body content after frontmatter, not a full markdown document
-- `body_file` (optional) — same semantics as `brain_create`'s `body_file`
-- `frontmatter` (optional) — merge strategy depends on operation: edit overwrites fields; append/prepend extend list fields with dedup and overwrite scalars; set a field to `null` to delete it
-- `target` (optional for frontmatter-only edits; required for structural mutations and `delete_section`) — one of:
+**Request:** `{subject, mutation}`. Both members are discriminated objects, so
+invalid operation/resource parameter combinations are rejected by the generated
+schema before the handler runs.
+
+- Artefact subject: `{resource: "artefact", path, fix_links?}`. `path` accepts a canonical key, vault-relative path, basename, or temporal display name.
+- Named-resource subject: `{resource: "skill" | "memory" | "style" | "template", name}`. For templates, `name` is the artefact type key.
+- Mutation is one of `edit`, `append`, `prepend`, `replace_text`, or `delete_section`. Edit/append/prepend accept `content?`, `frontmatter?`, `target?`, `selector?`, and `scope?`; delete-section requires `target` and rejects body content rather than silently ignoring it; exact replacement requires `old_text` and `new_text` and optionally accepts `match_occurrence` or `replace_all`.
+- `content` uses the same inline/stage/file discriminator as `brain_create`. Omit it for frontmatter-only changes. Inline content is always markdown after frontmatter, not a full document.
+- `frontmatter` merge strategy depends on operation: edit overwrites fields; append/prepend extend list fields with deduplication and overwrite scalars; set a field to `null` to delete it.
+- `target` is one of:
   - `":body"` — the markdown body after frontmatter
   - a heading target such as `"## Notes"`
   - a callout target such as `"[!note] Status"`
@@ -259,11 +294,13 @@ Single-file mutation. Write-guarded: same folder restrictions as `brain_create`.
   - `target=":entire_body"` → use `target=":body", scope="section"`
   - `target=":body_preamble"` / `target=":body_before_first_heading"` → use `target=":body", scope="intro"`
   - `target=":section:..."` → use the real heading/callout target with `scope="section"`
-- `fix_links` (optional, default `false`) — when `true`, resolvable broken wikilinks in the edited artefact are auto-rewritten to their canonical target after the edit completes; remaining unresolvable or ambiguous links are still reported as warnings. MCP edit prepares a filesystem-backed wikilink index for this opt-in path so externally-created targets are considered even when the retrieval index is stale.
+- Artefact-subject `fix_links` defaults to `false`; when true, resolvable broken wikilinks in the edited artefact are rewritten after the edit completes and remaining warnings are reported.
 
 **Behaviour:**
 - For artefacts: path validated against compiled router — wrong folder or naming rejected with helpful error; auto-updates `modified` frontmatter field on every write; auto-sets `statusdate` (YYYY-MM-DD) whenever `status` actually changes; terminal status auto-moves to `+Status/` subfolder with vault-wide wikilink updates, reverts on non-terminal
-- Living ownership edits are recursive when `key:` or `parent:` changes. The edited artefact is rendered through the same owner-folder projection as creation, descendant `parent:` references and owner tags are updated, descendant files are moved with the source subtree, and emptied owner folders are pruned up to the type root.
+- Generic frontmatter edits reject `parent`, `key`, `status`, and naming-driving
+  fields with the dedicated lifecycle command to use. Those commands apply the
+  field update and all derived path, link, tag, timestamp, and descendant work.
 - Ownership mutations fail before writes when the compiled router/index, scanned parent references, and rendered owner paths disagree. These stale-router/index failures are returned as actionable parent-chain errors that name the stale or unindexed artefact; refresh or rebuild the router/index before retrying.
 - Requests that would create a parent cycle are rejected before writes. This includes setting an artefact's parent to itself or to one of its descendants.
 - For non-artefact resources: resolves via `_Config/` conventions; no terminal status auto-move or `modified` injection. Memory edits dirty the in-memory router immediately so trigger lookups reflect the write on the next call; non-artefact `_Config/` edits do not queue artefact-index updates
@@ -271,9 +308,61 @@ Single-file mutation. Write-guarded: same folder restrictions as `brain_create`.
 - Heading structure defines intro/section boundaries. Callouts are individually targetable, but they do not terminate `target=":body", scope="intro"`.
 - Ambiguous structural matches hard-error with candidate context. Use `selector.occurrence` or `selector.within` to disambiguate.
 - Every artefact edit runs a per-file wikilink check; broken, resolvable, and ambiguous links are appended to the response as `⚠` warning lines (and auto-applied fixes as a `✔` block when `fix_links=true`)
-- Resource/op-specific request validation is strict before the structural preflight layer runs: artefacts require `path`, editable `_Config/` resources require `name`, `delete_section` requires `target`, and cross-resource extras such as `fix_links` on a skill edit are rejected
+- Resource/op-specific request validation is encoded in the public schema: artefact subjects require `path`, editable `_Config/` subjects require `name`, `delete_section` requires `target`, and cross-resource extras such as `fix_links` on a skill subject are rejected
 
-**Response format:** Plain text confirmation: `"**Edited:** {path}"`, `"**Appended:** {path}"`, `"**Prepended:** {path}"`, or `"**Deleted section from:** {path}"`. Structural mutations append the resolved range in parentheses, e.g. `(body section)`, `(body intro)`, `(heading body: ## Notes)`, `(heading section: # API [2] > ## Notes)`, or `(callout header: [!note] Status)`.
+**Response format:** Structured mutation result with operation, resolved path,
+resolved selector, move details, and replacement counts where applicable, plus
+a concise text confirmation.
+
+---
+
+### brain_define
+
+Operator-only authoring for the runtime definitions that generic file editing
+must not mutate. The required `request` is discriminated by `kind`:
+
+- `type`: `{kind: "type", name, classification, mutation}` manages the
+  taxonomy document, its linked template, and the discoverable artefact folder
+  as one bundle. The complete markdown is parsed before writing; its declared
+  type, classification, template link, frontmatter, and naming contract must
+  agree. A missing artefact folder is created; an existing one is preserved.
+- `plugin`: `{kind: "plugin", name, mutation}` writes only
+  `_Plugins/{name}/SKILL.md`.
+- `trigger`: `{kind: "trigger", mutation}` edits one exact entry in the
+  `Conditional:` section of `_Config/router.md`. Targets must already exist.
+
+Plugin `mutation` is either `{operation: "create", definition}` or
+`{operation: "replace", definition, expected_sha256}`. Type creation also
+requires `template`; type replacement requires the complete definition and
+template plus `expected_sha256` and `expected_template_sha256`. Replacement
+therefore cannot overwrite either component after review. Trigger mutations
+have distinct create/replace/delete schemas. Replacement requires the exact
+current condition and target, while delete can optionally use the target as a
+precondition.
+
+All variants run under the shared per-vault mutation lock, use bounded atomic
+writes, reject unknown fields before mutation, dirty compiled router/index
+state, and return the before/after hashes and resolved path.
+
+---
+
+### brain_reparent and brain_set_*
+
+These commands own lifecycle metadata that has derived invariants:
+`brain_reparent(path, parent)` (pass null to clear),
+`brain_set_status(path, status)`, `brain_set_key(path, key)`, and
+`brain_set_naming_field(path, field, value)`. They validate the field against
+the type definition and preflight the complete candidate filename before any
+write. Required placeholder values and declared regexes must pass. Successful
+commands update metadata, move the artefact and descendants when required,
+rewrite links/tags, and return the complete structured change set.
+Direct edits of these fields through `brain_edit.frontmatter` are rejected.
+
+External editors such as Obsidian may still change frontmatter directly. The
+metadata field remains authoritative: `brain_check` reports parent-folder
+drift, and `brain repair ownership --dry-run` previews the complete filesystem
+projection before an explicit repair. A missing parent field is not inferred
+from folder structure.
 
 ---
 
@@ -288,14 +377,14 @@ Vault-wide and destructive content-move operations, gated by explicit approval.
 - `path` — used by `convert`, `archive`, and `unarchive`
 - `target_type` — used only when `op="convert"`
 - `parent` — optional parent artefact reference used only when `op="convert"`
-- `recursive` — optional boolean used by `archive` and living→temporal `convert`; required when the operation would remove ownership metadata from living descendants
+- `recursive` — optional boolean used by `archive`, `unarchive`, and living→temporal `convert`; required when the operation would otherwise strand or remove ownership metadata from living descendants
 
 **Behaviour:**
 - Flat top-level request shape for caller ergonomics, matching the `brain_edit` pattern: field-level schema plus explicit runtime validation of op-specific requirements
 - **`rename`** — request shape: `{op: "rename", source, dest}`. Artefact-aware same-type move only: source and destination must both live in configured artefact folders for the same type, and destination naming is validated against the type contract. Delegates to `rename.py`'s `rename_and_update_links()`, with Obsidian CLI override when available. Wikilink updates match full-path (`[[Wiki/topic-a]]`), filename-only (`[[topic-a]]`), heading anchors, block references, embeds, and aliases while preserving the original format; filename-only matching is skipped when basename is ambiguous
 - **`convert`** — request shape: `{op: "convert", path, target_type, parent?, recursive?}`. Changes artefact type, moves file, reconciles frontmatter, and updates wikilinks vault-wide. Crossing the living/temporal boundary reconciles the key contract: temporal→living generates a canonical `key:` from the clearest free title-derived words before using a random suffix. Living→temporal conversion of an artefact with living descendants returns `HAS_DESCENDANTS` by default; pass `recursive: true` to drop the source key and heal descendants by removing their `parent:` field plus owner-tag and relocating them out of the parent's key- or scope-based child folder.
 - **`archive`** — request shape: `{op: "archive", path, recursive?}`. Moves a terminal-status artefact to `_Archive/{Type}/{Project}/` with date-prefix rename, sets `archiveddate`, and updates vault-wide wikilinks. If the artefact has living descendants, the default is a `HAS_DESCENDANTS` error with a descendant list; pass `recursive: true` to archive the subtree in one move set.
-- **`unarchive`** — request shape: `{op: "unarchive", path}`. Restores an archived artefact to its original type folder, strips the date prefix, removes `archiveddate`, and updates vault-wide wikilinks. Deterministic destination blockers are preflighted before archive metadata is changed.
+- **`unarchive`** — request shape: `{op: "unarchive", path, recursive?}`. Restores one archived artefact or an archived subtree through current metadata/status projection, removes `archiveddate`, and updates vault-wide wikilinks. The complete known move set is preflighted before metadata changes. Recursive results report `uninspected` archived candidates with their paths and reasons when an unreadable or unknown-type file prevents Brain from proving that the subtree is complete; MCP surfaces the same condition as a warning.
 - All move operations share the move-set preflight used by `rename.py`: duplicate sources/destinations, destination collisions, cyclic move sets, path bounds, protected folders, symlink endpoints, and destination parent components that are files or broken symlinks fail before link rewrites or filesystem mutation.
 - Nested ownership move planning is fail-loud. A stale compiled router/index, an indexed descendant missing on disk, or a scanned child `parent:` reference absent from the compiled living index returns an actionable stale-index/parent-chain error rather than `Unexpected error`.
 - Documented partial-apply failures return repair context and mark the MCP router/index dirty because durable state may already have changed. The error text names the operation, committed metadata/files when known, and the underlying move failure.
@@ -309,48 +398,45 @@ Vault-wide and destructive content-move operations, gated by explicit approval.
 Vault-wide and destructive operations, gated by explicit approval.
 
 **Parameters:**
-- `action` (required) — one of: `delete`, `reparent`, `shape-printable`, `shape-presentation`, `start-shaping`, `fix-links`
-- `params` (optional) — action-specific parameter object. The generated schema publishes six named variants:
+- `request` (required) — discriminated action object. Its `action` selects the exact `params` schema:
   - `delete={path, recursive?}`
-  - `reparent={source, to?}`
+  - `reparent-children={source, to?}`
   - `shape-printable={source, slug, render?, keep_heading_with_next?, pdf_engine?}`
   - `shape-presentation={source, slug, render?, preview?}`
   - `start-shaping={target, title?, skill_type?}`
   - `fix-links={fix?, path?, links?}`
-  - The schema exposes those nested field sets for discoverability, but it does not structurally discriminate `action -> params` pairings. Mismatched pairings are rejected by runtime validation in the handler layer.
+  - Mismatched action/parameter combinations are rejected by the MCP schema.
 
 **Actions:**
-- **`delete`** — request shape: `{action: "delete", params: {path, recursive?}}`. Removes an artefact file and replaces wikilinks with strikethrough text. Living artefacts with descendants return `HAS_DESCENDANTS` unless `recursive: true` is supplied; recursive delete removes the descendant subtree and rewrites links in one batch.
-- **`reparent`** — request shape: `{action: "reparent", params: {source, to?}}`. Moves the direct children of a living source artefact to a new parent, to the source's current parent when `to` is omitted, or to top level when `to` is `null`/`""`. The action updates child `parent:` fields/tags, moves descendant files through the shared move-set preflight, prunes emptied owner folders, and rejects self/descendant parent cycles before writes.
-- **`shape-printable`** — request shape: `{action: "shape-printable", params: {source, slug, render?, keep_heading_with_next?, pdf_engine?}}`. Creates a printable artefact, queues it for incremental retrieval-index refresh, and renders `_Assets/Generated/Printables/{stem}.pdf` via pandoc
-- **`shape-presentation`** — request shape: `{action: "shape-presentation", params: {source, slug, render?, preview?}}`. Creates a Marp presentation artefact, queues it for incremental retrieval-index refresh, renders `_Assets/Generated/Presentations/{stem}.pdf`, and optionally launches live preview
-- **`start-shaping`** — request shape: `{action: "start-shaping", params: {target, title?, skill_type?}}`. Bootstraps a shaping session against an existing artefact, creating or appending the transcript, reviving `+Status/` artefacts back into the active folder when it sets `status: shaping`, and queuing the touched artefacts for incremental retrieval-index refresh
-- **`fix-links`** — request shape: `{action: "fix-links", params: {fix?, path?, links?}}`. Scans for broken wikilinks and attempts auto-resolution using naming convention heuristics (slug→title, double-dash→tilde, temporal prefix matching). `fix: true` applies unambiguous fixes; `path: "..."` scopes scan/fix to a single file; `links: [...]` narrows a single-file fix to specific target stems. `brain_create` and `brain_edit` accept a `fix_links: true` convenience flag that runs the single-file fixer on the written artefact
+- **`delete`** — request shape: `{request: {action: "delete", params: {path, recursive?}}}`. Removes an artefact file and replaces wikilinks with strikethrough text. Living artefacts with descendants return `HAS_DESCENDANTS` unless `recursive: true` is supplied; recursive delete removes the descendant subtree and rewrites links in one batch.
+- **`reparent-children`** — request shape: `{request: {action: "reparent-children", params: {source, to?}}}`. Moves the direct children of a living source artefact. `brain_reparent` is reserved for changing one artefact's own authoritative parent.
+- **`shape-printable`** — request shape: `{request: {action: "shape-printable", params: {source, slug, render?, keep_heading_with_next?, pdf_engine?}}}`. Creates a printable artefact, queues it for incremental retrieval-index refresh, and renders `_Assets/Generated/Printables/{stem}.pdf` via pandoc
+- **`shape-presentation`** — request shape: `{request: {action: "shape-presentation", params: {source, slug, render?, preview?}}}`. Creates a Marp presentation artefact, queues it for incremental retrieval-index refresh, renders `_Assets/Generated/Presentations/{stem}.pdf`, and optionally launches live preview
+- **`start-shaping`** — request shape: `{request: {action: "start-shaping", params: {target, title?, skill_type?}}}`. Bootstraps a shaping session against an existing artefact, creating or appending the transcript, reviving `+Status/` artefacts back into the active folder when it sets `status: shaping`, and queuing the touched artefacts for incremental retrieval-index refresh
+- **`fix-links`** — request shape: `{request: {action: "fix-links", params: {fix?, path?, links?}}}`. Scans for broken wikilinks and attempts auto-resolution using naming convention heuristics (slug→title, double-dash→tilde, temporal prefix matching). `fix: true` applies unambiguous fixes; `path: "..."` scopes scan/fix to a single file; `links: [...]` narrows a single-file fix to specific target stems. `brain_create` and `brain_edit` accept a `fix_links: true` convenience flag that runs the single-file fixer on the written artefact
 
 **Response format:** Plain text status lines for delete and JSON for reparent plus the shaping/fix-links flows where structured payloads add value.
 
 ---
 
-### brain_process
+### brain_classify, brain_resolve, brain_ingest
 
 Experimental content processing operations. Set
 `defaults.flags.semantic_processing: true` to enable embedding-backed process
 behavior. Shared retrieval embeddings may also be kept warm by
 `defaults.flags.semantic_retrieval`, but that flag does not enable
-embedding-backed `brain_process` behavior by itself.
+embedding-backed processing behavior by itself.
 
-**Parameters:**
-- `operation` (required) — `classify`, `resolve`, or `ingest`
-- `content` (required)
-- `type` (resolve required, ingest optional hint) — not accepted for `classify`
-- `title` (resolve required, ingest optional hint) — not accepted for `classify`
-- `mode` (optional, `classify`/`ingest` only) — `"auto"` (default), `"embedding"`, `"bm25_only"`, `"context_assembly"`; not accepted for `resolve`
+Each operation is a separate tool so read-only profiles can use classification
+and resolution without receiving ingest permission. `content` is always
+required; `brain_resolve` also requires `type` and `title`; `brain_ingest`
+accepts those as optional hints; classify/ingest accept `mode`.
 
 **Operations:**
-- **`classify`** — determines the best artefact type for content using three-tier fallback (embedding → BM25 → context_assembly); returns ranked type matches with confidence scores. Read-only.
-- **`resolve`** — checks if content should create a new artefact or update an existing one (requires `type` and `title`); matches against generous filenames, legacy slugs, BM25 search, and optional embeddings; returns create/update/ambiguous decision. Read-only.
-- **`ingest`** — runs the full pipeline: classify → infer title → resolve → create/update; optional `type`/`title` hints skip their respective steps. Can create or update files — treat like `brain_create`/`brain_edit` combined.
-- When `classify` or `resolve` needs the shared retrieval index and that index is blocked by an unreadable source file, compiled-router embeddings drift, or a retrieval-index persistence failure, `brain_process` returns the explicit rebuild error instead of stale retrieval state
+- **`brain_classify`** — determines the best artefact type using embedding → BM25 → context assembly fallback. Read-only.
+- **`brain_resolve`** — returns create/update/ambiguous by matching classified content against existing artefacts. Read-only.
+- **`brain_ingest`** — runs classify → infer title → resolve → create/update and may mutate files.
+- Retrieval-state failures are returned explicitly instead of serving stale results.
 
 Successful mutations queue the shared incremental index refresh path used by
 other MCP writers.
@@ -361,8 +447,10 @@ Recommended auto-approve settings:
 - **`brain_session`**, **`brain_read`**, **`brain_search`**, **`brain_list`** — safe to auto-approve always
 - **`brain_create`** — additive-only (creates files, never destroys) — safe to auto-approve for most workflows
 - **`brain_edit`** — mutates a single validated file — approve-once or auto-approve depending on trust level
+- **`brain_define`** — changes runtime definitions; operator-only with optimistic replacement preconditions
 - **`brain_move`** — destructive vault moves — require explicit approval per call
-- **`brain_process`** — experimental; `classify`/`resolve` are read-only and `ingest` can create/update files, so treat it like `brain_create`/`brain_edit` combined. `defaults.flags.semantic_processing` only controls whether embedding-backed behavior is available.
+- **`brain_classify`**, **`brain_resolve`** — safe to auto-approve; read-only
+- **`brain_ingest`** — may create/update files; treat like `brain_create`/`brain_edit` combined
 - **`brain_action`** — delete, reparent, shaping, and fix-links utilities — require explicit approval per call
 
 ## Response Format Conventions
@@ -415,8 +503,8 @@ if not isinstance(data, dict):
 
 This catches the case where a cache file contains valid JSON of the wrong type (e.g. after a partial write, encoding error, or manual edit).
 
-**Status:** `brain_process` is part of the released MCP surface, but the tool
-remains explicitly experimental while the content-processing contract settles.
+**Status:** the split content-processing tools are released but remain
+experimental while their ranking and ingestion contracts settle.
 
 ## Server Runtime
 

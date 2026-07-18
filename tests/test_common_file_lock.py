@@ -1,4 +1,6 @@
 from pathlib import Path
+import os
+import subprocess
 import sys
 import types
 
@@ -67,3 +69,64 @@ def test_exclusive_file_lock_creates_parent_directory(tmp_path):
 
     with _file_lock.exclusive_file_lock(lock_path):
         assert lock_path.exists()
+
+
+def test_public_mutation_error_message_passes_through_non_lock_errors():
+    assert _file_lock.public_mutation_error_message(ValueError("invalid")) == "invalid"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX subprocess blocking contract")
+def test_exclusive_file_lock_blocks_by_default(tmp_path):
+    lock_path = tmp_path / "registry.lock"
+    scripts_dir = str(Path(__file__).resolve().parents[1] / "src" / "brain-core" / "scripts")
+    code = (
+        "from _common._file_lock import exclusive_file_lock; "
+        f"p={str(lock_path)!r}; "
+        "\nwith exclusive_file_lock(p): pass"
+    )
+    env = dict(os.environ, PYTHONPATH=scripts_dir)
+
+    with _file_lock.exclusive_file_lock(lock_path):
+        process = subprocess.Popen(
+            [sys.executable, "-c", code],
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            with pytest.raises(subprocess.TimeoutExpired):
+                process.communicate(timeout=0.1)
+        except BaseException:
+            process.kill()
+            process.wait()
+            raise
+
+    stdout, stderr = process.communicate(timeout=2)
+    assert process.returncode == 0, (stdout, stderr)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX subprocess contention contract")
+def test_exclusive_file_lock_reports_cross_process_contention(tmp_path):
+    lock_path = tmp_path / "mutation.lock"
+    scripts_dir = str(Path(__file__).resolve().parents[1] / "src" / "brain-core" / "scripts")
+    code = (
+        "from _common._file_lock import exclusive_file_lock; "
+        f"p={str(lock_path)!r}; "
+        "\nwith exclusive_file_lock(p, timeout=0.1): pass"
+    )
+    env = dict(os.environ, PYTHONPATH=scripts_dir)
+
+    with _file_lock.exclusive_file_lock(lock_path):
+        completed = subprocess.run(
+            [sys.executable, "-c", code],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+
+    assert completed.returncode != 0
+    assert "timed out after 0.1s acquiring exclusive lock" in completed.stderr
+    assert f"pid={os.getpid()}" in completed.stderr

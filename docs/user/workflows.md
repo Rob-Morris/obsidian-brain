@@ -195,7 +195,7 @@ status: shaping
 
 The design doc has structure: a core goal, open decisions, transcripts from Q&A sessions that shaped it. It moves through `shaping` → `active` → `implemented`.
 
-The idea's status becomes `adopted`, and `brain_edit` automatically moves it to `Ideas/+Adopted/` — its job is done, and the design carries the work forward. Wikilinks update vault-wide. If an idea is later revived (status set back to non-terminal), it moves back out.
+Set the idea's status to `adopted` with `brain_set_status`; Brain moves it to `Ideas/+Adopted/` and updates wikilinks vault-wide. If the idea is later revived with a non-terminal status, the same handler moves it back out.
 
 ### The Thread is Never Lost
 
@@ -267,7 +267,11 @@ The router (`_Config/router.md`) defines workflow triggers — things that shoul
 
 The Brain includes a structural compliance checker (`check.py`) that validates every file against its type's rules — naming patterns, frontmatter fields, month folders, archive metadata, status values. Run it on demand to catch drift before it accumulates.
 
-When compliance detects shaped drift — for example a stale router, broken current-vault MCP state, malformed local workspace registry, or duplicate artefact frontmatter — it now points at the exact `repair.py` command to run. That keeps diagnosis (`check.py`) separate from mutation (`repair.py <scope>`), while still giving both humans and agents one obvious recovery path.
+When compliance detects shaped drift — including valid parent metadata whose
+folder projection was changed out-of-band in Obsidian — it points at the exact
+repair command. `brain repair ownership --dry-run` previews the metadata-
+authoritative move set; apply it explicitly after review. Brain never infers a
+missing parent field from folder structure.
 
 ### Agents Read Your Preferences
 
