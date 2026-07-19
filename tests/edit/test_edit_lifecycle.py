@@ -434,6 +434,14 @@ class TestOwnershipEditPaths:
         assert "resolved parent Projects/Custom.md" in message
         assert "missing from the compiled living index" in message
 
+    def test_path_resolved_parent_missing_on_disk_reports_stale_index(self, vault, router):
+        with pytest.raises(ParentChainError) as exc_info:
+            resolve_parent_reference(str(vault), router, "Projects/Vanished.md")
+
+        message = str(exc_info.value)
+        assert "resolved parent Projects/Vanished.md" in message
+        assert "missing on disk" in message
+
     def test_key_change_stale_index_descendant_aborts_before_writes(self, vault, router):
         self._write_nested_design_tree(vault)
         import compile_router

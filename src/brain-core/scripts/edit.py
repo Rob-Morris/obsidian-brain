@@ -43,6 +43,7 @@ from _common import (
     legacy_target_migration_error,
     make_artefact_key,
     make_temp_path,
+    MissingFileResult,
     MutationLockError,
     public_mutation_error_message,
     naming_driver_fields,
@@ -1157,7 +1158,7 @@ def _plan_reference_mutation(
         if rel_path in skip_paths:
             continue
         content = read_file_content(vault_root, rel_path)
-        if content.startswith("Error:"):
+        if isinstance(content, MissingFileResult):
             _raise_stale_index_missing(rel_path, operation)
         fields, body = parse_frontmatter(content)
         if not replace_artefact_key_references(fields, old_key, new_key):
@@ -1268,7 +1269,7 @@ def _plan_descendant_moves(
             desc_art = op["art"]
         else:
             content = read_file_content(vault_root, rel_path)
-            if content.startswith("Error:"):
+            if isinstance(content, MissingFileResult):
                 _raise_stale_index_missing(rel_path, operation)
             fields, _body = parse_frontmatter(content)
             _resolved, desc_art = resolve_and_validate_folder(
@@ -1313,7 +1314,7 @@ def _plan_temporal_reference_moves(
             art = op.get("art") or {}
         else:
             content = read_file_content(vault_root, rel_path)
-            if content.startswith("Error:"):
+            if isinstance(content, MissingFileResult):
                 _raise_stale_index_missing(rel_path, operation)
             fields, _body = parse_frontmatter(content)
             _resolved, art = resolve_and_validate_folder(vault_root, router, rel_path)
@@ -2135,7 +2136,7 @@ def _move_plan_for_reparent(vault_root, router, child_entries, target_parent):
             seen.add(key)
             rel_path = entry["path"]
             content = read_file_content(vault_root, rel_path)
-            if content.startswith("Error:"):
+            if isinstance(content, MissingFileResult):
                 _raise_stale_index_missing(rel_path, "reparent")
             fields, body = parse_frontmatter(content)
             _resolved, art = resolve_and_validate_folder(

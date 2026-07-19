@@ -151,7 +151,7 @@ If your vault runs the Brain MCP server (`.brain-core/brain_mcp/server.py`), twe
 - Returns structured path/resource metadata plus a concise confirmation
 
 **brain_edit** (single-file mutation)
-- Takes `{subject, mutation}`. `subject` discriminates an artefact `path` from a named `skill`, `memory`, `style`, or `template`; `mutation` discriminates the operation and exposes only its valid fields
+- Takes one required top-level `request`: `{request: {subject, mutation}}`. `subject` discriminates an artefact `path` from a named `skill`, `memory`, `style`, or `template`; `mutation` discriminates the operation and exposes only its valid fields
 - `edit` — replace body content, optionally merge frontmatter changes (overwrites fields)
 - `append` — add content to end of existing body
 - `prepend` — insert content before existing body or before a target section's heading

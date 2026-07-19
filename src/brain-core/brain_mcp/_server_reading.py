@@ -261,6 +261,10 @@ def handle_brain_read(
 
     result = read_mod.read_resource(state.router, state.vault_root, resource, name)
 
+    # The typed result remains a str for legacy script callers, so check it first.
+    if isinstance(result, _common.MissingFileResult):
+        return runtime.fmt_error(result.message)
+
     if isinstance(result, str):
         return result
 

@@ -41,6 +41,7 @@ from _common import (
     living_key_set,
     make_temp_path,
     make_artefact_key,
+    MissingFileResult,
     normalize_artefact_key,
     MutationLockError,
     public_mutation_error_message,
@@ -412,7 +413,7 @@ def _read_template(vault_root, artefact):
         return {}, ""
 
     content = read_file_content(vault_root, template_ref)
-    if content.startswith("Error:"):
+    if isinstance(content, MissingFileResult):
         return {}, ""
 
     return parse_frontmatter(content)

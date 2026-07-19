@@ -277,6 +277,17 @@ class TestStartShaping:
         fields, _ = parse_frontmatter(content)
         assert "status" not in fields
 
+    def test_target_content_may_begin_with_error_text(self, vault, router):
+        source = vault / "Wiki" / "Error Opening.md"
+        source.write_text("Error: this is ordinary artefact content.\n")
+
+        result = start_shaping.start_shaping(
+            str(vault), router, {"target": "Wiki/Error Opening.md"}
+        )
+
+        assert result["status"] == "ok"
+        assert "Error: this is ordinary artefact content." in source.read_text()
+
     def test_transcript_has_correct_source_link(self, vault, router):
         result = start_shaping.start_shaping(
             str(vault), router, {"target": "Designs/My Design.md"}

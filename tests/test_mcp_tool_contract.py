@@ -209,6 +209,27 @@ def _find_property_descriptions(schema, field_name):
     return found
 
 
+def test_brain_edit_requires_top_level_request_envelope(registered_tools):
+    tool = next(t for t in registered_tools if t.name == "brain_edit")
+    schema = tool.inputSchema
+    validator = Draft202012Validator(schema)
+
+    assert set(schema["properties"]) == {"request"}
+    assert schema["required"] == ["request"]
+    valid_request = {
+        "request": {
+            "subject": {"resource": "artefact", "path": "idea/example"},
+            "mutation": {
+                "operation": "replace_text",
+                "old_text": "before",
+                "new_text": "after",
+            },
+        }
+    }
+    assert not list(validator.iter_errors(valid_request))
+    assert list(validator.iter_errors(valid_request["request"]))
+
+
 def test_brain_edit_selector_schema_is_structured(registered_tools):
     tool = next(t for t in registered_tools if t.name == "brain_edit")
     schema = tool.inputSchema

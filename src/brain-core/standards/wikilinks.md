@@ -34,32 +34,38 @@ If a link's target lives outside brain-managed space, use plain text or a markdo
 
 A link is **resolvable** when the fixer can map the written stem to a canonical file via naming heuristics (slug → title, temporal prefix, etc.). It's **broken** when no target matches, and **ambiguous** when multiple files share the basename.
 
-### `brain_action("fix-links", params={...})`
+### `brain_action(request={"action": "fix-links", "params": {...}})`
 
 Single-file and vault-wide modes share one action:
 
 ```python
 # Vault-wide scan (dry run)
-brain_action("fix-links")
+brain_action(request={"action": "fix-links", "params": {}})
 
 # Vault-wide apply
-brain_action("fix-links", params={"fix": True})
+brain_action(request={"action": "fix-links", "params": {"fix": True}})
 
 # Single file scan
-brain_action("fix-links", params={"path": "People/Fidel.md"})
+brain_action(request={
+    "action": "fix-links",
+    "params": {"path": "People/Fidel.md"},
+})
 
 # Single file, fix every resolvable link
-brain_action("fix-links", params={"path": "People/Fidel.md", "fix": True})
+brain_action(request={
+    "action": "fix-links",
+    "params": {"path": "People/Fidel.md", "fix": True},
+})
 
 # Single file, fix only the named links
-brain_action(
-    "fix-links",
-    params={
+brain_action(request={
+    "action": "fix-links",
+    "params": {
         "path": "People/Fidel.md",
         "fix": True,
         "links": ["Graph memory session management"],
     },
-)
+})
 ```
 
 `links` is optional — omit to apply every resolvable fix in the file. The param is named `links` (not `stems`) to match the warning output agents see on the preceding create/edit call.

@@ -45,7 +45,7 @@ brain install <path>
 | `brain repair {runtime\|mcp\|router\|lexical\|registry\|frontmatter\|semantic\|ownership}` | `repair.py` | Infrastructure and explicit metadata-authoritative ownership repair. |
 | `brain upgrade --source P [...]` | `upgrade.py` | In-place brain-core upgrade. |
 | `brain session [--json]` | `session.py` | Build the session bootstrap model. With no directly scoped vault, this command first resolves the target Brain through the machine-level resolution runtime, then dispatches to only that Brain's own `session.py`. |
-| `brain read RESOURCE [--name N]` | `read.py` | Query compiled router resources. |
+| `brain read RESOURCE [--name N]` | `read.py` | Query compiled router resources; read failures use stderr and a non-zero exit. |
 | `brain migrate-naming [--dry-run]` | `migrate_naming.py` | Filename migrations. |
 | `brain fix-links [--fix]` | `fix_links.py` | Auto-repair broken wikilinks. |
 

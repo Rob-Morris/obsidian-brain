@@ -143,7 +143,7 @@ Not every type has status. Wiki, Notes, and most temporal types are evergreen.
 
 Use **basename-only** wikilinks: `[[My Page]]`, not `[[Wiki/My Page]]`. Basename links survive folder moves and archiving. Path-qualified links break when files move into subfolders. Avoid aliased wikilinks inside markdown tables (`[[Target|Alias]]`) because the alias separator is also a table column separator; Brain drops those aliases during table-row link rewrites and `check.py` warns on existing table aliases.
 
-Only wikilink to targets that already exist. If the artefact doesn't exist yet, write plain text — create the artefact first, then link. `brain_create` and `brain_edit` warn about broken or resolvable wikilinks in every write, and `brain_action("fix-links", params={...})` repairs them one file or vault-wide at a time. Full rules are in the [wikilinks standard](standards/wikilinks.md); resolution mechanics are in the [linking standard](standards/linking.md).
+Only wikilink to targets that already exist. If the artefact doesn't exist yet, write plain text — create the artefact first, then link. `brain_create` and `brain_edit` warn about broken or resolvable wikilinks in every write, and `brain_action(request={"action": "fix-links", "params": {...}})` repairs them one file or vault-wide at a time. Full rules are in the [wikilinks standard](standards/wikilinks.md); resolution mechanics are in the [linking standard](standards/linking.md).
 
 `brain_create` auto-disambiguates basename collisions across type folders by appending the type key (e.g. `My Page (idea).md`).
 
@@ -163,9 +163,13 @@ When one artefact spins out of another, link them. Full details are in the [prov
 
 Published writing moves to `Writing/+Published/` with date-prefixed filenames. Full details in the writing taxonomy.
 
-1. Set `status: published`
-2. Add `publisheddate: YYYY-MM-DD`
-3. Save via `brain_edit(...)` — the write path handles the date-prefixed rename and move into `Writing/+Published/` automatically
+For normal publishing, call `brain_set_status(path="...", status="published")`.
+The lifecycle handler sets a missing `publisheddate` to today, applies the
+date-prefixed rename, and moves the file into `Writing/+Published/`.
+
+To use a different publication date, first call
+`brain_set_naming_field(path="...", field="publisheddate", value="YYYY-MM-DD")`,
+then set the published status.
 
 ## Terminal Status and Archiving
 

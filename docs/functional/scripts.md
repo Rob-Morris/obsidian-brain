@@ -37,7 +37,7 @@ That `python3.12` process is the launcher, not the managed runtime itself.
 | `search_index.py` | Lexical, semantic, or hybrid local search | `python3 search_index.py "query" [--type T] [--tag TAG] [--status S] [--mode M] [--top-k N] [--json]` |
 | `construct_benchmark_fixture.py` | Derive a vault-native retrieval benchmark fixture plus audit JSON from an existing vault, including semantic-variant audit diagnostics and optional externally seeded semantic or hybrid candidates; unreadable source files now fail explicitly | `python3 construct_benchmark_fixture.py --fixture-out PATH [--audit-out PATH] [--semantic-strategy S] [--semantic-seed-file PATH] [--hybrid-seed-file PATH] [--json]` |
 | `evaluate_search.py` | Benchmark lexical, semantic, and hybrid retrieval against a JSON query set | `python3 evaluate_search.py --benchmark PATH [--mode M]... [--json]` |
-| `read.py` | Query compiled router resources | `python3 read.py RESOURCE [--name N] [--vault V]` |
+| `read.py` | Query compiled router resources; read failures use stderr and a non-zero exit | `python3 read.py RESOURCE [--name N] [--vault V]` |
 | `create.py` | Strict create CLI with retry-safe body handles and shared vault mutation locking | `python3 create.py --type T --title "Title" [--body B\|--body-file PATH\|--body-handle H] [--parent NAME] [--vault PATH] [--json]` |
 | `define.py` | Guarded type, trigger, and plugin definition workflows with fixed paths and optimistic replacement checks | `python3 define.py {type,trigger,plugin} ... [--vault V] [--json]` |
 | `edit.py` | Strict structural/exact-text edit CLI; handler-owned lifecycle fields are rejected | `python3 edit.py edit\|append\|prepend\|replace_text\|delete_section --path P [...]` |

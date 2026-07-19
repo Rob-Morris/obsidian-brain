@@ -5,6 +5,7 @@ import json
 import pytest
 
 import read
+from _common import MissingFileResult
 
 
 # ---------------------------------------------------------------------------
@@ -258,7 +259,10 @@ class TestReadFileContent:
     def test_returns_error_for_missing_file(self, vault):
         tmp_path, _ = vault
         result = read.read_file_content(str(tmp_path), "Wiki/nonexistent.md")
-        assert result.startswith("Error:")
+        assert isinstance(result, MissingFileResult)
+        assert result.path == "Wiki/nonexistent.md"
+        assert result.message == "file not found: Wiki/nonexistent.md"
+        assert result == "Error: file not found: Wiki/nonexistent.md"
 
 
 # ---------------------------------------------------------------------------
@@ -435,3 +439,37 @@ class TestLoadCompiledRouter:
     def test_exits_when_missing(self, tmp_path):
         with pytest.raises(SystemExit):
             read.load_compiled_router(str(tmp_path))
+
+
+class TestReadCli:
+    def test_missing_file_exits_nonzero_on_stderr(self, vault, capsys):
+        tmp_path, _ = vault
+
+        exit_code = read.main([
+            "artefact",
+            "--name",
+            "Wiki/nonexistent.md",
+            "--vault",
+            str(tmp_path),
+        ])
+
+        captured = capsys.readouterr()
+        assert exit_code == 1
+        assert captured.out == ""
+        assert captured.err == "Error: file not found: Wiki/nonexistent.md\n"
+
+    def test_logical_error_exits_nonzero_on_stderr(self, vault, capsys):
+        tmp_path, _ = vault
+
+        exit_code = read.main([
+            "type",
+            "--name",
+            "nonexistent",
+            "--vault",
+            str(tmp_path),
+        ])
+
+        captured = capsys.readouterr()
+        assert exit_code == 1
+        assert captured.out == ""
+        assert captured.err == "Error: No artefact matching 'nonexistent'\n"

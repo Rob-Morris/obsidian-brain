@@ -19,7 +19,7 @@ Archived artefacts are moved to `_Archive/{TypeFolder}/{project}/` with a `yyyym
 
 The underscore prefix on `_Archive/` places it in the system-directory namespace (alongside `_Config`, `_Temporal`), so `is_archived_path()` is a simple string check: `"/_Archive/" in path`. Archive directories are skipped during vault walks for search, index building, and wikilink update operations — frozen snapshots whose internal links are not updated on future renames.
 
-Archiving requires the artefact's current status to be terminal. This is enforced at the code level: `archive_artefact()` raises `ValueError` if the type has no terminal statuses or if the current status is not in that list. The `brain_edit` tool also rejects edits to archived paths, requiring `brain_action('unarchive')` first.
+Archiving requires the artefact's current status to be terminal. This is enforced at the code level: `archive_artefact()` raises `ValueError` if the type has no terminal statuses or if the current status is not in that list. The `brain_edit` tool also rejects edits to archived paths, requiring `brain_move(op="unarchive", path="...")` first.
 
 `+Status/` folders are stripped from the path when computing the archive destination — archived files don't need status subfolders.
 

@@ -82,6 +82,16 @@ class HasDescendantsError(ValueError):
         return json.dumps(self.to_payload(), sort_keys=True)
 
 
+class MissingFileResult(str):
+    """Typed missing-file result preserving the legacy rendered string."""
+
+    def __new__(cls, path):
+        result = super().__new__(cls, f"Error: file not found: {path}")
+        result.path = path
+        result.message = f"file not found: {path}"
+        return result
+
+
 def read_file_content(vault_root, rel_path):
     """Read a vault file's content given a relative path from vault root."""
     original = rel_path
@@ -92,7 +102,7 @@ def read_file_content(vault_root, rel_path):
         abs_path = os.path.join(vault_root, original)
         rel_path = original
     if not os.path.isfile(abs_path):
-        return f"Error: file not found: {rel_path}"
+        return MissingFileResult(rel_path)
     with open(abs_path, "r", encoding="utf-8") as f:
         return f.read()
 
@@ -539,7 +549,7 @@ def living_key_set(vault_root, router, artefact, *, exclude_path=None):
         if artefact_type_prefix(art) != type_prefix:
             continue
         content = read_file_content(vault_root, rel_path)
-        if content.startswith("Error:"):
+        if isinstance(content, MissingFileResult):
             continue
         fields, _ = parse_frontmatter(content)
         key = fields.get("key")
@@ -581,7 +591,7 @@ def scan_artefact_key_reference_index(vault_root, router):
         vault_root, router, classifications={"living", "temporal"}, include_status_folders=True
     ):
         content = read_file_content(vault_root, rel_path)
-        if content.startswith("Error:"):
+        if isinstance(content, MissingFileResult):
             continue
         fields, _ = parse_frontmatter(content)
         parent_key = normalize_artefact_key(fields.get("parent"))
@@ -631,6 +641,10 @@ def resolve_parent_reference(vault_root, router, parent):
     if parent_art.get("classification") != "living":
         raise ValueError("parent must resolve to a living artefact")
     content = read_file_content(vault_root, resolved_path)
+    if isinstance(content, MissingFileResult):
+        raise StaleArtefactIndexError(
+            f"resolved parent {resolved_path} is missing on disk"
+        )
     fields, _ = parse_frontmatter(content)
     slug = fields.get("key")
     if not is_valid_key(slug):

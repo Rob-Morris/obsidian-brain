@@ -97,6 +97,28 @@ class TestBrainRead:
         result = server.brain_read("type", name="nonexistent")
         _assert_any_error(result)
 
+    @pytest.mark.parametrize(
+        ("resource", "name"),
+        [
+            ("artefact", "Wiki/missing.md"),
+            ("file", "Wiki/missing.md"),
+            ("archive", "_Archive/Wiki/missing.md"),
+        ],
+    )
+    def test_read_missing_file_is_an_mcp_error(self, initialized, resource, name):
+        result = server.brain_read(resource, name=name)
+
+        _assert_error(result, "file not found")
+        assert result.content[0].text == f"Error: file not found: {name}"
+
+    def test_read_content_beginning_with_error_is_not_an_mcp_error(self, initialized):
+        path = initialized / "Wiki" / "error-prefixed-content.md"
+        path.write_text("Error: this is ordinary markdown content.\n")
+
+        result = server.brain_read("artefact", name="Wiki/error-prefixed-content.md")
+
+        assert result == "Error: this is ordinary markdown content.\n"
+
     def test_read_trigger_requires_name(self, initialized):
         result = server.brain_read("trigger")
         _assert_error(result, "requires top-level field 'name'")

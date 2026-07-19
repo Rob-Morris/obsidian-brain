@@ -33,6 +33,7 @@ from _common import (
     is_archived_path,
     load_compiled_router as _load_compiled_router,
     match_artefact,
+    MissingFileResult,
     normalize_artefact_key,
     read_file_content,
     resolve_artefact_key_entry,
@@ -349,11 +350,18 @@ def main(argv=None):
     except ValueError as exc:
         parser.error(str(exc))
 
+    if isinstance(result, MissingFileResult):
+        print(result, file=sys.stderr)
+        return 1
+    if isinstance(result, dict) and "error" in result:
+        print(f"Error: {result['error']}", file=sys.stderr)
+        return 1
     if isinstance(result, str):
         print(result)
     else:
         print(json.dumps(result, indent=2, ensure_ascii=False))
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

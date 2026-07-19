@@ -7,8 +7,8 @@ has a status field), creates a shaping transcript from the template, and
 links the transcript back to the source artefact.
 
 Usage (via MCP):
-    brain_action("start-shaping", params={"target": "Designs/My Design.md"})
-    brain_action("start-shaping", params={"target": "My Design", "title": "Custom Title"})
+    brain_action(request={"action": "start-shaping", "params": {"target": "Designs/My Design.md"}})
+    brain_action(request={"action": "start-shaping", "params": {"target": "My Design", "title": "Custom Title"}})
 
 Usage (CLI):
     python3 start_shaping.py --target "Designs/My Design.md" --vault /path/to/vault
@@ -23,6 +23,7 @@ from _common import (
     find_vault_root,
     load_compiled_router,
     match_artefact,
+    MissingFileResult,
     now_iso,
     parse_frontmatter,
     read_file_content,
@@ -94,7 +95,7 @@ def start_shaping(vault_root, router, params):
     abs_path = os.path.join(vault_root, rel_path)
 
     content = read_file_content(vault_root, rel_path)
-    if content.startswith("Error:"):
+    if isinstance(content, MissingFileResult):
         return {"error": f"Cannot read target: {content}"}
 
     fields, body = parse_frontmatter(content)

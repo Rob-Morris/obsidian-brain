@@ -268,9 +268,10 @@ resource/type metadata, plus a concise text confirmation.
 
 Single-file mutation. Write-guarded: same folder restrictions as `brain_create`.
 
-**Request:** `{subject, mutation}`. Both members are discriminated objects, so
-invalid operation/resource parameter combinations are rejected by the generated
-schema before the handler runs.
+**Request:** `{request: {subject, mutation}}`. The tool has one required
+top-level `request` argument. Its `subject` and `mutation` members are
+discriminated objects, so invalid operation/resource parameter combinations are
+rejected by the generated schema before the handler runs.
 
 - Artefact subject: `{resource: "artefact", path, fix_links?}`. `path` accepts a canonical key, vault-relative path, basename, or temporal display name.
 - Named-resource subject: `{resource: "skill" | "memory" | "style" | "template", name}`. For templates, `name` is the artefact type key.
@@ -380,7 +381,7 @@ Vault-wide and destructive content-move operations, gated by explicit approval.
 - `recursive` — optional boolean used by `archive`, `unarchive`, and living→temporal `convert`; required when the operation would otherwise strand or remove ownership metadata from living descendants
 
 **Behaviour:**
-- Flat top-level request shape for caller ergonomics, matching the `brain_edit` pattern: field-level schema plus explicit runtime validation of op-specific requirements
+- Flat top-level request shape for caller ergonomics: field-level schema plus explicit runtime validation of op-specific requirements
 - **`rename`** — request shape: `{op: "rename", source, dest}`. Artefact-aware same-type move only: source and destination must both live in configured artefact folders for the same type, and destination naming is validated against the type contract. Delegates to `rename.py`'s `rename_and_update_links()`, with Obsidian CLI override when available. Wikilink updates match full-path (`[[Wiki/topic-a]]`), filename-only (`[[topic-a]]`), heading anchors, block references, embeds, and aliases while preserving the original format; filename-only matching is skipped when basename is ambiguous
 - **`convert`** — request shape: `{op: "convert", path, target_type, parent?, recursive?}`. Changes artefact type, moves file, reconciles frontmatter, and updates wikilinks vault-wide. Crossing the living/temporal boundary reconciles the key contract: temporal→living generates a canonical `key:` from the clearest free title-derived words before using a random suffix. Living→temporal conversion of an artefact with living descendants returns `HAS_DESCENDANTS` by default; pass `recursive: true` to drop the source key and heal descendants by removing their `parent:` field plus owner-tag and relocating them out of the parent's key- or scope-based child folder.
 - **`archive`** — request shape: `{op: "archive", path, recursive?}`. Moves a terminal-status artefact to `_Archive/{Type}/{Project}/` with date-prefix rename, sets `archiveddate`, and updates vault-wide wikilinks. If the artefact has living descendants, the default is a `HAS_DESCENDANTS` error with a descendant list; pass `recursive: true` to archive the subtree in one move set.
@@ -512,7 +513,7 @@ experimental while their ranking and ingestion contracts settle.
 
 Loads vault config via three-layer merge (template → `.brain/config.yaml` → `.brain/local/config.yaml`). Config freshness is rechecked before profile enforcement and before `brain_session` authentication, so on-disk config edits take effect without restarting the MCP server. Malformed or unreadable config fails closed for guarded tools and is reported through `brain_init(debug=true)`. Auto-compiles router and auto-builds index if stale (compares timestamps against source file mtimes). Both artefacts loaded into memory for the session lifetime. Loads workspace registry from `.brain/local/workspaces.json` (empty dict if absent). Derives vault name from config `brain_name`, then `BRAIN_VAULT_NAME` env var, then directory basename. Obsidian CLI availability is probed lazily on demand rather than during startup.
 
-Router freshness is also enforced mid-session when needed: `brain_session`, `brain_read`, `brain_search`, `brain_list`, `brain_create`, `brain_edit`, all `brain_move` ops, and `brain_action` flows that depend on current router state (`delete`, `reparent`, `start-shaping`). Direct mutation scripts enforce the same stale-router boundary before local writes, so non-MCP agents do not get a weaker safety contract.
+Router freshness is also enforced mid-session when needed: `brain_session`, `brain_read`, `brain_search`, `brain_list`, `brain_create`, `brain_edit`, all `brain_move` ops, and `brain_action` flows that depend on current router state (`delete`, `reparent-children`, `start-shaping`). Direct mutation scripts enforce the same stale-router boundary before local writes, so non-MCP agents do not get a weaker safety contract.
 
 ### Logging
 

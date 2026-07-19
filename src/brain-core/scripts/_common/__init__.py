@@ -51,6 +51,7 @@ from ._artefacts import (
     BrokenParentChainError,
     CyclicParentChainError,
     HasDescendantsError,
+    MissingFileResult,
     ParentChainError,
     RequestCycleError,
     SELF_TAG_PREFIXES,

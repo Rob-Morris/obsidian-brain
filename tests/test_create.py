@@ -323,6 +323,15 @@ class TestCreateArtefact:
             content = f.read()
         assert "What if..." in content
 
+    def test_template_body_may_begin_with_error_text(self, vault, router):
+        template = vault / "_Config" / "Templates" / "Living" / "Ideas.md"
+        template.write_text("Error: this is ordinary template content.\n")
+
+        result = create.create_artefact(str(vault), router, "ideas", "Error Opening")
+
+        content = (vault / result["path"]).read_text()
+        assert "Error: this is ordinary template content." in content
+
     def test_create_release_type_uses_version_in_filename(self, vault, router):
         result = create.create_artefact(
             str(vault),

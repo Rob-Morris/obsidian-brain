@@ -10,7 +10,7 @@ The alternative — requiring humans or agents to manually move files after stat
 
 ## Decision
 
-When `brain_edit` applies a frontmatter change that sets a terminal status, `_maybe_status_move()` automatically moves the artefact into a `+{Status}/` subfolder within its current directory (e.g., `Decisions/+Implemented/dd-042-foo.md`). If a non-terminal status is set and the file is currently in a `+Status/` folder, it is moved back to the parent directory. Empty `+Status/` folders are removed after such a "revive" move.
+When `brain_set_status` applies a terminal status through the shared lifecycle mutation engine, `_maybe_status_move()` automatically moves the artefact into a `+{Status}/` subfolder within its current directory (e.g., `Decisions/+Implemented/dd-042-foo.md`). Generic `brain_edit` calls reject direct `status` changes so callers cannot bypass this handler-owned workflow. If a non-terminal status is set and the file is currently in a `+Status/` folder, it is moved back to the parent directory. Empty `+Status/` folders are removed after such a "revive" move.
 
 The `+` prefix is chosen for `+Status/` folders because:
 1. `+` sorts before letters and most special characters in most file explorers, placing terminal-status subfolders near the top where they are easily collapsed.
