@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.53.1](changelog/v0.53.1.md) | 2026-07-23 | Normalize legacy shaping completion metadata before compilation |
 | [v0.53.0](changelog/v0.53.0.md) | 2026-07-23 | BREAKING — Rename shaping action and enforce session invariants |
 | [v0.52.1](changelog/v0.52.1.md) | 2026-07-19 | Correct MCP request guidance and missing-file error signalling |
 | [v0.52.0](changelog/v0.52.0.md) | 2026-07-19 | Make Brain tooling explicit, retry-safe, and metadata-authoritative |

@@ -1,19 +1,21 @@
 # Migration to v0.53.0
 
 Before the strict v0.53 router compile gate, this migration repairs configured
-taxonomies that already have a complete `## Shaping` section but do not declare
-the `shaping` or completion status in their lifecycle.
+taxonomies whose legacy `## Shaping` contract either expresses its completion
+status as prose containing one backticked example, or does not declare the
+`shaping` or completion status in its lifecycle.
 
-The compiler prefixes this specific compatibility failure with the stable
-`SHAPING_LIFECYCLE_STATUS_UNDECLARED` code. The migration keys off that code,
-not the surrounding diagnostic prose, and leaves unrelated compile failures
-untouched.
+The compiler prefixes these compatibility failures with the stable
+`SHAPING_METADATA_INVALID` and `SHAPING_LIFECYCLE_STATUS_UNDECLARED` codes. The
+migration keys off those codes, not the surrounding diagnostic prose, and
+leaves unrelated compile failures untouched.
 
-The repair preserves every status already recognised by the old taxonomy and
-adds only the missing shaping values. Inline frontmatter status comments are
-extended in place. Table and prose forms are normalised into a complete
-Markdown lifecycle table when needed, including headers and neutral descriptions
-for carried-over values. The migration reparses its result and refuses to write
+The repair converts the unambiguous legacy completion prose to the strict
+backticked field, preserves every status already recognised by the old taxonomy,
+and adds only the missing shaping values. Inline frontmatter status comments are
+extended in place. Table and prose forms are normalised into a complete Markdown
+lifecycle table when needed, including headers and neutral descriptions for
+carried-over values. The migration reparses its result and refuses to write
 unless every existing and required status remains authoritative. The upgrade
 runner snapshots each changed taxonomy, so a later upgrade failure restores the
 original file.

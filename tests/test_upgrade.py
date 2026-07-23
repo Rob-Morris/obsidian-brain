@@ -117,6 +117,30 @@ def _seed_tracking(vault, type_key, taxonomy_path, version="0.18.0"):
 
 
 class TestShapingLifecycleMigration:
+    def test_normalizes_documented_legacy_completion_status(self):
+        content = (
+            "# Tasks\n\n"
+            "## Lifecycle\n\n"
+            "| Status | Meaning |\n"
+            "|---|---|\n"
+            "| `open` | Open. |\n"
+            "| `shaping` | Being shaped. |\n\n"
+            "## Shaping\n\n"
+            "**Flavour:** Convergent\n"
+            "**Bar:** Clear and ready to be performed.\n"
+            "**Completion status:** The type's normal working status "
+            "(e.g. `open`)\n"
+        )
+
+        patched, added = migrate_to_0_53_0._patch_taxonomy(content)
+
+        assert added == []
+        assert "**Completion status:** `open`" in patched
+        assert "normal working status" not in patched
+        assert migrate_to_0_53_0.compile_router.parse_taxonomy_content(
+            patched
+        )["shaping"]["completion_status"] == "open"
+
     def test_patches_inline_status_comment(self):
         content = (
             "# Designs\n\n"
@@ -255,7 +279,14 @@ class TestShapingLifecycleMigration:
             "Open work remains active."
         )
 
-    def test_gate_uses_stable_compiler_error_code(self, tmp_path):
+    @pytest.mark.parametrize(
+        "error_code",
+        [
+            migrate_to_0_53_0.compile_router.SHAPING_METADATA_ERROR_CODE,
+            migrate_to_0_53_0.compile_router.SHAPING_LIFECYCLE_ERROR_CODE,
+        ],
+    )
+    def test_gate_uses_stable_compiler_error_codes(self, tmp_path, error_code):
         taxonomy = tmp_path / "_Config" / "Taxonomy" / "Living" / "designs.md"
         taxonomy.parent.mkdir(parents=True)
         taxonomy.write_text(
@@ -274,8 +305,7 @@ class TestShapingLifecycleMigration:
             str(tmp_path),
             context={
                 "compile_error": (
-                    migrate_to_0_53_0.compile_router.SHAPING_LIFECYCLE_ERROR_CODE
-                    + ": wording may evolve"
+                    error_code + ": wording may evolve"
                 ),
                 "validate_compile": lambda: validate_calls.append(True),
             },
@@ -323,7 +353,8 @@ class TestShapingLifecycleMigration:
             {
                 "target": "_Config/Taxonomy/Living/invalid.md",
                 "message": (
-                    "taxonomy was not auto-repaired: ## Shaping requires "
+                    "taxonomy was not auto-repaired: "
+                    "SHAPING_METADATA_INVALID: ## Shaping requires "
                     "**Bar:** metadata"
                 ),
             }
@@ -697,7 +728,7 @@ class TestPrecompileDefinitionRemediation:
 
 
     def test_upgrade_repairs_legacy_shaping_taxonomy_before_compile(self, tmp_path):
-        source = _make_real_compile_source(tmp_path, version="0.53.0")
+        source = _make_real_compile_source(tmp_path, version="0.53.1")
         vault = _make_minimal_upgrade_vault(tmp_path, version="0.52.1")
         (vault / "Designs").mkdir()
         taxonomy = vault / "_Config" / "Taxonomy" / "Living" / "designs.md"
@@ -746,6 +777,55 @@ class TestPrecompileDefinitionRemediation:
             "ready",
         ]
         assert designs["shaping"]["completion_status"] == "ready"
+
+    def test_upgrade_normalizes_legacy_shaping_completion_metadata(
+        self, tmp_path
+    ):
+        source = _make_real_compile_source(tmp_path, version="0.53.1")
+        vault = _make_minimal_upgrade_vault(tmp_path, version="0.52.1")
+        (vault / "Tasks").mkdir()
+        taxonomy = vault / "_Config" / "Taxonomy" / "Living" / "tasks.md"
+        taxonomy.write_text(
+            "# Tasks\n\n"
+            "## Naming\n\n`{Title}.md` in `Tasks/`.\n\n"
+            "## Lifecycle\n\n"
+            "| Status | Meaning |\n"
+            "|---|---|\n"
+            "| `open` | Open. |\n"
+            "| `shaping` | Being shaped. |\n\n"
+            "## Frontmatter\n\n```yaml\n---\n"
+            "type: living/task\ntags: []\nstatus: open\n"
+            "---\n```\n\n"
+            "## Shaping\n\n"
+            "**Flavour:** Convergent\n"
+            "**Bar:** Clear and ready to be performed.\n"
+            "**Completion status:** The type's normal working status "
+            "(e.g. `open`)\n\n"
+            "## Template\n\n[[_Config/Templates/Living/Tasks]]\n"
+        )
+
+        result = upgrade.upgrade(str(vault), str(source), sync=False)
+
+        assert result["status"] == "ok"
+        patch_result = next(
+            item
+            for item in result["precompile_patch_migrations"]
+            if item["version"] == "0.53.0"
+        )
+        assert patch_result["patched"] == [
+            {
+                "target": "_Config/Taxonomy/Living/tasks.md",
+                "added_statuses": [],
+            }
+        ]
+        assert "**Completion status:** `open`" in taxonomy.read_text()
+        compiled = json.loads(
+            (vault / ".brain" / "local" / "compiled-router.json").read_text()
+        )
+        tasks = next(
+            item for item in compiled["artefacts"] if item["key"] == "tasks"
+        )
+        assert tasks["shaping"]["completion_status"] == "open"
 
     def test_upgrade_patches_blocking_customised_taxonomy_before_compile(self, tmp_path):
         source = _make_real_compile_source(tmp_path)

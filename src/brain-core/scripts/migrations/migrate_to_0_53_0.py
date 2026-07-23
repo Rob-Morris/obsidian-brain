@@ -37,6 +37,39 @@ def _unique_statuses(statuses: list[str]) -> list[str]:
     return list(dict.fromkeys(statuses))
 
 
+def _normalize_legacy_completion_status(content: str) -> str:
+    """Convert the documented prose form when it names one example status."""
+    shaping = re.search(
+        r"^## Shaping\s*\n(.*?)(?=^## |\Z)",
+        content,
+        re.MULTILINE | re.DOTALL,
+    )
+    if not shaping:
+        return content
+    section = shaping.group(1)
+    field = re.search(
+        r"^\*\*Completion status:\*\*[ \t]*(.+?)[ \t]*$",
+        section,
+        re.MULTILINE,
+    )
+    if not field:
+        return content
+    value = field.group(1)
+    if re.fullmatch(r"`[^`]+`", value):
+        return content
+    candidates = [
+        candidate.strip()
+        for candidate in re.findall(r"`([^`]+)`", value)
+        if candidate.strip()
+    ]
+    if len(candidates) != 1:
+        return content
+    start = shaping.start(1) + field.start()
+    end = shaping.start(1) + field.end()
+    replacement = f"**Completion status:** `{candidates[0]}`"
+    return content[:start] + replacement + content[end:]
+
+
 def _lifecycle_rows(statuses: list[str], added: set[str]) -> str:
     return "".join(
         f"| `{status}` | "
@@ -124,10 +157,11 @@ def _append_lifecycle_rows(
 
 
 def _patch_taxonomy(content: str) -> tuple[str, list[str]]:
-    shaping = compile_router._parse_shaping_section(content)
+    normalized = _normalize_legacy_completion_status(content)
+    shaping = compile_router._parse_shaping_section(normalized)
     if not shaping:
         return content, []
-    statuses = compile_router.parse_status_enum(content) or []
+    statuses = compile_router.parse_status_enum(normalized) or []
     required = _unique_statuses(["shaping", shaping["completion_status"]])
     missing = [
         status
@@ -135,12 +169,12 @@ def _patch_taxonomy(content: str) -> tuple[str, list[str]]:
         if status not in statuses
     ]
     if not missing:
-        return content, []
+        return normalized, []
 
-    patched = _append_inline_statuses(content, missing)
+    patched = _append_inline_statuses(normalized, missing)
     if patched is None:
         patched = _append_lifecycle_rows(
-            content,
+            normalized,
             _unique_statuses([*statuses, *missing]),
             missing,
         )
@@ -165,9 +199,12 @@ def patch_pre_compile(
     context = context if context is not None else {}
     compile_error = context.get("compile_error")
     result: dict[str, Any] = {"status": "skipped", "patched": [], "warnings": []}
-    if (
-        not compile_error
-        or compile_router.SHAPING_LIFECYCLE_ERROR_CODE not in compile_error
+    repairable_codes = (
+        compile_router.SHAPING_METADATA_ERROR_CODE,
+        compile_router.SHAPING_LIFECYCLE_ERROR_CODE,
+    )
+    if not compile_error or not any(
+        code in compile_error for code in repairable_codes
     ):
         return result
 
@@ -192,7 +229,7 @@ def patch_pre_compile(
                     }
                 )
                 continue
-            if not added:
+            if patched == content:
                 continue
             _snapshot_file(context, path)
             safe_write(path, patched, bounds=vault_root)

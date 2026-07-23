@@ -191,6 +191,7 @@ _BUILTIN_NAMING_PLACEHOLDERS = {
     "sourcedoctype",
 }
 
+SHAPING_METADATA_ERROR_CODE = "SHAPING_METADATA_INVALID"
 SHAPING_LIFECYCLE_ERROR_CODE = "SHAPING_LIFECYCLE_STATUS_UNDECLARED"
 
 
@@ -468,18 +469,21 @@ def _parse_shaping_section(content):
         match = re.search(pattern, section, re.MULTILINE | re.IGNORECASE)
         if not match:
             raise ValueError(
+                f"{SHAPING_METADATA_ERROR_CODE}: "
                 f"## Shaping requires **{labels[field]}:** metadata"
                 + (" in backticks" if field == "completion_status" else "")
             )
         fields[field] = match.group(1).strip()
         if not fields[field]:
             raise ValueError(
+                f"{SHAPING_METADATA_ERROR_CODE}: "
                 f"## Shaping requires non-empty **{labels[field]}:** metadata"
             )
 
     flavour = fields["flavour"].lower()
     if flavour not in {"convergent", "discovery"}:
         raise ValueError(
+            f"{SHAPING_METADATA_ERROR_CODE}: "
             "## Shaping **Flavour:** must be `Convergent` or `Discovery`"
         )
     fields["flavour"] = flavour
