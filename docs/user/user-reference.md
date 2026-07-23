@@ -286,8 +286,9 @@ the same stable `shaping` adapter for Claude Code, Codex, or both. The adapter
 loads the authoritative shaping workflow from the active Brain with
 `brain_session` and `brain_read`; it does not copy versioned workflow files into
 the client directory. Existing unmanaged skills are preserved unless `--replace`
-is supplied, and `--remove` applies only to an unmodified Brain-owned adapter.
-Restart a client after its adapter changes.
+is supplied; replaced trees are archived outside skill discovery under
+`~/.<client>/.brain-skill-backups/`. `--remove` applies only to an unmodified
+Brain-owned adapter. Restart a client after its adapter changes.
 
 **`repair.py`** (infrastructure recovery) — explicit repair surface for current-vault operational drift. It bootstraps from any compatible Python 3.12+ launcher, repairs the central managed runtime at `~/.brain/venvs/py<X.Y>-<sha16>/` when needed, then hands off into it for packageful work. First-cut scopes are `runtime`, `mcp`, `router`, `lexical`, `registry`, `frontmatter`, and `semantic`; the semantic scope restores the pinned runtime packages, local model snapshot/manifest, and sidecars together for an already-configured vault. Missing sidecars degrade cleanly at runtime; present-but-corrupt sidecars now fail explicitly so the owning entry point can rebuild or point you at repair.
 

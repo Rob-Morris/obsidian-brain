@@ -16,6 +16,7 @@ CLIENT_SKILLS_DIRS = {
     "codex": Path(".codex") / "skills",
 }
 ADAPTER_SKILL = "shaping"
+BACKUP_DIR = ".brain-skill-backups"
 MARKER_FILE = ".brain-agent-skill.json"
 MARKER_OWNER = "obsidian-brain"
 MARKER_KIND = "active-brain-skill-adapter"
@@ -81,11 +82,12 @@ def _unexpected_entries(skill_dir: Path, *, marker_present: bool) -> list[str]:
 
 
 def _backup_path(skills_root: Path) -> Path:
-    base = skills_root / f"{ADAPTER_SKILL}.pre-brain-adapter"
+    backup_root = skills_root.parent / BACKUP_DIR
+    base = backup_root / f"{ADAPTER_SKILL}.pre-brain-adapter"
     candidate = base
     suffix = 2
     while candidate.exists() or candidate.is_symlink():
-        candidate = skills_root / f"{base.name}-{suffix}"
+        candidate = backup_root / f"{base.name}-{suffix}"
         suffix += 1
     return candidate
 
@@ -115,6 +117,7 @@ def _archive_and_install(
     existing_label: str,
 ) -> tuple[str, str]:
     backup = _backup_path(skills_root)
+    backup.parent.mkdir(parents=True, exist_ok=True)
     os.replace(skill_dir, backup)
     _write_adapter(skill_dir, content)
     return (
@@ -125,7 +128,8 @@ def _archive_and_install(
 
 def _refuse_symlinked_destination(skills_root: Path, skill_dir: Path) -> None:
     client_root = skills_root.parent
-    for path in (client_root, skills_root, skill_dir):
+    backup_root = client_root / BACKUP_DIR
+    for path in (client_root, skills_root, skill_dir, backup_root):
         if path.is_symlink():
             raise AgentSkillConfigError(
                 f"refusing to manage symlinked client skill destination: {path}"

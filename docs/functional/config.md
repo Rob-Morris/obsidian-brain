@@ -198,10 +198,12 @@ Brain version. Only the stable adapter is installed under
 Each installed adapter has a Brain ownership marker and content digest. Re-running
 the command updates only an unmodified Brain-owned adapter. An unmanaged skill is
 left untouched unless `--replace` is supplied, in which case the complete old
-directory is moved to a `shaping.pre-brain-adapter[-N]` backup. `--remove` likewise
-removes only an unmodified Brain-owned adapter. Symlinked targets and unexpected
-files are refused. These writes are never performed implicitly during vault
-upgrade; restart the affected client after an explicit command reports a change.
+directory is moved outside skill discovery to
+`~/.<client>/.brain-skill-backups/shaping.pre-brain-adapter[-N]`. `--remove`
+likewise removes only an unmodified Brain-owned adapter. Symlinked targets,
+including the backup root, and unexpected files are refused. These writes are
+never performed implicitly during vault upgrade; restart the affected client
+after an explicit command reports a change.
 When that checked-in discovery template is introduced or modified, `upgrade.py`
 surfaces the configuration command as a recommended follow-up. Updates to the
 authoritative shaping workflow itself need no client update and produce no prompt.

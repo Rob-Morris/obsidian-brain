@@ -100,7 +100,7 @@
       }
     },
     "living/tasks": {
-      "brain_core_version": "0.53.1",
+      "brain_core_version": "0.53.2",
       "installed_at": "2026-07-22T08:47:18.965854+00:00",
       "files": {
         "taxonomy": {
@@ -170,7 +170,7 @@
       }
     },
     "temporal/cookies": {
-      "brain_core_version": "0.53.1",
+      "brain_core_version": "0.53.2",
       "installed_at": "2026-07-22T09:03:12.736165+00:00",
       "files": {
         "taxonomy": {
@@ -244,7 +244,7 @@
       }
     },
     "temporal/mockups": {
-      "brain_core_version": "0.53.1",
+      "brain_core_version": "0.53.2",
       "installed_at": "2026-07-22T09:03:12.736165+00:00",
       "files": {
         "taxonomy": {
@@ -286,7 +286,7 @@
       }
     },
     "temporal/presentations": {
-      "brain_core_version": "0.53.1",
+      "brain_core_version": "0.53.2",
       "installed_at": "2026-07-22T09:03:12.736165+00:00",
       "files": {
         "taxonomy": {
@@ -308,7 +308,7 @@
       }
     },
     "temporal/reports": {
-      "brain_core_version": "0.53.1",
+      "brain_core_version": "0.53.2",
       "installed_at": "2026-07-22T09:03:12.736165+00:00",
       "files": {
         "taxonomy": {
@@ -322,7 +322,7 @@
       }
     },
     "temporal/research": {
-      "brain_core_version": "0.53.1",
+      "brain_core_version": "0.53.2",
       "installed_at": "2026-07-22T09:03:12.736165+00:00",
       "files": {
         "taxonomy": {
@@ -336,7 +336,7 @@
       }
     },
     "temporal/shaping-transcripts": {
-      "brain_core_version": "0.53.1",
+      "brain_core_version": "0.53.2",
       "installed_at": "2026-07-22T08:47:18.965854+00:00",
       "files": {
         "taxonomy": {
@@ -364,7 +364,7 @@
       }
     },
     "temporal/thoughts": {
-      "brain_core_version": "0.53.1",
+      "brain_core_version": "0.53.2",
       "installed_at": "2026-07-22T09:03:12.736165+00:00",
       "files": {
         "taxonomy": {

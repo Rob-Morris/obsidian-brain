@@ -111,8 +111,10 @@ the active Brain, then loads that Brain's `.brain-core/skills/shaping/SKILL.md`
 through `brain_read`, so a normal Brain upgrade updates the workflow without
 copying it into each client's global skill directory. Existing unmanaged shaping
 skills are preserved; after reviewing them, use `--replace` to archive each old
-directory and install the adapter. Restart Claude Code and Codex after the command
-reports a change. Installation is explicit because these are machine-global client
+directory outside skill discovery under
+`~/.<client>/.brain-skill-backups/` and install the adapter. Restart Claude Code
+and Codex after the command reports a change. Installation is explicit because
+these are machine-global client
 directories, not vault-owned files.
 
 ---

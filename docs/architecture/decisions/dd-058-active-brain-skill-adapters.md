@@ -39,8 +39,10 @@ Each installed adapter has a sibling Brain ownership marker containing the
 expected content hash. Configuration updates only an unmodified managed adapter.
 An unmanaged existing skill is preserved unless the operator passes
 `--replace`, which moves the complete old directory to a recoverable sibling
-backup before installing the adapter. Removal likewise touches only an
-unmodified Brain-managed adapter. Symlinked targets fail closed.
+backup under `~/.<client>/.brain-skill-backups/` before installing the adapter.
+Keeping backups outside `skills/` prevents clients from rediscovering archived
+workflow files. Removal likewise touches only an unmodified Brain-managed
+adapter. Symlinked destinations, including the backup root, fail closed.
 
 Normal vault upgrade does not write client-global skill directories. Once the
 stable adapter is installed, no per-release client update is needed because it

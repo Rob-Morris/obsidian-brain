@@ -184,7 +184,9 @@ vault write bounds. `configure.py agent-skills` writes only the fixed
 uses atomic writes with the skill directory as the bound, refuses symlinked
 targets, and records an expected content hash in a Brain ownership marker.
 Unmanaged or modified content is preserved; `--replace` archives an unmanaged
-directory to a sibling backup before installing, and removal applies only to an
+directory under the client-root `.brain-skill-backups/` directory before
+installing, keeping executable skill discovery separate from recoverable data.
+The backup root is also symlink-refused, and removal applies only to an
 unmodified managed adapter. Vault upgrades never mutate these client-global
 locations implicitly. See [DD-058](decisions/dd-058-active-brain-skill-adapters.md).
 

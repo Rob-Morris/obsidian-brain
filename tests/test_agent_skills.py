@@ -21,6 +21,10 @@ def _skill_dir(home, client):
     return home / f".{client}" / "skills" / "shaping"
 
 
+def _backup_dir(home, client):
+    return home / f".{client}" / agent_skills.BACKUP_DIR
+
+
 def _marker_for(content):
     return {
         "schema_version": 1,
@@ -161,11 +165,12 @@ def test_replace_archives_unmanaged_skill_before_install(tmp_path):
         replace=True,
     )
 
-    backup = skill_dir.parent / "shaping.pre-brain-adapter"
+    backup = _backup_dir(tmp_path, "codex") / "shaping.pre-brain-adapter"
     assert steps[0]["status"] == "changed"
     assert (backup / "SKILL.md").read_text() == "custom workflow"
     assert (backup / "refine" / "SKILL.md").read_text() == "custom sub-skill"
     assert (skill_dir / "SKILL.md").read_text() == ADAPTER_CONTENT
+    assert not (skill_dir.parent / "shaping.pre-brain-adapter").exists()
 
 
 def test_missing_template_is_a_scoped_configuration_error(tmp_path, monkeypatch):
@@ -190,8 +195,8 @@ def test_replace_uses_numbered_backup_when_first_backup_exists(tmp_path):
     skill_dir = _skill_dir(tmp_path, "codex")
     skill_dir.mkdir(parents=True)
     (skill_dir / "SKILL.md").write_text("custom workflow")
-    first_backup = skill_dir.parent / "shaping.pre-brain-adapter"
-    first_backup.mkdir()
+    first_backup = _backup_dir(tmp_path, "codex") / "shaping.pre-brain-adapter"
+    first_backup.mkdir(parents=True)
 
     steps = agent_skills.configure_agent_skill_adapters(
         home_dir=tmp_path,
@@ -204,6 +209,29 @@ def test_replace_uses_numbered_backup_when_first_backup_exists(tmp_path):
         "custom workflow"
     )
     assert first_backup.is_dir()
+    assert not (skill_dir.parent / "shaping.pre-brain-adapter-2").exists()
+
+
+@pytest.mark.skipif(not hasattr(os, "symlink"), reason="symlinks are unavailable")
+def test_symlinked_backup_root_is_never_followed(tmp_path):
+    skill_dir = _skill_dir(tmp_path, "claude")
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text("custom workflow")
+    outside = tmp_path / "outside-backups"
+    outside.mkdir()
+    backup_root = _backup_dir(tmp_path, "claude")
+    backup_root.symlink_to(outside, target_is_directory=True)
+
+    steps = agent_skills.configure_agent_skill_adapters(
+        home_dir=tmp_path,
+        client="claude",
+        replace=True,
+    )
+
+    assert steps[0]["status"] == "error"
+    assert "symlinked client skill destination" in steps[0]["message"]
+    assert (skill_dir / "SKILL.md").read_text() == "custom workflow"
+    assert not any(outside.iterdir())
 
 
 def test_modified_managed_adapter_is_not_overwritten(tmp_path):
