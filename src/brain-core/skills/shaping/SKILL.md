@@ -26,7 +26,7 @@ The artefact is clear but has open decisions to work through. Decision-driven, w
 
 ### discover
 
-The artefact is a discovery type (People, Ideas, Cookies, Journal Entries, Thoughts). Open-ended exploration, no decision table.
+The taxonomy declares discovery shaping. Open-ended exploration, no decision table.
 
 **File:** `discover/SKILL.md`
 
@@ -34,16 +34,12 @@ The artefact is a discovery type (People, Ideas, Cookies, Journal Entries, Thoug
 
 All file paths below are relative to this skill's base directory. Use the Read tool to load them — do NOT use the Skill tool.
 
-1. Read and follow `assess/SKILL.md` to set up the session (artefact, transcript, taxonomy).
-2. Based on what assess found, select the mode:
-   - Artefact is new, empty, or a stub without enough information to make specific decisions → **brainstorm**
-   - Artefact has content and is a convergent type (Designs, Plans, Tasks, Reports, Research, Presentations, Printables, Mockups) with open decisions → **refine**
-   - Artefact is a discovery type → **discover**
-3. Read and follow the skill file for the selected mode.
+1. Read and follow `assess/SKILL.md`. It resolves the artefact, reads the taxonomy's `## Shaping` metadata, selects the mode, and opens the session.
+2. Read and follow the skill file for the mode returned by assess.
 
 ## Routing Examples
 
 - `shaping <design name>` → assess → **refine** (existing design with decisions)
 - `shaping` + "I want to build X" → assess (creates artefact) → **brainstorm**
-- `shaping <person name>` → assess → **discover**
+- `shaping <discovery artefact>` → assess → **discover**
 - `shaping <stub design>` → assess → **brainstorm** (not enough content to refine yet)

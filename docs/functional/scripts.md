@@ -15,7 +15,7 @@ python3.12 .brain-core/scripts/<script>.py ...
 That `python3.12` process is the launcher, not the managed runtime itself.
 
 - launcher-safe bootstrap entrypoints such as `repair.py`, `setup.py`, and `configure.py` may do meaningful bootstrap work there
-- shared launcher-safe bootstrap ownership now lives in `src/brain-core/scripts/_bootstrap/`, including runtime handoff, bootstrap diagnostics, and shared MCP/client-config state
+- shared launcher-safe bootstrap ownership now lives in `src/brain-core/scripts/_bootstrap/`, including runtime handoff, bootstrap diagnostics, shared MCP/client-config state, and ownership-safe native-skill discovery adapters
 - the machine-level resolution runtime under `~/.brain/resolution-runtime/` is a separate light runtime used by `brain session` before any Brain is selected; it runs only stdlib-only resolver code deployed from `.brain-core/scripts/`, not another Brain's managed runtime
 - runtime-owning lifecycle entrypoints such as `repair.py`, `configure.py`, `session.py`, and `check.py` resolve or repair the canonical managed runtime and then hand off into it before substantive managed work continues
 - managed operational wrappers such as `build_index.py`, `search_index.py`, `construct_benchmark_fixture.py`, `evaluate_search.py`, `compile_router.py`, `compile_colours.py`, `sync_definitions.py`, `shape_printable.py`, `shape_presentation.py`, and `migrate_naming.py` now use that same launcher-to-managed-runtime handoff contract
@@ -26,7 +26,7 @@ That `python3.12` process is the launcher, not the managed runtime itself.
 
 | Script | Purpose | CLI usage |
 |---|---|---|
-| `_bootstrap/` | Shared launcher-safe bootstrap package: env-aware vault discovery, workspace-local scaffold/ignore rules, managed-runtime handoff, bootstrap diagnostics, shared MCP/config-layout state, and the shared Claude/Codex transport engine | (library only) |
+| `_bootstrap/` | Shared launcher-safe bootstrap package: env-aware vault discovery, workspace-local scaffold/ignore rules, managed-runtime handoff, bootstrap diagnostics, shared MCP/config-layout state, the Claude/Codex transport engine, and ownership-safe native-skill discovery adapters | (library only) |
 | `_machine/` | Launcher-safe machine-management package: multi-Brain discovery, shared-runtime topology classification, machine-level maintenance orchestration, and the stdlib-only resolution runtime deployed to `~/.brain/resolution-runtime/`. Maintains `$XDG_CONFIG_HOME/brain/brains.json` as the derived machine registry once Python handoff succeeds; Doctor/Machine helpers still bootstrap from curated source-Brain signals, but `brain session` does not. It runs the machine-owned resolver, resolves exactly one target Brain, and dispatches only to that Brain. | (library only) |
 | `compile_router.py` | Compile router from source files and refresh the session mirror | `python3 compile_router.py [--json]` |
 | `compile_colours.py` | Generate folder colour CSS | (called by compile_router) |
@@ -48,14 +48,15 @@ That `python3.12` process is the launcher, not the managed runtime itself.
 | `rename.py` | Rename/delete file + update wikilinks (full-path and filename-only), refusing stale compiled router state and unsafe move sets before rewrites | `python3 rename.py "source" "dest" [--json]` |
 | `check.py` | Structural compliance checks; launcher-safe bootstrap diagnostics are added first, then managed semantic findings from the canonical semantic owner run after managed-runtime handoff | `python3 check.py [--json] [--actionable] [--severity S] [--vault V]` |
 | `setup.py` | Public workspace setup owner: converge `brain + slug` binding plus Brain-owned local scaffold/ignore state, with an optional guided wizard over the same explicit configure surfaces | `python3 setup.py workspace [PATH] [--vault V] [--brain ID] [--slug S] [--guided] [--force] [--json]` |
-| `configure.py` | Explicit installed-vault configuration entry point: `workspace binding`, `workspace metadata`, `workspace bootstrap`, `mcp`, and `semantic` live here so targeted changes do not have to go through the setup wrapper | `python3 configure.py {workspace,mcp,semantic} ...` |
+| `configure.py` | Explicit installed-vault configuration entry point: `workspace binding`, `workspace metadata`, `workspace bootstrap`, `mcp`, `agent-skills`, and `semantic` live here so targeted changes do not have to go through the setup wrapper | `python3 configure.py {workspace,mcp,agent-skills,semantic} ...` |
 | `install.py` | Shared Python installer core used by `install.sh` and `install.ps1` for fresh/existing-vault installs: scaffolds the vault, installs `.brain-core/`, provisions the machine resolution runtime, provisions the managed runtime, configures MCP, and emits lifecycle results | `python3 install.py VAULT [--source-root REPO] [--launcher PY] [--mcp-scope {project,user,skip}] [--client {claude,codex,all}] [--id ID] [--json]` |
 | `repair.py` | Explicit Brain repair entry point, including metadata-authoritative ownership projection with preview/apply | `python3 repair.py {runtime,mcp,router,lexical,registry,frontmatter,semantic,ownership} [--vault V] [--dry-run] [--json]` |
 | `_common/_venv.py` | Resolve and create the central managed runtime under `~/.brain/venvs/py<X.Y>-<sha16>/`. Importable helper used by `install.py` and lifecycle entry points, with a small diagnostic/repair CLI surface | `python3 _common/_venv.py {python,ensure} --vault V [--launcher PY]` |
 | `shape_printable.py` | Create printable + render PDF | `python3 shape_printable.py --source P --slug S [--no-render] [--pdf-engine E] [--keep-heading-with-next]` |
 | `shape_presentation.py` | Create presentation + render PDF + launch preview | `python3 shape_presentation.py --source P --slug S [--no-render] [--no-preview]` |
-| `start_shaping.py` | Bootstrap a shaping session for an existing artefact | `python3 start_shaping.py --target P [--title T] [--vault V]` |
-| `upgrade.py` | In-place brain-core upgrade with local migration ledger, running stage snapshots in `.brain/local/last-upgrade.json`, syncs the machine resolution runtime from the freshly copied core, provisions the central managed runtime at `~/.brain/venvs/` when requirements change, reconciles post-upgrade retrieval assets through `repair.py lexical` or `repair.py semantic`, and keeps direct bootstrap writes self-contained and atomic | `python3 upgrade.py --source P [--vault V] [--dry-run] [--force] [--sync\|--no-sync] [--sync-deps\|--no-sync-deps] [--json]` |
+| `start_shaping_session.py` | Open or continue a lifecycle-safe shaping session for an existing, shapeable artefact | `python3 start_shaping_session.py --target P --mode brainstorm\|refine\|discover [--vault V]` |
+| `start_shaping.py` | Compatibility launcher for `start_shaping_session.py` | `python3 start_shaping.py --target P [--mode brainstorm\|refine\|discover] [--vault V]` |
+| `upgrade.py` | In-place brain-core upgrade with local migration ledger, running stage snapshots in `.brain/local/last-upgrade.json`, machine-resolution/runtime and retrieval-asset reconciliation, plus structured recommended follow-ups when a client discovery adapter is introduced or changed; direct bootstrap writes remain self-contained and atomic | `python3 upgrade.py --source P [--vault V] [--dry-run] [--force] [--sync\|--no-sync] [--sync-deps\|--no-sync-deps] [--json]` |
 | `vault_registry.py` | User-home authoritative Brain registry for local Brain IDs; current shipped writer stores typed `local` entries as `<brain-id>\tlocal\t<absolute-vault-path>`, while legacy two-column local entries are still read for compatibility. `--register` accepts an optional explicit `--id`; an optional machine default Brain ID is stored separately at `$XDG_CONFIG_HOME/brain/default` and never enters the vaults row format | `python3 vault_registry.py [--register PATH [--id ID]\|--backfill PATH\|--unregister PATH\|--list [--json]\|--prune\|--resolve BRAIN_ID\|--set-default BRAIN_ID\|--get-default\|--clear-default]` |
 | `workspace_registry.py` | Workspace slug-path resolution | `python3 workspace_registry.py [--register SLUG PATH] [--unregister SLUG] [--resolve SLUG] [--json]` |
 | `migrate_naming.py` | Migrate filenames to generous conventions | `python3 migrate_naming.py [--vault V] [--dry-run] [--json]` |
@@ -212,7 +213,7 @@ python3 repair.py semantic --vault /path/to/vault
 - `repair.py` is the explicit recovery surface. Other scripts should detect, explain, and point to `repair.py` rather than silently broadening their own repair semantics.
 - Repair ownership is split by altitude. `check.py` and `repair.py` act on vault-local state only: `.brain/local/workspaces.json`, the compiled router, the lexical index, retrieval sidecars, and artefact frontmatter. `machine.py`, `doctor_machine.py`, and `vault_registry.py` own machine-wide state: `$XDG_CONFIG_HOME/brain/vaults` (default `~/.config/brain/vaults`), the `default` Brain pointer, and shared managed runtimes under `~/.brain/venvs/`. Vault-scoped repair may inspect machine-level state for diagnostics, but it must not mutate it.
 
-The shared bootstrap/runtime mechanics behind `setup.py`, `repair.py`, `configure.py`, `session.py`, and `check.py` now live under `src/brain-core/scripts/_bootstrap/`. `runtime.py` owns launcher discovery and managed-runtime handoff; `diagnostics.py` owns launcher-safe runtime/MCP/registry checks; `mcp_state.py` owns shared MCP/config-layout and init-state helpers; `vaults.py` owns env-aware vault-root discovery for the lifecycle wrappers; `workspace_scaffold.py` owns Brain-local ignore-rule convergence; and `mcp_transport.py` owns the shared Claude/Codex config-write engine used by `configure.py mcp`, installer flows, and `repair.py`.
+The shared bootstrap/runtime mechanics behind `setup.py`, `repair.py`, `configure.py`, `session.py`, and `check.py` now live under `src/brain-core/scripts/_bootstrap/`. `runtime.py` owns launcher discovery and managed-runtime handoff; `diagnostics.py` owns launcher-safe runtime/MCP/registry checks; `mcp_state.py` owns shared MCP/config-layout and init-state helpers; `vaults.py` owns env-aware vault-root discovery for the lifecycle wrappers; `workspace_scaffold.py` owns Brain-local ignore-rule convergence; `mcp_transport.py` owns the shared Claude/Codex config-write engine used by `configure.py mcp`, installer flows, and `repair.py`; and `agent_skills.py` owns installation, update, replacement backup, and removal of Brain-managed native-skill discovery adapters.
 
 **Scope semantics:**
 
@@ -434,6 +435,7 @@ Explicit configuration owner at `.brain-core/scripts/configure.py`. This is the 
 - `configure.py workspace metadata` — optional tags/links/defaults metadata for that workspace
 - `configure.py workspace bootstrap` — optional agent bootstrap/instruction surfaces such as `AGENTS.md` and `CLAUDE.md`
 - `configure.py mcp` — explicit MCP transport policy (`user`, `project`, or Claude-local scope)
+- `configure.py agent-skills` — explicit machine-global native-skill discovery adapters for Claude Code and Codex
 - `configure.py semantic` — local semantic retrieval opt-in and provisioning
 
 `configure.py mcp` is the public MCP policy noun. It calls the shared `_bootstrap/mcp_transport.py` owner directly, so the public distinction is clear:
@@ -443,11 +445,20 @@ Explicit configuration owner at `.brain-core/scripts/configure.py`. This is the 
 
 `configure.py semantic` remains the owner for local semantic-retrieval opt-in. `--enable` records the canonical flag under `.brain/local/config.yaml`, and the default path also provisions the pinned runtime/model/sidecars unless `--no-provision` is passed. Machine-readable output mirrors `repair.py` with an ordered lifecycle result envelope.
 
+`configure.py agent-skills --client {claude,codex,all}` installs a stable
+`shaping` discovery adapter into the selected clients. The adapter resolves the
+active Brain at invocation time and loads its authoritative shaping skill through
+MCP. Existing unmanaged directories are preserved unless `--replace` is supplied,
+which archives them first; `--remove` removes only an unmodified Brain-owned
+adapter. The operation is explicit rather than part of upgrade because its targets
+are machine-global and may contain user-owned skills.
+
 **Examples:**
 
 ```bash
 python3 configure.py workspace binding --brain my-brain --path /path/to/project
 python3 configure.py mcp --workspace /path/to/project --client all
+python3 configure.py agent-skills --client all
 python3 configure.py semantic --enable --no-provision --json
 ```
 
@@ -489,6 +500,12 @@ Canonical upgrade script at `src/brain-core/scripts/upgrade.py`. It is shipped i
 - **Retrieval asset reconciliation** — after a successful copy / compile / migration / definition-sync pass, `upgrade.py` now runs one supported repair scope instead of printing a raw `build_index.py` follow-up. Lexical-only vaults route through `repair.py lexical`; vaults with semantic intent route through `repair.py semantic`, which already owns the broader router + lexical index + embeddings-sidecar refresh path. On failure, upgrade surfaces the exact retry command for that scope.
 - **Running stage diagnostics** — `.brain/local/last-upgrade.json` is no longer only a final success/failure log. Before each long-running phase, `upgrade.py` records a `"running"` snapshot with the current `stage` so operators can still see whether the upgrade was in backup, copy, compile validation, migration replay, definition sync, retrieval-asset repair, or dependency-sync follow-up if the caller loses stdout/stderr or never receives the final JSON payload.
 - **Not exposed via MCP** — self-upgrading MCP servers are an anti-pattern (a prompt-injected agent could point upgrade at a crafted directory). The MCP server detects version drift and exits cleanly; the client restarts it with the new code
+- **Recommended follow-ups** — `followups` is an optional structured list in the
+  upgrade result, persisted in `.brain/local/last-upgrade.json` and rendered as
+  exact commands in human output. The shaping adapter entry is emitted only when
+  `client-adapters/shaping/SKILL.md` is added or modified. Changes to
+  `skills/shaping/` do not emit it because the installed adapter reads the active
+  Brain workflow dynamically. Upgrade never executes the machine-global command.
 - **Post-upgrade definition sync** — after a successful upgrade, `sync_definitions` runs automatically. Safe updates (upstream changed, no local changes) always apply, and tracked files whose current local content already matches upstream also self-heal as safe updates even if their stored `source_hash` is stale. Conflicts (both upstream and local changed) are returned as warnings for the caller to present. For markdown files, harmless line-ending or pipe-table padding rewrites do not count as local drift. If `artefact_sync` is `"skip"` in `.brain/preferences.json`, no sync runs. CLI flags `--sync` / `--no-sync` override the preference. Sync failures are captured in the result — they never crash the upgrade
 
 **CLI:**

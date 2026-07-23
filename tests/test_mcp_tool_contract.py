@@ -286,7 +286,7 @@ def test_brain_action_schema_exposes_nested_param_variants(registered_tools):
     assert request["discriminator"]["propertyName"] == "action"
     assert set(request["discriminator"]["mapping"]) == {
         "delete", "reparent-children", "shape-printable", "shape-presentation",
-        "start-shaping", "fix-links",
+        "shape", "fix-links",
     }
 
     variant_refs = [
@@ -308,6 +308,30 @@ def test_brain_action_schema_exposes_nested_param_variants(registered_tools):
     }))
     assert list(validator.iter_errors({
         "request": {"action": "delete", "params": {"source": "Wiki/x.md", "slug": "x"}}
+    }))
+    assert not list(validator.iter_errors({
+        "request": {
+            "action": "shape",
+            "params": {"target": "Designs/x.md", "mode": "refine"},
+        }
+    }))
+    assert list(validator.iter_errors({
+        "request": {
+            "action": "shape",
+            "params": {"target": "Designs/x.md"},
+        }
+    }))
+    assert list(validator.iter_errors({
+        "request": {
+            "action": "shape",
+            "params": {"target": "Designs/x.md", "mode": "invalid"},
+        }
+    }))
+    assert list(validator.iter_errors({
+        "request": {
+            "action": "shape",
+            "params": {"target": "Designs/x.md", "title": "alternate identity"},
+        }
     }))
 
 

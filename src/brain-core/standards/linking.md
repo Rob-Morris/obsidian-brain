@@ -43,7 +43,7 @@ A collision happens when two files share the same basename (e.g. `Wiki/JWT Refre
 
 The original file always keeps its clean name. The compliance checker flags ambiguous links at `info` severity.
 
-Shaping transcripts use a stable same-day filename (`yyyymmdd-shaping-transcript~{Title}.md`). If that day's transcript already exists, `start-shaping` appends a new session heading instead of minting a suffixed duplicate.
+Shaping transcripts use a stable same-day filename (`yyyymmdd-shaping-transcript~{Title}.md`). The `shape` action follows the source artefact's backlink to continue its transcript after a rename. A same-title transcript belonging to another source is disambiguated rather than reused.
 
 ## Link Maintenance
 

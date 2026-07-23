@@ -100,11 +100,11 @@
       }
     },
     "living/tasks": {
-      "brain_core_version": "0.42.4",
-      "installed_at": "2026-05-25T03:17:24.742922+00:00",
+      "brain_core_version": "0.53.0",
+      "installed_at": "2026-07-22T08:47:18.965854+00:00",
       "files": {
         "taxonomy": {
-          "source_hash": "sha256:ccdda95c0e33b2b6e95c77c0206830c1d8b0e265fcf892d24d45e8507e17e7f5",
+          "source_hash": "sha256:65c1a54d2cd14b0da51c118d4c9e9282728d011b9442222ac202ed5fb46e1117",
           "target": "_Config/Taxonomy/Living/tasks.md"
         },
         "template": {
@@ -170,11 +170,11 @@
       }
     },
     "temporal/cookies": {
-      "brain_core_version": "0.52.0",
-      "installed_at": "2026-07-15T18:31:54.501382+00:00",
+      "brain_core_version": "0.53.0",
+      "installed_at": "2026-07-22T09:03:12.736165+00:00",
       "files": {
         "taxonomy": {
-          "source_hash": "sha256:635518267a87d3fe807b0f36e36711b6aaacc54d25f041cc60827326cebb423c",
+          "source_hash": "sha256:42512902a3b17e0672566e7fe6a355e5f380e5cf694ff1a5f6669f0fe97cfdd0",
           "target": "_Config/Taxonomy/Temporal/cookies.md"
         },
         "template": {
@@ -244,11 +244,11 @@
       }
     },
     "temporal/mockups": {
-      "brain_core_version": "0.34.2",
-      "installed_at": "2026-05-01T05:22:36.214495+00:00",
+      "brain_core_version": "0.53.0",
+      "installed_at": "2026-07-22T09:03:12.736165+00:00",
       "files": {
         "taxonomy": {
-          "source_hash": "sha256:5cfe541716eefdb12f544f1c1780d685acd40f1987bd17363e359394bb4b1738",
+          "source_hash": "sha256:9b4c6d85c1aae33b883fa270d100cbf677627ff82aa9ec56ab0e497dce548c43",
           "target": "_Config/Taxonomy/Temporal/mockups.md"
         },
         "template": {
@@ -286,11 +286,11 @@
       }
     },
     "temporal/presentations": {
-      "brain_core_version": "0.52.1",
-      "installed_at": "2026-07-19T01:55:55.368188+00:00",
+      "brain_core_version": "0.53.0",
+      "installed_at": "2026-07-22T09:03:12.736165+00:00",
       "files": {
         "taxonomy": {
-          "source_hash": "sha256:f161807c755470fd65d506ada48706006a178a31a358dd5348a179474226003c",
+          "source_hash": "sha256:5546999c09a2e5541fc6173b9b373d07cadb8a390bc1486e7ab33b148bc39816",
           "target": "_Config/Taxonomy/Temporal/presentations.md"
         },
         "template": {
@@ -308,11 +308,11 @@
       }
     },
     "temporal/reports": {
-      "brain_core_version": "0.25.1",
-      "installed_at": "2026-04-12T11:43:51.537639+00:00",
+      "brain_core_version": "0.53.0",
+      "installed_at": "2026-07-22T09:03:12.736165+00:00",
       "files": {
         "taxonomy": {
-          "source_hash": "sha256:9f8249950f5fd4c29e4b195cff6a9a9553d13a850a798b42b59854aeca2c7642",
+          "source_hash": "sha256:daf6207a7d817243b261d3ea782758cbdc2b3c5d1c1d73fbc498f9c2d17b0e61",
           "target": "_Config/Taxonomy/Temporal/reports.md"
         },
         "template": {
@@ -322,11 +322,11 @@
       }
     },
     "temporal/research": {
-      "brain_core_version": "0.25.1",
-      "installed_at": "2026-04-12T11:43:51.537639+00:00",
+      "brain_core_version": "0.53.0",
+      "installed_at": "2026-07-22T09:03:12.736165+00:00",
       "files": {
         "taxonomy": {
-          "source_hash": "sha256:3be1343897bcc85ca4dfd63911ae45ac50b84fe422871d722cd0ec9ade6fc1b6",
+          "source_hash": "sha256:d24acf1541ffe9dae52afa990b476413cbefee1626d321573f4ab49563413d4a",
           "target": "_Config/Taxonomy/Temporal/research.md"
         },
         "template": {
@@ -336,11 +336,11 @@
       }
     },
     "temporal/shaping-transcripts": {
-      "brain_core_version": "0.25.2",
-      "installed_at": "2026-04-12T11:44:34.504474+00:00",
+      "brain_core_version": "0.53.0",
+      "installed_at": "2026-07-22T08:47:18.965854+00:00",
       "files": {
         "taxonomy": {
-          "source_hash": "sha256:ada80a2d2f20d91da6d473a9d4d64339dfd18b45a0d06379c89feaea53353121",
+          "source_hash": "sha256:2ef4392894a7704e7df247d77ef78b2b73545cf642fba9f3ebfb1dd4e244c2b8",
           "target": "_Config/Taxonomy/Temporal/shaping-transcripts.md"
         },
         "template": {
@@ -364,11 +364,11 @@
       }
     },
     "temporal/thoughts": {
-      "brain_core_version": "0.25.1",
-      "installed_at": "2026-04-12T11:43:51.537639+00:00",
+      "brain_core_version": "0.53.0",
+      "installed_at": "2026-07-22T09:03:12.736165+00:00",
       "files": {
         "taxonomy": {
-          "source_hash": "sha256:0db0a692cbd271ae33e06ec1e25f83a0939a48faeb682ede1eb5dd0051d005ce",
+          "source_hash": "sha256:d1a948e70ea9132dbd801221a24c56a4010ab6e2d57464f66ee7240876180937",
           "target": "_Config/Taxonomy/Temporal/thoughts.md"
         },
         "template": {

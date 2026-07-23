@@ -99,6 +99,22 @@ python3.12 .brain-core/scripts/configure.py mcp --vault /path/to/brain --workspa
 brain configure mcp --vault /path/to/brain --user --client all
 ```
 
+To make the active Brain's shaping workflow discoverable as a native skill in
+Claude Code and Codex, install the shared discovery adapter once:
+
+```bash
+brain configure agent-skills --vault /path/to/brain --client all
+```
+
+The adapter contains no shaping workflow of its own. It asks `brain_session` for
+the active Brain, then loads that Brain's `.brain-core/skills/shaping/SKILL.md`
+through `brain_read`, so a normal Brain upgrade updates the workflow without
+copying it into each client's global skill directory. Existing unmanaged shaping
+skills are preserved; after reviewing them, use `--replace` to archive each old
+directory and install the adapter. Restart Claude Code and Codex after the command
+reports a change. Installation is explicit because these are machine-global client
+directories, not vault-owned files.
+
 ---
 
 ## Two Kinds of Things
@@ -234,6 +250,13 @@ To upgrade brain-core to a new version:
 - **CLI**: `python3.12 src/brain-core/scripts/upgrade.py --source src/brain-core --vault /path/to/brain` (run from a clone of this repo; add `--force` for same-version re-apply, downgrade, or migration rerun)
 - **install.sh wrapper**: `bash install.sh /path/to/brain` — detects the existing install and delegates to `upgrade.py`
 - **Manual**: replace `.brain-core/` with the new version from `src/brain-core/`
+
+`upgrade.py` reports recommended follow-up commands in human output, `--json`,
+and `.brain/local/last-upgrade.json`. When the Claude/Codex shaping discovery
+adapter is first introduced or its template changes, it recommends
+`configure.py agent-skills --client all` but does not run it automatically.
+Ordinary updates to the active Brain's shaping workflow produce no adapter
+prompt because installed adapters load that workflow dynamically.
 
 ---
 

@@ -5,8 +5,9 @@ Shaping is the iterative process of refining an artefact through structured Q&A 
 ## Shapeable Artefacts
 
 A type is shapeable if:
-1. Its schema includes `shaping` as a status value
+1. Its taxonomy declares lifecycle values for both `shaping` and the completion status
 2. Its taxonomy defines a `## Shaping` section specifying:
+   - Its primary flavour (`Convergent` or `Discovery`)
    - What "fully shaped" means for this type (the bar)
    - What status to transition to when shaping completes (e.g. `ready`)
 
@@ -16,7 +17,7 @@ Each type owns its definition of "fully shaped." The bar should be concrete enou
 - **Designs:** All decisions resolved, core goal clear, approach concrete enough to plan, no internal inconsistencies.
 - **People:** Nothing more the user wants to record right now — shaping is a discovery process teasing out useful information.
 
-Types opt in by adding `shaping` to their status enum and a `## Shaping` section to their taxonomy.
+Types opt in with an explicit lifecycle contract and a complete `## Shaping` section. `compile_router.py` parses the flavour, bar, and completion status and exposes them as the type's `shaping` metadata. An incomplete section, or one that references an undeclared lifecycle value, is a compile error.
 
 ## Shaping Flavours
 
@@ -30,15 +31,20 @@ Most artefacts lean one way, but a session can blend both — a design might sta
 
 **Convergent types** must include a decisions table in their template (e.g. Open Decisions) so shaping state is trackable in the artefact. **Discovery types** don't need one — the artefact grows with each answer and shaping completes when there's nothing more to capture.
 
-## Starting a Shaping Session
+## Opening or Continuing a Shaping Session
 
-Use `brain_action(request={"action": "start-shaping", "params": {"target": "...", ...}})` to commence shaping. This handles the mechanical setup:
+The shaping skill owns the end-to-end activity: resolve or create the artefact, read its taxonomy contract, choose a mode, run the Q&A loop, review the result, and apply the taxonomy's completion status. Once the target and mode are known, it calls `brain_action(request={"action": "shape", "params": {"target": "...", "mode": "refine"}})`.
 
-1. **Identifies the artefact** — resolves an existing artefact by name or path
-2. **Creates or appends to today's transcript** — linked to the artefact, with provenance in both directions
-3. **Sets status** — moves the artefact to `shaping` if not already there
+The low-level `shape` action opens or continues the session mechanics only:
 
-Sometimes shaping begins before the user knows what they're shaping. In this case, the first questions are exploratory — identifying the artefact type and creating it is part of the process. The agent can call `start-shaping` once the target is clear.
+1. **Validates shapeability** — uses the compiled taxonomy contract
+2. **Identifies the artefact** — resolves an existing artefact by name or path
+3. **Creates or appends to today's transcript** — linked to the artefact, with provenance in both directions
+4. **Sets status canonically** — uses the lifecycle handler, including moves and status hooks
+
+The action does not conduct Q&A, choose what to ask, or decide that shaping is complete. Those are skill-level judgements. Internally, `start_shaping_session()` names this narrower session-boundary primitive; `start_shaping.py` remains a compatibility launcher for direct script consumers.
+
+Sometimes shaping begins before the user knows what they're shaping. In this case, the first questions are exploratory — identifying the artefact type and creating it is part of the skill process. The skill calls `shape` once the target is clear.
 
 ### Source linking
 
@@ -151,4 +157,4 @@ The artefact's lifecycle continues beyond shaping. The type's taxonomy defines s
 Shaping transcripts follow the shaping-transcript taxonomy with these additions:
 - **Naming:** `yyyymmdd-shaping-transcript~{Title}.md` in `_Temporal/Shaping Transcripts/yyyy-mm/`
 - **Multi-source:** The `**Source:**` line lists all source artefacts, growing as scope expands
-- **One file per day per artefact:** If shaping resumes later the same day, `start-shaping` appends a new `## ... session start` heading to the existing transcript instead of creating a fresh file
+- **One file per day per artefact:** If shaping resumes later the same day, `shape` follows the source artefact's transcript backlink and appends a new `## ... session start` heading. This preserves identity across source renames and avoids reusing a same-title transcript owned by another artefact.

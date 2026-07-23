@@ -241,6 +241,18 @@ class TestFrontmatter:
     def test_extract_title_with_path(self):
         assert extract_title("Wiki/fallback.md") == "fallback"
 
+    def test_index_discards_malformed_frontmatter_dates(self, vault):
+        path = vault / "Wiki" / "malformed-dates.md"
+        path.write_text(
+            "---\ncreated: [2026-01-01]\nmodified: [2026-02-02]\n---\n\nBody."
+        )
+
+        parsed = search_index_mod.parse_doc(vault, "Wiki/malformed-dates.md")
+
+        assert parsed.doc["created"] is None
+        assert isinstance(parsed.doc["modified"], str)
+        assert parsed.doc["modified"] != "2026-02-02"
+
 
 # ---------------------------------------------------------------------------
 # Tokenisation

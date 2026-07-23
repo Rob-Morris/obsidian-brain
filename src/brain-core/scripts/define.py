@@ -15,7 +15,6 @@ import json
 import os
 import re
 import sys
-import tempfile
 
 import compile_router
 from _common import (
@@ -83,16 +82,7 @@ def _definition_path(vault_root: str, kind: str, name: str, classification=None)
 
 def _validate_type_document(content: str, classification: str, name: str) -> dict:
     """Parse a candidate type document and validate its domain identity."""
-    fd, path = tempfile.mkstemp(suffix=".md")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(content)
-        parsed = compile_router.parse_taxonomy_file(path)
-    finally:
-        try:
-            os.unlink(path)
-        except OSError:
-            pass
+    parsed = compile_router.parse_taxonomy_content(content)
 
     frontmatter = parsed.get("frontmatter") or {}
     type_key = frontmatter.get("type")

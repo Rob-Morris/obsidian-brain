@@ -26,6 +26,13 @@ tags:
 ---
 ```
 
+## Lifecycle
+
+| Status | Meaning |
+|---|---|
+| `shaping` | The artefact is being shaped through structured Q&A. |
+| `ready` | Shaping is complete and the artefact meets its bar. |
+
 ## Shaping
 
 **Flavour:** Discovery

@@ -9,5 +9,5 @@ Explicit degraded fallback for environments without MCP or a generated
 
 ## Tooling
 
-- `.brain-core/scripts/` — CLI tools for vault operations (compile_router, compile_colours, build_index, search_index, read, create, edit, rename, check, repair, fix_links, workspace_registry, vault_registry, session, shape_printable, shape_presentation, start_shaping, init, upgrade)
+- `.brain-core/scripts/` — CLI tools for vault operations (compile_router, compile_colours, build_index, search_index, read, create, edit, rename, check, repair, fix_links, workspace_registry, vault_registry, session, shape_printable, shape_presentation, start_shaping_session, upgrade)
 - Navigate the vault via wikilinks from the router and index

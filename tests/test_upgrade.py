@@ -10,6 +10,7 @@ import sys
 
 import pytest
 
+import migrate_to_0_53_0
 import upgrade
 from brain_test_support import write_executable as _write_executable
 
@@ -115,6 +116,220 @@ def _seed_tracking(vault, type_key, taxonomy_path, version="0.18.0"):
     return tracking["installed"][type_key]["files"]["taxonomy"]["source_hash"]
 
 
+class TestShapingLifecycleMigration:
+    def test_patches_inline_status_comment(self):
+        content = (
+            "# Designs\n\n"
+            "## Frontmatter\n\n```yaml\n---\n"
+            "type: living/designs\n"
+            "status: draft  # draft | approved\n"
+            "---\n```\n\n"
+            "## Shaping\n\n"
+            "**Flavour:** Convergent\n"
+            "**Bar:** Decisions resolved.\n"
+            "**Completion status:** `ready`\n"
+        )
+
+        patched, added = migrate_to_0_53_0._patch_taxonomy(content)
+
+        assert added == ["shaping", "ready"]
+        assert "status: draft  # draft | approved | shaping | ready" in patched
+        assert "## Lifecycle" not in patched
+
+    def test_extends_existing_lifecycle_table(self):
+        content = (
+            "# Designs\n\n"
+            "## Lifecycle\n\n"
+            "| `draft` | Draft. |\n"
+            "| `approved` | Approved. |\n\n"
+            "## Frontmatter\n\n```yaml\n---\n"
+            "type: living/designs\nstatus: draft\n---\n```\n\n"
+            "## Shaping\n\n"
+            "**Flavour:** Convergent\n"
+            "**Bar:** Decisions resolved.\n"
+            "**Completion status:** `ready`\n"
+        )
+
+        patched, added = migrate_to_0_53_0._patch_taxonomy(content)
+
+        assert added == ["shaping", "ready"]
+        assert patched.count("## Lifecycle") == 1
+        assert "| Status | Meaning |\n|---|---|" in patched
+        assert "| `shaping` | Added for shaping compatibility. |" in patched
+        assert "| `ready` | Added for shaping compatibility. |" in patched
+
+    def test_lifecycle_prose_is_preserved_in_authoritative_table(self):
+        content = (
+            "# Designs\n\n"
+            "## Lifecycle\n\n"
+            "Status values: `open`, `done`.\n\n"
+            "## Frontmatter\n\n```yaml\n---\n"
+            "type: living/designs\nstatus: open\n---\n```\n\n"
+            "## Shaping\n\n"
+            "**Flavour:** Convergent\n"
+            "**Bar:** Decisions resolved.\n"
+            "**Completion status:** `done`\n"
+        )
+
+        patched, added = migrate_to_0_53_0._patch_taxonomy(content)
+
+        assert added == ["shaping"]
+        assert migrate_to_0_53_0.compile_router.parse_status_enum(patched) == [
+            "open",
+            "done",
+            "shaping",
+        ]
+        assert "| Status | Meaning |\n|---|---|" in patched
+        assert "| `open` | Existing lifecycle status. |" in patched
+        assert "| `done` | Existing lifecycle status. |" in patched
+        parsed = migrate_to_0_53_0.compile_router.parse_taxonomy_content(patched)
+        assert parsed["frontmatter"]["status_enum"] == [
+            "open",
+            "done",
+            "shaping",
+        ]
+
+    def test_completion_status_equal_to_shaping_is_not_duplicated(self):
+        content = (
+            "# Designs\n\n"
+            "## Frontmatter\n\n```yaml\n---\n"
+            "type: living/designs\nstatus: draft  # draft\n---\n```\n\n"
+            "## Shaping\n\n"
+            "**Flavour:** Convergent\n"
+            "**Bar:** Decisions resolved.\n"
+            "**Completion status:** `shaping`\n"
+        )
+
+        patched, added = migrate_to_0_53_0._patch_taxonomy(content)
+
+        assert added == ["shaping"]
+        assert patched.count("draft | shaping") == 1
+
+    def test_postcondition_rejects_a_lossy_lifecycle_patch(self, monkeypatch):
+        content = (
+            "# Designs\n\n"
+            "## Lifecycle\n\n"
+            "Status values: `open`, `done`.\n\n"
+            "## Frontmatter\n\n```yaml\n---\n"
+            "type: living/designs\nstatus: open\n---\n```\n\n"
+            "## Shaping\n\n"
+            "**Flavour:** Convergent\n"
+            "**Bar:** Decisions resolved.\n"
+            "**Completion status:** `done`\n"
+        )
+
+        def lossy_patch(original, _statuses, _added):
+            return original.replace(
+                "Status values: `open`, `done`.",
+                "| `shaping` | Added for shaping compatibility. |",
+            )
+
+        monkeypatch.setattr(
+            migrate_to_0_53_0,
+            "_append_lifecycle_rows",
+            lossy_patch,
+        )
+
+        with pytest.raises(ValueError, match="failed its post-condition"):
+            migrate_to_0_53_0._patch_taxonomy(content)
+
+    def test_new_rows_stay_attached_to_table_before_trailing_prose(self):
+        content = (
+            "# Designs\n\n"
+            "## Lifecycle\n\n"
+            "| Status | Meaning |\n"
+            "|---|---|\n"
+            "| `open` | Open. |\n\n"
+            "Open work remains active.\n\n"
+            "## Frontmatter\n\n```yaml\n---\n"
+            "type: living/designs\nstatus: open\n---\n```\n\n"
+            "## Shaping\n\n"
+            "**Flavour:** Convergent\n"
+            "**Bar:** Decisions resolved.\n"
+            "**Completion status:** `ready`\n"
+        )
+
+        patched, _added = migrate_to_0_53_0._patch_taxonomy(content)
+
+        assert patched.index("| `ready` |") < patched.index(
+            "Open work remains active."
+        )
+
+    def test_gate_uses_stable_compiler_error_code(self, tmp_path):
+        taxonomy = tmp_path / "_Config" / "Taxonomy" / "Living" / "designs.md"
+        taxonomy.parent.mkdir(parents=True)
+        taxonomy.write_text(
+            "# Designs\n\n"
+            "## Frontmatter\n\n```yaml\n---\n"
+            "type: living/designs\n"
+            "status: draft  # draft | approved\n"
+            "---\n```\n\n"
+            "## Shaping\n\n"
+            "**Flavour:** Convergent\n"
+            "**Bar:** Decisions resolved.\n"
+            "**Completion status:** `ready`\n"
+        )
+        validate_calls = []
+        result = migrate_to_0_53_0.patch_pre_compile(
+            str(tmp_path),
+            context={
+                "compile_error": (
+                    migrate_to_0_53_0.compile_router.SHAPING_LIFECYCLE_ERROR_CODE
+                    + ": wording may evolve"
+                ),
+                "validate_compile": lambda: validate_calls.append(True),
+            },
+        )
+
+        assert result["status"] == "ok"
+        assert result["patched"] == [
+            {
+                "target": "_Config/Taxonomy/Living/designs.md",
+                "added_statuses": ["shaping", "ready"],
+            }
+        ]
+        assert validate_calls == []
+
+    def test_malformed_sibling_is_reported_without_abandoning_repairs(
+        self, tmp_path
+    ):
+        folder = tmp_path / "_Config" / "Taxonomy" / "Living"
+        folder.mkdir(parents=True)
+        (folder / "designs.md").write_text(
+            "# Designs\n\n"
+            "## Frontmatter\n\n```yaml\n---\n"
+            "type: living/designs\nstatus: draft  # draft\n---\n```\n\n"
+            "## Shaping\n\n"
+            "**Flavour:** Convergent\n"
+            "**Bar:** Decisions resolved.\n"
+            "**Completion status:** `ready`\n"
+        )
+        (folder / "invalid.md").write_text(
+            "# Invalid\n\n## Shaping\n\n**Flavour:** Convergent\n"
+        )
+
+        result = migrate_to_0_53_0.patch_pre_compile(
+            str(tmp_path),
+            context={
+                "compile_error": (
+                    migrate_to_0_53_0.compile_router.SHAPING_LIFECYCLE_ERROR_CODE
+                )
+            },
+        )
+
+        assert result["status"] == "ok"
+        assert result["patched"][0]["target"].endswith("designs.md")
+        assert result["warnings"] == [
+            {
+                "target": "_Config/Taxonomy/Living/invalid.md",
+                "message": (
+                    "taxonomy was not auto-repaired: ## Shaping requires "
+                    "**Bar:** metadata"
+                ),
+            }
+        ]
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -218,6 +433,174 @@ def source_and_vault(tmp_path):
     return source, vault
 
 
+class TestAgentSkillUpgradeFollowup:
+    def test_adapter_introduction_adds_structured_followup_and_log(
+        self, source_and_vault
+    ):
+        source, vault = source_and_vault
+        adapter = source / upgrade.AGENT_SKILL_ADAPTER_REL
+        adapter.parent.mkdir(parents=True)
+        adapter.write_text("active Brain adapter\n")
+
+        result = upgrade.upgrade(
+            str(vault),
+            str(source),
+            sync=False,
+            sync_deps=False,
+        )
+
+        assert result["status"] == "ok"
+        assert result["followups"] == [
+            {
+                "id": "configure_agent_skills",
+                "reason": "shaping_adapter_added",
+                "message": (
+                    "The Claude/Codex shaping discovery adapter is now available. "
+                    "Install it after the upgrade so each client loads shaping from the active Brain."
+                ),
+                "command": [
+                    sys.executable,
+                    str(vault / ".brain-core" / "scripts" / "configure.py"),
+                    "agent-skills",
+                    "--vault",
+                    str(vault),
+                    "--client",
+                    "all",
+                ],
+            }
+        ]
+        logged = json.loads(
+            (vault / ".brain" / "local" / "last-upgrade.json").read_text()
+        )
+        assert logged["followups"] == result["followups"]
+
+    def test_adapter_content_update_adds_update_followup(self, tmp_path):
+        vault = tmp_path / "vault"
+        diff = {
+            "files_added": [],
+            "files_modified": [upgrade.AGENT_SKILL_ADAPTER_REL],
+        }
+
+        followups = upgrade._agent_skill_adapter_followups(str(vault), diff)
+
+        assert followups[0]["reason"] == "shaping_adapter_updated"
+        assert followups[0]["command"][-1] == "all"
+
+    def test_ordinary_shaping_workflow_update_needs_no_adapter_followup(
+        self, tmp_path
+    ):
+        diff = {
+            "files_added": [],
+            "files_modified": [os.path.join("skills", "shaping", "SKILL.md")],
+        }
+
+        assert upgrade._agent_skill_adapter_followups(str(tmp_path), diff) == []
+
+    def test_human_output_renders_recommended_command(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        source = _make_real_compile_source(tmp_path)
+        vault = _make_minimal_upgrade_vault(tmp_path)
+        command = [
+            sys.executable,
+            str(vault / ".brain-core" / "scripts" / "configure.py"),
+            "agent-skills",
+            "--vault",
+            str(vault),
+            "--client",
+            "all",
+        ]
+
+        monkeypatch.setattr(
+            upgrade,
+            "upgrade",
+            lambda *_args, **_kwargs: {
+                "status": "ok",
+                "old_version": "0.52.1",
+                "new_version": "0.53.0",
+                "files_added": [upgrade.AGENT_SKILL_ADAPTER_REL],
+                "files_modified": [],
+                "files_removed": [],
+                "files_unchanged": 1,
+                "dry_run": False,
+                "message": "Upgraded 0.52.1 → 0.53.0",
+                "followups": [
+                    {
+                        "id": "configure_agent_skills",
+                        "reason": "shaping_adapter_added",
+                        "message": "Install the shaping discovery adapter.",
+                        "command": command,
+                    }
+                ],
+            },
+        )
+        monkeypatch.setattr(upgrade, "_refresh_brain_cli", lambda _source: None)
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "upgrade.py",
+                "--source",
+                str(source),
+                "--vault",
+                str(vault),
+            ],
+        )
+
+        upgrade.main()
+
+        err = capsys.readouterr().err
+        assert "Recommended follow-up:" in err
+        assert "configure.py agent-skills" in err
+        assert "--client all" in err
+
+    def test_json_output_preserves_structured_followup(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        source = _make_real_compile_source(tmp_path)
+        vault = _make_minimal_upgrade_vault(tmp_path)
+        followup = {
+            "id": "configure_agent_skills",
+            "reason": "shaping_adapter_updated",
+            "message": "Update the shaping discovery adapter.",
+            "command": ["python", "configure.py", "agent-skills"],
+        }
+        monkeypatch.setattr(
+            upgrade,
+            "upgrade",
+            lambda *_args, **_kwargs: {
+                "status": "ok",
+                "old_version": "0.53.0",
+                "new_version": "0.53.1",
+                "files_added": [],
+                "files_modified": [upgrade.AGENT_SKILL_ADAPTER_REL],
+                "files_removed": [],
+                "files_unchanged": 1,
+                "dry_run": False,
+                "message": "Upgraded 0.53.0 → 0.53.1",
+                "followups": [followup],
+            },
+        )
+        monkeypatch.setattr(upgrade, "_refresh_brain_cli", lambda _source: None)
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "upgrade.py",
+                "--source",
+                str(source),
+                "--vault",
+                str(vault),
+                "--json",
+            ],
+        )
+
+        upgrade.main()
+
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["followups"] == [followup]
+
+
 class TestPostUpgradeSync:
     def test_upgrade_with_auto_preference_syncs(self, source_and_vault):
         """artefact_sync: auto → definitions synced after upgrade."""
@@ -311,6 +694,58 @@ class TestPrecompileDefinitionRemediation:
         assert tracking["installed"]["living/daily-notes"]["files"]["taxonomy"]["source_hash"] != old_hash
         ledger = json.loads((vault / ".brain" / "local" / "migrations.json").read_text())
         assert ledger["migrations"]["0.29.0@pre_compile_patch"]["status"] == "ok"
+
+
+    def test_upgrade_repairs_legacy_shaping_taxonomy_before_compile(self, tmp_path):
+        source = _make_real_compile_source(tmp_path, version="0.53.0")
+        vault = _make_minimal_upgrade_vault(tmp_path, version="0.52.1")
+        (vault / "Designs").mkdir()
+        taxonomy = vault / "_Config" / "Taxonomy" / "Living" / "designs.md"
+        taxonomy.write_text(
+            "# Designs\n\n"
+            "## Naming\n\n`{Title}.md` in `Designs/`.\n\n"
+            "## Frontmatter\n\n```yaml\n---\n"
+            "type: living/designs\ntags: []\nstatus: draft\n"
+            "---\n```\n\n"
+            "Status values: `draft`, `approved`.\n\n"
+            "## Shaping\n\n"
+            "**Flavour:** Convergent\n"
+            "**Bar:** Decisions resolved.\n"
+            "**Completion status:** `ready`\n\n"
+            "## Template\n\n[[_Config/Templates/Living/Designs]]\n"
+        )
+
+        result = upgrade.upgrade(str(vault), str(source), sync=False)
+
+        assert result["status"] == "ok"
+        patch_result = next(
+            item
+            for item in result["precompile_patch_migrations"]
+            if item["version"] == "0.53.0"
+        )
+        assert patch_result["status"] == "ok"
+        assert patch_result["patched"] == [
+            {
+                "target": "_Config/Taxonomy/Living/designs.md",
+                "added_statuses": ["shaping", "ready"],
+            }
+        ]
+        repaired = taxonomy.read_text()
+        assert "## Lifecycle" in repaired
+        assert "| `shaping` |" in repaired
+        assert "| `ready` |" in repaired
+
+        compiled = json.loads(
+            (vault / ".brain" / "local" / "compiled-router.json").read_text()
+        )
+        designs = next(item for item in compiled["artefacts"] if item["key"] == "designs")
+        assert designs["frontmatter"]["status_enum"] == [
+            "draft",
+            "approved",
+            "shaping",
+            "ready",
+        ]
+        assert designs["shaping"]["completion_status"] == "ready"
 
     def test_upgrade_patches_blocking_customised_taxonomy_before_compile(self, tmp_path):
         source = _make_real_compile_source(tmp_path)

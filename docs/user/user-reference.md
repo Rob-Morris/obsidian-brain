@@ -201,7 +201,7 @@ If your vault runs the Brain MCP server (`.brain-core/brain_mcp/server.py`), twe
 - `reparent-children` reparents the direct children of a living artefact; `brain_reparent` changes one artefact's own parent
 - `shape-printable` — request shape: `{request: {action: "shape-printable", params: {source, slug, render?, keep_heading_with_next?, pdf_engine?}}}`; creates a printable artefact and renders `_Assets/Generated/Printables/{stem}.pdf` via pandoc
 - `shape-presentation` — request shape: `{request: {action: "shape-presentation", params: {source, slug, render?, preview?}}}`; creates a presentation artefact, renders `_Assets/Generated/Presentations/{stem}.pdf`, and optionally launches Marp live preview
-- `start-shaping` — request shape: `{request: {action: "start-shaping", params: {target, title?, skill_type?}}}`; bootstraps a shaping session for an existing artefact and revives `+Status/` artefacts back into the active folder when shaping resumes
+- `shape` — request shape: `{request: {action: "shape", params: {target, mode}}}`, where the shaping skill selects `brainstorm`, `refine`, or `discover`; opens or continues the source artefact's same-day shaping transcript and transitions it through the canonical `shaping` lifecycle state
 - `fix-links` — request shape: `{request: {action: "fix-links", params: {fix?, path?, links?}}}`; scans for broken wikilinks and attempts auto-resolution
 **brain_classify / brain_resolve / brain_ingest** (experimental content processing)
 - The read-only classify and resolve tools are permissioned separately from mutating ingest
@@ -234,7 +234,7 @@ The same is now true for the managed operational wrappers: `build_index.py`, `se
 | `construct_benchmark_fixture.py` | Mine a real vault for lexical / semantic / hybrid / cluster / filter-sensitive benchmark cases and emit both a benchmark fixture JSON and an audit JSON; unreadable source files now fail explicitly |
 | `evaluate_search.py` | Benchmark lexical, semantic, and hybrid retrieval against a JSON query set |
 | `setup.py` | Public workspace setup owner: bind a workspace to a Brain, converge the Brain-owned local scaffold, and optionally run a guided setup wizard over the explicit workspace/MCP configure surfaces. |
-| `configure.py` | Explicit installed-vault configuration entry point: targeted `workspace binding`, `workspace metadata`, `workspace bootstrap`, `mcp`, and `semantic` surfaces without going through the setup wrapper. |
+| `configure.py` | Explicit installed-vault configuration entry point: targeted `workspace binding`, `workspace metadata`, `workspace bootstrap`, `mcp`, `agent-skills`, and `semantic` surfaces without going through the setup wrapper. |
 | `read.py` | Query compiled router resources (artefacts, triggers, styles, templates, skills, etc.) |
 | `create.py` | Create a new artefact with template/naming resolution; parented temporal artefacts file under the owner chain before the month folder |
 | `edit.py` | Strict structural and exact-text edits; rejects lifecycle-owned metadata |
@@ -248,8 +248,9 @@ The same is now true for the managed operational wrappers: `build_index.py`, `se
 | `process.py` | Domain logic behind split classify/resolve/ingest permissions |
 | `shape_printable.py` | Create printable + render PDF |
 | `shape_presentation.py` | Create presentation + render PDF + launch preview |
-| `start_shaping.py` | Bootstrap a shaping session for an existing artefact |
-| `upgrade.py` | Canonical brain-core upgrade entry point from a source directory, including versioned pre-compile compatibility patches, binary-safe rollback snapshots for `.brain/` / `_Config/`, post-compile migration rollback of touched artefact roots, applied-migration tracking in `.brain/local/`, running stage snapshots in `.brain/local/last-upgrade.json`, self-contained atomic writes, provisioning of the central managed runtime at `~/.brain/venvs/` when requirements change, and post-upgrade retrieval-asset reconciliation through `repair.py lexical` or `repair.py semantic` |
+| `start_shaping_session.py` | Open or continue a shaping session for an existing, taxonomy-declared shapeable artefact |
+| `start_shaping.py` | Compatibility launcher for the shaping-session script |
+| `upgrade.py` | Canonical brain-core upgrade entry point from a source directory, including versioned migrations, binary-safe rollback snapshots, `.brain/local/last-upgrade.json`, runtime/retrieval reconciliation, and structured recommended follow-ups when a checked-in client discovery adapter is introduced or changed |
 | `migrations/migrate_to_0_50_0.py` | Recursive owner-folder migration for v0.50.0; direct CLI supports dry-run/apply and JSON blocker diagnostics |
 | `vault_registry.py` | User-home authoritative Brain registry for local Brain IDs (currently typed `local` entries pointing at vault roots), plus an optional machine default Brain pointer stored separately |
 | `workspace_registry.py` | Workspace key→path resolution and registration |
@@ -279,6 +280,14 @@ python3 .brain-core/scripts/check.py --vault /path/to/vault  # check a specific 
 python3.12 .brain-core/scripts/configure.py semantic --enable
 python3.12 .brain-core/scripts/configure.py semantic --enable --no-provision --json
 ```
+
+**`configure.py agent-skills`** (client discovery adapters) — explicitly installs
+the same stable `shaping` adapter for Claude Code, Codex, or both. The adapter
+loads the authoritative shaping workflow from the active Brain with
+`brain_session` and `brain_read`; it does not copy versioned workflow files into
+the client directory. Existing unmanaged skills are preserved unless `--replace`
+is supplied, and `--remove` applies only to an unmodified Brain-owned adapter.
+Restart a client after its adapter changes.
 
 **`repair.py`** (infrastructure recovery) — explicit repair surface for current-vault operational drift. It bootstraps from any compatible Python 3.12+ launcher, repairs the central managed runtime at `~/.brain/venvs/py<X.Y>-<sha16>/` when needed, then hands off into it for packageful work. First-cut scopes are `runtime`, `mcp`, `router`, `lexical`, `registry`, `frontmatter`, and `semantic`; the semantic scope restores the pinned runtime packages, local model snapshot/manifest, and sidecars together for an already-configured vault. Missing sidecars degrade cleanly at runtime; present-but-corrupt sidecars now fail explicitly so the owning entry point can rebuild or point you at repair.
 

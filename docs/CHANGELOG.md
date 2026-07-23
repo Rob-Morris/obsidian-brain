@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.53.0](changelog/v0.53.0.md) | 2026-07-23 | BREAKING — Rename shaping action and enforce session invariants |
 | [v0.52.1](changelog/v0.52.1.md) | 2026-07-19 | Correct MCP request guidance and missing-file error signalling |
 | [v0.52.0](changelog/v0.52.0.md) | 2026-07-19 | Make Brain tooling explicit, retry-safe, and metadata-authoritative |
 | [v0.51.1](changelog/v0.51.1.md) | 2026-07-14 | Keep `create_artefact` keys unique across reused router snapshots |

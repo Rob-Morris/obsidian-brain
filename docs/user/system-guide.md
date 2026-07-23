@@ -48,6 +48,7 @@ Brain classifies every file as either **living** or **temporal**.
 - Bound to a moment — written once, rarely edited afterward
 - Organised in monthly subfolders (`yyyy-mm/`)
 - Date-prefixed filenames
+- Shapeable temporal types use an optional `shaping` → `ready` lifecycle while being refined
 - Serve as historic record; their insights may spin out into living artefacts
 
 ### The Relationship

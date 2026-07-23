@@ -175,6 +175,8 @@ Back on the idea log, a callout records the spin-out:
 
 The idea has legs. Time to shape it properly:
 
+The shaping skill reads the design taxonomy, chooses its conversational mode, and calls `brain_action` with the `shape` action to open or continue today's linked session. The action owns transcript and lifecycle mechanics; the skill owns the questions, review, and completion decision.
+
 ```
 Designs/shared-token-validation.md
 ```
@@ -193,7 +195,7 @@ status: shaping
 **Origin:** [[shared-token-validation|The idea]] (2026-03-28)
 ```
 
-The design doc has structure: a core goal, open decisions, transcripts from Q&A sessions that shaped it. It moves through `shaping` → `active` → `implemented`.
+The design doc has structure: a core goal, open decisions, transcripts from Q&A sessions that shaped it. It moves through `shaping` → `ready` → `active` → `implemented`.
 
 Set the idea's status to `adopted` with `brain_set_status`; Brain moves it to `Ideas/+Adopted/` and updates wikilinks vault-wide. If the idea is later revived with a non-terminal status, the same handler moves it back out.
 

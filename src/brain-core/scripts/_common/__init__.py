@@ -71,6 +71,7 @@ from ._artefacts import (
     iter_artefact_paths,
     iter_living_markdown_files,
     iter_markdown_under,
+    parse_scalar_index_date,
     finalize_living_artefact_index,
     living_key_set,
     living_artefact_index_entry,

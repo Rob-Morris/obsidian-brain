@@ -64,5 +64,10 @@ from rename import rename_and_update_links
 - Migrations must be **idempotent** — running twice produces the same result.
 - Return `{"status": "skipped"}` with no side effects when there's nothing to do.
 - `pre_compile_patch` handlers should be minimal compatibility repairs only. If they mutate vault files, rely on the upgrade runner's snapshot/rollback context rather than rolling their own partial rollback scheme.
+
+The v0.53 pre-compile patch adds lifecycle rows to legacy taxonomies that
+already declared a complete `## Shaping` contract. This lets the strict v0.53
+compiler remain authoritative without making an older customised vault
+unbootable during upgrade.
 - Use `rename_and_update_links()` when renaming files — it handles vault-wide wikilink updates.
 - Include a companion `.md` file documenting what the migration does, verification checks, and manual steps for agents without MCP tools.

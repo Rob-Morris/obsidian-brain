@@ -41,6 +41,7 @@ brain install <path>
 | `brain setup workspace [PATH] [...]` | `setup.py` | Bind a workspace to a Brain and converge the Brain-owned local scaffold. |
 | `brain configure workspace {binding\|metadata\|bootstrap} [...]` | `configure.py` | Targeted workspace-owned configuration surfaces. |
 | `brain configure mcp [...]` | `configure.py` | Explicit MCP transport configuration. |
+| `brain configure agent-skills [--client claude\|codex\|all] [...]` | `configure.py` | Install, update, archive/replace, or remove active-Brain native-skill discovery adapters. |
 | `brain configure semantic --enable [...]` | `configure.py` | Vault lifecycle configuration. |
 | `brain repair {runtime\|mcp\|router\|lexical\|registry\|frontmatter\|semantic\|ownership}` | `repair.py` | Infrastructure and explicit metadata-authoritative ownership repair. |
 | `brain upgrade --source P [...]` | `upgrade.py` | In-place brain-core upgrade. |

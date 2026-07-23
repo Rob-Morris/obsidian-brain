@@ -10,6 +10,7 @@ from typing import Any
 
 from _common import (
     iter_artefact_paths,
+    parse_scalar_index_date,
     normalize_artefact_key,
     read_artefact,
     read_version,
@@ -43,6 +44,13 @@ class IndexBuildResult:
 
     index: dict[str, Any]
     embedding_parts_by_path: dict[str, EmbeddingParts]
+
+
+def _valid_frontmatter_date(value, fallback=None):
+    """Keep only valid scalar date text in the persisted retrieval index."""
+    if parse_scalar_index_date(value) is None:
+        return fallback
+    return value
 
 
 def extract_title(filename):
@@ -114,8 +122,8 @@ def parse_doc(
             "key": fields.get("key"),
             "parent": normalize_artefact_key(fields.get("parent")),
             "status": fields.get("status"),
-            "created": fields.get("created"),
-            "modified": fields.get("modified") or modified,
+            "created": _valid_frontmatter_date(fields.get("created")),
+            "modified": _valid_frontmatter_date(fields.get("modified"), modified),
             "doc_length": len(tokens),
             "tf": tf,
             "title_tf": title_tf,

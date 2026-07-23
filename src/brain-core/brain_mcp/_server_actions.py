@@ -12,7 +12,7 @@ import obsidian_cli
 import rename
 import shape_printable
 import shape_presentation
-import start_shaping
+import start_shaping_session
 
 from . import _server_readiness
 from ._server_runtime import ServerRuntime
@@ -254,17 +254,28 @@ def _action_shape_printable(runtime: ServerRuntime, params: dict):
         return runtime.fmt_error(str(e))
 
 
-def _action_start_shaping(runtime: ServerRuntime, params: dict):
+def _action_shape(runtime: ServerRuntime, params: dict):
     state = runtime.get_state()
-    if state.vault_root is None or state.router is None:
-        return runtime.fmt_error("server not initialized")
     try:
-        result = start_shaping.start_shaping(state.vault_root, state.router, params)
-        if isinstance(result, dict) and "error" in result:
-            return runtime.fmt_error(result["error"])
-        runtime.mark_index_pending(result["target_path"])
-        runtime.mark_index_pending(result["transcript_path"], type_hint=result.get("type"))
+        result = start_shaping_session.start_shaping_session(
+            state.vault_root,
+            state.router,
+            params["target"],
+            mode=params["mode"],
+        )
+        if result["status_changed"]:
+            runtime.mark_router_dirty()
+        if result["target_path_changed"]:
+            runtime.mark_index_dirty()
+        else:
+            for path in result["changed_paths"]:
+                type_hint = result.get("type") if path == result["transcript_path"] else None
+                runtime.mark_index_pending(path, type_hint=type_hint)
         return json.dumps(result, indent=2)
+    except _common.PartialApplyError as e:
+        runtime.mark_router_dirty()
+        runtime.mark_index_dirty()
+        return runtime.fmt_error(str(e))
     except (ValueError, FileNotFoundError) as e:
         return runtime.fmt_error(str(e))
 
@@ -452,10 +463,9 @@ ACTION_SPECS = {
         optional_fields=("render", "preview"),
         handler=_action_shape_presentation,
     ),
-    "start-shaping": ActionSpec(
-        required_fields=("target",),
-        optional_fields=("title", "skill_type"),
-        handler=_action_start_shaping,
+    "shape": ActionSpec(
+        required_fields=("target", "mode"),
+        handler=_action_shape,
         requires_router_refresh=True,
     ),
     "fix-links": ActionSpec(

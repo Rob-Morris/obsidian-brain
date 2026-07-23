@@ -134,10 +134,11 @@ Some types have a lifecycle. Status values are defined per type:
 - **Tasks:** `open` → `shaping` → `in-progress` → `done` | `parked` | `deprecated`
 - **Writing:** `draft` → `editing` → `review` → `published` | `deprecated` | `parked`
 - **Plans:** `draft` → `shaping` → `approved` → `implementing` → `completed` | `deprecated` | `parked`
+- **Shapeable temporal artefacts:** `shaping` → `ready` (optional status introduced when shaping begins)
 
 Closure vocab is unified across types: a type-specific success terminal (e.g. `implemented`, `published`, `done`), a single `deprecated` abandonment terminal (with reason in a `> [!info] Deprecated — <reason>` callout), and an optional `parked` non-terminal pause.
 
-Not every type has status. Wiki, Notes, and most temporal types are evergreen.
+Not every type has status. Wiki and Notes are evergreen; temporal types without a lifecycle remain so as well.
 
 ## Linking
 
@@ -231,11 +232,21 @@ python3 /path/to/vault/.brain-core/scripts/configure.py mcp --vault /path/to/vau
 
 # Register as your default brain for all projects for both clients
 python3 /path/to/vault/.brain-core/scripts/configure.py mcp --vault /path/to/vault --user --client all
+
+# Install the active-Brain shaping discovery adapter for both clients
+python3 /path/to/vault/.brain-core/scripts/configure.py agent-skills --vault /path/to/vault --client all
 ```
 
 `setup.py workspace` and `configure.py mcp` are the public setup and transport surfaces. Older automation that used the retired `init.py` compatibility shell should move to the targeted `setup.py` / `configure.py` command for the concern it owns.
 
 For project scope, registration is not the whole story. Claude still needs the project's `.mcp.json` entry approved via `/mcp`, and Codex still needs the project trusted with the project-scoped `brain` MCP enabled. Once that project-scoped entry is active, it outranks the user-scoped one. Until then, either client may keep routing `mcp__brain__*` calls to a user-scoped `brain`.
+
+The optional shaping adapter is a stable discovery shim, not a copied workflow.
+At invocation time it calls `brain_session` and loads the active Brain's
+`.brain-core/skills/shaping/SKILL.md` through `brain_read`. Re-run the command to
+update a Brain-owned adapter; use `--replace` only after reviewing an existing
+unmanaged skill, which is archived first. Restart the affected clients after a
+change.
 
 ## Tooling
 
@@ -252,7 +263,7 @@ If your vault has the Brain MCP server running, you get twenty-one focused tools
 - **brain_edit** — explicit structural edits and exact-text replacement. Generic edits reject lifecycle-owned metadata; use **brain_reparent**, **brain_set_status**, **brain_set_key**, and **brain_set_naming_field** so derived paths, links, tags, descendants, and timestamps remain consistent.
 - **brain_define** — operator-only, guarded authoring for coherent type bundles, triggers, and plugins. Type replacement checks both taxonomy and template hashes; plugin replacement checks its definition hash; trigger changes identify exact current entries.
 - **brain_move** — rename, convert, archive, or unarchive artefacts via a flat top-level move contract
-- **brain_action** — schema-discriminated workflow bucket for delete, reparent-children, shaping helpers, and fix-links
+- **brain_action** — schema-discriminated workflow bucket for delete, reparent-children, `shape` session mechanics, printable/presentation shaping helpers, and fix-links
 - **brain_classify / brain_resolve / brain_ingest** — split experimental content tools; read-only classification/resolution no longer grants ingest permission.
 
 The MCP server logs to `.brain/local/mcp-server.log` — startup diagnostics, tool call tracing, and errors. Set `BRAIN_LOG_LEVEL=DEBUG` for tool argument details.

@@ -101,6 +101,7 @@ from _resource_contract import RESOURCE_KINDS
 import obsidian_cli
 import retrieval_embeddings as _retrieval_embeddings
 import session
+from start_shaping_session import SHAPING_MODES
 import workspace_registry
 import config as config_mod
 from . import _server_actions
@@ -2834,21 +2835,17 @@ class _BrainActionShapePresentationParams(BaseModel):
     ] = None
 
 
-class _BrainActionStartShapingParams(BaseModel):
+class _BrainActionShapeParams(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     target: Annotated[
         str,
         Field(description="Existing artefact path or resolvable name to shape."),
     ]
-    title: Annotated[
-        str | None,
-        Field(description="Optional transcript title override."),
-    ] = None
-    skill_type: Annotated[
-        str | None,
-        Field(description="Optional shaping sub-skill label such as Brainstorm, Refine, or Discover."),
-    ] = None
+    mode: Annotated[
+        Literal[*SHAPING_MODES],
+        Field(description="Shaping mode selected by the shaping skill."),
+    ]
 
 
 class _BrainActionFixLinksParams(BaseModel):
@@ -2892,10 +2889,10 @@ class _BrainActionShapePresentationRequest(BaseModel):
     params: _BrainActionShapePresentationParams
 
 
-class _BrainActionStartShapingRequest(BaseModel):
+class _BrainActionShapeRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    action: Literal["start-shaping"]
-    params: _BrainActionStartShapingParams
+    action: Literal["shape"]
+    params: _BrainActionShapeParams
 
 
 class _BrainActionFixLinksRequest(BaseModel):
@@ -2909,7 +2906,7 @@ _BrainActionRequest = Annotated[
     | _BrainActionReparentChildrenRequest
     | _BrainActionShapePrintableRequest
     | _BrainActionShapePresentationRequest
-    | _BrainActionStartShapingRequest
+    | _BrainActionShapeRequest
     | _BrainActionFixLinksRequest,
     Field(discriminator="action"),
 ]

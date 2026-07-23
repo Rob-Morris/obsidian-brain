@@ -14,10 +14,14 @@ Handles session setup for all shaping sub-skills. Called by the parent `shaping`
 
 1. If the user named a specific artefact: read it via `brain_read(resource="artefact", name="...")`. If it doesn't resolve, ask the user what type to create, then create via `brain_create`.
 2. If the user described an idea with no artefact: ask what artefact type fits, then create via `brain_create`.
-3. Call `brain_action(request={"action": "start-shaping", "params": {"target": "{path}", "skill_type": "{type}"}})` where `skill_type` is the sub-skill that will run (Brainstorm, Refine, or Discover). This creates or appends to the day's transcript.
-4. Read the type taxonomy: `brain_read(resource="type", name="{type-key}")`. Find the `## Shaping` section for flavour (convergent or discovery), bar, and completion status.
-5. Check for prior sessions: if the artefact has a `**Transcripts:**` line, this is a resumption. The artefact is the source of truth for current state — read it, not old transcripts. Only consult prior transcripts if you need to understand *why* something was decided.
-6. Report context: "Artefact: `{path}`. Transcript: `{path}`. Type: `{type}`. Shaping flavour: convergent/discovery. Bar: `{bar}`."
+3. Read the type taxonomy: `brain_read(resource="type", name="{type-key}")`. Require complete `shaping` metadata: `flavour`, `bar`, and `completion_status`. If it is absent, explain that the type is not shapeable and stop before creating a transcript.
+4. Check for prior sessions before opening this one: if the artefact has a `**Transcripts:**` line, this is a resumption. The artefact is the source of truth for current state — read it, not old transcripts. Only consult prior transcripts if you need to understand *why* something was decided.
+5. **Select the shaping mode** from the taxonomy and artefact content:
+   - `flavour: discovery` → **discover**
+   - `flavour: convergent` and the artefact is new, empty, or too incomplete for specific decisions → **brainstorm**
+   - `flavour: convergent` with concrete open decisions → **refine**
+6. Call `brain_action(request={"action": "shape", "params": {"target": "{path}", "mode": "{mode}"}})`. This validates shapeability, transitions lifecycle status through the canonical handler, and creates or continues today's transcript.
+7. Report context: "Artefact: `{path}`. Transcript: `{path}`. Type: `{type}`. Shaping flavour: `{flavour}`. Bar: `{bar}`. Completion status: `{completion_status}`. Mode: `{mode}`."
 
 ## Shared Q&A Rules
 

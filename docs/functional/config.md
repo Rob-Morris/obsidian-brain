@@ -178,6 +178,34 @@ The compiler discovers both locations and merges them into the compiled router. 
 
 Core skills teach agents how to use brain-core's own tools. They ship in `.brain-core/` and are intentionally overwritten on upgrade — they describe system methodology, not user configuration.
 
+### Client discovery adapters
+
+Claude Code and Codex discover native skills in separate machine-global
+directories. Brain can install the same thin `shaping` adapter into both without
+duplicating the actual workflow:
+
+```bash
+brain configure agent-skills --vault /path/to/brain --client all
+```
+
+The checked-in adapter template at
+`.brain-core/client-adapters/shaping/SKILL.md` calls `brain_session`, then reads the authoritative
+`.brain-core/skills/shaping/SKILL.md` from the active Brain with `brain_read`.
+Consequently the client-visible workflow and its MCP contract come from the same
+Brain version. Only the stable adapter is installed under
+`~/.claude/skills/shaping/` or `~/.codex/skills/shaping/`.
+
+Each installed adapter has a Brain ownership marker and content digest. Re-running
+the command updates only an unmodified Brain-owned adapter. An unmanaged skill is
+left untouched unless `--replace` is supplied, in which case the complete old
+directory is moved to a `shaping.pre-brain-adapter[-N]` backup. `--remove` likewise
+removes only an unmodified Brain-owned adapter. Symlinked targets and unexpected
+files are refused. These writes are never performed implicitly during vault
+upgrade; restart the affected client after an explicit command reports a change.
+When that checked-in discovery template is introduced or modified, `upgrade.py`
+surfaces the configuration command as a recommended follow-up. Updates to the
+authoritative shaping workflow itself need no client update and produce no prompt.
+
 ### Current core skills
 
 - `shaping` — parent router plus `assess`, `brainstorm`, `discover`, and `refine` sub-skills for artefact shaping workflows

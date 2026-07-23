@@ -362,7 +362,7 @@ class TestBrainActionShapePrintable:
         assert "--pdf-engine=/env/brain-tools/xelatex" in cmd
 
 
-class TestBrainActionStartShaping:
+class TestBrainActionShape:
     @pytest.fixture(autouse=True)
     def setup_shaping_files(self, initialized):
         """Add shaping transcript template and a design with status."""
@@ -386,6 +386,9 @@ class TestBrainActionStartShaping:
             "## Naming\n\n`{Title}.md` in `Designs/`.\n\n"
             "## Frontmatter\n\n```yaml\n---\ntype: living/designs\ntags:\n  - design\n"
             "status: new  # new | shaping | ready\n---\n```\n\n"
+            "## Shaping\n\n**Flavour:** Convergent\n"
+            "**Bar:** All design decisions are resolved.\n"
+            "**Completion status:** `ready`\n\n"
             "## Template\n\n[[_Config/Templates/Living/Designs]]\n"
         )
         templates_living = initialized / "_Config" / "Templates" / "Living"
@@ -411,34 +414,36 @@ class TestBrainActionStartShaping:
         (templates_temporal / "Shaping Transcripts.md").write_text(
             "---\ntype: temporal/shaping-transcript\ntags:\n  - transcript\n"
             "  - SOURCE_TYPE\n---\n"
-            "Shaping transcript for [[SOURCE_DOC_PATH|SOURCE_DOC_TITLE]].\n\n"
+            "**Source:** [[SOURCE_DOC_PATH|SOURCE_DOC_TITLE]]\n\n"
             "## {{date:YYYY-MM-DD}}\n\nQ.\n> A.\n"
         )
         # Force a router rebuild so the new taxonomy is definitely visible.
         server._router = server._compile_and_save(str(initialized))
 
     def test_missing_params_returns_error(self):
-        result = server.brain_action("start-shaping")
+        result = server.brain_action("shape")
         _assert_error(result, "requires params")
 
     def test_missing_target_returns_error(self):
-        result = server.brain_action("start-shaping", params={"title": "Missing target"})
+        result = server.brain_action("shape", params={"mode": "refine"})
         _assert_error(result, "requires params")
 
     def test_target_not_found_returns_error(self):
-        result = server.brain_action("start-shaping", params={"target": "Nonexistent File"})
+        result = server.brain_action(
+            "shape", params={"target": "Nonexistent File", "mode": "refine"}
+        )
         _assert_any_error(result)
 
     def test_happy_path_creates_transcript(self):
         server._index_pending.clear()
         result = json.loads(server.brain_action(
-            "start-shaping",
-            params={"target": "Designs/Test Design.md"},
+            "shape",
+            params={"target": "Designs/Test Design.md", "mode": "refine"},
         ))
         assert result["status"] == "ok"
         assert result["target_path"] == "Designs/Test Design.md"
         assert "shaping-transcript" in result["transcript_path"]
-        assert result["set_status"] is True
+        assert result["status_changed"] is True
         # Transcript exists on disk
         abs_path = os.path.join(str(self.vault), result["transcript_path"])
         assert os.path.isfile(abs_path)
@@ -446,7 +451,7 @@ class TestBrainActionStartShaping:
         assert result["target_path"] in pending_paths
         assert result["transcript_path"] in pending_paths
 
-    def test_start_shaping_revives_terminal_folder_path(self):
+    def test_shape_revives_terminal_folder_path(self):
         terminal_dir = self.vault / "Designs" / "+Implemented"
         terminal_dir.mkdir(exist_ok=True)
         source_path = terminal_dir / "Revived Design.md"
@@ -467,13 +472,21 @@ class TestBrainActionStartShaping:
             "## Naming\n\n`{Title}.md` in `Designs/`.\n\n"
             "## Frontmatter\n\n```yaml\n---\ntype: living/designs\ntags:\n  - design\n"
             "status: new  # new | shaping | ready | implemented\n---\n```\n\n"
+            "## Terminal Status\n\n"
+            "When a design reaches `implemented` status, move it to +Implemented/.\n\n"
+            "## Shaping\n\n**Flavour:** Convergent\n"
+            "**Bar:** All design decisions are resolved.\n"
+            "**Completion status:** `ready`\n\n"
             "## Template\n\n[[_Config/Templates/Living/Designs]]\n"
         )
         server._router = server._compile_and_save(str(self.vault))
 
         result = json.loads(server.brain_action(
-            "start-shaping",
-            params={"target": "Designs/+Implemented/Revived Design.md"},
+            "shape",
+            params={
+                "target": "Designs/+Implemented/Revived Design.md",
+                "mode": "refine",
+            },
         ))
 
         assert result["status"] == "ok"
@@ -483,14 +496,66 @@ class TestBrainActionStartShaping:
         assert revived.exists()
         assert "status: shaping" in revived.read_text()
 
-    def test_start_shaping_forces_router_refresh(self):
-        with patch.object(server, "_ensure_router_fresh") as mock_ensure:
-            result = server.brain_action(
-                "start-shaping",
-                params={"target": "Designs/Test Design.md"},
+    def test_shape_forces_router_refresh(self):
+        taxonomy = (
+            self.vault / "_Config" / "Taxonomy" / "Living" / "designs.md"
+        )
+        taxonomy.write_text(
+            taxonomy.read_text().replace(
+                "## Shaping\n\n"
+                "**Flavour:** Convergent\n"
+                "**Bar:** All design decisions are resolved.\n"
+                "**Completion status:** `ready`\n\n",
+                "",
             )
-        assert '"status": "ok"' in result
-        mock_ensure.assert_called_once_with()
+        )
+        _bump_mtime(taxonomy)
+        server._router_checked_at = 0.0
+
+        result = server.brain_action(
+            "shape",
+            params={"target": "Designs/Test Design.md", "mode": "refine"},
+        )
+
+        _assert_error(result, "not shapeable")
+
+    def test_old_action_name_is_not_accepted(self):
+        result = server.brain_action(
+            "start-shaping", params={"target": "Designs/Test Design.md"}
+        )
+        _assert_error(result, "Unknown action")
+
+    def test_resume_queues_only_the_changed_transcript(self):
+        server.brain_action(
+            "shape", params={"target": "Designs/Test Design.md", "mode": "refine"}
+        )
+        server._index_pending.clear()
+
+        result = json.loads(server.brain_action(
+            "shape",
+            params={"target": "Designs/Test Design.md", "mode": "refine"},
+        ))
+
+        assert result["status_changed"] is False
+        pending_paths = [rel_path for rel_path, _ in server._index_pending]
+        assert pending_paths == [result["transcript_path"]]
+
+    def test_late_partial_apply_marks_router_and_index_dirty(self):
+        server._router_dirty = False
+        server._index_dirty = False
+
+        with patch(
+            "start_shaping_session._add_transcript_link",
+            side_effect=OSError("source backlink failure"),
+        ):
+            result = server.brain_action(
+                "shape",
+                params={"target": "Designs/Test Design.md", "mode": "refine"},
+            )
+
+        _assert_error(result, "partially applied")
+        assert server._router_dirty is True
+        assert server._index_dirty is True
 
 
 class TestBrainProcess:

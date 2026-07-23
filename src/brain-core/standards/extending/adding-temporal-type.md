@@ -42,7 +42,7 @@ Optional sections:
 - **`## When To Use`** — orienting cue separate from `## Purpose`. Convention only; not parsed.
 - **`## Trigger`** — first non-blank line is the *condition* (used to infer category: `before` / `after` / `ongoing`); the rest is *detail* shown to agents. Almost always present for temporal types; the compiler merges this with the matching conditional in `_Config/router.md`.
 - **`## On Status Change`** — per-status hooks of the form: `When `status` transitions to `{value}`, set `{field}` to {expr}.` Rare for temporal types.
-- **`## Shaping`** — declares shaping flavour, bar, and completion status (used by reports and plans). Convention only; not parsed.
+- **`## Shaping`** — opts the type into shaping and declares the parsed contract: `**Flavour:**` (`Convergent` or `Discovery`), `**Bar:**`, and a backtick-delimited `**Completion status:**`. The compiler exposes this metadata to shaping skills and requires both `shaping` and the completion status to exist in the taxonomy's explicit lifecycle enum.
 
 ## Hub Relationships
 

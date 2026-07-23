@@ -178,6 +178,16 @@ to machine-local files under the vault (`.brain/local/...`) and do not
 broaden into user-home config or cross-vault registries by default. See
 [DD-048: Central managed runtime](decisions/dd-048-central-managed-runtime.md).
 
+Client skill adapters are an explicit machine-global exception to ordinary
+vault write bounds. `configure.py agent-skills` writes only the fixed
+`~/.claude/skills/shaping/` and/or `~/.codex/skills/shaping/` destinations. It
+uses atomic writes with the skill directory as the bound, refuses symlinked
+targets, and records an expected content hash in a Brain ownership marker.
+Unmanaged or modified content is preserved; `--replace` archives an unmanaged
+directory to a sibling backup before installing, and removal applies only to an
+unmodified managed adapter. Vault upgrades never mutate these client-global
+locations implicitly. See [DD-058](decisions/dd-058-active-brain-skill-adapters.md).
+
 **Exclusive mode:** `safe_write(exclusive=True)` (used by `brain_create`) checks file
 existence before writing, providing a lightweight create-or-fail guarantee.
 

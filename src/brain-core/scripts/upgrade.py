@@ -82,6 +82,7 @@ BRAIN_CORE_DIR = ".brain-core"
 IGNORE_DIRS = {"__pycache__"}
 IGNORE_FILES = {".DS_Store", "upgrade.py"}
 REQ_FILE_REL = os.path.join("brain_mcp", "requirements.txt")
+AGENT_SKILL_ADAPTER_REL = os.path.join("client-adapters", "shaping", "SKILL.md")
 VENV_HELPER_REL = os.path.join(".brain-core", "scripts", "_common", "_venv.py")
 CLI_SOURCE_REL = os.path.join("cli", "brain")
 CLI_TARGET_LOCATIONS = (
@@ -165,6 +166,42 @@ def _parse_version(v: str) -> tuple:
         except ValueError:
             parts.append(p)
     return tuple(parts)
+
+
+def _agent_skill_adapter_followups(vault_root: str, diff: dict) -> list[dict]:
+    """Return post-upgrade guidance only when the discovery adapter changed."""
+    if AGENT_SKILL_ADAPTER_REL in diff.get("files_added", []):
+        reason = "shaping_adapter_added"
+        message = (
+            "The Claude/Codex shaping discovery adapter is now available. "
+            "Install it after the upgrade so each client loads shaping from the active Brain."
+        )
+    elif AGENT_SKILL_ADAPTER_REL in diff.get("files_modified", []):
+        reason = "shaping_adapter_updated"
+        message = (
+            "The Claude/Codex shaping discovery adapter changed. "
+            "Re-run its configuration after the upgrade to update managed copies."
+        )
+    else:
+        return []
+
+    command = [
+        sys.executable,
+        os.path.join(vault_root, BRAIN_CORE_DIR, "scripts", "configure.py"),
+        "agent-skills",
+        "--vault",
+        vault_root,
+        "--client",
+        "all",
+    ]
+    return [
+        {
+            "id": "configure_agent_skills",
+            "reason": reason,
+            "message": message,
+            "command": command,
+        }
+    ]
 
 
 def _snapshot_file(path: str, snapshots: dict[str, dict]) -> None:
@@ -1513,6 +1550,9 @@ def upgrade(
         "files_unchanged": diff["files_unchanged"],
         "dry_run": dry_run,
     }
+    followups = _agent_skill_adapter_followups(vault_root, diff)
+    if followups:
+        result["followups"] = followups
 
     if dry_run:
         result["message"] = f"Dry run: {old_version or '(none)'} → {new_version}"
@@ -1875,6 +1915,15 @@ def main() -> None:
         for f in result["files_removed"]:
             info(f"    - {f}")
     info(f"  Unchanged: {result['files_unchanged']} files")
+
+    followups = result.get("followups", [])
+    if followups:
+        info("")
+        heading = "Follow-up after upgrade:" if args.dry_run else "Recommended follow-up:"
+        info(heading)
+        for followup in followups:
+            info(f"  {followup['message']}")
+            info(f"  Run: {_join_argv(followup['command'])}")
 
     if args.dry_run:
         precompile_preview = result.get("precompile_patch_migrations_preview", [])

@@ -68,6 +68,11 @@ class TestBrainRead:
         ]
         assert targets[-1]["within"] == ["# Brain Overview", "## Notes"]
 
+    def test_outline_missing_file_is_an_mcp_error(self, initialized):
+        result = server.brain_outline("Wiki/missing.md")
+
+        _assert_error(result, "file not found")
+
     def test_check_returns_filterable_structured_findings(self, initialized):
         (initialized / "Ideas" / "Invalid Status.md").write_text(
             "---\ntype: living/ideas\ntags: []\nstatus: invented\n---\n\nInvalid.\n"

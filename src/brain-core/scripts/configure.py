@@ -7,7 +7,7 @@ import argparse
 from pathlib import Path
 import sys
 
-from _bootstrap import mcp_transport
+from _bootstrap import agent_skills, mcp_transport
 from _bootstrap.mcp_state import CLAUDE_MD_BOOTSTRAP_VAULT, CLAUDE_MD_FILE, bootstrap_line_for_target
 from _bootstrap.runtime import (
     handoff_current_script_to_managed_runtime,
@@ -68,6 +68,32 @@ def _mcp_error(action: str, vault_root: Path, message: str) -> dict:
         vault_root,
         [_step("mcp_transport", "error", message)],
     )
+
+
+def configure_agent_skills_action(
+    vault_root: Path,
+    *,
+    client: str,
+    replace: bool,
+    remove: bool,
+    home_dir: Path | None = None,
+) -> dict:
+    action = "agent_skills_remove" if remove else "agent_skills_configure"
+    try:
+        steps = agent_skills.configure_agent_skill_adapters(
+            home_dir=home_dir or Path.home(),
+            client=client,
+            replace=replace,
+            remove=remove,
+        )
+    except ValueError as exc:
+        steps = [_step("agent_skills", "error", str(exc))]
+    notes = []
+    if any(step["status"] == "changed" for step in steps):
+        notes.append(
+            "Restart the affected agent client so it reloads the shaping skill adapter."
+        )
+    return _result_envelope(action, vault_root, steps, notes=notes)
 
 
 def _resolve_binding_brain(vault_root: Path, brain_id: str | None) -> str:
@@ -440,6 +466,31 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     mcp.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
 
+    agent_skill_parser = subparsers.add_parser(
+        "agent-skills",
+        help="Configure active-Brain skill adapters for Claude and Codex.",
+        parents=[make_vault_parent_parser()],
+    )
+    agent_skill_parser.add_argument(
+        "--client",
+        choices=("claude", "codex", "all"),
+        default="all",
+        help="Which client skill directory to configure (default: all).",
+    )
+    agent_skill_parser.add_argument(
+        "--replace",
+        action="store_true",
+        help="Archive an existing unmanaged shaping skill before installing the adapter.",
+    )
+    agent_skill_parser.add_argument(
+        "--remove",
+        action="store_true",
+        help="Remove only an unmodified Brain-managed shaping adapter.",
+    )
+    agent_skill_parser.add_argument(
+        "--json", action="store_true", help="Emit machine-readable JSON."
+    )
+
     return parser.parse_args(argv)
 
 
@@ -575,6 +626,16 @@ def main(argv: list[str] | None = None) -> int:
             remove=args.remove,
             force=args.force,
             vault_self=args.vault_self,
+        )
+        return _emit_result(result, as_json=args.json)
+
+    if args.command == "agent-skills":
+        vault_root = find_vault_root(getattr(args, "vault", None))
+        result = configure_agent_skills_action(
+            Path(vault_root),
+            client=args.client,
+            replace=args.replace,
+            remove=args.remove,
         )
         return _emit_result(result, as_json=args.json)
 

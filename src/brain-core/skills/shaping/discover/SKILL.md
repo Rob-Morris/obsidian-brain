@@ -25,6 +25,7 @@ If you don't have an artefact path and transcript path from the parent skill, re
 
 - No fixed completion criteria. When the user signals done or you've covered the territory, do a quick review: any obvious gaps? Anything mentioned but not captured?
 - Present any gaps. If the user says they're done, they're done.
+- Confirm before changing status — "Set status to `{completion_status}`?" Apply the taxonomy's exact value via `brain_set_status(path="{path}", status="{completion_status}")`. Signal: "Fully shaped — [artefact] is `{completion_status}`."
 
 ## Red Flags
 

@@ -165,6 +165,26 @@ class TestListArtefactsTypeFilter:
         assert imported["created"] == ""
         assert unbounded["omitted_missing_created"] == 0
 
+    def test_malformed_index_dates_are_treated_as_missing(self):
+        index = self._make_index()
+        index["documents"][0]["created"] = ["2026-03-01"]
+        index["documents"][0]["modified"] = {"date": "2026-04-04"}
+
+        page = la.list_artefacts_page(
+            index,
+            self._make_router(),
+            since="2026-01-01",
+            modified_since="2026-01-01",
+        )
+
+        assert page["omitted_missing_created"] == 0
+        assert "foo" not in {item["title"] for item in page["items"]}
+
+        unbounded = la.list_artefacts_page(index, self._make_router())
+        malformed = next(item for item in unbounded["items"] if item["title"] == "foo")
+        assert malformed["created"] == ""
+        assert malformed["modified"] == ""
+
     def test_page_reports_truncation_and_continuation(self):
         first = la.list_artefacts_page(
             self._make_index(), self._make_router(), top_k=2

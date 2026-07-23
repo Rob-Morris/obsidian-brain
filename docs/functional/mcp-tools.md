@@ -404,7 +404,7 @@ Vault-wide and destructive operations, gated by explicit approval.
   - `reparent-children={source, to?}`
   - `shape-printable={source, slug, render?, keep_heading_with_next?, pdf_engine?}`
   - `shape-presentation={source, slug, render?, preview?}`
-  - `start-shaping={target, title?, skill_type?}`
+  - `shape={target, mode}` where `mode` is `brainstorm`, `refine`, or `discover`
   - `fix-links={fix?, path?, links?}`
   - Mismatched action/parameter combinations are rejected by the MCP schema.
 
@@ -413,7 +413,7 @@ Vault-wide and destructive operations, gated by explicit approval.
 - **`reparent-children`** — request shape: `{request: {action: "reparent-children", params: {source, to?}}}`. Moves the direct children of a living source artefact. `brain_reparent` is reserved for changing one artefact's own authoritative parent.
 - **`shape-printable`** — request shape: `{request: {action: "shape-printable", params: {source, slug, render?, keep_heading_with_next?, pdf_engine?}}}`. Creates a printable artefact, queues it for incremental retrieval-index refresh, and renders `_Assets/Generated/Printables/{stem}.pdf` via pandoc
 - **`shape-presentation`** — request shape: `{request: {action: "shape-presentation", params: {source, slug, render?, preview?}}}`. Creates a Marp presentation artefact, queues it for incremental retrieval-index refresh, renders `_Assets/Generated/Presentations/{stem}.pdf`, and optionally launches live preview
-- **`start-shaping`** — request shape: `{request: {action: "start-shaping", params: {target, title?, skill_type?}}}`. Bootstraps a shaping session against an existing artefact, creating or appending the transcript, reviving `+Status/` artefacts back into the active folder when it sets `status: shaping`, and queuing the touched artefacts for incremental retrieval-index refresh
+- **`shape`** — request shape: `{request: {action: "shape", params: {target, mode}}}`. Opens or continues a shaping session for a taxonomy-declared shapeable artefact. The shaping skill selects `brainstorm`, `refine`, or `discover` before calling the action. The action validates the compiled shaping contract, creates or appends the source's same-day transcript, transitions to `status: shaping` through the canonical lifecycle handler (including `+Status/` revival and hooks), and queues only changed artefacts for incremental retrieval-index refresh.
 - **`fix-links`** — request shape: `{request: {action: "fix-links", params: {fix?, path?, links?}}}`. Scans for broken wikilinks and attempts auto-resolution using naming convention heuristics (slug→title, double-dash→tilde, temporal prefix matching). `fix: true` applies unambiguous fixes; `path: "..."` scopes scan/fix to a single file; `links: [...]` narrows a single-file fix to specific target stems. `brain_create` and `brain_edit` accept a `fix_links: true` convenience flag that runs the single-file fixer on the written artefact
 
 **Response format:** Plain text status lines for delete and JSON for reparent plus the shaping/fix-links flows where structured payloads add value.
@@ -513,7 +513,7 @@ experimental while their ranking and ingestion contracts settle.
 
 Loads vault config via three-layer merge (template → `.brain/config.yaml` → `.brain/local/config.yaml`). Config freshness is rechecked before profile enforcement and before `brain_session` authentication, so on-disk config edits take effect without restarting the MCP server. Malformed or unreadable config fails closed for guarded tools and is reported through `brain_init(debug=true)`. Auto-compiles router and auto-builds index if stale (compares timestamps against source file mtimes). Both artefacts loaded into memory for the session lifetime. Loads workspace registry from `.brain/local/workspaces.json` (empty dict if absent). Derives vault name from config `brain_name`, then `BRAIN_VAULT_NAME` env var, then directory basename. Obsidian CLI availability is probed lazily on demand rather than during startup.
 
-Router freshness is also enforced mid-session when needed: `brain_session`, `brain_read`, `brain_search`, `brain_list`, `brain_create`, `brain_edit`, all `brain_move` ops, and `brain_action` flows that depend on current router state (`delete`, `reparent-children`, `start-shaping`). Direct mutation scripts enforce the same stale-router boundary before local writes, so non-MCP agents do not get a weaker safety contract.
+Router freshness is also enforced mid-session when needed: `brain_session`, `brain_read`, `brain_search`, `brain_list`, `brain_create`, `brain_edit`, all `brain_move` ops, and `brain_action` flows that depend on current router state (`delete`, `reparent-children`, `shape`). Direct mutation scripts enforce the same stale-router boundary before local writes, so non-MCP agents do not get a weaker safety contract.
 
 ### Logging
 

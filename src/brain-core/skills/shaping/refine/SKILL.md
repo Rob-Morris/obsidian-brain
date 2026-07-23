@@ -32,7 +32,7 @@ Review the artefact's open questions or decision table. Skip what's already reso
 - **Agent self-review (silent).** Before presenting gaps, do a quick pass: fix placeholder text, internal contradictions, vague language, scope drift. Just fix them — don't present mechanical errors as gaps.
 - **Review against the bar** from the type's `## Shaping` section: internal consistency, completeness, clarity, links/provenance.
 - Present gaps to the user: "Review found X potential gaps: [list]. Do any of these need more shaping?" Only flagged gaps become new questions. Do not resume shaping without confirmation.
-- **When review passes:** Confirm with the user before changing status — "Set status to `ready`?" Set status via `brain_set_status`. Signal: "Fully shaped — [artefact] is ready."
+- **When review passes:** Confirm with the user before changing status — "Set status to `{completion_status}`?" Apply the taxonomy's exact value via `brain_set_status(path="{path}", status="{completion_status}")`. Signal: "Fully shaped — [artefact] is `{completion_status}`."
 
 ## Red Flags
 

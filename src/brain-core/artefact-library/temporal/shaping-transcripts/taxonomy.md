@@ -8,10 +8,10 @@ A record of shaping sessions that refine an artefact — a design, research note
 
 ## How to Write Shaping Transcripts
 
-- **One file per day per artefact.** If multiple shaping sessions happen on the same artefact in one day, they share a file. `start-shaping` handles this — it appends to an existing file or creates a new one.
+- **One file per day per artefact.** If multiple shaping sessions happen on the same artefact in one day, they share a file. The `shape` action follows the source backlink, appending to that file even if the source has been renamed. Same-title artefacts receive distinct transcripts.
 - **Heading hierarchy:**
   - `#` — transcript title (set by template)
-  - `##` — session boundary: `## Refine session start — 14:30` (set by `start-shaping`)
+  - `##` — session boundary: `## Refine session start — 14:30` (set by `shape`)
   - `###` — speaker turn: `### Agent` or `### User`
 - **Both speakers treated equally.** Agent text and user text are both prose under `###` headings. No blockquotes.
 - **Record what was said, nothing more.** The transcript is a literal record of the conversation. Decision references, progress tracking, and resolution markers appear naturally because the agent said them. Do not add editorial synthesis, summaries, or after-the-fact commentary — that belongs in the artefact.

@@ -709,6 +709,13 @@ def parse_date_value(value):
         return None
 
 
+def parse_scalar_index_date(value):
+    """Parse scalar date text from index metadata, rejecting YAML collections."""
+    if not isinstance(value, str):
+        return None
+    return parse_date_value(value)
+
+
 def resolve_naming_pattern(pattern, title, variables=None, date_source=None):
     """Resolve a naming pattern to a filename.
 

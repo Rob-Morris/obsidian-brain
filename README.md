@@ -1,6 +1,6 @@
 # Obsidian Brain
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.52.1-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.12-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.53.0-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.12-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
 
 A self-evolving knowledge base for agents and humans working together on what matters.
 
@@ -80,7 +80,7 @@ If you want a convenience wrapper that fetches the repo or prompts for confirmat
 bash install.sh /path/to/brain
 ```
 
-The wrapper detects the existing installation, shows the version change, and then runs `upgrade.py`. When `.brain-core/brain_mcp/requirements.txt` changes, `upgrade.py` provisions the matching central runtime at `~/.brain/venvs/py<X.Y>-<sha16>/` (creating or reusing); existing project MCP registrations are left in place. Vaults that still point at a legacy per-vault `.venv/` get a one-line migration command in the upgrade output. After the file update, `upgrade.py` now reconciles retrieval assets through the supported repair lifecycle too: lexical-only vaults run `repair.py lexical`, while semantic-enabled vaults run `repair.py semantic`, which already refreshes router, lexical index, and embeddings sidecars together. Same-version re-apply, downgrade, and migration rerun flows remain explicit `upgrade.py --force` operations.
+The wrapper detects the existing installation, shows the version change, and then runs `upgrade.py`. When `.brain-core/brain_mcp/requirements.txt` changes, `upgrade.py` provisions the matching central runtime at `~/.brain/venvs/py<X.Y>-<sha16>/` (creating or reusing); existing project MCP registrations are left in place. Vaults that still point at a legacy per-vault `.venv/` get a one-line migration command in the upgrade output. After the file update, `upgrade.py` now reconciles retrieval assets through the supported repair lifecycle too: lexical-only vaults run `repair.py lexical`, while semantic-enabled vaults run `repair.py semantic`, which already refreshes router, lexical index, and embeddings sidecars together. When the Claude/Codex shaping discovery adapter is introduced or its checked-in template changes, upgrade output also recommends the explicit `configure.py agent-skills --client all` follow-up; it never runs that machine-global write automatically. Same-version re-apply, downgrade, and migration rerun flows remain explicit `upgrade.py --force` operations.
 
 #### Repair
 
@@ -160,8 +160,9 @@ If you prefer to do it yourself:
 4. Provision the central managed runtime: `cd /path/to/brain && python3.12 .brain-core/scripts/_common/_venv.py ensure --vault . --launcher python3.12`. This creates `~/.brain/venvs/py3.12-<sha16>/` if missing and installs `requirements.txt` into it.
 5. Optionally configure MCP transport: run `.brain-core/scripts/configure.py mcp` with a compatible launcher Python, e.g. `python3.12 .brain-core/scripts/configure.py mcp --client all` (or add `--user --client all` for all projects). This public surface and the installer share the launcher-safe MCP transport owner in `.brain-core/scripts/_bootstrap/mcp_transport.py`.
    For project scope, the file write is not the whole story: Claude still needs `/mcp` approval for `brain`, and Codex still needs the project trusted with `brain` enabled.
-6. Open the folder as an Obsidian vault
-7. Enable the CSS snippet in **Settings > Appearance > CSS Snippets** (`brain-folder-colours`)
+6. Optionally install the active-Brain shaping discovery adapter for both clients: `python3.12 .brain-core/scripts/configure.py agent-skills --client all`. If an older unmanaged shaping skill is already installed, review it and rerun with `--replace`; Brain archives the old directory instead of deleting it. Restart the clients after installation.
+7. Open the folder as an Obsidian vault
+8. Enable the CSS snippet in **Settings > Appearance > CSS Snippets** (`brain-folder-colours`)
 
 </details>
 
@@ -185,6 +186,15 @@ python3.12 .brain-core/scripts/configure.py mcp --workspace /path/to/project --c
 ```
 
 Use `--user` if you want the brain everywhere. Use `setup.py workspace` (or `brain setup workspace`) to bind a single project without choosing transport yet, then `configure.py mcp` (or `brain configure mcp`) if you do want MCP there. Use `--client claude --local` when you want Claude-only local config in `.claude/settings.local.json` without committing it. For project scope, the project-scoped MCP still outranks the user-scoped one once it is active, but registration alone is not enough: in Claude, approve `brain` via `/mcp`; in Codex, trust the project and ensure `brain` is enabled. Until then, either client may keep using the user-scoped `brain`.
+
+To expose shaping through each client's native skill discovery while keeping the
+workflow version-matched to the active Brain, install the small discovery adapters
+once with `brain configure agent-skills --vault /path/to/brain --client all`.
+They load `.brain-core/skills/shaping/` through `brain_session` and `brain_read` at
+invocation time; upgrades therefore do not copy workflow files into client-owned
+directories. Adapter installation is explicit and ownership-safe, not an implicit
+side effect of vault upgrade. If the stable discovery adapter itself changes,
+`upgrade.py` prints and records the explicit configuration command to run.
 
 ### Hello, Is It Me You're Looking For?
 

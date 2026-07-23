@@ -23,7 +23,7 @@ Brain-native tasks are deliberately minimal. They don't compete with dedicated t
 
 **Flavour:** Convergent
 **Bar:** Clear and ready to be performed.
-**Completion status:** The type's normal working status (e.g. `open`)
+**Completion status:** `open`
 
 See [[.brain-core/standards/shaping]] for the shaping process.
 

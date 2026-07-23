@@ -33,7 +33,7 @@ remains lexical-only.
 
 | Script | Purpose | CLI usage |
 |---|---|---|
-| `_bootstrap/` | Shared launcher-safe bootstrap package: env-aware vault discovery, workspace-local scaffold/ignore rules, managed-runtime handoff, bootstrap diagnostics, shared MCP/config-layout state, and the shared Claude/Codex transport engine | (library only) |
+| `_bootstrap/` | Shared launcher-safe bootstrap package: env-aware vault discovery, workspace-local scaffold/ignore rules, managed-runtime handoff, bootstrap diagnostics, shared MCP/config-layout state, the Claude/Codex transport engine, and ownership-safe native-skill discovery adapters | (library only) |
 | `_common/` | Shared utilities package: vault discovery, frontmatter parsing, serialisation, CLI parser helpers, and general script support | (library only) |
 | `_lifecycle_common.py` | Shared lifecycle result-envelope rendering and CLI emission helpers | (library only) |
 | `_repair_common.py` | Launcher-safe repair metadata, scope definitions, and exact command builders | (library only) |
@@ -48,7 +48,7 @@ remains lexical-only.
 | `construct_benchmark_fixture.py` | Derive a vault-native retrieval benchmark fixture plus audit JSON from an existing vault, including semantic-variant audit diagnostics and optional externally seeded semantic or hybrid candidates. Unreadable source files now fail explicitly instead of being skipped silently. | `python3 construct_benchmark_fixture.py --fixture-out PATH [--audit-out PATH] [--semantic-strategy S] [--semantic-seed-file PATH] [--hybrid-seed-file PATH] [--json]` |
 | `evaluate_search.py` | Benchmark lexical, semantic, and hybrid retrieval against a JSON query set | `python3 evaluate_search.py --benchmark PATH [--mode M]... [--json]` |
 | `check.py` | Router-driven structural compliance checks; launcher-safe bootstrap diagnostics run first, derived router/lexical cache drift points at exact repair scopes, then managed semantic findings from the canonical semantic owner are added after managed-runtime handoff, and human output still prints exact `repair.py` commands for repairable drift | `python3 check.py [--json] [--actionable] [--severity S] [--vault V]` |
-| `configure.py` | Explicit installed-vault lifecycle entry point: targeted `workspace binding`, `workspace metadata`, `workspace bootstrap`, `mcp`, and `semantic` surfaces without going through the setup wrapper | `python3 configure.py {workspace,mcp,semantic} ...` |
+| `configure.py` | Explicit installed-vault lifecycle entry point: targeted `workspace binding`, `workspace metadata`, `workspace bootstrap`, `mcp`, `agent-skills`, and `semantic` surfaces without going through the setup wrapper | `python3 configure.py {workspace,mcp,agent-skills,semantic} ...` |
 | `compile_colours.py` | Generate folder colour CSS | (called by compile_router) |
 | `compile_router.py` | Compile router from source files and refresh session markdown | `python3 compile_router.py [--json]` |
 | `config.py` | Vault configuration loader (three-layer merge) using the shared Brain-owned YAML seam for standalone config files | `python3 config.py` |
@@ -79,9 +79,10 @@ remains lexical-only.
 | `session.py` | Build the canonical session model and refresh `.brain/local/session.md`; keeps a launcher-safe SessionStart shim but hands substantive work off into the managed runtime. Cross-Brain workspace resolution is owned by `brain session` before it dispatches with `--vault`. | `python3 session.py --vault V [--json] [--workspace-dir PATH]` |
 | `shape_printable.py` | Create printable + render PDF | `python3 shape_printable.py --source P --slug S [--no-render] [--pdf-engine E] [--keep-heading-with-next]` |
 | `shape_presentation.py` | Create presentation + render PDF + launch Marp preview | `python3 shape_presentation.py --source P --slug S [--no-render] [--no-preview]` |
-| `start_shaping.py` | Bootstrap a shaping session for an existing artefact | `python3 start_shaping.py --target P [--title T] [--vault V]` |
+| `start_shaping_session.py` | Open or continue a lifecycle-safe shaping session for an existing, shapeable artefact | `python3 start_shaping_session.py --target P --mode brainstorm\|refine\|discover [--vault V]` |
+| `start_shaping.py` | Compatibility launcher for `start_shaping_session.py` | `python3 start_shaping.py --target P [--mode brainstorm\|refine\|discover] [--vault V]` |
 | `sync_definitions.py` | Sync artefact library definitions to vault `_Config/`, using raw tracked hashes plus markdown-aware comparison for `.md` files so harmless table-padding rewrites do not surface as drift | `python3 sync_definitions.py [--vault V] [--dry-run] [--force] [--types t1,t2] [--status] [--json]` |
-| `upgrade.py` | Canonical brain-core upgrade entry point with pre-compile compatibility patches, a target-aware local migration ledger, binary-safe rollback snapshots, running stage snapshots in `.brain/local/last-upgrade.json`, self-contained atomic writes, and best-effort central-runtime provisioning when `requirements.txt` changes | `python3 upgrade.py --source P [--vault V] [--dry-run] [--force] [--sync\|--no-sync] [--sync-deps\|--no-sync-deps] [--json]` |
+| `upgrade.py` | Canonical brain-core upgrade entry point with migrations, binary-safe rollback snapshots, runtime/retrieval reconciliation, and structured recommended follow-ups when a checked-in client adapter is introduced or changed | `python3 upgrade.py --source P [--vault V] [--dry-run] [--force] [--sync\|--no-sync] [--sync-deps\|--no-sync-deps] [--json]` |
 | `vault_registry.py` | User-home authoritative Brain registry (`$XDG_CONFIG_HOME/brain/vaults`, default `~/.config/brain/vaults`). Current shipped writer stores typed `local` entries as `<brain-id>\tlocal\t<absolute-vault-path>`; legacy two-column local entries are still read for compatibility. | `python3 vault_registry.py [--register PATH\|--backfill PATH\|--unregister PATH\|--list [--json]\|--prune\|--resolve BRAIN_ID]` |
 | `workspace_registry.py` | Workspace slug→path resolution | `python3 workspace_registry.py [--register SLUG PATH] [--unregister SLUG] [--resolve SLUG] [--json]` |
 
@@ -92,7 +93,7 @@ The script layer is organised into 8 bounded contexts. This is an architectural 
 | Context | Scripts |
 |---|---|
 | Compilation | `compile_router.py`, `compile_colours.py`, `build_index.py`, `sync_definitions.py` |
-| Artefact Operations | `create.py`, `edit.py`, `read.py`, `rename.py`, `fix_links.py`, `start_shaping.py`, `shape_printable.py`, `shape_presentation.py` |
+| Artefact Operations | `create.py`, `edit.py`, `read.py`, `rename.py`, `fix_links.py`, `start_shaping_session.py` (`start_shaping.py` compatibility launcher), `shape_printable.py`, `shape_presentation.py` |
 | Compliance | `check.py` |
 | Content Intelligence | `_search/`, `search_lexical.py`, `search_index.py`, `evaluate_search.py`, `construct_benchmark_fixture.py`, `list_artefacts.py` |
 | Session & Configuration | `session.py`, `config.py`, `workspace_registry.py`, `generate_key.py` |
@@ -133,7 +134,8 @@ These scripts import from `_common/` for vault discovery, frontmatter parsing, a
 - `setup.py`
 - `shape_printable.py`
 - `shape_presentation.py`
-- `start_shaping.py`
+- `start_shaping_session.py`
+- `start_shaping.py` (compatibility launcher)
 - `sync_definitions.py`
 - `workspace_registry.py`
 

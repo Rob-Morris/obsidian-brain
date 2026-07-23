@@ -29,10 +29,22 @@ from _common import (
     load_compiled_router,
     match_artefact,
     normalize_artefact_key,
+    parse_scalar_index_date,
     parse_frontmatter,
     resolve_artefact_key_entry,
     temporal_display_name,
 )
+
+
+def _index_date(value):
+    """Return a comparable ISO date for valid scalar index metadata."""
+    parsed = parse_scalar_index_date(value)
+    if parsed is None:
+        return ""
+    try:
+        return date.fromisoformat(value[:10]).isoformat()
+    except ValueError:
+        return parsed.date().isoformat()
 
 
 def _validate_iso_date(value, field):
@@ -114,8 +126,8 @@ def _collect_artefacts(index, router, type_filter=None, since=None, until=None,
         if resolved_parent and doc.get("parent") != resolved_parent:
             continue
 
-        created_date = (doc.get("created") or "")[:10]
-        modified_date = (doc.get("modified") or "")[:10]
+        created_date = _index_date(doc.get("created"))
+        modified_date = _index_date(doc.get("modified"))
         missing_created_for_bound = bool((since or until) and not created_date)
         if since and created_date and created_date < since:
             continue

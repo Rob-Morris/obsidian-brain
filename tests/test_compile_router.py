@@ -501,6 +501,124 @@ class TestParseStatusEnum:
         result = cr.parse_status_enum(f.read_text())
         assert result is None
 
+
+class TestParseShaping:
+    def test_parses_shaping_contract(self, tmp_path):
+        f = tmp_path / "tax.md"
+        f.write_text(
+            "# Plans\n\n"
+            "## Frontmatter\n\n"
+            "```yaml\n---\nstatus: draft  # draft | shaping | approved\n---\n```\n\n"
+            "## Shaping\n\n"
+            "**Flavour:** Convergent\n"
+            "**Bar:** Approach is clear and agreed.\n"
+            "**Completion status:** `approved`\n"
+        )
+
+        result = cr.parse_taxonomy_file(str(f))
+
+        assert result["shaping"] == {
+            "flavour": "convergent",
+            "bar": "Approach is clear and agreed.",
+            "completion_status": "approved",
+        }
+        assert result["frontmatter"]["status_enum"] == [
+            "draft", "shaping", "approved",
+        ]
+
+    def test_rejects_incomplete_shaping_contract(self, tmp_path):
+        f = tmp_path / "tax.md"
+        f.write_text(
+            "# Plans\n\n"
+            "## Shaping\n\n"
+            "**Flavour:** Convergent\n"
+            "**Bar:** Approach is clear and agreed.\n"
+        )
+
+        with pytest.raises(ValueError, match="Completion status"):
+            cr.parse_taxonomy_file(str(f))
+
+    @pytest.mark.parametrize(
+        ("metadata", "message"),
+        [
+            (
+                "**Bar:** Clear.\n**Completion status:** `approved`\n",
+                "Flavour",
+            ),
+            (
+                "**Flavour:** Convergent\n"
+                "**Completion status:** `approved`\n",
+                "Bar",
+            ),
+            (
+                "**Flavour:** Expansive\n**Bar:** Clear.\n"
+                "**Completion status:** `approved`\n",
+                "must be",
+            ),
+            (
+                "**Flavour:** Convergent\n**Bar:**    \n"
+                "**Completion status:** `approved`\n",
+                "Bar",
+            ),
+            (
+                "**Flavour:** Convergent\n**Bar:** Clear.\n"
+                "**Completion status:** `   `\n",
+                "non-empty",
+            ),
+            (
+                "**Flavour:** Convergent\n**Bar:** Clear.\n"
+                "**Completion status:** approved\n",
+                "backticks",
+            ),
+        ],
+    )
+    def test_rejects_malformed_shaping_metadata(
+        self, tmp_path, metadata, message
+    ):
+        f = tmp_path / "tax.md"
+        f.write_text(
+            "# Plans\n\n"
+            "## Frontmatter\n\n"
+            "```yaml\n---\nstatus: draft  # draft | shaping | approved\n---\n```\n\n"
+            "## Shaping\n\n"
+            + metadata
+        )
+
+        with pytest.raises(ValueError, match=message):
+            cr.parse_taxonomy_file(str(f))
+
+    def test_rejects_shaping_status_outside_lifecycle_contract(self, tmp_path):
+        f = tmp_path / "tax.md"
+        f.write_text(
+            "# Plans\n\n"
+            "## Frontmatter\n\n"
+            "```yaml\n---\nstatus: draft  # draft | shaping | ready\n---\n```\n\n"
+            "## Shaping\n\n"
+            "**Flavour:** Convergent\n"
+            "**Bar:** Clear.\n"
+            "**Completion status:** `approved`\n"
+        )
+
+        with pytest.raises(ValueError, match="`approved`") as exc_info:
+            cr.parse_taxonomy_file(str(f))
+
+        assert cr.SHAPING_LIFECYCLE_ERROR_CODE in str(exc_info.value)
+
+    def test_shaping_status_without_contract_does_not_opt_type_in(self, tmp_path):
+        f = tmp_path / "tax.md"
+        f.write_text(
+            "# Plans\n\n"
+            "## Frontmatter\n\n"
+            "```yaml\n---\nstatus: draft  # draft | shaping | approved\n---\n```\n"
+        )
+
+        result = cr.parse_taxonomy_file(str(f))
+
+        assert result["shaping"] is None
+        assert result["frontmatter"]["status_enum"] == [
+            "draft", "shaping", "approved",
+        ]
+
     def test_inline_comment_takes_priority_over_table(self, tmp_path):
         """When both inline comment and table exist, inline comment wins."""
         f = tmp_path / "tax.md"

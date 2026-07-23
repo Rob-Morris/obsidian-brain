@@ -811,6 +811,81 @@ def test_configure_mcp_returns_structured_result(tmp_path, monkeypatch, capsys):
     assert any("brain_session" in note for note in payload["notes"])
 
 
+def test_configure_agent_skills_cli_uses_shared_client_boundary(
+    tmp_path, monkeypatch, capsys
+):
+    vault = _make_vault(tmp_path)
+    calls = {}
+
+    def fake_configure(*, home_dir, client, replace, remove):
+        calls.update(
+            home_dir=home_dir,
+            client=client,
+            replace=replace,
+            remove=remove,
+        )
+        return [
+            {
+                "name": "agent_skill_claude_shaping",
+                "status": "changed",
+                "message": "installed",
+            }
+        ]
+
+    monkeypatch.setattr(
+        configure.agent_skills,
+        "configure_agent_skill_adapters",
+        fake_configure,
+    )
+    monkeypatch.setattr(configure.Path, "home", lambda: tmp_path / "home")
+
+    exit_code = configure.main(
+        [
+            "agent-skills",
+            "--vault",
+            str(vault),
+            "--client",
+            "claude",
+            "--replace",
+            "--json",
+        ]
+    )
+
+    assert exit_code == 0
+    assert calls == {
+        "home_dir": tmp_path / "home",
+        "client": "claude",
+        "replace": True,
+        "remove": False,
+    }
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["action"] == "agent_skills_configure"
+    assert payload["status"] == "ok"
+    assert "Restart" in payload["notes"][0]
+
+
+def test_configure_agent_skills_rejects_replace_with_remove(
+    tmp_path, capsys
+):
+    vault = _make_vault(tmp_path)
+
+    exit_code = configure.main(
+        [
+            "agent-skills",
+            "--vault",
+            str(vault),
+            "--replace",
+            "--remove",
+            "--json",
+        ]
+    )
+
+    assert exit_code == 2
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "error"
+    assert "--replace cannot be combined" in payload["steps"][0]["message"]
+
+
 def test_configure_mcp_vault_self_reaches_transport_owner(tmp_path, monkeypatch, capsys):
     vault = _make_vault(tmp_path)
     calls = {}

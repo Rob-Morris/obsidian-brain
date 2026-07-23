@@ -191,6 +191,8 @@ _BUILTIN_NAMING_PLACEHOLDERS = {
     "sourcedoctype",
 }
 
+SHAPING_LIFECYCLE_ERROR_CODE = "SHAPING_LIFECYCLE_STATUS_UNDECLARED"
+
 
 def _validate_declared_naming_placeholders(rules, placeholders):
     """Reject custom pattern tokens without an explicit backing-field contract."""
@@ -438,6 +440,52 @@ def _parse_naming_section(content):
     }
 
 
+def _parse_shaping_section(content):
+    """Parse the domain contract declared by an optional ``## Shaping`` section."""
+    section_match = re.search(
+        r"^## Shaping\s*\n(.*?)(?=^## |\Z)",
+        content,
+        re.MULTILINE | re.DOTALL,
+    )
+    if not section_match:
+        return None
+
+    section = section_match.group(1)
+    fields = {}
+    patterns = {
+        "flavour": r"^\*\*Flavour:\*\*[ \t]*([^\r\n]+?)[ \t]*$",
+        "bar": r"^\*\*Bar:\*\*[ \t]*([^\r\n]+?)[ \t]*$",
+        "completion_status": (
+            r"^\*\*Completion status:\*\*[ \t]*`([^`]+)`[ \t]*$"
+        ),
+    }
+    labels = {
+        "flavour": "Flavour",
+        "bar": "Bar",
+        "completion_status": "Completion status",
+    }
+    for field, pattern in patterns.items():
+        match = re.search(pattern, section, re.MULTILINE | re.IGNORECASE)
+        if not match:
+            raise ValueError(
+                f"## Shaping requires **{labels[field]}:** metadata"
+                + (" in backticks" if field == "completion_status" else "")
+            )
+        fields[field] = match.group(1).strip()
+        if not fields[field]:
+            raise ValueError(
+                f"## Shaping requires non-empty **{labels[field]}:** metadata"
+            )
+
+    flavour = fields["flavour"].lower()
+    if flavour not in {"convergent", "discovery"}:
+        raise ValueError(
+            "## Shaping **Flavour:** must be `Convergent` or `Discovery`"
+        )
+    fields["flavour"] = flavour
+    return fields
+
+
 def finalize_naming_date_sources(naming, classification, type_key):
     """Apply classification defaults for ``date_source`` and validate.
 
@@ -469,17 +517,15 @@ def finalize_naming_date_sources(naming, classification, type_key):
     return naming
 
 
-def parse_taxonomy_file(path):
-    """Parse a taxonomy .md file, extracting Naming, Frontmatter, Trigger, Template sections."""
-    with open(path, "r", encoding="utf-8") as f:
-        content = f.read()
-
+def parse_taxonomy_content(content):
+    """Parse taxonomy Markdown into the compiled artefact-type contract."""
     result = {
         "naming": None,
         "frontmatter": None,
         "trigger": None,
         "template_file": None,
         "on_status_change": None,
+        "shaping": None,
     }
 
     result["naming"] = _parse_naming_section(content)
@@ -515,6 +561,25 @@ def parse_taxonomy_file(path):
             "status_enum": status_enum,
             "terminal_statuses": terminal_statuses,
         }
+
+    shaping = _parse_shaping_section(content)
+    result["shaping"] = shaping
+    if shaping:
+        statuses = (
+            (result["frontmatter"] or {}).get("status_enum") or []
+        )
+        missing_statuses = [
+            status
+            for status in ("shaping", shaping["completion_status"])
+            if status not in statuses
+        ]
+        if missing_statuses:
+            rendered = ", ".join(f"`{status}`" for status in missing_statuses)
+            raise ValueError(
+                f"{SHAPING_LIFECYCLE_ERROR_CODE}: "
+                "## Shaping references lifecycle status values not declared by "
+                f"the taxonomy: {rendered}"
+            )
 
     # Parse ## Trigger
     trigger_match = re.search(
@@ -567,6 +632,12 @@ def parse_taxonomy_file(path):
             result["on_status_change"] = hooks
 
     return result
+
+
+def parse_taxonomy_file(path):
+    """Parse a taxonomy file into the compiled artefact-type contract."""
+    with open(path, "r", encoding="utf-8") as f:
+        return parse_taxonomy_content(f.read())
 
 
 def infer_trigger_category(condition):
@@ -1012,6 +1083,7 @@ def compile(vault_root):
                 "taxonomy_file": tax_rel,
                 "template_file": parsed["template_file"],
                 "on_status_change": parsed.get("on_status_change"),
+                "shaping": parsed.get("shaping"),
                 "path": t["path"],
             })
         else:
@@ -1028,6 +1100,7 @@ def compile(vault_root):
                 "taxonomy_file": None,
                 "template_file": None,
                 "on_status_change": None,
+                "shaping": None,
                 "path": t["path"],
             })
 
