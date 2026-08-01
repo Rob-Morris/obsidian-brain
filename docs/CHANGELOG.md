@@ -8,6 +8,8 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.53.4](changelog/v0.53.4.md) | 2026-07-31 | Add `brain_upload_attachment` for vault-safe asset uploads |
+| [v0.53.3](changelog/v0.53.3.md) | 2026-07-28 | Surface local workspace binding guidance through `brain_session` |
 | [v0.53.2](changelog/v0.53.2.md) | 2026-07-23 | Keep replaced skill backups outside client discovery roots |
 | [v0.53.1](changelog/v0.53.1.md) | 2026-07-23 | Normalize legacy shaping completion metadata before compilation |
 | [v0.53.0](changelog/v0.53.0.md) | 2026-07-23 | BREAKING — Rename shaping action and enforce session invariants |

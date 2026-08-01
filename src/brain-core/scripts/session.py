@@ -186,6 +186,44 @@ def _workspace_summary(workspace_dir, vault_root):
     }
 
 
+def _workspace_configuration_summary(
+    workspace_summary,
+    workspace_binding,
+):
+    """Describe the local CLI workspace-binding capability for agent discovery."""
+    if workspace_summary is None:
+        binding_status = "unknown; no workspace directory is active"
+    elif workspace_binding:
+        binding_status = "configured"
+    else:
+        binding_status = "not configured"
+
+    result = {
+        "surface": "local CLI",
+        "binding_status": binding_status,
+        "purpose": "Configure a local folder as a Brain workspace.",
+        "command": (
+            "brain configure workspace binding "
+            "--path <absolute-local-workspace-path>"
+        ),
+        "selection": (
+            "Run on the agent's local machine. If the intended Brain is not "
+            "the locally resolved default, add --vault <local-vault-path> or "
+            "--brain <registered-local-brain-id>."
+        ),
+        "remote_boundary": (
+            "MCP cannot configure the connecting agent's local filesystem."
+        ),
+        "effect": (
+            f"Writes only {WORKSPACE_MANIFEST_REL}; does not create a Brain "
+            "project or workspace artefact."
+        ),
+    }
+    if workspace_binding:
+        result["current_binding"] = workspace_binding
+    return result
+
+
 def _json_safe(value):
     """Convert YAML-loaded values into JSON-safe structures."""
     if value is None or isinstance(value, (str, int, float, bool)):
@@ -593,6 +631,10 @@ def build_session_model(
         workspace_summary,
         workspace_manifest,
     )
+    workspace_configuration = _workspace_configuration_summary(
+        workspace_summary,
+        workspace_binding,
+    )
     core_body = _load_session_core_body(vault_root)
 
     model = {
@@ -611,6 +653,7 @@ def build_session_model(
         "skills": _condense_skills(router.get("skills", [])),
         "plugins": _condense_plugins(router.get("plugins", [])),
         "styles": _extract_style_names(router.get("styles", [])),
+        "workspace_configuration": workspace_configuration,
     }
 
     if config_summary:
@@ -707,6 +750,18 @@ def render_session_markdown(model):
                     ("directory", workspace.get("directory", "")),
                     ("location", workspace.get("location", "")),
                 ],
+                formatter=lambda item: f"`{item[0]}`: `{_format_scalar(item[1])}`",
+            ),
+        ])
+
+    workspace_configuration = model.get("workspace_configuration")
+    if workspace_configuration:
+        sections.extend([
+            "",
+            "## Workspace Configuration",
+            "",
+            _render_bullets(
+                workspace_configuration.items(),
                 formatter=lambda item: f"`{item[0]}`: `{_format_scalar(item[1])}`",
             ),
         ])

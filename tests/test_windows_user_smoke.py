@@ -7,6 +7,7 @@ test suite remains macOS/Linux/WSL contributor coverage.
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import os
 from pathlib import Path
@@ -84,13 +85,29 @@ async def _call_installed_brain_read(vault_root: Path, env: dict[str, str]) -> d
             await session.initialize()
             tools = await session.list_tools()
             assert any(tool.name == "brain_read" for tool in tools.tools)
+            assert any(tool.name == "brain_upload_attachment" for tool in tools.tools)
 
             deadline = asyncio.get_running_loop().time() + _WARMUP_READY_TIMEOUT_S
             while True:
                 result = await session.call_tool("brain_read", {"resource": "environment"})
                 text = result.content[0].text
                 if not result.isError:
-                    return _parse_environment(text)
+                    environment = _parse_environment(text)
+                    upload = await session.call_tool(
+                        "brain_upload_attachment",
+                        {
+                            "destination_key": "windows-smoke",
+                            "name": "windows-smoke.txt",
+                            "content_base64": base64.b64encode(
+                                b"native windows attachment"
+                            ).decode("ascii"),
+                        },
+                    )
+                    assert not upload.isError, upload.content[0].text
+                    assert upload.structuredContent["path"] == (
+                        "_Assets/Attachments/windows-smoke/windows-smoke.txt"
+                    )
+                    return environment
 
                 # Cold-start progress contract: the readiness snapshot is JSON
                 # with status "starting". Any other isError response is a real
@@ -174,3 +191,6 @@ def test_native_windows_install_and_mcp_brain_read_round_trip(tmp_path):
     environment = asyncio.run(_call_installed_brain_read(vault, env))
     assert Path(environment["vault_root"]) == vault
     assert environment["platform"] == "win32"
+    assert (
+        vault / "_Assets" / "Attachments" / "windows-smoke.txt"
+    ).read_bytes() == b"native windows attachment"

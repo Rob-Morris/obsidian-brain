@@ -132,14 +132,14 @@ Tooling such as `setup.py workspace` or `configure.py workspace binding` may sca
 
 ## Operator Profiles
 
-**Design decisions:** [DD-025](../architecture/decisions/dd-025-privilege-split.md)
+**Design decisions:** [DD-025](../architecture/decisions/dd-025-privilege-split.md), [DD-059](../architecture/decisions/dd-059-attachment-upload-boundary.md)
 
 The config system supports three built-in operator profiles with different levels of access:
 
 | Profile | Intended use |
 |---------|-------------|
 | `reader` | Read-only access, including `brain_outline`, `brain_check`, `brain_classify`, and `brain_resolve` |
-| `contributor` | Read + create/edit/lifecycle and `brain_ingest` |
+| `contributor` | Read + attachment upload + create/edit/lifecycle and `brain_ingest` |
 | `operator` | Full access including guarded `brain_define`, `brain_move`, and `brain_action` |
 
 Each profile has a per-tool allow-list defined in the vault config. Tools not on the active profile's allow-list return an error `CallToolResult` — no silent failures.

@@ -174,15 +174,26 @@ def _action_delete(runtime: ServerRuntime, params: dict):
         _validate_artefact_path(
             state.vault_root, state.router, params["path"], label="Delete path",
         )
-        links_replaced = rename.delete_and_clean_links(
+        delete_result = rename.delete_and_clean_links(
             state.vault_root,
             params["path"],
             router=state.router,
             recursive=bool(params.get("recursive")),
+            return_details=True,
         )
         runtime.mark_router_dirty()
         runtime.mark_index_dirty()
-        return f"**Deleted:** {params['path']}, {links_replaced} links replaced"
+        response = (
+            f"**Deleted:** {params['path']}, "
+            f"{delete_result['links_replaced']} links replaced"
+        )
+        orphaned = delete_result["orphaned_attachment_scopes"]
+        if orphaned:
+            response += (
+                "\n⚠ Preserved orphaned attachment scope(s): "
+                + ", ".join(orphaned)
+            )
+        return response
     except _common.ParentChainError as e:
         return runtime.fmt_error(_common.parent_chain_error_message(e))
     except _common.PartialApplyError as e:
@@ -206,16 +217,7 @@ def _action_convert(runtime: ServerRuntime, params: dict):
         )
         runtime.mark_router_dirty()
         runtime.mark_index_dirty()
-        return json.dumps(
-            {
-                "status": "ok",
-                "old_path": result["old_path"],
-                "new_path": result["new_path"],
-                "type": result["type"],
-                "links_updated": result["links_updated"],
-            },
-            indent=2,
-        )
+        return json.dumps({"status": "ok", **result}, indent=2)
     except _common.ParentChainError as e:
         return runtime.fmt_error(_common.parent_chain_error_message(e))
     except _common.PartialApplyError as e:

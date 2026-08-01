@@ -17,6 +17,8 @@ import json
 import os
 import sys
 
+import upload_attachment as attachment_upload
+
 from _lifecycle.derived_cache_state import load_fresh_compiled_router
 from _common import (
     build_md_basename_counts,
@@ -75,6 +77,7 @@ def validate_move_path_request(
     dest,
     *,
     allow_archive_paths=False,
+    allow_attachment_paths=False,
 ):
     """Validate path/bounds/write gates for a filesystem move."""
     abs_source = os.path.join(vault_root, source)
@@ -82,7 +85,12 @@ def validate_move_path_request(
     resolve_and_check_bounds(abs_source, vault_root)
     resolve_and_check_bounds(abs_dest, vault_root)
     check_not_in_brain_core(dest, vault_root)
-    if not (allow_archive_paths and is_archived_path(dest)):
+    attachment_move = (
+        allow_attachment_paths
+        and _is_scoped_attachment_path(source)
+        and _is_scoped_attachment_path(dest)
+    )
+    if not attachment_move and not (allow_archive_paths and is_archived_path(dest)):
         check_write_allowed(dest)
     if os.path.islink(abs_source):
         raise ValueError(f"Move source cannot be a symlink: {source}")
@@ -90,6 +98,17 @@ def validate_move_path_request(
         raise ValueError(f"Move destination cannot be a symlink: {dest}")
 
     return abs_source, abs_dest
+
+
+def _is_scoped_attachment_path(path):
+    parts = str(path).replace("\\", "/").split("/")
+    return (
+        len(parts) >= 4
+        and parts[0] == "_Assets"
+        and parts[1] == "Attachments"
+        and parts[2] not in {"", ".", ".."}
+        and all(part not in {"", ".", ".."} for part in parts[3:])
+    )
 
 
 def _normalise_move(move):
@@ -170,7 +189,14 @@ def move_destination_collision(vault_root, source, dest, sources, *, source_ids=
     return "destination already exists"
 
 
-def preflight_move_set(vault_root, moves, router=None, *, allow_archive_paths=False):
+def preflight_move_set(
+    vault_root,
+    moves,
+    router=None,
+    *,
+    allow_archive_paths=False,
+    allow_attachment_paths=False,
+):
     """Validate a batch move set before any link rewrite or filesystem move.
 
     ``router`` is accepted for compatibility with older callers; path-only
@@ -189,6 +215,7 @@ def preflight_move_set(vault_root, moves, router=None, *, allow_archive_paths=Fa
             source,
             dest,
             allow_archive_paths=allow_archive_paths,
+            allow_attachment_paths=allow_attachment_paths,
         )
         if not os.path.isfile(abs_source):
             raise FileNotFoundError(f"Source file not found: {source}")
@@ -231,7 +258,13 @@ def preflight_move_set(vault_root, moves, router=None, *, allow_archive_paths=Fa
     return planned
 
 
-def preflight_rename_move_set(vault_root, moves, router=None, *, allow_archive_paths=False):
+def preflight_rename_move_set(
+    vault_root,
+    moves,
+    router=None,
+    *,
+    allow_archive_paths=False,
+):
     """Validate a rename-facing move set, including destination naming rules."""
     planned = preflight_move_set(
         vault_root,
@@ -350,6 +383,7 @@ def move_and_update_links(
     router=None,
     *,
     allow_archive_paths=False,
+    allow_attachment_paths=False,
 ):
     """Execute a batch file move set with one combined wikilink rewrite pass.
 
@@ -366,6 +400,7 @@ def move_and_update_links(
         moves,
         router=None,
         allow_archive_paths=allow_archive_paths,
+        allow_attachment_paths=allow_attachment_paths,
     )
     ordered = _ordered_moves_for_apply(planned)
 
@@ -504,7 +539,14 @@ def _preflight_delete_path(vault_root, path):
     return abs_path
 
 
-def delete_and_clean_links(vault_root, path, router=None, recursive=False):
+def delete_and_clean_links(
+    vault_root,
+    path,
+    router=None,
+    recursive=False,
+    *,
+    return_details=False,
+):
     """Delete a file and replace wikilinks with strikethrough text.
 
     [[path|alias]] → ~~alias~~
@@ -532,6 +574,16 @@ def delete_and_clean_links(vault_root, path, router=None, recursive=False):
         if descendants and not recursive:
             raise HasDescendantsError("delete", path, descendant_payload(descendants))
 
+    orphaned_attachment_scopes = []
+    attachment_keys = [source_key] if source_key else []
+    attachment_keys.extend(entry["artefact_key"] for entry in descendants)
+    for attachment_key in attachment_keys:
+        scope = attachment_upload.existing_attachment_scope(
+            vault_root, attachment_key
+        )
+        if scope:
+            orphaned_attachment_scopes.append(scope)
+
     paths = [path] + [entry["path"] for entry in descendants]
     abs_paths = [abs_path]
     for rel_path in paths[1:]:
@@ -556,6 +608,11 @@ def delete_and_clean_links(vault_root, path, router=None, recursive=False):
                 f"removed {removed}, failed at {rel_path}: {exc}"
             ) from exc
         removed.append(rel_path)
+    if return_details:
+        return {
+            "links_replaced": links_replaced,
+            "orphaned_attachment_scopes": orphaned_attachment_scopes,
+        }
     return links_replaced
 
 

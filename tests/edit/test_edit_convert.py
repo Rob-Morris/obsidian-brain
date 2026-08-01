@@ -24,6 +24,51 @@ class TestConvertArtefact:
         # New file exists
         assert os.path.isfile(os.path.join(str(vault), result["new_path"]))
 
+    def test_convert_between_living_types_moves_attachment_scope_and_embed(self, vault, router):
+        source = vault / "Ideas" / "Scoped.md"
+        source.write_text(
+            "---\ntype: living/ideas\ntags: []\nkey: scoped\nstatus: shaping\n---\n\n# Scoped\n"
+        )
+        attachment = vault / "_Assets" / "Attachments" / "ideas~scoped" / "diagram.svg"
+        attachment.parent.mkdir(parents=True)
+        attachment.write_text("<svg />")
+        linker = vault / "Wiki" / "attachment-linker.md"
+        linker.write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "![[_Assets/Attachments/ideas~scoped/diagram.svg]]\n"
+        )
+        import compile_router
+        router = compile_router.compile(str(vault))
+
+        result = edit.convert_artefact(str(vault), router, "Ideas/Scoped.md", "designs")
+
+        moved = vault / "_Assets" / "Attachments" / "designs~scoped" / "diagram.svg"
+        assert moved.read_text() == "<svg />"
+        assert not attachment.exists()
+        assert "![[_Assets/Attachments/designs~scoped/diagram.svg]]" in linker.read_text()
+        assert result["attachment_scope_moved"] == {
+            "from": "_Assets/Attachments/ideas~scoped",
+            "to": "_Assets/Attachments/designs~scoped",
+        }
+
+    def test_convert_living_to_temporal_preserves_and_reports_attachment_scope(self, vault, router):
+        source = vault / "Ideas" / "Scoped.md"
+        source.write_text(
+            "---\ntype: living/ideas\ntags: []\nkey: scoped\nstatus: shaping\n---\n\n# Scoped\n"
+        )
+        attachment = vault / "_Assets" / "Attachments" / "ideas~scoped" / "diagram.svg"
+        attachment.parent.mkdir(parents=True)
+        attachment.write_text("<svg />")
+        import compile_router
+        router = compile_router.compile(str(vault))
+
+        result = edit.convert_artefact(str(vault), router, "Ideas/Scoped.md", "reports")
+
+        assert attachment.read_text() == "<svg />"
+        assert result["orphaned_attachment_scopes"] == [
+            "_Assets/Attachments/ideas~scoped"
+        ]
+
     def test_convert_updates_frontmatter_type(self, vault, router):
         result = edit.convert_artefact(str(vault), router, "Wiki/test-page.md", "designs")
         abs_new = os.path.join(str(vault), result["new_path"])

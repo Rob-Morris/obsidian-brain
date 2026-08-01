@@ -110,6 +110,61 @@ class TestBuildSessionModel:
             "name": "demo-workspace",
             "location": "external",
         }
+        assert model["workspace_configuration"] == {
+            "surface": "local CLI",
+            "binding_status": "not configured",
+            "purpose": "Configure a local folder as a Brain workspace.",
+            "command": (
+                "brain configure workspace binding "
+                "--path <absolute-local-workspace-path>"
+            ),
+            "selection": (
+                "Run on the agent's local machine. If the intended Brain is "
+                "not the locally resolved default, add --vault "
+                "<local-vault-path> or --brain <registered-local-brain-id>."
+            ),
+            "remote_boundary": (
+                "MCP cannot configure the connecting agent's local filesystem."
+            ),
+            "effect": (
+                "Writes only .brain/local/workspace.yaml; does not create a "
+                "Brain project or workspace artefact."
+            ),
+        }
+
+    def test_surfaces_workspace_configuration_without_workspace_context(self, tmp_path):
+        model = session.build_session_model(
+            _minimal_router(tmp_path),
+            str(tmp_path),
+            load_config_if_missing=False,
+        )
+
+        assert model["workspace_configuration"]["binding_status"] == (
+            "unknown; no workspace directory is active"
+        )
+        assert model["workspace_configuration"]["surface"] == "local CLI"
+        assert model["workspace_configuration"]["command"] == (
+            "brain configure workspace binding "
+            "--path <absolute-local-workspace-path>"
+        )
+
+    def test_workspace_configuration_does_not_embed_server_paths(self, tmp_path):
+        vault_root = tmp_path / "Brain Vault"
+        workspace_dir = tmp_path / "Agent Skills"
+
+        model = session.build_session_model(
+            _minimal_router(vault_root),
+            str(vault_root),
+            workspace_dir=str(workspace_dir),
+            load_config_if_missing=False,
+        )
+
+        assert model["workspace_configuration"]["command"] == (
+            "brain configure workspace binding "
+            "--path <absolute-local-workspace-path>"
+        )
+        assert str(vault_root) not in model["workspace_configuration"]["command"]
+        assert str(workspace_dir) not in model["workspace_configuration"]["command"]
 
     def test_includes_workspace_defaults_and_record_from_manifest(self, tmp_path):
         workspace_dir = tmp_path / "demo-workspace"
@@ -269,6 +324,12 @@ class TestSessionCli:
         assert "`name`: `demo-workspace`" in content
         assert f"`directory`: `{workspace_dir}`" in content
         assert "`location`: `external`" in content
+        assert "## Workspace Configuration" in content
+        assert "`surface`: `local CLI`" in content
+        assert (
+            "brain configure workspace binding "
+            "--path <absolute-local-workspace-path>"
+        ) in content
 
     def test_main_includes_workspace_defaults_when_manifest_present(
         self, tmp_path, monkeypatch, capsys
@@ -527,6 +588,11 @@ def test_includes_workspace_binding_when_manifest_declares_brain(tmp_path):
     )
 
     assert model["workspace_binding"] == {
+        "brain": "brain",
+        "slug": "demo-workspace",
+    }
+    assert model["workspace_configuration"]["binding_status"] == "configured"
+    assert model["workspace_configuration"]["current_binding"] == {
         "brain": "brain",
         "slug": "demo-workspace",
     }

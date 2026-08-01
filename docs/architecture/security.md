@@ -60,7 +60,7 @@ allowlist `{_Temporal, _Config}`:
 | Folder | Status | Reason |
 |---|---|---|
 | `_Archive/` | **blocked** | Managed via `archive` action only |
-| `_Assets/` | **blocked** | Static assets, not agent-written content |
+| `_Assets/` | **blocked generally** | Only `brain_upload_attachment` may create files in a validated scope beneath `_Assets/Attachments/` |
 | `_Plugins/` | **blocked** | Plugin data, not agent-written content |
 | `_Workspaces/` | **blocked** | Workspace config, not agent-written content |
 | `_Temporal/` | **allowed** | User-facing temporary/in-progress artefacts |
@@ -69,6 +69,15 @@ allowlist `{_Temporal, _Config}`:
 The model is additive: any new underscore-prefixed directory is blocked by default and
 must be explicitly added to `_WRITE_ALLOWED_UNDERSCORE` in `_common/_filesystem.py` to become
 writable.
+
+Attachment upload is an operation-specific capability, not an allowlist entry.
+Brain requires either a resolvable canonical living artefact key or a bare
+validated standalone folder key, then constructs
+`_Assets/Attachments/<scope>/<filename>` itself. It accepts no destination path,
+rejects symlinks throughout the derived namespace, bounds-checks the target,
+and uses the same atomic byte-write kernel. General create/edit access to
+`_Assets/` and all writes to `_Assets/Generated/` remain blocked. See
+[DD-059](decisions/dd-059-attachment-upload-boundary.md).
 
 ### Brain-core belt-and-suspenders
 
@@ -88,7 +97,7 @@ Three built-in profiles define what each agent can do:
 | Profile | Allowed tools |
 |---|---|
 | `reader` | Read tools including `brain_outline`, `brain_check`, `brain_classify`, and `brain_resolve` |
-| `contributor` | All reader tools + staging, create/edit/lifecycle tools, and `brain_ingest` |
+| `contributor` | All reader tools + staging, attachment upload, create/edit/lifecycle tools, and `brain_ingest` |
 | `operator` | All contributor tools + guarded `brain_define`, `brain_move`, `brain_action` |
 
 Profiles are defined in `defaults/config.yaml` under `vault.profiles` and can be
@@ -246,6 +255,7 @@ Mutating MCP and Brain CLI calls are serialized behind a vault-scoped
 cross-process lock. This applies to:
 
 - `brain_create`
+- `brain_upload_attachment`
 - `brain_edit`
 - lifecycle mutations and ownership repair
 - `brain_define`

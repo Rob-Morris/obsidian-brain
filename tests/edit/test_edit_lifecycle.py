@@ -292,6 +292,125 @@ class TestOwnershipEditPaths:
         assert (vault / "Designs").is_dir()
         assert (vault / "Wiki").is_dir()
 
+    def test_key_change_moves_attachment_scope_and_rewrites_embed(self, vault, router):
+        attachment = vault / "_Assets" / "Attachments" / "project~brain" / "diagram.svg"
+        attachment.parent.mkdir(parents=True)
+        attachment.write_text("<svg />")
+        nested_attachment = attachment.parent / "snippets" / "notes.pdf"
+        nested_attachment.parent.mkdir()
+        nested_attachment.write_bytes(b"%PDF-nested")
+        linker = vault / "Wiki" / "attachment-linker.md"
+        linker.write_text(
+            "---\ntype: living/wiki\ntags: []\n---\n\n"
+            "![[_Assets/Attachments/project~brain/diagram.svg]]\n"
+            "![[_Assets/Attachments/project~brain/snippets/notes.pdf]]\n"
+        )
+
+        edit.edit_artefact(
+            str(vault),
+            router,
+            "Projects/Brain.md",
+            "",
+            frontmatter_changes={"key": "brain2"},
+        )
+
+        moved = vault / "_Assets" / "Attachments" / "project~brain2" / "diagram.svg"
+        moved_nested = moved.parent / "snippets" / "notes.pdf"
+        assert moved.read_text() == "<svg />"
+        assert moved_nested.read_bytes() == b"%PDF-nested"
+        assert not attachment.exists()
+        assert not (vault / "_Assets" / "Attachments" / "project~brain").exists()
+        linker_content = linker.read_text()
+        assert "![[_Assets/Attachments/project~brain2/diagram.svg]]" in linker_content
+        assert (
+            "![[_Assets/Attachments/project~brain2/snippets/notes.pdf]]"
+            in linker_content
+        )
+
+    def test_key_change_attachment_scope_collision_rejects_before_writes(self, vault, router):
+        source = vault / "Projects" / "Brain.md"
+        before = source.read_text()
+        old_scope = vault / "_Assets" / "Attachments" / "project~brain"
+        new_scope = vault / "_Assets" / "Attachments" / "project~brain2"
+        old_scope.mkdir(parents=True)
+        new_scope.mkdir(parents=True)
+        (old_scope / "old.svg").write_text("old")
+        (new_scope / "new.svg").write_text("new")
+
+        with pytest.raises(FileExistsError, match="destination already exists"):
+            edit.edit_artefact(
+                str(vault),
+                router,
+                "Projects/Brain.md",
+                "",
+                frontmatter_changes={"key": "brain2"},
+            )
+
+        assert source.read_text() == before
+        assert (old_scope / "old.svg").read_text() == "old"
+        assert (new_scope / "new.svg").read_text() == "new"
+
+    def test_key_change_attachment_enumeration_failure_rejects_before_writes(
+        self, vault, router, monkeypatch
+    ):
+        source = vault / "Projects" / "Brain.md"
+        before = source.read_text()
+        scope = vault / "_Assets" / "Attachments" / "project~brain"
+        scope.mkdir(parents=True)
+        (scope / "diagram.svg").write_text("<svg />")
+
+        def unreadable_scope(*_args, **_kwargs):
+            raise OSError("Cannot enumerate attachment scope: scope unreadable")
+
+        monkeypatch.setattr(
+            edit.attachment_upload,
+            "plan_attachment_scope_moves",
+            unreadable_scope,
+        )
+
+        with pytest.raises(OSError, match="Cannot enumerate attachment scope"):
+            edit.edit_artefact(
+                str(vault),
+                router,
+                "Projects/Brain.md",
+                "",
+                frontmatter_changes={"key": "brain2"},
+            )
+
+        assert source.read_text() == before
+        assert (scope / "diagram.svg").read_text() == "<svg />"
+        assert not (vault / "_Assets" / "Attachments" / "project~brain2").exists()
+
+    def test_key_change_attachment_prune_failure_reports_partial_state(
+        self, vault, router, monkeypatch
+    ):
+        attachment = vault / "_Assets" / "Attachments" / "project~brain" / "diagram.svg"
+        attachment.parent.mkdir(parents=True)
+        attachment.write_text("<svg />")
+
+        def fail_prune(*_args, **_kwargs):
+            raise OSError("old scope is not empty")
+
+        monkeypatch.setattr(
+            edit.attachment_upload,
+            "prune_vacated_attachment_scope",
+            fail_prune,
+        )
+
+        with pytest.raises(PartialApplyError, match="attachment moves committed"):
+            edit.edit_artefact(
+                str(vault),
+                router,
+                "Projects/Brain.md",
+                "",
+                frontmatter_changes={"key": "brain2"},
+            )
+
+        moved = vault / "_Assets" / "Attachments" / "project~brain2" / "diagram.svg"
+        assert moved.read_text() == "<svg />"
+        fields, _ = parse_frontmatter((vault / "Projects" / "Brain.md").read_text())
+        assert fields["key"] == "brain2"
+
     def test_parent_change_relocates_nested_descendant_subtree(self, vault, router):
         (vault / "Projects" / "Custom.md").write_text(
             "---\n"

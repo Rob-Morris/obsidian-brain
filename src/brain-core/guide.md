@@ -224,6 +224,9 @@ To bind a workspace and optionally configure Claude Code and Codex to use this v
 # Bind the current directory to this Brain
 cd /my/project && python3 /path/to/vault/.brain-core/scripts/setup.py workspace . --vault /path/to/vault
 
+# Bind only, through the targeted CLI surface
+brain configure workspace binding --vault /path/to/vault --path /my/project --slug my-project
+
 # Configure project-scoped MCP transport for both clients
 python3 /path/to/vault/.brain-core/scripts/configure.py mcp --vault /path/to/vault --workspace /my/project --client all
 
@@ -250,15 +253,16 @@ change.
 
 ## Tooling
 
-If your vault has the Brain MCP server running, you get twenty-one focused tools:
+If your vault has the Brain MCP server running, you get twenty-two focused tools:
 
 - **brain_init** — additive bootstrap/orientation snapshot with readiness, warmup status, and optional cheap debug output. `warmup=true` ensures background warmup is underway, then returns immediately.
-- **brain_session** — bootstrap an agent session in one call (static core bootstrap content, structured core-doc references with explicit `brain_read(resource="file", ...)` load instructions, always-rules, preferences, gotchas, triggers, artefact types, environment); also refreshes `.brain/local/session.md`
+- **brain_session** — bootstrap an agent session in one call (static core bootstrap content, structured core-doc references with explicit `brain_read(resource="file", ...)` load instructions, local workspace-configuration CLI guidance, always-rules, preferences, gotchas, triggers, artefact types, environment); also refreshes `.brain/local/session.md`
 - **brain_read** — read a specific resource by name: artefact content (by relative path, basename, or display name — resolves like wikilinks), type definitions, triggers, styles, templates, skills, plugins, memories, or workspaces. Name is required for collection resources; use brain_list to enumerate collections.
 - **brain_search** — find files by query, type, tag, status, and retrieval mode (`lexical`, `semantic`, `hybrid`). Omitted mode prefers hybrid when semantic retrieval is enabled and usable; lexical may use Obsidian CLI, while non-artefact collections stay lexical-only.
 - **brain_list** — enumerate resources exhaustively with honest creation/modified filters and stable cursor pagination.
 - **brain_outline / brain_check** — discover exact edit selectors and inspect structured Doctor findings without mutation.
 - **brain_stage / brain_discard_stage** — hold large bodies under bounded retry-safe handles or release unused handles.
+- **brain_upload_attachment** — add base64-encoded non-markdown files beneath a required living-artefact or standalone attachment scope and receive resolved destination metadata, the vault path, and Obsidian embed.
 - **brain_create** — create a new artefact or _Config/ resource (additive, safe to auto-approve). Its resource-discriminated request has exact artefact versus skill, memory, style, and template variants.
 - **brain_edit** — explicit structural edits and exact-text replacement. Generic edits reject lifecycle-owned metadata; use **brain_reparent**, **brain_set_status**, **brain_set_key**, and **brain_set_naming_field** so derived paths, links, tags, descendants, and timestamps remain consistent.
 - **brain_define** — operator-only, guarded authoring for coherent type bundles, triggers, and plugins. Type replacement checks both taxonomy and template hashes; plugin replacement checks its definition hash; trigger changes identify exact current entries.
@@ -270,7 +274,7 @@ The MCP server logs to `.brain/local/mcp-server.log` — startup diagnostics, to
 
 For structural compliance (naming, frontmatter, archives), run `python3 .brain-core/scripts/check.py`.
 
-Without MCP, read `.brain-core/index.md` first. The scripts in `.brain-core/scripts/` remain authoritative and the `brain` CLI dispatches to them, including `outline.py`, `stage.py`, `discard_stage.py`, and `lifecycle.py`. Direct mutation scripts refuse stale compiled router state and share the vault mutation lock.
+Without MCP, read `.brain-core/index.md` first. The scripts in `.brain-core/scripts/` remain authoritative and the `brain` CLI dispatches to them, including `outline.py`, `stage.py`, `discard_stage.py`, `upload_attachment.py`, and `lifecycle.py`. Direct mutation scripts share the vault mutation lock; artefact mutations also refuse stale compiled router state.
 
 ## Further Reading
 

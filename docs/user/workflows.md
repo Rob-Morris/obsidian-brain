@@ -249,6 +249,39 @@ Every artefact related to this project shares the `project/my-app` tag. The proj
 
 ---
 
+## Adding Attachments Without Vault Filesystem Access
+
+An agent that has Brain MCP access can add a non-markdown file without receiving
+general write permission to the vault:
+
+```text
+brain_upload_attachment(
+  destination_key="design/my-app-architecture",
+  name="architecture.svg",
+  content_base64="<base64 bytes>"
+)
+```
+
+Brain resolves the active artefact and writes
+`_Assets/Attachments/design~my-app-architecture/architecture.svg`, returning
+the matching Obsidian embed. Pass the equivalent `design~my-app-architecture`
+form if preferred. For temporal or shared assets, pass a bare standalone folder
+key instead. With scripts or the thin CLI, the same workflow can read a
+caller-owned file:
+
+```bash
+brain upload-attachment --destination-key design/my-app-architecture \
+  --file /path/to/architecture.svg --json
+```
+
+The operation is additive. Retrying identical bytes is safe; a filename that
+already contains different bytes returns an error rather than overwriting the
+attachment.
+
+When a living artefact's canonical key changes, Brain moves its attachment
+scope and rewrites explicit embeds. Deletion or conversion to a temporal type
+preserves the old scope and reports it as orphaned for deliberate cleanup.
+
 ## How the Brain Helps Agents Help You
 
 The Brain isn't just for you — it's designed so that AI agents can understand your vault and work with it effectively.

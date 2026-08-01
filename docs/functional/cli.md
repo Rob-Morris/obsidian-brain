@@ -32,6 +32,7 @@ brain install <path>
 | `brain search QUERY [...]` | `search_index.py` | Relevance-ranked search. |
 | `brain stage --body\|--body-file ...` | `stage.py` | Create a retry-safe opaque body handle. |
 | `brain discard-stage HANDLE` | `discard_stage.py` | Release an unused staged body immediately. |
+| `brain upload-attachment --destination-key K --file P [--name N]` | `upload_attachment.py` | Add a non-markdown file beneath the artefact or standalone scope selected by `K`; base64 input is also supported. |
 | `brain reparent PATH --parent P\|--clear` | `lifecycle.py reparent` | Change authoritative parent and derived paths. |
 | `brain set-status PATH STATUS` | `lifecycle.py set-status` | Change status through its lifecycle handler. |
 | `brain set-key PATH KEY` | `lifecycle.py set-key` | Change living key and derived ownership. |

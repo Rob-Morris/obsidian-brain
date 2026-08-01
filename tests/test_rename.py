@@ -134,7 +134,13 @@ class TestRenameAndUpdateLinks:
     def test_single_rename_uses_move_set_engine(self, vault, monkeypatch):
         calls = []
 
-        def fake_move_and_update_links(vault_root, moves, router=None, *, allow_archive_paths=False):
+        def fake_move_and_update_links(
+            vault_root,
+            moves,
+            router=None,
+            *,
+            allow_archive_paths=False,
+        ):
             calls.append({
                 "vault_root": vault_root,
                 "moves": moves,

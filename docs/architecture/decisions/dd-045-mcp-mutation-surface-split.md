@@ -2,7 +2,7 @@
 
 **Status:** Implemented (v0.33.0)
 **Extends:** DD-010, DD-025
-**Extended by:** DD-046, DD-057
+**Extended by:** DD-046, DD-057, DD-059
 
 ## Context
 

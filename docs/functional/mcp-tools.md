@@ -69,6 +69,7 @@ now have separate tools and permissions.
 | `brain_search` | Safe — auto-approvable | Relevance-ranked search over artefacts and config resources |
 | `brain_list` | Safe — auto-approvable | Exhaustive enumeration of artefacts or config collections |
 | `brain_stage`, `brain_discard_stage` | Local staging | Stage a large body under an opaque retry-safe handle, or discard it |
+| `brain_upload_attachment` | Additive asset creation | Add a non-markdown file beneath a required artefact or standalone attachment scope |
 | `brain_create` | Additive — safe to auto-approve | Create a new vault artefact or config resource |
 | `brain_edit` | Single-file mutation | Edit, append, prepend, exact-replace, or delete a section |
 | `brain_define` | Guarded definition mutation — operator only | Create/replace types and plugins; create/replace/delete triggers |
@@ -79,9 +80,9 @@ now have separate tools and permissions.
 | `brain_ingest` | Creates/updates files | Full classify/resolve/create-update pipeline |
 
 Mutating MCP and Brain CLI calls share a vault-scoped cross-process lock under
-`.brain/local/`. Create, edit, lifecycle, move, action, ingest, and ownership
-repair workflows hold it across validation and writes. Lock waits are bounded
-and identify the current owner so callers can retry.
+`.brain/local/`. Attachment upload, create, edit, lifecycle, move, action,
+ingest, and ownership repair workflows hold it across validation and writes.
+Lock waits are bounded and identify the current owner so callers can retry.
 
 Warmup-dependent tools may return a structured `isError=true` progress payload
 while background warmup is still running or has failed. The payload includes
@@ -119,7 +120,13 @@ config/profile metadata when known. When the caller supplies a workspace
 directory, the payload also includes raw `workspace` identity plus optional
 `workspace_record` and `workspace_defaults` derived from
 `.brain/local/workspace.yaml` (with legacy `.brain/workspace.yaml` fallback)
-and any resolvable workspace binding. The server actively compiles this —
+and any resolvable workspace binding. Every successful session also includes a
+compact `workspace_configuration` capability record with the local
+`brain configure workspace binding` command template, current binding status when
+known, the local Brain-selection options, and explicit statements that binding
+does not create a Brain project or workspace artefact and that MCP cannot
+configure the connecting agent's filesystem. Server paths are never
+substituted into this client-local command. The server actively compiles this —
 strips frontmatter from user files, condenses artefact metadata, merges runtime
 environment state, and refreshes the generated markdown mirror at
 `.brain/local/session.md` from the same model. That refresh is best-effort: the
@@ -182,6 +189,34 @@ consume it. Cleanup failure is reported as a post-commit warning and never
 masks a successful mutation. Handles expire after 24 hours and staging has
 per-body/count/total-size bounds; `brain_discard_stage(handle)` releases an
 unused handle immediately.
+
+---
+
+### brain_upload_attachment
+
+`brain_upload_attachment(destination_key, name, content_base64)` adds binary or
+text content at `_Assets/Attachments/<scope>/<name>`. `destination_key` is
+required: pass an active living artefact's canonical `type/key` or `type~key`
+to derive its `type~key` scope, or pass a bare validated key for a standalone
+reusable folder. Temporal artefacts use a standalone folder key because they do
+not have canonical living keys. Arbitrary paths and unknown artefact keys are
+rejected. The decoded payload is limited to 16 MiB. The filename must be a
+single non-dot-prefixed name, cannot end in
+`.md` or a period, cannot be a Windows-reserved device name, and cannot contain
+path separators, control characters, Windows-invalid filename characters, or
+`#[]` characters that would make the returned Obsidian embed ambiguous.
+
+The operation is additive and retry-safe. If the same filename already contains
+the same bytes, the call succeeds with `created: false`; different existing
+content returns an error and is never overwritten. Successful results contain
+resolved `destination` metadata plus `path`, `embed`, `bytes`, `sha256`, and
+`created`. General writes to `_Assets/` remain blocked: this tool can write only
+beneath the derived attachment scope and refuses symlinks throughout it.
+
+Changing a living artefact key or converting it to another living type moves
+the derived scope and rewrites explicit embeds. Delete and living-to-temporal
+conversion preserve the old scope and report it as orphaned. Other lifecycle
+moves do not change the scope.
 
 ---
 
@@ -446,6 +481,7 @@ other MCP writers.
 Recommended auto-approve settings:
 
 - **`brain_session`**, **`brain_read`**, **`brain_search`**, **`brain_list`** — safe to auto-approve always
+- **`brain_upload_attachment`** — additive-only within a caller-selected, Brain-validated scope under `_Assets/Attachments/`; safe to auto-approve for trusted contributor/operator workflows
 - **`brain_create`** — additive-only (creates files, never destroys) — safe to auto-approve for most workflows
 - **`brain_edit`** — mutates a single validated file — approve-once or auto-approve depending on trust level
 - **`brain_define`** — changes runtime definitions; operator-only with optimistic replacement preconditions
@@ -460,7 +496,7 @@ MCP tool results are displayed inline in agent UIs (Claude Code, Cursor, etc.). 
 
 **Design rules:**
 
-- **Confirmations → plain text.** `brain_create`, `brain_edit`, simple `brain_move`, simple `brain_action` results. One line, human-scannable.
+- **Confirmations → plain text.** `brain_upload_attachment`, `brain_create`, `brain_edit`, simple `brain_move`, simple `brain_action` results. Human-scannable, with structured content retained where useful.
 - **Content retrieval → plain text.** `brain_read(resource="artefact")` returns the file content as-is. List resources use one item per line with tab-separated key fields.
 - **Structured data → JSON only when structure adds value.** Router dumps and upgrade file manifests are genuinely tabular/nested.
 - **Errors → plain text.** `"Error: {message}"` — no JSON wrapper.

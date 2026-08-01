@@ -33,6 +33,7 @@ _TOOL_NAMES = (
     "brain_ingest", "brain_init", "brain_list", "brain_move", "brain_outline", "brain_read",
     "brain_reparent", "brain_search", "brain_session", "brain_set_key",
     "brain_set_naming_field", "brain_set_status", "brain_stage", "brain_resolve",
+    "brain_upload_attachment",
 )
 
 _DOCSTRING_BANNED_HEADINGS = re.compile(
@@ -74,6 +75,15 @@ def test_tools_are_registered(registered_tools):
         f"Got {names}, expected {expected}. "
         f"If a new tool was added, add it here and ensure it satisfies the contract."
     )
+
+
+def test_upload_attachment_requires_destination_key(registered_tools):
+    tool = next(t for t in registered_tools if t.name == "brain_upload_attachment")
+
+    assert "destination_key" in tool.inputSchema["required"]
+    description = tool.inputSchema["properties"]["destination_key"]["description"]
+    assert "type/key" in description
+    assert "type~key" in description
 
 
 @pytest.mark.parametrize("tool_name", _TOOL_NAMES)

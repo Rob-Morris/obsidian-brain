@@ -1,6 +1,7 @@
 """Tests for Brain MCP server — unit tests with a minimal vault fixture."""
 
 import asyncio
+import base64
 import contextlib
 import json
 import os
@@ -125,6 +126,74 @@ class TestBrainCreate:
         assert result.structuredContent == {"handle": handle, "discarded": True}
         again = server.brain_discard_stage(handle)
         assert again.structuredContent["discarded"] is False
+
+    def test_upload_attachment_writes_binary_content_and_returns_embed(self, initialized):
+        content = b"\x89PNG\r\n\x1a\nbinary"
+        encoded = base64.b64encode(content).decode("ascii")
+
+        result = server.brain_upload_attachment("mcp-assets", "diagram.png", encoded)
+
+        assert result.structuredContent["created"] is True
+        assert result.structuredContent["path"] == "_Assets/Attachments/mcp-assets/diagram.png"
+        assert result.structuredContent["embed"] == "![[_Assets/Attachments/mcp-assets/diagram.png]]"
+        assert (initialized / result.structuredContent["path"]).read_bytes() == content
+
+        retried = server.brain_upload_attachment("mcp-assets", "diagram.png", encoded)
+        assert retried.structuredContent["created"] is False
+        assert "Attachment already present" in _result_text(retried)
+
+    def test_upload_attachment_rejects_invalid_base64_and_collisions(self, initialized):
+        with patch.object(server, "_serialize_mutation") as serialize:
+            invalid = server.brain_upload_attachment(
+                "mcp-assets", "diagram.svg", "not base64"
+            )
+        _assert_error(invalid, "not valid base64")
+        serialize.assert_not_called()
+
+        first = base64.b64encode(b"first").decode("ascii")
+        second = base64.b64encode(b"second").decode("ascii")
+        assert not server.brain_upload_attachment(
+            "mcp-assets", "diagram.svg", first
+        ).isError
+
+        collision = server.brain_upload_attachment(
+            "mcp-assets", "diagram.svg", second
+        )
+        _assert_error(collision, "already exists with different content")
+
+    def test_upload_attachment_resolves_canonical_artefact_destination(self, initialized):
+        artefact = initialized / "Ideas" / "Owned.md"
+        artefact.write_text(
+            "---\ntype: living/ideas\ntags: []\nkey: owned\nstatus: shaping\n---\n\n# Owned\n"
+        )
+        server._set_router(compile_router.compile(str(initialized)))
+        encoded = base64.b64encode(b"asset").decode("ascii")
+
+        result = server.brain_upload_attachment("ideas~owned", "diagram.svg", encoded)
+
+        assert not result.isError
+        assert result.structuredContent["destination"] == {
+            "kind": "artefact",
+            "key": "ideas/owned",
+            "folder": "ideas~owned",
+        }
+        assert result.structuredContent["path"] == (
+            "_Assets/Attachments/ideas~owned/diagram.svg"
+        )
+
+    def test_upload_attachment_rejects_unknown_artefact_destination(self, initialized):
+        with patch.object(
+            server.attachment_upload,
+            "decode_attachment_base64",
+            side_effect=AssertionError("invalid destination must fail before decode"),
+        ):
+            result = server.brain_upload_attachment(
+                "ideas/missing",
+                "diagram.svg",
+                base64.b64encode(b"asset").decode("ascii"),
+            )
+
+        _assert_error(result, "no active living artefact")
 
     def test_create_file_on_disk(self, initialized):
         result = server.brain_create(type="wiki", title="Disk Test")
@@ -2316,6 +2385,48 @@ class TestBrainActionDelete:
         content = (initialized / "Wiki" / "linker-aaa000.md").read_text()
         assert "~~Python~~" in content
 
+    def test_delete_preserves_and_reports_orphaned_attachment_scope(self, initialized):
+        artefact = initialized / "Ideas" / "Owned.md"
+        artefact.write_text(
+            "---\ntype: living/ideas\ntags: []\nkey: owned\nstatus: shaping\n---\n\n# Owned\n"
+        )
+        attachment = initialized / "_Assets" / "Attachments" / "ideas~owned" / "diagram.svg"
+        attachment.parent.mkdir(parents=True)
+        attachment.write_text("<svg />")
+        server._set_router(compile_router.compile(str(initialized)))
+
+        result = server.brain_action("delete", params={"path": "Ideas/Owned.md"})
+
+        assert "Preserved orphaned attachment scope" in _result_text(result)
+        assert "_Assets/Attachments/ideas~owned" in _result_text(result)
+        assert attachment.read_text() == "<svg />"
+
+    def test_recursive_delete_reports_parent_and_descendant_attachment_scopes(
+        self, initialized
+    ):
+        _write_parent_child_tree(initialized)
+        parent_attachment = (
+            initialized / "_Assets" / "Attachments" / "ideas~parent" / "parent.svg"
+        )
+        child_attachment = (
+            initialized / "_Assets" / "Attachments" / "wiki~child" / "child.svg"
+        )
+        parent_attachment.parent.mkdir(parents=True)
+        child_attachment.parent.mkdir(parents=True)
+        parent_attachment.write_text("parent")
+        child_attachment.write_text("child")
+        server._set_router(compile_router.compile(str(initialized)))
+
+        result = server.brain_action(
+            "delete", params={"path": "Ideas/Parent.md", "recursive": True}
+        )
+
+        text = _result_text(result)
+        assert "_Assets/Attachments/ideas~parent" in text
+        assert "_Assets/Attachments/wiki~child" in text
+        assert parent_attachment.read_text() == "parent"
+        assert child_attachment.read_text() == "child"
+
     def test_delete_missing_params(self, initialized):
         result = server.brain_action("delete")
         _assert_any_error(result)
@@ -2343,7 +2454,7 @@ class TestBrainActionDelete:
         _assert_error(result, ".brain-core")
 
     def test_delete_surfaces_has_descendants_payload(self, initialized):
-        def fake_delete(vault_root, path, router=None, recursive=False):
+        def fake_delete(vault_root, path, router=None, recursive=False, **_kwargs):
             raise HasDescendantsError(
                 "delete",
                 path,
@@ -2360,7 +2471,7 @@ class TestBrainActionDelete:
         _assert_error(result, '"descendants"')
 
     def test_delete_surfaces_parent_chain_error_distinct_from_descendant_gate(self, initialized):
-        def fake_delete(vault_root, path, router=None, recursive=False):
+        def fake_delete(vault_root, path, router=None, recursive=False, **_kwargs):
             raise CyclicParentChainError("Cyclic descendant chain: ideas/parent -> ideas/child -> ideas/parent")
 
         with patch("brain_mcp._server_actions.rename.delete_and_clean_links", fake_delete):
@@ -2374,7 +2485,7 @@ class TestBrainActionDelete:
         assert "HAS_DESCENDANTS" not in _result_text(result)
 
     def test_delete_surfaces_partial_apply_context(self, initialized):
-        def fake_delete(vault_root, path, router=None, recursive=False):
+        def fake_delete(vault_root, path, router=None, recursive=False, **_kwargs):
             raise PartialApplyError(
                 "delete set partially applied — links already rewritten; "
                 "removed [], failed at Wiki/python-guide-def456.md"
@@ -2394,7 +2505,7 @@ class TestBrainActionDelete:
         assert server._index_dirty is True
 
     def test_delete_unrelated_runtime_error_remains_unexpected(self, initialized):
-        def fake_delete(vault_root, path, router=None, recursive=False):
+        def fake_delete(vault_root, path, router=None, recursive=False, **_kwargs):
             raise RuntimeError("programmer bug")
 
         with patch("brain_mcp._server_actions.rename.delete_and_clean_links", fake_delete):

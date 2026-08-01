@@ -61,6 +61,7 @@ remains lexical-only.
 | `outline.py` | List exact structural selectors accepted by edit | `python3 outline.py PATH [--json]` |
 | `stage.py` | Create a retry-safe opaque body handle | `python3 stage.py (--body B\|--body-file P)` |
 | `discard_stage.py` | Release an unused staged body before expiry | `python3 discard_stage.py HANDLE` |
+| `upload_attachment.py` | Add a caller-owned non-markdown file beneath a required artefact or standalone attachment scope | `python3 upload_attachment.py --destination-key K (--file P\|--content-base64 B) [--name N] [--vault V] [--json]` |
 | `lifecycle.py` | Explicit parent/status/key/naming-field mutations | `python3 lifecycle.py {reparent,set-status,set-key,set-naming-field} ...` |
 | `fix_links.py` | Auto-repair broken wikilinks; refuses stale compiled router state before scanning or applying vault-wide fixes | `python3 fix_links.py [--fix] [--json] [--vault V]` |
 | `generate_key.py` | Generate operator key + hash for config.yaml via the dependency-free shared auth helper | `python3 generate_key.py [--count N]` |
@@ -93,7 +94,7 @@ The script layer is organised into 8 bounded contexts. This is an architectural 
 | Context | Scripts |
 |---|---|
 | Compilation | `compile_router.py`, `compile_colours.py`, `build_index.py`, `sync_definitions.py` |
-| Artefact Operations | `create.py`, `edit.py`, `read.py`, `rename.py`, `fix_links.py`, `start_shaping_session.py` (`start_shaping.py` compatibility launcher), `shape_printable.py`, `shape_presentation.py` |
+| Artefact Operations | `create.py`, `edit.py`, `read.py`, `rename.py`, `fix_links.py`, `upload_attachment.py`, `start_shaping_session.py` (`start_shaping.py` compatibility launcher), `shape_printable.py`, `shape_presentation.py` |
 | Compliance | `check.py` |
 | Content Intelligence | `_search/`, `search_lexical.py`, `search_index.py`, `evaluate_search.py`, `construct_benchmark_fixture.py`, `list_artefacts.py` |
 | Session & Configuration | `session.py`, `config.py`, `workspace_registry.py`, `generate_key.py` |
@@ -137,6 +138,7 @@ These scripts import from `_common/` for vault discovery, frontmatter parsing, a
 - `start_shaping_session.py`
 - `start_shaping.py` (compatibility launcher)
 - `sync_definitions.py`
+- `upload_attachment.py`
 - `workspace_registry.py`
 
 ### Standalone (no `_common` dependency)

@@ -650,6 +650,7 @@ class TestBrainSession:
             "triggers", "artefacts", "environment",
             "memories", "skills", "plugins", "styles",
             "config", "active_profile",
+            "workspace_configuration",
         }
         assert set(result.keys()) == expected_keys
 
@@ -851,6 +852,9 @@ class TestBrainSession:
             assert rule in content
         assert "Prefer tests before docs." in content
         assert result["active_profile"] in content
+        assert "## Workspace Configuration" in content
+        assert "`surface`: `local CLI`" in content
+        assert result["workspace_configuration"]["command"] in content
 
     def test_markdown_mirror_includes_workspace_metadata(self, initialized, monkeypatch):
         workspace_dir = str(initialized.parent / "demo-workspace")
@@ -1251,6 +1255,10 @@ class TestOperatorProfiles:
         # reader cannot call brain_create
         result = server.brain_create(type="ideas", title="test")
         _assert_error(result, "does not allow brain_create")
+
+        # reader cannot upload attachments
+        result = server.brain_upload_attachment("mcp-assets", "diagram.svg", "")
+        _assert_error(result, "does not allow brain_upload_attachment")
 
         # reader cannot call brain_edit
         result = server.brain_edit(operation="edit", path="test.md", body="test")

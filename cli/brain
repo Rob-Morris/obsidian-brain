@@ -11,13 +11,13 @@
 
 set -euo pipefail
 
-BRAIN_CLI_VERSION="1.1.0"
-BRAIN_INSTALL_REF="v0.53.2"
+BRAIN_CLI_VERSION="1.2.0"
+BRAIN_INSTALL_REF="v0.53.4"
 
 # Dispatch contract (DD-049 v1). hyphens here become underscores on disk.
 DISPATCH_SUBCOMMANDS=(
     check create edit rename setup configure repair upgrade
-    read outline list search stage discard-stage reparent set-status set-key set-naming-field define
+    read outline list search stage discard-stage upload-attachment reparent set-status set-key set-naming-field define
     migrate-naming fix-links
 )
 
@@ -46,7 +46,8 @@ Vault subcommands (dispatched to .brain-core/scripts/):
   check          create         edit           rename
   setup          configure      repair         upgrade
   session        read           outline        list           search
-  stage          discard-stage reparent       set-status     set-key        set-naming-field
+  stage          discard-stage upload-attachment
+  reparent       set-status    set-key          set-naming-field
   define         Guarded type, trigger, and plugin definition workflows
   migrate-naming fix-links
 

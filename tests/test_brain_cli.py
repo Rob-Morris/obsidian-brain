@@ -32,7 +32,8 @@ BRAIN_CLI_VERSION = _cli_shell_var("BRAIN_CLI_VERSION")
 PUBLIC_DISPATCH_CONTRACT = [
     "check", "create", "edit", "rename",
     "setup", "configure", "repair", "upgrade",
-    "session", "read", "outline", "list", "search", "stage", "discard-stage", "reparent", "set-status",
+    "session", "read", "outline", "list", "search", "stage", "discard-stage",
+    "upload-attachment", "reparent", "set-status",
     "set-key", "set-naming-field", "define", "migrate-naming", "fix-links",
 ]
 DISPATCH_COMPAT = []
@@ -44,6 +45,7 @@ SCRIPT_BY_COMMAND = {
     "search": "search_index.py",
     "stage": "stage.py",
     "discard-stage": "discard_stage.py",
+    "upload-attachment": "upload_attachment.py",
     "reparent": "lifecycle.py",
     "set-status": "lifecycle.py",
     "set-key": "lifecycle.py",

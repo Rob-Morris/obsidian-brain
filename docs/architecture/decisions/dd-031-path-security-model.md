@@ -1,6 +1,7 @@
 # DD-031: Path security model
 
 **Status:** Implemented
+**Extended by:** DD-059
 
 ## Context
 

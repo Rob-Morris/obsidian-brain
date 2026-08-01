@@ -44,6 +44,7 @@ That `python3.12` process is the launcher, not the managed runtime itself.
 | `outline.py` | List exact structural selectors accepted by edit operations | `python3 outline.py PATH [--vault V] [--json]` |
 | `stage.py` | Store large content under a Brain-owned retry-safe body handle | `python3 stage.py (--body B\|--body-file P) [--vault V] [--json]` |
 | `discard_stage.py` | Discard an unused body handle before its 24-hour expiry | `python3 discard_stage.py HANDLE [--vault V] [--json]` |
+| `upload_attachment.py` | Add a caller-owned non-markdown file beneath a required artefact or standalone attachment scope without direct vault write access | `python3 upload_attachment.py --destination-key K (--file P\|--content-base64 B) [--name N] [--vault V] [--json]` |
 | `lifecycle.py` | Explicit parent/status/key/naming-field mutations with derived path/link handling | `python3 lifecycle.py {reparent,set-status,set-key,set-naming-field} ...` |
 | `rename.py` | Rename/delete file + update wikilinks (full-path and filename-only), refusing stale compiled router state and unsafe move sets before rewrites | `python3 rename.py "source" "dest" [--json]` |
 | `check.py` | Structural compliance checks; launcher-safe bootstrap diagnostics are added first, then managed semantic findings from the canonical semantic owner run after managed-runtime handoff | `python3 check.py [--json] [--actionable] [--severity S] [--vault V]` |

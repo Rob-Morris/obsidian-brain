@@ -99,6 +99,16 @@ python3.12 .brain-core/scripts/configure.py mcp --vault /path/to/brain --workspa
 brain configure mcp --vault /path/to/brain --user --client all
 ```
 
+For a targeted binding without the additional setup scaffold, run:
+
+```bash
+brain configure workspace binding --vault /path/to/brain --path /absolute/path/to/project --slug project-slug
+```
+
+This local CLI command writes only the workspace's
+`.brain/local/workspace.yaml`; it does not create a Brain project or workspace
+artefact.
+
 To make the active Brain's shaping workflow discoverable as a native skill in
 Claude Code and Codex, install the shared discovery adapter once:
 

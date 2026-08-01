@@ -74,7 +74,7 @@ When temporal work produces something lasting, it spins out to a living artefact
 
 | Folder | Purpose |
 |---|---|
-| `_Assets/` | Non-markdown files and generated output — `Attachments/` (user-added, Obsidian target) and `Generated/` (tool-produced, reproducible from source) |
+| `_Assets/` | Non-markdown files and generated output — `Attachments/` (user-added or added through `brain_upload_attachment`, Obsidian target) and `Generated/` (tool-produced, reproducible from source) |
 | `_Config/` | Vault configuration — router, taxonomy definitions, styles, templates, user preferences |
 | `_Config/Taxonomy/` | One file per artefact type with full definition |
 | `_Config/Templates/` | Obsidian templates for each type |

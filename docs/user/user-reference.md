@@ -97,7 +97,7 @@ Skill documents for MCP tools, CLI commands, or plugin workflows. One folder per
 
 ### MCP Tools
 
-If your vault runs the Brain MCP server (`.brain-core/brain_mcp/server.py`), twenty-one focused tools are available:
+If your vault runs the Brain MCP server (`.brain-core/brain_mcp/server.py`), twenty-two focused tools are available:
 
 **brain_init** (safe, auto-approvable)
 - Additive bootstrap/orientation snapshot for the Brain runtime
@@ -106,7 +106,7 @@ If your vault runs the Brain MCP server (`.brain-core/brain_mcp/server.py`), twe
 
 **brain_session** (safe, auto-approvable)
 - Bootstrap an agent session in one call — returns the canonical session model as compact JSON
-- Includes: static core bootstrap content, structured core-doc references with MCP load instructions, always-rules, user preferences, gotchas, triggers, condensed artefact types, environment, memory/skill/plugin/style indexes, config metadata, and when available workspace-aware bootstrap fields (`workspace`, `workspace_record`, `workspace_defaults`)
+- Includes: static core bootstrap content, structured core-doc references with MCP load instructions, local workspace-configuration CLI guidance, always-rules, user preferences, gotchas, triggers, condensed artefact types, environment, memory/skill/plugin/style indexes, config metadata, and when available workspace-aware bootstrap fields (`workspace`, `workspace_record`, `workspace_defaults`)
 - Optional `context` parameter for scoped sessions (not yet implemented)
 - Optional `operator_key` parameter for operator authentication — sets the session profile for per-call tool enforcement
 - Refreshes `.brain/local/session.md`, the generated markdown bootstrap mirror, from the same model; that refresh is best-effort and runs on a background worker, so a stalled write never blocks readiness or tool calls
@@ -140,6 +140,13 @@ If your vault runs the Brain MCP server (`.brain-core/brain_mcp/server.py`), twe
 **brain_stage / brain_discard_stage** (local staging)
 - Stage a large body under an opaque retry-safe handle; failed writes preserve it and successful writes consume it
 - Handles expire after 24 hours; explicitly discard an unused handle to release it sooner
+
+**brain_upload_attachment** (additive attachment upload)
+- Requires a canonical living artefact key (`type/key` or `type~key`) or a bare standalone folder key, plus a filename and base64 bytes
+- Writes to `_Assets/Attachments/<type~key>/<filename>` for an artefact or `_Assets/Attachments/<folder-key>/<filename>` for a standalone scope; temporal artefacts use standalone scopes
+- Returns resolved destination metadata, vault-relative path, Obsidian embed, byte count, SHA-256 digest, and `created` state
+- Identical retries succeed without rewriting; a different existing file is never overwritten
+- Living key/type changes move the scope and rewrite embeds; delete and conversion to temporal preserve and report the orphaned scope
 
 **brain_create** (additive, safe to auto-approve)
 - Takes one resource-discriminated `request`. Artefacts use `{resource: "artefact", type, title, ...}`; `skill`, `memory`, `style`, and `template` use `{resource, name, content, ...}` and cannot receive artefact-only fields
@@ -240,6 +247,7 @@ The same is now true for the managed operational wrappers: `build_index.py`, `se
 | `edit.py` | Strict structural and exact-text edits; rejects lifecycle-owned metadata |
 | `outline.py` | List exact structural edit selectors |
 | `stage.py`, `discard_stage.py` | Create or release bounded retry-safe body handles |
+| `upload_attachment.py` | Add caller-owned files beneath a required artefact or standalone attachment scope from a local source path or base64 content |
 | `lifecycle.py` | Explicit parent/status/key/naming-field mutation commands |
 | `rename.py` | Rename/delete with automatic wikilink updates; refuses stale router state and unsafe move sets before touching links |
 | `repair.py` | Named repairs including preview/apply metadata-authoritative ownership projection |

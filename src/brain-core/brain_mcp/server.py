@@ -12,6 +12,7 @@ and exposes the MCP tool surface:
   brain_check   — run structured vault checks (safe, no side effects)
   brain_search  — relevance-ranked lexical, semantic, or hybrid search
   brain_list    — exhaustive enumeration by type, date range, or tag (not relevance-ranked)
+  brain_upload_attachment — add a binary file to the Obsidian attachment namespace
   brain_create  — create new vault artefacts (additive, safe to auto-approve)
   brain_edit    — modify existing vault artefacts (single-file mutation)
   brain_define  — guarded type, trigger, and plugin definition authoring
@@ -101,6 +102,7 @@ from _resource_contract import RESOURCE_KINDS
 import obsidian_cli
 import retrieval_embeddings as _retrieval_embeddings
 import session
+import upload_attachment as attachment_upload
 from start_shaping_session import SHAPING_MODES
 import workspace_registry
 import config as config_mod
@@ -3329,6 +3331,76 @@ def brain_discard_stage(
             )
         except (ValueError, OSError) as e:
             return _fmt_error(str(e))
+
+
+@mcp.tool()
+def brain_upload_attachment(
+    destination_key: Annotated[
+        str,
+        Field(description=(
+            "Required destination identifier: an active living artefact key "
+            "in type/key or type~key form, or a standalone Brain key."
+        )),
+    ],
+    name: Annotated[
+        str,
+        Field(description=(
+            "Destination filename beneath the derived attachment folder."
+        )),
+    ],
+    content_base64: Annotated[
+        str,
+        Field(description=(
+            "Base64-encoded attachment bytes. Maximum decoded size is "
+            f"{attachment_upload.MAX_ATTACHMENT_BYTES // (1024 * 1024)} MiB."
+        )),
+    ],
+):
+    """Add a retry-safe binary or text attachment to the Obsidian attachment folder."""
+    with _trace_tool(
+        "brain_upload_attachment", destination_key=destination_key, name=name
+    ):
+        denied = _enforce_profile("brain_upload_attachment")
+        if denied:
+            return denied
+        if _vault_root is None:
+            return _fmt_error("server not initialized")
+        try:
+            state = _get_state()
+            if attachment_upload.attachment_destination_requires_router(
+                destination_key
+            ):
+                state, progress = _server_readiness.require_router(
+                    _runtime(), "brain_upload_attachment"
+                )
+                if progress is not None:
+                    return progress
+            attachment_upload.resolve_attachment_destination(
+                state.router, destination_key
+            )
+            attachment_upload.validate_attachment_name(name)
+            content = attachment_upload.decode_attachment_base64(content_base64)
+            with _serialize_mutation(
+                f"brain_upload_attachment:{destination_key}:{name}"
+            ):
+                result = attachment_upload.upload_attachment(
+                    state.vault_root,
+                    state.router,
+                    destination_key=destination_key,
+                    name=name,
+                    content=content,
+                )
+            state = "Uploaded" if result["created"] else "Attachment already present"
+            return CallToolResult(
+                content=[TextContent(
+                    type="text",
+                    text=f"**{state}:** {result['path']}\n{result['embed']}",
+                )],
+                structuredContent=result,
+            )
+        except (FileExistsError, ValueError, OSError) as e:
+            return _fmt_error(str(e))
+
 
 def brain_create(
     type: Annotated[

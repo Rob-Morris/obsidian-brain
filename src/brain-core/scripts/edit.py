@@ -18,6 +18,8 @@ import os
 import re
 import sys
 
+import upload_attachment as attachment_upload
+
 from _resource_contract import RESOURCE_KINDS
 from _lifecycle.derived_cache_state import load_fresh_compiled_router
 from _common import (
@@ -1427,7 +1429,13 @@ def _maybe_restructure_living_ownership(vault_root, router, path, art, old_field
         )
     )
 
-    preflight_move_set(vault_root, moves)
+    attachment_transition = attachment_upload.plan_attachment_scope_transition(
+        vault_root, old_key, new_key
+    )
+    attachment_moves = attachment_transition["moves"]
+    moves.extend(attachment_moves)
+
+    preflight_move_set(vault_root, moves, allow_attachment_paths=True)
     rendered_fields["modified"] = now_iso()
     write_ops = [
         {"path": path, "fields": rendered_fields, "body": new_body},
@@ -1439,7 +1447,9 @@ def _maybe_restructure_living_ownership(vault_root, router, path, art, old_field
     real_moves = [move for move in moves if move["source"] != move["dest"]]
     if real_moves:
         try:
-            result = move_and_update_links(vault_root, real_moves)
+            result = move_and_update_links(
+                vault_root, real_moves, allow_attachment_paths=True
+            )
         except PartialApplyError as exc:
             metadata_written = [op["path"] for op in write_ops]
             raise PartialApplyError(
@@ -1448,12 +1458,38 @@ def _maybe_restructure_living_ownership(vault_root, router, path, art, old_field
             ) from exc
         prune_vacated_owner_folders(
             vault_root,
-            [move["source"] for move in result.get("applied", [])],
+            [
+                move["source"]
+                for move in result.get("applied", [])
+                if not move["source"].startswith("_Assets/Attachments/")
+            ],
             router,
+        )
+        _prune_committed_attachment_scope_move(
+            vault_root,
+            old_key,
+            attachment_moves,
+            operation="ownership mutation",
         )
     if new_path != path:
         return new_path, True
     return path, True
+
+
+def _prune_committed_attachment_scope_move(
+    vault_root, old_key, attachment_moves, *, operation
+):
+    """Prune a moved scope or report that the lifecycle mutation is partial."""
+    if not attachment_moves:
+        return
+    try:
+        attachment_upload.prune_vacated_attachment_scope(vault_root, old_key)
+    except OSError as exc:
+        old_scope = attachment_upload.attachment_scope_rel_dir(old_key).as_posix()
+        raise PartialApplyError(
+            f"{operation} partially applied — attachment moves committed "
+            f"{attachment_moves}; failed to remove old scope {old_scope}: {exc}"
+        ) from exc
 
 
 def _maybe_status_move(vault_root, path, terminal_statuses, frontmatter_changes):
@@ -1998,7 +2034,13 @@ def convert_artefact(vault_root, router, path, target_type, parent=None, recursi
         )
     )
 
-    preflight_move_set(vault_root, moves)
+    attachment_transition = attachment_upload.plan_attachment_scope_transition(
+        vault_root, old_key, new_key
+    )
+    attachment_moves = attachment_transition["moves"]
+    moves.extend(attachment_moves)
+
+    preflight_move_set(vault_root, moves, allow_attachment_paths=True)
 
     write_ops = [
         {"path": path, "fields": rendered_fields, "body": body},
@@ -2011,7 +2053,9 @@ def convert_artefact(vault_root, router, path, target_type, parent=None, recursi
     real_moves = [move for move in moves if move["source"] != move["dest"]]
     if real_moves:
         try:
-            result = move_and_update_links(vault_root, real_moves)
+            result = move_and_update_links(
+                vault_root, real_moves, allow_attachment_paths=True
+            )
         except PartialApplyError as exc:
             metadata_written = [op["path"] for op in write_ops]
             raise PartialApplyError(
@@ -2021,16 +2065,33 @@ def convert_artefact(vault_root, router, path, target_type, parent=None, recursi
         links_updated = result["links_updated"]
         prune_vacated_owner_folders(
             vault_root,
-            [move["source"] for move in result.get("applied", [])],
+            [
+                move["source"]
+                for move in result.get("applied", [])
+                if not move["source"].startswith("_Assets/Attachments/")
+            ],
             router,
         )
+        _prune_committed_attachment_scope_move(
+            vault_root,
+            old_key,
+            attachment_moves,
+            operation="convert mutation",
+        )
 
-    return {
+    conversion_result = {
         "old_path": path,
         "new_path": new_path,
         "type": target_art["type"],
         "links_updated": links_updated,
     }
+    if attachment_transition["moved"]:
+        conversion_result["attachment_scope_moved"] = attachment_transition["moved"]
+    if attachment_transition["orphaned_scopes"]:
+        conversion_result["orphaned_attachment_scopes"] = attachment_transition[
+            "orphaned_scopes"
+        ]
+    return conversion_result
 
 
 # ---------------------------------------------------------------------------
