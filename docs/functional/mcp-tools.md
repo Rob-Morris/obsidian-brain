@@ -27,6 +27,11 @@ implementation.
   to use it, major behavioural invariants, and what it returns. They do not
   contain `Args:`, `Parameters:`, or `Returns:` sections, parameter tables, or
   per-parameter prose.
+- When an observed client collapses a load-bearing nested schema to an opaque
+  type, the summary may include one compact canonical request fragment as a
+  compatibility fallback. The full contract still belongs in the generated
+  schema; the fallback must stay within the summary budget and must not grow
+  into a second parameter manual.
 - Every exposed parameter must carry a non-empty schema description via
   `Annotated[..., Field(description="...")]` or an equivalent shared constant
   passed into `Field(description=...)`.
@@ -282,8 +287,16 @@ Additive, safe to auto-approve. Creates a new vault resource. Write-guarded: rej
 **Request:** one required `request` object discriminated by `resource`.
 
 - Artefact variant: `{resource: "artefact", type, title, content?, frontmatter?, parent?, key?, fix_links?}`. `type` accepts a key, full type, or singular form (for example `ideas`, `living/ideas`, or `idea`).
-- Named-resource variants: `{resource: "skill" | "memory" | "style" | "template", name, content, frontmatter?}`. Cross-resource fields are absent from these schemas. For templates, `name` is the artefact type key and `frontmatter` is rejected because the full document carries its own frontmatter.
+- Named skill, memory, and style variants: `{resource, name, content, frontmatter?}`.
+  The template variant is `{resource: "template", name, content}`: `name` is
+  the artefact type key, and separate `frontmatter` is absent because the full
+  template document carries its own frontmatter. Cross-resource fields are
+  absent from every variant.
 - `content` is itself discriminated: `{source: "inline", content: "..."}`, `{source: "stage", handle: "..."}`, or the legacy caller-owned `{source: "file", path: "/absolute/path"}`. Staged content is consumed only after success and preserved after failure; Brain never deletes caller-owned files.
+- Clients that render the nested variants opaquely can recover the inline shape
+  from the tool summary: `"content": {"source": "inline", "content": "..."}`.
+  Legacy-looking `body` and `content.kind` inputs remain invalid rather than
+  becoming aliases, but validation names `content` and `source` explicitly.
 - `parent` accepts a canonical artefact key (`project/brain`) or a resolvable name/path. Living children project it into owner folders; temporal children project the same owner chain before their normal `yyyy-mm/` folder.
 - `key` is an optional living key override and must be lowercase ASCII alphanumeric text separated by single hyphens.
 - `fix_links` defaults to `false`. When true, resolvable broken wikilinks are rewritten immediately; remaining unresolvable or ambiguous links are reported.
@@ -385,7 +398,7 @@ state, and return the before/after hashes and resolved path.
 ### brain_reparent and brain_set_*
 
 These commands own lifecycle metadata that has derived invariants:
-`brain_reparent(path, parent)` (pass null to clear),
+`brain_reparent(path, parent)` (`parent` is required; pass null explicitly to clear),
 `brain_set_status(path, status)`, `brain_set_key(path, key)`, and
 `brain_set_naming_field(path, field, value)`. They validate the field against
 the type definition and preflight the complete candidate filename before any

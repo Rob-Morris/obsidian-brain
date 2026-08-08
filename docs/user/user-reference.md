@@ -150,7 +150,7 @@ If your vault runs the Brain MCP server (`.brain-core/brain_mcp/server.py`), twe
 
 **brain_create** (additive, safe to auto-approve)
 - Takes one resource-discriminated `request`. Artefacts use `{resource: "artefact", type, title, ...}`; `skill`, `memory`, `style`, and `template` use `{resource, name, content, ...}` and cannot receive artefact-only fields
-- Body input is an explicit `content` variant: inline markdown, a retry-safe `brain_stage` handle, or a legacy caller-owned file path
+- Body input is an explicit `content` variant: `{"source": "inline", "content": "..."}`, a retry-safe `brain_stage` handle, or a legacy caller-owned file path
 - Body contract is explicit: artefacts plus `skill` / `memory` / `style` take markdown body content after frontmatter; `template` takes a full markdown document with its own frontmatter block. Separate `frontmatter` input is rejected for `template`
 - Artefacts: resolves template and naming pattern from the compiled router; living artefacts get a generated `key` from the clearest free title-derived words before using a random suffix. When a temporal artefact has a living `parent`, it files under that owner chain before the `yyyy-mm` folder instead of flattening into the global temporal namespace
 - Non-artefact resources: `skill` → `_Config/Skills/{name}/SKILL.md`, `memory` → `_Config/Memories/{name}.md`, `style` → `_Config/Styles/{name}.md`, `template` → `_Config/Templates/{classification}/{Type}.md`
@@ -189,6 +189,7 @@ If your vault runs the Brain MCP server (`.brain-core/brain_mcp/server.py`), twe
 - For non-artefact resources: `name` identifies the resource (e.g. `"my-skill"`); for templates, name is the artefact type key (e.g. `"wiki"`). No terminal status auto-move or `modified` injection
 - Validation is resource/op-specific: artefacts require `path`, editable `_Config/` resources require `name`, `delete_section` requires `target`, and fields that belong to a different resource are rejected early
 - Generic edits reject `parent`, `key`, `status`, and naming-driving fields. Use `brain_reparent`, `brain_set_status`, `brain_set_key`, or `brain_set_naming_field`; these commands apply all derived moves, links, tags, descendants, and timestamps.
+- `brain_reparent` always requires an explicit `parent`: pass a parent reference to move ownership or JSON null to clear it. Omitting the field fails before mutation.
 
 **brain_define** (operator-only definition mutation)
 - Creates or replaces coherent type bundles (taxonomy, linked template, and discoverable artefact folder) and plugin definitions at fixed, validated destinations; replacement requires reviewed current hashes

@@ -17,6 +17,8 @@ import re
 
 import pytest
 from jsonschema import Draft202012Validator
+from mcp.server.fastmcp.exceptions import ToolError
+from pydantic import TypeAdapter
 
 from brain_mcp import server
 from _common import (
@@ -109,7 +111,7 @@ def test_docstring_has_no_parameter_sections(registered_tools, tool_name):
 @pytest.mark.parametrize("tool_name", _TOOL_NAMES)
 def test_every_parameter_has_schema_description(registered_tools, tool_name):
     tool = next(t for t in registered_tools if t.name == tool_name)
-    props = list(_iter_exposed_properties(tool.inputSchema))
+    props = list(_iter_reachable_properties(tool.inputSchema))
     assert props, f"{tool_name} has no exposed parameters in inputSchema"
 
     missing = [
@@ -200,6 +202,39 @@ def _iter_exposed_properties(schema):
         yield from node.get("properties", {}).items()
 
 
+def _iter_reachable_properties(schema):
+    """Yield every property reachable through nested schemas and local refs."""
+    visited_refs = set()
+
+    def visit(node, path):
+        if not isinstance(node, dict):
+            return
+
+        ref = node.get("$ref")
+        if ref:
+            if ref in visited_refs:
+                return
+            visited_refs.add(ref)
+            ref_name = ref.rsplit("/", 1)[-1]
+            yield from visit(_resolve_local_ref(schema, ref), (*path, ref_name))
+            return
+
+        for field_name, meta in node.get("properties", {}).items():
+            field_path = ".".join((*path, field_name))
+            yield field_path, meta
+            yield from visit(meta, (*path, field_name))
+
+        for keyword in ("oneOf", "anyOf", "allOf"):
+            for variant in node.get(keyword, []):
+                yield from visit(variant, path)
+
+        items = node.get("items")
+        if isinstance(items, dict):
+            yield from visit(items, (*path, "items"))
+
+    yield from visit(schema, ())
+
+
 def _find_property_descriptions(schema, field_name):
     """Find a field description at any level of a discriminated request schema."""
     found = []
@@ -284,6 +319,16 @@ def test_brain_move_schema_is_flat_and_first_class(registered_tools):
     assert props["target_type"]["description"].strip()
     assert props["parent"]["description"].strip()
     assert props["recursive"]["description"].strip()
+
+
+def test_brain_reparent_requires_an_explicit_nullable_parent(registered_tools):
+    tool = next(t for t in registered_tools if t.name == "brain_reparent")
+    schema = tool.inputSchema
+    validator = Draft202012Validator(schema)
+
+    assert set(schema["required"]) == {"path", "parent"}
+    assert list(validator.iter_errors({"path": "idea/child"}))
+    assert not list(validator.iter_errors({"path": "idea/child", "parent": None}))
 
 
 def test_brain_action_schema_exposes_nested_param_variants(registered_tools):
@@ -374,6 +419,85 @@ def test_brain_create_resource_schema_is_enumerated(registered_tools):
             "content": {"source": "inline", "content": "y"},
         }
     }))
+    assert list(validator.iter_errors({
+        "request": {
+            "resource": "template",
+            "name": "wiki",
+            "content": {
+                "source": "inline",
+                "content": "---\ntype: living/wiki\n---\n",
+            },
+            "frontmatter": {"status": "active"},
+        }
+    }))
+
+
+@pytest.mark.parametrize(
+    ("tool_name", "canonical_fragment"),
+    [
+        ("brain_create", '"content": {"source": "inline", "content": "..."}'),
+        ("brain_edit", '"subject": {"resource": "artefact", "path": "..."}'),
+        ("brain_define", '"kind": "trigger", "mutation": {"operation": "create"'),
+        ("brain_action", '"action": "delete", "params": {"path": "..."}'),
+    ],
+)
+def test_nested_request_summary_survives_degraded_schema_rendering(
+    registered_tools,
+    tool_name,
+    canonical_fragment,
+):
+    tool = next(t for t in registered_tools if t.name == tool_name)
+
+    assert canonical_fragment in tool.description
+
+
+@pytest.mark.parametrize(
+    ("payload", "guidance"),
+    [
+        (
+            {"body": {"kind": "inline", "content": "legacy-looking"}},
+            "use 'content', not 'body', and use its 'source' discriminator, not 'kind'",
+        ),
+        (
+            {"content": {"kind": "inline", "content": "legacy-looking"}},
+            "content uses the 'source' discriminator, not 'kind'",
+        ),
+    ],
+)
+def test_brain_create_validation_explains_legacy_looking_content_shapes(
+    payload,
+    guidance,
+):
+    request = {
+        "resource": "artefact",
+        "type": "temporal/plans",
+        "title": "Contract recovery",
+        **payload,
+    }
+
+    with pytest.raises(ValueError) as exc_info:
+        TypeAdapter(server._BrainCreateRequest).validate_python(request)
+
+    assert guidance in str(exc_info.value)
+
+
+def test_brain_create_public_boundary_returns_complete_legacy_shape_correction():
+    request = {
+        "request": {
+            "resource": "artefact",
+            "type": "temporal/plans",
+            "title": "Contract recovery",
+            "body": {"kind": "inline", "content": "legacy-looking"},
+        }
+    }
+
+    with pytest.raises(ToolError) as exc_info:
+        asyncio.run(server.mcp.call_tool("brain_create", request))
+
+    error = str(exc_info.value)
+    assert "use 'content', not 'body'" in error
+    assert "'source' discriminator, not 'kind'" in error
+    assert "'content': {'source': 'inline', 'content': '...'}" in error
 
 
 def test_brain_define_schema_binds_kind_and_operation_fields(registered_tools):

@@ -5,9 +5,9 @@ brain_move by op) validate flat MCP kwargs against a Spec via validate_spec().
 The validator rejects unknown extras and missing required fields, then returns
 the validated dict with absent fields omitted (None/empty-string = absent).
 
-Future tools (brain_read, brain_list, brain_edit) will follow this same pattern:
-define a <TOOL>_SPECS dict keyed by discriminator, call _build_<tool>_params()
-in server.py, and delegate to validate_spec() with the appropriate label/hint.
+Flat compatibility wrappers for create, read, list, and edit use the matching
+resource specs here before delegating to their handlers. Registered MCP tools
+may publish stricter Pydantic request variants at the transport boundary.
 """
 
 from __future__ import annotations
@@ -40,7 +40,14 @@ def contract_hint(spec: Spec, label: str, *, suffix: str = "") -> str:
 
 
 def create_contract_hint(resource: str) -> str:
-    return contract_hint(CREATE_SPECS[resource], f"resource='{resource}'")
+    suffix = ""
+    if resource == "template":
+        suffix = "Pass template frontmatter inside body, not via the frontmatter field."
+    return contract_hint(
+        CREATE_SPECS[resource],
+        f"resource='{resource}'",
+        suffix=suffix,
+    )
 
 
 def read_contract_hint(resource: str) -> str:

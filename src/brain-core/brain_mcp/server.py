@@ -65,7 +65,7 @@ from typing import Annotated, Literal
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult, TextContent
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 # ---------------------------------------------------------------------------
 # Script imports — add scripts dir to sys.path
@@ -2180,6 +2180,14 @@ _NAME_DESCRIPTION = (
 
 _FIX_LINKS_DESCRIPTION = "Repair resolvable broken wikilinks in this file."
 
+_MUTATION_CONTENT_DESCRIPTION = (
+    "Body content from one inline, staged, or caller-file source."
+)
+
+_STRUCTURAL_SELECTOR_DESCRIPTION = (
+    "Optional occurrence and ancestor-chain selector for duplicate structural targets."
+)
+
 _ARTEFACT_TYPE_FILTER_DESCRIPTION = (
     "Artefact type filter, e.g. 'living/wiki' or 'temporal/research'."
 )
@@ -2222,7 +2230,10 @@ class _InlineMutationContent(BaseModel):
     """Inline markdown supplied directly in a mutation request."""
 
     model_config = ConfigDict(extra="forbid")
-    source: Literal["inline"]
+    source: Annotated[
+        Literal["inline"],
+        Field(description="Select inline markdown supplied in this request."),
+    ]
     content: Annotated[str, Field(description="Markdown content supplied inline.")]
 
 
@@ -2230,7 +2241,10 @@ class _StagedMutationContent(BaseModel):
     """Retry-safe content previously stored by brain_stage."""
 
     model_config = ConfigDict(extra="forbid")
-    source: Literal["stage"]
+    source: Annotated[
+        Literal["stage"],
+        Field(description="Select a retry-safe body staged by brain_stage."),
+    ]
     handle: Annotated[str, Field(description=_BODY_HANDLE_DESCRIPTION)]
 
 
@@ -2238,7 +2252,10 @@ class _FileMutationContent(BaseModel):
     """Legacy caller-owned content file."""
 
     model_config = ConfigDict(extra="forbid")
-    source: Literal["file"]
+    source: Annotated[
+        Literal["file"],
+        Field(description="Select a legacy caller-owned body file."),
+    ]
     path: Annotated[str, Field(description=_BODY_FILE_DESCRIPTION)]
 
 
@@ -2248,39 +2265,93 @@ _MutationContent = Annotated[
 ]
 
 
-class _BrainCreateArtefactRequest(BaseModel):
+class _BrainCreateRequestBase(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    resource: Literal["artefact"]
+
+    @model_validator(mode="before")
+    @classmethod
+    def _explain_legacy_looking_content_shape(cls, value):
+        if not isinstance(value, dict):
+            return value
+
+        if "body" in value:
+            body = value["body"]
+            if isinstance(body, dict) and "kind" in body:
+                raise ValueError(
+                    "brain_create: use 'content', not 'body', and use its "
+                    "'source' discriminator, not 'kind'; for example, "
+                    "'content': {'source': 'inline', 'content': '...'}"
+                )
+            raise ValueError(
+                "brain_create: use 'content', not 'body'; for example, "
+                "'content': {'source': 'inline', 'content': '...'}"
+            )
+
+        content = value.get("content")
+        if isinstance(content, dict) and "kind" in content:
+            raise ValueError(
+                "brain_create content uses the 'source' discriminator, not "
+                "'kind'; for example, "
+                "'content': {'source': 'inline', 'content': '...'}"
+            )
+        return value
+
+
+class _BrainCreateArtefactRequest(_BrainCreateRequestBase):
+    resource: Annotated[
+        Literal["artefact"],
+        Field(description="Select creation of a typed vault artefact."),
+    ]
     type: Annotated[str, Field(description="Artefact type key, such as living/idea.")]
     title: Annotated[str, Field(description="Artefact title used by the type naming contract.")]
-    content: _MutationContent | None = None
+    content: Annotated[
+        _MutationContent | None,
+        Field(description=_MUTATION_CONTENT_DESCRIPTION),
+    ] = None
     frontmatter: Annotated[dict | None, Field(description="Non-lifecycle frontmatter overrides.")] = None
     parent: Annotated[str | None, Field(description="Optional parent artefact reference.")] = None
     key: Annotated[str | None, Field(description="Optional living-artefact key override.")] = None
     fix_links: Annotated[bool, Field(description=_FIX_LINKS_DESCRIPTION)] = False
 
 
-class _BrainCreateNamedRequestBase(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+class _BrainCreateNamedRequestBase(_BrainCreateRequestBase):
     name: Annotated[str, Field(description=_NAME_DESCRIPTION)]
-    content: _MutationContent
+    content: Annotated[
+        _MutationContent,
+        Field(description=_MUTATION_CONTENT_DESCRIPTION),
+    ]
+
+
+class _BrainCreateNamedWithFrontmatterRequestBase(_BrainCreateNamedRequestBase):
     frontmatter: Annotated[dict | None, Field(description="Optional resource frontmatter.")] = None
 
 
-class _BrainCreateSkillRequest(_BrainCreateNamedRequestBase):
-    resource: Literal["skill"]
+class _BrainCreateSkillRequest(_BrainCreateNamedWithFrontmatterRequestBase):
+    resource: Annotated[
+        Literal["skill"],
+        Field(description="Select creation of a named skill resource."),
+    ]
 
 
-class _BrainCreateMemoryRequest(_BrainCreateNamedRequestBase):
-    resource: Literal["memory"]
+class _BrainCreateMemoryRequest(_BrainCreateNamedWithFrontmatterRequestBase):
+    resource: Annotated[
+        Literal["memory"],
+        Field(description="Select creation of a named memory resource."),
+    ]
 
 
-class _BrainCreateStyleRequest(_BrainCreateNamedRequestBase):
-    resource: Literal["style"]
+class _BrainCreateStyleRequest(_BrainCreateNamedWithFrontmatterRequestBase):
+    resource: Annotated[
+        Literal["style"],
+        Field(description="Select creation of a named style resource."),
+    ]
 
 
 class _BrainCreateTemplateRequest(_BrainCreateNamedRequestBase):
-    resource: Literal["template"]
+    resource: Annotated[
+        Literal["template"],
+        Field(description="Select creation of a named template resource."),
+    ]
 
 
 _BrainCreateRequest = Annotated[
@@ -2295,7 +2366,10 @@ _BrainCreateRequest = Annotated[
 
 class _BrainEditArtefactSubject(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    resource: Literal["artefact"]
+    resource: Annotated[
+        Literal["artefact"],
+        Field(description="Select an artefact subject identified by path or key."),
+    ]
     path: Annotated[str, Field(description="Artefact key, relative path, or resolvable name.")]
     fix_links: Annotated[bool, Field(description=_FIX_LINKS_DESCRIPTION)] = False
 
@@ -2306,19 +2380,31 @@ class _BrainEditNamedSubjectBase(BaseModel):
 
 
 class _BrainEditSkillSubject(_BrainEditNamedSubjectBase):
-    resource: Literal["skill"]
+    resource: Annotated[
+        Literal["skill"],
+        Field(description="Select a named skill subject."),
+    ]
 
 
 class _BrainEditMemorySubject(_BrainEditNamedSubjectBase):
-    resource: Literal["memory"]
+    resource: Annotated[
+        Literal["memory"],
+        Field(description="Select a named memory subject."),
+    ]
 
 
 class _BrainEditStyleSubject(_BrainEditNamedSubjectBase):
-    resource: Literal["style"]
+    resource: Annotated[
+        Literal["style"],
+        Field(description="Select a named style subject."),
+    ]
 
 
 class _BrainEditTemplateSubject(_BrainEditNamedSubjectBase):
-    resource: Literal["template"]
+    resource: Annotated[
+        Literal["template"],
+        Field(description="Select a named template subject."),
+    ]
 
 
 _BrainEditSubject = Annotated[
@@ -2333,10 +2419,16 @@ _BrainEditSubject = Annotated[
 
 class _BrainStructuralMutationBase(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    content: _MutationContent | None = None
+    content: Annotated[
+        _MutationContent | None,
+        Field(description=_MUTATION_CONTENT_DESCRIPTION),
+    ] = None
     frontmatter: Annotated[dict | None, Field(description="Non-lifecycle frontmatter changes.")] = None
     target: Annotated[str | None, Field(description="Optional heading, callout, or :body target.")] = None
-    selector: _StructuralSelector | None = None
+    selector: Annotated[
+        _StructuralSelector | None,
+        Field(description=_STRUCTURAL_SELECTOR_DESCRIPTION),
+    ] = None
     scope: Annotated[
         Literal["section", "intro", "body", "heading", "header"] | None,
         Field(description=edit.brain_edit_scope_description()),
@@ -2344,32 +2436,53 @@ class _BrainStructuralMutationBase(BaseModel):
 
 
 class _BrainEditMutation(_BrainStructuralMutationBase):
-    operation: Literal["edit"]
+    operation: Annotated[
+        Literal["edit"],
+        Field(description="Replace the selected body range and merge frontmatter."),
+    ]
 
 
 class _BrainAppendMutation(_BrainStructuralMutationBase):
-    operation: Literal["append"]
+    operation: Annotated[
+        Literal["append"],
+        Field(description="Append content to the selected body range."),
+    ]
 
 
 class _BrainPrependMutation(_BrainStructuralMutationBase):
-    operation: Literal["prepend"]
+    operation: Annotated[
+        Literal["prepend"],
+        Field(description="Prepend content to the selected body range."),
+    ]
 
 
 class _BrainDeleteSectionMutation(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    operation: Literal["delete_section"]
+    operation: Annotated[
+        Literal["delete_section"],
+        Field(description="Delete one selected heading section or callout block."),
+    ]
     target: Annotated[str, Field(description="Heading or callout section to remove.")]
-    selector: _StructuralSelector | None = None
+    selector: Annotated[
+        _StructuralSelector | None,
+        Field(description=_STRUCTURAL_SELECTOR_DESCRIPTION),
+    ] = None
     frontmatter: Annotated[dict | None, Field(description="Non-lifecycle frontmatter changes.")] = None
 
 
 class _BrainReplaceTextMutation(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    operation: Literal["replace_text"]
+    operation: Annotated[
+        Literal["replace_text"],
+        Field(description="Replace one or more exact text matches."),
+    ]
     old_text: Annotated[str, Field(description="Exact text to find.")]
     new_text: Annotated[str, Field(description="Replacement text; empty deletes the match.")]
     target: Annotated[str | None, Field(description="Optional structural narrowing target.")] = None
-    selector: _StructuralSelector | None = None
+    selector: Annotated[
+        _StructuralSelector | None,
+        Field(description=_STRUCTURAL_SELECTOR_DESCRIPTION),
+    ] = None
     scope: Annotated[
         Literal["section", "intro", "body", "heading", "header"] | None,
         Field(description=edit.brain_edit_scope_description()),
@@ -2392,19 +2505,31 @@ class _BrainEditRequest(BaseModel):
     """Schema-valid edit composed from an exact subject and mutation variant."""
 
     model_config = ConfigDict(extra="forbid")
-    subject: _BrainEditSubject
-    mutation: _BrainEditMutationRequest
+    subject: Annotated[
+        _BrainEditSubject,
+        Field(description="Resource-specific subject to edit."),
+    ]
+    mutation: Annotated[
+        _BrainEditMutationRequest,
+        Field(description="Operation-specific mutation to apply."),
+    ]
 
 
 class _CreateDefinitionMutation(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    operation: Literal["create"]
+    operation: Annotated[
+        Literal["create"],
+        Field(description="Create a definition that does not already exist."),
+    ]
     definition: Annotated[str, Field(description="Complete markdown definition document.")]
 
 
 class _ReplaceDefinitionMutation(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    operation: Literal["replace"]
+    operation: Annotated[
+        Literal["replace"],
+        Field(description="Replace a definition after verifying its reviewed hash."),
+    ]
     definition: Annotated[str, Field(description="Complete replacement markdown document.")]
     expected_sha256: Annotated[
         str,
@@ -2420,14 +2545,20 @@ _DefinitionDocumentMutation = Annotated[
 
 class _CreateTypeDefinitionMutation(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    operation: Literal["create"]
+    operation: Annotated[
+        Literal["create"],
+        Field(description="Create a taxonomy definition and matching template."),
+    ]
     definition: Annotated[str, Field(description="Complete taxonomy markdown document.")]
     template: Annotated[str, Field(description="Complete markdown template linked by the taxonomy.")]
 
 
 class _ReplaceTypeDefinitionMutation(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    operation: Literal["replace"]
+    operation: Annotated[
+        Literal["replace"],
+        Field(description="Replace a taxonomy and template after verifying both hashes."),
+    ]
     definition: Annotated[str, Field(description="Complete replacement taxonomy document.")]
     template: Annotated[str, Field(description="Complete replacement type template.")]
     expected_sha256: Annotated[str, Field(description="Reviewed current taxonomy SHA-256.")]
@@ -2442,32 +2573,50 @@ _TypeDefinitionMutation = Annotated[
 
 class _BrainDefineTypeRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    kind: Literal["type"]
+    kind: Annotated[
+        Literal["type"],
+        Field(description="Select a type-definition mutation."),
+    ]
     name: Annotated[str, Field(description="Lowercase hyphenated taxonomy filename stem.")]
     classification: Annotated[
         Literal["living", "temporal"],
         Field(description="Taxonomy classification and destination folder."),
     ]
-    mutation: _TypeDefinitionMutation
+    mutation: Annotated[
+        _TypeDefinitionMutation,
+        Field(description="Create or guarded-replace mutation for the type bundle."),
+    ]
 
 
 class _BrainDefinePluginRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    kind: Literal["plugin"]
+    kind: Annotated[
+        Literal["plugin"],
+        Field(description="Select a plugin-definition mutation."),
+    ]
     name: Annotated[str, Field(description="Safe plugin data-directory name, preserving display case.")]
-    mutation: _DefinitionDocumentMutation
+    mutation: Annotated[
+        _DefinitionDocumentMutation,
+        Field(description="Create or guarded-replace mutation for the plugin definition."),
+    ]
 
 
 class _CreateTriggerMutation(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    operation: Literal["create"]
+    operation: Annotated[
+        Literal["create"],
+        Field(description="Create a trigger with a unique condition."),
+    ]
     condition: Annotated[str, Field(description="Unique one-line trigger condition.")]
     target: Annotated[str, Field(description="Existing vault-relative wikilink target.")]
 
 
 class _ReplaceTriggerMutation(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    operation: Literal["replace"]
+    operation: Annotated[
+        Literal["replace"],
+        Field(description="Replace a trigger using its exact current values."),
+    ]
     condition: Annotated[str, Field(description="Exact current trigger condition.")]
     target: Annotated[str, Field(description="Exact current target used as an optimistic precondition.")]
     new_condition: Annotated[str | None, Field(description="Optional replacement condition.")] = None
@@ -2476,7 +2625,10 @@ class _ReplaceTriggerMutation(BaseModel):
 
 class _DeleteTriggerMutation(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    operation: Literal["delete"]
+    operation: Annotated[
+        Literal["delete"],
+        Field(description="Delete a trigger using its exact current condition."),
+    ]
     condition: Annotated[str, Field(description="Exact current trigger condition.")]
     target: Annotated[
         str | None,
@@ -2492,8 +2644,14 @@ _TriggerDefinitionMutation = Annotated[
 
 class _BrainDefineTriggerRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    kind: Literal["trigger"]
-    mutation: _TriggerDefinitionMutation
+    kind: Annotated[
+        Literal["trigger"],
+        Field(description="Select a trigger mutation."),
+    ]
+    mutation: Annotated[
+        _TriggerDefinitionMutation,
+        Field(description="Create, replace, or delete mutation for one trigger."),
+    ]
 
 
 _BrainDefineRequest = Annotated[
@@ -2869,38 +3027,74 @@ class _BrainActionFixLinksParams(BaseModel):
 
 class _BrainActionDeleteRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    action: Literal["delete"]
-    params: _BrainActionDeleteParams
+    action: Annotated[
+        Literal["delete"],
+        Field(description="Delete one artefact or an explicitly recursive subtree."),
+    ]
+    params: Annotated[
+        _BrainActionDeleteParams,
+        Field(description="Artefact deletion parameters."),
+    ]
 
 
 class _BrainActionReparentChildrenRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    action: Literal["reparent-children"]
-    params: _BrainActionReparentParams
+    action: Annotated[
+        Literal["reparent-children"],
+        Field(description="Move the direct children of one living artefact."),
+    ]
+    params: Annotated[
+        _BrainActionReparentParams,
+        Field(description="Source and optional destination parent for the child move."),
+    ]
 
 
 class _BrainActionShapePrintableRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    action: Literal["shape-printable"]
-    params: _BrainActionShapePrintableParams
+    action: Annotated[
+        Literal["shape-printable"],
+        Field(description="Create and optionally render a printable from an artefact."),
+    ]
+    params: Annotated[
+        _BrainActionShapePrintableParams,
+        Field(description="Printable shaping and rendering parameters."),
+    ]
 
 
 class _BrainActionShapePresentationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    action: Literal["shape-presentation"]
-    params: _BrainActionShapePresentationParams
+    action: Annotated[
+        Literal["shape-presentation"],
+        Field(description="Create and optionally render a presentation from an artefact."),
+    ]
+    params: Annotated[
+        _BrainActionShapePresentationParams,
+        Field(description="Presentation shaping, rendering, and preview parameters."),
+    ]
 
 
 class _BrainActionShapeRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    action: Literal["shape"]
-    params: _BrainActionShapeParams
+    action: Annotated[
+        Literal["shape"],
+        Field(description="Start or continue a schema-valid shaping session."),
+    ]
+    params: Annotated[
+        _BrainActionShapeParams,
+        Field(description="Target artefact and shaping mode."),
+    ]
 
 
 class _BrainActionFixLinksRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    action: Literal["fix-links"]
-    params: _BrainActionFixLinksParams = _BrainActionFixLinksParams()
+    action: Annotated[
+        Literal["fix-links"],
+        Field(description="Scan for broken wikilinks and optionally repair them."),
+    ]
+    params: Annotated[
+        _BrainActionFixLinksParams,
+        Field(description="Optional scope and apply controls for link repair."),
+    ] = _BrainActionFixLinksParams()
 
 
 _BrainActionRequest = Annotated[
@@ -3508,10 +3702,10 @@ def _brain_create_tool(
 ):
     """Create a vault resource from a schema-valid resource variant.
 
-    Artefacts and named configuration resources expose different fields. Body
-    content is inline, staged, or caller-file-backed by an explicit source
-    discriminator, so invalid cross-product combinations fail at the MCP
-    boundary before any mutation begins.
+    For an inline artefact, pass `{"resource": "artefact", "type": "...",
+    "title": "...", "content": {"source": "inline", "content": "..."}}`
+    inside `request`. Staged and caller-file-backed content use the same
+    `content.source` discriminator. Invalid combinations fail before mutation.
     """
     payload = request.model_dump(exclude_unset=True, exclude_none=True)
     payload.pop("content", None)
@@ -3676,10 +3870,10 @@ def _brain_edit_tool(
 ):
     """Modify one vault resource through schema-valid subject and mutation variants.
 
-    The subject selects artefact path versus named configuration resource. The
-    mutation discriminator then exposes only fields valid for that operation.
-    Handler-owned lifecycle fields remain rejected by the shared mutation
-    implementation with an actionable dedicated-command error.
+    For an artefact, pass `"subject": {"resource": "artefact", "path": "..."}`
+    plus a mutation such as `{"operation": "replace_text", "old_text": "...",
+    "new_text": "..."}` inside `request`. Other subject and mutation variants
+    remain strict; handler-owned lifecycle fields require their dedicated tool.
     """
     subject = request.subject.model_dump(exclude_unset=True, exclude_none=True)
     mutation = request.mutation.model_dump(exclude_unset=True, exclude_none=True)
@@ -3698,9 +3892,10 @@ def brain_define(
 ):
     """Author runtime definitions through guarded, schema-valid workflows.
 
-    Type/plugin replacements require a reviewed SHA-256 precondition. Trigger
-    replacements identify the exact existing condition and target. The tool is
-    operator-only and dirties compiled state after a successful mutation.
+    A trigger create uses `"kind": "trigger", "mutation": {"operation": "create",
+    "condition": "...", "target": "..."}` inside `request`. Type/plugin
+    replacements require reviewed SHA-256 preconditions. This operator-only
+    tool dirties compiled state after a successful mutation.
     """
     with _trace_tool("brain_define", kind=request.kind):
         denied = _enforce_profile("brain_define")
@@ -3765,7 +3960,7 @@ def brain_reparent(
     parent: Annotated[
         str | None,
         Field(description="New parent reference. Pass null to clear the parent."),
-    ] = None,
+    ],
 ):
     """Change an artefact's authoritative parent and reconcile derived structure."""
     with _trace_tool("brain_reparent", path=path, parent=parent):
@@ -3904,8 +4099,9 @@ def _brain_action_tool(
 ):
     """Perform a workflow or utility action that may touch multiple files.
 
-    The residual surface uses a schema-discriminated request so every action is
-    paired with its exact parameter shape before handler execution.
+    A delete uses `"action": "delete", "params": {"path": "..."}` inside
+    `request`. Every action is paired with its exact parameter shape before
+    handler execution.
     """
     action = request.action
     params_payload = request.params.model_dump(exclude_unset=True)

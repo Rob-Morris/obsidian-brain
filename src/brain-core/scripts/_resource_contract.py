@@ -61,7 +61,7 @@ CREATE_SPECS: dict[str, Spec] = {
     ),
     "template": Spec(
         required_fields=("name",),
-        optional_fields=("body", "body_file", "body_handle", "frontmatter"),
+        optional_fields=("body", "body_file", "body_handle"),
     ),
 }
 

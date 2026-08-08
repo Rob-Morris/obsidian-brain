@@ -99,6 +99,7 @@ Each DD captures the reasoning behind an architectural decision at the time it w
 | DD-057 | Public `shape` action with a lifecycle-safe internal shaping-session primitive | Implemented (v0.53.0) | [dd-057](dd-057-shaping-session-boundary.md) |
 | DD-058 | Claude/Codex discovery adapters load version-matched workflows from the active Brain | Implemented (v0.53.0) | [dd-058](dd-058-active-brain-skill-adapters.md) |
 | DD-059 | Narrow scoped attachment upload boundary under `_Assets/Attachments` | Implemented (v0.53.4) | [dd-059](dd-059-attachment-upload-boundary.md) |
+| DD-060 | Preserve recovery guidance when MCP clients degrade nested schemas | Implemented (v0.54.0) | [dd-060](dd-060-degraded-mcp-schema-recovery.md) |
 
 ---
 
@@ -106,7 +107,7 @@ Each DD captures the reasoning behind an architectural decision at the time it w
 
 Related decisions grouped by domain. Arrows show supersede/extend chains.
 
-- **MCP tool surface:** DD-010 → DD-044, DD-010 → DD-045 → DD-046 → DD-047, DD-045 → DD-057, DD-045 → DD-059, DD-011 → DD-020 → DD-025 → DD-045, DD-026, DD-027, DD-028
+- **MCP tool surface:** DD-010 → DD-044 → DD-060, DD-010 → DD-045 → DD-046 → DD-047, DD-045 → DD-057, DD-045 → DD-059, DD-011 → DD-020 → DD-025 → DD-045, DD-026, DD-027, DD-028
 - **Config & install:** DD-003 → DD-049 → DD-054, DD-049 → DD-055 → DD-058, DD-015, DD-023 → DD-039 → DD-043 → DD-048 → DD-049 → DD-054, DD-023 → DD-055, DD-023/DD-039 → DD-051 → DD-055, DD-032, DD-033
 - **Router & bootstrap:** DD-008, DD-009, DD-012, DD-013, DD-014, DD-017, DD-019, DD-038, DD-042, DD-054
 - **Security & integrity:** DD-031 → DD-059, DD-036, DD-043
