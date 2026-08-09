@@ -81,6 +81,7 @@ def _invocation(tmp_path, *, authority=None, receipts=None):
         receipt_writer=receipts or _Receipts(),
         clock=_Clock(),
         caller_dir=tmp_path.resolve(),
+        home_dir=tmp_path.resolve(),
         cli_version="1.2.0",
         cli_binary=(tmp_path / "bin" / "brain").resolve(),
         launcher_python=Path(sys.executable).resolve(),

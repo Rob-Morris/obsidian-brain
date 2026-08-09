@@ -118,6 +118,10 @@ machine summary, so diagnosis cannot repair `brains.json`; typed findings omit
 shell commands in favour of canonical repair command IDs. The reusable
 `generate_key_material` seam supplies bounded `operator.generate-key` results
 while preserving the existing direct script output.
+v0.54.38 adds typed `agent-skill.configure` launcher ownership over the shared
+`_bootstrap/agent_skills.py` seam. That seam now exposes genuine no-write
+planning, while trusted home context, all-client preflight and receipt-safe
+adapter/backup effects remain in the launcher owner.
 Existing adapters are not cut over in the v0.54.x foundation releases; they
 continue to behave as documented until the coordinated breaking release
 replaces the old grammar.

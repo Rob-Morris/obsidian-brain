@@ -147,7 +147,7 @@ LAUNCHER_CATALOGUE = LauncherCatalogue(
     tuple(
         sorted(
             (
-                _mutation("agent-skill.configure", "configure:agent_skill", "brain", "agent-skill", "configure"),
+                _mutation("agent-skill.configure", "_launcher.agent_skill:configure", "brain", "agent-skill", "configure"),
                 _mutation("brain.backfill", "_launcher.registry:backfill", "brain", "backfill"),
                 _mutation("brain.clear-default", "_launcher.registry:clear_default", "brain", "clear-default"),
                 _read("brain.doctor", "_launcher.doctor:doctor", "brain", "doctor"),

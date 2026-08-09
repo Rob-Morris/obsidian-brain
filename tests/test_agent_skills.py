@@ -83,6 +83,25 @@ def test_install_is_idempotent(tmp_path):
     assert steps[0]["status"] == "noop"
 
 
+def test_dry_run_uses_real_install_resolution_without_writing(tmp_path):
+    skill_dir = _skill_dir(tmp_path, "claude")
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text("custom workflow")
+
+    steps = agent_skills.configure_agent_skill_adapters(
+        home_dir=tmp_path,
+        client="all",
+        replace=True,
+        dry_run=True,
+    )
+
+    assert [step["status"] for step in steps] == ["planned", "planned"]
+    assert "Would archive" in steps[0]["message"]
+    assert (skill_dir / "SKILL.md").read_text() == "custom workflow"
+    assert not _backup_dir(tmp_path, "claude").exists()
+    assert not (tmp_path / ".codex").exists()
+
+
 def test_incidental_finder_metadata_does_not_block_management(tmp_path):
     skill_dir = _skill_dir(tmp_path, "claude")
     skill_dir.mkdir(parents=True)
@@ -367,7 +386,7 @@ def test_all_clients_report_partial_success_independently(tmp_path):
 def test_value_error_is_contained_to_the_failing_client(tmp_path, monkeypatch):
     original_install = agent_skills._install_client_adapter
 
-    def fail_codex(home_dir, client, content, *, replace):
+    def fail_codex(home_dir, client, content, *, replace, dry_run=False):
         if client == "codex":
             raise ValueError("path bounds mismatch")
         return original_install(
@@ -375,6 +394,7 @@ def test_value_error_is_contained_to_the_failing_client(tmp_path, monkeypatch):
             client,
             content,
             replace=replace,
+            dry_run=dry_run,
         )
 
     monkeypatch.setattr(agent_skills, "_install_client_adapter", fail_codex)

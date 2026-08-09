@@ -33,6 +33,13 @@ embedded shell strings. Operator-key output is a bounded tuple of typed
 key/SHA-256 candidates. The existing v1 Doctor adapter keeps its current
 behaviour until the coordinated cutover.
 
+v0.54.38 adds typed `agent-skill.configure` ownership. Client and
+configure/remove intent are closed request values; the target home directory is
+trusted launcher context. A no-write pass validates every selected client before
+application, dry-run returns that real plan, and committed adapter/backup effects
+are receipted independently. The existing v1 configuration adapter stays public
+until coordinated cutover.
+
 ## Install
 
 The CLI is installed automatically by `install.sh` to `~/.local/bin/brain` (user scope) or `/usr/local/bin/brain` (with `--system`). `upgrade.py` refreshes any installed CLI binary on each upgrade; it does not install a new CLI where none existed.

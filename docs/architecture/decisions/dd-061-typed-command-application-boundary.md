@@ -614,3 +614,26 @@ Operator-key generation returns a bounded tuple of typed key/SHA-256 candidates
 over the existing cryptographic generator. It retains operator authority but
 requires no selected Brain, provider or receipt because it produces no stored
 effect.
+
+## v0.54.38 agent-skill launcher configuration owner
+
+`agent-skill.configure` is the first machine-global configuration mutation to
+move behind the launcher boundary. Its frozen request contains only closed
+client selection, configure/remove intent and the configure-only replacement
+policy. The home directory is trusted adapter context rather than semantic
+caller input, preserving the distinction between command intent and authority
+over a local filesystem root.
+
+The existing `_bootstrap/agent_skills.py` semantic seam now supports a genuine
+read-only plan. Planning evaluates symlink refusal, ownership markers, content
+hashes, unmanaged conflicts, adoption, update, removal and the deterministic
+backup destination without creating directories. The launcher resolves every
+selected client through this path before applying any write, preventing a
+known conflict in a later client from causing an avoidable earlier change.
+
+Committed results identify each changed client adapter and any archived backup
+separately. If the filesystem changes between planning and application, or an
+I/O failure occurs after mutation entry, the invocation boundary records a
+non-retryable unknown outcome rather than asserting no effects. Existing public
+configuration behaviour and output remain in place until the coordinated
+breaking projection cutover.

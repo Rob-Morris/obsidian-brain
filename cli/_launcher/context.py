@@ -54,6 +54,7 @@ class LauncherContext:
     receipt_writer: ReceiptWriter
     clock: Clock
     caller_dir: Path
+    home_dir: Path
     cli_version: str
     cli_binary: Path
     launcher_python: Path | None = None
@@ -66,6 +67,8 @@ class LauncherContext:
             raise ValueError("launcher context requires invocation and CLI identity")
         if not self.caller_dir.is_absolute():
             raise ValueError("launcher caller_dir must be absolute")
+        if not self.home_dir.is_absolute():
+            raise ValueError("launcher home_dir must be absolute")
         if not self.cli_binary.is_absolute():
             raise ValueError("launcher cli_binary must be absolute")
         if self.launcher_python is not None and not self.launcher_python.is_absolute():

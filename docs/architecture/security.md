@@ -198,6 +198,10 @@ installing, keeping executable skill discovery separate from recoverable data.
 The backup root is also symlink-refused, and removal applies only to an
 unmodified managed adapter. Vault upgrades never mutate these client-global
 locations implicitly. See [DD-058](decisions/dd-058-active-brain-skill-adapters.md).
+The canonical launcher owner receives the home directory as trusted context,
+not request data, and preflights every selected client through a no-write path
+before applying the first change. Dry-run therefore exercises the real
+ownership and destination checks without creating client directories.
 
 **Exclusive mode:** `safe_write(exclusive=True)` (used by `brain_create`) checks file
 existence before writing, providing a lightweight create-or-fail guarantee.
