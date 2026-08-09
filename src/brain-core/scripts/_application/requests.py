@@ -35,6 +35,7 @@ from .style.create import StyleCreateRequest
 from .style.read import StyleReadRequest
 from .style.search import StyleSearchRequest
 from .template.list import TemplateListRequest
+from .template.create import TemplateCreateRequest
 from .template.read import TemplateReadRequest
 from .trigger.list import TriggerListRequest
 from .trigger.read import TriggerReadRequest
@@ -209,6 +210,7 @@ CommandRequest = (
     | StyleListRequest
     | StyleReadRequest
     | StyleSearchRequest
+    | TemplateCreateRequest
     | TemplateListRequest
     | TemplateReadRequest
     | TriggerListRequest
@@ -263,6 +265,7 @@ def command_identity(request: CommandRequest) -> tuple[str, int, type]:
         StyleListRequest,
         StyleReadRequest,
         StyleSearchRequest,
+        TemplateCreateRequest,
         TemplateListRequest,
         TemplateReadRequest,
         TriggerListRequest,

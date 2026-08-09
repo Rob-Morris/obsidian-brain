@@ -60,6 +60,8 @@ handling over the existing staging and attachment semantic modules.
 v0.54.15 adds granular memory, skill and style creation owners with immutable
 inline/staged content, bounded typed frontmatter and commit-safe staged-handle
 consumption over the existing `create.py` semantic owner.
+v0.54.16 adds create-only typed template ownership over the same content seam,
+while preserving legacy aggregate overwrite behavior solely until cutover.
 Existing adapters are not cut over in the v0.54.x foundation releases; they
 continue to behave as documented until the coordinated breaking release
 replaces the old grammar.

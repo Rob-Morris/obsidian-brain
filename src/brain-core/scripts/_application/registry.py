@@ -33,6 +33,7 @@ from .style import create as style_create
 from .style import read as style_read
 from .style import search as style_search
 from .template import list as template_list
+from .template import create as template_create
 from .template import read as template_read
 from .trigger import list as trigger_list
 from .trigger import read as trigger_read
@@ -81,6 +82,7 @@ def current_application_catalogue():
             style_list.catalogue_entry(),
             style_read.catalogue_entry(),
             style_search.catalogue_entry(),
+            template_create.catalogue_entry(),
             template_list.catalogue_entry(),
             template_read.catalogue_entry(),
             trigger_list.catalogue_entry(),
@@ -132,6 +134,7 @@ def current_request_resolver():
             style_list.resolver_entry(),
             style_read.resolver_entry(),
             style_search.resolver_entry(),
+            template_create.resolver_entry(),
             template_list.resolver_entry(),
             template_read.resolver_entry(),
             trigger_list.resolver_entry(),

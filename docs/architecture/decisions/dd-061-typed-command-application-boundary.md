@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.15)
+**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.16)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -240,3 +240,16 @@ shape; `create.py` retains naming, destination and write semantics. Staged
 handles are consumed only after commit, stale-router and duplicate failures
 claim no effects, and unexpected failures after mutation entry retain the
 kernel's unknown-outcome contract.
+
+## v0.54.16 create-only template owner
+
+`template.create` reuses typed inline/staged content but deliberately excludes
+separate frontmatter because the template body is the full markdown document.
+The application owner resolves the type-linked destination under the mutation
+lock and rejects an existing path before reading or consuming staged content.
+
+The legacy aggregate currently uses template creation as overwrite. That public
+behavior remains unchanged during internal migration, while the new unreleased
+granular command enforces its target create-only meaning. The legacy path is
+removed at coordinated cutover rather than translated or silently changed in a
+mixed public grammar.
