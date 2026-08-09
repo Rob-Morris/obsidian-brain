@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.28)
+**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.29)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -455,4 +455,22 @@ and identifies the vault-relative preserved copy.
 The application owner adds operator authority, selected-Brain mutation locking,
 strict empty input, structural results and receipt policy. It reports only
 bounded state and relative paths; existing public adapters remain unchanged
+until coordinated cutover.
+
+## v0.54.29 shaping-session start owner
+
+`shaping.start` owns the mechanical opening or continuation of one shaping
+session. Its request requires an exact target plus an explicit `brainstorm`,
+`refine` or `discover` mode; conversational question selection and completion
+decisions remain owned by the shaping skill rather than the command.
+
+The existing portable shaping-session seam remains authoritative for target
+resolution, lifecycle transition, same-day transcript identity, transcript
+creation/append and source backlinking. The application owner supplies
+contributor authority, fresh-router preflight, selected-Brain locking, strict
+request decoding and structural effect projection.
+
+Results identify resolved and post-lifecycle target paths, transcript type and
+operation, status change and every changed path. Legacy implicit mode and title
+fields do not enter the canonical request; public adapters remain unchanged
 until coordinated cutover.

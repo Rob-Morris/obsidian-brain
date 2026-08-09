@@ -87,6 +87,8 @@ v0.54.27 separates lexical-index repair from unconditional rebuild over one
 portable construction, persistence and semantic-invalidation owner.
 v0.54.28 adds rollback-safe `workspace.repair-registry` ownership, distinct
 from caller-local workspace configuration and setup operations.
+v0.54.29 adds typed `shaping.start` ownership over the existing portable
+lifecycle, same-day transcript and backlink mechanics.
 Existing adapters are not cut over in the v0.54.x foundation releases; they
 continue to behave as documented until the coordinated breaking release
 replaces the old grammar.

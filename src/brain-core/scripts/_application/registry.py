@@ -53,6 +53,7 @@ from .runtime import rebuild_router as runtime_rebuild_router
 from .runtime import read_environment as runtime_read_environment
 from .runtime import repair_router as runtime_repair_router
 from .session import start as session_start
+from .shaping import start as shaping_start
 from .skill import append as skill_append
 from .skill import create as skill_create
 from .skill import delete_section as skill_delete_section
@@ -157,6 +158,7 @@ def current_application_catalogue():
             runtime_read_environment.catalogue_entry(),
             runtime_repair_router.catalogue_entry(),
             session_start.catalogue_entry(),
+            shaping_start.catalogue_entry(),
             skill_append.catalogue_entry(),
             skill_create.catalogue_entry(),
             skill_delete_section.catalogue_entry(),
@@ -263,6 +265,7 @@ def current_request_resolver():
             runtime_read_environment.resolver_entry(),
             runtime_repair_router.resolver_entry(),
             session_start.resolver_entry(),
+            shaping_start.resolver_entry(),
             skill_append.resolver_entry(),
             skill_create.resolver_entry(),
             skill_delete_section.resolver_entry(),
