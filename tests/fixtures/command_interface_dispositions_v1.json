@@ -1,0 +1,157 @@
+{
+  "schema": "brain.command-surface-dispositions/1",
+  "brain_core_version": "0.54.0",
+  "inventory_status": "in_progress",
+  "covered_source_surfaces": [
+    "mandated_aggregate_mcp_tools"
+  ],
+  "aggregate_mappings": {
+    "brain_action": {
+      "axis": "request.action",
+      "mappings": {
+        "delete": "artefact.delete",
+        "fix-links": "links.fix",
+        "reparent-children": "artefact.reparent-children",
+        "shape": "shaping.start",
+        "shape-presentation": "shaping.render-presentation",
+        "shape-printable": "shaping.render-printable"
+      }
+    },
+    "brain_create": {
+      "axis": "request.resource",
+      "mappings": {
+        "artefact": "artefact.create",
+        "memory": "memory.create",
+        "skill": "skill.create",
+        "style": "style.create",
+        "template": "template.create"
+      }
+    },
+    "brain_define": {
+      "axes": [
+        "request.kind",
+        "request.mutation.operation"
+      ],
+      "mappings": {
+        "plugin": {
+          "create": "plugin.create",
+          "replace": "plugin.replace"
+        },
+        "trigger": {
+          "create": "trigger.create",
+          "delete": "trigger.delete",
+          "replace": "trigger.replace"
+        },
+        "type": {
+          "create": "type.create",
+          "replace": "type.replace"
+        }
+      }
+    },
+    "brain_edit": {
+      "axes": [
+        "request.subject.resource",
+        "request.mutation.operation"
+      ],
+      "mappings": {
+        "artefact": {
+          "append": "artefact.append",
+          "delete_section": "artefact.delete-section",
+          "edit": "artefact.edit",
+          "prepend": "artefact.prepend",
+          "replace_text": "artefact.replace-text"
+        },
+        "memory": {
+          "append": "memory.append",
+          "delete_section": "memory.delete-section",
+          "edit": "memory.edit",
+          "prepend": "memory.prepend",
+          "replace_text": "memory.replace-text"
+        },
+        "skill": {
+          "append": "skill.append",
+          "delete_section": "skill.delete-section",
+          "edit": "skill.edit",
+          "prepend": "skill.prepend",
+          "replace_text": "skill.replace-text"
+        },
+        "style": {
+          "append": "style.append",
+          "delete_section": "style.delete-section",
+          "edit": "style.edit",
+          "prepend": "style.prepend",
+          "replace_text": "style.replace-text"
+        },
+        "template": {
+          "append": "template.append",
+          "delete_section": "template.delete-section",
+          "edit": "template.edit",
+          "prepend": "template.prepend",
+          "replace_text": "template.replace-text"
+        }
+      }
+    },
+    "brain_move": {
+      "axis": "op",
+      "mappings": {
+        "archive": "artefact.archive",
+        "convert": "artefact.convert",
+        "rename": "artefact.rename",
+        "unarchive": "artefact.unarchive"
+      }
+    }
+  },
+  "aggregate_surface_disposition": {
+    "behaviour": "preserve",
+    "interface_disposition": "replace_with_granular_commands",
+    "replacement_state": "remove_at_breaking_cutover",
+    "rationale": "Each source discriminator selects a distinct request shape or semantic operation; D8 prohibits retaining the aggregate public command."
+  },
+  "body_source_dispositions": {
+    "brain_create.request.content.source": {
+      "file": {
+        "behaviour": "remove",
+        "replacement": "inline_or_stage",
+        "rationale": "Caller-owned file paths cross a locality and trust boundary and cannot remain a portable command input."
+      },
+      "inline": {
+        "behaviour": "preserve",
+        "disposition": "typed_content_input"
+      },
+      "stage": {
+        "behaviour": "preserve",
+        "disposition": "typed_content_input"
+      }
+    },
+    "brain_edit.request.mutation.content.source": {
+      "file": {
+        "behaviour": "remove",
+        "replacement": "inline_or_stage",
+        "rationale": "Caller-owned file paths cross a locality and trust boundary and cannot remain a portable command input."
+      },
+      "inline": {
+        "behaviour": "preserve",
+        "disposition": "typed_content_input"
+      },
+      "stage": {
+        "behaviour": "preserve",
+        "disposition": "typed_content_input"
+      }
+    }
+  },
+  "pending_disposition_fields": [
+    "non_aggregate_mcp_tools",
+    "cli_operations",
+    "direct_scripts",
+    "public_python_wrappers",
+    "install_upgrade_operations",
+    "canonical_result_owner",
+    "dependency_tier",
+    "locality",
+    "providers",
+    "authority",
+    "effect_and_retry_class",
+    "eligible_projections",
+    "consumer_replacement_guidance"
+  ]
+}
