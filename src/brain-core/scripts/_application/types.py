@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum, IntEnum
+from enum import Enum
 import re
 
 
@@ -33,15 +33,20 @@ def validate_slug(slug: str) -> None:
         )
 
 
-class DependencyTier(IntEnum):
+class DependencyTier(str, Enum):
     """Ordered execution dependencies; higher values include lower tiers."""
 
-    BOOTSTRAP = 0
-    PORTABLE = 1
-    MANAGED = 2
+    BOOTSTRAP = "bootstrap"
+    PORTABLE = "portable"
+    MANAGED = "managed"
 
     def supports(self, required: "DependencyTier") -> bool:
-        return self >= required
+        order = {
+            DependencyTier.BOOTSTRAP: 0,
+            DependencyTier.PORTABLE: 1,
+            DependencyTier.MANAGED: 2,
+        }
+        return order[self] >= order[required]
 
 
 class Locality(str, Enum):

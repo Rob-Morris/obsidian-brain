@@ -150,6 +150,14 @@ def test_request_schema_preserves_required_defaults_enums_and_nested_shapes():
         == "array"
     )
 
+    from _application.requests import CommandListRequest
+
+    command_list_schema = request_schema(CommandListRequest)
+    assert command_list_schema["properties"]["dependency_tier"]["anyOf"][0] == {
+        "type": "string",
+        "enum": ["bootstrap", "portable", "managed"],
+    }
+
 
 def test_canonical_result_projection_is_structural_and_deterministic():
     ok = Ok("vault.read-file", 1, _Payload(Path("note.md"), _Mode.EXACT, _Nested("x")))

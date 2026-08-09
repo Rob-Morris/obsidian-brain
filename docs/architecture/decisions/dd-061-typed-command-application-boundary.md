@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.48)
+**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.49)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -841,3 +841,28 @@ concrete adapter supplies its projected names as additional validation facts.
 This script is shipped as implementation scaffolding but is not yet dispatched
 by the global CLI or registered through MCP. Public legacy surfaces remain
 unchanged until the coordinated fail-closed cutover.
+
+## v0.54.49 granular MCP projection
+
+`brain_mcp._command_adapter` derives each MCP-eligible tool directly from the
+authoritative application catalogue. Mechanical `brain_<noun>_<verb>` names,
+summaries and flat request schemas therefore cannot drift into a parallel MCP
+registry. The installed canonical schema remains authoritative after FastMCP
+builds its invocation model; this preserves recursive descriptions and the
+documented string-valued dependency-tier vocabulary.
+
+FastMCP normally applies a second Pydantic request model before dispatch. That
+model ignores unknown fields by default, applies Python defaults to omitted
+fields and cannot faithfully accept canonical wire discriminators represented
+by non-init dataclass fields. The granular adapter therefore retains FastMCP's
+registration and result conversion but routes the raw argument map directly to
+the canonical resolver. This preserves strict unknown-field rejection and the
+difference between absence and explicit null without creating another request
+contract or moving transport behaviour into semantic request owners.
+
+MCP results reuse the shared structured envelope, concise text and error-state
+projection. The real-FastMCP contract gate compares every registered schema
+with its canonical source and passes every minimal request through transport
+validation under no authority, so projection is tested without executing
+effects. Registration remains staged until profiles and all public adapters
+move together at the breaking cutover.

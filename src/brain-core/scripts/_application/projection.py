@@ -220,25 +220,30 @@ def _error_value(
     return value
 
 
-def _wire_value(value):
+def canonical_wire_value(value):
+    """Convert typed request/result values to canonical transport primitives."""
+
     if isinstance(value, Enum):
-        return _wire_value(value.value)
+        return canonical_wire_value(value.value)
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
     if isinstance(value, Path):
         return str(value)
     if is_dataclass(value) and not isinstance(value, type):
         return {
-            field.name: _wire_value(getattr(value, field.name))
+            field.name: canonical_wire_value(getattr(value, field.name))
             for field in fields(value)
         }
     if isinstance(value, Mapping):
         if any(not isinstance(key, str) for key in value):
             raise TypeError("canonical mappings require string keys")
-        return {key: _wire_value(item) for key, item in value.items()}
+        return {key: canonical_wire_value(item) for key, item in value.items()}
     if isinstance(value, (tuple, list)):
-        return [_wire_value(item) for item in value]
+        return [canonical_wire_value(item) for item in value]
     raise TypeError(f"value is not canonically serialisable: {type(value).__name__}")
+
+
+_wire_value = canonical_wire_value
 
 
 def _type_schema(annotation, *, command_id: str, trail: tuple[type, ...]) -> dict[str, object]:
