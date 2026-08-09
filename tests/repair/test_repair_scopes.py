@@ -644,10 +644,21 @@ class TestRepairScopes:
         )
 
     def test_lexical_repair_builds_retrieval_index(self, repair_vault):
+        sidecars = (
+            ".brain/local/type-embeddings.npy",
+            ".brain/local/doc-embeddings.npy",
+            ".brain/local/embeddings-meta.json",
+        )
+        for relative in sidecars:
+            path = repair_vault / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("stale")
+
         result = repair_runtime.repair_lexical(repair_vault, dry_run=False)
 
         assert result["status"] == "ok"
         assert (repair_vault / ".brain" / "local" / "retrieval-index.json").is_file()
+        assert not any((repair_vault / relative).exists() for relative in sidecars)
 
     def test_lexical_repair_dry_run_plans_rebuild(self, repair_vault):
         result = repair_runtime.repair_lexical(repair_vault, dry_run=True)
@@ -662,8 +673,10 @@ class TestRepairScopes:
         ]
 
     def test_lexical_repair_uses_shared_cache_detector(self, repair_vault, monkeypatch):
+        from _portable import lexical_maintenance
+
         monkeypatch.setattr(
-            repair_runtime,
+            lexical_maintenance,
             "inspect_lexical_cache",
             lambda _vault: CacheState(
                 stale=True,

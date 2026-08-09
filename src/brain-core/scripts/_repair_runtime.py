@@ -17,7 +17,6 @@ import check as check_mod
 import edit
 from _bootstrap import mcp_transport
 import workspace_registry
-import _search.index as search_index
 import _bootstrap.diagnostics as bootstrap_diagnostics
 from _bootstrap.diagnostics import (
     ISSUE_MANAGED_RUNTIME_DEPENDENCIES_MISSING,
@@ -25,7 +24,6 @@ from _bootstrap.diagnostics import (
     ISSUE_RUNTIME_UNUSABLE,
 )
 from _bootstrap.runtime import iso_now, step as _step
-from _lifecycle.derived_cache_state import inspect_lexical_cache
 from _lifecycle.frontmatter_repairs import normalize_duplicate_frontmatter_documents
 from _lifecycle_common import make_result_envelope
 from _common import (
@@ -182,18 +180,18 @@ def repair_router(vault_root: Path, dry_run: bool, bootstrap_steps: list[dict] |
 
 
 def repair_lexical(vault_root: Path, dry_run: bool, bootstrap_steps: list[dict] | None = None) -> dict:
+    from _portable.lexical_maintenance import maintain_lexical_index
+
     steps = list(bootstrap_steps or [])
-    state = inspect_lexical_cache(vault_root)
-    if not state.stale:
+    result = maintain_lexical_index(vault_root, dry_run=dry_run, force=False)
+    if result.status == "noop":
         steps.append(_step("lexical", "noop", "Lexical retrieval index is already fresh."))
         return _finalise_result("lexical", vault_root, dry_run, steps)
-    if dry_run:
-        steps.append(_step("lexical", "planned", f"Would rebuild the lexical retrieval index ({state.reason})."))
+    if result.status == "planned":
+        steps.append(_step("lexical", "planned", f"Would rebuild the lexical retrieval index ({result.reason})."))
         return _finalise_result("lexical", vault_root, dry_run, steps)
 
-    build_result = search_index.build_index(str(vault_root))
-    search_index.persist_retrieval_index(str(vault_root), build_result.index)
-    steps.append(_step("lexical", "changed", f"Rebuilt the lexical retrieval index ({state.reason})."))
+    steps.append(_step("lexical", "changed", f"Rebuilt the lexical retrieval index ({result.reason})."))
     return _finalise_result("lexical", vault_root, dry_run, steps)
 
 

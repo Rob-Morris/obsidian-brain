@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.54.27](changelog/v0.54.27.md) | 2026-08-10 | Migrate typed lexical-index repair and rebuild owners |
 | [v0.54.26](changelog/v0.54.26.md) | 2026-08-10 | Migrate typed router repair and rebuild owners |
 | [v0.54.25](changelog/v0.54.25.md) | 2026-08-10 | Migrate typed artefact-library install and sync owners |
 | [v0.54.24](changelog/v0.54.24.md) | 2026-08-10 | Migrate atomic typed artefact-type definition owners |

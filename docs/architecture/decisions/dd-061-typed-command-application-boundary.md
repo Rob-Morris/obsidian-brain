@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.26)
+**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.27)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -418,3 +418,22 @@ Router persistence followed by session-mirror failure is known partial state.
 Other exceptions after mutation entry remain receipt-backed outcome-unknown.
 The typed result exposes only relative sidecar identities and bounded state;
 public adapters remain unchanged until coordinated cutover.
+
+## v0.54.27 lexical-index repair and rebuild owners
+
+`retrieval.repair-lexical` and `retrieval.rebuild-lexical` separate idempotent
+cache repair from unconditional operator intent. Repair returns a typed no-op
+for a fresh index; rebuild always constructs and persists the current document
+set. Trusted invocation context remains the only source of dry-run state.
+
+One portable lexical-maintenance module owns cache inspection, index
+construction, persistence and semantic-sidecar invalidation. The existing
+packageful repair orchestrator delegates to that seam. `_application` adds
+authority, mutation locking, structural results and receipt-backed outcome
+classification without importing adapter or managed-runtime policy.
+
+Unreadable sources and atomic persistence failures are known no-effect
+conflicts. A failure after index persistence remains outcome-unknown because
+semantic sidecar invalidation may be partial. Results contain only cache reason,
+document/term counts and relative sidecar identities; public adapters remain
+unchanged until coordinated cutover.
