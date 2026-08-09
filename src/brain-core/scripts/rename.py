@@ -483,6 +483,39 @@ def rename_and_update_links(
     return result["links_updated"]
 
 
+def rename_artefact(vault_root, router, source, dest):
+    """Rename within one configured type while preserving wikilinks.
+
+    Type conversion is deliberately excluded from this semantic operation.
+    Callers that need to change type must use ``edit.convert_artefact``.
+    """
+    if is_archived_path(source) or is_archived_path(dest):
+        raise ValueError(
+            "Rename cannot target _Archive/. Use the archive or unarchive "
+            "operation for archive transitions."
+        )
+    source_art = validate_artefact_folder(vault_root, router, source)
+    dest_art = validate_artefact_folder(vault_root, router, dest)
+    if source_art["key"] != dest_art["key"]:
+        raise ValueError(
+            "Rename cannot move an artefact between different type folders. "
+            "Use the convert operation for type changes."
+        )
+    validate_rename_request(vault_root, source, dest, router=router)
+    validate_destination_parent_directory(vault_root, dest)
+    links_updated = rename_and_update_links(
+        vault_root,
+        source,
+        dest,
+        router=router,
+    )
+    return {
+        "old_path": source,
+        "new_path": dest,
+        "links_updated": links_updated,
+    }
+
+
 def _validate_destination_naming(vault_root, router, source, dest, abs_source):
     """Validate dest filename against the target type's naming contract.
 
@@ -612,6 +645,7 @@ def delete_and_clean_links(
         return {
             "links_replaced": links_replaced,
             "orphaned_attachment_scopes": orphaned_attachment_scopes,
+            "deleted": removed,
         }
     return links_replaced
 

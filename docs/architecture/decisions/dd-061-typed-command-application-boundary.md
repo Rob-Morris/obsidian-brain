@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.20)
+**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.21)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -312,3 +312,22 @@ The application owners provide authority, receipt, locking, error and effect
 semantics. They call `edit.update_lifecycle_field` for status enums, protected
 metadata, naming preflight and derived path/tag/link/index changes, so lifecycle
 rules remain centralised rather than duplicated across projections.
+
+## v0.54.21 destructive artefact-transition owners
+
+Rename, convert, archive, unarchive and delete now have distinct operator
+commands instead of sharing a move or action discriminator. Each request
+contains only its valid fields, and each result exposes bounded paths, link
+counts, recursive members and attachment/archive follow-up state appropriate to
+that verb.
+
+Same-type and archive-boundary rename validation moved into `rename.py` beside
+the actual move/link implementation. Conversion and archive semantics remain in
+`edit.py`; delete remains in `rename.py`. The application seam owns locking,
+authority, retry and outcome classification without duplicating those semantic
+rules.
+
+A `PartialApplyError` becomes a structural partial result and known-partial
+receipt. An unexpected exception after mutation entry remains outcome-unknown.
+This preserves the backend's deliberately non-transactional vault-wide link and
+move operations without inviting unsafe blind retry.

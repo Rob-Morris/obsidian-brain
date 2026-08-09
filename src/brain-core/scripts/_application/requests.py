@@ -7,7 +7,10 @@ from typing import ClassVar
 
 from ._named_edit_requests import NAMED_EDIT_REQUEST_TYPES, NamedEditRequest
 from .artefact.append import ArtefactAppendRequest
+from .artefact.archive import ArtefactArchiveRequest
+from .artefact.convert import ArtefactConvertRequest
 from .artefact.create import ArtefactCreateRequest
+from .artefact.delete import ArtefactDeleteRequest
 from .artefact.delete_section import ArtefactDeleteSectionRequest
 from .artefact.edit import ArtefactEditRequest
 from .artefact.list import ArtefactListRequest
@@ -17,11 +20,13 @@ from .artefact.prepend import ArtefactPrependRequest
 from .artefact.read import ArtefactReadRequest
 from .artefact.read_archived import ArtefactReadArchivedRequest
 from .artefact.reparent import ArtefactReparentRequest
+from .artefact.rename import ArtefactRenameRequest
 from .artefact.replace_text import ArtefactReplaceTextRequest
 from .artefact.search import ArtefactSearchRequest
 from .artefact.set_key import ArtefactSetKeyRequest
 from .artefact.set_naming_field import ArtefactSetNamingFieldRequest
 from .artefact.set_status import ArtefactSetStatusRequest
+from .artefact.unarchive import ArtefactUnarchiveRequest
 from .attachment.upload import AttachmentUploadRequest
 from .content.classify import ContentClassifyRequest
 from .content.resolve import ContentResolveRequest
@@ -193,12 +198,16 @@ CommandRequest = (
     | CommandDescribeRequest
     | InvocationReadRequest
     | ArtefactAppendRequest
+    | ArtefactArchiveRequest
+    | ArtefactConvertRequest
     | ArtefactCreateRequest
+    | ArtefactDeleteRequest
     | ArtefactDeleteSectionRequest
     | ArtefactEditRequest
     | ArtefactReadRequest
     | ArtefactReadArchivedRequest
     | ArtefactReparentRequest
+    | ArtefactRenameRequest
     | ArtefactOutlineRequest
     | ArtefactPrependRequest
     | ArtefactReplaceTextRequest
@@ -208,6 +217,7 @@ CommandRequest = (
     | ArtefactSetKeyRequest
     | ArtefactSetNamingFieldRequest
     | ArtefactSetStatusRequest
+    | ArtefactUnarchiveRequest
     | AttachmentUploadRequest
     | ContentClassifyRequest
     | ContentResolveRequest
@@ -259,12 +269,16 @@ def command_identity(request: CommandRequest) -> tuple[str, int, type]:
         CommandDescribeRequest,
         InvocationReadRequest,
         ArtefactAppendRequest,
+        ArtefactArchiveRequest,
+        ArtefactConvertRequest,
         ArtefactCreateRequest,
+        ArtefactDeleteRequest,
         ArtefactDeleteSectionRequest,
         ArtefactEditRequest,
         ArtefactReadRequest,
         ArtefactReadArchivedRequest,
         ArtefactReparentRequest,
+        ArtefactRenameRequest,
         ArtefactOutlineRequest,
         ArtefactPrependRequest,
         ArtefactReplaceTextRequest,
@@ -274,6 +288,7 @@ def command_identity(request: CommandRequest) -> tuple[str, int, type]:
         ArtefactSetKeyRequest,
         ArtefactSetNamingFieldRequest,
         ArtefactSetStatusRequest,
+        ArtefactUnarchiveRequest,
         AttachmentUploadRequest,
         ContentClassifyRequest,
         ContentResolveRequest,

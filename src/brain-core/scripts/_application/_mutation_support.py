@@ -162,3 +162,28 @@ def contributor_mutation_entry(request_type, executor):
             )
         ),
     )
+
+
+def operator_mutation_entry(request_type, executor):
+    from .catalogue import ApplicationEntry
+
+    return ApplicationEntry(
+        request_type=request_type,
+        executor=executor,
+        dependency_tier=DependencyTier.PORTABLE,
+        locality=Locality.SELECTED_BRAIN_LOCAL,
+        required_providers=(),
+        optional_providers=(),
+        authority=Authority.OPERATOR,
+        effect_class=EffectClass.SELECTED_BRAIN_MUTATION,
+        retry_class=RetryClass.RECEIPT_REQUIRED,
+        projections=tuple(
+            ProjectionEligibility(projection, True)
+            for projection in (
+                Projection.MCP,
+                Projection.CLI,
+                Projection.SCRIPT,
+                Projection.PYTHON,
+            )
+        ),
+    )
