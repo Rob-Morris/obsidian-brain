@@ -624,8 +624,10 @@ class TestRepairScopes:
         assert (repair_vault / ".brain" / "local" / "compiled-router.json").is_file()
 
     def test_router_repair_uses_shared_cache_detector(self, repair_vault, monkeypatch):
+        from _portable import router_maintenance
+
         monkeypatch.setattr(
-            repair_runtime,
+            router_maintenance,
             "inspect_router_cache",
             lambda _vault: CacheState(
                 stale=True,
@@ -1149,7 +1151,9 @@ class TestRepairScopes:
             semantic_repairs.repair_semantic(repair_vault, dry_run=False)
 
     def test_router_repair_propagates_programmer_errors_from_session_refresh(self, repair_vault, monkeypatch):
-        monkeypatch.setattr(repair_runtime.compile_router, "refresh_session_markdown", lambda *_args: (_ for _ in ()).throw(TypeError("bad refresh")))
+        from _portable import router_maintenance
+
+        monkeypatch.setattr(router_maintenance.compile_router, "refresh_session_markdown", lambda *_args: (_ for _ in ()).throw(TypeError("bad refresh")))
 
         with pytest.raises(TypeError, match="bad refresh"):
             repair_runtime.repair_router(repair_vault, dry_run=False)

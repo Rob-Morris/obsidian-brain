@@ -45,7 +45,9 @@ from .plugin.list import PluginListRequest
 from .plugin.read import PluginReadRequest
 from .plugin.replace import PluginReplaceRequest
 from .plugin.search import PluginSearchRequest
+from .runtime.rebuild_router import RuntimeRebuildRouterRequest
 from .runtime.read_environment import RuntimeReadEnvironmentRequest
+from .runtime.repair_router import RuntimeRepairRouterRequest
 from .session.start import SessionStartRequest
 from .skill.list import SkillListRequest
 from .skill.create import SkillCreateRequest
@@ -251,7 +253,9 @@ CommandRequest = (
     | PluginReadRequest
     | PluginReplaceRequest
     | PluginSearchRequest
+    | RuntimeRebuildRouterRequest
     | RuntimeReadEnvironmentRequest
+    | RuntimeRepairRouterRequest
     | SessionStartRequest
     | SkillCreateRequest
     | SkillListRequest
@@ -336,7 +340,9 @@ def command_identity(request: CommandRequest) -> tuple[str, int, type]:
         PluginReadRequest,
         PluginReplaceRequest,
         PluginSearchRequest,
+        RuntimeRebuildRouterRequest,
         RuntimeReadEnvironmentRequest,
+        RuntimeRepairRouterRequest,
         SessionStartRequest,
         SkillCreateRequest,
         SkillListRequest,

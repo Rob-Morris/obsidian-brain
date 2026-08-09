@@ -97,6 +97,8 @@ def test_artefact_read_transport_and_catalogue_identity_are_one_to_one():
         "plugin.replace",
         "plugin.search",
         "runtime.read-environment",
+        "runtime.rebuild-router",
+        "runtime.repair-router",
         "session.start",
         "skill.append",
         "skill.create",
@@ -271,7 +273,7 @@ def test_router_metadata_is_typed_without_an_unbounded_metadata_bag(
     )
 
     assert result.status == "ok"
-    assert result.result.brain_core_version == "0.54.25"
+    assert result.result.brain_core_version == "0.54.26"
     assert result.result.always_rules
     assert result.result.source_hash.startswith("sha256:")
     assert len(result.result.sources) > 0

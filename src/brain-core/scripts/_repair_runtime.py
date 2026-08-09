@@ -25,7 +25,7 @@ from _bootstrap.diagnostics import (
     ISSUE_RUNTIME_UNUSABLE,
 )
 from _bootstrap.runtime import iso_now, step as _step
-from _lifecycle.derived_cache_state import inspect_lexical_cache, inspect_router_cache
+from _lifecycle.derived_cache_state import inspect_lexical_cache
 from _lifecycle.frontmatter_repairs import normalize_duplicate_frontmatter_documents
 from _lifecycle_common import make_result_envelope
 from _common import (
@@ -148,40 +148,35 @@ def verify_runtime_post_bootstrap(vault_root: Path, dry_run: bool, bootstrap_ste
 
 
 def repair_router(vault_root: Path, dry_run: bool, bootstrap_steps: list[dict] | None = None) -> dict:
-    from _lifecycle import semantic_repairs
+    from _portable.router_maintenance import maintain_router
 
     steps = list(bootstrap_steps or [])
-    state = inspect_router_cache(vault_root)
-    if not state.stale:
+    result = maintain_router(vault_root, dry_run=dry_run, force=False)
+    if result.status == "noop":
         steps.append(_step("router", "noop", "Compiled router is already fresh."))
         return _finalise_result("router", vault_root, dry_run, steps)
-    if dry_run:
+    if result.status == "planned":
         steps.append(
             _step(
                 "router",
                 "planned",
-                f"Would rebuild the compiled router ({state.reason}) and clear semantic embeddings sidecars.",
+                f"Would rebuild the compiled router ({result.reason}) and clear semantic embeddings sidecars.",
             )
         )
         return _finalise_result("router", vault_root, dry_run, steps)
 
-    compiled = compile_router.compile(str(vault_root))
-    compile_router.persist_compiled_router(str(vault_root), compiled)
-    semantic_repairs.clear_semantic_embeddings_outputs(vault_root)
     steps.append(
         _step(
             "router",
             "changed",
-            f"Rebuilt the compiled router ({state.reason}) and cleared semantic embeddings sidecars.",
+            f"Rebuilt the compiled router ({result.reason}) and cleared semantic embeddings sidecars.",
         )
     )
-    try:
-        compile_router.refresh_session_markdown(str(vault_root), compiled)
-    except (OSError, ValueError) as exc:
+    if result.session_error:
         steps.append(_step(
             "router_session",
             "error",
-            f"Router rebuilt but session markdown refresh failed: {exc}",
+            f"Router rebuilt but session markdown refresh failed: {result.session_error}",
         ))
     return _finalise_result("router", vault_root, dry_run, steps)
 

@@ -191,6 +191,9 @@ post-commit staged-handle finalisation while projecting as granular commands.
 v0.54.25 separates artefact-library installation from synchronisation. Both
 commands target one type, preserve local customisation unless sync explicitly
 forces replacement, and retain portable `sync_definitions.py` semantics.
+v0.54.26 adds distinct router repair/rebuild owners over one portable semantic
+seam. Cache inspection, compilation, persistence, semantic invalidation and
+session refresh no longer belong only to packageful repair orchestration.
 
 The lifecycle/bootstrap side of that script layer now has an explicit shared owner under `scripts/_bootstrap/`. `runtime.py` owns launcher discovery, managed-runtime handoff, executable path identity, and the shared `BRAIN_BOOTSTRAP_SUMMARY` contract; `diagnostics.py` owns the launcher-safe runtime/MCP/registry checks needed before managed semantic work is available; `mcp_state.py` owns shared MCP/config-layout and init-state helpers; `vaults.py` owns the env-aware vault-root discovery seam used by the public lifecycle wrappers; `workspace_scaffold.py` owns Brain-local ignore-rule convergence; `mcp_transport.py` owns the shared Claude/Codex transport/config write engine; and `agent_skills.py` owns version-neutral, ownership-safe client skill adapters. Entry points such as `setup.py`, `repair.py`, `configure.py`, `session.py`, and `check.py` now converge on that seam instead of carrying parallel launcher or env-var logic.
 

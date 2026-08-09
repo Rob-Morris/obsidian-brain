@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.25)
+**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.26)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -402,3 +402,19 @@ Local customisation is a no-effect conflict unless force is true. The semantic
 owner now honours force for local-only drift as well as collision and two-sided
 conflict, bringing direct-script behaviour into line with its documented
 contract. Public adapters remain unchanged until coordinated cutover.
+
+## v0.54.26 router repair and rebuild owners
+
+`runtime.repair-router` and `runtime.rebuild-router` now express different
+operator intent. Repair inspects the derived cache and is a no-op when fresh;
+rebuild always recompiles. Both support trusted-context dry-run planning.
+
+One portable router-maintenance module owns cache inspection, compilation,
+persistence, semantic-sidecar invalidation and session-mirror refresh. The
+packageful repair orchestrator delegates to that module, while `_application`
+only projects its structural result and effect policy.
+
+Router persistence followed by session-mirror failure is known partial state.
+Other exceptions after mutation entry remain receipt-backed outcome-unknown.
+The typed result exposes only relative sidecar identities and bounded state;
+public adapters remain unchanged until coordinated cutover.
