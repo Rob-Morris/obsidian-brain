@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.43)
+**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.44)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -740,3 +740,22 @@ the known running CLI path while preserving its executable mode. The existing
 upgrader's unverified rollback error remains outcome-unknown; Phase 6 still owns
 the checked multi-Brain breaking-cutover and rollback protocol. Public v1
 adapters remain unchanged until that coordinated cutover.
+
+## v0.54.44 mechanical application projection
+
+`_application.projection` is the single adapter-neutral owner of mechanical
+application command names, strict request schemas and canonical result wire
+envelopes. Canonical `noun.verb` identity maps to `brain_<noun>_<verb>` and
+`<noun> <verb>` without aliases; dynamic reverse resolution is always bounded
+by the owning catalogue so underscore/hyphen ambiguity cannot invent commands.
+
+Request fields, defaults and nested types derive from the sealed request
+dataclass. The projected schema recursively describes properties, forbids
+additional object fields and excludes command identity/version from semantic
+input. Request-owned descriptions may refine the compact mechanical fallback
+without changing field authority.
+
+All future MCP, CLI and direct-script adapters serialise through the same
+structural result projection. It preserves `ok`, known `partial`, and `error`
+branches, warnings, committed effects, retry classification and unknown-outcome
+references. This seam remains internal until the coordinated public cutover.

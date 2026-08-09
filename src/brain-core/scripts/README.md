@@ -153,6 +153,11 @@ and removes only selected-Brain system roots after exact MCP/registry cleanup;
 upgrade runs the trusted source upgrader and transactionally refreshes the
 known CLI path while retaining executable mode. Existing public adapters remain
 unchanged until coordinated cutover.
+v0.54.44 adds `_application/projection.py` as the shared internal projection
+boundary. It maps canonical command identity mechanically, derives strict
+request schemas from sealed request dataclasses and serialises every application
+result through one deterministic structural envelope. Existing public adapters
+remain unchanged until coordinated cutover.
 
 That launcher process is not automatically the managed runtime. The shared launcher-safe bootstrap ownership now lives under `_bootstrap/`: bootstrap entrypoints do meaningful launcher-safe work there, and runtime-owning lifecycle entrypoints such as `repair.py`, `setup.py`, `configure.py`, `session.py`, and `check.py` hand substantive managed work off into the canonical managed runtime before continuing.
 
