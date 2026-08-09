@@ -85,6 +85,8 @@ v0.54.26 separates router repair from unconditional rebuild over one portable
 compile, invalidation and session-refresh semantic owner.
 v0.54.27 separates lexical-index repair from unconditional rebuild over one
 portable construction, persistence and semantic-invalidation owner.
+v0.54.28 adds rollback-safe `workspace.repair-registry` ownership, distinct
+from caller-local workspace configuration and setup operations.
 Existing adapters are not cut over in the v0.54.x foundation releases; they
 continue to behave as documented until the coordinated breaking release
 replaces the old grammar.
@@ -119,12 +121,12 @@ remains lexical-only.
 | `_common/` | Shared utilities package: vault discovery, frontmatter parsing, serialisation, CLI parser helpers, and general script support | (library only) |
 | `_lifecycle_common.py` | Shared lifecycle result-envelope rendering and CLI emission helpers | (library only) |
 | `_repair_common.py` | Launcher-safe repair metadata, scope definitions, and exact command builders | (library only) |
-| `_repair_runtime.py` | Managed-runtime repair scope implementations for the remaining non-semantic scopes; router and lexical scopes delegate to their portable command-owner seams | (library only) |
+| `_repair_runtime.py` | Managed-runtime repair scope implementations for the remaining non-semantic scopes; router, lexical and registry scopes delegate to their portable command-owner seams | (library only) |
 | `_search/` | Internal retrieval package: lexical index ownership plus retrieval query-mode policy and lexical/semantic/hybrid execution | (library only) |
 | `_semantic/` | Internal semantic package: config flags, model/runtime provisioning, semantic sidecar mechanics, and vector-ranking/runtime utilities shared by build/search/configure/repair flows | (library only) |
 | `_lifecycle/` | Internal lifecycle/orchestration package: derived-cache state inspection, retrieval document-part types, duplicate-frontmatter repair helpers, shared retrieval-state errors, combined lexical+semantic refresh workflows, and the canonical managed semantic inspect/repair/check owner | (library only) |
 | `_machine/` | Launcher-safe machine-management package: multi-Brain discovery, shared-runtime topology classification, and machine-level maintenance analysis/mutation orchestration beneath the CLI family. Maintains `$XDG_CONFIG_HOME/brain/brains.json` as the derived machine registry once Python handoff succeeds; the shell still bootstraps from the user-home `vault_registry.py` signal first, then falls back to `brains.json` only when no curated source Brain remains. Reuses launcher-safe per-vault diagnostics only for brain-level MCP/workspace drift so `brain doctor` can point each Brain back to its own repair path, and delegates Brain-owned MCP/runtime/registry repair back to each target Brain during `brain machine` mutations. | (library only) |
-| `_portable/` | Portable operational package: launcher-safe seams shared by portable script surfaces, including canonical router and lexical maintenance | (library only) |
+| `_portable/` | Portable operational package: launcher-safe seams shared by portable script surfaces, including canonical router, lexical-index and workspace-registry maintenance | (library only) |
 | `build_lexical_index.py` | Thin portable lexical-only wrapper over `_search.index`: build the shared lexical retrieval index without any semantic or managed-runtime assumptions. | `python3 build_lexical_index.py [--json]` |
 | `build_index.py` | Thin CLI/script wrapper over the retrieval lifecycle seam: build the lexical retrieval index and refresh embeddings sidecars from the provisioned local semantic model when `semantic_processing` or `semantic_retrieval` is enabled and router data is available. Unreadable source files, compiled-router embedding drift, and retrieval-index persistence failures now fail explicitly at this boundary. Use `_search.index` / `_lifecycle.retrieval_assets` directly from Python; the wrapper remains only as a supported script entry surface. | `python3 build_index.py [--json]` |
 | `construct_benchmark_fixture.py` | Derive a vault-native retrieval benchmark fixture plus audit JSON from an existing vault, including semantic-variant audit diagnostics and optional externally seeded semantic or hybrid candidates. Unreadable source files now fail explicitly instead of being skipped silently. | `python3 construct_benchmark_fixture.py --fixture-out PATH [--audit-out PATH] [--semantic-strategy S] [--semantic-seed-file PATH] [--hybrid-seed-file PATH] [--json]` |

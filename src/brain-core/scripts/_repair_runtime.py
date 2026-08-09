@@ -9,7 +9,6 @@ runtime maintenance.
 from __future__ import annotations
 
 import sys
-from datetime import datetime
 from pathlib import Path
 
 import compile_router
@@ -53,11 +52,6 @@ def _finalise_result(
         notes=notes,
         status=status,
     )
-
-
-def _backup_path(path: Path) -> Path:
-    stamp = datetime.now().strftime("%Y%m%d%H%M%S")
-    return path.with_name(f"{path.name}.{stamp}.bak")
 
 
 def _record_claude_direct(vault_root: Path, server_config: dict) -> None:
@@ -196,31 +190,50 @@ def repair_lexical(vault_root: Path, dry_run: bool, bootstrap_steps: list[dict] 
 
 
 def repair_registry(vault_root: Path, dry_run: bool, bootstrap_steps: list[dict] | None = None) -> dict:
+    from _portable.registry_maintenance import (
+        RegistryRepairPartialError,
+        repair_registry as maintain_registry,
+    )
+
     steps = list(bootstrap_steps or [])
-    state = bootstrap_diagnostics.inspect_registry(vault_root)
-    if state["healthy"]:
-        steps.append(_step("registry", "noop", state["message"]))
-        return _finalise_result("registry", vault_root, dry_run, steps)
-    if dry_run:
-        steps.append(_step("registry", "planned", f"Would repair {state['path']} ({state['message']})."))
+    try:
+        result = maintain_registry(vault_root, dry_run=dry_run)
+    except RegistryRepairPartialError as exc:
+        steps.append(
+            _step(
+                "registry_backup",
+                "changed",
+                f"Preserved the malformed registry at {vault_root / exc.backup_path}.",
+            )
+        )
+        steps.append(_step("registry", "error", str(exc)))
+        return _finalise_result(
+            "registry", vault_root, dry_run, steps, status="partial"
+        )
+    except (OSError, ValueError) as exc:
+        steps.append(_step("registry", "error", str(exc)))
         return _finalise_result("registry", vault_root, dry_run, steps)
 
-    path = state["path"]
-    if state.get("backup_required") and path.is_file():
-        backup_path = _backup_path(path)
-        path.rename(backup_path)
-        workspace_registry.save_registry(str(vault_root), state["canonical"]["workspaces"])
+    if result.status == "noop":
+        steps.append(_step("registry", "noop", result.reason))
+        return _finalise_result("registry", vault_root, dry_run, steps)
+    registry_path = vault_root / workspace_registry.REGISTRY_REL
+    if result.status == "planned":
+        steps.append(_step("registry", "planned", f"Would repair {registry_path} ({result.reason})."))
+        return _finalise_result("registry", vault_root, dry_run, steps)
+
+    if result.backup_path is not None:
+        backup_path = vault_root / result.backup_path
         steps.append(
             _step(
                 "registry",
                 "changed",
-                f"Repaired {path} and preserved the malformed copy at {backup_path}.",
+                f"Repaired {registry_path} and preserved the malformed copy at {backup_path}.",
             )
         )
         return _finalise_result("registry", vault_root, dry_run, steps)
 
-    workspace_registry.save_registry(str(vault_root), state["canonical"]["workspaces"])
-    steps.append(_step("registry", "changed", f"Normalised {path}."))
+    steps.append(_step("registry", "changed", f"Normalised {registry_path}."))
     return _finalise_result("registry", vault_root, dry_run, steps)
 
 

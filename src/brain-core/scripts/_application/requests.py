@@ -83,6 +83,7 @@ from .vault.read_router import VaultReadRouterRequest
 from .vault.read_file import VaultReadFileRequest
 from .workspace.list import WorkspaceListRequest
 from .workspace.read import WorkspaceReadRequest
+from .workspace.repair_registry import WorkspaceRepairRegistryRequest
 from .workspace.resolve import WorkspaceResolveRequest
 from .receipts import OutcomeReceipt, OutcomeReference, ReceiptLookupState
 from .types import (
@@ -293,6 +294,7 @@ CommandRequest = (
     | VaultReadFileRequest
     | WorkspaceListRequest
     | WorkspaceReadRequest
+    | WorkspaceRepairRegistryRequest
     | WorkspaceResolveRequest
 )
 
@@ -382,6 +384,7 @@ def command_identity(request: CommandRequest) -> tuple[str, int, type]:
         VaultReadFileRequest,
         WorkspaceListRequest,
         WorkspaceReadRequest,
+        WorkspaceRepairRegistryRequest,
         WorkspaceResolveRequest,
     }:
         raise TypeError(f"unregistered command request type: {request_type.__name__}")

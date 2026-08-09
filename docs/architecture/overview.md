@@ -197,6 +197,9 @@ session refresh no longer belong only to packageful repair orchestration.
 v0.54.27 applies the same explicit repair/rebuild grammar to the portable
 lexical index. Rebuilding invalidates semantic sidecars so lexical and semantic
 retrieval cannot retain different document sets.
+v0.54.28 adds rollback-safe selected-Brain workspace-registry repair. It keeps
+that portable mutation distinct from caller-local workspace configuration and
+reports failed restoration as a known partial effect.
 
 The lifecycle/bootstrap side of that script layer now has an explicit shared owner under `scripts/_bootstrap/`. `runtime.py` owns launcher discovery, managed-runtime handoff, executable path identity, and the shared `BRAIN_BOOTSTRAP_SUMMARY` contract; `diagnostics.py` owns the launcher-safe runtime/MCP/registry checks needed before managed semantic work is available; `mcp_state.py` owns shared MCP/config-layout and init-state helpers; `vaults.py` owns the env-aware vault-root discovery seam used by the public lifecycle wrappers; `workspace_scaffold.py` owns Brain-local ignore-rule convergence; `mcp_transport.py` owns the shared Claude/Codex transport/config write engine; and `agent_skills.py` owns version-neutral, ownership-safe client skill adapters. Entry points such as `setup.py`, `repair.py`, `configure.py`, `session.py`, and `check.py` now converge on that seam instead of carrying parallel launcher or env-var logic.
 

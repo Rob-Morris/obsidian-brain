@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.27)
+**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.28)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -437,3 +437,22 @@ conflicts. A failure after index persistence remains outcome-unknown because
 semantic sidecar invalidation may be partial. Results contain only cache reason,
 document/term counts and relative sidecar identities; public adapters remain
 unchanged until coordinated cutover.
+
+## v0.54.28 workspace-registry repair owner
+
+`workspace.repair-registry` owns repair of the selected Brain's linked-workspace
+registry. It is deliberately separate from caller-local workspace binding and
+setup commands: those require a caller-filesystem provider and mutate a
+different locality, while registry repair is a portable selected-Brain operator
+mutation.
+
+One portable seam owns diagnosis, canonical normalisation, malformed-copy
+preservation and rollback. When canonical persistence fails after moving a
+malformed registry aside, it restores the original before returning a known
+no-effect error. Failed restoration is represented as known partial application
+and identifies the vault-relative preserved copy.
+
+The application owner adds operator authority, selected-Brain mutation locking,
+strict empty input, structural results and receipt policy. It reports only
+bounded state and relative paths; existing public adapters remain unchanged
+until coordinated cutover.

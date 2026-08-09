@@ -100,6 +100,7 @@ from .vault import read_router as vault_read_router
 from .vault import read_file as vault_read_file
 from .workspace import list as workspace_list
 from .workspace import read as workspace_read
+from .workspace import repair_registry as workspace_repair_registry
 from .workspace import resolve as workspace_resolve
 
 
@@ -203,6 +204,7 @@ def current_application_catalogue():
             vault_read_file.catalogue_entry(),
             workspace_list.catalogue_entry(),
             workspace_read.catalogue_entry(),
+            workspace_repair_registry.catalogue_entry(),
             workspace_resolve.catalogue_entry(),
         )
     )
@@ -308,6 +310,7 @@ def current_request_resolver():
             vault_read_file.resolver_entry(),
             workspace_list.resolver_entry(),
             workspace_read.resolver_entry(),
+            workspace_repair_registry.resolver_entry(),
             workspace_resolve.resolver_entry(),
         )
     )
