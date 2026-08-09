@@ -98,8 +98,10 @@ class CommandApplication:
         details = CapabilityUnavailableDetails(
             required_tier=entry.dependency_tier,
             current_tier=context.dependency_tier,
+            locality=entry.locality,
             missing=tuple(missing),
             snapshot_freshness=context.capabilities.freshness,
+            recoverable=True,
         )
         return Error(
             entry.command_id,

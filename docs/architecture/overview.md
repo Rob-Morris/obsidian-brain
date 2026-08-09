@@ -104,7 +104,12 @@ capability state before executor entry, validates structural
 no MCP SDK, parser, environment resolver or managed provider, and lower-level
 packages never import back into it. The v0.54.1 foundation is internal only:
 the existing MCP, CLI and direct-script flow above remains authoritative until
-the coordinated breaking cutover.
+the coordinated breaking cutover. v0.54.2 extends that foundation with bounded
+privacy-minimal outcome receipt retention/query semantics, strict dynamic
+request resolution, independent compatibility-version rules and deduplicated
+provider refresh. A separate stdlib-only `brain.launcher-catalogue/1` beside
+the machine-global launcher owns its 23 pre-Brain/self-replacing operations;
+it never imports or manufactures selected-Brain application executors.
 
 The lifecycle/bootstrap side of that script layer now has an explicit shared owner under `scripts/_bootstrap/`. `runtime.py` owns launcher discovery, managed-runtime handoff, executable path identity, and the shared `BRAIN_BOOTSTRAP_SUMMARY` contract; `diagnostics.py` owns the launcher-safe runtime/MCP/registry checks needed before managed semantic work is available; `mcp_state.py` owns shared MCP/config-layout and init-state helpers; `vaults.py` owns the env-aware vault-root discovery seam used by the public lifecycle wrappers; `workspace_scaffold.py` owns Brain-local ignore-rule convergence; `mcp_transport.py` owns the shared Claude/Codex transport/config write engine; and `agent_skills.py` owns version-neutral, ownership-safe client skill adapters. Entry points such as `setup.py`, `repair.py`, `configure.py`, `session.py`, and `check.py` now converge on that seam instead of carrying parallel launcher or env-var logic.
 

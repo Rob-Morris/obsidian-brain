@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.54.2](changelog/v0.54.2.md) | 2026-08-09 | Establish receipt, version, capability, and launcher contracts |
 | [v0.54.1](changelog/v0.54.1.md) | 2026-08-09 | Establish typed `_application` command invocation contracts |
 | [v0.54.0](changelog/v0.54.0.md) | 2026-08-09 | BREAKING — Require explicit reparenting and recover degraded MCP schemas |
 | [v0.53.4](changelog/v0.53.4.md) | 2026-07-31 | Add `brain_upload_attachment` for vault-safe asset uploads |

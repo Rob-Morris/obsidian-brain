@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from enum import Enum, IntEnum
 import re
 
 
-_COMMAND_ID = re.compile(r"^[a-z][a-z0-9-]*\.[a-z][a-z0-9-]*$")
+_COMMAND_ID = re.compile(
+    r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+)
 
 
 def validate_command_id(command_id: str) -> None:
@@ -58,6 +61,19 @@ class Projection(str, Enum):
     SCRIPT = "script"
     PYTHON = "python"
     LAUNCHER = "launcher"
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectionEligibility:
+    projection: Projection
+    supported: bool
+    reason: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.supported and self.reason is not None:
+            raise ValueError("supported projection cannot carry an exclusion reason")
+        if not self.supported and (self.reason is None or not self.reason.strip()):
+            raise ValueError("unsupported projection requires a reason")
 
 
 class Availability(str, Enum):

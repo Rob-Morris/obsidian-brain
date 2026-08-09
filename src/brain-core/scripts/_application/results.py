@@ -7,7 +7,7 @@ from enum import Enum
 from typing import Generic, Literal, TypeVar
 
 from .receipts import CommittedEffect, OutcomeReference
-from .types import DependencyTier, SnapshotFreshness, validate_command_id
+from .types import DependencyTier, Locality, SnapshotFreshness, validate_command_id
 
 
 RESULT_SCHEMA = "brain.command-result/1"
@@ -88,8 +88,10 @@ class RequestErrorDetails:
 class CapabilityUnavailableDetails:
     required_tier: DependencyTier
     current_tier: DependencyTier
+    locality: Locality
     missing: tuple[str, ...]
     snapshot_freshness: SnapshotFreshness
+    recoverable: bool
 
     def __post_init__(self) -> None:
         if not self.missing:

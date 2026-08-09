@@ -16,12 +16,20 @@ from .types import (
     EffectClass,
     Locality,
     Projection,
+    ProjectionEligibility,
     RetryClass,
     validate_command_id,
 )
 
 
 CATALOGUE_SCHEMA = "brain.command-catalogue/1"
+RESULT_SCHEMA = "brain.command-result/1"
+APPLICATION_PROJECTIONS = (
+    Projection.MCP,
+    Projection.CLI,
+    Projection.SCRIPT,
+    Projection.PYTHON,
+)
 Executor = Callable[[InvocationContext, CommandRequest], CommandResult]
 
 
@@ -36,7 +44,7 @@ class ApplicationEntry:
     authority: Authority
     effect_class: EffectClass
     retry_class: RetryClass
-    projections: tuple[Projection, ...]
+    projections: tuple[ProjectionEligibility, ...]
 
     @property
     def command_id(self) -> str:
@@ -64,20 +72,37 @@ class ApplicationEntry:
             raise ValueError("provider names must be unique within each binding class")
         if set(required) & set(optional):
             raise ValueError("a provider cannot be both required and optional")
-        if not self.projections or Projection.LAUNCHER in self.projections:
-            raise ValueError("application projections must be non-empty and exclude launcher")
-        if len(self.projections) != len(set(self.projections)):
-            raise ValueError("application projections must be unique")
+        if required != tuple(sorted(required)) or optional != tuple(sorted(optional)):
+            raise ValueError("provider names must use deterministic sorted order")
+        projection_names = [projection.projection for projection in self.projections]
+        if tuple(projection_names) != APPLICATION_PROJECTIONS:
+            raise ValueError(
+                "application entries must describe MCP, CLI, script and Python in canonical order"
+            )
+
+    @property
+    def eligible_projections(self) -> tuple[Projection, ...]:
+        return tuple(
+            projection.projection
+            for projection in self.projections
+            if projection.supported
+        )
 
 
 @dataclass(frozen=True, slots=True)
 class ApplicationCatalogue:
     entries: tuple[ApplicationEntry, ...]
     schema: str = CATALOGUE_SCHEMA
+    result_schema: str = RESULT_SCHEMA
+    interface_epoch: int = 1
 
     def __post_init__(self) -> None:
         if self.schema != CATALOGUE_SCHEMA:
             raise ValueError(f"unsupported application catalogue schema: {self.schema}")
+        if self.result_schema != RESULT_SCHEMA:
+            raise ValueError(f"unsupported command result schema: {self.result_schema}")
+        if self.interface_epoch < 1:
+            raise ValueError("application catalogue interface epoch must be positive")
         ids = [entry.command_id for entry in self.entries]
         request_types = [entry.request_type for entry in self.entries]
         if len(ids) != len(set(ids)):
@@ -105,21 +130,34 @@ class ApplicationCatalogue:
 
     @property
     def fingerprint(self) -> str:
-        payload = [
-            {
-                "command_id": entry.command_id,
-                "command_version": entry.command_version,
-                "result_type": entry.result_type.__name__,
-                "dependency_tier": entry.dependency_tier.name.lower(),
-                "locality": entry.locality.value,
-                "required_providers": entry.required_providers,
-                "optional_providers": entry.optional_providers,
-                "authority": entry.authority.value,
-                "effect_class": entry.effect_class.value,
-                "retry_class": entry.retry_class.value,
-                "projections": tuple(item.value for item in entry.projections),
-            }
-            for entry in self.entries
-        ]
+        payload = {
+            "schema": self.schema,
+            "result_schema": self.result_schema,
+            "interface_epoch": self.interface_epoch,
+            "entries": [
+                {
+                    "command_id": entry.command_id,
+                    "command_version": entry.command_version,
+                    "request_type": (
+                        f"{entry.request_type.__module__}:{entry.request_type.__qualname__}"
+                    ),
+                    "result_type": (
+                        f"{entry.result_type.__module__}:{entry.result_type.__qualname__}"
+                    ),
+                    "dependency_tier": entry.dependency_tier.name.lower(),
+                    "locality": entry.locality.value,
+                    "required_providers": entry.required_providers,
+                    "optional_providers": entry.optional_providers,
+                    "authority": entry.authority.value,
+                    "effect_class": entry.effect_class.value,
+                    "retry_class": entry.retry_class.value,
+                    "projections": tuple(
+                        (item.projection.value, item.supported, item.reason)
+                        for item in entry.projections
+                    ),
+                }
+                for entry in self.entries
+            ],
+        }
         encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
         return "sha256:" + hashlib.sha256(encoded).hexdigest()

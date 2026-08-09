@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import ClassVar
 
-from .receipts import OutcomeReference
+from .receipts import OutcomeReceipt, OutcomeReference, ReceiptLookupState
 from .types import (
     Authority,
     DependencyTier,
@@ -31,7 +31,16 @@ class CommandDescriptionPayload:
 @dataclass(frozen=True, slots=True)
 class InvocationReadPayload:
     reference: OutcomeReference
-    state: str
+    state: ReceiptLookupState
+    receipt: OutcomeReceipt | None = None
+
+    def __post_init__(self) -> None:
+        if self.state is ReceiptLookupState.FOUND and self.receipt is None:
+            raise ValueError("found invocation outcome requires a receipt")
+        if self.state is ReceiptLookupState.STILL_UNKNOWN and self.receipt is not None:
+            raise ValueError("still-unknown invocation outcome cannot carry a receipt")
+        if self.receipt is not None and self.receipt.reference != self.reference:
+            raise ValueError("invocation outcome reference must match its receipt")
 
 
 @dataclass(frozen=True, slots=True)

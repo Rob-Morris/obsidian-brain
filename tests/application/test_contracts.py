@@ -101,6 +101,15 @@ def test_dynamic_identity_rejects_unregistered_lookalike_request():
         command_identity(Lookalike())
 
 
+@pytest.mark.parametrize(
+    "command_id",
+    ("artefact.-read", "artefact.read-", "artefact.read--archived"),
+)
+def test_command_identifiers_reject_non_canonical_hyphenation(command_id):
+    with pytest.raises(ValueError, match="canonical"):
+        CommandDescribeRequest(command_id)
+
+
 def test_list_request_validates_bounded_pagination():
     request = CommandListRequest(
         query="artefact",
@@ -201,8 +210,10 @@ def test_capability_unavailable_details_are_typed_and_actionable():
     details = CapabilityUnavailableDetails(
         required_tier=DependencyTier.MANAGED,
         current_tier=DependencyTier.PORTABLE,
+        locality=Locality.SELECTED_BRAIN_LOCAL,
         missing=("document_renderer",),
         snapshot_freshness=SnapshotFreshness.FRESH,
+        recoverable=True,
     )
 
     assert details.missing == ("document_renderer",)
@@ -210,8 +221,10 @@ def test_capability_unavailable_details_are_typed_and_actionable():
         CapabilityUnavailableDetails(
             DependencyTier.MANAGED,
             DependencyTier.PORTABLE,
+            Locality.SELECTED_BRAIN_LOCAL,
             (),
             SnapshotFreshness.FRESH,
+            True,
         )
 
 

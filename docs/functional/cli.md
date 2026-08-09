@@ -4,6 +4,13 @@ A thin, optional dispatch CLI for Brain. Resolves the active vault, finds its ce
 
 **Scripts in `.brain-core/scripts/` remain authoritative.** The CLI adds no new command semantics — it resolves the active vault/runtime and dispatches to the same top-level script entrypoints users can invoke directly. Users who never install the CLI lose nothing; everything still works by invoking scripts directly from a compatible Python 3.12+ launcher. See [Script Reference](scripts.md) for the canonical bootstrap / portable / managed command-family model; this page documents the optional `brain ...` shorthand only.
 
+The command-interface migration now also carries an internal stdlib-only
+`cli/launcher_catalogue.py` with the 23 pre-Brain or self-replacing operations
+owned by the machine-global launcher. It records owner, version, entry point,
+authority, effects, retry policy and explicit projection exclusions under
+`brain.launcher-catalogue/1`. It does not change the v1 public grammar below;
+the catalogue becomes active only in the coordinated CLI 2.0 cutover.
+
 ## Install
 
 The CLI is installed automatically by `install.sh` to `~/.local/bin/brain` (user scope) or `/usr/local/bin/brain` (with `--system`). `upgrade.py` refreshes any installed CLI binary on each upgrade; it does not install a new CLI where none existed.

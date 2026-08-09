@@ -25,6 +25,7 @@ from _application.types import (
     EffectClass,
     Locality,
     Projection,
+    ProjectionEligibility,
     RetryClass,
     SnapshotFreshness,
 )
@@ -109,7 +110,15 @@ def _entry(executor, **changes):
         authority=Authority.READER,
         effect_class=EffectClass.NONE,
         retry_class=RetryClass.SAFE,
-        projections=(Projection.MCP, Projection.CLI, Projection.SCRIPT, Projection.PYTHON),
+        projections=tuple(
+            ProjectionEligibility(projection, True)
+            for projection in (
+                Projection.MCP,
+                Projection.CLI,
+                Projection.SCRIPT,
+                Projection.PYTHON,
+            )
+        ),
     )
     return replace(entry, **changes)
 
@@ -184,6 +193,8 @@ def test_missing_tier_and_provider_return_canonical_unavailable_before_executor(
         "tier:managed",
         "provider:document_renderer",
     )
+    assert result.error.details.locality is Locality.SELECTED_BRAIN_LOCAL
+    assert result.error.details.recoverable is True
     assert calls == []
 
 
@@ -276,7 +287,15 @@ def test_catalogue_rejects_launcher_locality_duplicates_and_unordered_entries():
             authority=Authority.READER,
             effect_class=EffectClass.NONE,
             retry_class=RetryClass.SAFE,
-            projections=(Projection.CLI,),
+            projections=tuple(
+                ProjectionEligibility(projection, True)
+                for projection in (
+                    Projection.MCP,
+                    Projection.CLI,
+                    Projection.SCRIPT,
+                    Projection.PYTHON,
+                )
+            ),
         )
     except ValueError as exc:
         assert "launcher manifest" in str(exc)
@@ -301,3 +320,31 @@ def test_catalogue_fingerprint_excludes_executor_identity_and_dynamic_availabili
 
     assert first.fingerprint == second.fingerprint
     assert first.fingerprint.startswith("sha256:")
+
+
+def test_catalogue_records_static_projection_exclusions_with_reasons():
+    projections = tuple(
+        ProjectionEligibility(
+            projection,
+            projection is not Projection.MCP,
+            None if projection is not Projection.MCP else "caller-local command",
+        )
+        for projection in (
+            Projection.MCP,
+            Projection.CLI,
+            Projection.SCRIPT,
+            Projection.PYTHON,
+        )
+    )
+    entry = _entry(
+        lambda *_args: Ok("command.list", 1, CommandListPayload(())),
+        locality=Locality.CALLER_LOCAL,
+        projections=projections,
+    )
+
+    assert entry.eligible_projections == (
+        Projection.CLI,
+        Projection.SCRIPT,
+        Projection.PYTHON,
+    )
+    assert entry.projections[0].reason == "caller-local command"

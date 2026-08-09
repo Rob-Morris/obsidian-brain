@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1)
+**Status:** Implemented (v0.54.1; extended v0.54.2)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -88,3 +88,17 @@ command/input pairings and makes result typing advisory.
 - v0.54.1 ships only the internal foundation. Existing public grammar remains
   unchanged until one coordinated breaking cutover removes old aggregates and
   adapters; no compatibility translator or mixed released grammar is added.
+
+## v0.54.2 extension
+
+The internal boundary now has bounded privacy-minimal receipt storage and
+`still_unknown` lookup semantics, strict dynamic request resolution,
+independent version-transition validation, deduplicated bounded capability
+refresh and explicit supported/unsupported application projections. Canonical
+unavailable details include locality and recoverability.
+
+The separate machine-global source owns a complete stdlib-only
+`brain.launcher-catalogue/1` for the 23 launcher operations in the closed
+disposition inventory. Every entry has one owner and entry point, and records
+why MCP, selected-Brain scripts and synthetic application Python are
+unsupported. The selected-Brain package does not import this manifest.
