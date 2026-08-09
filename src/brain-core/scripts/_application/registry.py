@@ -42,8 +42,10 @@ from .memory import prepend as memory_prepend
 from .memory import read as memory_read
 from .memory import replace_text as memory_replace_text
 from .memory import search as memory_search
+from .plugin import create as plugin_create
 from .plugin import list as plugin_list
 from .plugin import read as plugin_read
+from .plugin import replace as plugin_replace
 from .plugin import search as plugin_search
 from .runtime import read_environment as runtime_read_environment
 from .session import start as session_start
@@ -75,8 +77,11 @@ from .template import list as template_list
 from .template import prepend as template_prepend
 from .template import read as template_read
 from .template import replace_text as template_replace_text
+from .trigger import create as trigger_create
+from .trigger import delete as trigger_delete
 from .trigger import list as trigger_list
 from .trigger import read as trigger_read
+from .trigger import replace as trigger_replace
 from .trigger import search as trigger_search
 from .type import list as artefact_type_list
 from .type import read as artefact_type_read
@@ -132,8 +137,10 @@ def current_application_catalogue():
             memory_read.catalogue_entry(),
             memory_replace_text.catalogue_entry(),
             memory_search.catalogue_entry(),
+            plugin_create.catalogue_entry(),
             plugin_list.catalogue_entry(),
             plugin_read.catalogue_entry(),
+            plugin_replace.catalogue_entry(),
             plugin_search.catalogue_entry(),
             runtime_read_environment.catalogue_entry(),
             session_start.catalogue_entry(),
@@ -165,8 +172,11 @@ def current_application_catalogue():
             template_prepend.catalogue_entry(),
             template_read.catalogue_entry(),
             template_replace_text.catalogue_entry(),
+            trigger_create.catalogue_entry(),
+            trigger_delete.catalogue_entry(),
             trigger_list.catalogue_entry(),
             trigger_read.catalogue_entry(),
+            trigger_replace.catalogue_entry(),
             trigger_search.catalogue_entry(),
             artefact_type_list.catalogue_entry(),
             artefact_type_read.catalogue_entry(),
@@ -224,8 +234,10 @@ def current_request_resolver():
             memory_read.resolver_entry(),
             memory_replace_text.resolver_entry(),
             memory_search.resolver_entry(),
+            plugin_create.resolver_entry(),
             plugin_list.resolver_entry(),
             plugin_read.resolver_entry(),
+            plugin_replace.resolver_entry(),
             plugin_search.resolver_entry(),
             runtime_read_environment.resolver_entry(),
             session_start.resolver_entry(),
@@ -257,8 +269,11 @@ def current_request_resolver():
             template_prepend.resolver_entry(),
             template_read.resolver_entry(),
             template_replace_text.resolver_entry(),
+            trigger_create.resolver_entry(),
+            trigger_delete.resolver_entry(),
             trigger_list.resolver_entry(),
             trigger_read.resolver_entry(),
+            trigger_replace.resolver_entry(),
             trigger_search.resolver_entry(),
             artefact_type_list.resolver_entry(),
             artefact_type_read.resolver_entry(),

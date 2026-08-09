@@ -40,8 +40,10 @@ from .memory.list import MemoryListRequest
 from .memory.create import MemoryCreateRequest
 from .memory.read import MemoryReadRequest
 from .memory.search import MemorySearchRequest
+from .plugin.create import PluginCreateRequest
 from .plugin.list import PluginListRequest
 from .plugin.read import PluginReadRequest
+from .plugin.replace import PluginReplaceRequest
 from .plugin.search import PluginSearchRequest
 from .runtime.read_environment import RuntimeReadEnvironmentRequest
 from .session.start import SessionStartRequest
@@ -58,8 +60,11 @@ from .style.search import StyleSearchRequest
 from .template.list import TemplateListRequest
 from .template.create import TemplateCreateRequest
 from .template.read import TemplateReadRequest
+from .trigger.create import TriggerCreateRequest
+from .trigger.delete import TriggerDeleteRequest
 from .trigger.list import TriggerListRequest
 from .trigger.read import TriggerReadRequest
+from .trigger.replace import TriggerReplaceRequest
 from .trigger.search import TriggerSearchRequest
 from .type.list import ArtefactTypeListRequest
 from .type.read import ArtefactTypeReadRequest
@@ -237,8 +242,10 @@ CommandRequest = (
     | MemoryListRequest
     | MemoryReadRequest
     | MemorySearchRequest
+    | PluginCreateRequest
     | PluginListRequest
     | PluginReadRequest
+    | PluginReplaceRequest
     | PluginSearchRequest
     | RuntimeReadEnvironmentRequest
     | SessionStartRequest
@@ -255,8 +262,11 @@ CommandRequest = (
     | TemplateCreateRequest
     | TemplateListRequest
     | TemplateReadRequest
+    | TriggerCreateRequest
+    | TriggerDeleteRequest
     | TriggerListRequest
     | TriggerReadRequest
+    | TriggerReplaceRequest
     | TriggerSearchRequest
     | ArtefactTypeListRequest
     | ArtefactTypeReadRequest
@@ -313,8 +323,10 @@ def command_identity(request: CommandRequest) -> tuple[str, int, type]:
         MemoryListRequest,
         MemoryReadRequest,
         MemorySearchRequest,
+        PluginCreateRequest,
         PluginListRequest,
         PluginReadRequest,
+        PluginReplaceRequest,
         PluginSearchRequest,
         RuntimeReadEnvironmentRequest,
         SessionStartRequest,
@@ -331,8 +343,11 @@ def command_identity(request: CommandRequest) -> tuple[str, int, type]:
         TemplateCreateRequest,
         TemplateListRequest,
         TemplateReadRequest,
+        TriggerCreateRequest,
+        TriggerDeleteRequest,
         TriggerListRequest,
         TriggerReadRequest,
+        TriggerReplaceRequest,
         TriggerSearchRequest,
         ArtefactTypeListRequest,
         ArtefactTypeReadRequest,

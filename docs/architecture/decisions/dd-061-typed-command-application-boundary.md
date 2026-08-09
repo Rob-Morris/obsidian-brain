@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.22)
+**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.23)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -348,3 +348,21 @@ Changed, no-op, planned, partial and unknown outcomes remain distinct.
 allows target filtering only for scoped application. Resolvable, ambiguous and
 unresolvable links are bounded typed values; substitutions alone produce a
 committed effect.
+
+## v0.54.23 plugin and trigger definition owners
+
+Plugin and trigger definition writes now have five distinct operator commands.
+Plugin creation and replacement accept immutable inline or staged content;
+replacement requires the current definition SHA-256 and never accepts a
+caller-owned filesystem path. Staged bodies are consumed only after commit.
+
+Trigger commands expose condition and target fields directly. Replacement and
+deletion can assert the exact current target, while replacement names new
+condition/target values separately. The existing `define.py` semantic owner
+continues to validate plugin names, trigger targets, router structure and
+optimistic preconditions under the application-owned mutation lock.
+
+Results contain definition kind, operation, vault-relative path, semantic
+identity and hashes only. The application boundary owns operator authority,
+receipt-required retry, dry-run refusal and unknown-outcome classification;
+legacy aggregate adapters remain unchanged until coordinated cutover.
