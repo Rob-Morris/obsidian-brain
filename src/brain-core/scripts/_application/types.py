@@ -10,12 +10,26 @@ import re
 _COMMAND_ID = re.compile(
     r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
 )
+_SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 
 def validate_command_id(command_id: str) -> None:
     if not _COMMAND_ID.fullmatch(command_id):
         raise ValueError(
             "command_id must be a canonical lower-case noun.verb identifier"
+        )
+
+
+def validate_slug(slug: str) -> None:
+    if (
+        not isinstance(slug, str)
+        or not 1 <= len(slug) <= 64
+        or not _SLUG.fullmatch(slug)
+        or not any(character.isalpha() for character in slug)
+    ):
+        raise ValueError(
+            "slug must match ^[a-z0-9]+(-[a-z0-9]+)*$, contain a letter, "
+            "and be at most 64 characters"
         )
 
 

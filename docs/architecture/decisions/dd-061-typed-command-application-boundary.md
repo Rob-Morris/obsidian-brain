@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.9)
+**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.10)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -167,3 +167,13 @@ compiled type key. Type reads return the authored taxonomy document with
 bounded identity/source facts, while template reads and list items expose the
 actual `.md` path so their output composes with `vault.read-file`. The legacy
 adapters retain their documented singular/full-type aliases until cutover.
+
+## v0.54.10 strict workspace read owners
+
+`workspace.read`, `workspace.list` and `workspace.resolve` now have separate
+typed contracts. Metadata reads and data-folder resolution no longer share a
+result shape. Exact slugs are validated before filesystem resolution, malformed
+machine-local registry state fails closed, missing identity is a typed
+`not_found`, and list identity follows the same embedded-over-linked precedence
+as resolution. Existing public adapters remain on their current grammar until
+cutover.

@@ -38,6 +38,10 @@ EMBEDDED_DATA_DIR = "_Workspaces"
 HUB_DIR = "Workspaces"
 
 
+class UnknownWorkspaceError(ValueError):
+    """Raised when an exact workspace slug is absent from every registry plane."""
+
+
 # ---------------------------------------------------------------------------
 # Registry I/O
 # ---------------------------------------------------------------------------
@@ -67,6 +71,32 @@ def load_registry(vault_root):
         slug: (entry if isinstance(entry, dict) else {"path": entry})
         for slug, entry in raw.items()
     }
+
+
+def load_registry_strict(vault_root):
+    """Load a canonical linked-workspace registry or fail on corrupt state."""
+    path = _registry_path(vault_root)
+    if not os.path.isfile(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (json.JSONDecodeError, OSError) as exc:
+        raise ValueError(f"Invalid linked workspace registry: {exc}") from exc
+    if not isinstance(data, dict) or not isinstance(data.get("workspaces", {}), dict):
+        raise ValueError("Invalid linked workspace registry: workspaces must be an object")
+    registry = {}
+    for slug, raw_entry in data.get("workspaces", {}).items():
+        if not is_valid_key(slug):
+            raise ValueError(f"Invalid linked workspace slug: {slug!r}")
+        entry = raw_entry if isinstance(raw_entry, dict) else {"path": raw_entry}
+        path_value = entry.get("path")
+        if not isinstance(path_value, str) or not path_value.strip():
+            raise ValueError(
+                f"Invalid linked workspace registry path for {slug!r}"
+            )
+        registry[slug] = {"path": path_value}
+    return registry
 
 
 def save_registry(vault_root, registry):
@@ -192,7 +222,7 @@ def resolve_workspace(vault_root, slug, registry=None):
         path = os.path.expanduser(registry[slug]["path"])
         return {"slug": slug, "path": path, "mode": "linked"}
 
-    raise ValueError(
+    raise UnknownWorkspaceError(
         f"Unknown workspace '{slug}'. "
         f"No embedded data folder at _Workspaces/{slug}/ "
         f"and no linked registration in .brain/local/workspaces.json."
@@ -243,6 +273,42 @@ def list_workspaces(vault_root, registry=None):
         workspaces.append(_make_entry(slug, "linked", path, hub_meta))
 
     return workspaces
+
+
+def resolve_workspace_strict(vault_root, slug):
+    """Resolve one canonical workspace slug against validated registry state."""
+    if not is_valid_key(slug):
+        raise ValueError(f"Invalid workspace slug: {slug!r}")
+    return resolve_workspace(vault_root, slug, registry=load_registry_strict(vault_root))
+
+
+def list_workspaces_strict(vault_root):
+    """List resolvable workspaces once each, failing on invalid registry state."""
+    resources = list_workspaces(vault_root, registry=load_registry_strict(vault_root))
+    unique = []
+    seen = set()
+    for resource in resources:
+        slug = resource.get("slug")
+        if not is_valid_key(slug):
+            raise ValueError(f"Invalid embedded workspace slug: {slug!r}")
+        if slug in seen:
+            continue
+        seen.add(slug)
+        unique.append(resource)
+    return unique
+
+
+def read_workspace_strict(vault_root, slug):
+    """Read one workspace's resolved path and hub metadata by exact slug."""
+    if not is_valid_key(slug):
+        raise ValueError(f"Invalid workspace slug: {slug!r}")
+    match = next(
+        (item for item in list_workspaces_strict(vault_root) if item["slug"] == slug),
+        None,
+    )
+    if match is None:
+        raise UnknownWorkspaceError(f"Unknown workspace '{slug}'")
+    return match
 
 
 # ---------------------------------------------------------------------------

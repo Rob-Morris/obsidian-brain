@@ -42,6 +42,9 @@ and listers delegate to one portable containment and archive-discovery seam.
 v0.54.9 adds separate exact-key read/list owners for artefact types and
 templates. Type reads include the authored taxonomy definition, template
 results expose composable `.md` paths, and legacy aliases remain adapter-local.
+v0.54.10 adds distinct workspace read/list/resolve owners. Canonical workspace
+commands validate exact slugs, fail closed on corrupt local registry state and
+apply embedded-over-linked precedence consistently.
 Existing adapters are not cut over in the v0.54.x foundation releases; they
 continue to behave as documented until the coordinated breaking release
 replaces the old grammar.
