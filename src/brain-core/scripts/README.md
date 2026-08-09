@@ -48,6 +48,9 @@ apply embedded-over-linked precedence consistently.
 v0.54.11 completes portable read ownership with privacy-bounded config,
 typed compliance findings and exact artefact-library status. Repair guidance
 uses canonical command identifiers instead of executable shell strings.
+v0.54.12 adds a typed managed `session.start` owner with trusted workspace
+context and an explicit derived-cache-write effect while retaining
+`session.py` as the bootstrap model and markdown-rendering authority.
 Existing adapters are not cut over in the v0.54.x foundation releases; they
 continue to behave as documented until the coordinated breaking release
 replaces the old grammar.

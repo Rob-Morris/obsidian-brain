@@ -14,6 +14,7 @@ from .memory import read as memory_read
 from .plugin import list as plugin_list
 from .plugin import read as plugin_read
 from .runtime import read_environment as runtime_read_environment
+from .session import start as session_start
 from .skill import list as skill_list
 from .skill import read as skill_read
 from .style import list as style_list
@@ -48,6 +49,7 @@ def current_application_catalogue():
             plugin_list.catalogue_entry(),
             plugin_read.catalogue_entry(),
             runtime_read_environment.catalogue_entry(),
+            session_start.catalogue_entry(),
             skill_list.catalogue_entry(),
             skill_read.catalogue_entry(),
             style_list.catalogue_entry(),
@@ -84,6 +86,7 @@ def current_request_resolver():
             plugin_list.resolver_entry(),
             plugin_read.resolver_entry(),
             runtime_read_environment.resolver_entry(),
+            session_start.resolver_entry(),
             skill_list.resolver_entry(),
             skill_read.resolver_entry(),
             style_list.resolver_entry(),

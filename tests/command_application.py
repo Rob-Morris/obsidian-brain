@@ -39,13 +39,18 @@ class _Clock:
         return NOW
 
 
-def application_for(vault_root):
+def application_for(
+    vault_root,
+    *,
+    dependency_tier=DependencyTier.PORTABLE,
+    workspace_dir=None,
+):
     receipts = _Receipts()
     context = InvocationContext(
         selected_brain=SelectedBrain("command-vault", vault_root.resolve()),
         profile="reader",
         authority=_Authority(),
-        dependency_tier=DependencyTier.PORTABLE,
+        dependency_tier=dependency_tier,
         capabilities=CapabilitySnapshot(
             "snapshot",
             SnapshotFreshness.FRESH,
@@ -57,5 +62,6 @@ def application_for(vault_root):
         receipt_writer=receipts,
         receipt_reader=receipts,
         clock=_Clock(),
+        workspace_dir=workspace_dir,
     )
     return CommandApplication(context, current_application_catalogue())

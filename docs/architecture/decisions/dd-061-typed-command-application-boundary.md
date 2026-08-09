@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.11)
+**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.12)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -187,3 +187,12 @@ timestamps and root identity, expose typed findings and translate repair scopes
 to canonical command identifiers rather than shell strings. Type status is a
 flat exact-key result with typed library/file state and explicit missing-key
 failure.
+
+## v0.54.12 typed managed session owner
+
+`session.start` now owns one fully typed bootstrap result and declares managed
+dependency plus derived-cache-write effect for its session mirror refresh.
+`InvocationContext.workspace_dir` carries optional trusted workspace identity;
+the command does not accept or rediscover that adapter fact. The old no-op
+context-scoping field is absent from the canonical request. `session.py`
+remains the single owner of bootstrap compilation and markdown rendering.

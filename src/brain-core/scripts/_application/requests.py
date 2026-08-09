@@ -16,6 +16,7 @@ from .memory.read import MemoryReadRequest
 from .plugin.list import PluginListRequest
 from .plugin.read import PluginReadRequest
 from .runtime.read_environment import RuntimeReadEnvironmentRequest
+from .session.start import SessionStartRequest
 from .skill.list import SkillListRequest
 from .skill.read import SkillReadRequest
 from .style.list import StyleListRequest
@@ -176,6 +177,7 @@ CommandRequest = (
     | PluginListRequest
     | PluginReadRequest
     | RuntimeReadEnvironmentRequest
+    | SessionStartRequest
     | SkillListRequest
     | SkillReadRequest
     | StyleListRequest
@@ -215,6 +217,7 @@ def command_identity(request: CommandRequest) -> tuple[str, int, type]:
         PluginListRequest,
         PluginReadRequest,
         RuntimeReadEnvironmentRequest,
+        SessionStartRequest,
         SkillListRequest,
         SkillReadRequest,
         StyleListRequest,

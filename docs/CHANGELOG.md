@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.54.12](changelog/v0.54.12.md) | 2026-08-09 | Migrate typed managed `session.start` ownership |
 | [v0.54.11](changelog/v0.54.11.md) | 2026-08-09 | Migrate bounded config, check, and type-status owners |
 | [v0.54.10](changelog/v0.54.10.md) | 2026-08-09 | Migrate strict workspace read and resolution owners |
 | [v0.54.9](changelog/v0.54.9.md) | 2026-08-09 | Migrate exact artefact-type and template owners |

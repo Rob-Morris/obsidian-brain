@@ -120,9 +120,12 @@ class InvocationContext:
     receipt_reader: ReceiptReader
     clock: Clock
     dry_run: bool = False
+    workspace_dir: Path | None = None
 
     def __post_init__(self) -> None:
         if not self.profile.strip():
             raise ValueError("invocation context requires an authenticated profile")
         if not self.correlation_id.strip() or not self.invocation_id.strip():
             raise ValueError("invocation context requires correlation and invocation identifiers")
+        if self.workspace_dir is not None and not self.workspace_dir.is_absolute():
+            raise ValueError("invocation context workspace_dir must be absolute")
