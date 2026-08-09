@@ -13,6 +13,8 @@ Two checks per registered tool:
 """
 
 import asyncio
+import json
+from pathlib import Path
 import re
 
 import pytest
@@ -30,13 +32,14 @@ from _common import (
 from _resource_contract import RESOURCE_KINDS
 
 
-_TOOL_NAMES = (
-    "brain_action", "brain_check", "brain_classify", "brain_create", "brain_define", "brain_discard_stage", "brain_edit",
-    "brain_ingest", "brain_init", "brain_list", "brain_move", "brain_outline", "brain_read",
-    "brain_reparent", "brain_search", "brain_session", "brain_set_key",
-    "brain_set_naming_field", "brain_set_status", "brain_stage", "brain_resolve",
-    "brain_upload_attachment",
+_CURRENT_SURFACE = json.loads(
+    (
+        Path(__file__).resolve().parent
+        / "fixtures"
+        / "command_interface_current_surface_v1.json"
+    ).read_text(encoding="utf-8")
 )
+_TOOL_NAMES = tuple(_CURRENT_SURFACE["observed_surfaces"]["mcp_tools"])
 
 _DOCSTRING_BANNED_HEADINGS = re.compile(
     r"^\s*(Args|Arguments|Parameters|Params|Returns|Return)\s*:\s*$",

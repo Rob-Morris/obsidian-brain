@@ -1,0 +1,237 @@
+{
+  "schema": "brain.command-surface-observation/1",
+  "brain_core_version": "0.54.0",
+  "inventory_status": "in_progress",
+  "observed_surfaces": {
+    "mcp_tools": [
+      "brain_action",
+      "brain_check",
+      "brain_classify",
+      "brain_create",
+      "brain_define",
+      "brain_discard_stage",
+      "brain_edit",
+      "brain_ingest",
+      "brain_init",
+      "brain_list",
+      "brain_move",
+      "brain_outline",
+      "brain_read",
+      "brain_reparent",
+      "brain_resolve",
+      "brain_search",
+      "brain_session",
+      "brain_set_key",
+      "brain_set_naming_field",
+      "brain_set_status",
+      "brain_stage",
+      "brain_upload_attachment"
+    ],
+    "mcp_variant_axes": {
+      "brain_action": {
+        "request.action": [
+          "delete",
+          "fix-links",
+          "reparent-children",
+          "shape",
+          "shape-presentation",
+          "shape-printable"
+        ]
+      },
+      "brain_create": {
+        "request.content.source": [
+          "file",
+          "inline",
+          "stage"
+        ],
+        "request.resource": [
+          "artefact",
+          "memory",
+          "skill",
+          "style",
+          "template"
+        ]
+      },
+      "brain_define": {
+        "request.kind": [
+          "plugin",
+          "trigger",
+          "type"
+        ],
+        "request.mutation.operation": [
+          "create",
+          "delete",
+          "replace"
+        ]
+      },
+      "brain_edit": {
+        "request.mutation.content.source": [
+          "file",
+          "inline",
+          "stage"
+        ],
+        "request.mutation.operation": [
+          "append",
+          "delete_section",
+          "edit",
+          "prepend",
+          "replace_text"
+        ],
+        "request.subject.resource": [
+          "artefact",
+          "memory",
+          "skill",
+          "style",
+          "template"
+        ]
+      },
+      "brain_list": {
+        "resource": [
+          "archive",
+          "artefact",
+          "memory",
+          "plugin",
+          "skill",
+          "style",
+          "template",
+          "trigger",
+          "type",
+          "workspace"
+        ]
+      },
+      "brain_move": {
+        "op": [
+          "archive",
+          "convert",
+          "rename",
+          "unarchive"
+        ]
+      },
+      "brain_read": {
+        "resource": [
+          "archive",
+          "artefact",
+          "environment",
+          "file",
+          "memory",
+          "plugin",
+          "router",
+          "skill",
+          "style",
+          "template",
+          "trigger",
+          "type",
+          "workspace"
+        ]
+      },
+      "brain_search": {
+        "resource": [
+          "artefact",
+          "memory",
+          "plugin",
+          "skill",
+          "style",
+          "trigger"
+        ]
+      }
+    },
+    "cli": {
+      "dispatched": [
+        "check",
+        "configure",
+        "create",
+        "define",
+        "discard-stage",
+        "edit",
+        "fix-links",
+        "list",
+        "migrate-naming",
+        "outline",
+        "read",
+        "rename",
+        "repair",
+        "reparent",
+        "search",
+        "set-key",
+        "set-naming-field",
+        "set-status",
+        "setup",
+        "stage",
+        "upgrade",
+        "upload-attachment"
+      ],
+      "special": [
+        "doctor",
+        "install",
+        "machine",
+        "session",
+        "version"
+      ]
+    },
+    "default_profiles": {
+      "reader": [
+        "brain_init",
+        "brain_session",
+        "brain_read",
+        "brain_outline",
+        "brain_check",
+        "brain_search",
+        "brain_list",
+        "brain_classify",
+        "brain_resolve"
+      ],
+      "contributor": [
+        "brain_init",
+        "brain_session",
+        "brain_read",
+        "brain_outline",
+        "brain_check",
+        "brain_search",
+        "brain_list",
+        "brain_classify",
+        "brain_resolve",
+        "brain_stage",
+        "brain_discard_stage",
+        "brain_upload_attachment",
+        "brain_create",
+        "brain_edit",
+        "brain_reparent",
+        "brain_set_status",
+        "brain_set_key",
+        "brain_set_naming_field",
+        "brain_ingest"
+      ],
+      "operator": [
+        "brain_init",
+        "brain_session",
+        "brain_read",
+        "brain_outline",
+        "brain_check",
+        "brain_search",
+        "brain_list",
+        "brain_classify",
+        "brain_resolve",
+        "brain_stage",
+        "brain_discard_stage",
+        "brain_upload_attachment",
+        "brain_create",
+        "brain_edit",
+        "brain_reparent",
+        "brain_set_status",
+        "brain_set_key",
+        "brain_set_naming_field",
+        "brain_ingest",
+        "brain_define",
+        "brain_move",
+        "brain_action"
+      ]
+    }
+  },
+  "pending_surfaces": [
+    "cli_nested_operations",
+    "direct_scripts",
+    "public_python_wrappers",
+    "installer_and_upgrader_operations",
+    "documented_operations_and_consumers"
+  ]
+}
