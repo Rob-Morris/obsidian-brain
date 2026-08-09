@@ -148,6 +148,7 @@ def command_vault_baseline(tmp_path_factory):
         assemble_command_vault_baseline,
         command_vault_source_hash,
         tree_hash,
+        write_command_vault_clone_evidence,
     )
 
     source_hash = command_vault_source_hash(REPO_ROOT)
@@ -160,6 +161,9 @@ def command_vault_baseline(tmp_path_factory):
         source_root=REPO_ROOT,
     )
     yield baseline
+    write_command_vault_clone_evidence(
+        baseline.evidence_path.with_name("clone-evidence.json")
+    )
     assert tree_hash(baseline.vault_root) == baseline.immutable_hash, (
         "a command-vault test mutated the shared immutable baseline; request a "
         "command_vault_clone for filesystem or effect-boundary coverage"

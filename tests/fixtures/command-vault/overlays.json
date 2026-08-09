@@ -1,0 +1,25 @@
+{
+  "schema": "brain.command-vault-overlays/1",
+  "overlays": {
+    "stale-router": {"category": "cache", "expected": "router cache is stale"},
+    "stale-index": {"category": "cache", "expected": "lexical index is stale"},
+    "malformed-content": {"category": "content", "expected": "an artefact cannot be decoded as UTF-8"},
+    "malformed-frontmatter": {"category": "content", "expected": "an artefact has invalid YAML frontmatter"},
+    "missing-file": {"category": "filesystem", "expected": "the stable attachment target is absent"},
+    "missing-runtime": {"category": "capability", "expected": "the selected managed-runtime path is absent"},
+    "missing-provider": {"category": "capability", "expected": "the provider snapshot reports unavailable"},
+    "insufficient-authority": {"category": "authority", "expected": "the invocation profile denies mutation"},
+    "lock-contention": {"category": "concurrency", "expected": "the vault mutation lock is held"},
+    "registry-blocked": {"category": "registry", "expected": "a newer machine-registry schema blocks interpretation"},
+    "registry-incomplete": {"category": "registry", "expected": "the machine registry contains an incomplete entry"},
+    "registry-stale": {"category": "registry", "expected": "both registry sources contain stale local entries"},
+    "lifecycle-state": {"category": "lifecycle", "expected": "a non-terminal candidate is parked"},
+    "upgrade-state": {"category": "lifecycle", "expected": "the installed Brain version is pre-cutover"},
+    "failure-before-commit": {"category": "effect", "expected": "fault injection occurs before durable effects"},
+    "failure-during-commit": {"category": "effect", "expected": "fault injection occurs while effects may be partial"},
+    "failure-after-commit": {"category": "effect", "expected": "fault injection occurs after a conclusive receipt is durable"},
+    "known-partial-effects": {"category": "effect", "expected": "the receipt enumerates committed effects"},
+    "unknown-outcome": {"category": "effect", "expected": "the receipt remains inconclusive and non-retryable"},
+    "rollback-failure": {"category": "effect", "expected": "recovery material remains after failed restoration"}
+  }
+}

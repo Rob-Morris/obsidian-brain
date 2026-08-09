@@ -12,6 +12,7 @@ from command_vault import (
     COMMAND_VAULT_NOW,
     COMMAND_VAULT_SEED,
     COMMAND_VAULT_TIMEZONE,
+    command_vault_clone_diagnostics,
     isolated_command_environment,
     load_command_vault_manifest,
     tree_hash,
@@ -91,7 +92,11 @@ def test_clone_is_writable_isolated_and_does_not_mutate_baseline(
     assert clone.provider_state_root.is_dir()
     assert clone.outcome_receipt_root.is_dir()
     assert clone.config_home not in clone.vault_root.parents
-    assert clone.provider_state_root not in clone.vault_root.parents
+    assert clone.vault_root in clone.provider_state_root.parents
+    diagnostics = command_vault_clone_diagnostics()
+    assert diagnostics["clone_count"] >= 1
+    assert diagnostics["strategy_counts"][clone.strategy] >= 1
+    assert diagnostics["slowest_seconds"] >= clone.clone_seconds
 
 
 def test_clone_environment_is_explicit_and_restored(command_vault_clone):
