@@ -6,8 +6,10 @@ from dataclasses import dataclass
 from typing import ClassVar
 
 from .artefact.list import ArtefactListRequest
+from .artefact.list_archived import ArtefactListArchivedRequest
 from .artefact.outline import ArtefactOutlineRequest
 from .artefact.read import ArtefactReadRequest
+from .artefact.read_archived import ArtefactReadArchivedRequest
 from .links.check import LinksCheckRequest
 from .memory.list import MemoryListRequest
 from .memory.read import MemoryReadRequest
@@ -21,6 +23,7 @@ from .style.read import StyleReadRequest
 from .trigger.list import TriggerListRequest
 from .trigger.read import TriggerReadRequest
 from .vault.read_router import VaultReadRouterRequest
+from .vault.read_file import VaultReadFileRequest
 from .receipts import OutcomeReceipt, OutcomeReference, ReceiptLookupState
 from .types import (
     Authority,
@@ -153,8 +156,10 @@ CommandRequest = (
     | CommandDescribeRequest
     | InvocationReadRequest
     | ArtefactReadRequest
+    | ArtefactReadArchivedRequest
     | ArtefactOutlineRequest
     | ArtefactListRequest
+    | ArtefactListArchivedRequest
     | LinksCheckRequest
     | MemoryListRequest
     | MemoryReadRequest
@@ -168,6 +173,7 @@ CommandRequest = (
     | TriggerListRequest
     | TriggerReadRequest
     | VaultReadRouterRequest
+    | VaultReadFileRequest
 )
 
 
@@ -179,8 +185,10 @@ def command_identity(request: CommandRequest) -> tuple[str, int, type]:
         CommandDescribeRequest,
         InvocationReadRequest,
         ArtefactReadRequest,
+        ArtefactReadArchivedRequest,
         ArtefactOutlineRequest,
         ArtefactListRequest,
+        ArtefactListArchivedRequest,
         LinksCheckRequest,
         MemoryListRequest,
         MemoryReadRequest,
@@ -194,6 +202,7 @@ def command_identity(request: CommandRequest) -> tuple[str, int, type]:
         TriggerListRequest,
         TriggerReadRequest,
         VaultReadRouterRequest,
+        VaultReadFileRequest,
     }:
         raise TypeError(f"unregistered command request type: {request_type.__name__}")
     return request_type.COMMAND_ID, request_type.COMMAND_VERSION, request_type.RESULT_TYPE

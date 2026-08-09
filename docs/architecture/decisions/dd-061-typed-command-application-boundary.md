@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.7)
+**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.8)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -149,3 +149,12 @@ search commands. Trigger category is a closed enum and filtering searches the fi
 that compiled trigger records actually own. The portable collection seam also
 corrects the legacy trigger read/filter path, which previously assumed a
 non-existent `name` field.
+
+## v0.54.8 exact vault-file and archive owners
+
+`vault.read-file`, `artefact.read-archived` and `artefact.list-archived` now
+own distinct bounded contracts. Vault-file reads require an exact
+vault-relative path and exclude `_Archive`; archived reads require explicit
+archive membership. One portable seam owns containment, archive discovery and
+legacy top-level/per-type archive layouts, and the legacy readers and listers
+delegate to it without changing their public grammar.

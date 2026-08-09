@@ -36,6 +36,9 @@ the legacy reader/lister delegate to that seam without changing public output.
 v0.54.7 adds exact memory/trigger read/list owners over portable router
 collection views. Trigger reads now select by unique condition and trigger list
 queries search real category/condition/detail/target fields.
+v0.54.8 adds exact vault-file and archived-artefact read/list owners. Active
+file reads and archive reads enforce distinct path domains, and legacy readers
+and listers delegate to one portable containment and archive-discovery seam.
 Existing adapters are not cut over in the v0.54.x foundation releases; they
 continue to behave as documented until the coordinated breaking release
 replaces the old grammar.

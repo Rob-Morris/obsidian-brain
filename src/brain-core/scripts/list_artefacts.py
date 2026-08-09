@@ -18,7 +18,6 @@ Usage:
 
 import argparse
 import json
-import os
 import sys
 
 import workspace_registry
@@ -26,7 +25,6 @@ from _search import lexical_query
 from _common import (
     find_vault_root,
     load_compiled_router,
-    parse_frontmatter,
 )
 from _portable.artefact_listing import (
     _collect_artefacts,
@@ -38,6 +36,7 @@ from _portable.artefact_listing import (
 )
 from _portable.named_documents import list_named_documents
 from _portable.router_collections import list_memories, list_triggers
+from _portable.vault_files import list_archived_artefacts
 
 
 # ---------------------------------------------------------------------------
@@ -83,57 +82,6 @@ def _list_collection(router, router_key, name_field, query=None):
     return [i for i in items if lower_q in i.get(name_field, "").lower()]
 
 
-def _list_archive(router, vault_root):
-    """List all archived files. Extracted from read.py for shared use."""
-    vault_root = str(vault_root)
-    results = []
-    seen = set()
-
-    def _scan_dir(base_dir):
-        if not os.path.isdir(base_dir):
-            return
-        for dirpath, dirnames, filenames in os.walk(base_dir):
-            dirnames[:] = [d for d in dirnames if not d.startswith(".")]
-            for fname in filenames:
-                if not fname.endswith(".md"):
-                    continue
-                abs_path = os.path.join(dirpath, fname)
-                rel_path = os.path.relpath(abs_path, vault_root)
-                if rel_path in seen:
-                    continue
-                seen.add(rel_path)
-                try:
-                    with open(abs_path, "r", encoding="utf-8") as f:
-                        fields, _ = parse_frontmatter(f.read())
-                except Exception:
-                    fields = {}
-                results.append({
-                    "path": rel_path,
-                    "title": os.path.splitext(fname)[0],
-                    "type": fields.get("type", ""),
-                    "status": fields.get("status", ""),
-                    "archiveddate": fields.get("archiveddate", ""),
-                })
-
-    _scan_dir(os.path.join(vault_root, "_Archive"))
-
-    for art in router.get("artefacts", []):
-        art_dir = os.path.join(vault_root, art["path"])
-        if not os.path.isdir(art_dir):
-            continue
-        for entry in os.listdir(art_dir):
-            if entry == "_Archive":
-                _scan_dir(os.path.join(art_dir, "_Archive"))
-            sub = os.path.join(art_dir, entry)
-            if os.path.isdir(sub) and not entry.startswith((".", "_", "+")):
-                archive_sub = os.path.join(sub, "_Archive")
-                if os.path.isdir(archive_sub):
-                    _scan_dir(archive_sub)
-
-    results.sort(key=lambda r: r.get("archiveddate", ""), reverse=True)
-    return results
-
-
 def list_resources(index, router, vault_root, resource="artefact", query=None,
                    **kwargs):
     """List resources of a given kind.
@@ -171,7 +119,7 @@ def list_resources(index, router, vault_root, resource="artefact", query=None,
         return _list_templates(router, query)
 
     if resource == "archive":
-        return _list_archive(router, vault_root)
+        return list_archived_artefacts(router, vault_root)
 
     if resource == "workspace":
         return workspace_registry.list_workspaces(vault_root)

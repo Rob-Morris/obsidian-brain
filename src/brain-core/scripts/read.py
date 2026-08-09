@@ -48,6 +48,7 @@ from _portable.router_views import (
     read_router_meta as _portable_read_router_meta,
 )
 from _portable.router_collections import read_trigger_exact as _portable_read_trigger
+from _portable.vault_files import read_archived_artefact as _portable_read_archive
 
 
 def _check_vault_containment(vault_root, rel_path):
@@ -246,10 +247,7 @@ def read_archive(router, vault_root, name=None):
     Listing via brain_list(resource='archive').
     """
     _require_name("archive", name)
-    if not is_archived_path(name):
-        return {"error": f"'{name}' is not in _Archive/. "
-                "Use brain_read(resource=\"artefact\") for active files."}
-    return read_file_content(vault_root, name)
+    return _portable_read_archive(vault_root, name, infer_markdown=True)
 
 
 # ---------------------------------------------------------------------------

@@ -303,6 +303,11 @@ class TestBrainReadArchive:
         result = server.brain_read("archive", name=rel)
         assert "Old idea." in result
 
+        result_without_extension = server.brain_read(
+            "archive", name=rel.removesuffix(".md")
+        )
+        assert "Old idea." in result_without_extension
+
     def test_read_non_archive_path_rejected(self, initialized):
         result = server.brain_read("archive", name="Ideas/my-idea.md")
         _assert_error(result, "not in _Archive")

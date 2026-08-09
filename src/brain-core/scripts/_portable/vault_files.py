@@ -1,0 +1,111 @@
+"""Portable exact vault-file and archived-artefact reads."""
+
+from __future__ import annotations
+
+import os
+
+from _common import (
+    MissingFileResult,
+    is_archived_path,
+    load_compiled_router,
+    parse_frontmatter,
+    resolve_and_check_bounds,
+)
+
+
+def _read_exact_file(vault_root, path):
+    try:
+        resolved = resolve_and_check_bounds(
+            os.path.join(str(vault_root), path),
+            str(vault_root),
+        )
+    except ValueError:
+        return {"error": "Path escapes vault root"}
+    if not os.path.isfile(resolved):
+        return MissingFileResult(path)
+    with open(resolved, "r", encoding="utf-8") as handle:
+        return handle.read()
+
+
+def read_vault_file(vault_root, path):
+    if is_archived_path(path):
+        return {
+            "error": f"'{path}' is archived. Use artefact.read-archived instead."
+        }
+    return _read_exact_file(vault_root, path)
+
+
+def read_archived_artefact(vault_root, path, *, infer_markdown=False):
+    if not is_archived_path(path):
+        return {"error": f"'{path}' is not in _Archive/"}
+    result = _read_exact_file(vault_root, path)
+    if not infer_markdown or path.endswith(".md") or not isinstance(
+        result, MissingFileResult
+    ):
+        return result
+
+    markdown_result = _read_exact_file(vault_root, f"{path}.md")
+    if not isinstance(markdown_result, MissingFileResult):
+        return markdown_result
+    return markdown_result
+
+
+def list_archived_artefacts(router, vault_root):
+    vault_root = str(vault_root)
+    results = []
+    seen = set()
+
+    def scan(base_dir):
+        if not os.path.isdir(base_dir):
+            return
+        for dirpath, dirnames, filenames in os.walk(base_dir):
+            dirnames[:] = [name for name in dirnames if not name.startswith(".")]
+            for filename in filenames:
+                if not filename.endswith(".md"):
+                    continue
+                absolute = os.path.join(dirpath, filename)
+                relative = os.path.relpath(absolute, vault_root)
+                if relative in seen:
+                    continue
+                seen.add(relative)
+                try:
+                    with open(absolute, "r", encoding="utf-8") as handle:
+                        fields, _ = parse_frontmatter(handle.read())
+                except (OSError, UnicodeError):
+                    fields = {}
+                results.append(
+                    {
+                        "path": relative,
+                        "title": os.path.splitext(filename)[0],
+                        "type": fields.get("type", ""),
+                        "status": fields.get("status", ""),
+                        "archiveddate": fields.get("archiveddate", ""),
+                    }
+                )
+
+    scan(os.path.join(vault_root, "_Archive"))
+    for artefact in router.get("artefacts", ()):
+        artefact_dir = os.path.join(vault_root, artefact["path"])
+        if not os.path.isdir(artefact_dir):
+            continue
+        for entry in os.listdir(artefact_dir):
+            if entry == "_Archive":
+                scan(os.path.join(artefact_dir, "_Archive"))
+            child = os.path.join(artefact_dir, entry)
+            if os.path.isdir(child) and not entry.startswith((".", "_", "+")):
+                archive = os.path.join(child, "_Archive")
+                if os.path.isdir(archive):
+                    scan(archive)
+
+    results.sort(
+        key=lambda item: (item.get("archiveddate", ""), item["path"].casefold()),
+        reverse=True,
+    )
+    return results
+
+
+def list_archived_artefacts_from_vault(vault_root):
+    router = load_compiled_router(vault_root)
+    if "error" in router:
+        raise FileNotFoundError(router["error"])
+    return list_archived_artefacts(router, vault_root)
