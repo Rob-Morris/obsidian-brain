@@ -23,6 +23,10 @@ The first v0.54.3 owner batch makes `command.list`, `command.describe` and
 `invocation.read` real catalogue-backed application commands. They remain
 internal until public projection cutover, but subsequent Phase 3 owners now
 join the same authoritative catalogue and discovery path.
+v0.54.4 migrates `artefact.read`, `artefact.list` and `artefact.outline` onto
+that path. Their legacy top-level scripts delegate semantic work to
+adapter-free `_portable` modules, while typed `_application/artefact/` owners
+normalise results and effects without importing `argparse` or MCP.
 Existing adapters are not cut over in the v0.54.x foundation releases; they
 continue to behave as documented until the coordinated breaking release
 replaces the old grammar.

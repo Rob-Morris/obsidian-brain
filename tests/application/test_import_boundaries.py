@@ -52,9 +52,13 @@ def test_application_contracts_have_no_adapter_or_managed_dependency_imports():
 
 
 def test_package_initializer_does_not_eagerly_collapse_dependency_tiers():
-    tree = ast.parse((APPLICATION_ROOT / "__init__.py").read_text(encoding="utf-8"))
+    offenders = []
+    for path in APPLICATION_ROOT.rglob("__init__.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        if any(isinstance(node, (ast.Import, ast.ImportFrom)) for node in ast.walk(tree)):
+            offenders.append(str(path.relative_to(APPLICATION_ROOT)))
 
-    assert not any(isinstance(node, (ast.Import, ast.ImportFrom)) for node in ast.walk(tree))
+    assert offenders == []
 
 
 def test_lower_level_packages_do_not_import_back_into_application():
@@ -76,7 +80,7 @@ def test_contract_modules_import_in_isolated_interpreter_without_runtime_depende
         "import _application.types, _application.receipts, _application.context, "
         "_application.results, _application.requests, _application.catalogue, "
         "_application.resolver, _application.versions, _application.availability, "
-        "_application.application, _application.foundation; "
+        "_application.application, _application.foundation, _application.registry; "
         "forbidden={'argparse','mcp','pydantic','numpy','torch','transformers','brain_mcp'}; "
         "loaded=forbidden.intersection(sys.modules); "
         "assert not loaded, loaded"

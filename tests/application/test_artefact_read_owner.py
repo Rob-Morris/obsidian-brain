@@ -1,0 +1,190 @@
+"""Owner-level behaviour for the migrated portable ``artefact.read`` command."""
+
+from __future__ import annotations
+
+from datetime import datetime
+
+from _application.application import CommandApplication
+from _application.artefact.list import ArtefactListRequest, ArtefactSort
+from _application.artefact.outline import ArtefactOutlineRequest
+from _application.artefact.read import ArtefactReadRequest
+from _application.context import (
+    CapabilitySnapshot,
+    InvocationContext,
+    ProviderBindings,
+    SelectedBrain,
+)
+from _application.registry import current_application_catalogue, current_request_resolver
+from _application.requests import CommandListRequest
+from _application.results import ErrorCode
+from _application.types import DependencyTier, SnapshotFreshness
+
+
+NOW = datetime.fromisoformat("2026-08-09T16:00:00+10:00")
+
+
+class _Authority:
+    def allows(self, **_kwargs):
+        return True
+
+
+class _Receipts:
+    def __init__(self):
+        self.values = {}
+
+    def write(self, receipt):
+        self.values[receipt.reference.invocation_id] = receipt
+
+    def read(self, reference):
+        return self.values.get(reference.invocation_id)
+
+
+class _Clock:
+    def now(self):
+        return NOW
+
+
+def _application(vault_root):
+    receipts = _Receipts()
+    context = InvocationContext(
+        selected_brain=SelectedBrain("command-vault", vault_root.resolve()),
+        profile="reader",
+        authority=_Authority(),
+        dependency_tier=DependencyTier.PORTABLE,
+        capabilities=CapabilitySnapshot(
+            "snapshot",
+            SnapshotFreshness.FRESH,
+            NOW,
+        ),
+        providers=ProviderBindings(),
+        correlation_id="corr-read",
+        invocation_id="inv-read",
+        receipt_writer=receipts,
+        receipt_reader=receipts,
+        clock=_Clock(),
+    )
+    return CommandApplication(context, current_application_catalogue())
+
+
+def test_artefact_read_uses_the_installed_portable_owner(command_vault_baseline):
+    application = _application(command_vault_baseline.vault_root)
+
+    result = application.invoke(ArtefactReadRequest("project/command-fixture"))
+
+    assert result.status == "ok"
+    assert result.result.reference == "project/command-fixture"
+    assert "# Command Fixture" in result.result.content
+
+
+def test_artefact_read_maps_missing_and_escape_errors_before_effects(
+    command_vault_baseline,
+):
+    application = _application(command_vault_baseline.vault_root)
+
+    missing = application.invoke(ArtefactReadRequest("Ideas/Does Not Exist.md"))
+    escaped = application.invoke(ArtefactReadRequest("../outside.md"))
+
+    assert missing.error.code is ErrorCode.NOT_FOUND
+    assert missing.effects == "none"
+    assert escaped.error.code is ErrorCode.INVALID_REQUEST
+    assert escaped.effects == "none"
+
+
+def test_artefact_read_transport_and_catalogue_identity_are_one_to_one():
+    resolver = current_request_resolver()
+    request = resolver.resolve(
+        "artefact.read",
+        {"reference": "project/command-fixture"},
+    )
+    catalogue = current_application_catalogue()
+
+    assert type(request) is ArtefactReadRequest
+    assert catalogue.resolve(request).command_id == "artefact.read"
+    assert [entry.command_id for entry in catalogue.entries] == [
+        "artefact.list",
+        "artefact.outline",
+        "artefact.read",
+        "command.describe",
+        "command.list",
+        "invocation.read",
+    ]
+
+
+def test_foundational_discovery_immediately_includes_migrated_owner(tmp_path):
+    application = _application(tmp_path)
+
+    result = application.invoke(CommandListRequest(domain="artefact"))
+
+    assert result.result.command_ids == (
+        "artefact.list",
+        "artefact.outline",
+        "artefact.read",
+    )
+
+
+def test_artefact_outline_uses_the_same_structural_scanner(command_vault_baseline):
+    application = _application(command_vault_baseline.vault_root)
+
+    result = application.invoke(
+        ArtefactOutlineRequest("design/command-fixture-design")
+    )
+
+    repeated = [
+        target
+        for target in result.result.targets
+        if target.target.endswith("Repeated Target")
+    ]
+    assert result.status == "ok"
+    assert len(repeated) == 2
+    assert [target.occurrence for target in repeated] == [1, 2]
+    assert all(target.line > 0 for target in result.result.targets)
+
+
+def test_artefact_outline_transport_resolves_the_same_typed_request():
+    request = current_request_resolver().resolve(
+        "artefact.outline",
+        {"reference": "design/command-fixture-design"},
+    )
+
+    assert type(request) is ArtefactOutlineRequest
+
+
+def test_artefact_list_returns_typed_stable_pages(command_vault_baseline):
+    application = _application(command_vault_baseline.vault_root)
+
+    first = application.invoke(ArtefactListRequest(page_size=2, sort=ArtefactSort.TITLE))
+    second = application.invoke(
+        ArtefactListRequest(
+            page_size=2,
+            sort=ArtefactSort.TITLE,
+            cursor=first.result.next_cursor,
+        )
+    )
+    project = application.invoke(ArtefactListRequest(type_filter="project"))
+
+    assert first.result.returned == 2
+    assert first.result.truncated is True
+    assert second.result.items != first.result.items
+    assert project.result.returned == 1
+    assert project.result.items[0].reference == "project/command-fixture"
+    assert project.result.items[0].frontmatter_key == "command-fixture"
+
+
+def test_artefact_list_invalid_filters_are_structural_errors(command_vault_baseline):
+    result = _application(command_vault_baseline.vault_root).invoke(
+        ArtefactListRequest(since="not-a-date")
+    )
+
+    assert result.error.code is ErrorCode.INVALID_REQUEST
+    assert result.effects == "none"
+
+
+def test_artefact_list_transport_resolves_sort_and_pagination():
+    request = current_request_resolver().resolve(
+        "artefact.list",
+        {"sort": "modified_desc", "page_size": 25},
+    )
+
+    assert type(request) is ArtefactListRequest
+    assert request.sort is ArtefactSort.MODIFIED_DESC
+    assert request.page_size == 25

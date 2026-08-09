@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.3)
+**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.4)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -112,3 +112,12 @@ probing providers; invocation lookup returns a conclusive receipt or explicit
 `still_unknown`. Strict transport decoders resolve into the same request types
 used by direct Python. Public adapters remain on the old grammar until the
 coordinated cutover.
+
+## v0.54.4 first portable domain family
+
+`artefact.read`, `artefact.list` and `artefact.outline` now have separate typed
+command modules and one runtime-registry entry each. Adapter-free `_portable`
+modules own their filesystem, filtering/pagination and structural-scanner
+semantics; the legacy top-level scripts delegate to those modules while public
+grammar remains unchanged. New typed list items distinguish canonical
+`reference` from the living artefact's raw `frontmatter_key`.

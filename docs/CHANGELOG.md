@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.54.4](changelog/v0.54.4.md) | 2026-08-09 | Migrate portable artefact read, list, and outline command owners |
 | [v0.54.3](changelog/v0.54.3.md) | 2026-08-09 | Implement foundational discovery and invocation-outcome owners |
 | [v0.54.2](changelog/v0.54.2.md) | 2026-08-09 | Establish receipt, version, capability, and launcher contracts |
 | [v0.54.1](changelog/v0.54.1.md) | 2026-08-09 | Establish typed `_application` command invocation contracts |

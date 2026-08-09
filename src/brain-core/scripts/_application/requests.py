@@ -5,6 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import ClassVar
 
+from .artefact.list import ArtefactListRequest
+from .artefact.outline import ArtefactOutlineRequest
+from .artefact.read import ArtefactReadRequest
 from .receipts import OutcomeReceipt, OutcomeReference, ReceiptLookupState
 from .types import (
     Authority,
@@ -132,7 +135,14 @@ class InvocationReadRequest:
             raise ValueError("invocation.read reference must be an OutcomeReference")
 
 
-CommandRequest = CommandListRequest | CommandDescribeRequest | InvocationReadRequest
+CommandRequest = (
+    CommandListRequest
+    | CommandDescribeRequest
+    | InvocationReadRequest
+    | ArtefactReadRequest
+    | ArtefactOutlineRequest
+    | ArtefactListRequest
+)
 
 
 def command_identity(request: CommandRequest) -> tuple[str, int, type]:
@@ -142,6 +152,9 @@ def command_identity(request: CommandRequest) -> tuple[str, int, type]:
         CommandListRequest,
         CommandDescribeRequest,
         InvocationReadRequest,
+        ArtefactReadRequest,
+        ArtefactOutlineRequest,
+        ArtefactListRequest,
     }:
         raise TypeError(f"unregistered command request type: {request_type.__name__}")
     return request_type.COMMAND_ID, request_type.COMMAND_VERSION, request_type.RESULT_TYPE

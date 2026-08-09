@@ -6,27 +6,13 @@ from __future__ import annotations
 import argparse
 import json
 
-from _common import (
-    find_vault_root,
-    MissingFileResult,
-    outline_structural_nodes,
-    parse_frontmatter,
-)
+from _common import find_vault_root
 from _lifecycle.derived_cache_state import load_fresh_compiled_router
-import read as read_mod
+from _portable.artefact_outline import outline_artefact as _portable_outline_artefact
 
 
 def outline_artefact(vault_root, router, path):
-    content = read_mod.read_artefact(router, vault_root, path)
-    if isinstance(content, MissingFileResult):
-        raise FileNotFoundError(content.message)
-    if isinstance(content, dict) and "error" in content:
-        raise ValueError(content["error"])
-    _fields, body = parse_frontmatter(content)
-    return {
-        "path": path,
-        "targets": outline_structural_nodes(body),
-    }
+    return _portable_outline_artefact(vault_root, router, path)
 
 
 def _build_parser():

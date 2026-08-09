@@ -41,6 +41,7 @@ from _common import (
     resolve_and_validate_folder,
     resolve_artefact_path,
 )
+from _portable.artefact_read import read_artefact as _portable_read_artefact
 
 
 def _check_vault_containment(vault_root, rel_path):
@@ -166,35 +167,7 @@ def read_artefact(router, vault_root, name=None):
     Bare basenames are resolved via wikilink-style lookup and validated against
     artefact folders.
     """
-    if not name:
-        return {"error": "artefact resource requires a name parameter (relative path or basename)"}
-
-    key = normalize_artefact_key(name)
-    if key:
-        entry = resolve_artefact_key_entry(router, key)
-        if not entry:
-            return {"error": f"No artefact matching '{name}'"}
-        return read_file_content(vault_root, entry["path"])
-
-    if "/" in name:
-        if is_archived_path(name):
-            return {
-                "error": f"'{name}' is archived. "
-                "Use brain_read(resource=\"archive\", name=\"...\") to read archived files."
-            }
-        return _check_vault_containment(vault_root, name) or read_file_content(vault_root, name)
-
-    try:
-        name, _ = resolve_and_validate_folder(vault_root, router, name)
-    except ValueError as e:
-        resource = _resolve_config_resource(vault_root, name)
-        if resource:
-            return {
-                "error": f"'{name}' is in _Config/, not an artefact folder. "
-                f"Use brain_read(resource=\"{resource}\") instead."
-            }
-        return {"error": str(e)}
-    return read_file_content(vault_root, name)
+    return _portable_read_artefact(router, vault_root, name)
 
 
 # Mapping from _Config/ subfolder to the correct brain_read resource.
