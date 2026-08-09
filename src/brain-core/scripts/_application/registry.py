@@ -48,8 +48,11 @@ from .plugin import list as plugin_list
 from .plugin import read as plugin_read
 from .plugin import replace as plugin_replace
 from .plugin import search as plugin_search
+from .retrieval import enable as retrieval_enable
 from .retrieval import rebuild_lexical as retrieval_rebuild_lexical
+from .retrieval import rebuild_semantic as retrieval_rebuild_semantic
 from .retrieval import repair_lexical as retrieval_repair_lexical
+from .retrieval import repair_semantic as retrieval_repair_semantic
 from .runtime import rebuild_router as runtime_rebuild_router
 from .runtime import read_environment as runtime_read_environment
 from .runtime import repair_router as runtime_repair_router
@@ -154,8 +157,11 @@ def current_application_catalogue():
             plugin_read.catalogue_entry(),
             plugin_replace.catalogue_entry(),
             plugin_search.catalogue_entry(),
+            retrieval_enable.catalogue_entry(),
             retrieval_rebuild_lexical.catalogue_entry(),
+            retrieval_rebuild_semantic.catalogue_entry(),
             retrieval_repair_lexical.catalogue_entry(),
+            retrieval_repair_semantic.catalogue_entry(),
             runtime_rebuild_router.catalogue_entry(),
             runtime_read_environment.catalogue_entry(),
             runtime_repair_router.catalogue_entry(),
@@ -262,8 +268,11 @@ def current_request_resolver():
             plugin_read.resolver_entry(),
             plugin_replace.resolver_entry(),
             plugin_search.resolver_entry(),
+            retrieval_enable.resolver_entry(),
             retrieval_rebuild_lexical.resolver_entry(),
+            retrieval_rebuild_semantic.resolver_entry(),
             retrieval_repair_lexical.resolver_entry(),
+            retrieval_repair_semantic.resolver_entry(),
             runtime_rebuild_router.resolver_entry(),
             runtime_read_environment.resolver_entry(),
             runtime_repair_router.resolver_entry(),
@@ -277,7 +286,6 @@ def current_request_resolver():
             skill_prepend.resolver_entry(),
             skill_read.resolver_entry(),
             skill_replace_text.resolver_entry(),
-            skill_search.resolver_entry(),
             stage_create.resolver_entry(),
             stage_discard.resolver_entry(),
             style_append.resolver_entry(),

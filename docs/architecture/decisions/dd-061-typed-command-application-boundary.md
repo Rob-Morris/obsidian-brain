@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.30)
+**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.31)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -494,3 +494,18 @@ thresholds, allowing lexical overlap to authorise an unrelated update. BM25 is
 now advisory candidate evidence only; exact filename identity or a
 high-confidence semantic cosine match is required for automatic update. The
 existing public ingest adapter also now honours its declared mode field.
+
+## v0.54.31 managed semantic retrieval owners
+
+`retrieval.enable`, `retrieval.repair-semantic` and
+`retrieval.rebuild-semantic` now have distinct typed owners. All three require
+the managed tier and explicit `semantic_runtime` provider, carry operator
+authority and retain selected-Brain mutation receipts, but they do not collapse
+their different intent or failure behaviour into one mode field.
+
+Enable owns opt-in plus provisioning and reports a partial result when the flag
+commits before runtime convergence fails. Repair remains health-based and
+idempotent. Rebuild is unconditional and forces router, lexical index and
+semantic sidecar convergence. The existing configure adapter delegates its
+semantic lifecycle work to the extracted owner while public projections remain
+unchanged until coordinated cutover.

@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.54.31](changelog/v0.54.31.md) | 2026-08-10 | Migrate managed semantic retrieval command owners |
 | [v0.54.30](changelog/v0.54.30.md) | 2026-08-10 | Migrate safe managed content ingestion ownership |
 | [v0.54.29](changelog/v0.54.29.md) | 2026-08-10 | Migrate typed shaping-session start ownership |
 | [v0.54.28](changelog/v0.54.28.md) | 2026-08-10 | Migrate rollback-safe workspace-registry repair ownership |

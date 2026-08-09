@@ -46,8 +46,11 @@ from .plugin.list import PluginListRequest
 from .plugin.read import PluginReadRequest
 from .plugin.replace import PluginReplaceRequest
 from .plugin.search import PluginSearchRequest
+from .retrieval.enable import RetrievalEnableRequest
 from .retrieval.rebuild_lexical import RetrievalRebuildLexicalRequest
+from .retrieval.rebuild_semantic import RetrievalRebuildSemanticRequest
 from .retrieval.repair_lexical import RetrievalRepairLexicalRequest
+from .retrieval.repair_semantic import RetrievalRepairSemanticRequest
 from .runtime.rebuild_router import RuntimeRebuildRouterRequest
 from .runtime.read_environment import RuntimeReadEnvironmentRequest
 from .runtime.repair_router import RuntimeRepairRouterRequest
@@ -259,8 +262,11 @@ CommandRequest = (
     | PluginReadRequest
     | PluginReplaceRequest
     | PluginSearchRequest
+    | RetrievalEnableRequest
     | RetrievalRebuildLexicalRequest
+    | RetrievalRebuildSemanticRequest
     | RetrievalRepairLexicalRequest
+    | RetrievalRepairSemanticRequest
     | RuntimeRebuildRouterRequest
     | RuntimeReadEnvironmentRequest
     | RuntimeRepairRouterRequest
@@ -351,8 +357,11 @@ def command_identity(request: CommandRequest) -> tuple[str, int, type]:
         PluginReadRequest,
         PluginReplaceRequest,
         PluginSearchRequest,
+        RetrievalEnableRequest,
         RetrievalRebuildLexicalRequest,
+        RetrievalRebuildSemanticRequest,
         RetrievalRepairLexicalRequest,
+        RetrievalRepairSemanticRequest,
         RuntimeRebuildRouterRequest,
         RuntimeReadEnvironmentRequest,
         RuntimeRepairRouterRequest,
