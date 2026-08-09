@@ -162,7 +162,7 @@ LAUNCHER_CATALOGUE = LauncherCatalogue(
                 _mutation("brain.unregister", "_launcher.registry:unregister", "brain", "unregister"),
                 _mutation("brain.upgrade", "cli:upgrade", "brain", "upgrade"),
                 _read("brain.version", "_launcher.version:version", "brain", "version"),
-                _mutation("machine.migrate-legacy", "machine:migrate_legacy", "brain", "machine", "migrate-legacy"),
+                _mutation("machine.migrate-legacy", "_launcher.machine:migrate_legacy", "brain", "machine", "migrate-legacy"),
                 _mutation("machine.prune-runtimes", "_launcher.machine:prune_runtimes", "brain", "machine", "prune-runtimes"),
                 _mutation("mcp.configure", "configure:mcp", "brain", "mcp", "configure"),
                 _mutation("mcp.repair", "repair:mcp", "brain", "mcp", "repair"),

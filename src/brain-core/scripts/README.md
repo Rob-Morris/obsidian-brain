@@ -126,6 +126,11 @@ v0.54.39 adds typed `machine.prune-runtimes` ownership over the existing
 read-only topology and pruning seams. Trusted current-Brain context prevents an
 unregistered active Brain from appearing orphaned; live-scan failure blocks
 deletion and recursive-removal failure remains outcome-unknown.
+v0.54.40 adds typed `machine.migrate-legacy` ownership over the same read-only
+discovery seam and the existing target-Brain repair composition. Spawn failure
+proves no effect, known child partials retain coarse repair-scope effects, and
+timeouts, invalid child output or recursive-removal failure remain
+outcome-unknown.
 Existing adapters are not cut over in the v0.54.x foundation releases; they
 continue to behave as documented until the coordinated breaking release
 replaces the old grammar.

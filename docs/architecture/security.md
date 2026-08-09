@@ -194,6 +194,15 @@ successful live-process scan. A recursive-deletion error is outcome-unknown
 rather than a retryable no-effect failure because part of the directory may
 already be gone.
 
+Canonical legacy Brain migration is also launcher-owned and requires the
+machine-local caller-filesystem provider. It passes a typed selector to
+read-only machine discovery, delegates repair only through version-matched
+target-Brain processes and removes the legacy runtime only after repair and
+live-process checks succeed. A child spawn failure proves no effect; timeout,
+invalid child output or recursive-delete failure is outcome-unknown. A
+child-reported partial result is retained as known partial with the affected
+repair scope receipted.
+
 Client skill adapters are an explicit machine-global exception to ordinary
 vault write bounds. `configure.py agent-skills` writes only the fixed
 `~/.claude/skills/shaping/` and/or `~/.codex/skills/shaping/` destinations. It

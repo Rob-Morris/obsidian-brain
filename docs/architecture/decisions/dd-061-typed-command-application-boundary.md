@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.37)
+**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.40)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -657,3 +657,19 @@ was partly removed, so the launcher returns a receipt-backed, non-retryable
 unknown outcome rather than projecting the legacy per-target error as proven
 no-effect. The existing public machine adapter remains unchanged until the
 coordinated cutover.
+
+## v0.54.40 legacy Brain migration launcher owner
+
+`machine.migrate-legacy` now has one frozen request with an optional typed Brain
+ID or absolute-path selector and bounded typed target/step results. Machine
+discovery receives the current Brain only through trusted launcher context and
+uses a read-only derived-registry comparison, so selecting migration does not
+silently reconcile machine registry state.
+
+The owner composes the existing target-Brain runtime, MCP and registry repair
+processes, then removes the legacy vault-local runtime only after those repairs
+and live-process detection succeed. Child process spawn failures prove no
+effect; timeouts, invalid child output and recursive-removal failures preserve
+a receipt-backed unknown outcome. A child-reported partial result becomes a
+known partial result with its affected repair scope receipted. The existing
+public machine adapter remains unchanged until coordinated cutover.

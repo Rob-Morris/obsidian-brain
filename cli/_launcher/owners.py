@@ -64,6 +64,7 @@ LAUNCHER_OWNERS = LauncherOwners(
             (
                 agent_skill.configure_owner(),
                 doctor.doctor_owner(),
+                machine.migrate_legacy_owner(),
                 machine.prune_runtimes_owner(),
                 registry.backfill_owner(),
                 registry.clear_default_owner(),

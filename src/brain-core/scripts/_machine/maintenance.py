@@ -218,12 +218,21 @@ def _run_repair_scope(
             timeout=DELEGATED_REPAIR_TIMEOUT,
             check=False,
         )
-    except (OSError, subprocess.TimeoutExpired) as exc:
+    except OSError as exc:
         return _step(
             scope,
             "error",
             f"Could not run target Brain repair scope {scope}: {exc}",
             command=command,
+            outcome="none",
+        )
+    except subprocess.TimeoutExpired as exc:
+        return _step(
+            scope,
+            "error",
+            f"Target Brain repair scope {scope} timed out: {exc}",
+            command=command,
+            outcome="unknown",
         )
 
     payload = None
@@ -241,6 +250,7 @@ def _run_repair_scope(
             "error",
             f"Target Brain repair scope {scope} did not produce valid JSON: {message}",
             command=command,
+            outcome="unknown",
         )
 
     delegated_status = payload.get("status")
@@ -255,6 +265,13 @@ def _run_repair_scope(
         delegated_status,
         ("error", f"Target Brain repair scope {scope} returned unknown status {delegated_status!r}."),
     )
+    outcome = {
+        "planned": "none",
+        "noop": "none",
+        "ok": "committed",
+        "partial": "partial",
+        "error": "none",
+    }.get(delegated_status, "unknown")
 
     return _step(
         scope,
@@ -263,6 +280,7 @@ def _run_repair_scope(
         command=command,
         delegated_status=delegated_status,
         delegated_result=payload,
+        outcome=outcome,
     )
 
 
@@ -399,6 +417,7 @@ def _execute_removal_step(
             "error",
             f"Could not remove {target_path}: {exc}",
             path=str(target_path),
+            outcome="unknown",
             **metadata,
         )
     return _step(

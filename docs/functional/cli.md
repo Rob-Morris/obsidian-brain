@@ -47,6 +47,14 @@ removed runtime directory. Recursive-deletion failure remains non-retryable and
 outcome-unknown. The existing v1 machine adapter stays public until coordinated
 cutover.
 
+v0.54.40 adds typed `machine.migrate-legacy` ownership. Its request accepts no
+target, one canonical Brain ID or one absolute Brain path; its bounded result
+reports each selected Brain and repair step. Canonical migration keeps machine
+discovery read-only, returns a real no-write plan, receipts known changed or
+partial repair scopes and treats child timeouts, invalid output and uncertain
+recursive deletion as non-retryable unknown outcomes. The existing v1 machine
+adapter stays public until coordinated cutover.
+
 ## Install
 
 The CLI is installed automatically by `install.sh` to `~/.local/bin/brain` (user scope) or `/usr/local/bin/brain` (with `--system`). `upgrade.py` refreshes any installed CLI binary on each upgrade; it does not install a new CLI where none existed.

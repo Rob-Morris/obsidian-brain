@@ -9,6 +9,7 @@ import pytest
 import doctor_machine
 import machine
 from _common import _venv, central_venvs_root, resolve_vault_venv_python
+from _machine import maintenance
 from _machine.discovery import (
     discover_brains,
     inspect_machine_registry,
@@ -850,6 +851,51 @@ def test_migrate_legacy_brains_dry_run_reports_live_scan_uncertainty(monkeypatch
     target = result["targets"][0]
     assert target["steps"][3]["status"] == "planned"
     assert "proving no live process still uses it" in target["steps"][3]["message"]
+
+
+def test_delegated_repair_timeout_marks_the_child_outcome_unknown(
+    monkeypatch,
+    tmp_path,
+):
+    vault = _make_vault(tmp_path, "Legacy Brain")
+
+    def time_out(*_args, **_kwargs):
+        raise subprocess.TimeoutExpired(["repair.py", "runtime"], timeout=300)
+
+    monkeypatch.setattr(maintenance.subprocess, "run", time_out)
+
+    step = maintenance._run_repair_scope(
+        vault,
+        "runtime",
+        launcher_python=sys.executable,
+        dry_run=False,
+    )
+
+    assert step["status"] == "error"
+    assert step["outcome"] == "unknown"
+    assert "timed out" in step["message"]
+
+
+def test_recursive_runtime_removal_error_marks_the_outcome_unknown(
+    monkeypatch,
+    tmp_path,
+):
+    runtime_dir = tmp_path / "runtime"
+    runtime_dir.mkdir()
+    monkeypatch.setattr(
+        maintenance.shutil,
+        "rmtree",
+        lambda _path: (_ for _ in ()).throw(OSError("partial delete")),
+    )
+
+    step = maintenance._execute_removal_step(
+        name="prune",
+        target_path=runtime_dir,
+        success_message="removed",
+    )
+
+    assert step["status"] == "error"
+    assert step["outcome"] == "unknown"
 
 
 

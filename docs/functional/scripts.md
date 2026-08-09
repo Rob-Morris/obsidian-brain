@@ -79,6 +79,13 @@ That `python3.12` process is the launcher, not the managed runtime itself.
 
 > The `migrations/` rows above are representative; the full set of `migrate_to_*.py` one-shots (run by `upgrade.py`) lives in `src/brain-core/scripts/migrations/`.
 
+`machine.py migrate-legacy --json` reports additive `outcome` metadata for
+delegated repair and failed recursive-removal steps. A child process that could
+not be started reports `none`; a child timeout or invalid response reports
+`unknown`; valid child results report `none`, `committed` or `partial` from the
+child status. A recursive-removal error reports `unknown` because part of the
+target directory may already have changed.
+
 ## Architecture
 
 The MCP server is a thin wrapper that imports functions from scripts and holds the compiled router and search index in memory. Scripts are the single implementation — the server adds MCP transport, in-memory caching, shared vault-scoped mutation locking, and Obsidian CLI delegation. This means:
