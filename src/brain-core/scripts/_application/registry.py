@@ -24,6 +24,9 @@ from .trigger import list as trigger_list
 from .trigger import read as trigger_read
 from .type import list as artefact_type_list
 from .type import read as artefact_type_read
+from .type import status as type_status
+from .vault import check as vault_check
+from .vault import read_config as vault_read_config
 from .vault import read_router as vault_read_router
 from .vault import read_file as vault_read_file
 from .workspace import list as workspace_list
@@ -55,6 +58,9 @@ def current_application_catalogue():
             trigger_read.catalogue_entry(),
             artefact_type_list.catalogue_entry(),
             artefact_type_read.catalogue_entry(),
+            type_status.catalogue_entry(),
+            vault_check.catalogue_entry(),
+            vault_read_config.catalogue_entry(),
             vault_read_router.catalogue_entry(),
             vault_read_file.catalogue_entry(),
             workspace_list.catalogue_entry(),
@@ -88,6 +94,9 @@ def current_request_resolver():
             trigger_read.resolver_entry(),
             artefact_type_list.resolver_entry(),
             artefact_type_read.resolver_entry(),
+            type_status.resolver_entry(),
+            vault_check.resolver_entry(),
+            vault_read_config.resolver_entry(),
             vault_read_router.resolver_entry(),
             vault_read_file.resolver_entry(),
             workspace_list.resolver_entry(),

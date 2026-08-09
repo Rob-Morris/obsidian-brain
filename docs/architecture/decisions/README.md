@@ -100,7 +100,7 @@ Each DD captures the reasoning behind an architectural decision at the time it w
 | DD-058 | Claude/Codex discovery adapters load version-matched workflows from the active Brain | Implemented (v0.53.0) | [dd-058](dd-058-active-brain-skill-adapters.md) |
 | DD-059 | Narrow scoped attachment upload boundary under `_Assets/Attachments` | Implemented (v0.53.4) | [dd-059](dd-059-attachment-upload-boundary.md) |
 | DD-060 | Preserve recovery guidance when MCP clients degrade nested schemas | Implemented (v0.54.0) | [dd-060](dd-060-degraded-mcp-schema-recovery.md) |
-| DD-061 | Typed selected-Brain command application boundary | Implemented (v0.54.1; extended v0.54.2–v0.54.10) | [dd-061](dd-061-typed-command-application-boundary.md) |
+| DD-061 | Typed selected-Brain command application boundary | Implemented (v0.54.1; extended v0.54.2–v0.54.11) | [dd-061](dd-061-typed-command-application-boundary.md) |
 
 ---
 

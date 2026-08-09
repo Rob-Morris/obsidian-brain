@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.10)
+**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.11)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -177,3 +177,13 @@ machine-local registry state fails closed, missing identity is a typed
 `not_found`, and list identity follows the same embedded-over-linked precedence
 as resolution. Existing public adapters remain on their current grammar until
 cutover.
+
+## v0.54.11 bounded portable diagnostics
+
+`vault.read-config`, `vault.check` and `type.status` complete the portable
+read-only application group. Config projection is privacy-bounded and fails
+closed on malformed nested structures. Compliance results omit dynamic
+timestamps and root identity, expose typed findings and translate repair scopes
+to canonical command identifiers rather than shell strings. Type status is a
+flat exact-key result with typed library/file state and explicit missing-key
+failure.
