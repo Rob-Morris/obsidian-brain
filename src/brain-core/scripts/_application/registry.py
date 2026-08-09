@@ -83,8 +83,10 @@ from .trigger import list as trigger_list
 from .trigger import read as trigger_read
 from .trigger import replace as trigger_replace
 from .trigger import search as trigger_search
+from .type import create as type_create
 from .type import list as artefact_type_list
 from .type import read as artefact_type_read
+from .type import replace as type_replace
 from .type import status as type_status
 from .vault import check as vault_check
 from .vault import read_config as vault_read_config
@@ -178,8 +180,10 @@ def current_application_catalogue():
             trigger_read.catalogue_entry(),
             trigger_replace.catalogue_entry(),
             trigger_search.catalogue_entry(),
+            type_create.catalogue_entry(),
             artefact_type_list.catalogue_entry(),
             artefact_type_read.catalogue_entry(),
+            type_replace.catalogue_entry(),
             type_status.catalogue_entry(),
             vault_check.catalogue_entry(),
             vault_read_config.catalogue_entry(),
@@ -275,8 +279,10 @@ def current_request_resolver():
             trigger_read.resolver_entry(),
             trigger_replace.resolver_entry(),
             trigger_search.resolver_entry(),
+            type_create.resolver_entry(),
             artefact_type_list.resolver_entry(),
             artefact_type_read.resolver_entry(),
+            type_replace.resolver_entry(),
             type_status.resolver_entry(),
             vault_check.resolver_entry(),
             vault_read_config.resolver_entry(),

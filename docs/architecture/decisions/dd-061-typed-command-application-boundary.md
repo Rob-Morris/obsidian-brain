@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.23)
+**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.24)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -366,3 +366,21 @@ Results contain definition kind, operation, vault-relative path, semantic
 identity and hashes only. The application boundary owns operator authority,
 receipt-required retry, dry-run refusal and unknown-outcome classification;
 legacy aggregate adapters remain unchanged until coordinated cutover.
+
+## v0.54.24 artefact-type definition owners
+
+`type.create` and `type.replace` now own one paired taxonomy/template bundle.
+Their requests carry explicit classification plus independently sourced
+definition and template content; a staged handle cannot stand for both
+documents. Replacement requires the current hash of each component.
+
+The application layer resolves both inputs before mutation and finalises their
+staged handles only after `define.write_definition` returns a committed bundle.
+The semantic owner retains its two-file rollback and artefact-folder rules. A
+failure whose effect cannot be proven remains receipt-backed outcome-unknown,
+even when the local rollback path appears to have restored both files.
+
+The typed result reports both paths and hash transitions, classification,
+frontmatter type, status enum and artefact folder. It contains no caller-owned
+file path or selected-vault prefix. Public aggregate adapters remain unchanged
+until the coordinated breaking cutover.

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
 from typing import ClassVar, Mapping
 
 from .._read_support import (
@@ -14,11 +13,7 @@ from .._read_support import (
 )
 from ..context import InvocationContext
 from ..results import ErrorCode, Ok
-
-
-class ArtefactTypeClassification(str, Enum):
-    LIVING = "living"
-    TEMPORAL = "temporal"
+from ._classification import ArtefactTypeClassification
 
 
 @dataclass(frozen=True, slots=True)

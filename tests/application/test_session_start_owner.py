@@ -21,7 +21,7 @@ def test_session_start_returns_typed_bootstrap_and_refreshes_mirror(
     result = application.invoke(SessionStartRequest())
 
     assert result.status == "ok"
-    assert result.result.brain_core_version == "0.54.23"
+    assert result.result.brain_core_version == "0.54.24"
     assert result.result.active_profile == "reader"
     assert result.result.core_bootstrap
     assert result.result.core_docs
