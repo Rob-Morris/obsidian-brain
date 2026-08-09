@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.18)
+**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.19)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -282,3 +282,17 @@ staged-content lifetime, structural result conversion and effect reporting.
 `edit.py` remains authoritative for structural ranges, frontmatter merge modes,
 lifecycle-field protection, derived moves and wikilink reconciliation. This
 keeps one semantic implementation without recreating an aggregate request.
+
+## v0.54.19 named document-mutation owners
+
+Memory, skill, style and template documents now project the same five granular
+verbs as artefacts, producing 20 concrete request identities and module-owned
+catalogue entries. Small inherited request contracts express the shared named
+subject and verb-specific fields; each concrete domain/verb class still owns
+its command identity and can evolve independently when semantics diverge.
+
+The modules bind directly to the v0.54.18 structural execution seam and
+`edit.py`. They do not accept artefact-only link repair, caller-file content or
+fields belonging to another verb. The sealed request union enumerates all 20
+types, completing typed ownership of the former edit aggregate without
+retaining an aggregate discriminator at the application boundary.

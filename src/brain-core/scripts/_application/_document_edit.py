@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Mapping
+from typing import ClassVar, Mapping
 
 from ._mutation_support import (
     FrontmatterField,
@@ -80,6 +80,63 @@ class DocumentEditPayload:
     wikilink_fixes: tuple[WikilinkFix, ...]
     wikilink_substitutions: int
     staged_handle_consumed: bool
+
+
+@dataclass(frozen=True, slots=True)
+class NamedStructuralRequest:
+    """Inherited field contract for one named-resource structural command."""
+
+    COMMAND_ID: ClassVar[str] = ""
+    COMMAND_VERSION: ClassVar[int] = 1
+    RESULT_TYPE: ClassVar[type] = DocumentEditPayload
+
+    name: str
+    content: MutationContent | None = None
+    frontmatter: tuple[FrontmatterField, ...] = ()
+    target: str | None = None
+    selector: StructuralSelector | None = None
+    scope: EditScope | None = None
+
+    def __post_init__(self) -> None:
+        validate_structural_request(self, subject_field="name")
+
+
+@dataclass(frozen=True, slots=True)
+class NamedDeleteSectionRequest:
+    """Inherited field contract for one named-resource section deletion."""
+
+    COMMAND_ID: ClassVar[str] = ""
+    COMMAND_VERSION: ClassVar[int] = 1
+    RESULT_TYPE: ClassVar[type] = DocumentEditPayload
+
+    name: str
+    target: str
+    selector: StructuralSelector | None = None
+    frontmatter: tuple[FrontmatterField, ...] = ()
+
+    def __post_init__(self) -> None:
+        validate_delete_request(self, subject_field="name")
+
+
+@dataclass(frozen=True, slots=True)
+class NamedReplaceTextRequest:
+    """Inherited field contract for one named-resource exact replacement."""
+
+    COMMAND_ID: ClassVar[str] = ""
+    COMMAND_VERSION: ClassVar[int] = 1
+    RESULT_TYPE: ClassVar[type] = DocumentEditPayload
+
+    name: str
+    old_text: str
+    new_text: str
+    target: str | None = None
+    selector: StructuralSelector | None = None
+    scope: EditScope | None = None
+    match_occurrence: int | None = None
+    replace_all: bool = False
+
+    def __post_init__(self) -> None:
+        validate_replace_request(self, subject_field="name")
 
 
 def validate_structural_request(request, *, subject_field: str) -> None:
@@ -379,6 +436,89 @@ def decode_scope(value: object) -> EditScope | None:
         raise ValueError(
             "scope must be section, intro, body, heading, header, or null"
         ) from exc
+
+
+def named_structural_bindings(request_type, *, resource: str, operation: str):
+    """Return the four conventional module bindings for a named command."""
+
+    def execute(context: InvocationContext, request):
+        return execute_document_edit(
+            context,
+            request,
+            resource=resource,
+            operation=operation,
+            subject_field="name",
+        )
+
+    def decode(payload: Mapping[str, object]):
+        return decode_structural_request(
+            payload,
+            request_type,
+            subject_field="name",
+            allow_fix_links=False,
+        )
+
+    return _named_bindings(request_type, execute, decode)
+
+
+def named_delete_bindings(request_type, *, resource: str):
+    """Return conventional bindings for a named delete-section command."""
+
+    def execute(context: InvocationContext, request):
+        return execute_document_edit(
+            context,
+            request,
+            resource=resource,
+            operation="delete_section",
+            subject_field="name",
+        )
+
+    def decode(payload: Mapping[str, object]):
+        return decode_delete_request(
+            payload,
+            request_type,
+            subject_field="name",
+            allow_fix_links=False,
+        )
+
+    return _named_bindings(request_type, execute, decode)
+
+
+def named_replace_bindings(request_type, *, resource: str):
+    """Return conventional bindings for a named replace-text command."""
+
+    def execute(context: InvocationContext, request):
+        return execute_document_edit(
+            context,
+            request,
+            resource=resource,
+            operation="replace_text",
+            subject_field="name",
+        )
+
+    def decode(payload: Mapping[str, object]):
+        return decode_replace_request(
+            payload,
+            request_type,
+            subject_field="name",
+            allow_fix_links=False,
+        )
+
+    return _named_bindings(request_type, execute, decode)
+
+
+def _named_bindings(request_type, execute, decode):
+    def catalogue_entry():
+        from ._mutation_support import contributor_mutation_entry
+
+        return contributor_mutation_entry(request_type, execute)
+
+    def resolver_entry():
+        from .resolver import ResolverEntry
+
+        return ResolverEntry(request_type, decode)
+
+    return execute, decode, catalogue_entry, resolver_entry
 
 
 def _preflight_request(edit, request, operation: str) -> None:

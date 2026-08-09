@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import ClassVar
 
+from ._named_edit_requests import NAMED_EDIT_REQUEST_TYPES, NamedEditRequest
 from .artefact.append import ArtefactAppendRequest
 from .artefact.create import ArtefactCreateRequest
 from .artefact.delete_section import ArtefactDeleteSectionRequest
@@ -204,6 +205,7 @@ CommandRequest = (
     | ContentResolveRequest
     | LinksCheckRequest
     | MemoryCreateRequest
+    | NamedEditRequest
     | MemoryListRequest
     | MemoryReadRequest
     | MemorySearchRequest
@@ -265,6 +267,7 @@ def command_identity(request: CommandRequest) -> tuple[str, int, type]:
         ContentResolveRequest,
         LinksCheckRequest,
         MemoryCreateRequest,
+        *NAMED_EDIT_REQUEST_TYPES,
         MemoryListRequest,
         MemoryReadRequest,
         MemorySearchRequest,
