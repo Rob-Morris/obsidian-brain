@@ -97,6 +97,9 @@ preserves honest partial effects when provisioning fails after configuration.
 v0.54.32 adds distinct managed printable and presentation rendering owners,
 requires the document-renderer provider and preserves family-specific controls
 plus granular markdown, PDF and preview-process effects.
+v0.54.33 adds managed retrieval benchmark construction and evaluation owners,
+with explicit non-MCP projection metadata, selected-Brain path bounds and
+separate mutation versus effect-free result contracts.
 Existing adapters are not cut over in the v0.54.x foundation releases; they
 continue to behave as documented until the coordinated breaking release
 replaces the old grammar.

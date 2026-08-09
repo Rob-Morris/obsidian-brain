@@ -213,6 +213,9 @@ same lifecycle seam, and post-flag provisioning failures report partial effects.
 v0.54.32 separates printable and presentation rendering into managed
 provider-backed owners with strict family-specific inputs and independent
 markdown, PDF and preview-process effect reporting.
+v0.54.33 separates retrieval benchmark construction from read-only evaluation.
+Both remain managed CLI/script/Python workflows and are explicitly ineligible
+for MCP; construction now bounds output and seed paths to the selected Brain.
 
 The lifecycle/bootstrap side of that script layer now has an explicit shared owner under `scripts/_bootstrap/`. `runtime.py` owns launcher discovery, managed-runtime handoff, executable path identity, and the shared `BRAIN_BOOTSTRAP_SUMMARY` contract; `diagnostics.py` owns the launcher-safe runtime/MCP/registry checks needed before managed semantic work is available; `mcp_state.py` owns shared MCP/config-layout and init-state helpers; `vaults.py` owns the env-aware vault-root discovery seam used by the public lifecycle wrappers; `workspace_scaffold.py` owns Brain-local ignore-rule convergence; `mcp_transport.py` owns the shared Claude/Codex transport/config write engine; and `agent_skills.py` owns version-neutral, ownership-safe client skill adapters. Entry points such as `setup.py`, `repair.py`, `configure.py`, `session.py`, and `check.py` now converge on that seam instead of carrying parallel launcher or env-var logic.
 

@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.32)
+**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.33)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -523,3 +523,16 @@ retain the existing Pandoc and Marp implementation seams, and report markdown,
 PDF and preview-process effects independently. Missing renderer output after a
 new markdown artefact commits is therefore partial; a renderer failure with no
 committed output is a no-effect error.
+
+## v0.54.33 managed retrieval benchmark owners
+
+`retrieval.construct-benchmark` and `retrieval.evaluate` now own benchmark
+generation and read-only scoring respectively. Both are managed, operator-only
+selected-Brain commands, but their catalogue entries explicitly mark MCP as
+unsupported while retaining CLI, direct-script and Python eligibility.
+
+Construction restricts fixture, audit and optional seed paths to the selected
+Brain, refuses protected system outputs, supports dry-run and records the two
+committed files independently. Evaluation validates and reads one Brain-relative
+fixture and returns the full report without effects. The split preserves the
+mutation/receipt distinction instead of treating both workflows as one command.

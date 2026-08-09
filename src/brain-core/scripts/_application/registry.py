@@ -48,7 +48,9 @@ from .plugin import list as plugin_list
 from .plugin import read as plugin_read
 from .plugin import replace as plugin_replace
 from .plugin import search as plugin_search
+from .retrieval import construct_benchmark as retrieval_construct_benchmark
 from .retrieval import enable as retrieval_enable
+from .retrieval import evaluate as retrieval_evaluate
 from .retrieval import rebuild_lexical as retrieval_rebuild_lexical
 from .retrieval import rebuild_semantic as retrieval_rebuild_semantic
 from .retrieval import repair_lexical as retrieval_repair_lexical
@@ -159,7 +161,9 @@ def current_application_catalogue():
             plugin_read.catalogue_entry(),
             plugin_replace.catalogue_entry(),
             plugin_search.catalogue_entry(),
+            retrieval_construct_benchmark.catalogue_entry(),
             retrieval_enable.catalogue_entry(),
+            retrieval_evaluate.catalogue_entry(),
             retrieval_rebuild_lexical.catalogue_entry(),
             retrieval_rebuild_semantic.catalogue_entry(),
             retrieval_repair_lexical.catalogue_entry(),
@@ -272,7 +276,9 @@ def current_request_resolver():
             plugin_read.resolver_entry(),
             plugin_replace.resolver_entry(),
             plugin_search.resolver_entry(),
+            retrieval_construct_benchmark.resolver_entry(),
             retrieval_enable.resolver_entry(),
+            retrieval_evaluate.resolver_entry(),
             retrieval_rebuild_lexical.resolver_entry(),
             retrieval_rebuild_semantic.resolver_entry(),
             retrieval_repair_lexical.resolver_entry(),

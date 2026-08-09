@@ -46,7 +46,9 @@ from .plugin.list import PluginListRequest
 from .plugin.read import PluginReadRequest
 from .plugin.replace import PluginReplaceRequest
 from .plugin.search import PluginSearchRequest
+from .retrieval.construct_benchmark import RetrievalConstructBenchmarkRequest
 from .retrieval.enable import RetrievalEnableRequest
+from .retrieval.evaluate import RetrievalEvaluateRequest
 from .retrieval.rebuild_lexical import RetrievalRebuildLexicalRequest
 from .retrieval.rebuild_semantic import RetrievalRebuildSemanticRequest
 from .retrieval.repair_lexical import RetrievalRepairLexicalRequest
@@ -264,7 +266,9 @@ CommandRequest = (
     | PluginReadRequest
     | PluginReplaceRequest
     | PluginSearchRequest
+    | RetrievalConstructBenchmarkRequest
     | RetrievalEnableRequest
+    | RetrievalEvaluateRequest
     | RetrievalRebuildLexicalRequest
     | RetrievalRebuildSemanticRequest
     | RetrievalRepairLexicalRequest
@@ -361,7 +365,9 @@ def command_identity(request: CommandRequest) -> tuple[str, int, type]:
         PluginReadRequest,
         PluginReplaceRequest,
         PluginSearchRequest,
+        RetrievalConstructBenchmarkRequest,
         RetrievalEnableRequest,
+        RetrievalEvaluateRequest,
         RetrievalRebuildLexicalRequest,
         RetrievalRebuildSemanticRequest,
         RetrievalRepairLexicalRequest,
