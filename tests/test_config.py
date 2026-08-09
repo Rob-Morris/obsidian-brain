@@ -249,6 +249,23 @@ def test_validate_config_bad_profile_tool():
     assert any("nonexistent_tool" in i for i in issues)
 
 
+def test_validate_config_accepts_adapter_owned_additional_tools():
+    cfg = {
+        "vault": {
+            "profiles": {"reader": {"allow": ["brain_command_list"]}},
+            "operators": [],
+        },
+        "defaults": {"default_profile": "reader"},
+    }
+
+    issues = config_mod._validate_config(
+        cfg,
+        additional_valid_tools=frozenset(("brain_command_list",)),
+    )
+
+    assert issues == []
+
+
 def test_validate_config_bad_operator_profile():
     """Operator referencing nonexistent profile flagged."""
     cfg = {

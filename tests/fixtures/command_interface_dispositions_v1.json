@@ -658,6 +658,7 @@
     },
     "internal": {
       "_machine/resolve_brain.py": "Machine resolution runtime entry point owned behind launcher command dispatch.",
+      "command.py": "Staged canonical noun/verb projection; not dispatched by the pre-cutover CLI or MCP surfaces.",
       "compile_colours.py": "Derived-colour implementation detail invoked by router compilation.",
       "doctor.py": "Launcher Doctor composition helper, not an independently callable semantic command.",
       "doctor_machine.py": "Machine-diagnostic helper owned by brain.doctor.",

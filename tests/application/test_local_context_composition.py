@@ -26,7 +26,7 @@ class _Clock:
 def _vault(tmp_path):
     root = (tmp_path / "Brain").resolve()
     (root / ".brain-core").mkdir(parents=True, exist_ok=True)
-    (root / ".brain-core" / "VERSION").write_text("0.54.47\n")
+    (root / ".brain-core" / "VERSION").write_text("0.54.48\n")
     return root
 
 
@@ -112,7 +112,7 @@ def test_local_context_refuses_missing_or_symlinked_core_and_open_provider_sets(
     symlinked.mkdir()
     external_core = tmp_path / "external-core"
     external_core.mkdir()
-    (external_core / "VERSION").write_text("0.54.47\n")
+    (external_core / "VERSION").write_text("0.54.48\n")
     (symlinked / ".brain-core").symlink_to(external_core, target_is_directory=True)
     for root, providers in (
         (missing, ()),

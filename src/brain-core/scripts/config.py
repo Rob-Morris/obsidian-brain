@@ -193,9 +193,14 @@ def _deep_merge(base: dict, overlay: dict) -> dict:
 # Validation
 # ---------------------------------------------------------------------------
 
-def _validate_config(config: dict) -> list[str]:
+def _validate_config(
+    config: dict,
+    *,
+    additional_valid_tools: frozenset[str] = frozenset(),
+) -> list[str]:
     """Validate merged config. Returns list of warning strings."""
     warns = []
+    valid_tools = _VALID_TOOLS | additional_valid_tools
     vault = config.get("vault", {})
     defaults = config.get("defaults", {})
 
@@ -209,7 +214,7 @@ def _validate_config(config: dict) -> list[str]:
             continue
         allow = profile_def.get("allow", [])
         for tool in allow:
-            if tool not in _VALID_TOOLS:
+            if tool not in valid_tools:
                 warns.append(
                     f"profile '{profile_name}' references unknown tool '{tool}'"
                 )
@@ -270,17 +275,28 @@ def authenticate_operator(key: str | None, config: dict) -> tuple[str, str | Non
 # Public API
 # ---------------------------------------------------------------------------
 
-def load_config(vault_root: str) -> dict:
+def load_config(
+    vault_root: str,
+    *,
+    additional_valid_tools: frozenset[str] = frozenset(),
+) -> dict:
     """Load and merge vault configuration.
 
     Three-layer merge: shipped template → .brain/config.yaml → .brain/local/config.yaml.
     Validates the result and emits warnings for issues.
     Returns the merged config dict.
     """
-    return load_config_from_paths(config_input_paths(vault_root))
+    return load_config_from_paths(
+        config_input_paths(vault_root),
+        additional_valid_tools=additional_valid_tools,
+    )
 
 
-def load_config_from_paths(paths: tuple[str, str, str]) -> dict:
+def load_config_from_paths(
+    paths: tuple[str, str, str],
+    *,
+    additional_valid_tools: frozenset[str] = frozenset(),
+) -> dict:
     """Load and merge vault configuration from an already-resolved path tuple."""
     template_path, vault_path, local_path = paths
     template = _read_yaml(template_path)
@@ -295,7 +311,10 @@ def load_config_from_paths(paths: tuple[str, str, str]) -> dict:
     merged = _merge_config(template, vault_cfg, local_cfg)
 
     # Validate
-    issues = _validate_config(merged)
+    issues = _validate_config(
+        merged,
+        additional_valid_tools=additional_valid_tools,
+    )
     for issue in issues:
         warnings.warn(f"config: {issue}")
 

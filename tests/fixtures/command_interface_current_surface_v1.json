@@ -283,6 +283,7 @@
       "build_index.py",
       "build_lexical_index.py",
       "check.py",
+      "command.py",
       "compile_colours.py",
       "compile_router.py",
       "config.py",

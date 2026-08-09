@@ -171,6 +171,12 @@ composes only already-resolved selected-Brain, profile, tier, provider and
 capability state into `_application`, and persists effect-bearing outcome
 receipts in a bounded privacy-minimal store under `.brain/local/`. The
 application package does not import this outward-facing composition layer.
+v0.54.48 adds the staged `command.py <noun> <verb>` direct projection. It uses
+one catalogue/resolver instance, accepts one strict JSON request object, emits
+canonical JSON or concise human output with stable exit categories, and never
+silently provisions or hands off runtimes. Default discovery does not probe;
+explicit refresh deduplicates provider checks. The global CLI and current MCP
+remain on their existing public surfaces until the coordinated cutover.
 
 That launcher process is not automatically the managed runtime. The shared launcher-safe bootstrap ownership now lives under `_bootstrap/`: bootstrap entrypoints do meaningful launcher-safe work there, and runtime-owning lifecycle entrypoints such as `repair.py`, `setup.py`, `configure.py`, `session.py`, and `check.py` hand substantive managed work off into the canonical managed runtime before continuing.
 

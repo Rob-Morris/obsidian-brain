@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.47)
+**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.48)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -818,3 +818,26 @@ state, time and committed-effect references. A cross-process lock preserves
 immutability and bounded cleanup. Symlinked directories, non-regular records,
 unknown schemas and malformed values fail closed; request bodies, credentials
 and provider values never enter the receipt model.
+
+## v0.54.48 direct selected-Brain projection
+
+`scripts/command.py <noun> <verb>` is the first concrete application adapter.
+It resolves only direct-script-eligible mechanical identities, accepts one
+strict JSON request object inline or from stdin, and passes the resulting map
+through the shared resolver/application adapter. JSON mode writes only the
+canonical envelope to stdout; human success uses stdout, human partial/error
+uses stderr, and exit categories remain 0–4. Native parsing and resolution
+failures occur before executor entry.
+
+The direct adapter resolves the selected Brain, authenticated profile, caller
+workspace, current dependency tier and fresh invocation IDs without runtime
+handoff or provisioning. It assembles catalogue and resolver once. Default
+`command.list` receives an unknown/known-local snapshot without probing any
+provider; explicit refresh uses the bounded refresher once per distinct
+catalogue provider. Capability-bound commands probe only their declared
+providers. Config remains independent of the application catalogue: the
+concrete adapter supplies its projected names as additional validation facts.
+
+This script is shipped as implementation scaffolding but is not yet dispatched
+by the global CLI or registered through MCP. Public legacy surfaces remain
+unchanged until the coordinated fail-closed cutover.

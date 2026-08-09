@@ -196,6 +196,15 @@ identity, outcome state, timestamp and compact effect references. Request
 bodies, credentials and provider values are not representable in the receipt
 schema. Proven no-effect results are not persisted.
 
+The staged direct `command.py` adapter keeps semantic request data separate
+from trusted locality. `--vault` must resolve to a regular installed Brain with
+non-symlinked Brain Core identity files. `--workspace` is accepted as invocation
+context only after the existing read-only binding resolver proves that exact
+workspace belongs to the selected Brain; request JSON cannot inject a caller
+filesystem path. Profile authentication and granular allow-list evaluation run
+before command execution. The adapter probes capabilities but never provisions
+dependencies, changes runtimes or hands execution to another process.
+
 Canonical orphan-runtime pruning is launcher-owned and fail-closed. It includes
 the current Brain from trusted launcher context, compares derived machine state
 without rewriting it, and removes only runtimes classified as unselected with a
