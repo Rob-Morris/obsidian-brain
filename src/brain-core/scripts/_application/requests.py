@@ -55,6 +55,8 @@ from .runtime.rebuild_router import RuntimeRebuildRouterRequest
 from .runtime.read_environment import RuntimeReadEnvironmentRequest
 from .runtime.repair_router import RuntimeRepairRouterRequest
 from .session.start import SessionStartRequest
+from .shaping.render_presentation import ShapingRenderPresentationRequest
+from .shaping.render_printable import ShapingRenderPrintableRequest
 from .shaping.start import ShapingStartRequest
 from .skill.list import SkillListRequest
 from .skill.create import SkillCreateRequest
@@ -271,6 +273,8 @@ CommandRequest = (
     | RuntimeReadEnvironmentRequest
     | RuntimeRepairRouterRequest
     | SessionStartRequest
+    | ShapingRenderPresentationRequest
+    | ShapingRenderPrintableRequest
     | ShapingStartRequest
     | SkillCreateRequest
     | SkillListRequest
@@ -366,6 +370,8 @@ def command_identity(request: CommandRequest) -> tuple[str, int, type]:
         RuntimeReadEnvironmentRequest,
         RuntimeRepairRouterRequest,
         SessionStartRequest,
+        ShapingRenderPresentationRequest,
+        ShapingRenderPrintableRequest,
         ShapingStartRequest,
         SkillCreateRequest,
         SkillListRequest,

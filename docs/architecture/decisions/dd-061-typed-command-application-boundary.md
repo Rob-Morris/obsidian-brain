@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.31)
+**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.32)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -509,3 +509,17 @@ idempotent. Rebuild is unconditional and forces router, lexical index and
 semantic sidecar convergence. The existing configure adapter delegates its
 semantic lifecycle work to the extracted owner while public projections remain
 unchanged until coordinated cutover.
+
+## v0.54.32 managed document rendering owners
+
+`shaping.render-printable` and `shaping.render-presentation` now have separate
+typed contributor owners. Both require the managed `document_renderer`
+provider, but printable-only PDF engine and heading controls never leak into
+the presentation request, and presentation-only preview control never leaks
+into printable rendering.
+
+The owners validate the selected-Brain source before dry-run or execution,
+retain the existing Pandoc and Marp implementation seams, and report markdown,
+PDF and preview-process effects independently. Missing renderer output after a
+new markdown artefact commits is therefore partial; a renderer failure with no
+committed output is a no-effect error.
