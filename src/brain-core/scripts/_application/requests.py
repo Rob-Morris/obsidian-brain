@@ -16,8 +16,12 @@ from .artefact.outline import ArtefactOutlineRequest
 from .artefact.prepend import ArtefactPrependRequest
 from .artefact.read import ArtefactReadRequest
 from .artefact.read_archived import ArtefactReadArchivedRequest
+from .artefact.reparent import ArtefactReparentRequest
 from .artefact.replace_text import ArtefactReplaceTextRequest
 from .artefact.search import ArtefactSearchRequest
+from .artefact.set_key import ArtefactSetKeyRequest
+from .artefact.set_naming_field import ArtefactSetNamingFieldRequest
+from .artefact.set_status import ArtefactSetStatusRequest
 from .attachment.upload import AttachmentUploadRequest
 from .content.classify import ContentClassifyRequest
 from .content.resolve import ContentResolveRequest
@@ -194,12 +198,16 @@ CommandRequest = (
     | ArtefactEditRequest
     | ArtefactReadRequest
     | ArtefactReadArchivedRequest
+    | ArtefactReparentRequest
     | ArtefactOutlineRequest
     | ArtefactPrependRequest
     | ArtefactReplaceTextRequest
     | ArtefactListRequest
     | ArtefactListArchivedRequest
     | ArtefactSearchRequest
+    | ArtefactSetKeyRequest
+    | ArtefactSetNamingFieldRequest
+    | ArtefactSetStatusRequest
     | AttachmentUploadRequest
     | ContentClassifyRequest
     | ContentResolveRequest
@@ -256,12 +264,16 @@ def command_identity(request: CommandRequest) -> tuple[str, int, type]:
         ArtefactEditRequest,
         ArtefactReadRequest,
         ArtefactReadArchivedRequest,
+        ArtefactReparentRequest,
         ArtefactOutlineRequest,
         ArtefactPrependRequest,
         ArtefactReplaceTextRequest,
         ArtefactListRequest,
         ArtefactListArchivedRequest,
         ArtefactSearchRequest,
+        ArtefactSetKeyRequest,
+        ArtefactSetNamingFieldRequest,
+        ArtefactSetStatusRequest,
         AttachmentUploadRequest,
         ContentClassifyRequest,
         ContentResolveRequest,

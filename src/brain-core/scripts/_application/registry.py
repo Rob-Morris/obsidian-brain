@@ -12,8 +12,12 @@ from .artefact import outline as artefact_outline
 from .artefact import prepend as artefact_prepend
 from .artefact import read as artefact_read
 from .artefact import read_archived as artefact_read_archived
+from .artefact import reparent as artefact_reparent
 from .artefact import replace_text as artefact_replace_text
 from .artefact import search as artefact_search
+from .artefact import set_key as artefact_set_key
+from .artefact import set_naming_field as artefact_set_naming_field
+from .artefact import set_status as artefact_set_status
 from .attachment import upload as attachment_upload
 from .content import classify as content_classify
 from .content import resolve as content_resolve
@@ -89,8 +93,12 @@ def current_application_catalogue():
             artefact_prepend.catalogue_entry(),
             artefact_read.catalogue_entry(),
             artefact_read_archived.catalogue_entry(),
+            artefact_reparent.catalogue_entry(),
             artefact_replace_text.catalogue_entry(),
             artefact_search.catalogue_entry(),
+            artefact_set_key.catalogue_entry(),
+            artefact_set_naming_field.catalogue_entry(),
+            artefact_set_status.catalogue_entry(),
             attachment_upload.catalogue_entry(),
             content_classify.catalogue_entry(),
             content_resolve.catalogue_entry(),
@@ -167,8 +175,12 @@ def current_request_resolver():
             artefact_prepend.resolver_entry(),
             artefact_read.resolver_entry(),
             artefact_read_archived.resolver_entry(),
+            artefact_reparent.resolver_entry(),
             artefact_replace_text.resolver_entry(),
             artefact_search.resolver_entry(),
+            artefact_set_key.resolver_entry(),
+            artefact_set_naming_field.resolver_entry(),
+            artefact_set_status.resolver_entry(),
             attachment_upload.resolver_entry(),
             content_classify.resolver_entry(),
             content_resolve.resolver_entry(),

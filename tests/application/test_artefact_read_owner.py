@@ -59,8 +59,12 @@ def test_artefact_read_transport_and_catalogue_identity_are_one_to_one():
         "artefact.prepend",
         "artefact.read",
         "artefact.read-archived",
+        "artefact.reparent",
         "artefact.replace-text",
         "artefact.search",
+        "artefact.set-key",
+        "artefact.set-naming-field",
+        "artefact.set-status",
         "attachment.upload",
         "command.describe",
         "command.list",
@@ -142,8 +146,12 @@ def test_foundational_discovery_immediately_includes_migrated_owner(tmp_path):
         "artefact.prepend",
         "artefact.read",
         "artefact.read-archived",
+        "artefact.reparent",
         "artefact.replace-text",
         "artefact.search",
+        "artefact.set-key",
+        "artefact.set-naming-field",
+        "artefact.set-status",
     )
 
 
@@ -235,7 +243,7 @@ def test_router_metadata_is_typed_without_an_unbounded_metadata_bag(
     )
 
     assert result.status == "ok"
-    assert result.result.brain_core_version == "0.54.19"
+    assert result.result.brain_core_version == "0.54.20"
     assert result.result.always_rules
     assert result.result.source_hash.startswith("sha256:")
     assert len(result.result.sources) > 0

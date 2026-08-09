@@ -68,6 +68,9 @@ v0.54.18 adds granular artefact edit, append, prepend, delete-section and
 replace-text owners over shared typed structural mutation mechanics.
 v0.54.19 adds the corresponding 20 memory, skill, style and template owners,
 completing granular internal replacement of the legacy edit aggregate.
+v0.54.20 adds explicit artefact reparent, status, key and naming-field owners.
+Required-but-nullable parent intent distinguishes omission from deliberate
+ownership clearing, while `edit.py` retains lifecycle and derived-move rules.
 Existing adapters are not cut over in the v0.54.x foundation releases; they
 continue to behave as documented until the coordinated breaking release
 replaces the old grammar.

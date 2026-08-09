@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.19)
+**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.20)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -296,3 +296,19 @@ The modules bind directly to the v0.54.18 structural execution seam and
 fields belonging to another verb. The sealed request union enumerates all 20
 types, completing typed ownership of the former edit aggregate without
 retaining an aggregate discriminator at the application boundary.
+
+## v0.54.20 artefact lifecycle-mutation owners
+
+Four commands now own the contributor-facing lifecycle mutations:
+`artefact.reparent`, `artefact.set-status`, `artefact.set-key` and
+`artefact.set-naming-field`. Each request exposes only the field that its verb
+owns and returns the resolved path plus the exact old and new lifecycle value.
+
+`artefact.reparent.parent` is required and nullable. A missing field is invalid
+request shape; an explicit null is deliberate ownership clearing. This removes
+the dangerous transport ambiguity without creating a compatibility mapper.
+
+The application owners provide authority, receipt, locking, error and effect
+semantics. They call `edit.update_lifecycle_field` for status enums, protected
+metadata, naming preflight and derived path/tag/link/index changes, so lifecycle
+rules remain centralised rather than duplicated across projections.
