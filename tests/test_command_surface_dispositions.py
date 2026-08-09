@@ -151,6 +151,55 @@ def test_every_cli_leaf_and_nested_operation_has_one_owner() -> None:
     assert all(COMMAND_ID.fullmatch(entry["target"]) for entry in entries)
 
 
+def test_every_public_python_wrapper_has_one_disposition() -> None:
+    observation = _load("command_interface_current_surface_v1.json")
+    dispositions = _load("command_interface_dispositions_v1.json")
+    wrappers = dispositions["public_python_wrapper_dispositions"]
+    assert sorted(wrappers) == observation["observed_surfaces"][
+        "public_python_wrappers"
+    ]
+    for name, entry in wrappers.items():
+        if isinstance(entry, str):
+            assert entry == f"mcp_tool_dispositions.{name}"
+        else:
+            assert name == "brain_process"
+            assert entry["behaviour"] == "remove"
+            assert entry["replacement_guidance"]
+
+
+def test_every_recursive_direct_script_has_one_disposition() -> None:
+    observation = _load("command_interface_current_surface_v1.json")
+    dispositions = _load("command_interface_dispositions_v1.json")
+    groups = dispositions["direct_script_dispositions"]
+    assigned = [name for group in groups.values() for name in group]
+    assert len(assigned) == len(set(assigned))
+    assert sorted(assigned) == observation["observed_surfaces"]["direct_scripts"]
+
+    for owner in ("application", "launcher"):
+        assert all(COMMAND_ID.fullmatch(target) for target in groups[owner].values())
+    for entry in groups["split"].values():
+        assert entry["owner"] in {"application", "launcher", "mixed"}
+        assert bool(entry.get("mapping_ref")) != bool(entry.get("targets"))
+        assert all(COMMAND_ID.fullmatch(target) for target in entry.get("targets", []))
+    assert all(groups["internal"].values())
+    for entry in groups["remove"].values():
+        assert COMMAND_ID.fullmatch(entry["replacement"])
+        assert entry["rationale"]
+
+
+def test_every_install_upgrade_mode_is_launcher_owned() -> None:
+    observation = _load("command_interface_current_surface_v1.json")
+    dispositions = _load("command_interface_dispositions_v1.json")
+    observed = observation["observed_surfaces"]["install_upgrade_operations"]
+    assigned = dispositions["install_upgrade_dispositions"]
+    assert sorted(assigned) == sorted(observed)
+    for entrypoint, operations in assigned.items():
+        assert sorted(operations) == observed[entrypoint]
+        for entry in operations.values():
+            assert entry["owner"] == "launcher"
+            assert COMMAND_ID.fullmatch(entry["target"])
+
+
 def test_inventory_remains_honest_about_unassigned_contract_fields() -> None:
     dispositions = _load("command_interface_dispositions_v1.json")
     assert dispositions["inventory_status"] == "in_progress"
