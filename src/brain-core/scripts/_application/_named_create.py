@@ -1,0 +1,147 @@
+"""Shared execution mechanics for named configuration-resource creation."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Mapping
+
+from ._mutation_support import (
+    FrontmatterField,
+    InlineContent,
+    MutationContent,
+    StagedContent,
+    contributor_mutation_entry,
+    decode_frontmatter,
+    decode_mutation_content,
+    frontmatter_mapping,
+    no_effect_error,
+    resolve_mutation_content,
+)
+from .context import InvocationContext
+from .receipts import CommittedEffect
+from .results import CommandWarning, ErrorCode, Ok, WarningCode
+
+
+@dataclass(frozen=True, slots=True)
+class NamedResourceCreatePayload:
+    resource: str
+    name: str
+    path: str
+    staged_handle_consumed: bool
+
+
+def validate_named_create_request(request) -> None:
+    if not isinstance(request.name, str) or not request.name.strip():
+        raise ValueError(f"{request.COMMAND_ID} name must be a non-empty string")
+    if not isinstance(request.content, (InlineContent, StagedContent)):
+        raise ValueError(f"{request.COMMAND_ID} content has an invalid variant")
+    if not isinstance(request.frontmatter, tuple) or any(
+        not isinstance(item, FrontmatterField) for item in request.frontmatter
+    ):
+        raise ValueError(f"{request.COMMAND_ID} frontmatter must be typed fields")
+    names = tuple(item.name for item in request.frontmatter)
+    if len(names) != len(set(names)):
+        raise ValueError(f"{request.COMMAND_ID} frontmatter fields must be unique")
+    if names != tuple(sorted(names)):
+        raise ValueError(
+            f"{request.COMMAND_ID} frontmatter fields must use deterministic order"
+        )
+
+
+def execute_named_create(
+    context: InvocationContext,
+    request,
+    *,
+    resource: str,
+):
+    from _common import (
+        MutationLockError,
+        public_mutation_error_message,
+        vault_mutation_lock,
+    )
+    from _lifecycle.derived_cache_state import load_fresh_compiled_router
+    from _staging import finalise_staged_body
+    import create
+
+    if context.dry_run:
+        return no_effect_error(
+            type(request),
+            ErrorCode.INVALID_REQUEST,
+            f"{request.COMMAND_ID} does not support dry-run",
+        )
+    vault_root = str(context.selected_brain.vault_root)
+    router = load_fresh_compiled_router(vault_root)
+    if "error" in router:
+        return no_effect_error(
+            type(request),
+            ErrorCode.CONFLICT,
+            router["error"],
+        )
+    try:
+        with vault_mutation_lock(vault_root):
+            body, staged_handle = resolve_mutation_content(
+                vault_root,
+                request.content,
+            )
+            result = create.create_resource(
+                vault_root,
+                router,
+                resource=resource,
+                name=request.name,
+                body=body,
+                frontmatter=frontmatter_mapping(request.frontmatter),
+            )
+            staging_warning = finalise_staged_body(vault_root, staged_handle)
+    except MutationLockError as exc:
+        return no_effect_error(
+            type(request),
+            ErrorCode.CONFLICT,
+            public_mutation_error_message(exc),
+            retryable=True,
+        )
+    except ValueError as exc:
+        return no_effect_error(
+            type(request),
+            ErrorCode.INVALID_REQUEST,
+            str(exc),
+        )
+    payload = NamedResourceCreatePayload(
+        resource=result["resource"],
+        name=result["name"],
+        path=result["path"],
+        staged_handle_consumed=staged_handle is not None and staging_warning is None,
+    )
+    warnings = (
+        (CommandWarning(WarningCode.FOLLOW_UP_REQUIRED, staging_warning),)
+        if staging_warning
+        else ()
+    )
+    return Ok(
+        request.COMMAND_ID,
+        request.COMMAND_VERSION,
+        payload,
+        committed_effects=(CommittedEffect(f"{resource}.created", payload.path),),
+        warnings=warnings,
+    )
+
+
+def decode_named_create(
+    payload: Mapping[str, object],
+    request_type,
+):
+    allowed = {"name", "content", "frontmatter"}
+    unexpected = sorted(set(payload) - allowed)
+    if unexpected:
+        raise ValueError(f"unexpected fields: {', '.join(unexpected)}")
+    name = payload.get("name")
+    if not isinstance(name, str):
+        raise ValueError("name must be a string")
+    return request_type(
+        name=name,
+        content=decode_mutation_content(payload.get("content")),
+        frontmatter=decode_frontmatter(payload.get("frontmatter")),
+    )
+
+
+def catalogue_entry(request_type, executor):
+    return contributor_mutation_entry(request_type, executor)

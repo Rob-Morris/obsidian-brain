@@ -57,6 +57,9 @@ and semantic enhancement is gated by trusted provider/capability context.
 v0.54.14 adds typed contributor mutation owners for staged bodies and
 attachments, with explicit effects, dry-run behavior and unknown-outcome
 handling over the existing staging and attachment semantic modules.
+v0.54.15 adds granular memory, skill and style creation owners with immutable
+inline/staged content, bounded typed frontmatter and commit-safe staged-handle
+consumption over the existing `create.py` semantic owner.
 Existing adapters are not cut over in the v0.54.x foundation releases; they
 continue to behave as documented until the coordinated breaking release
 replaces the old grammar.

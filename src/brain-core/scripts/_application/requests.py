@@ -16,6 +16,7 @@ from .content.classify import ContentClassifyRequest
 from .content.resolve import ContentResolveRequest
 from .links.check import LinksCheckRequest
 from .memory.list import MemoryListRequest
+from .memory.create import MemoryCreateRequest
 from .memory.read import MemoryReadRequest
 from .memory.search import MemorySearchRequest
 from .plugin.list import PluginListRequest
@@ -24,11 +25,13 @@ from .plugin.search import PluginSearchRequest
 from .runtime.read_environment import RuntimeReadEnvironmentRequest
 from .session.start import SessionStartRequest
 from .skill.list import SkillListRequest
+from .skill.create import SkillCreateRequest
 from .skill.read import SkillReadRequest
 from .skill.search import SkillSearchRequest
 from .stage.create import StageCreateRequest
 from .stage.discard import StageDiscardRequest
 from .style.list import StyleListRequest
+from .style.create import StyleCreateRequest
 from .style.read import StyleReadRequest
 from .style.search import StyleSearchRequest
 from .template.list import TemplateListRequest
@@ -187,6 +190,7 @@ CommandRequest = (
     | ContentClassifyRequest
     | ContentResolveRequest
     | LinksCheckRequest
+    | MemoryCreateRequest
     | MemoryListRequest
     | MemoryReadRequest
     | MemorySearchRequest
@@ -195,11 +199,13 @@ CommandRequest = (
     | PluginSearchRequest
     | RuntimeReadEnvironmentRequest
     | SessionStartRequest
+    | SkillCreateRequest
     | SkillListRequest
     | SkillReadRequest
     | SkillSearchRequest
     | StageCreateRequest
     | StageDiscardRequest
+    | StyleCreateRequest
     | StyleListRequest
     | StyleReadRequest
     | StyleSearchRequest
@@ -238,6 +244,7 @@ def command_identity(request: CommandRequest) -> tuple[str, int, type]:
         ContentClassifyRequest,
         ContentResolveRequest,
         LinksCheckRequest,
+        MemoryCreateRequest,
         MemoryListRequest,
         MemoryReadRequest,
         MemorySearchRequest,
@@ -246,11 +253,13 @@ def command_identity(request: CommandRequest) -> tuple[str, int, type]:
         PluginSearchRequest,
         RuntimeReadEnvironmentRequest,
         SessionStartRequest,
+        SkillCreateRequest,
         SkillListRequest,
         SkillReadRequest,
         SkillSearchRequest,
         StageCreateRequest,
         StageDiscardRequest,
+        StyleCreateRequest,
         StyleListRequest,
         StyleReadRequest,
         StyleSearchRequest,

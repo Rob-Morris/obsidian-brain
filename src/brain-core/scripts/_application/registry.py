@@ -14,6 +14,7 @@ from .content import resolve as content_resolve
 from .foundation import build_application_catalogue, build_request_resolver
 from .links import check as links_check
 from .memory import list as memory_list
+from .memory import create as memory_create
 from .memory import read as memory_read
 from .memory import search as memory_search
 from .plugin import list as plugin_list
@@ -22,11 +23,13 @@ from .plugin import search as plugin_search
 from .runtime import read_environment as runtime_read_environment
 from .session import start as session_start
 from .skill import list as skill_list
+from .skill import create as skill_create
 from .skill import read as skill_read
 from .skill import search as skill_search
 from .stage import create as stage_create
 from .stage import discard as stage_discard
 from .style import list as style_list
+from .style import create as style_create
 from .style import read as style_read
 from .style import search as style_search
 from .template import list as template_list
@@ -59,6 +62,7 @@ def current_application_catalogue():
             content_classify.catalogue_entry(),
             content_resolve.catalogue_entry(),
             links_check.catalogue_entry(),
+            memory_create.catalogue_entry(),
             memory_list.catalogue_entry(),
             memory_read.catalogue_entry(),
             memory_search.catalogue_entry(),
@@ -67,11 +71,13 @@ def current_application_catalogue():
             plugin_search.catalogue_entry(),
             runtime_read_environment.catalogue_entry(),
             session_start.catalogue_entry(),
+            skill_create.catalogue_entry(),
             skill_list.catalogue_entry(),
             skill_read.catalogue_entry(),
             skill_search.catalogue_entry(),
             stage_create.catalogue_entry(),
             stage_discard.catalogue_entry(),
+            style_create.catalogue_entry(),
             style_list.catalogue_entry(),
             style_read.catalogue_entry(),
             style_search.catalogue_entry(),
@@ -107,6 +113,7 @@ def current_request_resolver():
             content_classify.resolver_entry(),
             content_resolve.resolver_entry(),
             links_check.resolver_entry(),
+            memory_create.resolver_entry(),
             memory_list.resolver_entry(),
             memory_read.resolver_entry(),
             memory_search.resolver_entry(),
@@ -115,11 +122,13 @@ def current_request_resolver():
             plugin_search.resolver_entry(),
             runtime_read_environment.resolver_entry(),
             session_start.resolver_entry(),
+            skill_create.resolver_entry(),
             skill_list.resolver_entry(),
             skill_read.resolver_entry(),
             skill_search.resolver_entry(),
             stage_create.resolver_entry(),
             stage_discard.resolver_entry(),
+            style_create.resolver_entry(),
             style_list.resolver_entry(),
             style_read.resolver_entry(),
             style_search.resolver_entry(),

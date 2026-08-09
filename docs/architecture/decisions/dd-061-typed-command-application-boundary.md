@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.14)
+**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.15)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -226,3 +226,17 @@ The commands retain `_staging` and `upload_attachment.py` as their semantic and
 path-safety owners. Attachment content crosses the canonical boundary as
 bounded base64; caller-file reads belong to local adapters. Dry-run never
 allocates a fake stage handle or writes/discards a resource.
+
+## v0.54.15 typed named-resource creation owners
+
+`memory.create`, `skill.create` and `style.create` now own separate granular
+requests over one shared named-resource execution seam. Content is an immutable
+inline/staged union with the canonical `source` discriminator. Optional
+frontmatter is a deterministic tuple of typed scalar or flat-list fields,
+rather than an open mutable command bag.
+
+The application layer validates intent, authority, freshness and result/effect
+shape; `create.py` retains naming, destination and write semantics. Staged
+handles are consumed only after commit, stale-router and duplicate failures
+claim no effects, and unexpected failures after mutation entry retain the
+kernel's unknown-outcome contract.
