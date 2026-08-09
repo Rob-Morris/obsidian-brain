@@ -188,6 +188,9 @@ v0.54.52 adds launcher-owned list/describe projection and an outer
 `cli/_local_cli/` composition boundary. Launcher discovery derives schemas and
 examples from its own sealed request/result types; the outer view retains both
 catalogue provenances and never imports selected-Brain application semantics.
+v0.54.53 stages catalogue-derived built-in granular profile sets and moves
+known-command authority denial ahead of dynamic request resolution. The
+current aggregate defaults remain unchanged until coordinated cutover.
 
 That launcher process is not automatically the managed runtime. The shared launcher-safe bootstrap ownership now lives under `_bootstrap/`: bootstrap entrypoints do meaningful launcher-safe work there, and runtime-owning lifecycle entrypoints such as `repair.py`, `setup.py`, `configure.py`, `session.py`, and `check.py` hand substantive managed work off into the canonical managed runtime before continuing.
 

@@ -1,0 +1,44 @@
+"""Granular built-in profile projection for the coordinated adapter cutover."""
+
+from __future__ import annotations
+
+from types import MappingProxyType
+
+from _application.catalogue import ApplicationCatalogue
+from _application.projection import project_identity
+from _application.types import Authority, Projection
+
+
+_PROFILE_AUTHORITY = MappingProxyType(
+    {
+        "reader": Authority.READER,
+        "contributor": Authority.CONTRIBUTOR,
+        "operator": Authority.OPERATOR,
+    }
+)
+_AUTHORITY_RANK = {
+    Authority.READER: 0,
+    Authority.CONTRIBUTOR: 1,
+    Authority.OPERATOR: 2,
+}
+
+
+def builtin_profile_allow_lists(
+    catalogue: ApplicationCatalogue,
+) -> dict[str, tuple[str, ...]]:
+    """Project cumulative exact MCP leaves from catalogue authority metadata."""
+
+    result = {}
+    for profile, maximum in _PROFILE_AUTHORITY.items():
+        tools = tuple(
+            project_identity(entry.command_id).mcp_tool
+            for entry in catalogue.entries
+            if Projection.MCP in entry.eligible_projections
+            and _AUTHORITY_RANK[entry.authority] <= _AUTHORITY_RANK[maximum]
+        )
+        if tools != tuple(sorted(set(tools))):
+            raise RuntimeError(f"{profile} granular profile is not sorted and unique")
+        result[profile] = tools
+    if not set(result["reader"]) <= set(result["contributor"]) <= set(result["operator"]):
+        raise RuntimeError("built-in granular profiles must be cumulative")
+    return result

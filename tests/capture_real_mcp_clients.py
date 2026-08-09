@@ -442,7 +442,7 @@ def build_capture() -> dict:
         vault = temp / "Brain"
         core = vault / ".brain-core"
         core.mkdir(parents=True)
-        (core / "VERSION").write_text("0.54.52\n", encoding="utf-8")
+        (core / "VERSION").write_text("0.54.53\n", encoding="utf-8")
         return {
             "schema": "brain.command-interface-real-client-evidence/1",
             "captured_at": "2026-08-10T17:00:00+10:00",

@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.52)
+**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.53)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -921,3 +921,19 @@ entries together, but preserves each catalogue schema, fingerprint, cursor and
 owned payload. It sorts deterministically and fails on command-identity
 collisions; it does not create a third semantic catalogue or pass launcher
 entries to application execution.
+
+## v0.54.53 pre-resolution profile enforcement
+
+The shared dynamic adapter resolves a known command's catalogue entry and
+consults trusted profile authority before decoding caller payload fields. A
+denied command therefore cannot enter its dynamic resolver or executor and
+cannot produce command effects. The application and adapters reuse one
+canonical denial result; authority-backend failures become privacy-bounded
+structural internal errors.
+
+`_command_interface.profiles` derives the future exact built-in MCP allow-lists
+from the authoritative catalogue rather than maintaining another command
+inventory. Authority is cumulative: 41 reader leaves, 82 contributor leaves
+and all 109 MCP-eligible leaves for operator. Current aggregate profile defaults
+remain unchanged until the breaking cutover can migrate built-in and custom
+profiles atomically with public registration.

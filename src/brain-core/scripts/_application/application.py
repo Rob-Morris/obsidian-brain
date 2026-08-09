@@ -69,20 +69,9 @@ class CommandApplication:
 
     def _preflight(self, entry: ApplicationEntry) -> Error | None:
         context = self._context
-        if not context.authority.allows(
-            command_id=entry.command_id,
-            required=entry.authority,
-            effect=entry.effect_class,
-        ):
-            return Error(
-                entry.command_id,
-                entry.command_version,
-                CommandError(
-                    ErrorCode.AUTHORITY_DENIED,
-                    "The authenticated profile does not permit this command.",
-                    AuthorityDeniedDetails(context.profile, entry.authority.value),
-                ),
-            )
+        denied = authority_denied_result(context, entry)
+        if denied is not None:
+            return denied
 
         missing = []
         if not context.dependency_tier.supports(entry.dependency_tier):
@@ -185,12 +174,49 @@ class CommandApplication:
         self._context.receipt_writer.write(receipt)
 
     def _internal_error(self, command_id: str, command_version: int) -> Error:
-        return Error(
+        return internal_error_result(
+            self._context,
             command_id,
             command_version,
-            CommandError(
-                ErrorCode.INTERNAL_ERROR,
-                "The command failed unexpectedly.",
-                InternalErrorDetails(self._context.correlation_id),
-            ),
         )
+
+
+def authority_denied_result(
+    context: InvocationContext,
+    entry: ApplicationEntry,
+) -> Error | None:
+    """Return the canonical denial for trusted context and a catalogue entry."""
+
+    if context.authority.allows(
+        command_id=entry.command_id,
+        required=entry.authority,
+        effect=entry.effect_class,
+    ):
+        return None
+    return Error(
+        entry.command_id,
+        entry.command_version,
+        CommandError(
+            ErrorCode.AUTHORITY_DENIED,
+            "The authenticated profile does not permit this command.",
+            AuthorityDeniedDetails(context.profile, entry.authority.value),
+        ),
+    )
+
+
+def internal_error_result(
+    context: InvocationContext,
+    command_id: str,
+    command_version: int,
+) -> Error:
+    """Map an unexpected adapter/application failure without leaking details."""
+
+    return Error(
+        command_id,
+        command_version,
+        CommandError(
+            ErrorCode.INTERNAL_ERROR,
+            "The command failed unexpectedly.",
+            InternalErrorDetails(context.correlation_id),
+        ),
+    )

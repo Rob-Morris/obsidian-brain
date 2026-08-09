@@ -144,6 +144,14 @@ The config system supports three built-in operator profiles with different level
 
 Each profile has a per-tool allow-list defined in the vault config. Tools not on the active profile's allow-list return an error `CallToolResult` — no silent failures.
 
+The staged command interface derives its future built-in lists from the
+authoritative catalogue's MCP eligibility and authority metadata: reader has 41
+exact leaves, contributor cumulatively has 82, and operator has all 109. A
+known denied leaf is rejected from catalogue plus trusted profile state before
+dynamic request resolution, executor entry or effects. Existing aggregate
+defaults remain public until the coordinated breaking cutover migrates both
+built-in and custom allow-lists; there is no runtime aggregate fallback.
+
 ### Authentication
 
 `brain_session` accepts an optional `operator_key` parameter. Before authenticating, the server refreshes config if any config input changed. It then hashes the supplied key with SHA-256 and matches it against registered operators in the vault config. On a match, it sets the session profile to the operator's configured profile for all subsequent per-call enforcement. If `operator_key` is omitted, the default profile from config is used.

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
@@ -13,6 +14,7 @@ from _application.registry import current_application_catalogue, current_request
 from _application.results import ErrorCode
 from _application.types import Availability, DependencyTier, SnapshotFreshness
 from _command_interface.context import SystemClock, compose_local_context
+from _command_interface.profiles import builtin_profile_allow_lists
 
 
 NOW = datetime.fromisoformat("2026-08-10T06:30:00+10:00")
@@ -88,6 +90,71 @@ def test_granular_profile_denies_before_executor_and_has_no_aggregate_fallback(t
     assert allowed.exit_code == 0
     assert denied.result.error.code is ErrorCode.AUTHORITY_DENIED
     assert denied.exit_code == 3
+
+
+def test_granular_profile_denial_precedes_dynamic_request_resolution(tmp_path):
+    catalogue = current_application_catalogue()
+    resolver = current_request_resolver()
+
+    class _FailingResolver:
+        entries = resolver.entries
+
+        @staticmethod
+        def resolve(*_args, **_kwargs):
+            pytest.fail("denied profile must not enter the dynamic resolver")
+
+    result = ApplicationAdapter(catalogue, _FailingResolver()).invoke(
+        _context(tmp_path, tools=frozenset(), invocation_id="inv-pre-resolver"),
+        "artefact.create",
+        {"malformed": "request is deliberately irrelevant"},
+    )
+
+    assert result.result.error.code is ErrorCode.AUTHORITY_DENIED
+    assert result.exit_code == 3
+
+
+def test_adapter_bounds_authority_evaluator_failures_before_resolution(tmp_path):
+    catalogue = current_application_catalogue()
+    resolver = current_request_resolver()
+    context = _context(tmp_path, invocation_id="inv-authority-failure")
+
+    class _BrokenAuthority:
+        @staticmethod
+        def allows(**_kwargs):
+            raise RuntimeError("private authority backend detail")
+
+    context = replace(context, authority=_BrokenAuthority())
+    result = ApplicationAdapter(catalogue, resolver).invoke(
+        context,
+        "command.list",
+        {"page_size": 1},
+    )
+
+    assert result.result.error.code is ErrorCode.INTERNAL_ERROR
+    assert "private" not in result.json_text
+    assert result.exit_code == 4
+
+
+def test_built_in_granular_profiles_derive_cumulative_exact_mcp_leaves():
+    profiles = builtin_profile_allow_lists(current_application_catalogue())
+
+    assert {name: len(tools) for name, tools in profiles.items()} == {
+        "reader": 41,
+        "contributor": 82,
+        "operator": 109,
+    }
+    assert set(profiles["reader"]) < set(profiles["contributor"]) < set(
+        profiles["operator"]
+    )
+    assert "brain_command_list" in profiles["reader"]
+    assert "brain_artefact_create" in profiles["contributor"]
+    assert "brain_artefact_delete" in profiles["operator"]
+    assert not set(profiles["operator"]) & {
+        "brain_action",
+        "brain_create",
+        "brain_edit",
+        "brain_move",
+    }
 
 
 def test_local_context_refuses_missing_or_symlinked_core_and_open_provider_sets(tmp_path):

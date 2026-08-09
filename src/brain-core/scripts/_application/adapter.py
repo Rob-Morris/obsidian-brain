@@ -5,7 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Mapping
 
-from .application import CommandApplication
+from .application import (
+    CommandApplication,
+    authority_denied_result,
+    internal_error_result,
+)
 from .catalogue import ApplicationCatalogue
 from .context import InvocationContext
 from .projection import canonical_result_envelope, canonical_result_json
@@ -67,6 +71,23 @@ class ApplicationAdapter:
         command_id: str,
         payload: Mapping[str, object],
     ) -> AdapterProjection:
+        entry = next(
+            (item for item in self.catalogue.entries if item.command_id == command_id),
+            None,
+        )
+        if entry is not None:
+            try:
+                denied = authority_denied_result(context, entry)
+            except Exception:
+                return project_adapter_result(
+                    internal_error_result(
+                        context,
+                        entry.command_id,
+                        entry.command_version,
+                    )
+                )
+            if denied is not None:
+                return project_adapter_result(denied)
         if not isinstance(payload, Mapping):
             raise AdapterRequestError(
                 ResolutionErrorCode.INVALID_REQUEST,
