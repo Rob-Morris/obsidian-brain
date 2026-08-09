@@ -1,7 +1,7 @@
 {
   "schema": "brain.command-surface-observation/1",
   "brain_core_version": "0.54.0",
-  "inventory_status": "in_progress",
+  "inventory_status": "observed_complete_dispositions_pending",
   "observed_surfaces": {
     "mcp_tools": [
       "brain_action",
@@ -168,6 +168,256 @@
         "version"
       ]
     },
+    "cli_operation_axes": {
+      "configure.py": {
+        "command_paths": [
+          "agent-skills",
+          "mcp",
+          "semantic",
+          "workspace binding",
+          "workspace bootstrap",
+          "workspace metadata"
+        ]
+      },
+      "create.py": {
+        "resource": [
+          "artefact",
+          "memory",
+          "skill",
+          "style",
+          "template"
+        ]
+      },
+      "define.py": {
+        "command_paths": [
+          "plugin create",
+          "plugin replace",
+          "trigger create",
+          "trigger delete",
+          "trigger replace",
+          "type create",
+          "type replace"
+        ]
+      },
+      "edit.py": {
+        "operation": [
+          "append",
+          "delete_section",
+          "edit",
+          "prepend",
+          "replace_text"
+        ],
+        "resource": [
+          "artefact",
+          "memory",
+          "skill",
+          "style",
+          "template"
+        ]
+      },
+      "lifecycle.py": {
+        "command_paths": [
+          "reparent",
+          "set-key",
+          "set-naming-field",
+          "set-status"
+        ]
+      },
+      "list_artefacts.py": {
+        "resource": [
+          "archive",
+          "artefact",
+          "memory",
+          "plugin",
+          "skill",
+          "style",
+          "template",
+          "trigger",
+          "type",
+          "workspace"
+        ]
+      },
+      "machine.py": {
+        "command_paths": [
+          "migrate-legacy",
+          "prune-runtimes"
+        ]
+      },
+      "read.py": {
+        "resource": [
+          "archive",
+          "artefact",
+          "environment",
+          "file",
+          "memory",
+          "plugin",
+          "router",
+          "skill",
+          "style",
+          "template",
+          "trigger",
+          "type"
+        ]
+      },
+      "repair.py": {
+        "scope": [
+          "frontmatter",
+          "lexical",
+          "mcp",
+          "ownership",
+          "registry",
+          "router",
+          "runtime",
+          "semantic"
+        ]
+      },
+      "setup.py": {
+        "command_paths": [
+          "workspace"
+        ]
+      }
+    },
+    "direct_scripts": [
+      "_common/_venv.py",
+      "_machine/resolve_brain.py",
+      "build_index.py",
+      "build_lexical_index.py",
+      "check.py",
+      "compile_colours.py",
+      "compile_router.py",
+      "config.py",
+      "configure.py",
+      "construct_benchmark_fixture.py",
+      "create.py",
+      "define.py",
+      "discard_stage.py",
+      "doctor.py",
+      "doctor_machine.py",
+      "edit.py",
+      "evaluate_search.py",
+      "fix_links.py",
+      "generate_key.py",
+      "install.py",
+      "lifecycle.py",
+      "list_artefacts.py",
+      "machine.py",
+      "migrate_naming.py",
+      "migrations/migrate_to_0_29_0.py",
+      "migrations/migrate_to_0_31_0.py",
+      "migrations/migrate_to_0_34_0.py",
+      "migrations/migrate_to_0_40_8.py",
+      "migrations/migrate_to_0_43_0.py",
+      "migrations/migrate_to_0_48_2.py",
+      "migrations/migrate_to_0_50_0.py",
+      "outline.py",
+      "read.py",
+      "rename.py",
+      "repair.py",
+      "search_index.py",
+      "search_lexical.py",
+      "session.py",
+      "setup.py",
+      "shape_presentation.py",
+      "shape_printable.py",
+      "stage.py",
+      "start_shaping.py",
+      "start_shaping_session.py",
+      "sync_definitions.py",
+      "upgrade.py",
+      "upload_attachment.py",
+      "vault_registry.py",
+      "workspace_registry.py"
+    ],
+    "public_python_wrappers": [
+      "brain_action",
+      "brain_check",
+      "brain_classify",
+      "brain_create",
+      "brain_define",
+      "brain_discard_stage",
+      "brain_edit",
+      "brain_ingest",
+      "brain_init",
+      "brain_list",
+      "brain_move",
+      "brain_outline",
+      "brain_process",
+      "brain_read",
+      "brain_reparent",
+      "brain_resolve",
+      "brain_search",
+      "brain_session",
+      "brain_set_key",
+      "brain_set_naming_field",
+      "brain_set_status",
+      "brain_stage",
+      "brain_upload_attachment"
+    ],
+    "install_upgrade_operations": {
+      "install.ps1": [
+        "existing-vault-install",
+        "fresh-vault-install"
+      ],
+      "install.py": [
+        "existing-vault-install",
+        "fresh-vault-install"
+      ],
+      "install.sh": [
+        "existing-vault-install",
+        "fresh-vault-install",
+        "uninstall",
+        "upgrade"
+      ],
+      "upgrade.py": [
+        "upgrade"
+      ]
+    },
+    "documented_contract_sources": {
+      "cli": [
+        "docs/functional/cli.md"
+      ],
+      "direct_scripts": [
+        "docs/functional/scripts.md",
+        "src/brain-core/scripts/README.md"
+      ],
+      "install_upgrade": [
+        "docs/functional/cli.md",
+        "docs/functional/scripts.md",
+        "docs/user/getting-started.md"
+      ],
+      "mcp": [
+        "docs/functional/mcp-tools.md",
+        "docs/user/user-reference.md"
+      ]
+    },
+    "known_current_consumers": {
+      "bootstrap_guidance": [
+        "AGENTS.md",
+        "src/brain-core/index.md",
+        "src/brain-core/md-bootstrap.md",
+        "src/brain-core/session-core.md",
+        "template-vault/AGENTS.md"
+      ],
+      "machine_launchers": [
+        "cli/brain",
+        "install.cmd",
+        "install.ps1",
+        "install.sh"
+      ],
+      "mcp_transport": [
+        "src/brain-core/brain_mcp/proxy.py",
+        "src/brain-core/brain_mcp/server.py"
+      ],
+      "profile_configuration": [
+        "src/brain-core/defaults/config.yaml",
+        "src/brain-core/scripts/config.py"
+      ],
+      "public_contract_tests": [
+        "tests/test_brain_cli.py",
+        "tests/test_mcp_tool_contract.py",
+        "tests/test_windows_user_smoke.py"
+      ]
+    },
     "default_profiles": {
       "reader": [
         "brain_init",
@@ -227,11 +477,5 @@
       ]
     }
   },
-  "pending_surfaces": [
-    "cli_nested_operations",
-    "direct_scripts",
-    "public_python_wrappers",
-    "installer_and_upgrader_operations",
-    "documented_operations_and_consumers"
-  ]
+  "pending_surfaces": []
 }
