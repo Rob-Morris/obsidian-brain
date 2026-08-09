@@ -11,6 +11,12 @@ authority, effects, retry policy and explicit projection exclusions under
 `brain.launcher-catalogue/1`. It does not change the v1 public grammar below;
 the catalogue becomes active only in the coordinated CLI 2.0 cutover.
 
+v0.54.35 adds the adjacent stdlib-only `cli/_launcher/` invocation boundary
+and typed owners for registry default/list/resolve, CLI version and managed
+runtime path/runnable resolution. These owners share the structural command
+result vocabulary without importing selected-Brain `_application`, and they
+remain internal until the same coordinated cutover.
+
 ## Install
 
 The CLI is installed automatically by `install.sh` to `~/.local/bin/brain` (user scope) or `/usr/local/bin/brain` (with `--system`). `upgrade.py` refreshes any installed CLI binary on each upgrade; it does not install a new CLI where none existed.

@@ -104,6 +104,9 @@ v0.54.34 adds the six caller-local workspace mutation owners. Their target
 directory comes only from trusted invocation context backed by the explicit
 `caller_filesystem` provider; request payloads cannot inject host paths. They
 remain bootstrap-capable CLI/script/Python commands and explicitly exclude MCP.
+v0.54.35 establishes the separate stdlib-only machine-global launcher
+invocation boundary and its first six read owners under `cli/_launcher/`.
+Selected-Brain `_application` does not import or duplicate that authority.
 Existing adapters are not cut over in the v0.54.x foundation releases; they
 continue to behave as documented until the coordinated breaking release
 replaces the old grammar.

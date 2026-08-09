@@ -1,0 +1,71 @@
+"""Trusted machine-global launcher invocation context."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+from typing import Protocol
+
+from .contracts import ReceiptWriter
+
+
+class AuthorityEvaluator(Protocol):
+    def allows(self, *, command_id: str, required: str, effect: str) -> bool: ...
+
+
+class Clock(Protocol):
+    def now(self) -> datetime: ...
+
+
+class ProviderPort(Protocol):
+    @property
+    def provider_id(self) -> str: ...
+
+    @property
+    def available(self) -> bool: ...
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderBindings:
+    providers: tuple[ProviderPort, ...] = ()
+
+    def __post_init__(self) -> None:
+        names = [provider.provider_id for provider in self.providers]
+        if any(not name.strip() for name in names):
+            raise ValueError("launcher provider IDs must be non-empty")
+        if len(names) != len(set(names)):
+            raise ValueError("launcher providers must be unique")
+
+    def get(self, provider_id: str) -> ProviderPort | None:
+        return next(
+            (provider for provider in self.providers if provider.provider_id == provider_id),
+            None,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class LauncherContext:
+    profile: str
+    authority: AuthorityEvaluator
+    providers: ProviderBindings
+    correlation_id: str
+    invocation_id: str
+    receipt_writer: ReceiptWriter
+    clock: Clock
+    caller_dir: Path
+    cli_version: str
+    launcher_python: Path | None = None
+    dry_run: bool = False
+
+    def __post_init__(self) -> None:
+        if not self.profile.strip() or not self.correlation_id.strip():
+            raise ValueError("launcher context requires profile and correlation identity")
+        if not self.invocation_id.strip() or not self.cli_version.strip():
+            raise ValueError("launcher context requires invocation and CLI identity")
+        if not self.caller_dir.is_absolute():
+            raise ValueError("launcher caller_dir must be absolute")
+        if self.launcher_python is not None and not self.launcher_python.is_absolute():
+            raise ValueError("launcher_python must be absolute")
+        if not isinstance(self.dry_run, bool):
+            raise ValueError("launcher dry_run must be a boolean")

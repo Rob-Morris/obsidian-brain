@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.54.35](changelog/v0.54.35.md) | 2026-08-10 | Establish typed machine-global launcher read command ownership |
 | [v0.54.34](changelog/v0.54.34.md) | 2026-08-10 | Migrate trusted caller-local workspace mutation command owners |
 | [v0.54.33](changelog/v0.54.33.md) | 2026-08-10 | Migrate managed retrieval benchmark owners |
 | [v0.54.32](changelog/v0.54.32.md) | 2026-08-10 | Migrate managed document rendering owners |

@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.34)
+**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.35)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -556,3 +556,20 @@ semantics, including mutation locking and structural lifecycle steps. Dry-run
 returns a no-effect plan; failures after a known workspace-manifest commit are
 partial with that effect enumerated. Existing public adapters remain unchanged
 until coordinated cutover.
+
+## v0.54.35 machine-global launcher read boundary
+
+The separate machine-global side now has a real stdlib-only invocation boundary
+under `cli/_launcher/`, not synthetic selected-Brain executors. Trusted launcher
+context carries authority, providers, correlation, receipts, caller directory,
+CLI identity and launcher Python. Its structural result and receipt vocabulary
+is shape-checked against `brain.command-result/1` without importing
+`_application`.
+
+Typed owners now cover `brain.get-default`, `brain.list`, `brain.resolve`,
+`brain.version`, `runtime.resolve` and `runtime.resolve-runnable`. They preserve
+the existing machine-registry and `_venv` semantic seams, validate nested
+outputs, fail authority before execution and map unexpected read failure to a
+privacy-bounded internal error. The launcher catalogue now correctly identifies
+the runtime owners as managed-runtime resolution rather than Brain-target
+resolution. Public CLI dispatch remains unchanged until coordinated cutover.
