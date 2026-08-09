@@ -318,6 +318,56 @@ def _is_valid_brain_id(brain_id):
     return bool(brain_id and _BRAIN_ID_RE.fullmatch(brain_id))
 
 
+def _plan_registration(entries, abs_path, brain_id):
+    """Return one registration result after mutating only the provided mapping."""
+    existing_id = _find_local_brain_id_by_path(entries, abs_path)
+
+    if brain_id is None:
+        if existing_id is not None:
+            return RegistryRegistrationResult(existing_id, False)
+        base_brain_id = title_to_slug(os.path.basename(abs_path)) or "vault"
+        new_id = base_brain_id
+        while new_id in entries:
+            new_id = f"{base_brain_id}-{random_short_suffix()}"
+        entries[new_id] = RegistryEntry(
+            brain_id=new_id,
+            kind=TYPE_LOCAL,
+            value=abs_path,
+        )
+        return RegistryRegistrationResult(new_id, True)
+
+    existing_entry = entries.get(brain_id)
+    if existing_entry is not None:
+        if existing_entry.kind == TYPE_LOCAL and existing_entry.value == abs_path:
+            return RegistryRegistrationResult(brain_id, False)
+        raise RegistryConflictError(
+            f"Brain ID '{brain_id}' is already registered to a different path: "
+            f"{existing_entry.value!r}; unregister it first"
+        )
+    if existing_id is not None:
+        raise RegistryConflictError(
+            f"path {abs_path!r} is already registered as '{existing_id}'; "
+            f"unregister it first or pass brain_id='{existing_id}'"
+        )
+    entries[brain_id] = RegistryEntry(
+        brain_id=brain_id,
+        kind=TYPE_LOCAL,
+        value=abs_path,
+    )
+    return RegistryRegistrationResult(brain_id, True)
+
+
+def preview_register_action(vault_path, brain_id=None):
+    """Plan registration without acquiring a lock or creating filesystem state."""
+    abs_path = _absolute(vault_path)
+    if brain_id is not None and not _is_valid_brain_id(brain_id):
+        raise ValueError(
+            f"invalid Brain ID {brain_id!r}: must match ^[a-z0-9]+(-[a-z0-9]+)*$"
+        )
+    entries = load_registry_entries()
+    return _plan_registration(entries, abs_path, brain_id)
+
+
 def register_action(vault_path, brain_id=None, *, dry_run=False):
     """Register or plan a local vault and report resolved ID/change state.
 
@@ -341,49 +391,10 @@ def register_action(vault_path, brain_id=None, *, dry_run=False):
         )
     with _locked():
         entries = load_registry_entries()
-        existing_id = _find_local_brain_id_by_path(entries, abs_path)
-
-        if brain_id is None:
-            # Original behaviour — auto-assign from basename.
-            if existing_id is not None:
-                return RegistryRegistrationResult(existing_id, False)
-            base_brain_id = title_to_slug(os.path.basename(abs_path)) or "vault"
-            new_id = base_brain_id
-            while new_id in entries:
-                new_id = f"{base_brain_id}-{random_short_suffix()}"
-            entries[new_id] = RegistryEntry(
-                brain_id=new_id,
-                kind=TYPE_LOCAL,
-                value=abs_path,
-            )
-            if not dry_run:
-                _save_registry_entries(entries)
-            return RegistryRegistrationResult(new_id, True)
-
-        # Explicit brain_id given.
-        existing_entry = entries.get(brain_id)
-        if existing_entry is not None:
-            # ID is taken — check whether it points to this path.
-            if existing_entry.kind == TYPE_LOCAL and existing_entry.value == abs_path:
-                return RegistryRegistrationResult(brain_id, False)
-            raise RegistryConflictError(
-                f"Brain ID '{brain_id}' is already registered to a different path: "
-                f"{existing_entry.value!r}; unregister it first"
-            )
-        # ID is free.
-        if existing_id is not None:
-            raise RegistryConflictError(
-                f"path {abs_path!r} is already registered as '{existing_id}'; "
-                f"unregister it first or pass brain_id='{existing_id}'"
-            )
-        entries[brain_id] = RegistryEntry(
-            brain_id=brain_id,
-            kind=TYPE_LOCAL,
-            value=abs_path,
-        )
-        if not dry_run:
+        result = _plan_registration(entries, abs_path, brain_id)
+        if result.changed and not dry_run:
             _save_registry_entries(entries)
-        return RegistryRegistrationResult(brain_id, True)
+        return result
 
 
 def register(vault_path, brain_id=None):

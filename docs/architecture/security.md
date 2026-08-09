@@ -254,6 +254,18 @@ be proven complete, the command returns a known-partial receipt naming each
 surviving path. This transaction does not expand ordinary vault content write
 permissions: it is limited to the trusted selected Brain, caller workspace and
 user-home MCP configuration paths owned by `mcp.configure`/`mcp.repair`.
+Existing fixed-file replacements retain the destination permission mode, so
+self-replacing `brain.upgrade` does not turn the global CLI into a non-executable
+data file.
+
+Launcher-owned uninstall is constrained to the Brain selected in trusted
+context. Before any cleanup it requires a regular `.brain-core/VERSION` and
+rejects symlinks or non-directory values at `.brain-core/`, `.brain/` and
+legacy `.venv/`. It removes only exact recorded project/local MCP entries and
+the matching registry row before those three system directories. Vault notes,
+shared managed runtimes, user-scope MCP state and the global CLI are never
+recursive-deletion targets. A recursive failure is reported as unknown rather
+than asserting a retry-safe partial deletion.
 
 During MCP startup, the non-critical session-mirror refresh is
 dispatched to a single long-lived daemon worker via a `maxsize=1` coalescing

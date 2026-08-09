@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.42)
+**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.43)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -712,3 +712,31 @@ Recorded removal is intentionally close-safe: it needs neither a healthy
 runtime nor binding and removes only an exactly matching Brain-owned entry.
 The existing public v1 MCP/configure/repair adapters remain unchanged until the
 coordinated breaking projection cutover.
+
+## v0.54.43 Brain lifecycle launcher owners
+
+`brain.install`, `brain.uninstall` and `brain.upgrade` now have distinct frozen
+launcher requests and bounded structural results. The trusted launcher context
+owns the complete distribution root used for install/upgrade; callers cannot
+substitute an arbitrary source tree. Install requires an explicit canonical
+Brain ID so dry-run and apply share one predictable registry identity.
+
+Install planning uses an unlocked read-only registry preview and creates no
+lock, directory or destination state. Apply preserves the current composite
+installer workflow while projecting completed steps and any later error as a
+known partial result. This is the one explicit lifecycle command that owns the
+initial runtime, resolution, registry, ignore and MCP composition.
+
+Uninstall targets only the selected Brain, rejects symlinked or malformed
+system roots before mutation, removes exact recorded project/local MCP state,
+unregisters the Brain, then recursively removes only `.brain-core/`, `.brain/`
+and legacy `.venv/`. Notes, shared runtimes, user-scope MCP and the global CLI
+remain outside its deletion set. A recursive deletion failure remains
+non-retryable and outcome-unknown.
+
+Upgrade loads the upgrader from the trusted about-to-install distribution,
+projects closed definition/dependency sync policies and atomically refreshes
+the known running CLI path while preserving its executable mode. The existing
+upgrader's unverified rollback error remains outcome-unknown; Phase 6 still owns
+the checked multi-Brain breaking-cutover and rollback protocol. Public v1
+adapters remain unchanged until that coordinated cutover.

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
-from . import agent_skill, doctor, machine, managed_runtime, mcp, operator, registry, runtime, version
+from . import agent_skill, doctor, lifecycle, machine, managed_runtime, mcp, operator, registry, runtime, version
 from .context import LauncherContext
 from .contracts import CommandResult, validate_command_id
 
@@ -64,6 +64,9 @@ LAUNCHER_OWNERS = LauncherOwners(
             (
                 agent_skill.configure_owner(),
                 doctor.doctor_owner(),
+                lifecycle.install_owner(),
+                lifecycle.uninstall_owner(),
+                lifecycle.upgrade_owner(),
                 machine.migrate_legacy_owner(),
                 machine.prune_runtimes_owner(),
                 mcp.configure_owner(),

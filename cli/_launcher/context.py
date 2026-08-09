@@ -59,6 +59,7 @@ class LauncherContext:
     cli_binary: Path
     launcher_python: Path | None = None
     current_vault: Path | None = None
+    distribution_root: Path | None = None
     dry_run: bool = False
 
     def __post_init__(self) -> None:
@@ -76,5 +77,7 @@ class LauncherContext:
             raise ValueError("launcher_python must be absolute")
         if self.current_vault is not None and not self.current_vault.is_absolute():
             raise ValueError("launcher current_vault must be absolute")
+        if self.distribution_root is not None and not self.distribution_root.is_absolute():
+            raise ValueError("launcher distribution_root must be absolute")
         if not isinstance(self.dry_run, bool):
             raise ValueError("launcher dry_run must be a boolean")

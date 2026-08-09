@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.54.43](changelog/v0.54.43.md) | 2026-08-10 | Add typed Brain lifecycle launcher ownership |
 | [v0.54.42](changelog/v0.54.42.md) | 2026-08-10 | Add rollback-safe MCP configuration launcher ownership |
 | [v0.54.41](changelog/v0.54.41.md) | 2026-08-10 | Add fail-closed managed-runtime repair launcher ownership |
 | [v0.54.40](changelog/v0.54.40.md) | 2026-08-10 | Add receipt-safe legacy Brain migration launcher ownership |

@@ -75,6 +75,18 @@ Recorded removal remains available without a healthy runtime or binding and
 only removes exact Brain-owned state. Existing public v1 adapters stay in place
 until coordinated cutover.
 
+v0.54.43 adds typed `brain.install`, `brain.uninstall` and `brain.upgrade`
+launcher ownership. Install requires an explicit Brain ID, obtains source Core
+and template state from trusted launcher distribution context, and offers a
+genuine no-write registry/destination plan. Uninstall acts only on the selected
+Brain, preflights fixed system roots, performs exact recorded MCP cleanup and
+preserves notes, shared runtimes, user-scope configuration and the global CLI.
+Upgrade loads the trusted distribution upgrader, accepts closed sync policies
+and atomically refreshes the running CLI path without losing its executable
+mode. Recursive uninstall uncertainty and unverified upgrade rollback remain
+non-retryable unknown outcomes. Public v1 CLI behaviour is unchanged until the
+coordinated cutover.
+
 ## Install
 
 The CLI is installed automatically by `install.sh` to `~/.local/bin/brain` (user scope) or `/usr/local/bin/brain` (with `--system`). `upgrade.py` refreshes any installed CLI binary on each upgrade; it does not install a new CLI where none existed.

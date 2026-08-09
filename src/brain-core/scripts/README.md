@@ -146,6 +146,13 @@ and created directories back on failure, and reports exact surviving paths if
 rollback fails. These owners require an already healthy managed runtime and do
 not silently provision it, bind workspaces, edit ignore rules or invoke client
 CLIs. Recorded removal remains available without a healthy runtime or binding.
+v0.54.43 completes launcher lifecycle ownership with distinct `brain.install`,
+`brain.uninstall` and `brain.upgrade` commands. Install uses a trusted complete
+distribution and an unlocked no-write registry preview; uninstall preflights
+and removes only selected-Brain system roots after exact MCP/registry cleanup;
+upgrade runs the trusted source upgrader and transactionally refreshes the
+known CLI path while retaining executable mode. Existing public adapters remain
+unchanged until coordinated cutover.
 
 That launcher process is not automatically the managed runtime. The shared launcher-safe bootstrap ownership now lives under `_bootstrap/`: bootstrap entrypoints do meaningful launcher-safe work there, and runtime-owning lifecycle entrypoints such as `repair.py`, `setup.py`, `configure.py`, `session.py`, and `check.py` hand substantive managed work off into the canonical managed runtime before continuing.
 
