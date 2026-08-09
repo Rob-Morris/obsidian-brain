@@ -8,6 +8,9 @@ from typing import ClassVar
 from .artefact.list import ArtefactListRequest
 from .artefact.outline import ArtefactOutlineRequest
 from .artefact.read import ArtefactReadRequest
+from .links.check import LinksCheckRequest
+from .runtime.read_environment import RuntimeReadEnvironmentRequest
+from .vault.read_router import VaultReadRouterRequest
 from .receipts import OutcomeReceipt, OutcomeReference, ReceiptLookupState
 from .types import (
     Authority,
@@ -142,6 +145,9 @@ CommandRequest = (
     | ArtefactReadRequest
     | ArtefactOutlineRequest
     | ArtefactListRequest
+    | LinksCheckRequest
+    | RuntimeReadEnvironmentRequest
+    | VaultReadRouterRequest
 )
 
 
@@ -155,6 +161,9 @@ def command_identity(request: CommandRequest) -> tuple[str, int, type]:
         ArtefactReadRequest,
         ArtefactOutlineRequest,
         ArtefactListRequest,
+        LinksCheckRequest,
+        RuntimeReadEnvironmentRequest,
+        VaultReadRouterRequest,
     }:
         raise TypeError(f"unregistered command request type: {request_type.__name__}")
     return request_type.COMMAND_ID, request_type.COMMAND_VERSION, request_type.RESULT_TYPE

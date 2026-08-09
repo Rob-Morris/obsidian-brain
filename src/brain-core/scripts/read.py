@@ -42,6 +42,10 @@ from _common import (
     resolve_artefact_path,
 )
 from _portable.artefact_read import read_artefact as _portable_read_artefact
+from _portable.router_views import (
+    read_environment as _portable_read_environment,
+    read_router_meta as _portable_read_router_meta,
+)
 
 
 def _check_vault_containment(vault_root, rel_path):
@@ -149,15 +153,12 @@ def read_memory(router, vault_root, name=None):
 
 def read_environment(router, vault_root, name=None):
     """Return runtime environment info."""
-    return dict(router["environment"])
+    return _portable_read_environment(router, vault_root, name)
 
 
 def read_router_meta(router, vault_root, name=None):
     """Return always-rules and metadata."""
-    return {
-        "always_rules": router["always_rules"],
-        "meta": router["meta"],
-    }
+    return _portable_read_router_meta(router, vault_root, name)
 
 
 def read_artefact(router, vault_root, name=None):

@@ -81,3 +81,8 @@ def check_broken_wikilinks(vault_root, router, file_index=None, *, ctx=None):
                     })
 
     return findings
+
+
+def check_from_vault(vault_root):
+    """Run the portable check without requiring compiled-router availability."""
+    return check_broken_wikilinks(str(vault_root), {})

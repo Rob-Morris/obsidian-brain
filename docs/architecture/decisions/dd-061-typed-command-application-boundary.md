@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.4)
+**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.5)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -121,3 +121,12 @@ modules own their filesystem, filtering/pagination and structural-scanner
 semantics; the legacy top-level scripts delegate to those modules while public
 grammar remains unchanged. New typed list items distinguish canonical
 `reference` from the living artefact's raw `frontmatter_key`.
+
+## v0.54.5 portable inspection owners
+
+`runtime.read-environment`, `vault.read-router` and `links.check` now have one
+typed command owner each. Runtime facts are bounded scalars; router metadata
+uses an exact result type rather than an open metadata bag; and link diagnosis
+reuses the lower portable scanner without making router availability a hidden
+dependency. The legacy router/environment reader delegates to the same lower
+views while public grammar remains unchanged.

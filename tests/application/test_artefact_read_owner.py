@@ -14,10 +14,13 @@ from _application.context import (
     ProviderBindings,
     SelectedBrain,
 )
+from _application.links.check import LinksCheckRequest
 from _application.registry import current_application_catalogue, current_request_resolver
 from _application.requests import CommandListRequest
 from _application.results import ErrorCode
+from _application.runtime.read_environment import RuntimeReadEnvironmentRequest
 from _application.types import DependencyTier, SnapshotFreshness
+from _application.vault.read_router import VaultReadRouterRequest
 
 
 NOW = datetime.fromisoformat("2026-08-09T16:00:00+10:00")
@@ -107,6 +110,9 @@ def test_artefact_read_transport_and_catalogue_identity_are_one_to_one():
         "command.describe",
         "command.list",
         "invocation.read",
+        "links.check",
+        "runtime.read-environment",
+        "vault.read-router",
     ]
 
 
@@ -188,3 +194,58 @@ def test_artefact_list_transport_resolves_sort_and_pagination():
     assert type(request) is ArtefactListRequest
     assert request.sort is ArtefactSort.MODIFIED_DESC
     assert request.page_size == 25
+
+
+def test_runtime_environment_is_a_typed_scalar_view(command_vault_baseline):
+    result = _application(command_vault_baseline.vault_root).invoke(
+        RuntimeReadEnvironmentRequest()
+    )
+    facts = {fact.name: fact.value for fact in result.result.facts}
+
+    assert result.status == "ok"
+    assert facts["vault_root"] == str(command_vault_baseline.vault_root)
+    assert isinstance(facts["platform"], str)
+    assert isinstance(facts["cli_available"], bool)
+
+
+def test_router_metadata_is_typed_without_an_unbounded_metadata_bag(
+    command_vault_baseline,
+):
+    result = _application(command_vault_baseline.vault_root).invoke(
+        VaultReadRouterRequest()
+    )
+
+    assert result.status == "ok"
+    assert result.result.brain_core_version == "0.54.5"
+    assert result.result.always_rules
+    assert result.result.source_hash.startswith("sha256:")
+    assert len(result.result.sources) > 0
+
+
+def test_links_check_returns_typed_findings_without_router_probe(
+    command_vault_baseline,
+):
+    result = _application(command_vault_baseline.vault_root).invoke(
+        LinksCheckRequest()
+    )
+
+    assert result.status == "ok"
+    assert result.result.warnings == sum(
+        finding.severity == "warning" for finding in result.result.findings
+    )
+    assert result.result.info == sum(
+        finding.severity == "info" for finding in result.result.findings
+    )
+
+
+def test_zero_input_read_owners_reject_transport_extras():
+    resolver = current_request_resolver()
+    assert type(resolver.resolve("links.check", {})) is LinksCheckRequest
+    assert (
+        type(resolver.resolve("runtime.read-environment", {}))
+        is RuntimeReadEnvironmentRequest
+    )
+    assert (
+        type(resolver.resolve("vault.read-router", {}))
+        is VaultReadRouterRequest
+    )
