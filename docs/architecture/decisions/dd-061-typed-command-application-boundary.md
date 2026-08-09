@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.40)
+**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.41)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -673,3 +673,19 @@ effect; timeouts, invalid child output and recursive-removal failures preserve
 a receipt-backed unknown outcome. A child-reported partial result becomes a
 known partial result with its affected repair scope receipted. The existing
 public machine adapter remains unchanged until coordinated cutover.
+
+## v0.54.41 managed-runtime repair launcher owner
+
+`runtime.repair` now has a frozen empty request and acts on the Brain selected
+through trusted launcher context. Its bootstrap-tier owner provisions or
+synchronises the shared managed runtime directly through the existing runtime
+orchestrator; it does not silently hand off into the managed interpreter.
+
+The lower orchestrator now reports no-effect, committed, known-partial or
+unknown effect state. Missing/unreadable requirements and an unusable existing
+runtime fail before writes; the owner refuses to replace a possibly live
+runtime without a live-use proof. Successful creation/synchronisation records
+one managed-runtime scope effect. A successful dependency mutation followed by
+verification or sentinel failure is known partial, while interrupted venv/pip
+mutation remains receipt-backed unknown. The existing public repair adapter
+remains unchanged until coordinated cutover.

@@ -167,7 +167,7 @@ LAUNCHER_CATALOGUE = LauncherCatalogue(
                 _mutation("mcp.configure", "configure:mcp", "brain", "mcp", "configure"),
                 _mutation("mcp.repair", "repair:mcp", "brain", "mcp", "repair"),
                 LauncherEntry("operator.generate-key", 1, "_launcher.operator:generate_key", ("brain", "operator", "generate-key"), "operator", "none", "safe"),
-                _mutation("runtime.repair", "repair:runtime", "brain", "runtime", "repair"),
+                _mutation("runtime.repair", "_launcher.runtime:repair", "brain", "runtime", "repair"),
                 _read("runtime.resolve", "_launcher.managed_runtime:resolve", "brain", "runtime", "resolve"),
                 _read("runtime.resolve-runnable", "_launcher.managed_runtime:resolve_runnable", "brain", "runtime", "resolve-runnable"),
             ),

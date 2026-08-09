@@ -203,6 +203,14 @@ invalid child output or recursive-delete failure is outcome-unknown. A
 child-reported partial result is retained as known partial with the affected
 repair scope receipted.
 
+Canonical managed-runtime repair is a bootstrap-tier launcher operation over a
+Brain selected through trusted context. It does not accept a host path as
+semantic request data and does not hand off into the managed runtime. An
+existing unusable runtime is not automatically deleted or replaced because it
+may still be live. Runtime creation or dependency-sync interruption is
+outcome-unknown; a completed dependency mutation followed by failed verification
+is known partial at the managed-runtime scope.
+
 Client skill adapters are an explicit machine-global exception to ordinary
 vault write bounds. `configure.py agent-skills` writes only the fixed
 `~/.claude/skills/shaping/` and/or `~/.codex/skills/shaping/` destinations. It

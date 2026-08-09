@@ -171,6 +171,7 @@ def test_orchestrator_reuses_existing_compatible_minor_runtime(brew_churn_env):
         required_modules=("mcp",),
     )
     assert result["outcome"] == _venv.RUNTIME_REUSED
+    assert result["effect_outcome"] == "none"
     assert result["python"] == str(existing_py313)
     # No py3.12-<hash> directory was created.
     assert not (fake_home / ".brain" / "venvs" / f"py3.12-{rhash}").exists()
@@ -206,6 +207,7 @@ def test_orchestrator_syncs_in_place_when_modules_missing(tmp_path, monkeypatch)
         required_modules=("mcp",),
     )
     assert result["outcome"] == _v.RUNTIME_SYNCED
+    assert result["effect_outcome"] == "committed"
     assert result["python"] == str(existing_py313)
     # No py3.12-<hash> was created.
     assert not (fake_home / ".brain" / "venvs" / f"py3.12-{rhash}").exists()
@@ -255,6 +257,7 @@ def test_orchestrator_preserves_stderr_when_creating_runtime_fails(tmp_path, mon
     )
 
     assert result["outcome"] == _v.RUNTIME_ERROR
+    assert result["effect_outcome"] == "unknown"
     assert "command failed:" in result["message"]
     assert "venv create failed" in result["message"]
 
@@ -303,6 +306,7 @@ def test_orchestrator_preserves_stderr_when_syncing_existing_runtime_fails(tmp_p
     )
 
     assert result["outcome"] == _v.RUNTIME_ERROR
+    assert result["effect_outcome"] == "unknown"
     assert "pip install failed against existing runtime" in result["message"]
     assert "pip sync failed" in result["message"]
 

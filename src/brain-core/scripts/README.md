@@ -131,6 +131,11 @@ discovery seam and the existing target-Brain repair composition. Spawn failure
 proves no effect, known child partials retain coarse repair-scope effects, and
 timeouts, invalid child output or recursive-removal failure remain
 outcome-unknown.
+v0.54.41 adds typed `runtime.repair` launcher ownership over the bootstrap
+runtime orchestrator. The selected Brain remains trusted context, no managed
+process hand-off is hidden inside the owner, and the lower seam now classifies
+no-effect, committed, known-partial and unknown mutation outcomes. An unusable
+existing runtime fails closed instead of being replaced without live-use proof.
 Existing adapters are not cut over in the v0.54.x foundation releases; they
 continue to behave as documented until the coordinated breaking release
 replaces the old grammar.

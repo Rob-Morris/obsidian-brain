@@ -55,6 +55,15 @@ partial repair scopes and treats child timeouts, invalid output and uncertain
 recursive deletion as non-retryable unknown outcomes. The existing v1 machine
 adapter stays public until coordinated cutover.
 
+v0.54.41 adds typed `runtime.repair` ownership. The target Brain comes from
+trusted launcher selection, and the bootstrap-tier owner directly creates or
+synchronises its shared managed runtime without a hidden process hand-off.
+Dry-run returns the real plan; successful mutation receipts one runtime scope;
+post-mutation verification failure is known partial; and interrupted venv or
+pip mutation is non-retryable and outcome-unknown. An existing unusable runtime
+fails closed rather than being deleted without live-use proof. The existing v1
+repair adapter stays public until coordinated cutover.
+
 ## Install
 
 The CLI is installed automatically by `install.sh` to `~/.local/bin/brain` (user scope) or `/usr/local/bin/brain` (with `--system`). `upgrade.py` refreshes any installed CLI binary on each upgrade; it does not install a new CLI where none existed.

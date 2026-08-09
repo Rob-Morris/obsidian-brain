@@ -86,6 +86,13 @@ not be started reports `none`; a child timeout or invalid response reports
 child status. A recursive-removal error reports `unknown` because part of the
 target directory may already have changed.
 
+The shared managed-runtime resolution result now also reports additive
+`effect_outcome` metadata. Reuse and planning are `none`; successful creation or
+dependency synchronisation is `committed`; successful dependency mutation with
+failed verification/sentinel persistence is `partial`; and an interrupted venv
+or pip mutation is `unknown`. A present but unusable runtime returns a no-effect
+error rather than being deleted or trusted through a stale sentinel.
+
 ## Architecture
 
 The MCP server is a thin wrapper that imports functions from scripts and holds the compiled router and search index in memory. Scripts are the single implementation — the server adds MCP transport, in-memory caching, shared vault-scoped mutation locking, and Obsidian CLI delegation. This means:

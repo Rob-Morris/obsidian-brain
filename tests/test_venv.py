@@ -332,6 +332,45 @@ def test_resolve_or_provision_probes_venv_symlink_not_launcher(monkeypatch, tmp_
     assert result["outcome"] == _venv.RUNTIME_REUSED
 
 
+def test_resolve_or_provision_refuses_to_replace_an_unusable_runtime(
+    monkeypatch,
+    tmp_path,
+):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    vault = _make_vault(tmp_path)
+    launcher = Path(sys.executable)
+    managed_python = _venv.resolve_vault_venv_python(vault, launcher=launcher)
+    managed_python.parent.mkdir(parents=True)
+    managed_python.write_text("unusable")
+    monkeypatch.setattr(
+        _venv,
+        "_probe_runtime",
+        lambda *_args, **_kwargs: {
+            "compatible": False,
+            "ok": False,
+            "missing": ["mcp"],
+        },
+    )
+    monkeypatch.setattr(
+        _venv,
+        "ensure_central_venv",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("an unusable runtime must not be replaced without a live-use check")
+        ),
+    )
+
+    result = _venv.resolve_or_provision_central_venv(
+        vault,
+        launcher=launcher,
+        required_modules=("mcp",),
+    )
+
+    assert result["outcome"] == _venv.RUNTIME_ERROR
+    assert result["effect_outcome"] == "none"
+    assert result["venv_dir"] == str(managed_python.parent.parent)
+    assert "refusing to replace" in result["message"]
+
+
 def test_find_runnable_python_prefers_central_venv(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path))
     vault = _make_vault(tmp_path)

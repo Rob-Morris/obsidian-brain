@@ -211,10 +211,13 @@ def _short_circuit_managed_runtime(
 
 
 def _ready_runtime_summary() -> dict:
+    managed_python = Path(sys.executable)
     return {
         "checked_at": iso_now(),
         "managed_python": sys.executable,
+        "runtime_dir": str(managed_python.parent.parent),
         "status": "ready",
+        "effect_outcome": "none",
         "steps": load_bootstrap_steps(),
         "managed_runtime_ready": True,
     }
@@ -373,7 +376,9 @@ def bootstrap_managed_runtime(
         "checked_at": iso_now(),
         "launcher_python": str(launcher_path),
         "managed_python": managed_python_str,
+        "runtime_dir": result.get("venv_dir"),
         "status": status,
+        "effect_outcome": result.get("effect_outcome", "unknown"),
         "message": summary_message,
         "steps": steps,
         "managed_runtime_ready": ready,
