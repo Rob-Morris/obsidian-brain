@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.8)
+**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.9)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -158,3 +158,12 @@ vault-relative path and exclude `_Archive`; archived reads require explicit
 archive membership. One portable seam owns containment, archive discovery and
 legacy top-level/per-type archive layouts, and the legacy readers and listers
 delegate to it without changing their public grammar.
+
+## v0.54.9 exact artefact-type and template owners
+
+`type.read/list` and `template.read/list` now have separate typed contracts
+over one portable type-definition seam. Canonical reads select only the exact
+compiled type key. Type reads return the authored taxonomy document with
+bounded identity/source facts, while template reads and list items expose the
+actual `.md` path so their output composes with `vault.read-file`. The legacy
+adapters retain their documented singular/full-type aliases until cutover.

@@ -36,6 +36,7 @@ from _portable.artefact_listing import (
 )
 from _portable.named_documents import list_named_documents
 from _portable.router_collections import list_memories, list_triggers
+from _portable.type_definitions import list_templates, list_types
 from _portable.vault_files import list_archived_artefacts
 
 
@@ -53,24 +54,6 @@ _COLLECTION_MAP = {
     "plugin": ("plugins", "name"),
     "memory": ("memories", "name"),
 }
-
-
-def _list_templates(router, query=None):
-    """List available templates derived from artefact type definitions."""
-    results = []
-    for art in router.get("artefacts", []):
-        tpl = art.get("template_file")
-        if not tpl:
-            continue
-        name = art.get("key", "")
-        if query and query.lower() not in name.lower():
-            continue
-        results.append({
-            "name": name,
-            "type": art.get("frontmatter_type", art.get("type", "")),
-            "template_file": tpl,
-        })
-    return results
 
 
 def _list_collection(router, router_key, name_field, query=None):
@@ -108,15 +91,10 @@ def list_resources(index, router, vault_root, resource="artefact", query=None,
         return list_artefacts(index, router, **kwargs)
 
     if resource == "type":
-        arts = router.get("artefacts", [])
-        if query:
-            lower_q = query.lower()
-            arts = [a for a in arts if lower_q in a.get("key", "").lower()
-                    or lower_q in a.get("frontmatter_type", "").lower()]
-        return arts
+        return list_types(router, query)
 
     if resource == "template":
-        return _list_templates(router, query)
+        return list_templates(router, query)
 
     if resource == "archive":
         return list_archived_artefacts(router, vault_root)

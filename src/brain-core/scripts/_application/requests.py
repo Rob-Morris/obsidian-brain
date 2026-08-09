@@ -20,8 +20,12 @@ from .skill.list import SkillListRequest
 from .skill.read import SkillReadRequest
 from .style.list import StyleListRequest
 from .style.read import StyleReadRequest
+from .template.list import TemplateListRequest
+from .template.read import TemplateReadRequest
 from .trigger.list import TriggerListRequest
 from .trigger.read import TriggerReadRequest
+from .type.list import ArtefactTypeListRequest
+from .type.read import ArtefactTypeReadRequest
 from .vault.read_router import VaultReadRouterRequest
 from .vault.read_file import VaultReadFileRequest
 from .receipts import OutcomeReceipt, OutcomeReference, ReceiptLookupState
@@ -170,8 +174,12 @@ CommandRequest = (
     | SkillReadRequest
     | StyleListRequest
     | StyleReadRequest
+    | TemplateListRequest
+    | TemplateReadRequest
     | TriggerListRequest
     | TriggerReadRequest
+    | ArtefactTypeListRequest
+    | ArtefactTypeReadRequest
     | VaultReadRouterRequest
     | VaultReadFileRequest
 )
@@ -199,8 +207,12 @@ def command_identity(request: CommandRequest) -> tuple[str, int, type]:
         SkillReadRequest,
         StyleListRequest,
         StyleReadRequest,
+        TemplateListRequest,
+        TemplateReadRequest,
         TriggerListRequest,
         TriggerReadRequest,
+        ArtefactTypeListRequest,
+        ArtefactTypeReadRequest,
         VaultReadRouterRequest,
         VaultReadFileRequest,
     }:

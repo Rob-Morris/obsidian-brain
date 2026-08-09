@@ -32,7 +32,6 @@ from _common import (
     find_vault_root,
     is_archived_path,
     load_compiled_router as _load_compiled_router,
-    match_artefact,
     MissingFileResult,
     normalize_artefact_key,
     read_file_content,
@@ -48,6 +47,10 @@ from _portable.router_views import (
     read_router_meta as _portable_read_router_meta,
 )
 from _portable.router_collections import read_trigger_exact as _portable_read_trigger
+from _portable.type_definitions import (
+    read_template_compatible as _portable_read_template,
+    read_type_compatible as _portable_read_type,
+)
 from _portable.vault_files import read_archived_artefact as _portable_read_archive
 
 
@@ -91,12 +94,8 @@ def read_type(router, vault_root, name=None):
 
     Listing via brain_list(resource='type').
     """
-    artefacts = router["artefacts"]
     _require_name("type", name)
-    match = match_artefact(artefacts, name)
-    if not match:
-        return {"error": f"No artefact matching '{name}'"}
-    return [match]
+    return _portable_read_type(router, name)
 
 
 def read_trigger(router, vault_root, name=None):
@@ -114,13 +113,7 @@ def read_template(router, vault_root, name=None):
     """Read a template file by artefact type key."""
     if not name:
         return {"error": "template resource requires a name parameter (artefact type key)"}
-    artefacts = router["artefacts"]
-    match = match_artefact(artefacts, name)
-    if not match:
-        return {"error": f"No artefact matching '{name}'"}
-    if not match.get("template_file"):
-        return {"error": f"Artefact '{name}' has no template file"}
-    return read_file_content(vault_root, match["template_file"])
+    return _portable_read_template(router, vault_root, name)
 
 
 def read_skill(router, vault_root, name=None):

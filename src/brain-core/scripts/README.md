@@ -39,6 +39,9 @@ queries search real category/condition/detail/target fields.
 v0.54.8 adds exact vault-file and archived-artefact read/list owners. Active
 file reads and archive reads enforce distinct path domains, and legacy readers
 and listers delegate to one portable containment and archive-discovery seam.
+v0.54.9 adds separate exact-key read/list owners for artefact types and
+templates. Type reads include the authored taxonomy definition, template
+results expose composable `.md` paths, and legacy aliases remain adapter-local.
 Existing adapters are not cut over in the v0.54.x foundation releases; they
 continue to behave as documented until the coordinated breaking release
 replaces the old grammar.
