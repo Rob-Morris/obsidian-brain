@@ -48,6 +48,7 @@ PREFERENCES_REL = os.path.join("_Config", "User", "preferences-always.md")
 GOTCHAS_REL = os.path.join("_Config", "User", "gotchas.md")
 SESSION_CORE_REL = os.path.join(".brain-core", "session-core.md")
 SESSION_MARKDOWN_REL = os.path.join(".brain", "local", "session.md")
+COMMAND_CATALOGUE_REL = os.path.join(".brain-core", "command-catalogue.json")
 COMPILED_ROUTER_REL = os.path.join(".brain", "local", "compiled-router.json")
 CORE_DOC_SECTION_HEADINGS = ("Core Docs", "Standards")
 BOOTSTRAP_TIMEOUT = 300
@@ -151,6 +152,55 @@ def _load_session_core_body(vault_root):
     if not core_text:
         return ""
     return _strip_always_section(_strip_first_heading(core_text))
+
+
+def _load_command_catalogue_route(vault_root, brain_core_version):
+    """Load the bounded static discovery route without command imports or probes."""
+
+    path = os.path.join(vault_root, COMMAND_CATALOGUE_REL)
+    try:
+        with open(path, encoding="utf-8") as handle:
+            value = json.load(handle)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise SessionCoreStructureError(
+            f"failed to load command catalogue route: {path}: {exc}"
+        ) from exc
+    expected = {
+        "schema",
+        "interface_epoch",
+        "static_fingerprint",
+        "installed_application_command_count",
+    }
+    if not isinstance(value, dict) or set(value) != expected:
+        raise SessionCoreStructureError("command catalogue route has an invalid shape")
+    if value["schema"] != "brain.command-catalogue/1":
+        raise SessionCoreStructureError(
+            "command catalogue route has an unsupported schema"
+        )
+    if not isinstance(value["interface_epoch"], int) or value["interface_epoch"] < 1:
+        raise SessionCoreStructureError(
+            "command catalogue route has an invalid interface epoch"
+        )
+    fingerprint = value["static_fingerprint"]
+    if (
+        not isinstance(fingerprint, str)
+        or len(fingerprint) != 71
+        or not fingerprint.startswith("sha256:")
+    ):
+        raise SessionCoreStructureError(
+            "command catalogue route has an invalid fingerprint"
+        )
+    count = value["installed_application_command_count"]
+    if not isinstance(count, int) or isinstance(count, bool) or count < 1:
+        raise SessionCoreStructureError(
+            "command catalogue route has an invalid command count"
+        )
+    return {
+        **value,
+        "brain_core_version": brain_core_version,
+        "list": "Use brain_command_list for filtered, paginated commands.",
+        "describe": "Use brain_command_describe for one complete command contract.",
+    }
 
 
 def _load_config_if_available(vault_root):
@@ -597,6 +647,7 @@ def build_session_model(
     config=None,
     active_profile=None,
     load_config_if_missing=True,
+    include_command_catalogue=False,
 ):
     """Build the canonical session model from router + authored bootstrap sources.
 
@@ -610,6 +661,7 @@ def build_session_model(
         active_profile: Optional resolved active profile for this bootstrap flow.
         load_config_if_missing: Whether to lazily load config from disk when the
             caller did not supply it.
+        include_command_catalogue: Whether to include the staged bounded route.
 
     Returns:
         dict with the canonical session model.
@@ -636,10 +688,11 @@ def build_session_model(
         workspace_binding,
     )
     core_body = _load_session_core_body(vault_root)
+    brain_core_version = meta.get("brain_core_version", "")
 
     model = {
         "version": "1",
-        "brain_core_version": meta.get("brain_core_version", ""),
+        "brain_core_version": brain_core_version,
         "compiled_at": meta.get("compiled_at", ""),
         "core_bootstrap": _load_core_bootstrap(core_body),
         "core_docs": _load_core_docs(core_body),
@@ -668,6 +721,11 @@ def build_session_model(
         model["workspace_record"] = workspace_record
     if workspace_defaults:
         model["workspace_defaults"] = workspace_defaults
+    if include_command_catalogue:
+        model["command_catalogue"] = _load_command_catalogue_route(
+            vault_root,
+            brain_core_version,
+        )
 
     if context is not None:
         model["context"] = {
@@ -693,6 +751,18 @@ def render_session_markdown(model):
         f"**brain-core version:** `{model.get('brain_core_version', '')}`",
         f"**compiled at:** `{model.get('compiled_at', '')}`",
     ]
+
+    command_catalogue = model.get("command_catalogue", {})
+    if command_catalogue:
+        sections.extend(
+            [
+                "",
+                "## Command Discovery",
+                "",
+                f"- {command_catalogue.get('list', '')}",
+                f"- {command_catalogue.get('describe', '')}",
+            ]
+        )
 
     core_bootstrap = model.get("core_bootstrap", "").strip()
     if core_bootstrap:

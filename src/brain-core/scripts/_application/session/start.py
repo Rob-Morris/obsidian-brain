@@ -119,6 +119,17 @@ class SessionWorkspaceRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class SessionCommandCatalogue:
+    schema: str
+    interface_epoch: int
+    static_fingerprint: str
+    installed_application_command_count: int
+    brain_core_version: str
+    list: str
+    describe: str
+
+
+@dataclass(frozen=True, slots=True)
 class SessionStartPayload:
     version: str
     brain_core_version: str
@@ -136,6 +147,7 @@ class SessionStartPayload:
     plugins: tuple[str, ...]
     styles: tuple[str, ...]
     workspace_configuration: SessionWorkspaceConfiguration
+    command_catalogue: SessionCommandCatalogue
     config: SessionConfig | None
     active_profile: str
     workspace: SessionWorkspace | None
@@ -147,7 +159,7 @@ class SessionStartPayload:
 @dataclass(frozen=True, slots=True)
 class SessionStartRequest:
     COMMAND_ID: ClassVar[str] = "session.start"
-    COMMAND_VERSION: ClassVar[int] = 1
+    COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = SessionStartPayload
 
 
@@ -217,6 +229,7 @@ def _payload(model):
                 if key != "current_binding"
             }
         ),
+        command_catalogue=SessionCommandCatalogue(**model["command_catalogue"]),
         config=_optional(
             model,
             "config",
@@ -277,6 +290,7 @@ def execute(context: InvocationContext, _request: SessionStartRequest):
             config=merged_config,
             active_profile=context.profile,
             load_config_if_missing=False,
+            include_command_catalogue=True,
         )
         session.persist_session_markdown(model, context.selected_brain.vault_root)
         payload = _payload(model)

@@ -1,6 +1,7 @@
 """Tests for session.py — canonical bootstrap model and CLI."""
 
 import json
+from pathlib import Path
 import sys
 import types
 
@@ -18,6 +19,13 @@ def _managed_runtime_env(monkeypatch):
 
 
 def _minimal_router(vault_root):
+    core = Path(vault_root) / ".brain-core"
+    core.mkdir(parents=True, exist_ok=True)
+    route_source = Path(session.__file__).resolve().parents[1] / "command-catalogue.json"
+    (core / "command-catalogue.json").write_text(
+        route_source.read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
     return {
         "meta": {
             "brain_core_version": "0.25.0",
@@ -39,6 +47,37 @@ def _minimal_router(vault_root):
 
 
 class TestBuildSessionModel:
+    def test_includes_only_the_bounded_static_command_route(self, tmp_path):
+        (tmp_path / ".brain-core").mkdir()
+        (tmp_path / ".brain-core" / "session-core.md").write_text(
+            MINIMAL_SESSION_CORE
+        )
+
+        model = session.build_session_model(
+            _minimal_router(tmp_path),
+            str(tmp_path),
+            load_config_if_missing=False,
+            include_command_catalogue=True,
+        )
+
+        route = model["command_catalogue"]
+        assert route == {
+            "schema": "brain.command-catalogue/1",
+            "interface_epoch": 1,
+            "static_fingerprint": (
+                "sha256:8233579798fa5493ad1413fd5bbaf43bd79dd30cabe33f3dea417965f6a60edf"
+            ),
+            "installed_application_command_count": 117,
+            "brain_core_version": "0.25.0",
+            "list": "Use brain_command_list for filtered, paginated commands.",
+            "describe": (
+                "Use brain_command_describe for one complete command contract."
+            ),
+        }
+        assert len(json.dumps(route, separators=(",", ":")).encode("utf-8")) <= 512
+        assert "commands" not in route
+        assert "properties" not in route
+
     def test_extracts_core_docs_and_strips_reference_sections(self, tmp_path):
         bc = tmp_path / ".brain-core"
         bc.mkdir()

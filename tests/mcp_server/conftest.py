@@ -1,6 +1,7 @@
 """Shared fixtures for the MCP server test suite."""
 
 import logging
+from pathlib import Path
 import threading
 import types
 from unittest.mock import patch
@@ -19,6 +20,13 @@ def vault(tmp_path):
     bc = tmp_path / ".brain-core"
     bc.mkdir()
     (bc / "VERSION").write_text("0.7.0\n")
+    catalogue_route = (
+        Path(server.__file__).resolve().parents[1] / "command-catalogue.json"
+    )
+    (bc / "command-catalogue.json").write_text(
+        catalogue_route.read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
     (bc / "session-core.md").write_text(
         "# Session Core\n\n"
         "## Principles\n\n"

@@ -278,6 +278,9 @@ v0.54.49 adds the staged granular FastMCP projection from that same catalogue.
 Each eligible command has one mechanical flat tool and exact canonical schema;
 omitted transport fields remain omitted until the shared resolver applies
 defaults, and structured results preserve the common MCP error state.
+v0.54.50 stages a bounded session discovery route backed by a checked static
+catalogue fingerprint. Typed `session.start` includes only routing facts and
+list/describe directions; the legacy bootstrap remains unchanged until cutover.
 
 The lifecycle/bootstrap side of that script layer now has an explicit shared owner under `scripts/_bootstrap/`. `runtime.py` owns launcher discovery, managed-runtime handoff, executable path identity, and the shared `BRAIN_BOOTSTRAP_SUMMARY` contract; `diagnostics.py` owns the launcher-safe runtime/MCP/registry checks needed before managed semantic work is available; `mcp_state.py` owns shared MCP/config-layout and init-state helpers; `vaults.py` owns the env-aware vault-root discovery seam used by the public lifecycle wrappers; `workspace_scaffold.py` owns Brain-local ignore-rule convergence; `mcp_transport.py` owns the shared Claude/Codex transport/config write engine; and `agent_skills.py` owns version-neutral, ownership-safe client skill adapters. Entry points such as `setup.py`, `repair.py`, `configure.py`, `session.py`, and `check.py` now converge on that seam instead of carrying parallel launcher or env-var logic.
 

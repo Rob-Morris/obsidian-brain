@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.54.50](changelog/v0.54.50.md) | 2026-08-10 | Stage the bounded session command-discovery route |
 | [v0.54.49](changelog/v0.54.49.md) | 2026-08-10 | Add the staged granular MCP projection |
 | [v0.54.48](changelog/v0.54.48.md) | 2026-08-10 | Add the direct selected-Brain command projection |
 | [v0.54.47](changelog/v0.54.47.md) | 2026-08-10 | Compose trusted local command context and durable receipts |

@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.49)
+**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.50)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -866,3 +866,20 @@ with its canonical source and passes every minimal request through transport
 validation under no authority, so projection is tested without executing
 effects. Registration remains staged until profiles and all public adapters
 move together at the breaking cutover.
+
+## v0.54.50 bounded session discovery route
+
+The shipped `command-catalogue.json` is a small derived route, not another
+catalogue owner. It carries only the catalogue schema, interface epoch, static
+fingerprint and installed application-command count. A contract test rebuilds
+those facts from the authoritative catalogue and fails on drift.
+
+Typed `session.start` v2 adds the route with Brain Core version and concise
+directions to `brain_command_list` and `brain_command_describe`. It contains no
+command entries, schemas or dynamic availability. The loader reads one bounded
+JSON file without importing `_application` or probing a provider; checked cold
+and warm latency plus a 512-byte size ceiling guard the bootstrap budget.
+
+The legacy `brain_session` adapter does not expose the staged field yet. The
+coordinated cutover enables it only when the granular tools are public, so no
+intermediate release advertises unavailable commands.

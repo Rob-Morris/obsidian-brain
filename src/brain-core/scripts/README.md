@@ -177,6 +177,13 @@ canonical JSON or concise human output with stable exit categories, and never
 silently provisions or hands off runtimes. Default discovery does not probe;
 explicit refresh deduplicates provider checks. The global CLI and current MCP
 remain on their existing public surfaces until the coordinated cutover.
+v0.54.49 adds staged catalogue-derived granular FastMCP registration. Raw MCP
+arguments resolve through the canonical request seam rather than a second
+Pydantic request contract; public aggregate registration remains unchanged.
+v0.54.50 ships a checked static `command-catalogue.json` route for typed
+`session.start` v2. It contains only bounded discovery facts and list/describe
+directions, imports no command owners at bootstrap, and remains hidden from the
+legacy session adapter until coordinated cutover.
 
 That launcher process is not automatically the managed runtime. The shared launcher-safe bootstrap ownership now lives under `_bootstrap/`: bootstrap entrypoints do meaningful launcher-safe work there, and runtime-owning lifecycle entrypoints such as `repair.py`, `setup.py`, `configure.py`, `session.py`, and `check.py` hand substantive managed work off into the canonical managed runtime before continuing.
 

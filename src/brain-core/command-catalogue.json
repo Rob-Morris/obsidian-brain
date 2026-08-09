@@ -1,0 +1,6 @@
+{
+  "schema": "brain.command-catalogue/1",
+  "interface_epoch": 1,
+  "static_fingerprint": "sha256:8233579798fa5493ad1413fd5bbaf43bd79dd30cabe33f3dea417965f6a60edf",
+  "installed_application_command_count": 117
+}
