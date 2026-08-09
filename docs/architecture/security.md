@@ -187,6 +187,15 @@ to machine-local files under the vault (`.brain/local/...`) and do not
 broaden into user-home config or cross-vault registries by default. See
 [DD-048: Central managed runtime](decisions/dd-048-central-managed-runtime.md).
 
+Durable command outcomes are a separate fixed internal write capability under
+`.brain/local/command-outcomes/`. Callers supply an opaque invocation ID, never
+a path: the store hashes it to a fixed hexadecimal filename. It refuses
+symlinked directory components and non-regular records, bounds atomic writes to
+the selected Brain, serialises cross-process updates, and retains only command
+identity, outcome state, timestamp and compact effect references. Request
+bodies, credentials and provider values are not representable in the receipt
+schema. Proven no-effect results are not persisted.
+
 Canonical orphan-runtime pruning is launcher-owned and fail-closed. It includes
 the current Brain from trusted launcher context, compares derived machine state
 without rewriting it, and removes only runtimes classified as unselected with a

@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.54.47](changelog/v0.54.47.md) | 2026-08-10 | Compose trusted local command context and durable receipts |
 | [v0.54.46](changelog/v0.54.46.md) | 2026-08-10 | Add the shared dynamic application adapter boundary |
 | [v0.54.45](changelog/v0.54.45.md) | 2026-08-10 | Add authoritative application command discovery |
 | [v0.54.44](changelog/v0.54.44.md) | 2026-08-10 | Establish mechanical application projection contracts |

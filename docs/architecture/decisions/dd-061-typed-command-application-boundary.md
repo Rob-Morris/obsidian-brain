@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.46)
+**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.47)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -799,3 +799,22 @@ capability unavailability to `3`, and infrastructure/unknown outcome to `4`;
 native parser failure also uses `2`. MCP error state is true for both `partial`
 and `error`. Concrete adapters retain only context composition, transport
 registration and stdout/stderr presentation responsibilities.
+
+## v0.54.47 trusted local composition and durable receipts
+
+`scripts/_command_interface/` is the first concrete local adapter package. It
+depends inward on `_application` and accepts only values already resolved by a
+trusted adapter: selected Brain, authenticated profile and granular allow-list,
+dependency tier, provider/capability snapshot, workspace and invocation IDs.
+The application package does not import it. Profile authority is evaluated
+against the mechanically projected granular MCP name, with no aggregate-name
+or legacy fallback.
+
+The same package supplies the durable selected-Brain outcome store required by
+direct processes and later proxy recovery. It writes only effect-bearing
+receipts beneath `.brain/local/command-outcomes`, hashes caller-visible
+invocation IDs into fixed filenames and retains only command identity, outcome
+state, time and committed-effect references. A cross-process lock preserves
+immutability and bounded cleanup. Symlinked directories, non-regular records,
+unknown schemas and malformed values fail closed; request bodies, credentials
+and provider values never enter the receipt model.

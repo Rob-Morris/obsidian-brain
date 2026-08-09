@@ -166,6 +166,11 @@ v0.54.46 adds `_application/adapter.py` as the only dynamic request/result seam
 beneath future MCP, CLI and direct-script projections. It preserves sealed
 request invocation, canonical envelopes, concise rendering, MCP error state and
 the stable CLI exit categories without owning trusted context composition.
+v0.54.47 adds `_command_interface/` as the concrete local adapter package. It
+composes only already-resolved selected-Brain, profile, tier, provider and
+capability state into `_application`, and persists effect-bearing outcome
+receipts in a bounded privacy-minimal store under `.brain/local/`. The
+application package does not import this outward-facing composition layer.
 
 That launcher process is not automatically the managed runtime. The shared launcher-safe bootstrap ownership now lives under `_bootstrap/`: bootstrap entrypoints do meaningful launcher-safe work there, and runtime-owning lifecycle entrypoints such as `repair.py`, `setup.py`, `configure.py`, `session.py`, and `check.py` hand substantive managed work off into the canonical managed runtime before continuing.
 
