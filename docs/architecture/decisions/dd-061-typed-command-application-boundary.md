@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.16)
+**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.17)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -253,3 +253,17 @@ behavior remains unchanged during internal migration, while the new unreleased
 granular command enforces its target create-only meaning. The legacy path is
 removed at coordinated cutover rather than translated or silently changed in a
 mixed public grammar.
+
+## v0.54.17 artefact creation owner
+
+`artefact.create` completes granular ownership of the former create aggregate.
+Its typed request keeps content optional because omission intentionally selects
+the type's authored template; supplied content is inline or staged and never a
+caller-owned path. Type, title, parent, key, bounded frontmatter and link-fix
+intent remain explicit command data.
+
+The owner continues to delegate type resolution, naming, placement,
+frontmatter reconciliation and writes to `create.py`. Its structural result
+captures parent advice and wikilink findings without leaking an open metadata
+bag. Staged content is consumed only after commit, and unexpected failures
+after mutation entry retain the shared unknown-outcome contract.

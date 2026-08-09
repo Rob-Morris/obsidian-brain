@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from .artefact import create as artefact_create
 from .artefact import list as artefact_list
 from .artefact import list_archived as artefact_list_archived
 from .artefact import outline as artefact_outline
@@ -53,6 +54,7 @@ from .workspace import resolve as workspace_resolve
 def current_application_catalogue():
     return build_application_catalogue(
         (
+            artefact_create.catalogue_entry(),
             artefact_list.catalogue_entry(),
             artefact_list_archived.catalogue_entry(),
             artefact_outline.catalogue_entry(),
@@ -105,6 +107,7 @@ def current_application_catalogue():
 def current_request_resolver():
     return build_request_resolver(
         (
+            artefact_create.resolver_entry(),
             artefact_list.resolver_entry(),
             artefact_list_archived.resolver_entry(),
             artefact_outline.resolver_entry(),

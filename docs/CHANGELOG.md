@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.54.17](changelog/v0.54.17.md) | 2026-08-09 | Migrate typed artefact creation ownership |
 | [v0.54.16](changelog/v0.54.16.md) | 2026-08-09 | Add create-only typed template creation ownership |
 | [v0.54.15](changelog/v0.54.15.md) | 2026-08-09 | Migrate typed memory, skill, and style creation owners |
 | [v0.54.14](changelog/v0.54.14.md) | 2026-08-09 | Migrate typed staging and attachment mutation owners |

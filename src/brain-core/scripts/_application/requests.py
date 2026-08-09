@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import ClassVar
 
+from .artefact.create import ArtefactCreateRequest
 from .artefact.list import ArtefactListRequest
 from .artefact.list_archived import ArtefactListArchivedRequest
 from .artefact.outline import ArtefactOutlineRequest
@@ -181,6 +182,7 @@ CommandRequest = (
     CommandListRequest
     | CommandDescribeRequest
     | InvocationReadRequest
+    | ArtefactCreateRequest
     | ArtefactReadRequest
     | ArtefactReadArchivedRequest
     | ArtefactOutlineRequest
@@ -236,6 +238,7 @@ def command_identity(request: CommandRequest) -> tuple[str, int, type]:
         CommandListRequest,
         CommandDescribeRequest,
         InvocationReadRequest,
+        ArtefactCreateRequest,
         ArtefactReadRequest,
         ArtefactReadArchivedRequest,
         ArtefactOutlineRequest,
