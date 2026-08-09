@@ -1,0 +1,307 @@
+{
+  "brain_core_version": "0.54.0",
+  "capture_command": ".venv/bin/python tests/capture_mcp_metadata_baseline.py --output tests/fixtures/command_interface_mcp_metadata_baseline_v1.json",
+  "captured_at": "2026-08-09T09:30:00+10:00",
+  "clients": {
+    "claude-code": {
+      "catalogue_hash": "sha256:7903ee0d51e5703b0ae186ff9fd4ffa99ce280e6f5cdaacc54d7a61f232794cc",
+      "client_version": "2.1.226",
+      "lexeme_tokens": 18379,
+      "projector": "anthropic-tool-wire-shape/1",
+      "raw_bytes": 54495,
+      "tool_count": 22,
+      "tools": {
+        "brain_action": {
+          "lexeme_tokens": 2467,
+          "projected_declaration_hash": "sha256:705ca0e0bfe6e615f9d6f43788d03408e8fe46cc3c57f63edcf71fc9eaf12d89",
+          "raw_bytes": 7507,
+          "source_schema_hash": "sha256:fe76457fbce2e5cd47593a76bfb9d4a6b82d536061ce0736d903e2d0ce19db7c"
+        },
+        "brain_check": {
+          "lexeme_tokens": 298,
+          "projected_declaration_hash": "sha256:58300d303992ac1c39678b846f50037159f455a27eda9617c09381d1ecf3e1af",
+          "raw_bytes": 791,
+          "source_schema_hash": "sha256:7fb35b0e536126a0a47c9b5fe9b7a8e2f7944dfdf52e5187800a5b63fd6757a7"
+        },
+        "brain_classify": {
+          "lexeme_tokens": 188,
+          "projected_declaration_hash": "sha256:1eeb7cce969360371cccafab9d652d0d184ce97c62642acc269eba07cb505b0f",
+          "raw_bytes": 560,
+          "source_schema_hash": "sha256:b1c4c9668791ecd217b0065709b3d8b99306d6136eb929b62ba73167ae7a8a3d"
+        },
+        "brain_create": {
+          "lexeme_tokens": 2900,
+          "projected_declaration_hash": "sha256:8722c9f61d60a8c10542cbbaf4ea719a9263949dc49a259eafe22976e21e5fd6",
+          "raw_bytes": 8522,
+          "source_schema_hash": "sha256:342226ba4841ef8abaaf34f0f0b657d300800707e9683e6eabbdc36e24f334a5"
+        },
+        "brain_define": {
+          "lexeme_tokens": 2474,
+          "projected_declaration_hash": "sha256:219c92d2c27f88ee30d02876531bc559e4a26bd283e4530c3263fb6595888feb",
+          "raw_bytes": 7493,
+          "source_schema_hash": "sha256:3790eb995fe53a1b6882977158b7bf9b50fb9a273343572488c6f8ddbee7027c"
+        },
+        "brain_discard_stage": {
+          "lexeme_tokens": 103,
+          "projected_declaration_hash": "sha256:5b798d853f88daccd40fd2dc8a1c41343094b0b543afae18b0e0428ffb695681",
+          "raw_bytes": 347,
+          "source_schema_hash": "sha256:0fa63d4679daf747086a44976b799f5879c734018f982b55ea23b8d0309dba33"
+        },
+        "brain_edit": {
+          "lexeme_tokens": 5232,
+          "projected_declaration_hash": "sha256:1cd804c183409921888963c79d93f6596553d7ccdaaf50aeb17cabaf83b7a2d4",
+          "raw_bytes": 15383,
+          "source_schema_hash": "sha256:dc5146ee179251ca068ab5d1453726fe9bca741f07f03a7215dbb457d6587df7"
+        },
+        "brain_ingest": {
+          "lexeme_tokens": 312,
+          "projected_declaration_hash": "sha256:c7c3b6836353bc34d271c20680b50b483ef201b157fd9e328096e865caca8491",
+          "raw_bytes": 837,
+          "source_schema_hash": "sha256:bf22278dc19c40822d45207aee2a92541496a3acbc925cf33b0ee968b59e4ce1"
+        },
+        "brain_init": {
+          "lexeme_tokens": 307,
+          "projected_declaration_hash": "sha256:7bf677d0f75011821e91ff862ec7d567621f25f5bcddf7be6addade7fbb3c5ac",
+          "raw_bytes": 1110,
+          "source_schema_hash": "sha256:11696bed926161a16d4c81be4d602dc93534a86503c38ee004e69de3fdef8635"
+        },
+        "brain_list": {
+          "lexeme_tokens": 982,
+          "projected_declaration_hash": "sha256:1ed3aea18d27d6ca0884bb9a1306aa61ada521dc5e85a6b95e62e4bc5d81aa77",
+          "raw_bytes": 2677,
+          "source_schema_hash": "sha256:fd1ca42193c5b62ea6f2878adc05873275937fcceb2019ebf8b4eca5e7a02959"
+        },
+        "brain_move": {
+          "lexeme_tokens": 626,
+          "projected_declaration_hash": "sha256:41aca0e7407f37c7dc4befc91b2de5e571a8020b164b27b9dca940ad6dac5e05",
+          "raw_bytes": 1865,
+          "source_schema_hash": "sha256:9611a29aa7eb65c95b34aeab1bed51350c085bb1935da6668b40d4a3f75baced"
+        },
+        "brain_outline": {
+          "lexeme_tokens": 104,
+          "projected_declaration_hash": "sha256:babe5617380649d636c23632a0c875e029d2d4693c0eff4e0e6e2d2ae8511c37",
+          "raw_bytes": 309,
+          "source_schema_hash": "sha256:1a2fb7bf898b5f0e17c1a264289f0a0b77cdec5b83cd12107daf66d1edca9aca"
+        },
+        "brain_read": {
+          "lexeme_tokens": 338,
+          "projected_declaration_hash": "sha256:79519566c75c578f60a3be411e318c353626ab1e048976d3bad512ea9adfb314",
+          "raw_bytes": 991,
+          "source_schema_hash": "sha256:3502fd4f0c9a136e1e6a4073729ffa5dd7e7be7bbdeba3efe1586953fb9e0a2b"
+        },
+        "brain_reparent": {
+          "lexeme_tokens": 167,
+          "projected_declaration_hash": "sha256:47ed981693ae83d38827126e014d4069c3c52d1d4b50384d7e83a0d2dc3f73c1",
+          "raw_bytes": 473,
+          "source_schema_hash": "sha256:4dd15eb7f3e3f8d1814e7da281dc5e6d9a2dce748b426b85e74cc75e8d91d3f0"
+        },
+        "brain_resolve": {
+          "lexeme_tokens": 189,
+          "projected_declaration_hash": "sha256:dd6b624057a1d669d71aca9525cef64bb686ca11135c4f9904b86facbb9034e3",
+          "raw_bytes": 584,
+          "source_schema_hash": "sha256:adc00b80650052c36a3bb045b98a9363eba330ffe0b854cc26cae25209d62f72"
+        },
+        "brain_search": {
+          "lexeme_tokens": 584,
+          "projected_declaration_hash": "sha256:bdcdff1c1d25cf35390145bee3c0fadb28e4ffadb59bd9234ab1538bb6d80ef8",
+          "raw_bytes": 1632,
+          "source_schema_hash": "sha256:5f86d65d04f54288a00269702bf41e879bffd6872cba798227e85ec7e9ed13ec"
+        },
+        "brain_session": {
+          "lexeme_tokens": 282,
+          "projected_declaration_hash": "sha256:e4e94d1b4cff588ecc33ee7ca7e83d25150b78be9c29efbca314a5775c924bcc",
+          "raw_bytes": 946,
+          "source_schema_hash": "sha256:a0d76093a1323b7bfbdccec06fb4887c70e83a9e36a13c0a21cb54af6dd0ba74"
+        },
+        "brain_set_key": {
+          "lexeme_tokens": 146,
+          "projected_declaration_hash": "sha256:8d85c26b76aae5d0450cd1ec6fd610c4ac602f57cb9ce2906b8a339db7045920",
+          "raw_bytes": 424,
+          "source_schema_hash": "sha256:0aadb2bc1b51dd195c3d32caeacb9d65a82313eb62af9a9362dd223edfefd85b"
+        },
+        "brain_set_naming_field": {
+          "lexeme_tokens": 186,
+          "projected_declaration_hash": "sha256:a9442ee03c2f56db1ff70ad68f4cccc829ee22d1a582775e3bf50adef148e47f",
+          "raw_bytes": 535,
+          "source_schema_hash": "sha256:75d5ba3f30f15c3ec0f884809f56ecfe69703fa0956ed1568e8813625986376d"
+        },
+        "brain_set_status": {
+          "lexeme_tokens": 148,
+          "projected_declaration_hash": "sha256:ed7e0c87f23da2c05904385bd73855aa2936428a199bdf1264fd74fe4095fe54",
+          "raw_bytes": 437,
+          "source_schema_hash": "sha256:09956904ba7e20c4e8a4a80258050114399009d6375dce011df94363f546df9a"
+        },
+        "brain_stage": {
+          "lexeme_tokens": 111,
+          "projected_declaration_hash": "sha256:a2a044397b5a766f892bbcd659f64761672877be8121cd0fa252b3a0ace14a8a",
+          "raw_bytes": 320,
+          "source_schema_hash": "sha256:ebd847d090037ec40a873c7d57b98f62fd3f4b6b414084cdee0d8cf81c8d0b23"
+        },
+        "brain_upload_attachment": {
+          "lexeme_tokens": 212,
+          "projected_declaration_hash": "sha256:9cb21de789254679c846f2323b7e4b2759e8c62c6a23025c1ae5ff88617006f2",
+          "raw_bytes": 729,
+          "source_schema_hash": "sha256:c37c862652ea6f7ee4185b7f74e851114a36d9b4db32ca8b04a271efb4f2dc14"
+        }
+      },
+      "version_command": "claude --version"
+    },
+    "codex-cli": {
+      "catalogue_hash": "sha256:78213cf4a51a3f75b1a1a39bcbd38e46a06ade77b9121863f1f24c6c353f607f",
+      "client_version": "0.147.0",
+      "lexeme_tokens": 18555,
+      "projector": "openai-function-tool-wire-shape/1",
+      "raw_bytes": 54847,
+      "tool_count": 22,
+      "tools": {
+        "brain_action": {
+          "lexeme_tokens": 2475,
+          "projected_declaration_hash": "sha256:830cf4aa3472432fb75c0af89275710e1dd9d047606023127458dba59c753a50",
+          "raw_bytes": 7523,
+          "source_schema_hash": "sha256:fe76457fbce2e5cd47593a76bfb9d4a6b82d536061ce0736d903e2d0ce19db7c"
+        },
+        "brain_check": {
+          "lexeme_tokens": 306,
+          "projected_declaration_hash": "sha256:ae7e3e4d84ba58732f76c2670a79d9119c8eaec69f6b7a8f0c01bee2372e9834",
+          "raw_bytes": 807,
+          "source_schema_hash": "sha256:7fb35b0e536126a0a47c9b5fe9b7a8e2f7944dfdf52e5187800a5b63fd6757a7"
+        },
+        "brain_classify": {
+          "lexeme_tokens": 196,
+          "projected_declaration_hash": "sha256:0574e6770ededf6e71aa0c3d8e8888a79f591eb556c99b1ca0170c31ac472f13",
+          "raw_bytes": 576,
+          "source_schema_hash": "sha256:b1c4c9668791ecd217b0065709b3d8b99306d6136eb929b62ba73167ae7a8a3d"
+        },
+        "brain_create": {
+          "lexeme_tokens": 2908,
+          "projected_declaration_hash": "sha256:6e7c7ff1d4cee18729930b0ad7bdc0f08b11c667e19b0b7341d19298b39b6bc5",
+          "raw_bytes": 8538,
+          "source_schema_hash": "sha256:342226ba4841ef8abaaf34f0f0b657d300800707e9683e6eabbdc36e24f334a5"
+        },
+        "brain_define": {
+          "lexeme_tokens": 2482,
+          "projected_declaration_hash": "sha256:feb1e2a5b7ad09a31a9b1c8f7553a3870e241f3110da14ac62db1e98a4a861b7",
+          "raw_bytes": 7509,
+          "source_schema_hash": "sha256:3790eb995fe53a1b6882977158b7bf9b50fb9a273343572488c6f8ddbee7027c"
+        },
+        "brain_discard_stage": {
+          "lexeme_tokens": 111,
+          "projected_declaration_hash": "sha256:1e4efda12ad518b41ecdfa6d14fec75dfbe0287968cc6704778790fe7a92842a",
+          "raw_bytes": 363,
+          "source_schema_hash": "sha256:0fa63d4679daf747086a44976b799f5879c734018f982b55ea23b8d0309dba33"
+        },
+        "brain_edit": {
+          "lexeme_tokens": 5240,
+          "projected_declaration_hash": "sha256:5e319450e95b490730eee0cf53a7301e523a0eb3350e84c7d398450a28be246f",
+          "raw_bytes": 15399,
+          "source_schema_hash": "sha256:dc5146ee179251ca068ab5d1453726fe9bca741f07f03a7215dbb457d6587df7"
+        },
+        "brain_ingest": {
+          "lexeme_tokens": 320,
+          "projected_declaration_hash": "sha256:398ec228b80097bb39d7ee576fa0f86f0c690e75ff7eb48e94aaf8fa4ff0a90b",
+          "raw_bytes": 853,
+          "source_schema_hash": "sha256:bf22278dc19c40822d45207aee2a92541496a3acbc925cf33b0ee968b59e4ce1"
+        },
+        "brain_init": {
+          "lexeme_tokens": 315,
+          "projected_declaration_hash": "sha256:e352b1ce0b325f02afe276a181885679b31d30dc96156f4d443e071d8845e7df",
+          "raw_bytes": 1126,
+          "source_schema_hash": "sha256:11696bed926161a16d4c81be4d602dc93534a86503c38ee004e69de3fdef8635"
+        },
+        "brain_list": {
+          "lexeme_tokens": 990,
+          "projected_declaration_hash": "sha256:6e556d09b1c612209f7007813c78986fd4f114b352cf5d7a01ad75dc33d34db2",
+          "raw_bytes": 2693,
+          "source_schema_hash": "sha256:fd1ca42193c5b62ea6f2878adc05873275937fcceb2019ebf8b4eca5e7a02959"
+        },
+        "brain_move": {
+          "lexeme_tokens": 634,
+          "projected_declaration_hash": "sha256:9ec4c64c5ffe718957cd279874cd9b63e2b104012aae579e2173cc9e3a3e9af2",
+          "raw_bytes": 1881,
+          "source_schema_hash": "sha256:9611a29aa7eb65c95b34aeab1bed51350c085bb1935da6668b40d4a3f75baced"
+        },
+        "brain_outline": {
+          "lexeme_tokens": 112,
+          "projected_declaration_hash": "sha256:82a851f701f727618f181ae4d90b51c5128751b6990920609fa5c3e203829761",
+          "raw_bytes": 325,
+          "source_schema_hash": "sha256:1a2fb7bf898b5f0e17c1a264289f0a0b77cdec5b83cd12107daf66d1edca9aca"
+        },
+        "brain_read": {
+          "lexeme_tokens": 346,
+          "projected_declaration_hash": "sha256:7e62f8bb1443897bd6816f4d8df3b2e7cd3498088aa454c6d2f3b128c072736b",
+          "raw_bytes": 1007,
+          "source_schema_hash": "sha256:3502fd4f0c9a136e1e6a4073729ffa5dd7e7be7bbdeba3efe1586953fb9e0a2b"
+        },
+        "brain_reparent": {
+          "lexeme_tokens": 175,
+          "projected_declaration_hash": "sha256:dc765421046537a2fb76f48f52c1d26822050bffdc7b8b05ed5fb55f342101ff",
+          "raw_bytes": 489,
+          "source_schema_hash": "sha256:4dd15eb7f3e3f8d1814e7da281dc5e6d9a2dce748b426b85e74cc75e8d91d3f0"
+        },
+        "brain_resolve": {
+          "lexeme_tokens": 197,
+          "projected_declaration_hash": "sha256:7d141d8558f02fd9934a3c0d45ab9c913a9b8d8282b7cbdab927f90c8ef8eda6",
+          "raw_bytes": 600,
+          "source_schema_hash": "sha256:adc00b80650052c36a3bb045b98a9363eba330ffe0b854cc26cae25209d62f72"
+        },
+        "brain_search": {
+          "lexeme_tokens": 592,
+          "projected_declaration_hash": "sha256:9640978f5c124364d83c54637edbe9a0206e78ac3812f956dee6c81578c77934",
+          "raw_bytes": 1648,
+          "source_schema_hash": "sha256:5f86d65d04f54288a00269702bf41e879bffd6872cba798227e85ec7e9ed13ec"
+        },
+        "brain_session": {
+          "lexeme_tokens": 290,
+          "projected_declaration_hash": "sha256:e48a7f7cfde7e83c1979b68ee183650926c0dc1b3d32d311f240fde4656d3844",
+          "raw_bytes": 962,
+          "source_schema_hash": "sha256:a0d76093a1323b7bfbdccec06fb4887c70e83a9e36a13c0a21cb54af6dd0ba74"
+        },
+        "brain_set_key": {
+          "lexeme_tokens": 154,
+          "projected_declaration_hash": "sha256:ec79e33b0f6cb04cc601b675ea17e121ed4d7dc0b45baf7ea5f1a045e848a84d",
+          "raw_bytes": 440,
+          "source_schema_hash": "sha256:0aadb2bc1b51dd195c3d32caeacb9d65a82313eb62af9a9362dd223edfefd85b"
+        },
+        "brain_set_naming_field": {
+          "lexeme_tokens": 194,
+          "projected_declaration_hash": "sha256:a982c8bce03d5230754b17550df8b4bab157bf2fdfc06aac4c342422880d90c0",
+          "raw_bytes": 551,
+          "source_schema_hash": "sha256:75d5ba3f30f15c3ec0f884809f56ecfe69703fa0956ed1568e8813625986376d"
+        },
+        "brain_set_status": {
+          "lexeme_tokens": 156,
+          "projected_declaration_hash": "sha256:a77d6ec402136c55e3f90e4b6eb9f19d53532763daa130202171a80e6477f61e",
+          "raw_bytes": 453,
+          "source_schema_hash": "sha256:09956904ba7e20c4e8a4a80258050114399009d6375dce011df94363f546df9a"
+        },
+        "brain_stage": {
+          "lexeme_tokens": 119,
+          "projected_declaration_hash": "sha256:5e6d897d270b5154b978275bb285b460c4ba074c7450fcd8a46909ca03598ebe",
+          "raw_bytes": 336,
+          "source_schema_hash": "sha256:ebd847d090037ec40a873c7d57b98f62fd3f4b6b414084cdee0d8cf81c8d0b23"
+        },
+        "brain_upload_attachment": {
+          "lexeme_tokens": 220,
+          "projected_declaration_hash": "sha256:1769710472cbdc3f4d3bf65815824e7c182f098707b5d9ace63c30cc47958742",
+          "raw_bytes": 745,
+          "source_schema_hash": "sha256:c37c862652ea6f7ee4185b7f74e851114a36d9b4db32ca8b04a271efb4f2dc14"
+        }
+      },
+      "version_command": "codex --version"
+    }
+  },
+  "mcp_sdk_version": "1.29.0",
+  "raw_fastmcp": {
+    "catalogue_hash": "sha256:7903ee0d51e5703b0ae186ff9fd4ffa99ce280e6f5cdaacc54d7a61f232794cc",
+    "lexeme_tokens": 18379,
+    "raw_bytes": 54495,
+    "tool_count": 22
+  },
+  "schema": "brain.command-interface-mcp-metadata-baseline/1",
+  "scope": {
+    "purpose": "relative pre-cutover metadata cost baseline",
+    "real_client_declaration_and_request": "required in Phase 4; not satisfied by this cost capture",
+    "release_token_ceiling": "not evaluated with lexeme units"
+  },
+  "tokeniser": "brain-unicode-lexeme/1"
+}

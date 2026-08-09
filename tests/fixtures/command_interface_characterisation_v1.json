@@ -1,0 +1,45 @@
+{
+  "schema": "brain.command-interface-characterisation/1",
+  "brain_core_version": "0.54.0",
+  "status": "current_behaviour_closed",
+  "policy": {
+    "preserve": "Current behaviour is valid target evidence until its semantic owner moves.",
+    "correct": "The current release contains an intentional correction that the target contract retains.",
+    "remove": "The observation proves a legacy surface that disappears at the coordinated cutover, not target semantics."
+  },
+  "cases": [
+    {"id": "valid-read-environment", "class": "valid", "behaviour": "preserve", "surface": "mcp", "test_file": "tests/mcp_server/test_mcp_read.py", "test_name": "test_read_environment"},
+    {"id": "valid-list-artefact-filters", "class": "valid", "behaviour": "preserve", "surface": "mcp", "test_file": "tests/mcp_server/test_mcp_read.py", "test_name": "test_list_artefact_accepts_all_filters"},
+    {"id": "valid-create-living", "class": "valid", "behaviour": "preserve", "surface": "python", "test_file": "tests/test_create.py", "test_name": "test_create_living_type"},
+    {"id": "valid-create-temporal-owner", "class": "valid", "behaviour": "preserve", "surface": "python", "test_file": "tests/test_create.py", "test_name": "test_temporal_parent_scopes_before_month_folder"},
+    {"id": "valid-edit-modified", "class": "valid", "behaviour": "preserve", "surface": "python", "test_file": "tests/edit/test_edit_lifecycle.py", "test_name": "test_edit_updates_modified"},
+    {"id": "valid-archive-terminal", "class": "valid", "behaviour": "preserve", "surface": "python", "test_file": "tests/edit/test_edit_lifecycle.py", "test_name": "test_archive_moves_to_top_level"},
+    {"id": "valid-shaping-transcript", "class": "valid", "behaviour": "remove", "surface": "mcp-aggregate", "test_file": "tests/mcp_server/test_mcp_actions.py", "test_name": "test_happy_path_creates_transcript", "replacement": "shaping.start"},
+    {"id": "valid-aggregate-registration", "class": "valid", "behaviour": "remove", "surface": "mcp-aggregate", "test_file": "tests/test_mcp_tool_contract.py", "test_name": "test_tools_are_registered", "replacement": "granular MCP projections"},
+
+    {"id": "invalid-missing-read-target", "class": "invalid", "behaviour": "preserve", "surface": "mcp", "test_file": "tests/mcp_server/test_mcp_read.py", "test_name": "test_read_missing_file_is_an_mcp_error"},
+    {"id": "invalid-create-frontmatter-body", "class": "invalid", "behaviour": "preserve", "surface": "python", "test_file": "tests/test_create.py", "test_name": "test_create_rejects_body_with_frontmatter_block"},
+    {"id": "invalid-template-separate-frontmatter", "class": "invalid", "behaviour": "correct", "surface": "mcp", "test_file": "tests/test_create.py", "test_name": "test_create_template_rejects_separate_frontmatter", "basis": "v0.54.0 schema/runtime parity correction"},
+    {"id": "invalid-legacy-create-envelope", "class": "invalid", "behaviour": "correct", "surface": "mcp", "test_file": "tests/test_mcp_tool_contract.py", "test_name": "test_brain_create_public_boundary_returns_complete_legacy_shape_correction", "basis": "v0.54.0 degraded-client recovery correction"},
+    {"id": "invalid-implicit-reparent-clear", "class": "invalid", "behaviour": "correct", "surface": "mcp", "test_file": "tests/test_mcp_tool_contract.py", "test_name": "test_brain_reparent_requires_an_explicit_nullable_parent", "basis": "v0.54.0 explicit destructive intent correction"},
+    {"id": "invalid-attachment-base64", "class": "invalid", "behaviour": "preserve", "surface": "mcp", "test_file": "tests/mcp_server/test_mcp_mutations.py", "test_name": "test_upload_attachment_rejects_invalid_base64_and_collisions"},
+    {"id": "invalid-parent-cycle", "class": "invalid", "behaviour": "preserve", "surface": "python", "test_file": "tests/edit/test_edit_lifecycle.py", "test_name": "test_parent_change_to_descendant_rejected_before_writes"},
+    {"id": "invalid-archive-non-terminal", "class": "invalid", "behaviour": "preserve", "surface": "python", "test_file": "tests/edit/test_edit_lifecycle.py", "test_name": "test_archive_refuses_non_terminal_status"},
+
+    {"id": "degraded-missing-lexical-index", "class": "degraded", "behaviour": "remove", "surface": "mcp-aggregate", "test_file": "tests/mcp_server/test_mcp_actions.py", "test_name": "test_process_classify_degrades_without_index", "replacement": "process.classify"},
+    {"id": "degraded-missing-pandoc", "class": "degraded", "behaviour": "remove", "surface": "mcp-aggregate", "test_file": "tests/mcp_server/test_mcp_actions.py", "test_name": "test_works_without_pandoc_installed", "replacement": "document.shape-printable"},
+    {"id": "degraded-missing-runtime", "class": "degraded", "behaviour": "preserve", "surface": "launcher", "test_file": "tests/test_machine.py", "test_name": "test_classify_brain_runtime_reports_missing_runtime"},
+    {"id": "degraded-blocked-registry", "class": "degraded", "behaviour": "preserve", "surface": "launcher", "test_file": "tests/test_machine.py", "test_name": "test_sync_machine_registry_refuses_newer_schema"},
+    {"id": "degraded-proxy-resolution", "class": "degraded", "behaviour": "preserve", "surface": "proxy", "test_file": "tests/test_proxy_degraded_mode.py", "test_name": "test_tools_call_returns_the_actionable_error"},
+    {"id": "degraded-stale-router-overlay", "class": "degraded", "behaviour": "preserve", "surface": "test-substrate", "test_file": "tests/test_command_vault_overlays.py", "test_name": "test_cache_overlays_create_real_derived_state_staleness"},
+    {"id": "degraded-registry-overlays", "class": "degraded", "behaviour": "preserve", "surface": "test-substrate", "test_file": "tests/test_command_vault_overlays.py", "test_name": "test_registry_overlays_use_the_real_machine_registry_contract"},
+
+    {"id": "effect-stage-consumed-after-success", "class": "effect-boundary", "behaviour": "preserve", "surface": "mcp", "test_file": "tests/mcp_server/test_mcp_mutations.py", "test_name": "test_stage_handle_is_consumed_only_after_success"},
+    {"id": "effect-key-prune-partial", "class": "effect-boundary", "behaviour": "preserve", "surface": "python", "test_file": "tests/edit/test_edit_lifecycle.py", "test_name": "test_key_change_attachment_prune_failure_reports_partial_state"},
+    {"id": "effect-delete-partial", "class": "effect-boundary", "behaviour": "preserve", "surface": "python", "test_file": "tests/edit/test_edit_lifecycle.py", "test_name": "test_delete_recursive_remove_failure_reports_partial_state"},
+    {"id": "effect-archive-write-failure", "class": "effect-boundary", "behaviour": "preserve", "surface": "python", "test_file": "tests/edit/test_edit_lifecycle.py", "test_name": "test_archive_write_failure_reports_written_context"},
+    {"id": "effect-upgrade-rollback", "class": "effect-boundary", "behaviour": "preserve", "surface": "launcher", "test_file": "tests/test_upgrade.py", "test_name": "test_rollback_restores_precompile_taxonomy_edits"},
+    {"id": "effect-proxy-drift-replay", "class": "effect-boundary", "behaviour": "preserve", "surface": "proxy", "test_file": "tests/test_mcp_proxy.py", "test_name": "test_drift_triggering_request_gets_success"},
+    {"id": "effect-unknown-outcome-overlay", "class": "effect-boundary", "behaviour": "preserve", "surface": "test-substrate", "test_file": "tests/test_command_vault_overlays.py", "test_name": "test_effect_overlays_write_queryable_outcome_fixtures"}
+  ]
+}
