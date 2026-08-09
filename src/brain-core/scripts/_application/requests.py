@@ -9,6 +9,8 @@ from .artefact.list import ArtefactListRequest
 from .artefact.outline import ArtefactOutlineRequest
 from .artefact.read import ArtefactReadRequest
 from .links.check import LinksCheckRequest
+from .memory.list import MemoryListRequest
+from .memory.read import MemoryReadRequest
 from .plugin.list import PluginListRequest
 from .plugin.read import PluginReadRequest
 from .runtime.read_environment import RuntimeReadEnvironmentRequest
@@ -16,6 +18,8 @@ from .skill.list import SkillListRequest
 from .skill.read import SkillReadRequest
 from .style.list import StyleListRequest
 from .style.read import StyleReadRequest
+from .trigger.list import TriggerListRequest
+from .trigger.read import TriggerReadRequest
 from .vault.read_router import VaultReadRouterRequest
 from .receipts import OutcomeReceipt, OutcomeReference, ReceiptLookupState
 from .types import (
@@ -152,6 +156,8 @@ CommandRequest = (
     | ArtefactOutlineRequest
     | ArtefactListRequest
     | LinksCheckRequest
+    | MemoryListRequest
+    | MemoryReadRequest
     | PluginListRequest
     | PluginReadRequest
     | RuntimeReadEnvironmentRequest
@@ -159,6 +165,8 @@ CommandRequest = (
     | SkillReadRequest
     | StyleListRequest
     | StyleReadRequest
+    | TriggerListRequest
+    | TriggerReadRequest
     | VaultReadRouterRequest
 )
 
@@ -174,6 +182,8 @@ def command_identity(request: CommandRequest) -> tuple[str, int, type]:
         ArtefactOutlineRequest,
         ArtefactListRequest,
         LinksCheckRequest,
+        MemoryListRequest,
+        MemoryReadRequest,
         PluginListRequest,
         PluginReadRequest,
         RuntimeReadEnvironmentRequest,
@@ -181,6 +191,8 @@ def command_identity(request: CommandRequest) -> tuple[str, int, type]:
         SkillReadRequest,
         StyleListRequest,
         StyleReadRequest,
+        TriggerListRequest,
+        TriggerReadRequest,
         VaultReadRouterRequest,
     }:
         raise TypeError(f"unregistered command request type: {request_type.__name__}")

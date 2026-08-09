@@ -5,11 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import ClassVar, Mapping
 
-from .._named_documents import (
+from .._named_documents import read_portable
+from .._read_support import (
     catalogue_entry as _catalogue_entry,
     command_error,
     decode_reference,
-    read_portable,
     resolver_entry as _resolver_entry,
 )
 from ..context import InvocationContext

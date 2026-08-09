@@ -123,6 +123,9 @@ typed views, and link diagnosis remains independent of compiled-router health.
 v0.54.6 adds separate `read` and `list` owners for skills, styles and plugins.
 They share adapter-free named-document mechanics while retaining independent
 request, result, executor and catalogue identities.
+v0.54.7 adds exact memory and trigger collection owners. Memory reads use
+canonical names; trigger reads use unique conditions; search remains a separate
+semantic operation rather than an ambiguous read mode.
 
 The lifecycle/bootstrap side of that script layer now has an explicit shared owner under `scripts/_bootstrap/`. `runtime.py` owns launcher discovery, managed-runtime handoff, executable path identity, and the shared `BRAIN_BOOTSTRAP_SUMMARY` contract; `diagnostics.py` owns the launcher-safe runtime/MCP/registry checks needed before managed semantic work is available; `mcp_state.py` owns shared MCP/config-layout and init-state helpers; `vaults.py` owns the env-aware vault-root discovery seam used by the public lifecycle wrappers; `workspace_scaffold.py` owns Brain-local ignore-rule convergence; `mcp_transport.py` owns the shared Claude/Codex transport/config write engine; and `agent_skills.py` owns version-neutral, ownership-safe client skill adapters. Entry points such as `setup.py`, `repair.py`, `configure.py`, `session.py`, and `check.py` now converge on that seam instead of carrying parallel launcher or env-var logic.
 

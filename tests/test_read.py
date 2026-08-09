@@ -148,6 +148,18 @@ class TestReadResource:
         with pytest.raises(ValueError, match="requires name"):
             read.read_resource(router, "", "trigger")
 
+    def test_trigger_reads_by_exact_condition(self, vault):
+        _, router = vault
+        result = read.read_resource(
+            router,
+            "",
+            "trigger",
+            name="After meaningful work",
+        )
+
+        assert result["target"] == "_Config/Taxonomy/Temporal/logs"
+        assert result["condition"] == "After meaningful work"
+
     def test_style_requires_name(self, vault):
         _, router = vault
         with pytest.raises(ValueError, match="requires name"):

@@ -37,6 +37,7 @@ from _portable.artefact_listing import (
     list_artefacts_page,
 )
 from _portable.named_documents import list_named_documents
+from _portable.router_collections import list_memories, list_triggers
 
 
 # ---------------------------------------------------------------------------
@@ -178,6 +179,10 @@ def list_resources(index, router, vault_root, resource="artefact", query=None,
     if resource in _COLLECTION_MAP:
         if resource in {"skill", "style", "plugin"}:
             return list_named_documents(router, resource, query)
+        if resource == "memory":
+            return list_memories(router, query)
+        if resource == "trigger":
+            return list_triggers(router, query)
         router_key, name_field = _COLLECTION_MAP[resource]
         return _list_collection(router, router_key, name_field, query)
 

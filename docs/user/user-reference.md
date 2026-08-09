@@ -115,6 +115,7 @@ If your vault runs the Brain MCP server (`.brain-core/brain_mcp/server.py`), twe
 **brain_read** (safe, no side effects)
 - Look up artefacts, triggers, styles, templates, skills, plugins, memories, workspaces, environment info, the compiled router, or read artefact files by path
 - `name` is required for named resources such as `skill`, `memory`, `workspace`, `artefact`, and `file`; rejected for `environment` and `router`. For temporal artefacts, the display name works without the dated prefix — e.g. "Colour Theory" finds `20260404-research~Colour Theory.md`
+- Trigger reads pass the exact trigger condition through `name`, for example `After meaningful work`
 - `resource="file"` can also read `.brain-core/` docs by vault-relative path when the agent is operating over MCP, e.g. `brain_read(resource="file", name=".brain-core/standards/provenance.md")`
 
 **brain_search** (safe, no side effects)
@@ -129,6 +130,7 @@ If your vault runs the Brain MCP server (`.brain-core/brain_mcp/server.py`), twe
 **brain_list** (safe, no side effects)
 - List vault artefacts exhaustively — not relevance-ranked
 - `resource="artefact"` supports honest creation and modification date filters, stable sorting, bounded page sizes, and opaque cursor continuation. Unknown types fail clearly.
+- Trigger `query` filters search category, condition, detail and target rather than a non-existent display name.
 - If index-backed retrieval state is blocked by an unreadable source file, compiled-router embeddings drift, or a retrieval-index persistence failure, artefact listing returns that explicit error instead of stale results
 - Non-artefact collections such as `skill`, `memory`, `template`, and `style` support only optional `query`; `workspace` and `archive` accept no filters
 - Use instead of `brain_search` when completeness matters (e.g. "all research from the last 2 weeks")

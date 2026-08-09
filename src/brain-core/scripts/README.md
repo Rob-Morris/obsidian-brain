@@ -33,6 +33,9 @@ reuse the existing portable scanner without requiring router availability.
 v0.54.6 adds separate read/list owners for skills, styles and plugins. Their
 exact-name reads and filtered lists share `_portable/named_documents.py`, and
 the legacy reader/lister delegate to that seam without changing public output.
+v0.54.7 adds exact memory/trigger read/list owners over portable router
+collection views. Trigger reads now select by unique condition and trigger list
+queries search real category/condition/detail/target fields.
 Existing adapters are not cut over in the v0.54.x foundation releases; they
 continue to behave as documented until the coordinated breaking release
 replaces the old grammar.
@@ -104,7 +107,7 @@ remains lexical-only.
 | `obsidian_cli.py` | IPC client for native Obsidian CLI | (library module, used by MCP server) |
 | `process.py` | Experimental content classification, duplicate resolution, ingestion | (library module, used by MCP server) |
 | `repair.py` | Explicit named repairs, including preview/apply metadata-authoritative ownership projection | `python3 repair.py {runtime,mcp,router,lexical,registry,frontmatter,semantic,ownership} [...]` |
-| `read.py` | Query compiled router resources; read failures use stderr and a non-zero exit | `python3 read.py RESOURCE [--name N] [--vault V]` |
+| `read.py` | Query compiled router resources; trigger reads use the exact condition as `--name`; read failures use stderr and a non-zero exit | `python3 read.py RESOURCE [--name N] [--vault V]` |
 | `rename.py` | Rename/delete file + update wikilinks, refusing stale compiled router state and unsafe move sets before rewrites: collisions, duplicate/cyclic moves, symlink endpoints, and non-directory destination parents. Wikilink aliases are dropped when a rewrite would otherwise insert `|` into a markdown table cell. | `python3 rename.py "source" "dest" [--json]` |
 | `search_index.py` | Thin CLI/script wrapper over `_search`: lexical, semantic, or hybrid local search with exact-anchor lexical wins, strong semantic champions, Brain-only title champions, and semantic-rescue fusion for disjoint leaders. Use `_search.lexical_query`, `_search.semantic_query`, `_search.hybrid_query`, `_search.mode`, and related helpers directly from Python; the wrapper remains only as a supported script entry surface. | `python3 search_index.py "query" [--type T] [--tag TAG] [--status S] [--mode M] [--top-k N] [--json]` |
 | `session.py` | Build the canonical session model and refresh `.brain/local/session.md`; keeps a launcher-safe SessionStart shim but hands substantive work off into the managed runtime. Cross-Brain workspace resolution is owned by `brain session` before it dispatches with `--vault`. | `python3 session.py --vault V [--json] [--workspace-dir PATH]` |

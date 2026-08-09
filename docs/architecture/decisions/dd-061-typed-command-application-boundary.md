@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.6)
+**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.7)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -139,3 +139,13 @@ exact-name resolution, document loading and case-insensitive list filtering;
 legacy readers and listers delegate to it. Application results retain only
 bounded command-specific fields, including explicit core/user skill source,
 and do not expose router records as unbounded metadata.
+
+## v0.54.7 exact memory and trigger owners
+
+`memory.read/list` and `trigger.read/list` now own exact, bounded router-backed
+contracts. Reads select memories by canonical name and triggers by their
+unique exact condition; discovery remains the responsibility of the separate
+search commands. Trigger category is a closed enum and filtering searches the fields
+that compiled trigger records actually own. The portable collection seam also
+corrects the legacy trigger read/filter path, which previously assumed a
+non-existent `name` field.

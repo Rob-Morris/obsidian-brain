@@ -164,6 +164,7 @@ Safe, no side effects, auto-approvable. Reads a specific resource by name. Deleg
 - **Aliases** (`template`, `file`) — work as before; `file` is a smart resolver that delegates to the correct handler
 - **`file`** — can also read `.brain-core/` docs by vault-relative path, e.g. `brain_read(resource="file", name=".brain-core/standards/provenance.md")`
 - **`artefact`** — reads by canonical artefact key (e.g. `name="design/brain"`), relative path, or basename/display name. Canonical keys resolve via the compiled artefact index; full relative paths read directly; bare names resolve via wikilink-style lookup (case-insensitive, `.md`-optional) validated against the compiled router — for living artefacts the filename is the display name, and for temporal artefacts the display name works too (e.g. `name="Colour Theory"` resolves `20260404-research~Colour Theory.md`). Archive paths are rejected with a helpful error.
+- **`trigger`** — reads one compiled trigger by its exact condition, passed through `name` (for example `After meaningful work`)
 - **`environment`** — enriched server-side with `obsidian_cli_available`
 - **`workspace`** — resolves a specific slug to its data folder path (handled by server, not router state)
 
@@ -268,7 +269,7 @@ Safe, no side effects, auto-approvable. Exhaustive enumeration — not relevance
   `omitted_missing_created` when otherwise-matching malformed artefacts have no
   authoritative creation timestamp; run Brain Doctor to identify those files.
 - If index-backed retrieval state is blocked by an unreadable source file, compiled-router embeddings drift, or a retrieval-index persistence failure, artefact listing returns that explicit error instead of stale results
-- For other resources: reads from the compiled router's small collections with optional `query` substring filtering
+- For other resources: reads from the compiled router's small collections with optional `query` substring filtering; trigger queries search category, condition, detail and target
 
 Use `resource` to list non-artefact collections — this replaces the previous `brain_read` listing behaviour.
 

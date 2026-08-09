@@ -11,7 +11,7 @@ avoiding JSON parsing overhead. Standalone CLI reads from disk.
 Usage:
     python3 read.py type
     python3 read.py type --name wiki
-    python3 read.py trigger
+    python3 read.py trigger --name "After meaningful work"
     python3 read.py style --name concise
     python3 read.py template --name wiki
     python3 read.py skill
@@ -47,6 +47,7 @@ from _portable.router_views import (
     read_environment as _portable_read_environment,
     read_router_meta as _portable_read_router_meta,
 )
+from _portable.router_collections import read_trigger_exact as _portable_read_trigger
 
 
 def _check_vault_containment(vault_root, rel_path):
@@ -98,13 +99,9 @@ def read_type(router, vault_root, name=None):
 
 
 def read_trigger(router, vault_root, name=None):
-    """Read a specific trigger by name. Listing via brain_list(resource='trigger')."""
-    triggers = router["triggers"]
+    """Read a specific trigger by exact condition."""
     _require_name("trigger", name)
-    match = next((t for t in triggers if t["name"] == name), None)
-    if not match:
-        return {"error": f"No trigger matching '{name}'"}
-    return match
+    return _portable_read_trigger(router, name)
 
 
 def read_style(router, vault_root, name=None):

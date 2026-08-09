@@ -149,6 +149,20 @@ class TestListResources:
         assert isinstance(results, list)
         assert len(results) >= 1
 
+    def test_trigger_query_filters_real_compiled_fields(self, vault):
+        tmp_path, router, index = vault
+        results = la.list_resources(
+            index,
+            router,
+            str(tmp_path),
+            resource="trigger",
+            query="meaningful",
+        )
+
+        assert [result["target"] for result in results] == [
+            "_Config/Taxonomy/Temporal/logs"
+        ]
+
     def test_style_list(self, vault):
         tmp_path, router, index = vault
         results = la.list_resources(index, router, str(tmp_path), resource="style")
