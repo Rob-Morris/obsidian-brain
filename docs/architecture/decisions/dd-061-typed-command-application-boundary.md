@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1; extended v0.54.2)
+**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.3)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -102,3 +102,13 @@ The separate machine-global source owns a complete stdlib-only
 disposition inventory. Every entry has one owner and entry point, and records
 why MCP, selected-Brain scripts and synthetic application Python are
 unsupported. The selected-Brain package does not import this manifest.
+
+## v0.54.3 first owner migration
+
+`command.list`, `command.describe` and `invocation.read` now have real typed
+executors in the selected-Brain catalogue. List and describe inspect the
+already-bound static catalogue without importing candidate executors or
+probing providers; invocation lookup returns a conclusive receipt or explicit
+`still_unknown`. Strict transport decoders resolve into the same request types
+used by direct Python. Public adapters remain on the old grammar until the
+coordinated cutover.

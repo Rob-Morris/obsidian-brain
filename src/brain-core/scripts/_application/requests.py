@@ -21,11 +21,28 @@ class CommandListPayload:
     command_ids: tuple[str, ...]
     next_cursor: str | None = None
 
+    def __post_init__(self) -> None:
+        for command_id in self.command_ids:
+            validate_command_id(command_id)
+        if tuple(sorted(self.command_ids)) != self.command_ids:
+            raise ValueError("command list payload identifiers must be sorted")
+        if len(self.command_ids) != len(set(self.command_ids)):
+            raise ValueError("command list payload identifiers must be unique")
+        if self.next_cursor is not None:
+            validate_command_id(self.next_cursor)
+            if not self.command_ids or self.next_cursor != self.command_ids[-1]:
+                raise ValueError("command list next_cursor must identify the final page item")
+
 
 @dataclass(frozen=True, slots=True)
 class CommandDescriptionPayload:
     command_id: str
     command_version: int
+
+    def __post_init__(self) -> None:
+        validate_command_id(self.command_id)
+        if self.command_version < 1:
+            raise ValueError("command description version must be positive")
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,7 +77,33 @@ class CommandListRequest:
     page_size: int = 100
 
     def __post_init__(self) -> None:
-        if not 1 <= self.page_size <= 500:
+        for name in ("query", "domain", "cursor"):
+            value = getattr(self, name)
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                raise ValueError(f"command list {name} must be a non-empty string")
+        if self.domain is not None:
+            try:
+                validate_command_id(f"{self.domain}.list")
+            except ValueError as exc:
+                raise ValueError("command list domain must be a canonical noun") from exc
+        if self.cursor is not None:
+            validate_command_id(self.cursor)
+        enum_fields = {
+            "authority": Authority,
+            "dependency_tier": DependencyTier,
+            "locality": Locality,
+            "effect_class": EffectClass,
+            "projection": Projection,
+        }
+        for name, enum_type in enum_fields.items():
+            value = getattr(self, name)
+            if value is not None and not isinstance(value, enum_type):
+                raise ValueError(f"command list {name} must use {enum_type.__name__}")
+        if (
+            not isinstance(self.page_size, int)
+            or isinstance(self.page_size, bool)
+            or not 1 <= self.page_size <= 500
+        ):
             raise ValueError("command list page_size must be between 1 and 500")
 
 
@@ -83,6 +126,10 @@ class InvocationReadRequest:
     RESULT_TYPE: ClassVar[type] = InvocationReadPayload
 
     reference: OutcomeReference
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.reference, OutcomeReference):
+            raise ValueError("invocation.read reference must be an OutcomeReference")
 
 
 CommandRequest = CommandListRequest | CommandDescribeRequest | InvocationReadRequest

@@ -315,7 +315,7 @@ def test_catalogue_fingerprint_excludes_executor_identity_and_dynamic_availabili
         (_entry(lambda *_args: Ok("command.list", 1, CommandListPayload(()))),)
     )
     second = ApplicationCatalogue(
-        (_entry(lambda *_args: Ok("command.list", 1, CommandListPayload(("different",)))),)
+        (_entry(lambda *_args: Ok("command.list", 1, CommandListPayload(("artefact.list",)))),)
     )
 
     assert first.fingerprint == second.fingerprint

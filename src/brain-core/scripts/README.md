@@ -19,6 +19,10 @@ compatibility versions, bounded provider refresh and privacy-minimal receipt
 retention/query semantics. The separate machine-global launcher catalogue
 lives with the launcher source under `cli/`; it is not imported into this
 selected-Brain package.
+The first v0.54.3 owner batch makes `command.list`, `command.describe` and
+`invocation.read` real catalogue-backed application commands. They remain
+internal until public projection cutover, but subsequent Phase 3 owners now
+join the same authoritative catalogue and discovery path.
 Existing adapters are not cut over in the v0.54.x foundation releases; they
 continue to behave as documented until the coordinated breaking release
 replaces the old grammar.

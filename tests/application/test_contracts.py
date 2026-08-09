@@ -124,6 +124,12 @@ def test_list_request_validates_bounded_pagination():
     assert request.page_size == 500
     with pytest.raises(ValueError, match="between 1 and 500"):
         CommandListRequest(page_size=0)
+    with pytest.raises(ValueError, match="canonical noun"):
+        CommandListRequest(domain="-artefact")
+    with pytest.raises(ValueError, match="Authority"):
+        CommandListRequest(authority="reader")
+    with pytest.raises(ValueError, match="non-empty"):
+        CommandListRequest(query="")
 
 
 def test_result_variants_have_one_structurally_valid_shape():
