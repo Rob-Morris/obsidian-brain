@@ -100,6 +100,10 @@ plus granular markdown, PDF and preview-process effects.
 v0.54.33 adds managed retrieval benchmark construction and evaluation owners,
 with explicit non-MCP projection metadata, selected-Brain path bounds and
 separate mutation versus effect-free result contracts.
+v0.54.34 adds the six caller-local workspace mutation owners. Their target
+directory comes only from trusted invocation context backed by the explicit
+`caller_filesystem` provider; request payloads cannot inject host paths. They
+remain bootstrap-capable CLI/script/Python commands and explicitly exclude MCP.
 Existing adapters are not cut over in the v0.54.x foundation releases; they
 continue to behave as documented until the coordinated breaking release
 replaces the old grammar.

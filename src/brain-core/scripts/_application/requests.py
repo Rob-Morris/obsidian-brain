@@ -90,10 +90,16 @@ from .vault.check import VaultCheckRequest
 from .vault.read_config import VaultReadConfigRequest
 from .vault.read_router import VaultReadRouterRequest
 from .vault.read_file import VaultReadFileRequest
+from .workspace.bind import WorkspaceBindRequest
+from .workspace.configure_bootstrap import WorkspaceConfigureBootstrapRequest
 from .workspace.list import WorkspaceListRequest
 from .workspace.read import WorkspaceReadRequest
+from .workspace.register import WorkspaceRegisterRequest
 from .workspace.repair_registry import WorkspaceRepairRegistryRequest
 from .workspace.resolve import WorkspaceResolveRequest
+from .workspace.setup import WorkspaceSetupRequest
+from .workspace.unregister import WorkspaceUnregisterRequest
+from .workspace.update_metadata import WorkspaceUpdateMetadataRequest
 from .receipts import OutcomeReceipt, OutcomeReference, ReceiptLookupState
 from .types import (
     Authority,
@@ -310,10 +316,16 @@ CommandRequest = (
     | VaultReadConfigRequest
     | VaultReadRouterRequest
     | VaultReadFileRequest
+    | WorkspaceBindRequest
+    | WorkspaceConfigureBootstrapRequest
     | WorkspaceListRequest
     | WorkspaceReadRequest
+    | WorkspaceRegisterRequest
     | WorkspaceRepairRegistryRequest
     | WorkspaceResolveRequest
+    | WorkspaceSetupRequest
+    | WorkspaceUnregisterRequest
+    | WorkspaceUpdateMetadataRequest
 )
 
 
@@ -409,10 +421,16 @@ def command_identity(request: CommandRequest) -> tuple[str, int, type]:
         VaultReadConfigRequest,
         VaultReadRouterRequest,
         VaultReadFileRequest,
+        WorkspaceBindRequest,
+        WorkspaceConfigureBootstrapRequest,
         WorkspaceListRequest,
         WorkspaceReadRequest,
+        WorkspaceRegisterRequest,
         WorkspaceRepairRegistryRequest,
         WorkspaceResolveRequest,
+        WorkspaceSetupRequest,
+        WorkspaceUnregisterRequest,
+        WorkspaceUpdateMetadataRequest,
     }:
         raise TypeError(f"unregistered command request type: {request_type.__name__}")
     return request_type.COMMAND_ID, request_type.COMMAND_VERSION, request_type.RESULT_TYPE

@@ -107,10 +107,16 @@ from .vault import check as vault_check
 from .vault import read_config as vault_read_config
 from .vault import read_router as vault_read_router
 from .vault import read_file as vault_read_file
+from .workspace import bind as workspace_bind
+from .workspace import configure_bootstrap as workspace_configure_bootstrap
 from .workspace import list as workspace_list
 from .workspace import read as workspace_read
+from .workspace import register as workspace_register
 from .workspace import repair_registry as workspace_repair_registry
 from .workspace import resolve as workspace_resolve
+from .workspace import setup as workspace_setup
+from .workspace import unregister as workspace_unregister
+from .workspace import update_metadata as workspace_update_metadata
 
 
 def current_application_catalogue():
@@ -220,10 +226,16 @@ def current_application_catalogue():
             vault_read_config.catalogue_entry(),
             vault_read_router.catalogue_entry(),
             vault_read_file.catalogue_entry(),
+            workspace_bind.catalogue_entry(),
+            workspace_configure_bootstrap.catalogue_entry(),
             workspace_list.catalogue_entry(),
             workspace_read.catalogue_entry(),
+            workspace_register.catalogue_entry(),
             workspace_repair_registry.catalogue_entry(),
             workspace_resolve.catalogue_entry(),
+            workspace_setup.catalogue_entry(),
+            workspace_unregister.catalogue_entry(),
+            workspace_update_metadata.catalogue_entry(),
         )
     )
 
@@ -334,9 +346,15 @@ def current_request_resolver():
             vault_read_config.resolver_entry(),
             vault_read_router.resolver_entry(),
             vault_read_file.resolver_entry(),
+            workspace_bind.resolver_entry(),
+            workspace_configure_bootstrap.resolver_entry(),
             workspace_list.resolver_entry(),
             workspace_read.resolver_entry(),
+            workspace_register.resolver_entry(),
             workspace_repair_registry.resolver_entry(),
             workspace_resolve.resolver_entry(),
+            workspace_setup.resolver_entry(),
+            workspace_unregister.resolver_entry(),
+            workspace_update_metadata.resolver_entry(),
         )
     )

@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.33)
+**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.34)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -536,3 +536,23 @@ Brain, refuses protected system outputs, supports dry-run and records the two
 committed files independently. Evaluation validates and reads one Brain-relative
 fixture and returns the full report without effects. The split preserves the
 mutation/receipt distinction instead of treating both workflows as one command.
+
+## v0.54.34 caller-local workspace mutation owners
+
+`workspace.bind`, `workspace.configure-bootstrap`, `workspace.register`,
+`workspace.setup`, `workspace.unregister` and `workspace.update-metadata` now
+have distinct typed application owners. All six require contributor authority,
+the bootstrap tier and an available `caller_filesystem` provider, and carry
+caller-local mutation receipts.
+
+The workspace target is trusted adapter context, not a command argument. This
+keeps direct Python, script and eventual CLI projections useful without letting
+an untrusted request payload select an arbitrary host path. MCP is explicitly
+ineligible because a Brain server cannot safely own the connecting agent's
+local filesystem.
+
+The owners retain the existing binding, bootstrap, setup, registry and metadata
+semantics, including mutation locking and structural lifecycle steps. Dry-run
+returns a no-effect plan; failures after a known workspace-manifest commit are
+partial with that effect enumerated. Existing public adapters remain unchanged
+until coordinated cutover.
