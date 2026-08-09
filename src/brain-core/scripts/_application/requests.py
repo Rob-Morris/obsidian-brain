@@ -102,42 +102,146 @@ from .workspace.unregister import WorkspaceUnregisterRequest
 from .workspace.update_metadata import WorkspaceUpdateMetadataRequest
 from .receipts import OutcomeReceipt, OutcomeReference, ReceiptLookupState
 from .types import (
+    Availability,
     Authority,
+    CommandLifecycle,
+    CommandOwner,
     DependencyTier,
     EffectClass,
     Locality,
     Projection,
+    ProjectionEligibility,
+    RetryClass,
+    SnapshotFreshness,
     validate_command_id,
 )
 
 
 @dataclass(frozen=True, slots=True)
-class CommandListPayload:
-    command_ids: tuple[str, ...]
-    next_cursor: str | None = None
+class CatalogueCursor:
+    snapshot_token: str
+    command_id: str
 
     def __post_init__(self) -> None:
-        for command_id in self.command_ids:
-            validate_command_id(command_id)
-        if tuple(sorted(self.command_ids)) != self.command_ids:
+        if not self.snapshot_token.strip():
+            raise ValueError("catalogue cursor requires a snapshot token")
+        validate_command_id(self.command_id)
+
+
+@dataclass(frozen=True, slots=True)
+class CommandSummary:
+    command_id: str
+    command_version: int
+    owner: CommandOwner
+    summary: str
+    projections: tuple[ProjectionEligibility, ...]
+    dependency_tier: DependencyTier
+    locality: Locality
+    authority: Authority
+    effect_class: EffectClass
+    retry_class: RetryClass
+    required_providers: tuple[str, ...]
+    optional_providers: tuple[str, ...]
+    availability: Availability
+    availability_freshness: SnapshotFreshness
+    missing_optional_providers: tuple[str, ...]
+    lifecycle: CommandLifecycle
+    replacement_command_id: str | None
+
+    def __post_init__(self) -> None:
+        validate_command_id(self.command_id)
+        if self.command_version < 1 or not self.summary.strip():
+            raise ValueError("command summary requires identity, version and summary")
+        if self.replacement_command_id is not None:
+            validate_command_id(self.replacement_command_id)
+
+
+@dataclass(frozen=True, slots=True)
+class CommandListPayload:
+    entries: tuple[CommandSummary, ...]
+    snapshot_token: str
+    availability_freshness: SnapshotFreshness
+    next_cursor: CatalogueCursor | None = None
+
+    def __post_init__(self) -> None:
+        command_ids = self.command_ids
+        if command_ids != tuple(sorted(command_ids)):
             raise ValueError("command list payload identifiers must be sorted")
-        if len(self.command_ids) != len(set(self.command_ids)):
+        if len(command_ids) != len(set(command_ids)):
             raise ValueError("command list payload identifiers must be unique")
+        if not self.snapshot_token.strip():
+            raise ValueError("command list payload requires a snapshot token")
         if self.next_cursor is not None:
-            validate_command_id(self.next_cursor)
-            if not self.command_ids or self.next_cursor != self.command_ids[-1]:
+            if not command_ids or self.next_cursor.command_id != command_ids[-1]:
                 raise ValueError("command list next_cursor must identify the final page item")
+            if self.next_cursor.snapshot_token != self.snapshot_token:
+                raise ValueError("command list cursor must retain the availability snapshot")
+
+    @property
+    def command_ids(self) -> tuple[str, ...]:
+        return tuple(entry.command_id for entry in self.entries)
+
+
+@dataclass(frozen=True, slots=True)
+class CommandExample:
+    label: str
+    mcp_tool: str
+    cli_argv: tuple[str, str]
+    request_json: str
+
+    def __post_init__(self) -> None:
+        if not self.label.strip() or not self.mcp_tool.startswith("brain_"):
+            raise ValueError("command example requires a label and MCP tool")
+        if len(self.cli_argv) != 2 or any(not item.strip() for item in self.cli_argv):
+            raise ValueError("command example requires canonical CLI noun and verb")
+
+
+@dataclass(frozen=True, slots=True)
+class ResultVariantContract:
+    status: str
+    description: str
+
+    def __post_init__(self) -> None:
+        if self.status not in {"ok", "partial", "error"} or not self.description.strip():
+            raise ValueError("result variant contract is invalid")
 
 
 @dataclass(frozen=True, slots=True)
 class CommandDescriptionPayload:
     command_id: str
     command_version: int
+    owner: CommandOwner
+    summary: str
+    request_schema_json: str
+    result_type: str
+    result_schema_json: str
+    result_variants: tuple[ResultVariantContract, ...]
+    error_codes: tuple[str, ...]
+    warning_codes: tuple[str, ...]
+    dependency_tier: DependencyTier
+    locality: Locality
+    required_providers: tuple[str, ...]
+    optional_providers: tuple[str, ...]
+    availability: Availability
+    availability_freshness: SnapshotFreshness
+    authority: Authority
+    effect_class: EffectClass
+    retry_class: RetryClass
+    projections: tuple[ProjectionEligibility, ...]
+    examples: tuple[CommandExample, ...]
+    lifecycle: CommandLifecycle
+    replacement_command_id: str | None
 
     def __post_init__(self) -> None:
         validate_command_id(self.command_id)
-        if self.command_version < 1:
-            raise ValueError("command description version must be positive")
+        if self.command_version < 1 or not self.summary.strip():
+            raise ValueError("command description requires a version and summary")
+        if not self.request_schema_json or not self.result_schema_json:
+            raise ValueError("command description requires request and result schemas")
+        if not self.result_type.strip() or not self.result_variants or not self.examples:
+            raise ValueError("command description requires result and example contracts")
+        if self.replacement_command_id is not None:
+            validate_command_id(self.replacement_command_id)
 
 
 @dataclass(frozen=True, slots=True)
@@ -158,21 +262,25 @@ class InvocationReadPayload:
 @dataclass(frozen=True, slots=True)
 class CommandListRequest:
     COMMAND_ID: ClassVar[str] = "command.list"
-    COMMAND_VERSION: ClassVar[int] = 1
+    COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = CommandListPayload
 
     query: str | None = None
     domain: str | None = None
+    owner: CommandOwner | None = None
+    availability: Availability | None = None
     authority: Authority | None = None
     dependency_tier: DependencyTier | None = None
     locality: Locality | None = None
     effect_class: EffectClass | None = None
+    retry_class: RetryClass | None = None
     projection: Projection | None = None
-    cursor: str | None = None
+    cursor: CatalogueCursor | None = None
+    refresh: bool = False
     page_size: int = 100
 
     def __post_init__(self) -> None:
-        for name in ("query", "domain", "cursor"):
+        for name in ("query", "domain"):
             value = getattr(self, name)
             if value is not None and (not isinstance(value, str) or not value.strip()):
                 raise ValueError(f"command list {name} must be a non-empty string")
@@ -181,19 +289,26 @@ class CommandListRequest:
                 validate_command_id(f"{self.domain}.list")
             except ValueError as exc:
                 raise ValueError("command list domain must be a canonical noun") from exc
-        if self.cursor is not None:
-            validate_command_id(self.cursor)
         enum_fields = {
+            "owner": CommandOwner,
+            "availability": Availability,
             "authority": Authority,
             "dependency_tier": DependencyTier,
             "locality": Locality,
             "effect_class": EffectClass,
+            "retry_class": RetryClass,
             "projection": Projection,
         }
         for name, enum_type in enum_fields.items():
             value = getattr(self, name)
             if value is not None and not isinstance(value, enum_type):
                 raise ValueError(f"command list {name} must use {enum_type.__name__}")
+        if self.cursor is not None and not isinstance(self.cursor, CatalogueCursor):
+            raise ValueError("command list cursor must be a CatalogueCursor")
+        if not isinstance(self.refresh, bool):
+            raise ValueError("command list refresh must be boolean")
+        if self.refresh and self.cursor is not None:
+            raise ValueError("command list refresh cannot be combined with pagination")
         if (
             not isinstance(self.page_size, int)
             or isinstance(self.page_size, bool)
@@ -205,8 +320,11 @@ class CommandListRequest:
 @dataclass(frozen=True, slots=True)
 class CommandDescribeRequest:
     COMMAND_ID: ClassVar[str] = "command.describe"
-    COMMAND_VERSION: ClassVar[int] = 1
+    COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = CommandDescriptionPayload
+    MINIMAL_EXAMPLE: ClassVar[dict[str, str]] = {
+        "target_command_id": "command.list"
+    }
 
     target_command_id: str
 
@@ -217,14 +335,19 @@ class CommandDescribeRequest:
 @dataclass(frozen=True, slots=True)
 class InvocationReadRequest:
     COMMAND_ID: ClassVar[str] = "invocation.read"
-    COMMAND_VERSION: ClassVar[int] = 1
+    COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = InvocationReadPayload
+    MINIMAL_EXAMPLE: ClassVar[dict[str, str]] = {"invocation_id": "example"}
 
-    reference: OutcomeReference
+    invocation_id: str
 
     def __post_init__(self) -> None:
-        if not isinstance(self.reference, OutcomeReference):
-            raise ValueError("invocation.read reference must be an OutcomeReference")
+        if not isinstance(self.invocation_id, str) or not self.invocation_id.strip():
+            raise ValueError("invocation.read invocation_id must be non-empty")
+
+    @property
+    def reference(self) -> OutcomeReference:
+        return OutcomeReference(self.invocation_id)
 
 
 CommandRequest = (

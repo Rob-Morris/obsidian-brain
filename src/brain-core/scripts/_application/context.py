@@ -36,6 +36,17 @@ class ProviderPort(Protocol):
     def provider_id(self) -> str: ...
 
 
+class CapabilitySnapshotStore(Protocol):
+    def refresh(
+        self,
+        provider_ids: tuple[str, ...],
+        *,
+        previous_token: str | None = None,
+    ) -> "CapabilitySnapshot": ...
+
+    def read(self, token: str) -> "CapabilitySnapshot | None": ...
+
+
 @dataclass(frozen=True, slots=True)
 class ProviderBindings:
     providers: tuple[ProviderPort, ...] = ()
@@ -121,6 +132,7 @@ class InvocationContext:
     clock: Clock
     dry_run: bool = False
     workspace_dir: Path | None = None
+    capability_snapshots: CapabilitySnapshotStore | None = None
 
     def __post_init__(self) -> None:
         if not self.profile.strip():

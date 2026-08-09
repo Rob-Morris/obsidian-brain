@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.44)
+**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.45)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -759,3 +759,25 @@ All future MCP, CLI and direct-script adapters serialise through the same
 structural result projection. It preserves `ok`, known `partial`, and `error`
 branches, warnings, committed effects, retry classification and unknown-outcome
 references. This seam remains internal until the coordinated public cutover.
+
+## v0.54.45 authoritative selected-Brain discovery
+
+`command.list` v2 now returns bounded `CommandSummary` values rather than bare
+identifiers. Each summary retains application ownership, command/version,
+summary, all projection eligibility, tier, locality, authority, effect/retry
+class, provider bindings, snapshot-derived availability and lifecycle guidance.
+An application discovery request for launcher ownership returns no entries;
+only the local CLI may compose the independent launcher catalogue.
+
+Default listing maps one already-composed capability snapshot and performs no
+provider probe. Explicit refresh calls one bounded refresher with the distinct
+provider set. Its small retained snapshot window gives each continuation cursor
+the same token and availability observation; expired tokens fail explicitly.
+
+`command.describe` v2 derives strict request and result-payload schemas,
+structural result branches, stable error/warning vocabularies, safety/provider
+requirements, projection names and a minimal JSON request from the owning
+catalogue and sealed request type. Every example is executed through the real
+dynamic resolver in tests. This exposed and fixed an omitted `skill.search`
+resolver registration and aligned `invocation.read` v2 on scalar
+`invocation_id`, matching its canonical recovery action.

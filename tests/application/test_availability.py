@@ -69,6 +69,25 @@ def test_refresh_deduplicates_providers_and_marks_missing_or_failed_unknown():
     assert snapshot.availability_of("renderer") is Availability.AVAILABLE
     assert snapshot.availability_of("semantic") is Availability.UNKNOWN
     assert snapshot.availability_of("absent") is Availability.UNKNOWN
+    assert refresher.read("snapshot-1") == snapshot
+
+
+def test_refresh_retains_a_bounded_page_snapshot_window():
+    refresher = CapabilityRefresher(
+        (),
+        _Clock(),
+        _Tokens(),
+        aggregate_timeout_seconds=0.1,
+        retained_snapshots=2,
+    )
+
+    first = refresher.refresh(())
+    second = refresher.refresh(())
+    third = refresher.refresh(())
+
+    assert refresher.read(first.token) is None
+    assert refresher.read(second.token) == second
+    assert refresher.read(third.token) == third
 
 
 def test_provider_specific_deadline_degrades_to_unknown():

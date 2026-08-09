@@ -310,6 +310,7 @@ def current_request_resolver():
             skill_prepend.resolver_entry(),
             skill_read.resolver_entry(),
             skill_replace_text.resolver_entry(),
+            skill_search.resolver_entry(),
             stage_create.resolver_entry(),
             stage_discard.resolver_entry(),
             style_append.resolver_entry(),

@@ -158,6 +158,10 @@ boundary. It maps canonical command identity mechanically, derives strict
 request schemas from sealed request dataclasses and serialises every application
 result through one deterministic structural envelope. Existing public adapters
 remain unchanged until coordinated cutover.
+v0.54.45 expands the internal `command.list` and `command.describe` owners into
+authoritative typed discovery. Lists use one retained capability snapshot and
+descriptions derive schemas and minimal resolver-checked examples from the
+owning catalogue/request types. Public adapters remain unchanged until cutover.
 
 That launcher process is not automatically the managed runtime. The shared launcher-safe bootstrap ownership now lives under `_bootstrap/`: bootstrap entrypoints do meaningful launcher-safe work there, and runtime-owning lifecycle entrypoints such as `repair.py`, `setup.py`, `configure.py`, `session.py`, and `check.py` hand substantive managed work off into the canonical managed runtime before continuing.
 

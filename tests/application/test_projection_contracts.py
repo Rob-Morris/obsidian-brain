@@ -12,11 +12,13 @@ from _application.projection import (
     canonical_result_json,
     command_id_from_argv,
     command_id_from_mcp_tool,
+    minimal_request_payload,
     project_identity,
     request_schema,
 )
 from _application.receipts import CommittedEffect, OutcomeReference
 from _application.registry import current_application_catalogue
+from _application.registry import current_request_resolver
 from _application.results import (
     CommandError,
     Error,
@@ -57,6 +59,10 @@ def test_every_application_command_has_one_collision_free_mechanical_projection(
     )
     assert project_identity("artefact.replace-text").module_path == (
         "_application/artefact/replace_text.py"
+    )
+    assert all(
+        1 <= len(entry.summary.removesuffix(".").split()) <= 12
+        for entry in catalogue.entries
     )
 
 
@@ -110,6 +116,19 @@ def test_every_application_request_projects_to_a_strict_described_object_schema(
             items = node.get("items")
             if isinstance(items, dict):
                 pending.append(items)
+
+
+def test_every_discovery_example_resolves_through_the_real_dynamic_boundary():
+    catalogue = current_application_catalogue()
+    resolver = current_request_resolver()
+
+    assert {entry.command_id for entry in resolver.entries} == {
+        entry.command_id for entry in catalogue.entries
+    }
+    for entry in catalogue.entries:
+        payload = minimal_request_payload(entry.request_type)
+        request = resolver.resolve(entry.command_id, payload)
+        assert type(request) is entry.request_type, entry.command_id
 
 
 def test_request_schema_preserves_required_defaults_enums_and_nested_shapes():

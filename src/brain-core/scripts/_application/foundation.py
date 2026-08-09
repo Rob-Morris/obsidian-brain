@@ -2,30 +2,47 @@
 
 from __future__ import annotations
 
+import json
 from typing import Mapping
 
 from .catalogue import ApplicationCatalogue, ApplicationEntry
 from .context import InvocationContext
 from .receipts import OutcomeReference, ReceiptLookupState
 from .requests import (
+    CatalogueCursor,
     CommandDescribeRequest,
     CommandDescriptionPayload,
+    CommandExample,
     CommandListPayload,
     CommandListRequest,
     CommandRequest,
+    CommandSummary,
     InvocationReadPayload,
     InvocationReadRequest,
+    ResultVariantContract,
 )
+from .projection import minimal_request_payload, project_identity, request_schema, result_payload_schema
 from .resolver import RequestResolver, ResolverEntry
-from .results import CommandError, Error, ErrorCode, Ok, RequestErrorDetails
+from .results import (
+    CapabilityUnavailableDetails,
+    CommandError,
+    Error,
+    ErrorCode,
+    Ok,
+    RequestErrorDetails,
+    WarningCode,
+)
 from .types import (
+    Availability,
     Authority,
+    CommandOwner,
     DependencyTier,
     EffectClass,
     Locality,
     Projection,
     ProjectionEligibility,
     RetryClass,
+    SnapshotFreshness,
 )
 
 
@@ -49,14 +66,17 @@ class _FoundationOwners:
             raise RuntimeError("foundation command owners are already bound")
         self._catalogue = catalogue
 
-    def command_list(self, _context: InvocationContext, request: CommandRequest):
+    def command_list(self, context: InvocationContext, request: CommandRequest):
         if type(request) is not CommandListRequest:
             raise TypeError("command.list owner received the wrong request type")
+        snapshot = self._snapshot(context, request)
+        if isinstance(snapshot, Error):
+            return snapshot
         catalogue = self._require_catalogue()
         entries = tuple(
             entry
             for entry in catalogue.entries
-            if self._matches_list_filter(entry, request)
+            if self._matches_list_filter(entry, request, context, snapshot)
         )
         start = 0
         if request.cursor is not None:
@@ -64,7 +84,7 @@ class _FoundationOwners:
                 (
                     index
                     for index, entry in enumerate(entries)
-                    if entry.command_id == request.cursor
+                    if entry.command_id == request.cursor.command_id
                 ),
                 None,
             )
@@ -89,12 +109,14 @@ class _FoundationOwners:
             CommandListRequest.COMMAND_ID,
             CommandListRequest.COMMAND_VERSION,
             CommandListPayload(
-                tuple(entry.command_id for entry in page),
-                next_cursor,
+                tuple(self._summary(entry, context, snapshot) for entry in page),
+                snapshot.token,
+                snapshot.freshness,
+                CatalogueCursor(snapshot.token, next_cursor) if next_cursor else None,
             ),
         )
 
-    def command_describe(self, _context: InvocationContext, request: CommandRequest):
+    def command_describe(self, context: InvocationContext, request: CommandRequest):
         if type(request) is not CommandDescribeRequest:
             raise TypeError("command.describe owner received the wrong request type")
         entry = next(
@@ -117,7 +139,7 @@ class _FoundationOwners:
         return Ok(
             CommandDescribeRequest.COMMAND_ID,
             CommandDescribeRequest.COMMAND_VERSION,
-            CommandDescriptionPayload(entry.command_id, entry.command_version),
+            self._description(entry, context),
         )
 
     def invocation_read(self, context: InvocationContext, request: CommandRequest):
@@ -144,10 +166,15 @@ class _FoundationOwners:
     def _matches_list_filter(
         entry: ApplicationEntry,
         request: CommandListRequest,
+        context: InvocationContext,
+        snapshot,
     ) -> bool:
+        if request.owner is not None and request.owner is not CommandOwner.APPLICATION:
+            return False
         if (
             request.query is not None
-            and request.query.casefold() not in entry.command_id.casefold()
+            and request.query.casefold()
+            not in f"{entry.command_id} {entry.summary}".casefold()
         ):
             return False
         if (
@@ -169,12 +196,165 @@ class _FoundationOwners:
             and entry.effect_class is not request.effect_class
         ):
             return False
+        if request.retry_class is not None and entry.retry_class is not request.retry_class:
+            return False
         if (
             request.projection is not None
             and request.projection not in entry.eligible_projections
         ):
             return False
+        if (
+            request.availability is not None
+            and _availability(entry, context, snapshot) is not request.availability
+        ):
+            return False
         return True
+
+    def _snapshot(self, context: InvocationContext, request: CommandListRequest):
+        if request.refresh:
+            if context.capability_snapshots is None:
+                details = CapabilityUnavailableDetails(
+                    DependencyTier.PORTABLE,
+                    context.dependency_tier,
+                    Locality.SELECTED_BRAIN_LOCAL,
+                    ("provider:capability_snapshots",),
+                    context.capabilities.freshness,
+                    True,
+                )
+                return Error(
+                    request.COMMAND_ID,
+                    request.COMMAND_VERSION,
+                    CommandError(
+                        ErrorCode.CAPABILITY_UNAVAILABLE,
+                        "Capability refresh is not available in this adapter.",
+                        details,
+                    ),
+                )
+            provider_ids = tuple(
+                sorted(
+                    {
+                        provider_id
+                        for entry in self._require_catalogue().entries
+                        for provider_id in (*entry.required_providers, *entry.optional_providers)
+                    }
+                )
+            )
+            return context.capability_snapshots.refresh(
+                provider_ids,
+                previous_token=context.capabilities.token,
+            )
+        if request.cursor is None:
+            return context.capabilities
+        if request.cursor.snapshot_token == context.capabilities.token:
+            return context.capabilities
+        if context.capability_snapshots is not None:
+            snapshot = context.capability_snapshots.read(request.cursor.snapshot_token)
+            if snapshot is not None:
+                return snapshot
+        return Error(
+            request.COMMAND_ID,
+            request.COMMAND_VERSION,
+            CommandError(
+                ErrorCode.INVALID_REQUEST,
+                "The command-list availability snapshot has expired.",
+                RequestErrorDetails("cursor", "snapshot token is no longer retained"),
+            ),
+        )
+
+    @staticmethod
+    def _summary(entry: ApplicationEntry, context: InvocationContext, snapshot):
+        missing_optional = tuple(
+            provider_id
+            for provider_id in entry.optional_providers
+            if (
+                context.providers.get(provider_id) is None
+                or snapshot.availability_of(provider_id) is not Availability.AVAILABLE
+            )
+        )
+        return CommandSummary(
+            entry.command_id,
+            entry.command_version,
+            CommandOwner.APPLICATION,
+            entry.summary,
+            entry.projections,
+            entry.dependency_tier,
+            entry.locality,
+            entry.authority,
+            entry.effect_class,
+            entry.retry_class,
+            entry.required_providers,
+            entry.optional_providers,
+            _availability(entry, context, snapshot),
+            snapshot.freshness,
+            missing_optional,
+            entry.lifecycle,
+            entry.replacement_command_id,
+        )
+
+    @staticmethod
+    def _description(entry: ApplicationEntry, context: InvocationContext):
+        identity = project_identity(entry.command_id)
+        result_variants = [
+            ResultVariantContract("ok", "The command completed with a typed result."),
+            ResultVariantContract("error", "The command completed without a typed result."),
+        ]
+        error_codes = [code.value for code in ErrorCode]
+        if entry.effect_class is not EffectClass.NONE:
+            result_variants.insert(
+                1,
+                ResultVariantContract(
+                    "partial",
+                    "A known subset committed and is enumerated in committed effects.",
+                ),
+            )
+        example_payload = minimal_request_payload(entry.request_type)
+        return CommandDescriptionPayload(
+            entry.command_id,
+            entry.command_version,
+            CommandOwner.APPLICATION,
+            entry.summary,
+            json.dumps(request_schema(entry.request_type), separators=(",", ":")),
+            f"{entry.result_type.__module__}:{entry.result_type.__qualname__}",
+            json.dumps(result_payload_schema(entry.request_type), separators=(",", ":")),
+            tuple(result_variants),
+            tuple(error_codes),
+            tuple(code.value for code in WarningCode),
+            entry.dependency_tier,
+            entry.locality,
+            entry.required_providers,
+            entry.optional_providers,
+            _availability(entry, context, context.capabilities),
+            context.capabilities.freshness,
+            entry.authority,
+            entry.effect_class,
+            entry.retry_class,
+            entry.projections,
+            (
+                CommandExample(
+                    "minimal",
+                    identity.mcp_tool,
+                    identity.cli_argv,
+                    json.dumps(example_payload, separators=(",", ":")),
+                ),
+            ),
+            entry.lifecycle,
+            entry.replacement_command_id,
+        )
+
+
+def _availability(entry: ApplicationEntry, context: InvocationContext, snapshot):
+    if not context.dependency_tier.supports(entry.dependency_tier):
+        return Availability.UNAVAILABLE
+    unknown = False
+    for provider_id in entry.required_providers:
+        if context.providers.get(provider_id) is None:
+            return Availability.UNAVAILABLE
+        state = snapshot.availability_of(provider_id)
+        if state is Availability.UNAVAILABLE:
+            return Availability.UNAVAILABLE
+        if state is Availability.UNKNOWN:
+            unknown = True
+    return Availability.UNKNOWN if unknown else Availability.AVAILABLE
 
 
 def _entry(request_type: type, executor) -> ApplicationEntry:
@@ -244,27 +424,50 @@ def _decode_list(payload: Mapping[str, object]) -> CommandListRequest:
     allowed = {
         "query",
         "domain",
+        "owner",
+        "availability",
         "authority",
         "dependency_tier",
         "locality",
         "effect_class",
+        "retry_class",
         "projection",
         "cursor",
+        "refresh",
         "page_size",
     }
     _only(payload, allowed)
     page_size = payload.get("page_size", 100)
     if not isinstance(page_size, int) or isinstance(page_size, bool):
         raise ValueError("page_size must be an integer")
+    raw_cursor = payload.get("cursor")
+    if raw_cursor is None:
+        cursor = None
+    elif isinstance(raw_cursor, Mapping):
+        _only(raw_cursor, {"snapshot_token", "command_id"})
+        snapshot_token = _optional_string(raw_cursor, "snapshot_token")
+        command_id = _optional_string(raw_cursor, "command_id")
+        if snapshot_token is None or command_id is None:
+            raise ValueError("cursor requires snapshot_token and command_id")
+        cursor = CatalogueCursor(snapshot_token, command_id)
+    else:
+        raise ValueError("cursor must be an object")
+    refresh = payload.get("refresh", False)
+    if not isinstance(refresh, bool):
+        raise ValueError("refresh must be a boolean")
     return CommandListRequest(
         query=_optional_string(payload, "query"),
         domain=_optional_string(payload, "domain"),
+        owner=_optional_enum(payload, "owner", CommandOwner),
+        availability=_optional_enum(payload, "availability", Availability),
         authority=_optional_enum(payload, "authority", Authority),
         dependency_tier=_optional_enum(payload, "dependency_tier", DependencyTier),
         locality=_optional_enum(payload, "locality", Locality),
         effect_class=_optional_enum(payload, "effect_class", EffectClass),
+        retry_class=_optional_enum(payload, "retry_class", RetryClass),
         projection=_optional_enum(payload, "projection", Projection),
-        cursor=_optional_string(payload, "cursor"),
+        cursor=cursor,
+        refresh=refresh,
         page_size=page_size,
     )
 
@@ -282,7 +485,7 @@ def _decode_invocation_read(payload: Mapping[str, object]) -> InvocationReadRequ
     invocation_id = _optional_string(payload, "invocation_id")
     if invocation_id is None:
         raise ValueError("invocation_id is required")
-    return InvocationReadRequest(OutcomeReference(invocation_id))
+    return InvocationReadRequest(invocation_id)
 
 
 def build_request_resolver(

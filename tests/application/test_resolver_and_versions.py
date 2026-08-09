@@ -61,7 +61,7 @@ def test_local_resolution_binds_installed_version_and_serialised_mismatch_fails(
     assert type(resolver.resolve("command.list", {})) is CommandListRequest
 
     with pytest.raises(RequestResolutionError) as exc:
-        resolver.resolve("command.list", {}, expected_version=2)
+        resolver.resolve("command.list", {}, expected_version=1)
 
     assert exc.value.code is ResolutionErrorCode.UNSUPPORTED_COMMAND_VERSION
 

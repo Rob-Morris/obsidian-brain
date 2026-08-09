@@ -12,6 +12,7 @@ from .requests import CommandRequest, command_identity
 from .results import CommandResult
 from .types import (
     Authority,
+    CommandLifecycle,
     DependencyTier,
     EffectClass,
     Locality,
@@ -45,6 +46,9 @@ class ApplicationEntry:
     effect_class: EffectClass
     retry_class: RetryClass
     projections: tuple[ProjectionEligibility, ...]
+    summary: str = ""
+    lifecycle: CommandLifecycle = CommandLifecycle.ACTIVE
+    replacement_command_id: str | None = None
 
     @property
     def command_id(self) -> str:
@@ -79,6 +83,18 @@ class ApplicationEntry:
             raise ValueError(
                 "application entries must describe MCP, CLI, script and Python in canonical order"
             )
+        if not self.summary:
+            object.__setattr__(self, "summary", _summary(self.command_id))
+        if not self.summary.strip() or not self.summary.endswith("."):
+            raise ValueError("application entry summary must be one non-empty sentence")
+        if not isinstance(self.lifecycle, CommandLifecycle):
+            raise ValueError("application entry lifecycle must be closed and typed")
+        if self.lifecycle is CommandLifecycle.REPLACED:
+            if self.replacement_command_id is None:
+                raise ValueError("replaced application entry requires replacement guidance")
+            validate_command_id(self.replacement_command_id)
+        elif self.replacement_command_id is not None:
+            raise ValueError("only a replaced application entry may name a replacement")
 
     @property
     def eligible_projections(self) -> tuple[Projection, ...]:
@@ -151,6 +167,9 @@ class ApplicationCatalogue:
                     "authority": entry.authority.value,
                     "effect_class": entry.effect_class.value,
                     "retry_class": entry.retry_class.value,
+                    "summary": entry.summary,
+                    "lifecycle": entry.lifecycle.value,
+                    "replacement_command_id": entry.replacement_command_id,
                     "projections": tuple(
                         (item.projection.value, item.supported, item.reason)
                         for item in entry.projections
@@ -161,3 +180,28 @@ class ApplicationCatalogue:
         }
         encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
         return "sha256:" + hashlib.sha256(encoded).hexdigest()
+
+
+def _summary(command_id: str) -> str:
+    noun, verb = command_id.split(".", 1)
+    noun_words = noun.replace("-", " ")
+    verb_words = verb.replace("-", " ")
+    direct = {
+        "create": "Create one {noun}",
+        "read": "Read one {noun}",
+        "list": "List {noun} resources",
+        "search": "Search {noun} resources",
+        "delete": "Delete one {noun}",
+        "append": "Append content to one {noun}",
+        "prepend": "Prepend content to one {noun}",
+        "edit": "Edit one {noun}",
+        "check": "Check {noun} state",
+        "fix": "Fix {noun} state",
+        "resolve": "Resolve {noun} state",
+        "start": "Start {noun}",
+        "upload": "Upload one {noun}",
+        "discard": "Discard one {noun}",
+    }
+    if verb in direct:
+        return direct[verb].format(noun=noun_words) + "."
+    return f"{verb_words.capitalize()} for {noun_words}."

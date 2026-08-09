@@ -77,6 +77,17 @@ class Projection(str, Enum):
     LAUNCHER = "launcher"
 
 
+class CommandOwner(str, Enum):
+    APPLICATION = "application"
+    LAUNCHER = "launcher"
+
+
+class CommandLifecycle(str, Enum):
+    ACTIVE = "active"
+    DEPRECATED = "deprecated"
+    REPLACED = "replaced"
+
+
 @dataclass(frozen=True, slots=True)
 class ProjectionEligibility:
     projection: Projection

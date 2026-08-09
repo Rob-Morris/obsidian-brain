@@ -129,13 +129,17 @@ def _invoke(tmp_path, entry, *, context=None):
     return CommandApplication(context, catalogue).invoke(CommandListRequest())
 
 
+def _payload():
+    return CommandListPayload((), "snapshot", SnapshotFreshness.FRESH)
+
+
 def test_success_flows_through_one_executor_and_records_no_effects(tmp_path):
     calls = []
     receipts = _Receipts()
 
     def execute(context, request):
         calls.append((context, request))
-        return Ok("command.list", 1, CommandListPayload(("artefact.read",)))
+        return Ok("command.list", 2, _payload())
 
     result = _invoke(
         tmp_path,
@@ -200,7 +204,7 @@ def test_missing_tier_and_provider_return_canonical_unavailable_before_executor(
 
 def test_bound_but_unavailable_provider_is_not_silently_provisioned(tmp_path):
     entry = _entry(
-        lambda *_args: Ok("command.list", 1, CommandListPayload(())),
+        lambda *_args: Ok("command.list", 2, _payload()),
         required_providers=("document_renderer",),
     )
     result = _invoke(
@@ -220,12 +224,12 @@ def test_bound_but_unavailable_provider_is_not_silently_provisioned(tmp_path):
 def test_port_failure_and_bad_read_result_map_to_stable_internal_error(tmp_path):
     authority_failure = _invoke(
         tmp_path,
-        _entry(lambda *_args: Ok("command.list", 1, CommandListPayload(()))),
+        _entry(lambda *_args: Ok("command.list", 2, _payload())),
         context=_context(tmp_path, authority=_Authority(fail=True)),
     )
     wrong_payload = _invoke(
         tmp_path,
-        _entry(lambda *_args: Ok("command.list", 1, "wrong payload")),
+        _entry(lambda *_args: Ok("command.list", 2, "wrong payload")),
     )
 
     for result in (authority_failure, wrong_payload):
@@ -258,7 +262,7 @@ def test_mutation_executor_failure_is_unknown_non_retryable_and_receipted(tmp_pa
 
 def test_receipt_failure_after_mutation_success_returns_unknown(tmp_path):
     entry = _entry(
-        lambda *_args: Ok("command.list", 1, CommandListPayload(())),
+        lambda *_args: Ok("command.list", 2, _payload()),
         effect_class=EffectClass.SELECTED_BRAIN_MUTATION,
         retry_class=RetryClass.RECEIPT_REQUIRED,
         authority=Authority.CONTRIBUTOR,
@@ -273,7 +277,7 @@ def test_receipt_failure_after_mutation_success_returns_unknown(tmp_path):
 
 
 def test_catalogue_rejects_launcher_locality_duplicates_and_unordered_entries():
-    executor = lambda *_args: Ok("command.list", 1, CommandListPayload(()))
+    executor = lambda *_args: Ok("command.list", 2, _payload())
     entry = _entry(executor)
 
     try:
@@ -312,10 +316,10 @@ def test_catalogue_rejects_launcher_locality_duplicates_and_unordered_entries():
 
 def test_catalogue_fingerprint_excludes_executor_identity_and_dynamic_availability():
     first = ApplicationCatalogue(
-        (_entry(lambda *_args: Ok("command.list", 1, CommandListPayload(()))),)
+        (_entry(lambda *_args: Ok("command.list", 2, _payload())),)
     )
     second = ApplicationCatalogue(
-        (_entry(lambda *_args: Ok("command.list", 1, CommandListPayload(("artefact.list",)))),)
+        (_entry(lambda *_args: Ok("command.list", 2, _payload())),)
     )
 
     assert first.fingerprint == second.fingerprint
@@ -337,7 +341,7 @@ def test_catalogue_records_static_projection_exclusions_with_reasons():
         )
     )
     entry = _entry(
-        lambda *_args: Ok("command.list", 1, CommandListPayload(())),
+        lambda *_args: Ok("command.list", 2, _payload()),
         locality=Locality.CALLER_LOCAL,
         projections=projections,
     )

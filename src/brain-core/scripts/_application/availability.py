@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from concurrent.futures import Future, ThreadPoolExecutor, wait
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from time import monotonic
+from threading import Lock
 from typing import Callable, Protocol
 
 from .context import Capability, CapabilitySnapshot
@@ -37,6 +38,19 @@ class CapabilityRefresher:
     token_factory: SnapshotTokenFactory
     aggregate_timeout_seconds: float = 2.0
     monotonic_clock: Callable[[], float] = monotonic
+    retained_snapshots: int = 8
+    _snapshots: dict[str, CapabilitySnapshot] = field(
+        default_factory=dict,
+        init=False,
+        repr=False,
+        compare=False,
+    )
+    _snapshot_lock: Lock = field(
+        default_factory=Lock,
+        init=False,
+        repr=False,
+        compare=False,
+    )
 
     def __post_init__(self) -> None:
         if not 0 < self.aggregate_timeout_seconds <= 2.0:
@@ -49,6 +63,8 @@ class CapabilityRefresher:
         for probe in self.probes:
             if not 0 < probe.timeout_seconds <= self.aggregate_timeout_seconds:
                 raise ValueError("provider timeout must be positive and within aggregate timeout")
+        if not 1 <= self.retained_snapshots <= 32:
+            raise ValueError("capability snapshot retention must be between 1 and 32")
 
     def refresh(
         self,
@@ -94,7 +110,7 @@ class CapabilityRefresher:
         if observed_at.tzinfo is None:
             raise ValueError("capability refresh clock must be timezone-aware")
         token = self.token_factory.next_token(previous_token)
-        return CapabilitySnapshot(
+        snapshot = CapabilitySnapshot(
             token=token,
             freshness=SnapshotFreshness.FRESH,
             observed_at=observed_at,
@@ -103,6 +119,18 @@ class CapabilityRefresher:
                 for provider_id in requested
             ),
         )
+        with self._snapshot_lock:
+            self._snapshots[token] = snapshot
+            while len(self._snapshots) > self.retained_snapshots:
+                oldest = next(iter(self._snapshots))
+                del self._snapshots[oldest]
+        return snapshot
+
+    def read(self, token: str) -> CapabilitySnapshot | None:
+        if not isinstance(token, str) or not token.strip():
+            raise ValueError("capability snapshot token must be non-empty")
+        with self._snapshot_lock:
+            return self._snapshots.get(token)
 
     def _timed_probe(self, probe: CapabilityProbe) -> tuple[Availability, float]:
         started = self.monotonic_clock()

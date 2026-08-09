@@ -34,6 +34,7 @@ class WorkspaceUpdateMetadataRequest:
     COMMAND_ID: ClassVar[str] = "workspace.update-metadata"
     COMMAND_VERSION: ClassVar[int] = 1
     RESULT_TYPE: ClassVar[type] = CallerWorkspacePayload
+    MINIMAL_EXAMPLE: ClassVar[dict[str, bool]] = {"clear_tags": True}
 
     tags: tuple[str, ...] = ()
     clear_tags: bool = False

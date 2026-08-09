@@ -83,11 +83,12 @@ def test_request_type_owns_identity_version_and_result_type():
     cases = [
         (CommandListRequest(), "command.list", CommandListPayload),
         (CommandDescribeRequest("artefact.read"), "command.describe", CommandDescriptionPayload),
-        (InvocationReadRequest(OutcomeReference("inv-1")), "invocation.read", InvocationReadPayload),
+        (InvocationReadRequest("inv-1"), "invocation.read", InvocationReadPayload),
     ]
 
     for request, command_id, result_type in cases:
-        assert command_identity(request) == (command_id, 1, result_type)
+        expected_version = 2 if command_id.startswith("command.") or command_id == "invocation.read" else 1
+        assert command_identity(request) == (command_id, expected_version, result_type)
         assert "command_id" not in request.__dataclass_fields__
 
 
@@ -133,7 +134,11 @@ def test_list_request_validates_bounded_pagination():
 
 
 def test_result_variants_have_one_structurally_valid_shape():
-    ok = Ok("command.list", 1, CommandListPayload(("artefact.read",)))
+    ok = Ok(
+        "command.list",
+        2,
+        CommandListPayload((), "snapshot", SnapshotFreshness.FRESH),
+    )
     partial = Partial(
         "artefact.delete",
         1,

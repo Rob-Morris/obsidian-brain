@@ -6,6 +6,7 @@ from datetime import datetime
 
 from _application.application import CommandApplication
 from _application.context import (
+    Capability,
     CapabilitySnapshot,
     InvocationContext,
     ProviderBindings,
@@ -19,17 +20,20 @@ from _application.receipts import (
     ReceiptState,
 )
 from _application.requests import (
+    CatalogueCursor,
     CommandDescribeRequest,
     CommandListRequest,
     InvocationReadRequest,
 )
 from _application.results import ErrorCode
 from _application.types import (
+    Availability,
     Authority,
     DependencyTier,
     EffectClass,
     Locality,
     Projection,
+    CommandOwner,
     SnapshotFreshness,
 )
 
@@ -118,15 +122,87 @@ def test_command_list_filters_and_paginates_the_bound_catalogue(tmp_path):
     )
 
     assert first.result.command_ids == ("command.describe", "command.list")
-    assert first.result.next_cursor == "command.list"
+    assert first.result.next_cursor == CatalogueCursor("snapshot", "command.list")
     assert second.result.command_ids == ("invocation.read",)
     assert second.result.next_cursor is None
     assert filtered.result.command_ids == ("command.describe", "command.list")
+    assert all(entry.owner is CommandOwner.APPLICATION for entry in filtered.result.entries)
+    assert filtered.result.snapshot_token == "snapshot"
+
+
+def test_command_list_owner_and_availability_filters_are_honest(tmp_path):
+    application = _application(tmp_path)
+
+    launcher = application.invoke(CommandListRequest(owner=CommandOwner.LAUNCHER))
+    available = application.invoke(
+        CommandListRequest(availability=Availability.AVAILABLE)
+    )
+    summary_match = application.invoke(CommandListRequest(query="resources"))
+
+    assert launcher.result.entries == ()
+    assert summary_match.result.command_ids == ("command.list",)
+    assert available.result.command_ids == (
+        "command.describe",
+        "command.list",
+        "invocation.read",
+    )
+
+
+class _Snapshots:
+    def __init__(self):
+        self.calls = []
+        self.values = {}
+
+    def refresh(self, provider_ids, *, previous_token=None):
+        self.calls.append((provider_ids, previous_token))
+        snapshot = CapabilitySnapshot(
+            "refreshed",
+            SnapshotFreshness.FRESH,
+            NOW,
+            tuple(Capability(provider_id, Availability.AVAILABLE) for provider_id in provider_ids),
+        )
+        self.values[snapshot.token] = snapshot
+        return snapshot
+
+    def read(self, token):
+        return self.values.get(token)
+
+
+def test_command_list_refreshes_once_and_pagination_reuses_the_snapshot(tmp_path):
+    snapshots = _Snapshots()
+    context = _context(tmp_path)
+    context = InvocationContext(
+        selected_brain=context.selected_brain,
+        profile=context.profile,
+        authority=context.authority,
+        dependency_tier=context.dependency_tier,
+        capabilities=context.capabilities,
+        providers=context.providers,
+        correlation_id=context.correlation_id,
+        invocation_id=context.invocation_id,
+        receipt_writer=context.receipt_writer,
+        receipt_reader=context.receipt_reader,
+        clock=context.clock,
+        capability_snapshots=snapshots,
+    )
+    application = CommandApplication(context, build_application_catalogue())
+
+    first = application.invoke(CommandListRequest(refresh=True, page_size=2))
+    second = application.invoke(
+        CommandListRequest(cursor=first.result.next_cursor, page_size=2)
+    )
+
+    assert snapshots.calls == [((), "snapshot")]
+    assert first.result.snapshot_token == second.result.snapshot_token == "refreshed"
+    assert second.result.command_ids == ("invocation.read",)
 
 
 def test_command_list_rejects_cursor_outside_the_filtered_view(tmp_path):
     result = _application(tmp_path).invoke(
-        CommandListRequest(domain="command", cursor="invocation.read")
+        CommandListRequest(
+            domain="command",
+            cursor=CatalogueCursor("snapshot", "invocation.read"),
+        )
     )
 
     assert result.error.code is ErrorCode.INVALID_REQUEST
@@ -141,7 +217,11 @@ def test_command_describe_returns_installed_identity_or_not_found(tmp_path):
     missing = application.invoke(CommandDescribeRequest("artefact.read"))
 
     assert found.result.command_id == "invocation.read"
-    assert found.result.command_version == 1
+    assert found.result.command_version == 2
+    assert found.result.owner.value == "application"
+    assert found.result.request_schema_json
+    assert found.result.result_schema_json
+    assert found.result.examples[0].mcp_tool == "brain_invocation_read"
     assert missing.error.code is ErrorCode.NOT_FOUND
 
 
@@ -156,9 +236,9 @@ def test_invocation_read_returns_receipt_or_explicit_still_unknown(tmp_path):
     )
     application = _application(tmp_path, _Receipts((receipt,)))
 
-    found = application.invoke(InvocationReadRequest(reference))
+    found = application.invoke(InvocationReadRequest(reference.invocation_id))
     unknown_reference = OutcomeReference("inv-absent")
-    unknown = application.invoke(InvocationReadRequest(unknown_reference))
+    unknown = application.invoke(InvocationReadRequest(unknown_reference.invocation_id))
 
     assert found.result.state is ReceiptLookupState.FOUND
     assert found.result.receipt == receipt

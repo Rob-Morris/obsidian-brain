@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import MISSING, dataclass, fields, is_dataclass
+from datetime import date, datetime
 from enum import Enum
 import json
 from pathlib import Path
 import types
+from collections.abc import Mapping as AbcMapping
 from typing import ClassVar, Literal, Mapping, Union, get_args, get_origin, get_type_hints
 
 from .requests import CommandRequest
@@ -125,6 +127,35 @@ def request_schema(request_type: type[CommandRequest]) -> dict[str, object]:
     if required:
         result["required"] = required
     return result
+
+
+def result_payload_schema(request_type: type[CommandRequest]) -> dict[str, object]:
+    """Project the typed successful payload declared by one request owner."""
+
+    command_id = request_type.COMMAND_ID
+    validate_command_id(command_id)
+    return _type_schema(
+        request_type.RESULT_TYPE,
+        command_id=command_id,
+        trail=(request_type,),
+    )
+
+
+def minimal_request_payload(request_type: type[CommandRequest]) -> dict[str, object]:
+    """Build the smallest schema-valid transport example for discovery."""
+
+    declared = getattr(request_type, "MINIMAL_EXAMPLE", None)
+    if declared is not None:
+        if not isinstance(declared, Mapping):
+            raise TypeError("request MINIMAL_EXAMPLE must be a mapping")
+        return _wire_value(declared)
+    schema = request_schema(request_type)
+    required = schema.get("required", ())
+    properties = schema["properties"]
+    return {
+        name: _example_value(properties[name], field_name=name)
+        for name in required
+    }
 
 
 def canonical_result_envelope(result: CommandResult) -> dict[str, object]:
@@ -248,7 +279,7 @@ def _type_schema(annotation, *, command_id: str, trail: tuple[type, ...]) -> dic
             "type": "array",
             "items": _type_schema(item_type, command_id=command_id, trail=trail),
         }
-    if origin in {dict, Mapping}:
+    if origin in {dict, Mapping, AbcMapping}:
         key_type, value_type = arguments or (str, object)
         if key_type is not str:
             raise TypeError(f"{command_id} transport mappings require string keys")
@@ -266,6 +297,11 @@ def _type_schema(annotation, *, command_id: str, trail: tuple[type, ...]) -> dic
         return {"type": _primitive_name(annotation)}
     if annotation is Path:
         return {"type": "string", "format": "path"}
+    if annotation in {date, datetime}:
+        return {
+            "type": "string",
+            "format": "date-time" if annotation is datetime else "date",
+        }
     if annotation is object:
         return {}
     if isinstance(annotation, type) and issubclass(annotation, Enum):
@@ -284,10 +320,11 @@ def _type_schema(annotation, *, command_id: str, trail: tuple[type, ...]) -> dic
         properties = {}
         required = []
         for field in fields(annotation):
-            if not field.init:
+            field_annotation = hints.get(field.name, field.type)
+            if not field.init and get_origin(field_annotation) is not Literal:
                 continue
             field_schema = _type_schema(
-                hints.get(field.name, field.type),
+                field_annotation,
                 command_id=command_id,
                 trail=(*trail, annotation),
             )
@@ -296,7 +333,10 @@ def _type_schema(annotation, *, command_id: str, trail: tuple[type, ...]) -> dic
                 _fallback_description(field.name, command_id),
             )
             properties[field.name] = field_schema
-            if field.default is MISSING and field.default_factory is MISSING:
+            if (
+                not field.init
+                or (field.default is MISSING and field.default_factory is MISSING)
+            ):
                 required.append(field.name)
         schema = {
             "type": "object",
@@ -321,3 +361,44 @@ def _primitive_name(value_type: type) -> str:
 
 def _fallback_description(field_name: str, command_id: str) -> str:
     return f"{field_name.replace('_', ' ').capitalize()} for {command_id}."
+
+
+def _example_value(schema: Mapping[str, object], *, field_name: str):
+    if "default" in schema:
+        return schema["default"]
+    if "enum" in schema:
+        return schema["enum"][0]
+    branches = schema.get("anyOf") or schema.get("oneOf")
+    if branches:
+        non_null = [branch for branch in branches if branch.get("type") != "null"]
+        return _example_value(non_null[0], field_name=field_name)
+    value_type = schema.get("type")
+    if value_type == "object":
+        properties = schema.get("properties", {})
+        return {
+            name: _example_value(properties[name], field_name=name)
+            for name in schema.get("required", ())
+        }
+    if value_type == "array":
+        return []
+    if value_type == "boolean":
+        return False
+    if value_type == "integer":
+        return 1
+    if value_type == "number":
+        return 1.0
+    if value_type == "string":
+        if field_name in {"content_base64", "content"}:
+            return "ZXhhbXBsZQ==" if field_name == "content_base64" else "Example content."
+        if "hash" in field_name or "sha256" in field_name:
+            return "sha256:" + "0" * 64
+        if field_name in {"path", "source", "target"} or field_name.endswith("_path"):
+            return "Example.md"
+        if field_name in {"type", "type_key", "target_type"}:
+            return "living/wiki"
+        if field_name == "title":
+            return "Example"
+        return "example"
+    if value_type == "null":
+        return None
+    raise TypeError(f"cannot derive a minimal example for {field_name}")
