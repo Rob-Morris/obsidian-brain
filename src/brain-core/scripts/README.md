@@ -162,6 +162,10 @@ v0.54.45 expands the internal `command.list` and `command.describe` owners into
 authoritative typed discovery. Lists use one retained capability snapshot and
 descriptions derive schemas and minimal resolver-checked examples from the
 owning catalogue/request types. Public adapters remain unchanged until cutover.
+v0.54.46 adds `_application/adapter.py` as the only dynamic request/result seam
+beneath future MCP, CLI and direct-script projections. It preserves sealed
+request invocation, canonical envelopes, concise rendering, MCP error state and
+the stable CLI exit categories without owning trusted context composition.
 
 That launcher process is not automatically the managed runtime. The shared launcher-safe bootstrap ownership now lives under `_bootstrap/`: bootstrap entrypoints do meaningful launcher-safe work there, and runtime-owning lifecycle entrypoints such as `repair.py`, `setup.py`, `configure.py`, `session.py`, and `check.py` hand substantive managed work off into the canonical managed runtime before continuing.
 

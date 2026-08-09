@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.45)
+**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.46)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -781,3 +781,21 @@ catalogue and sealed request type. Every example is executed through the real
 dynamic resolver in tests. This exposed and fixed an omitted `skill.search`
 resolver registration and aligned `invocation.read` v2 on scalar
 `invocation_id`, matching its canonical recovery action.
+
+## v0.54.46 shared dynamic adapter boundary
+
+`_application.adapter.ApplicationAdapter` is the one dynamic seam shared by
+future MCP, CLI and direct-script projections. At construction it requires an
+exact command/version/request-type match between the authoritative catalogue
+and resolver. At invocation it converts one mapping to a sealed request and
+calls `CommandApplication` with already-composed trusted context. Unknown
+identity, malformed payloads and caller-supplied command metadata fail before
+executor entry.
+
+The same boundary projects the returned typed result into canonical structured
+content, compact JSON and one concise line without changing its branch. `ok`
+maps to exit `0`, `partial` to `1`, request/domain errors to `2`, authority or
+capability unavailability to `3`, and infrastructure/unknown outcome to `4`;
+native parser failure also uses `2`. MCP error state is true for both `partial`
+and `error`. Concrete adapters retain only context composition, transport
+registration and stdout/stderr presentation responsibilities.
