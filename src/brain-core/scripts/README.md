@@ -191,6 +191,10 @@ catalogue provenances and never imports selected-Brain application semantics.
 v0.54.53 stages catalogue-derived built-in granular profile sets and moves
 known-command authority denial ahead of dynamic request resolution. The
 current aggregate defaults remain unchanged until coordinated cutover.
+v0.54.54 stages owner-preserving local CLI execution. Launcher commands use a
+launcher-owned dynamic adapter; application commands cross a process boundary
+to the selected Brain's own `command.py`. The outer CLI validates provenance,
+result identity and exit categories without importing `_application`.
 
 That launcher process is not automatically the managed runtime. The shared launcher-safe bootstrap ownership now lives under `_bootstrap/`: bootstrap entrypoints do meaningful launcher-safe work there, and runtime-owning lifecycle entrypoints such as `repair.py`, `setup.py`, `configure.py`, `session.py`, and `check.py` hand substantive managed work off into the canonical managed runtime before continuing.
 

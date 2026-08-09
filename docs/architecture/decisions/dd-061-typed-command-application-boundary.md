@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.53)
+**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.54)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -937,3 +937,17 @@ inventory. Authority is cumulative: 41 reader leaves, 82 contributor leaves
 and all 109 MCP-eligible leaves for operator. Current aggregate profile defaults
 remain unchanged until the breaking cutover can migrate built-in and custom
 profiles atomically with public registration.
+
+## v0.54.54 owner-preserving local execution
+
+The staged launcher dynamic adapter resolves only launcher-owned request types,
+performs authority denial before caller payload decoding and projects the same
+structural result and exit vocabulary as selected-Brain application adapters.
+
+The outer `_local_cli` execution router consumes owner-labelled composed
+entries. Launcher commands remain in-process under machine-global launcher
+authority. Application commands cross a process boundary to the selected
+Brain's own `command.py`; the outer layer imports no `_application` semantics
+and validates the returned schema, command/version identity, status and exit
+category before presentation. The public v1 shell grammar remains unchanged
+until the coordinated cutover.

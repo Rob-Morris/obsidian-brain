@@ -94,6 +94,14 @@ but it preserves each owner schema, fingerprint, cursor and payload rather than
 creating a third catalogue. Launcher/application command collisions fail
 closed. Public v1 CLI behaviour remains unchanged until coordinated cutover.
 
+v0.54.54 makes that staged composition executable without merging ownership.
+The launcher dynamic adapter resolves launcher request types and emits the
+shared structural result and exit vocabulary; the application process adapter
+executes the selected Brain's own `command.py` and validates its result schema,
+identity and exit category. The outer router selects only from owner-labelled
+composed entries and never imports selected-Brain `_application`. Public v1 CLI
+behaviour remains unchanged until coordinated cutover.
+
 ## Install
 
 The CLI is installed automatically by `install.sh` to `~/.local/bin/brain` (user scope) or `/usr/local/bin/brain` (with `--system`). `upgrade.py` refreshes any installed CLI binary on each upgrade; it does not install a new CLI where none existed.

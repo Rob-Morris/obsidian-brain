@@ -80,20 +80,9 @@ class LauncherInvocation:
 
     def _preflight(self, entry):
         context = self._context
-        if not context.authority.allows(
-            command_id=entry.command_id,
-            required=entry.authority,
-            effect=entry.effect_class,
-        ):
-            return Error(
-                entry.command_id,
-                entry.command_version,
-                CommandError(
-                    ErrorCode.AUTHORITY_DENIED,
-                    "The authenticated launcher profile does not permit this command.",
-                    AuthorityDeniedDetails(context.profile, entry.authority),
-                ),
-            )
+        denied = authority_denied_result(context, entry)
+        if denied is not None:
+            return denied
         missing = []
         for provider_id in entry.required_providers:
             provider = context.providers.get(provider_id)
@@ -182,12 +171,46 @@ class LauncherInvocation:
         )
 
     def _internal_error(self, command_id: str, command_version: int):
-        return Error(
+        return internal_error_result(
+            self._context,
             command_id,
             command_version,
-            CommandError(
-                ErrorCode.INTERNAL_ERROR,
-                "The launcher command failed unexpectedly.",
-                InternalErrorDetails(self._context.correlation_id),
-            ),
         )
+
+
+def authority_denied_result(context: LauncherContext, entry) -> Error | None:
+    """Return the launcher-owned denial before any caller payload is decoded."""
+
+    if context.authority.allows(
+        command_id=entry.command_id,
+        required=entry.authority,
+        effect=entry.effect_class,
+    ):
+        return None
+    return Error(
+        entry.command_id,
+        entry.command_version,
+        CommandError(
+            ErrorCode.AUTHORITY_DENIED,
+            "The authenticated launcher profile does not permit this command.",
+            AuthorityDeniedDetails(context.profile, entry.authority),
+        ),
+    )
+
+
+def internal_error_result(
+    context: LauncherContext,
+    command_id: str,
+    command_version: int,
+) -> Error:
+    """Map unexpected launcher adapter failures without exposing details."""
+
+    return Error(
+        command_id,
+        command_version,
+        CommandError(
+            ErrorCode.INTERNAL_ERROR,
+            "The launcher command failed unexpectedly.",
+            InternalErrorDetails(context.correlation_id),
+        ),
+    )
