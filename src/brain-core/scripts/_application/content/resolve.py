@@ -105,7 +105,12 @@ def execute(context: InvocationContext, request: ContentResolveRequest):
             result["reasoning"],
             "type_key",
         )
-    payload = ContentResolvePayload(
+    payload = payload_from_result(result)
+    return Ok(request.COMMAND_ID, request.COMMAND_VERSION, payload)
+
+
+def payload_from_result(result) -> ContentResolvePayload:
+    return ContentResolvePayload(
         action=ContentResolutionAction(result["action"]),
         artefact_type=result["type"],
         type_key=result["key"],
@@ -114,7 +119,6 @@ def execute(context: InvocationContext, request: ContentResolveRequest):
         candidates=tuple(result.get("candidates") or ()),
         reasoning=result["reasoning"],
     )
-    return Ok(request.COMMAND_ID, request.COMMAND_VERSION, payload)
 
 
 def decode(payload: Mapping[str, object]) -> ContentResolveRequest:

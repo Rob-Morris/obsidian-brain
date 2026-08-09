@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.29)
+**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.30)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -474,3 +474,23 @@ Results identify resolved and post-lifecycle target paths, transcript type and
 operation, status change and every changed path. Legacy implicit mode and title
 fields do not enter the canonical request; public adapters remain unchanged
 until coordinated cutover.
+
+## v0.54.30 managed content ingestion owner
+
+`content.ingest` owns the managed classify→resolve→create/update workflow as
+one explicit contributor mutation. It accepts immutable inline or staged
+content, optional exact type/title hints and a typed classification mode. The
+lexical index is required; semantic retrieval remains optional unless explicit
+embedding mode requests it.
+
+The command returns typed classification and resolution context for paused
+decisions as well as structural create/update effects. Staged content is
+consumed only after commit and retained for classification or ambiguity pauses.
+Managed tier, authority, locking and receipt policy belong to the application
+entry rather than MCP runtime handlers.
+
+During migration, raw BM25 scores were found to be compared against cosine
+thresholds, allowing lexical overlap to authorise an unrelated update. BM25 is
+now advisory candidate evidence only; exact filename identity or a
+high-confidence semantic cosine match is required for automatic update. The
+existing public ingest adapter also now honours its declared mode field.

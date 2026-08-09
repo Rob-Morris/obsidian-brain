@@ -260,8 +260,6 @@ def resolve_content(
             "reasoning": f"Filename match: {os.path.basename(filename_match)}",
         }
 
-    best_candidate = None
-    best_score = 0.0
     candidates = []
 
     if index is not None:
@@ -277,10 +275,9 @@ def resolve_content(
         )
         for result in results:
             candidates.append(result["path"])
-            if result["score"] > best_score:
-                best_score = result["score"]
-                best_candidate = result
 
+    best_candidate = None
+    best_score = 0.0
     if doc_embeddings is not None and doc_embeddings_meta is not None:
         emb_candidates = _embedding_search(
             vault_root,
@@ -330,7 +327,10 @@ def resolve_content(
         "title": title,
         "target_path": None,
         "candidates": candidates,
-        "reasoning": "No existing artefact matches this content",
+        "reasoning": (
+            "No exact filename or high-confidence semantic match exists; "
+            "lexical scores are advisory candidates only"
+        ),
     }
 
 
@@ -398,6 +398,7 @@ def ingest_content(
     doc_embeddings=None,
     doc_embeddings_meta=None,
     query_encoder=None,
+    classification_mode="auto",
 ):
     """Full pipeline: classify -> infer title -> resolve -> act."""
     vault_str = str(vault_root)
@@ -427,6 +428,7 @@ def ingest_content(
             type_embeddings=type_embeddings,
             type_embeddings_meta=type_embeddings_meta,
             query_encoder=query_encoder,
+            mode=classification_mode,
         )
         if classification.get("mode") == "context_assembly":
             return {

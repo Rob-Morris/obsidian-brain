@@ -33,6 +33,7 @@ from .artefact.set_status import ArtefactSetStatusRequest
 from .artefact.unarchive import ArtefactUnarchiveRequest
 from .attachment.upload import AttachmentUploadRequest
 from .content.classify import ContentClassifyRequest
+from .content.ingest import ContentIngestRequest
 from .content.resolve import ContentResolveRequest
 from .links.check import LinksCheckRequest
 from .links.fix import LinksFixRequest
@@ -244,6 +245,7 @@ CommandRequest = (
     | ArtefactUnarchiveRequest
     | AttachmentUploadRequest
     | ContentClassifyRequest
+    | ContentIngestRequest
     | ContentResolveRequest
     | LinksCheckRequest
     | LinksFixRequest
@@ -335,6 +337,7 @@ def command_identity(request: CommandRequest) -> tuple[str, int, type]:
         ArtefactUnarchiveRequest,
         AttachmentUploadRequest,
         ContentClassifyRequest,
+        ContentIngestRequest,
         ContentResolveRequest,
         LinksCheckRequest,
         LinksFixRequest,

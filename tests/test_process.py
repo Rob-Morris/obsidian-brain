@@ -310,6 +310,36 @@ class TestResolve:
         )
         assert result["action"] == "create"
 
+    def test_bm25_score_cannot_authorise_an_update(
+        self,
+        populated_vault,
+        populated_router,
+        populated_index,
+        monkeypatch,
+    ):
+        monkeypatch.setattr(
+            process.lexical_query,
+            "search",
+            lambda *_args, **_kwargs: [
+                {
+                    "path": "Ideas/Solar Powered Keyboards.md",
+                    "score": 99.0,
+                }
+            ],
+        )
+        result = process.resolve_content(
+            populated_router,
+            str(populated_vault),
+            "ideas",
+            "Managed Ingest Candidate",
+            content="A concrete idea candidate.",
+            index=populated_index,
+        )
+
+        assert result["action"] == "create"
+        assert "Ideas/Solar Powered Keyboards.md" in result["candidates"]
+        assert "lexical scores are advisory" in result["reasoning"]
+
     def test_update_via_embeddings_same_type_only(self, populated_vault, populated_router, monkeypatch):
         (populated_vault / "Wiki" / "rust-ownership.md").write_text(
             "---\ntype: living/wiki\ntags: [rust]\n---\n\n# Rust Ownership\n\nOwnership model.\n"

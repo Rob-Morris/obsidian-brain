@@ -215,7 +215,7 @@ If your vault runs the Brain MCP server (`.brain-core/brain_mcp/server.py`), twe
 - `fix-links` — request shape: `{request: {action: "fix-links", params: {fix?, path?, links?}}}`; scans for broken wikilinks and attempts auto-resolution
 **brain_classify / brain_resolve / brain_ingest** (experimental content processing)
 - The read-only classify and resolve tools are permissioned separately from mutating ingest
-- `brain_ingest` runs classify → infer title → resolve → create/update; optional type/title hints skip their respective steps
+- `brain_ingest` runs classify → infer title → resolve → create/update; optional type/title hints skip their respective steps, and its mode is honoured. Exact filename identity or high-confidence semantic cosine evidence can authorise an update; BM25 matches remain advisory candidates.
 - If `classify` or `resolve` needs the shared retrieval index and that index is blocked by an unreadable source file, compiled-router embeddings drift, or a retrieval-index persistence failure, the tool returns that explicit rebuild error instead of stale retrieval state
 
 ### Server Logging

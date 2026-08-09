@@ -227,6 +227,7 @@ def handle_brain_process(
                 type_embeddings_meta=state.embeddings_meta,
                 doc_embeddings=state.doc_embeddings,
                 doc_embeddings_meta=state.embeddings_meta,
+                classification_mode=mode,
             )
             formatted = _fmt_ingest(result)
             if formatted is None:

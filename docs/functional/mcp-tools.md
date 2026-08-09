@@ -484,8 +484,8 @@ accepts those as optional hints; classify/ingest accept `mode`.
 
 **Operations:**
 - **`brain_classify`** — determines the best artefact type using embedding → BM25 → context assembly fallback. Read-only.
-- **`brain_resolve`** — returns create/update/ambiguous by matching classified content against existing artefacts. Read-only.
-- **`brain_ingest`** — runs classify → infer title → resolve → create/update and may mutate files.
+- **`brain_resolve`** — returns create/update/ambiguous by matching classified content against existing artefacts. Exact filename identity and high-confidence semantic cosine similarity can authorise update; BM25 results are advisory candidates only. Read-only.
+- **`brain_ingest`** — runs classify → infer title → resolve → create/update and may mutate files. Its declared `mode` controls classification rather than being ignored.
 - Retrieval-state failures are returned explicitly instead of serving stale results.
 
 Successful mutations queue the shared incremental index refresh path used by

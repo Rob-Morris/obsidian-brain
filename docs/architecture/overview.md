@@ -203,6 +203,9 @@ reports failed restoration as a known partial effect.
 v0.54.29 adds typed `shaping.start` ownership. The command owns mechanical
 lifecycle/transcript effects while the shaping skill retains conversational
 mode selection, questions and completion judgement.
+v0.54.30 adds managed `content.ingest` ownership over classify, resolve and
+create/update. Lexical similarity is advisory only; automatic updates require
+exact filename identity or high-confidence semantic evidence.
 
 The lifecycle/bootstrap side of that script layer now has an explicit shared owner under `scripts/_bootstrap/`. `runtime.py` owns launcher discovery, managed-runtime handoff, executable path identity, and the shared `BRAIN_BOOTSTRAP_SUMMARY` contract; `diagnostics.py` owns the launcher-safe runtime/MCP/registry checks needed before managed semantic work is available; `mcp_state.py` owns shared MCP/config-layout and init-state helpers; `vaults.py` owns the env-aware vault-root discovery seam used by the public lifecycle wrappers; `workspace_scaffold.py` owns Brain-local ignore-rule convergence; `mcp_transport.py` owns the shared Claude/Codex transport/config write engine; and `agent_skills.py` owns version-neutral, ownership-safe client skill adapters. Entry points such as `setup.py`, `repair.py`, `configure.py`, `session.py`, and `check.py` now converge on that seam instead of carrying parallel launcher or env-var logic.
 

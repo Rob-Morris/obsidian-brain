@@ -671,6 +671,16 @@ class TestBrainProcess:
         assert isinstance(result, str)
         assert "context_assembly" in result
 
+    def test_process_ingest_honours_explicit_context_assembly_mode(self, initialized):
+        result = server.brain_process(
+            operation="ingest",
+            content="A concept that could otherwise score lexically",
+            mode="context_assembly",
+        )
+
+        assert isinstance(result, str)
+        assert "context_assembly" in result
+
     def test_process_classify_degrades_without_index(self, initialized):
         server._index = None
 

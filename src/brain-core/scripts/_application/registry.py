@@ -29,6 +29,7 @@ from .artefact import set_status as artefact_set_status
 from .artefact import unarchive as artefact_unarchive
 from .attachment import upload as attachment_upload
 from .content import classify as content_classify
+from .content import ingest as content_ingest
 from .content import resolve as content_resolve
 from .foundation import build_application_catalogue, build_request_resolver
 from .links import check as links_check
@@ -135,6 +136,7 @@ def current_application_catalogue():
             artefact_unarchive.catalogue_entry(),
             attachment_upload.catalogue_entry(),
             content_classify.catalogue_entry(),
+            content_ingest.catalogue_entry(),
             content_resolve.catalogue_entry(),
             links_check.catalogue_entry(),
             links_fix.catalogue_entry(),
@@ -242,6 +244,7 @@ def current_request_resolver():
             artefact_unarchive.resolver_entry(),
             attachment_upload.resolver_entry(),
             content_classify.resolver_entry(),
+            content_ingest.resolver_entry(),
             content_resolve.resolver_entry(),
             links_check.resolver_entry(),
             links_fix.resolver_entry(),
