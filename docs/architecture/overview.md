@@ -247,6 +247,11 @@ v0.54.41 adds explicit launcher ownership for managed-runtime repair. It uses
 trusted selected-Brain context, performs bootstrap-tier provisioning without a
 hidden interpreter hand-off and retains no-effect, partial and unknown runtime
 mutation states.
+v0.54.42 moves MCP configure and repair ownership behind the launcher boundary.
+Both commands use trusted machine context and a shared fixed-file transaction;
+they do not provision runtimes or absorb workspace binding/ignore ownership.
+The transaction either commits the complete preflighted plan, restores it, or
+returns a known-partial receipt containing every surviving path.
 
 The lifecycle/bootstrap side of that script layer now has an explicit shared owner under `scripts/_bootstrap/`. `runtime.py` owns launcher discovery, managed-runtime handoff, executable path identity, and the shared `BRAIN_BOOTSTRAP_SUMMARY` contract; `diagnostics.py` owns the launcher-safe runtime/MCP/registry checks needed before managed semantic work is available; `mcp_state.py` owns shared MCP/config-layout and init-state helpers; `vaults.py` owns the env-aware vault-root discovery seam used by the public lifecycle wrappers; `workspace_scaffold.py` owns Brain-local ignore-rule convergence; `mcp_transport.py` owns the shared Claude/Codex transport/config write engine; and `agent_skills.py` owns version-neutral, ownership-safe client skill adapters. Entry points such as `setup.py`, `repair.py`, `configure.py`, `session.py`, and `check.py` now converge on that seam instead of carrying parallel launcher or env-var logic.
 

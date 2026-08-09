@@ -64,6 +64,17 @@ pip mutation is non-retryable and outcome-unknown. An existing unusable runtime
 fails closed rather than being deleted without live-use proof. The existing v1
 repair adapter stays public until coordinated cutover.
 
+v0.54.42 adds typed `mcp.configure` and `mcp.repair` launcher ownership. Client,
+scope and configure/remove intent are closed request values; selected Brain,
+caller directory and user home are trusted launcher context. The owners require
+an already healthy managed runtime and never bind a workspace, edit ignore
+rules, invoke a client CLI or provision/handoff a runtime as a side effect.
+Their direct fixed-file transaction validates all inputs before writing,
+restores all files on failure and receipts any surviving rollback effects.
+Recorded removal remains available without a healthy runtime or binding and
+only removes exact Brain-owned state. Existing public v1 adapters stay in place
+until coordinated cutover.
+
 ## Install
 
 The CLI is installed automatically by `install.sh` to `~/.local/bin/brain` (user scope) or `/usr/local/bin/brain` (with `--system`). `upgrade.py` refreshes any installed CLI binary on each upgrade; it does not install a new CLI where none existed.

@@ -464,6 +464,11 @@ def write_codex_config(server_config: Dict[str, Any], config_path: Path) -> None
     except OSError:
         content = ""
 
+    safe_write(config_path, render_codex_config(content, server_config))
+
+
+def render_codex_config(content: str, server_config: Dict[str, Any]) -> str:
+    """Render a Codex config with the canonical Brain server entry."""
     preamble, sections = _parse_toml_sections(content)
     _upsert_toml_section(
         sections,
@@ -480,7 +485,29 @@ def write_codex_config(server_config: Dict[str, Any], config_path: Path) -> None
         "mcp_servers.brain.env",
         _toml_body_lines(server_config["env"]),
     )
-    safe_write(config_path, _render_toml(preamble, sections))
+    return _render_toml(preamble, sections)
+
+
+def render_codex_without_server(content: str, server_config: Dict[str, Any]) -> str | None:
+    """Render removal of an exactly matching Brain entry, or return unchanged intent."""
+    preamble, sections = _parse_toml_sections(content)
+    main_index = _find_section_index(sections, "mcp_servers.brain")
+    if main_index is None:
+        return None
+    main = _parse_toml_mapping(sections[main_index]["body"])
+    env_index = _find_section_index(sections, "mcp_servers.brain.env")
+    env = _parse_toml_mapping(sections[env_index]["body"]) if env_index is not None else {}
+    if {"command": main.get("command"), "args": main.get("args"), "env": env} != server_config:
+        return None
+    kept_sections = [
+        section
+        for section in sections
+        if not (
+            section["name"] == "mcp_servers.brain"
+            or section["name"].startswith("mcp_servers.brain.")
+        )
+    ]
+    return _render_toml(preamble, kept_sections)
 
 
 def remove_codex_server(config_path: Path, server_config: Dict[str, Any]) -> bool:
@@ -494,17 +521,9 @@ def remove_codex_server(config_path: Path, server_config: Dict[str, Any]) -> boo
     except OSError:
         return False
 
-    preamble, sections = _parse_toml_sections(content)
-    kept_sections = [
-        section
-        for section in sections
-        if not (
-            section["name"] == "mcp_servers.brain"
-            or section["name"].startswith("mcp_servers.brain.")
-        )
-    ]
-
-    rendered = _render_toml(preamble, kept_sections)
+    rendered = render_codex_without_server(content, server_config)
+    if rendered is None:
+        return False
     if rendered:
         safe_write(config_path, rendered)
         return True

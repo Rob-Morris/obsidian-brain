@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.41)
+**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.42)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -689,3 +689,26 @@ one managed-runtime scope effect. A successful dependency mutation followed by
 verification or sentinel failure is known partial, while interrupted venv/pip
 mutation remains receipt-backed unknown. The existing public repair adapter
 remains unchanged until coordinated cutover.
+
+## v0.54.42 transactional MCP configuration launcher owners
+
+`mcp.configure` and `mcp.repair` now have frozen typed launcher requests and a
+shared bounded result over concrete clients and file effects. Configuration
+selects the Brain, caller directory and home directory only from trusted
+launcher context. It refuses a missing or unhealthy managed runtime with an
+explicit `runtime.repair` next action; it never provisions or hands off to one.
+
+The bootstrap file-transaction seam reads and validates every affected JSON,
+TOML, Markdown and init-state file before its first write. It then applies
+deterministic direct edits without invoking an external client CLI. A failure
+restores every written file and transaction-created directory; any failed
+rollback is a known-partial result naming each surviving path. Concurrent
+changes detected between plan and apply fail with proven no effect.
+
+The new owner does not converge workspace bindings or ignore rules because
+those belong to separate workspace commands. Configure and repair require a
+healthy matching workspace binding, except for vault-self and user scope.
+Recorded removal is intentionally close-safe: it needs neither a healthy
+runtime nor binding and removes only an exactly matching Brain-owned entry.
+The existing public v1 MCP/configure/repair adapters remain unchanged until the
+coordinated breaking projection cutover.

@@ -242,7 +242,20 @@ Obsidian has no crash recovery, and a corrupted artefact may not be noticed imme
 not a transaction manager. If two independent callers both read-modify-write the
 same target concurrently, the later replace still wins. Higher-level coordination
 is required for multi-file rewrite flows and concurrent writers in multiple
-processes. During MCP startup, the non-critical session-mirror refresh is
+processes.
+
+The launcher-owned MCP configuration flow supplies that higher-level fixed-file
+coordination for its own bounded machine-local targets. It rejects symlinks in
+each destination chain, strictly decodes every affected file before writing,
+records its original bytes, checks again for concurrent change, then applies
+sibling-temp atomic replacements. An application failure restores every written
+file and removes transaction-created empty directories. If restoration cannot
+be proven complete, the command returns a known-partial receipt naming each
+surviving path. This transaction does not expand ordinary vault content write
+permissions: it is limited to the trusted selected Brain, caller workspace and
+user-home MCP configuration paths owned by `mcp.configure`/`mcp.repair`.
+
+During MCP startup, the non-critical session-mirror refresh is
 dispatched to a single long-lived daemon worker via a `maxsize=1` coalescing
 queue (see dd-036 "Session-mirror write path"). Startup only enqueues, so a
 stalled markdown-mirror write cannot block readiness; the single-worker

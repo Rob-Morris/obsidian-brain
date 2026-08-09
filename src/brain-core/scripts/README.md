@@ -139,6 +139,13 @@ existing runtime fails closed instead of being replaced without live-use proof.
 Existing adapters are not cut over in the v0.54.x foundation releases; they
 continue to behave as documented until the coordinated breaking release
 replaces the old grammar.
+v0.54.42 adds typed `mcp.configure` and `mcp.repair` launcher ownership over a
+shared bootstrap file transaction. It preflights every JSON, TOML, Markdown and
+init-state input, performs deterministic direct edits, rolls all written files
+and created directories back on failure, and reports exact surviving paths if
+rollback fails. These owners require an already healthy managed runtime and do
+not silently provision it, bind workspaces, edit ignore rules or invoke client
+CLIs. Recorded removal remains available without a healthy runtime or binding.
 
 That launcher process is not automatically the managed runtime. The shared launcher-safe bootstrap ownership now lives under `_bootstrap/`: bootstrap entrypoints do meaningful launcher-safe work there, and runtime-owning lifecycle entrypoints such as `repair.py`, `setup.py`, `configure.py`, `session.py`, and `check.py` hand substantive managed work off into the canonical managed runtime before continuing.
 
