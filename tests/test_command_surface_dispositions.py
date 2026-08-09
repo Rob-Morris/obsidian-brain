@@ -91,6 +91,66 @@ def test_body_source_variants_have_explicit_behaviour() -> None:
         assert variants["stage"]["behaviour"] == "preserve"
 
 
+def test_every_mcp_tool_has_one_explicit_disposition() -> None:
+    observation = _load("command_interface_current_surface_v1.json")
+    dispositions = _load("command_interface_dispositions_v1.json")
+    tools = dispositions["mcp_tool_dispositions"]
+    assert sorted(tools) == observation["observed_surfaces"]["mcp_tools"]
+
+    aggregate_tools = set(dispositions["aggregate_mappings"])
+    for tool_name, entry in tools.items():
+        assert entry["disposition"] in {"remove", "replace", "split"}
+        if entry["disposition"] == "remove":
+            assert entry["behaviour"] == "remove"
+            assert entry["replacement_guidance"]
+        elif tool_name in aggregate_tools:
+            assert entry["mapping_ref"] == f"aggregate_mappings.{tool_name}"
+        elif entry["disposition"] == "replace":
+            assert COMMAND_ID.fullmatch(entry["target"])
+
+
+def test_resource_aggregate_mappings_cover_observed_axes() -> None:
+    observation = _load("command_interface_current_surface_v1.json")
+    dispositions = _load("command_interface_dispositions_v1.json")
+    observed_axes = observation["observed_surfaces"]["mcp_variant_axes"]
+    tools = dispositions["mcp_tool_dispositions"]
+
+    for tool_name in ("brain_list", "brain_read", "brain_search"):
+        entry = tools[tool_name]
+        assert sorted(entry["mappings"]) == observed_axes[tool_name][entry["axis"]]
+        assert all(COMMAND_ID.fullmatch(target) for target in entry["mappings"].values())
+
+
+def test_every_cli_leaf_and_nested_operation_has_one_owner() -> None:
+    observation = _load("command_interface_current_surface_v1.json")
+    dispositions = _load("command_interface_dispositions_v1.json")
+    observed = observation["observed_surfaces"]
+    cli = dispositions["cli_leaf_dispositions"]
+    assert sorted(cli) == sorted(observed["cli"]["dispatched"] + observed["cli"]["special"])
+
+    nested = observed["cli_operation_axes"]
+    assert sorted(cli["configure"]["mappings"]) == nested["configure.py"][
+        "command_paths"
+    ]
+    assert sorted(cli["machine"]["mappings"]) == nested["machine.py"][
+        "command_paths"
+    ]
+    assert sorted(cli["repair"]["mappings"]) == nested["repair.py"]["scope"]
+    assert sorted(cli["read"]["mappings"]) == nested["read.py"]["resource"]
+    assert sorted(cli["setup"]["mappings"]) == nested["setup.py"]["command_paths"]
+
+    def owned_targets(node):
+        if "target" in node:
+            yield node
+        for child in node.get("mappings", {}).values():
+            yield from owned_targets(child)
+
+    entries = [entry for node in cli.values() for entry in owned_targets(node)]
+    assert entries
+    assert {entry["owner"] for entry in entries} == {"application", "launcher"}
+    assert all(COMMAND_ID.fullmatch(entry["target"]) for entry in entries)
+
+
 def test_inventory_remains_honest_about_unassigned_contract_fields() -> None:
     dispositions = _load("command_interface_dispositions_v1.json")
     assert dispositions["inventory_status"] == "in_progress"

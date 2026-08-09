@@ -3,7 +3,7 @@
   "brain_core_version": "0.54.0",
   "inventory_status": "in_progress",
   "covered_source_surfaces": [
-    "mandated_aggregate_mcp_tools"
+    "all_mcp_tools"
   ],
   "aggregate_mappings": {
     "brain_action": {
@@ -139,9 +139,372 @@
       }
     }
   },
+  "mcp_tool_dispositions": {
+    "brain_action": {
+      "disposition": "split",
+      "mapping_ref": "aggregate_mappings.brain_action"
+    },
+    "brain_check": {
+      "disposition": "replace",
+      "target": "vault.check"
+    },
+    "brain_classify": {
+      "disposition": "replace",
+      "target": "content.classify"
+    },
+    "brain_create": {
+      "disposition": "split",
+      "mapping_ref": "aggregate_mappings.brain_create"
+    },
+    "brain_define": {
+      "disposition": "split",
+      "mapping_ref": "aggregate_mappings.brain_define"
+    },
+    "brain_discard_stage": {
+      "disposition": "replace",
+      "target": "stage.discard"
+    },
+    "brain_edit": {
+      "disposition": "split",
+      "mapping_ref": "aggregate_mappings.brain_edit"
+    },
+    "brain_ingest": {
+      "disposition": "replace",
+      "target": "content.ingest"
+    },
+    "brain_init": {
+      "behaviour": "remove",
+      "disposition": "remove",
+      "replacement_guidance": [
+        "Use session.start for canonical session bootstrap.",
+        "Use command.list for command and capability discovery."
+      ],
+      "rationale": "The MCP-only readiness aggregate has no honest one-to-one adapter projection and overlaps the accepted session and discovery commands."
+    },
+    "brain_list": {
+      "axis": "resource",
+      "disposition": "split",
+      "mappings": {
+        "archive": "artefact.list-archived",
+        "artefact": "artefact.list",
+        "memory": "memory.list",
+        "plugin": "plugin.list",
+        "skill": "skill.list",
+        "style": "style.list",
+        "template": "template.list",
+        "trigger": "trigger.list",
+        "type": "type.list",
+        "workspace": "workspace.list"
+      }
+    },
+    "brain_move": {
+      "disposition": "split",
+      "mapping_ref": "aggregate_mappings.brain_move"
+    },
+    "brain_outline": {
+      "disposition": "replace",
+      "target": "artefact.outline"
+    },
+    "brain_read": {
+      "axis": "resource",
+      "disposition": "split",
+      "mappings": {
+        "archive": "artefact.read-archived",
+        "artefact": "artefact.read",
+        "environment": "runtime.read-environment",
+        "file": "vault.read-file",
+        "memory": "memory.read",
+        "plugin": "plugin.read",
+        "router": "vault.read-router",
+        "skill": "skill.read",
+        "style": "style.read",
+        "template": "template.read",
+        "trigger": "trigger.read",
+        "type": "type.read",
+        "workspace": "workspace.read"
+      }
+    },
+    "brain_reparent": {
+      "disposition": "replace",
+      "target": "artefact.reparent"
+    },
+    "brain_resolve": {
+      "disposition": "replace",
+      "target": "content.resolve"
+    },
+    "brain_search": {
+      "axis": "resource",
+      "disposition": "split",
+      "mappings": {
+        "artefact": "artefact.search",
+        "memory": "memory.search",
+        "plugin": "plugin.search",
+        "skill": "skill.search",
+        "style": "style.search",
+        "trigger": "trigger.search"
+      }
+    },
+    "brain_session": {
+      "disposition": "replace",
+      "target": "session.start"
+    },
+    "brain_set_key": {
+      "disposition": "replace",
+      "target": "artefact.set-key"
+    },
+    "brain_set_naming_field": {
+      "disposition": "replace",
+      "target": "artefact.set-naming-field"
+    },
+    "brain_set_status": {
+      "disposition": "replace",
+      "target": "artefact.set-status"
+    },
+    "brain_stage": {
+      "disposition": "replace",
+      "target": "stage.create"
+    },
+    "brain_upload_attachment": {
+      "disposition": "replace",
+      "target": "attachment.upload"
+    }
+  },
+  "cli_leaf_dispositions": {
+    "check": {
+      "owner": "application",
+      "target": "vault.check"
+    },
+    "configure": {
+      "disposition": "split",
+      "mappings": {
+        "agent-skills": {
+          "owner": "launcher",
+          "target": "agent-skill.configure"
+        },
+        "mcp": {
+          "owner": "launcher",
+          "target": "mcp.configure"
+        },
+        "semantic": {
+          "owner": "application",
+          "target": "retrieval.enable"
+        },
+        "workspace binding": {
+          "owner": "application",
+          "target": "workspace.bind"
+        },
+        "workspace bootstrap": {
+          "owner": "application",
+          "target": "workspace.configure-bootstrap"
+        },
+        "workspace metadata": {
+          "owner": "application",
+          "target": "workspace.update-metadata"
+        }
+      }
+    },
+    "create": {
+      "disposition": "split",
+      "mapping_ref": "aggregate_mappings.brain_create",
+      "owner": "application"
+    },
+    "define": {
+      "disposition": "split",
+      "mapping_ref": "aggregate_mappings.brain_define",
+      "owner": "application"
+    },
+    "discard-stage": {
+      "owner": "application",
+      "target": "stage.discard"
+    },
+    "doctor": {
+      "owner": "launcher",
+      "target": "brain.doctor"
+    },
+    "edit": {
+      "disposition": "split",
+      "mapping_ref": "aggregate_mappings.brain_edit",
+      "owner": "application"
+    },
+    "fix-links": {
+      "owner": "application",
+      "target": "links.fix"
+    },
+    "install": {
+      "owner": "launcher",
+      "target": "brain.install"
+    },
+    "list": {
+      "disposition": "split",
+      "mapping_ref": "mcp_tool_dispositions.brain_list.mappings",
+      "owner": "application"
+    },
+    "machine": {
+      "disposition": "split",
+      "mappings": {
+        "migrate-legacy": {
+          "owner": "launcher",
+          "target": "machine.migrate-legacy"
+        },
+        "prune-runtimes": {
+          "owner": "launcher",
+          "target": "machine.prune-runtimes"
+        }
+      }
+    },
+    "migrate-naming": {
+      "owner": "application",
+      "target": "artefact.migrate-naming"
+    },
+    "outline": {
+      "owner": "application",
+      "target": "artefact.outline"
+    },
+    "read": {
+      "disposition": "split",
+      "mappings": {
+        "archive": {
+          "owner": "application",
+          "target": "artefact.read-archived"
+        },
+        "artefact": {
+          "owner": "application",
+          "target": "artefact.read"
+        },
+        "environment": {
+          "owner": "application",
+          "target": "runtime.read-environment"
+        },
+        "file": {
+          "owner": "application",
+          "target": "vault.read-file"
+        },
+        "memory": {
+          "owner": "application",
+          "target": "memory.read"
+        },
+        "plugin": {
+          "owner": "application",
+          "target": "plugin.read"
+        },
+        "router": {
+          "owner": "application",
+          "target": "vault.read-router"
+        },
+        "skill": {
+          "owner": "application",
+          "target": "skill.read"
+        },
+        "style": {
+          "owner": "application",
+          "target": "style.read"
+        },
+        "template": {
+          "owner": "application",
+          "target": "template.read"
+        },
+        "trigger": {
+          "owner": "application",
+          "target": "trigger.read"
+        },
+        "type": {
+          "owner": "application",
+          "target": "type.read"
+        }
+      }
+    },
+    "rename": {
+      "owner": "application",
+      "target": "artefact.rename"
+    },
+    "repair": {
+      "disposition": "split",
+      "mappings": {
+        "frontmatter": {
+          "owner": "application",
+          "target": "artefact.repair-frontmatter"
+        },
+        "lexical": {
+          "owner": "application",
+          "target": "retrieval.repair-lexical"
+        },
+        "mcp": {
+          "owner": "launcher",
+          "target": "mcp.repair"
+        },
+        "ownership": {
+          "owner": "application",
+          "target": "artefact.repair-ownership"
+        },
+        "registry": {
+          "owner": "application",
+          "target": "workspace.repair-registry"
+        },
+        "router": {
+          "owner": "application",
+          "target": "runtime.repair-router"
+        },
+        "runtime": {
+          "owner": "launcher",
+          "target": "runtime.repair"
+        },
+        "semantic": {
+          "owner": "application",
+          "target": "retrieval.repair-semantic"
+        }
+      }
+    },
+    "reparent": {
+      "owner": "application",
+      "target": "artefact.reparent"
+    },
+    "search": {
+      "owner": "application",
+      "target": "artefact.search"
+    },
+    "session": {
+      "owner": "application",
+      "target": "session.start"
+    },
+    "set-key": {
+      "owner": "application",
+      "target": "artefact.set-key"
+    },
+    "set-naming-field": {
+      "owner": "application",
+      "target": "artefact.set-naming-field"
+    },
+    "set-status": {
+      "owner": "application",
+      "target": "artefact.set-status"
+    },
+    "setup": {
+      "disposition": "replace",
+      "mappings": {
+        "workspace": {
+          "owner": "application",
+          "target": "workspace.setup"
+        }
+      }
+    },
+    "stage": {
+      "owner": "application",
+      "target": "stage.create"
+    },
+    "upgrade": {
+      "owner": "launcher",
+      "target": "brain.upgrade"
+    },
+    "upload-attachment": {
+      "owner": "application",
+      "target": "attachment.upload"
+    },
+    "version": {
+      "owner": "launcher",
+      "target": "brain.version"
+    }
+  },
   "pending_disposition_fields": [
-    "non_aggregate_mcp_tools",
-    "cli_operations",
     "direct_scripts",
     "public_python_wrappers",
     "install_upgrade_operations",
