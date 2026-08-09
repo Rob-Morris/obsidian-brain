@@ -291,6 +291,39 @@ def sync_machine_registry(brains: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def inspect_machine_registry(brains: list[dict[str, Any]]) -> dict[str, Any]:
+    """Compare the derived machine registry without repairing or rewriting it."""
+    target_brains = _render_machine_registry(brains)["brains"]
+    path = machine_registry_path()
+
+    current = _load_machine_registry()
+
+    if current["blocked"]:
+        drifted = False
+    else:
+        drifted = bool(
+            current["malformed"]
+            or current["stale_machine_registry_entries"]
+            or current["brains"] != target_brains
+            or (not current["exists"] and bool(target_brains))
+        )
+    return {
+        "backup_path": None,
+        "blocked": current["blocked"],
+        "blocked_reason": current["blocked_reason"],
+        "brains_count": len(current["brains"]),
+        "changed": False,
+        "drifted": drifted,
+        "malformed": current["malformed"],
+        "malformed_rewritten": False,
+        "path": str(path),
+        "stale_machine_registry_entries": current[
+            "stale_machine_registry_entries"
+        ],
+        "version": current["version"],
+    }
+
+
 def discover_brains(
     *,
     current_vault: str | Path | None = None,

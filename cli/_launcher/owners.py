@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
-from . import managed_runtime, registry, version
+from . import doctor, managed_runtime, operator, registry, version
 from .context import LauncherContext
 from .contracts import CommandResult, validate_command_id
 
@@ -62,6 +62,7 @@ LAUNCHER_OWNERS = LauncherOwners(
     tuple(
         sorted(
             (
+                doctor.doctor_owner(),
                 registry.backfill_owner(),
                 registry.clear_default_owner(),
                 registry.get_default_owner(),
@@ -74,6 +75,7 @@ LAUNCHER_OWNERS = LauncherOwners(
                 version.version_owner(),
                 managed_runtime.resolve_owner(),
                 managed_runtime.resolve_runnable_owner(),
+                operator.generate_key_owner(),
             ),
             key=lambda owner: owner.command_id,
         )

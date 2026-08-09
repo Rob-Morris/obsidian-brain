@@ -112,6 +112,12 @@ change/no-op state, caller-filesystem capability preflight and receipt-safe
 partial/unknown outcome reporting. The existing `vault_registry.py` scalar
 functions and direct-script behaviour remain available over the new structured
 action seams.
+v0.54.37 adds the remaining effect-free launcher owners. Canonical
+`brain.doctor` uses `inspect_machine_registry` through a non-synchronising
+machine summary, so diagnosis cannot repair `brains.json`; typed findings omit
+shell commands in favour of canonical repair command IDs. The reusable
+`generate_key_material` seam supplies bounded `operator.generate-key` results
+while preserving the existing direct script output.
 Existing adapters are not cut over in the v0.54.x foundation releases; they
 continue to behave as documented until the coordinated breaking release
 replaces the old grammar.

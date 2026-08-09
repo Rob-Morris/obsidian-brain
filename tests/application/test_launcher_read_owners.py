@@ -82,6 +82,7 @@ def _invocation(tmp_path, *, authority=None, receipts=None):
         clock=_Clock(),
         caller_dir=tmp_path.resolve(),
         cli_version="1.2.0",
+        cli_binary=(tmp_path / "bin" / "brain").resolve(),
         launcher_python=Path(sys.executable).resolve(),
     )
     return LauncherInvocation(context, LAUNCHER_CATALOGUE, LAUNCHER_OWNERS)
@@ -96,10 +97,12 @@ def test_launcher_read_owners_match_their_authoritative_catalogue_entries():
     ]
 
     assert [owner.command_id for owner in read_owners] == [
+        "brain.doctor",
         "brain.get-default",
         "brain.list",
         "brain.resolve",
         "brain.version",
+        "operator.generate-key",
         "runtime.resolve",
         "runtime.resolve-runnable",
     ]
@@ -107,7 +110,9 @@ def test_launcher_read_owners_match_their_authoritative_catalogue_entries():
         entry = entries[owner.command_id]
         assert entry.owner_ref == owner.owner_ref
         assert entry.command_version == owner.command_version
-        assert entry.authority == "reader"
+        assert entry.authority == (
+            "operator" if owner.command_id == "operator.generate-key" else "reader"
+        )
         assert entry.effect_class == "none"
         assert entry.retry_class == "safe"
         assert entry.required_providers == ()

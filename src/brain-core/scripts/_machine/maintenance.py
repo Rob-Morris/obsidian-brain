@@ -17,7 +17,7 @@ from _lifecycle_common import derive_step_status
 from _repair_common import build_repair_argv
 
 from ._labels import brain_label
-from .discovery import discover_brains, sync_machine_registry
+from .discovery import discover_brains, inspect_machine_registry, sync_machine_registry
 from .topology import (
     classify_brain_runtime,
     find_live_brain_runtime_processes,
@@ -37,10 +37,18 @@ class _LegacyTargetSelection:
 
 
 
-def collect_machine_summary(*, current_vault: str | None = None, launcher_python: str | None = None) -> dict[str, Any]:
-    """Collect the shared machine-runtime summary for Doctor and machine actions."""
+def collect_machine_summary(
+    *,
+    current_vault: str | None = None,
+    launcher_python: str | None = None,
+    synchronise_registry: bool,
+) -> dict[str, Any]:
+    """Collect machine runtime state, optionally synchronising derived registry."""
     discovery = discover_brains(current_vault=current_vault)
-    machine_registry = sync_machine_registry(discovery["brains"])
+    if synchronise_registry:
+        machine_registry = sync_machine_registry(discovery["brains"])
+    else:
+        machine_registry = inspect_machine_registry(discovery["brains"])
     return inspect_machine_runtime_state(
         launcher_python=launcher_python,
         discovery=discovery,
@@ -91,6 +99,8 @@ def inspect_machine_runtime_state(
         not discovery["stale_registry_entries"]
         and not machine_registry["stale_machine_registry_entries"]
         and not machine_registry["blocked"]
+        and not machine_registry.get("drifted", False)
+        and not machine_registry.get("malformed", False)
         and not machine_registry["malformed_rewritten"]
         and all(
             brain["runtime"]["healthy_runtime"]

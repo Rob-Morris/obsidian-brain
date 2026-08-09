@@ -75,7 +75,7 @@ That `python3.12` process is the launcher, not the managed runtime itself.
 | `session.py` | Build the canonical session model and refresh `.brain/local/session.md`; keeps a launcher-safe SessionStart shim but hands substantive work off into the managed runtime. Cross-Brain workspace resolution is owned by `brain session` before it dispatches with `--vault`. | `python3 session.py --vault V [--json] [--workspace-dir PATH]` |
 | `obsidian_cli.py` | IPC client for native Obsidian CLI | (library module, used by MCP server) |
 | `process.py` | Experimental content classification, duplicate resolution, ingestion | (library module, exposed separately as `brain_classify`, `brain_resolve`, and `brain_ingest`) |
-| `generate_key.py` | Generate operator key + hash for config.yaml | `python3 generate_key.py [--count N]` |
+| `generate_key.py` | Generate operator key + hash for config.yaml; `generate_key_material()` is the reusable launcher-owner seam | `python3 generate_key.py [--count N]` |
 
 > The `migrations/` rows above are representative; the full set of `migrate_to_*.py` one-shots (run by `upgrade.py`) lives in `src/brain-core/scripts/migrations/`.
 

@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.36)
+**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.37)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -592,3 +592,25 @@ result is known partial with exact committed row identities; other unexpected
 post-entry failures stay non-retryable and outcome-unknown. Dry-run remains an
 explicit no-effect plan. Public CLI dispatch remains unchanged until the
 coordinated cutover.
+
+## v0.54.37 effect-free launcher diagnosis and key generation
+
+`brain.doctor` and `operator.generate-key` complete the launcher catalogue's
+effect-free owner group. Doctor receives CLI binary/version and launcher Python
+as trusted context, accepts only optional vault scope and filtering as request
+intent, and returns bounded typed CLI, registry, runtime, Brain and vault
+diagnosis. Repair guidance is canonical command identity rather than an
+embedded shell command.
+
+The existing Doctor composition synchronises derived `brains.json` as part of
+the unreleased old adapter flow, which conflicts with the canonical command's
+no-effect contract. The new owner instead calls a read-only
+`inspect_machine_registry` path and reports drift. Existing public behaviour is
+not switched during internal migration; coordinated cutover removes the
+implicit repair behaviour rather than misclassifying it or weakening the
+canonical result contract.
+
+Operator-key generation returns a bounded tuple of typed key/SHA-256 candidates
+over the existing cryptographic generator. It retains operator authority but
+requires no selected Brain, provider or receipt because it produces no stored
+effect.

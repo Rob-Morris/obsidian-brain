@@ -25,6 +25,14 @@ Dry-run uses the same locked feasibility checks without writing. Registry-row an
 default-pointer effects remain distinct, including when the first commits and
 the second fails. The public v1 shell grammar is still unchanged.
 
+v0.54.37 completes the effect-free launcher group with typed `brain.doctor` and
+`operator.generate-key` owners. Canonical Doctor returns bounded CLI, derived
+registry, runtime and optional vault findings; it detects `brains.json` drift
+without repairing it and supplies canonical repair command IDs rather than
+embedded shell strings. Operator-key output is a bounded tuple of typed
+key/SHA-256 candidates. The existing v1 Doctor adapter keeps its current
+behaviour until the coordinated cutover.
+
 ## Install
 
 The CLI is installed automatically by `install.sh` to `~/.local/bin/brain` (user scope) or `/usr/local/bin/brain` (with `--system`). `upgrade.py` refreshes any installed CLI binary on each upgrade; it does not install a new CLI where none existed.

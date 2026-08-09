@@ -90,6 +90,7 @@ def _invocation(
         clock=_Clock(),
         caller_dir=tmp_path.resolve(),
         cli_version="1.2.0",
+        cli_binary=(tmp_path / "bin" / "brain").resolve(),
         launcher_python=Path(sys.executable).resolve(),
         dry_run=dry_run,
     )

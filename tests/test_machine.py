@@ -9,8 +9,18 @@ import pytest
 import doctor_machine
 import machine
 from _common import _venv, central_venvs_root, resolve_vault_venv_python
-from _machine.discovery import discover_brains, machine_registry_path, sync_machine_registry
-from _machine.maintenance import inspect_machine_runtime_state, migrate_legacy_brains, prune_orphaned_runtimes
+from _machine.discovery import (
+    discover_brains,
+    inspect_machine_registry,
+    machine_registry_path,
+    sync_machine_registry,
+)
+from _machine.maintenance import (
+    collect_machine_summary,
+    inspect_machine_runtime_state,
+    migrate_legacy_brains,
+    prune_orphaned_runtimes,
+)
 from _machine.topology import classify_brain_runtime, find_live_brain_runtime_processes, list_central_runtimes
 import vault_registry
 
@@ -97,6 +107,36 @@ def test_discover_brains_skips_registry_writes_until_sync(monkeypatch, tmp_path,
         str(current.resolve()),
         str(registered.resolve()),
     ]
+
+
+def test_inspect_machine_registry_reports_drift_without_writing(tmp_path, fake_home):
+    current = _make_vault(tmp_path, "Current Brain")
+    discovery = discover_brains(current_vault=current)
+
+    inspected = inspect_machine_registry(discovery["brains"])
+
+    assert inspected["drifted"] is True
+    assert inspected["changed"] is False
+    assert inspected["brains_count"] == 0
+    assert not machine_registry_path().exists()
+
+
+def test_machine_summary_can_diagnose_without_registry_synchronisation(
+    tmp_path,
+    fake_home,
+):
+    current = _make_vault(tmp_path, "Current Brain")
+
+    summary = collect_machine_summary(
+        current_vault=str(current),
+        launcher_python=sys.executable,
+        synchronise_registry=False,
+    )
+
+    assert summary["machine_registry"]["drifted"] is True
+    assert summary["machine_registry"]["changed"] is False
+    assert summary["healthy"] is False
+    assert not machine_registry_path().exists()
 
 
 def test_discover_brains_ignores_non_local_authoritative_entries(monkeypatch, tmp_path, fake_home):

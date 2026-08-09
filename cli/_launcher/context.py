@@ -55,6 +55,7 @@ class LauncherContext:
     clock: Clock
     caller_dir: Path
     cli_version: str
+    cli_binary: Path
     launcher_python: Path | None = None
     dry_run: bool = False
 
@@ -65,6 +66,8 @@ class LauncherContext:
             raise ValueError("launcher context requires invocation and CLI identity")
         if not self.caller_dir.is_absolute():
             raise ValueError("launcher caller_dir must be absolute")
+        if not self.cli_binary.is_absolute():
+            raise ValueError("launcher cli_binary must be absolute")
         if self.launcher_python is not None and not self.launcher_python.is_absolute():
             raise ValueError("launcher_python must be absolute")
         if not isinstance(self.dry_run, bool):

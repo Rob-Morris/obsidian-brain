@@ -221,6 +221,7 @@ def build_report(*, args) -> tuple[dict, int]:
     machine = doctor_machine.collect_machine_summary(
         current_vault=args.current_vault,
         launcher_python=args.launcher,
+        synchronise_registry=True,
     )
     vault = collect_vault_diagnosis(
         current_vault=args.current_vault,

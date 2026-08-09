@@ -152,6 +152,7 @@ def main() -> int:
     summary = collect_machine_summary(
         current_vault=args.current_vault,
         launcher_python=args.launcher,
+        synchronise_registry=True,
     )
     if args.json:
         print(json.dumps(summary, indent=2))

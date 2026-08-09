@@ -11,6 +11,7 @@ Usage:
 """
 
 import argparse
+from dataclasses import dataclass
 import secrets
 
 from _common import hash_key
@@ -59,8 +60,20 @@ _WORDS = [
 ]
 
 
+@dataclass(frozen=True)
+class OperatorKeyMaterial:
+    key: str
+    sha256: str
+
+
 def generate_key() -> str:
     return "-".join(secrets.choice(_WORDS) for _ in range(3))
+
+
+def generate_key_material() -> OperatorKeyMaterial:
+    """Generate one operator key and its configuration-safe digest."""
+    key = generate_key()
+    return OperatorKeyMaterial(key, hash_key(key))
 
 
 def main() -> None:
@@ -79,9 +92,9 @@ def main() -> None:
     for i in range(args.count):
         if i > 0:
             print()
-        key = generate_key()
-        print(f"Key:  {key}")
-        print(f"Hash: {hash_key(key)}")
+        material = generate_key_material()
+        print(f"Key:  {material.key}")
+        print(f"Hash: {material.sha256}")
 
 
 if __name__ == "__main__":
