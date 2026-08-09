@@ -259,12 +259,12 @@ def _type_schema(annotation, *, command_id: str, trail: tuple[type, ...]) -> dic
             schema["type"] = _primitive_name(next(iter(kinds)))
         return schema
     if origin in {Union, types.UnionType}:
-        return {
-            "anyOf": [
-                _type_schema(item, command_id=command_id, trail=trail)
-                for item in arguments
-            ]
-        }
+        branches = [
+            _type_schema(item, command_id=command_id, trail=trail)
+            for item in arguments
+        ]
+        compact = _compact_distinct_type_union(branches)
+        return compact if compact is not None else {"anyOf": branches}
     if origin in {tuple, list}:
         if origin is tuple and len(arguments) == 2 and arguments[1] is Ellipsis:
             item_type = arguments[0]
@@ -354,6 +354,30 @@ def _type_schema(annotation, *, command_id: str, trail: tuple[type, ...]) -> dic
     raise TypeError(f"{command_id} has an unsupported request annotation: {annotation!r}")
 
 
+def _compact_distinct_type_union(
+    branches: list[dict[str, object]],
+) -> dict[str, object] | None:
+    """Use an equivalent compact schema when union branches have distinct types."""
+
+    types = [branch.get("type") for branch in branches]
+    if not types or any(not isinstance(item, str) for item in types):
+        return None
+    if len(types) != len(set(types)):
+        return None
+    result: dict[str, object] = {"type": types}
+    nullable = "null" in types
+    for branch in branches:
+        for key, value in branch.items():
+            if key == "type":
+                continue
+            if key in result:
+                return None
+            if key == "enum" and nullable:
+                value = [*value, None]
+            result[key] = value
+    return result
+
+
 def _primitive_name(value_type: type) -> str:
     return {
         str: "string",
@@ -365,7 +389,8 @@ def _primitive_name(value_type: type) -> str:
 
 
 def _fallback_description(field_name: str, command_id: str) -> str:
-    return f"{field_name.replace('_', ' ').capitalize()} for {command_id}."
+    del command_id
+    return field_name.replace("_", " ").capitalize()
 
 
 def _example_value(schema: Mapping[str, object], *, field_name: str):
@@ -378,6 +403,12 @@ def _example_value(schema: Mapping[str, object], *, field_name: str):
         non_null = [branch for branch in branches if branch.get("type") != "null"]
         return _example_value(non_null[0], field_name=field_name)
     value_type = schema.get("type")
+    if isinstance(value_type, list):
+        selected = next((item for item in value_type if item != "null"), "null")
+        return _example_value(
+            {**schema, "type": selected},
+            field_name=field_name,
+        )
     if value_type == "object":
         properties = schema.get("properties", {})
         return {

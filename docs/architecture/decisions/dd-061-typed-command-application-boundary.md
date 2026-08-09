@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.50)
+**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.51)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -883,3 +883,24 @@ and warm latency plus a 512-byte size ceiling guard the bootstrap budget.
 The legacy `brain_session` adapter does not expose the staged field yet. The
 coordinated cutover enables it only when the granular tools are public, so no
 intermediate release advertises unavailable commands.
+
+## v0.54.51 real-client projection gates
+
+The staged MCP projection now carries effect-derived standard annotations so
+read-only commands, potentially destructive mutations, safe retries and local
+world boundaries remain machine-readable client hints without becoming
+authority decisions. The application catalogue remains the source of those
+facts.
+
+Pinned Claude Code 2.1.226 and Codex CLI 0.147.0 captures run the real clients
+against a localhost model endpoint and the real stdio FastMCP server. They
+record Claude's eager model declarations, Codex's deferred tool-search
+declaration and a successful minimal `brain_command_list` request through each
+client. No external model request is made.
+
+The corresponding deterministic replay uses `tiktoken` 0.12.0 with
+`o200k_base`. Both complete 109-tool client projections stay below 16,384
+tokens and every individual tool stays below 512 tokens. Recursive field
+descriptions remain present but mechanical label descriptions omit redundant
+command names and punctuation; equivalent distinct-type unions use compact
+JSON Schema type arrays.

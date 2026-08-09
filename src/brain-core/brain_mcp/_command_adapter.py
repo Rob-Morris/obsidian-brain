@@ -8,7 +8,7 @@ from typing import Annotated, Callable, get_type_hints
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.utilities.func_metadata import FuncMetadata
-from mcp.types import CallToolResult, TextContent
+from mcp.types import CallToolResult, TextContent, ToolAnnotations
 from pydantic import Field
 
 from _application.adapter import (
@@ -25,7 +25,7 @@ from _application.projection import (
 )
 from _application.resolver import RequestResolver
 from _application.results import CommandError, Error, ErrorCode
-from _application.types import Projection
+from _application.types import EffectClass, Projection, RetryClass
 
 
 ContextFactory = Callable[..., InvocationContext]
@@ -68,6 +68,7 @@ def register_application_tools(
             handler,
             name=name,
             description=entry.summary,
+            annotations=_annotations(entry),
             structured_output=False,
         )
         tool = mcp._tool_manager.get_tool(name)
@@ -85,6 +86,21 @@ def register_application_tools(
     if names != sorted(names) or len(names) != len(set(names)):
         raise RuntimeError("granular MCP registration must be sorted and collision-free")
     return tuple(names)
+
+
+def _annotations(entry: ApplicationEntry) -> ToolAnnotations:
+    read_only = entry.effect_class is EffectClass.NONE
+    destructive = entry.effect_class in {
+        EffectClass.SELECTED_BRAIN_MUTATION,
+        EffectClass.CALLER_LOCAL_MUTATION,
+        EffectClass.MACHINE_MUTATION,
+    }
+    return ToolAnnotations(
+        readOnlyHint=read_only,
+        destructiveHint=destructive,
+        idempotentHint=entry.retry_class is RetryClass.SAFE,
+        openWorldHint=False,
+    )
 
 
 def _handler(

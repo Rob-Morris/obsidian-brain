@@ -9,6 +9,7 @@ dependencies = [
 dev = [
     "pytest>=9.0",
     "pytest-bdd>=8.0",
+    "tiktoken==0.12.0",
 ]
 semantic = [
     "numpy==2.4.4; not (sys_platform == 'darwin' and platform_machine == 'x86_64')",

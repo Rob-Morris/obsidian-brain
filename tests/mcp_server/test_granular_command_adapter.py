@@ -12,7 +12,14 @@ from brain_mcp._command_adapter import register_application_tools
 from _application.projection import minimal_request_payload, project_identity, request_schema
 from _application.receipts import MemoryReceiptStore
 from _application.registry import current_application_catalogue, current_request_resolver
-from _application.types import Availability, DependencyTier, Projection, SnapshotFreshness
+from _application.types import (
+    Availability,
+    DependencyTier,
+    EffectClass,
+    Projection,
+    RetryClass,
+    SnapshotFreshness,
+)
 from _command_interface.context import compose_local_context
 
 
@@ -27,7 +34,7 @@ class _Clock:
 def _vault(tmp_path):
     root = (tmp_path / "Brain").resolve()
     (root / ".brain-core").mkdir(parents=True, exist_ok=True)
-    (root / ".brain-core" / "VERSION").write_text("0.54.50\n")
+    (root / ".brain-core" / "VERSION").write_text("0.54.51\n")
     return root
 
 
@@ -103,6 +110,21 @@ def test_every_mcp_eligible_command_registers_one_flat_canonical_schema(tmp_path
         assert tool.inputSchema == request_schema(entry.request_type)
         assert tool.description == entry.summary
         assert "request" not in tool.inputSchema["properties"]
+        assert tool.annotations.readOnlyHint is (
+            entry.effect_class is EffectClass.NONE
+        )
+        assert tool.annotations.destructiveHint is (
+            entry.effect_class
+            in {
+                EffectClass.SELECTED_BRAIN_MUTATION,
+                EffectClass.CALLER_LOCAL_MUTATION,
+                EffectClass.MACHINE_MUTATION,
+            }
+        )
+        assert tool.annotations.idempotentHint is (
+            entry.retry_class is RetryClass.SAFE
+        )
+        assert tool.annotations.openWorldHint is False
 
 
 def test_real_fastmcp_call_returns_structural_content_and_error_state(tmp_path):

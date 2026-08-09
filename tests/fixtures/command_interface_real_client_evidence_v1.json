@@ -1,0 +1,371 @@
+{
+  "captured_at": "2026-08-10T17:00:00+10:00",
+  "clients": {
+    "claude-code": {
+      "capture_path": "eager model request declarations",
+      "catalogue_hash": "sha256:9349be18b45ab608c9d80e02c256fd50a6b0a6b1741eed3680e08caa84b63c9a",
+      "client_version": "2.1.226",
+      "declaration": {
+        "description": "List command resources.",
+        "input_schema": {
+          "additionalProperties": false,
+          "properties": {
+            "authority": {
+              "default": null,
+              "description": "Authority",
+              "enum": [
+                "reader",
+                "contributor",
+                "operator",
+                null
+              ],
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "availability": {
+              "default": null,
+              "description": "Availability",
+              "enum": [
+                "available",
+                "unavailable",
+                "unknown",
+                null
+              ],
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "cursor": {
+              "additionalProperties": false,
+              "default": null,
+              "description": "Cursor",
+              "properties": {
+                "command_id": {
+                  "description": "Command id",
+                  "type": "string"
+                },
+                "snapshot_token": {
+                  "description": "Snapshot token",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "snapshot_token",
+                "command_id"
+              ],
+              "type": [
+                "object",
+                "null"
+              ]
+            },
+            "dependency_tier": {
+              "default": null,
+              "description": "Dependency tier",
+              "enum": [
+                "bootstrap",
+                "portable",
+                "managed",
+                null
+              ],
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "domain": {
+              "default": null,
+              "description": "Domain",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "effect_class": {
+              "default": null,
+              "description": "Effect class",
+              "enum": [
+                "none",
+                "derived_cache_write",
+                "selected_brain_mutation",
+                "caller_local_mutation",
+                "machine_mutation",
+                null
+              ],
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "locality": {
+              "default": null,
+              "description": "Locality",
+              "enum": [
+                "selected_brain_local",
+                "caller_local",
+                "machine_local",
+                null
+              ],
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "owner": {
+              "default": null,
+              "description": "Owner",
+              "enum": [
+                "application",
+                "launcher",
+                null
+              ],
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "page_size": {
+              "default": 100,
+              "description": "Page size",
+              "type": "integer"
+            },
+            "projection": {
+              "default": null,
+              "description": "Projection",
+              "enum": [
+                "mcp",
+                "cli",
+                "script",
+                "python",
+                "launcher",
+                null
+              ],
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "query": {
+              "default": null,
+              "description": "Query",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "refresh": {
+              "default": false,
+              "description": "Refresh",
+              "type": "boolean"
+            },
+            "retry_class": {
+              "default": null,
+              "description": "Retry class",
+              "enum": [
+                "safe",
+                "receipt_required",
+                null
+              ],
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "type": "object"
+        },
+        "name": "mcp__brain__brain_command_list"
+      },
+      "declaration_hash": "sha256:cc0402eea0285b003053196d26a17dc3ab84c5783ad62d91f2321ac1b7e93640",
+      "initial_brain_declarations": 109,
+      "minimal_request": {
+        "page_size": 1
+      },
+      "minimal_result": {
+        "command": "command.list",
+        "status": "ok"
+      }
+    },
+    "codex-cli": {
+      "capture_path": "deferred client tool search",
+      "client_version": "0.147.0",
+      "declaration": {
+        "defer_loading": true,
+        "description": "List command resources.",
+        "name": "brain_command_list",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "authority": {
+              "description": "Authority",
+              "enum": [
+                "reader",
+                "contributor",
+                "operator",
+                null
+              ],
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "availability": {
+              "description": "Availability",
+              "enum": [
+                "available",
+                "unavailable",
+                "unknown",
+                null
+              ],
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "cursor": {
+              "additionalProperties": false,
+              "description": "Cursor",
+              "properties": {
+                "command_id": {
+                  "description": "Command id",
+                  "type": "string"
+                },
+                "snapshot_token": {
+                  "description": "Snapshot token",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "snapshot_token",
+                "command_id"
+              ],
+              "type": [
+                "object",
+                "null"
+              ]
+            },
+            "dependency_tier": {
+              "description": "Dependency tier",
+              "enum": [
+                "bootstrap",
+                "portable",
+                "managed",
+                null
+              ],
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "domain": {
+              "description": "Domain",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "effect_class": {
+              "description": "Effect class",
+              "enum": [
+                "none",
+                "derived_cache_write",
+                "selected_brain_mutation",
+                "caller_local_mutation",
+                "machine_mutation",
+                null
+              ],
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "locality": {
+              "description": "Locality",
+              "enum": [
+                "selected_brain_local",
+                "caller_local",
+                "machine_local",
+                null
+              ],
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "owner": {
+              "description": "Owner",
+              "enum": [
+                "application",
+                "launcher",
+                null
+              ],
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "page_size": {
+              "description": "Page size",
+              "type": "integer"
+            },
+            "projection": {
+              "description": "Projection",
+              "enum": [
+                "mcp",
+                "cli",
+                "script",
+                "python",
+                "launcher",
+                null
+              ],
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "query": {
+              "description": "Query",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "refresh": {
+              "description": "Refresh",
+              "type": "boolean"
+            },
+            "retry_class": {
+              "description": "Retry class",
+              "enum": [
+                "safe",
+                "receipt_required",
+                null
+              ],
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "type": "object"
+        },
+        "strict": false,
+        "type": "function"
+      },
+      "declaration_hash": "sha256:67ac502993d2bfe413c639d6b53d44c89f660d759a719725e6e49f52af2d1e12",
+      "initial_brain_declarations": 0,
+      "minimal_request": {
+        "page_size": 1
+      },
+      "minimal_result": {
+        "command": "command.list",
+        "status": "ok"
+      }
+    }
+  },
+  "external_model_request": false,
+  "localhost_model_endpoint": true,
+  "schema": "brain.command-interface-real-client-evidence/1"
+}

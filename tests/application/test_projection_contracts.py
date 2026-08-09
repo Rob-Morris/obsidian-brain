@@ -138,24 +138,27 @@ def test_request_schema_preserves_required_defaults_enums_and_nested_shapes():
 
     assert schema["required"] == ["path", "old_text", "new_text"]
     assert schema["properties"]["replace_all"]["default"] is False
-    assert schema["properties"]["scope"]["anyOf"][0]["enum"] == [
+    assert schema["properties"]["scope"]["enum"] == [
         "section",
         "intro",
         "body",
         "heading",
         "header",
+        None,
     ]
     assert (
-        schema["properties"]["selector"]["anyOf"][0]["properties"]["within"]["type"]
+        schema["properties"]["selector"]["properties"]["within"]["type"]
         == "array"
     )
 
     from _application.requests import CommandListRequest
 
     command_list_schema = request_schema(CommandListRequest)
-    assert command_list_schema["properties"]["dependency_tier"]["anyOf"][0] == {
-        "type": "string",
-        "enum": ["bootstrap", "portable", "managed"],
+    assert command_list_schema["properties"]["dependency_tier"] == {
+        "type": ["string", "null"],
+        "enum": ["bootstrap", "portable", "managed", None],
+        "description": "Dependency tier",
+        "default": None,
     }
 
 
