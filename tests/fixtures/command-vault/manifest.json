@@ -1,0 +1,69 @@
+{
+  "schema": "brain.command-vault-seed/1",
+  "clock": {
+    "instant": "2026-08-09T09:30:00+10:00",
+    "timezone": "Australia/Sydney"
+  },
+  "seed_root": "seed",
+  "stable_artefacts": {
+    "project": {
+      "key": "project/command-fixture",
+      "path": "Projects/Command Fixture.md"
+    },
+    "owned_design": {
+      "key": "design/command-fixture-design",
+      "parent": "project/command-fixture",
+      "path": "Designs/project~command-fixture/Command Fixture Design.md"
+    },
+    "owned_plan": {
+      "key": "plan/command-fixture-execution",
+      "parent": "project/command-fixture",
+      "path": "_Temporal/Plans/project~command-fixture/2026-08/20260809-plan~Command Fixture Execution.md"
+    },
+    "lifecycle_candidate": {
+      "key": "idea/command-fixture-candidate",
+      "path": "Ideas/Command Fixture Candidate.md",
+      "status": "ready"
+    },
+    "terminal_candidate": {
+      "key": "idea/command-fixture-adopted",
+      "path": "Ideas/+Adopted/Command Fixture Adopted.md",
+      "status": "adopted"
+    }
+  },
+  "structural_targets": {
+    "duplicate_heading_path": "Designs/project~command-fixture/Command Fixture Design.md",
+    "heading": "Repeated Target",
+    "occurrences": 2
+  },
+  "definition_resources": {
+    "type": "_Config/Taxonomy/Living/designs.md",
+    "template": "_Config/Templates/Living/Designs.md",
+    "skill": "_Config/Skills/vault-maintenance/SKILL.md",
+    "style": "_Config/Styles/writing.md",
+    "memory": "_Config/Memories/brain-core-reference.md"
+  },
+  "destinations": {
+    "attachment": "_Assets/Attachments/command-fixture.txt",
+    "staging": ".brain/local/command-staging",
+    "outcome_receipts": ".brain/local/command-outcomes",
+    "provider_state": ".brain/local/command-providers"
+  },
+  "relationships": [
+    {
+      "from": "project/command-fixture",
+      "kind": "wikilink",
+      "to": "design/command-fixture-design"
+    },
+    {
+      "from": "design/command-fixture-design",
+      "kind": "parent",
+      "to": "project/command-fixture"
+    },
+    {
+      "from": "plan/command-fixture-execution",
+      "kind": "parent",
+      "to": "project/command-fixture"
+    }
+  ]
+}

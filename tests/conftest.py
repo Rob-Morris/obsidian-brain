@@ -141,6 +141,39 @@ def bootstrap_vault(tmp_path):
     return tmp_path
 
 
+@pytest.fixture(scope="session")
+def command_vault_baseline(tmp_path_factory):
+    """Assemble one installed command-test baseline and guard its immutability."""
+    from command_vault import (
+        assemble_command_vault_baseline,
+        command_vault_source_hash,
+        tree_hash,
+    )
+
+    source_hash = command_vault_source_hash(REPO_ROOT)
+    cache_key = f"command-vault-{source_hash[:20]}"
+    cache_root = tmp_path_factory.getbasetemp() / "command-vault-baselines" / cache_key
+    cache_root.mkdir(parents=True, exist_ok=False)
+    baseline = assemble_command_vault_baseline(
+        cache_root / "vault",
+        machine_state_root=cache_root / "machine-state",
+        source_root=REPO_ROOT,
+    )
+    yield baseline
+    assert tree_hash(baseline.vault_root) == baseline.immutable_hash, (
+        "a command-vault test mutated the shared immutable baseline; request a "
+        "command_vault_clone for filesystem or effect-boundary coverage"
+    )
+
+
+@pytest.fixture
+def command_vault_clone(command_vault_baseline, tmp_path):
+    """Return a fresh writable clone with isolated machine/effect state."""
+    from command_vault import clone_command_vault
+
+    return clone_command_vault(command_vault_baseline, tmp_path / "vault")
+
+
 @pytest.fixture
 def project(tmp_path):
     """Create a small external project/workspace directory."""

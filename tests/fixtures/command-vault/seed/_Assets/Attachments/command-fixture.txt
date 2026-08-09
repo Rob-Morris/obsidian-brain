@@ -1,0 +1,1 @@
+Stable attachment payload for command-interface tests.
