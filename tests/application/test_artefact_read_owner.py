@@ -49,12 +49,17 @@ def test_artefact_read_transport_and_catalogue_identity_are_one_to_one():
     assert type(request) is ArtefactReadRequest
     assert catalogue.resolve(request).command_id == "artefact.read"
     assert [entry.command_id for entry in catalogue.entries] == [
+        "artefact.append",
         "artefact.create",
+        "artefact.delete-section",
+        "artefact.edit",
         "artefact.list",
         "artefact.list-archived",
         "artefact.outline",
+        "artefact.prepend",
         "artefact.read",
         "artefact.read-archived",
+        "artefact.replace-text",
         "artefact.search",
         "attachment.upload",
         "command.describe",
@@ -107,12 +112,17 @@ def test_foundational_discovery_immediately_includes_migrated_owner(tmp_path):
     result = application.invoke(CommandListRequest(domain="artefact"))
 
     assert result.result.command_ids == (
+        "artefact.append",
         "artefact.create",
+        "artefact.delete-section",
+        "artefact.edit",
         "artefact.list",
         "artefact.list-archived",
         "artefact.outline",
+        "artefact.prepend",
         "artefact.read",
         "artefact.read-archived",
+        "artefact.replace-text",
         "artefact.search",
     )
 
@@ -205,7 +215,7 @@ def test_router_metadata_is_typed_without_an_unbounded_metadata_bag(
     )
 
     assert result.status == "ok"
-    assert result.result.brain_core_version == "0.54.17"
+    assert result.result.brain_core_version == "0.54.18"
     assert result.result.always_rules
     assert result.result.source_hash.startswith("sha256:")
     assert len(result.result.sources) > 0

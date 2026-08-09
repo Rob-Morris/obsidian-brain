@@ -6,7 +6,8 @@ import create
 import pytest
 
 from _application._mutation_support import FrontmatterField, InlineContent, StagedContent
-from _application.artefact.create import ArtefactCreateRequest, WikilinkFindingStatus
+from _application._wikilink_results import WikilinkFindingStatus
+from _application.artefact.create import ArtefactCreateRequest
 from _application.registry import current_application_catalogue, current_request_resolver
 from _application.results import ErrorCode
 from _application.types import Authority, EffectClass, RetryClass

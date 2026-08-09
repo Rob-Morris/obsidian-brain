@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
 from typing import ClassVar, Mapping
 
 from .._mutation_support import (
@@ -21,28 +20,11 @@ from .._mutation_support import (
 from ..context import InvocationContext
 from ..receipts import CommittedEffect
 from ..results import CommandWarning, ErrorCode, Ok, WarningCode
-
-
-class WikilinkFindingStatus(str, Enum):
-    BROKEN = "broken"
-    AMBIGUOUS = "ambiguous"
-    RESOLVABLE = "resolvable"
-
-
-@dataclass(frozen=True, slots=True)
-class WikilinkFinding:
-    stem: str
-    status: WikilinkFindingStatus
-    resolved_to: str | None
-    strategy: str
-    candidates: tuple[str, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class WikilinkFix:
-    target: str
-    resolved_to: str
-    strategy: str
+from .._wikilink_results import (
+    WikilinkFinding,
+    WikilinkFix,
+    wikilink_result_values,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -204,25 +186,7 @@ def execute(context: InvocationContext, request: ArtefactCreateRequest):
 
 
 def _payload(result, staged_handle, staging_warning) -> ArtefactCreatePayload:
-    findings = tuple(
-        WikilinkFinding(
-            stem=item["stem"],
-            status=WikilinkFindingStatus(item["status"]),
-            resolved_to=item.get("resolved_to"),
-            strategy=item["strategy"],
-            candidates=tuple(item.get("candidates") or ()),
-        )
-        for item in result.get("wikilink_warnings") or ()
-    )
-    fix_summary = result.get("wikilink_fixes") or {}
-    fixes = tuple(
-        WikilinkFix(
-            target=item["target"],
-            resolved_to=item["resolved_to"],
-            strategy=item["strategy"],
-        )
-        for item in fix_summary.get("fixes") or ()
-    )
+    findings, fixes, substitutions = wikilink_result_values(result)
     return ArtefactCreatePayload(
         path=result["path"],
         type=result["type"],
@@ -232,7 +196,7 @@ def _payload(result, staged_handle, staging_warning) -> ArtefactCreatePayload:
         parent_context=_parent_context(result.get("parent_context")),
         wikilink_warnings=findings,
         wikilink_fixes=fixes,
-        wikilink_substitutions=int(fix_summary.get("applied", 0)),
+        wikilink_substitutions=substitutions,
         staged_handle_consumed=(
             staged_handle is not None and staging_warning is None
         ),

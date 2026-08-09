@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.17)
+**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.18)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -267,3 +267,18 @@ frontmatter reconciliation and writes to `create.py`. Its structural result
 captures parent advice and wikilink findings without leaking an open metadata
 bag. Staged content is consumed only after commit, and unexpected failures
 after mutation entry retain the shared unknown-outcome contract.
+
+## v0.54.18 artefact document-mutation owners
+
+Five granular artefact commands replace the document-mutation branch of the
+legacy edit aggregate. Edit, append and prepend share typed inline/staged
+content, frontmatter, target, selector and scope values; delete-section and
+replace-text expose only their valid operation-specific fields. The application
+result carries canonical hyphenated verbs even though `edit.py` retains its
+internal underscore spellings.
+
+The shared support module owns transport decoding, strict field combinations,
+staged-content lifetime, structural result conversion and effect reporting.
+`edit.py` remains authoritative for structural ranges, frontmatter merge modes,
+lifecycle-field protection, derived moves and wikilink reconciliation. This
+keeps one semantic implementation without recreating an aggregate request.

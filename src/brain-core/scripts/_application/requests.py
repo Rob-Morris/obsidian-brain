@@ -5,12 +5,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import ClassVar
 
+from .artefact.append import ArtefactAppendRequest
 from .artefact.create import ArtefactCreateRequest
+from .artefact.delete_section import ArtefactDeleteSectionRequest
+from .artefact.edit import ArtefactEditRequest
 from .artefact.list import ArtefactListRequest
 from .artefact.list_archived import ArtefactListArchivedRequest
 from .artefact.outline import ArtefactOutlineRequest
+from .artefact.prepend import ArtefactPrependRequest
 from .artefact.read import ArtefactReadRequest
 from .artefact.read_archived import ArtefactReadArchivedRequest
+from .artefact.replace_text import ArtefactReplaceTextRequest
 from .artefact.search import ArtefactSearchRequest
 from .attachment.upload import AttachmentUploadRequest
 from .content.classify import ContentClassifyRequest
@@ -182,10 +187,15 @@ CommandRequest = (
     CommandListRequest
     | CommandDescribeRequest
     | InvocationReadRequest
+    | ArtefactAppendRequest
     | ArtefactCreateRequest
+    | ArtefactDeleteSectionRequest
+    | ArtefactEditRequest
     | ArtefactReadRequest
     | ArtefactReadArchivedRequest
     | ArtefactOutlineRequest
+    | ArtefactPrependRequest
+    | ArtefactReplaceTextRequest
     | ArtefactListRequest
     | ArtefactListArchivedRequest
     | ArtefactSearchRequest
@@ -238,10 +248,15 @@ def command_identity(request: CommandRequest) -> tuple[str, int, type]:
         CommandListRequest,
         CommandDescribeRequest,
         InvocationReadRequest,
+        ArtefactAppendRequest,
         ArtefactCreateRequest,
+        ArtefactDeleteSectionRequest,
+        ArtefactEditRequest,
         ArtefactReadRequest,
         ArtefactReadArchivedRequest,
         ArtefactOutlineRequest,
+        ArtefactPrependRequest,
+        ArtefactReplaceTextRequest,
         ArtefactListRequest,
         ArtefactListArchivedRequest,
         ArtefactSearchRequest,

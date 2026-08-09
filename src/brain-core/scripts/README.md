@@ -64,6 +64,8 @@ v0.54.16 adds create-only typed template ownership over the same content seam,
 while preserving legacy aggregate overwrite behavior solely until cutover.
 v0.54.17 adds granular artefact creation with optional template-backed content,
 typed parent/link results and commit-safe inline/staged mutation handling.
+v0.54.18 adds granular artefact edit, append, prepend, delete-section and
+replace-text owners over shared typed structural mutation mechanics.
 Existing adapters are not cut over in the v0.54.x foundation releases; they
 continue to behave as documented until the coordinated breaking release
 replaces the old grammar.

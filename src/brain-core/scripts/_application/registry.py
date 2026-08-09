@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+from .artefact import append as artefact_append
 from .artefact import create as artefact_create
+from .artefact import delete_section as artefact_delete_section
+from .artefact import edit as artefact_edit
 from .artefact import list as artefact_list
 from .artefact import list_archived as artefact_list_archived
 from .artefact import outline as artefact_outline
+from .artefact import prepend as artefact_prepend
 from .artefact import read as artefact_read
 from .artefact import read_archived as artefact_read_archived
+from .artefact import replace_text as artefact_replace_text
 from .artefact import search as artefact_search
 from .attachment import upload as attachment_upload
 from .content import classify as content_classify
@@ -54,12 +59,17 @@ from .workspace import resolve as workspace_resolve
 def current_application_catalogue():
     return build_application_catalogue(
         (
+            artefact_append.catalogue_entry(),
             artefact_create.catalogue_entry(),
+            artefact_delete_section.catalogue_entry(),
+            artefact_edit.catalogue_entry(),
             artefact_list.catalogue_entry(),
             artefact_list_archived.catalogue_entry(),
             artefact_outline.catalogue_entry(),
+            artefact_prepend.catalogue_entry(),
             artefact_read.catalogue_entry(),
             artefact_read_archived.catalogue_entry(),
+            artefact_replace_text.catalogue_entry(),
             artefact_search.catalogue_entry(),
             attachment_upload.catalogue_entry(),
             content_classify.catalogue_entry(),
@@ -107,12 +117,17 @@ def current_application_catalogue():
 def current_request_resolver():
     return build_request_resolver(
         (
+            artefact_append.resolver_entry(),
             artefact_create.resolver_entry(),
+            artefact_delete_section.resolver_entry(),
+            artefact_edit.resolver_entry(),
             artefact_list.resolver_entry(),
             artefact_list_archived.resolver_entry(),
             artefact_outline.resolver_entry(),
+            artefact_prepend.resolver_entry(),
             artefact_read.resolver_entry(),
             artefact_read_archived.resolver_entry(),
+            artefact_replace_text.resolver_entry(),
             artefact_search.resolver_entry(),
             attachment_upload.resolver_entry(),
             content_classify.resolver_entry(),
