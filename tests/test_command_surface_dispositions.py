@@ -22,6 +22,26 @@ def _flatten_targets(node) -> list[str]:
     return [target for child in node.values() for target in _flatten_targets(child)]
 
 
+def _mapped_target_ids(dispositions: dict) -> set[str]:
+    targets: set[str] = set()
+
+    def walk(node):
+        if isinstance(node, str):
+            if COMMAND_ID.fullmatch(node) and not node.startswith("request."):
+                targets.add(node)
+        elif isinstance(node, dict):
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value)
+
+    for key, value in dispositions.items():
+        if key not in {"command_contract_groups", "pending_disposition_fields"}:
+            walk(value)
+    return targets
+
+
 def test_dispositions_identify_the_observed_brain_version() -> None:
     observation = _load("command_interface_current_surface_v1.json")
     dispositions = _load("command_interface_dispositions_v1.json")
@@ -187,6 +207,24 @@ def test_every_recursive_direct_script_has_one_disposition() -> None:
         assert entry["rationale"]
 
 
+def test_every_multiplexed_direct_script_operation_has_a_target() -> None:
+    observation = _load("command_interface_current_surface_v1.json")
+    dispositions = _load("command_interface_dispositions_v1.json")
+    observed = observation["observed_surfaces"]["direct_script_operation_axes"]
+    split = dispositions["direct_script_dispositions"]["split"]
+
+    expected_counts = {
+        "_common/_venv.py": 3,
+        "fix_links.py": 2,
+        "sync_definitions.py": 3,
+        "vault_registry.py": 9,
+        "workspace_registry.py": 4,
+    }
+    assert {name: len(operations) for name, operations in observed.items()} == expected_counts
+    for script_name, count in expected_counts.items():
+        assert len(split[script_name]["targets"]) == count
+
+
 def test_every_install_upgrade_mode_is_launcher_owned() -> None:
     observation = _load("command_interface_current_surface_v1.json")
     dispositions = _load("command_interface_dispositions_v1.json")
@@ -200,7 +238,84 @@ def test_every_install_upgrade_mode_is_launcher_owned() -> None:
             assert COMMAND_ID.fullmatch(entry["target"])
 
 
-def test_inventory_remains_honest_about_unassigned_contract_fields() -> None:
+def test_every_target_command_has_one_complete_execution_contract() -> None:
     dispositions = _load("command_interface_dispositions_v1.json")
-    assert dispositions["inventory_status"] == "in_progress"
-    assert dispositions["pending_disposition_fields"]
+    expected = _mapped_target_ids(dispositions)
+    groups = dispositions["command_contract_groups"]
+    assigned = [command for group in groups.values() for command in group["commands"]]
+    assert len(assigned) == len(set(assigned))
+    assert set(assigned) == expected
+
+    contract_fields = {
+        "owner",
+        "canonical_result_owner",
+        "dependency_tier",
+        "locality",
+        "providers",
+        "authority",
+        "effect_class",
+        "retry_class",
+        "eligible_projections",
+    }
+    for group in groups.values():
+        contract = group["contract"]
+        assert group["commands"] == sorted(set(group["commands"]))
+        assert set(contract) == contract_fields
+        assert contract["owner"] in {"application", "launcher"}
+        assert contract["dependency_tier"] in {"bootstrap", "portable", "managed"}
+        assert set(contract["providers"]) == {"required", "optional"}
+        assert set(contract["providers"]["required"]).isdisjoint(
+            contract["providers"]["optional"]
+        )
+        assert contract["eligible_projections"]
+
+
+def test_current_outputs_and_every_known_consumer_have_migration_guidance() -> None:
+    observation = _load("command_interface_current_surface_v1.json")
+    dispositions = _load("command_interface_dispositions_v1.json")
+    guidance = dispositions["consumer_replacement_guidance"]
+    observed = observation["observed_surfaces"]
+
+    assert set(dispositions["current_output_contracts"]) == {
+        "mcp",
+        "cli",
+        "direct_scripts",
+        "public_python_wrappers",
+        "install_upgrade",
+    }
+    assert set(guidance["known_current_consumers"]) == set(
+        observed["known_current_consumers"]
+    )
+    assert set(guidance["documented_contract_sources"]) == set(
+        observed["documented_contract_sources"]
+    )
+    assert all(
+        text
+        for category in guidance.values()
+        for text in category.values()
+    )
+
+
+def test_behaviour_policy_names_every_non_preserved_surface() -> None:
+    dispositions = _load("command_interface_dispositions_v1.json")
+    policy = dispositions["behaviour_classification"]
+    assert policy["default"] == "preserve"
+    assert set(policy["removals"]) == {
+        "brain_init",
+        "brain_process",
+        "brain_create.request.content.source=file",
+        "brain_edit.request.mutation.content.source=file",
+        "start_shaping.py",
+    }
+    assert policy["corrections"]
+
+
+def test_disposition_inventory_is_complete() -> None:
+    dispositions = _load("command_interface_dispositions_v1.json")
+    assert dispositions["inventory_status"] == "complete"
+    assert dispositions["pending_disposition_fields"] == []
+    assert set(dispositions["contract_invariants"]) == {
+        "request_owner",
+        "result_owner",
+        "catalogue_authority",
+    }

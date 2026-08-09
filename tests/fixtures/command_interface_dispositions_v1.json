@@ -1,7 +1,7 @@
 {
   "schema": "brain.command-surface-dispositions/1",
   "brain_core_version": "0.54.0",
-  "inventory_status": "in_progress",
+  "inventory_status": "complete",
   "covered_source_surfaces": [
     "all_mcp_tools"
   ],
@@ -546,7 +546,6 @@
       "construct_benchmark_fixture.py": "retrieval.construct-benchmark",
       "discard_stage.py": "stage.discard",
       "evaluate_search.py": "retrieval.evaluate",
-      "fix_links.py": "links.fix",
       "migrate_naming.py": "artefact.migrate-naming",
       "outline.py": "artefact.outline",
       "rename.py": "artefact.rename",
@@ -557,7 +556,6 @@
       "shape_printable.py": "shaping.render-printable",
       "stage.py": "stage.create",
       "start_shaping_session.py": "shaping.start",
-      "sync_definitions.py": "type.sync",
       "upload_attachment.py": "attachment.upload"
     },
     "launcher": {
@@ -570,7 +568,8 @@
         "owner": "launcher",
         "targets": [
           "runtime.repair",
-          "runtime.resolve"
+          "runtime.resolve",
+          "runtime.resolve-runnable"
         ]
       },
       "configure.py": {
@@ -588,6 +587,13 @@
       "edit.py": {
         "mapping_ref": "aggregate_mappings.brain_edit",
         "owner": "application"
+      },
+      "fix_links.py": {
+        "owner": "application",
+        "targets": [
+          "links.check",
+          "links.fix"
+        ]
       },
       "lifecycle.py": {
         "owner": "application",
@@ -618,9 +624,18 @@
         "mapping_ref": "cli_leaf_dispositions.setup.mappings",
         "owner": "application"
       },
+      "sync_definitions.py": {
+        "owner": "application",
+        "targets": [
+          "type.install",
+          "type.status",
+          "type.sync"
+        ]
+      },
       "vault_registry.py": {
         "owner": "launcher",
         "targets": [
+          "brain.backfill",
           "brain.clear-default",
           "brain.get-default",
           "brain.list",
@@ -634,6 +649,7 @@
       "workspace_registry.py": {
         "owner": "application",
         "targets": [
+          "workspace.list",
           "workspace.register",
           "workspace.resolve",
           "workspace.unregister"
@@ -706,14 +722,520 @@
       }
     }
   },
-  "pending_disposition_fields": [
-    "canonical_result_owner",
-    "dependency_tier",
-    "locality",
-    "providers",
-    "authority",
-    "effect_and_retry_class",
-    "eligible_projections",
-    "consumer_replacement_guidance"
-  ]
+  "new_required_commands": [
+    "command.describe",
+    "command.list",
+    "invocation.read"
+  ],
+  "command_contract_groups": {
+    "application_read_portable": {
+      "contract": {
+        "owner": "application",
+        "canonical_result_owner": "application_command",
+        "dependency_tier": "portable",
+        "locality": "selected_brain_local",
+        "providers": {
+          "required": [],
+          "optional": []
+        },
+        "authority": "reader",
+        "effect_class": "none",
+        "retry_class": "safe",
+        "eligible_projections": [
+          "mcp",
+          "cli",
+          "script",
+          "python"
+        ]
+      },
+      "commands": [
+        "artefact.list",
+        "artefact.list-archived",
+        "artefact.outline",
+        "artefact.read",
+        "artefact.read-archived",
+        "command.describe",
+        "command.list",
+        "invocation.read",
+        "links.check",
+        "memory.list",
+        "memory.read",
+        "plugin.list",
+        "plugin.read",
+        "runtime.read-environment",
+        "skill.list",
+        "skill.read",
+        "style.list",
+        "style.read",
+        "template.list",
+        "template.read",
+        "trigger.list",
+        "trigger.read",
+        "type.list",
+        "type.read",
+        "type.status",
+        "vault.check",
+        "vault.read-config",
+        "vault.read-file",
+        "vault.read-router",
+        "workspace.list",
+        "workspace.read",
+        "workspace.resolve"
+      ]
+    },
+    "application_read_optional_semantic": {
+      "contract": {
+        "owner": "application",
+        "canonical_result_owner": "application_command",
+        "dependency_tier": "portable",
+        "locality": "selected_brain_local",
+        "providers": {
+          "required": [],
+          "optional": [
+            "semantic_retrieval"
+          ]
+        },
+        "authority": "reader",
+        "effect_class": "none",
+        "retry_class": "safe",
+        "eligible_projections": [
+          "mcp",
+          "cli",
+          "script",
+          "python"
+        ]
+      },
+      "commands": [
+        "artefact.search",
+        "content.classify",
+        "content.resolve",
+        "memory.search",
+        "plugin.search",
+        "skill.search",
+        "style.search",
+        "trigger.search"
+      ]
+    },
+    "application_session": {
+      "contract": {
+        "owner": "application",
+        "canonical_result_owner": "application_command",
+        "dependency_tier": "managed",
+        "locality": "selected_brain_local",
+        "providers": {
+          "required": [],
+          "optional": []
+        },
+        "authority": "reader",
+        "effect_class": "derived_cache_write",
+        "retry_class": "safe",
+        "eligible_projections": [
+          "mcp",
+          "cli",
+          "script",
+          "python"
+        ]
+      },
+      "commands": [
+        "session.start"
+      ]
+    },
+    "application_contributor_mutation": {
+      "contract": {
+        "owner": "application",
+        "canonical_result_owner": "application_command",
+        "dependency_tier": "portable",
+        "locality": "selected_brain_local",
+        "providers": {
+          "required": [],
+          "optional": []
+        },
+        "authority": "contributor",
+        "effect_class": "selected_brain_mutation",
+        "retry_class": "receipt_required",
+        "eligible_projections": [
+          "mcp",
+          "cli",
+          "script",
+          "python"
+        ]
+      },
+      "commands": [
+        "artefact.append",
+        "artefact.create",
+        "artefact.delete-section",
+        "artefact.edit",
+        "artefact.prepend",
+        "artefact.reparent",
+        "artefact.replace-text",
+        "artefact.set-key",
+        "artefact.set-naming-field",
+        "artefact.set-status",
+        "attachment.upload",
+        "memory.append",
+        "memory.create",
+        "memory.delete-section",
+        "memory.edit",
+        "memory.prepend",
+        "memory.replace-text",
+        "shaping.start",
+        "skill.append",
+        "skill.create",
+        "skill.delete-section",
+        "skill.edit",
+        "skill.prepend",
+        "skill.replace-text",
+        "stage.create",
+        "stage.discard",
+        "style.append",
+        "style.create",
+        "style.delete-section",
+        "style.edit",
+        "style.prepend",
+        "style.replace-text",
+        "template.append",
+        "template.create",
+        "template.delete-section",
+        "template.edit",
+        "template.prepend",
+        "template.replace-text"
+      ]
+    },
+    "application_operator_mutation": {
+      "contract": {
+        "owner": "application",
+        "canonical_result_owner": "application_command",
+        "dependency_tier": "portable",
+        "locality": "selected_brain_local",
+        "providers": {
+          "required": [],
+          "optional": []
+        },
+        "authority": "operator",
+        "effect_class": "selected_brain_mutation",
+        "retry_class": "receipt_required",
+        "eligible_projections": [
+          "mcp",
+          "cli",
+          "script",
+          "python"
+        ]
+      },
+      "commands": [
+        "artefact.archive",
+        "artefact.convert",
+        "artefact.delete",
+        "artefact.migrate-naming",
+        "artefact.rename",
+        "artefact.repair-frontmatter",
+        "artefact.repair-ownership",
+        "artefact.reparent-children",
+        "artefact.unarchive",
+        "links.fix",
+        "plugin.create",
+        "plugin.replace",
+        "retrieval.rebuild-lexical",
+        "retrieval.repair-lexical",
+        "runtime.rebuild-router",
+        "runtime.repair-router",
+        "trigger.create",
+        "trigger.delete",
+        "trigger.replace",
+        "type.create",
+        "type.install",
+        "type.replace",
+        "type.sync",
+        "workspace.repair-registry"
+      ]
+    },
+    "application_caller_local_mutation": {
+      "contract": {
+        "owner": "application",
+        "canonical_result_owner": "application_command",
+        "dependency_tier": "bootstrap",
+        "locality": "caller_local",
+        "providers": {
+          "required": [
+            "caller_filesystem"
+          ],
+          "optional": []
+        },
+        "authority": "contributor",
+        "effect_class": "caller_local_mutation",
+        "retry_class": "receipt_required",
+        "eligible_projections": [
+          "cli",
+          "script",
+          "python"
+        ]
+      },
+      "commands": [
+        "workspace.bind",
+        "workspace.configure-bootstrap",
+        "workspace.register",
+        "workspace.setup",
+        "workspace.unregister",
+        "workspace.update-metadata"
+      ]
+    },
+    "application_content_ingest": {
+      "contract": {
+        "owner": "application",
+        "canonical_result_owner": "application_command",
+        "dependency_tier": "managed",
+        "locality": "selected_brain_local",
+        "providers": {
+          "required": [],
+          "optional": [
+            "semantic_retrieval"
+          ]
+        },
+        "authority": "contributor",
+        "effect_class": "selected_brain_mutation",
+        "retry_class": "receipt_required",
+        "eligible_projections": [
+          "mcp",
+          "cli",
+          "script",
+          "python"
+        ]
+      },
+      "commands": [
+        "content.ingest"
+      ]
+    },
+    "application_render_mutation": {
+      "contract": {
+        "owner": "application",
+        "canonical_result_owner": "application_command",
+        "dependency_tier": "managed",
+        "locality": "selected_brain_local",
+        "providers": {
+          "required": [
+            "document_renderer"
+          ],
+          "optional": []
+        },
+        "authority": "contributor",
+        "effect_class": "selected_brain_mutation",
+        "retry_class": "receipt_required",
+        "eligible_projections": [
+          "mcp",
+          "cli",
+          "script",
+          "python"
+        ]
+      },
+      "commands": [
+        "shaping.render-presentation",
+        "shaping.render-printable"
+      ]
+    },
+    "application_semantic_runtime_mutation": {
+      "contract": {
+        "owner": "application",
+        "canonical_result_owner": "application_command",
+        "dependency_tier": "managed",
+        "locality": "selected_brain_local",
+        "providers": {
+          "required": [
+            "semantic_runtime"
+          ],
+          "optional": []
+        },
+        "authority": "operator",
+        "effect_class": "selected_brain_mutation",
+        "retry_class": "receipt_required",
+        "eligible_projections": [
+          "mcp",
+          "cli",
+          "script",
+          "python"
+        ]
+      },
+      "commands": [
+        "retrieval.enable",
+        "retrieval.rebuild-semantic",
+        "retrieval.repair-semantic"
+      ]
+    },
+    "application_benchmark_mutation": {
+      "contract": {
+        "owner": "application",
+        "canonical_result_owner": "application_command",
+        "dependency_tier": "managed",
+        "locality": "selected_brain_local",
+        "providers": {
+          "required": [],
+          "optional": []
+        },
+        "authority": "operator",
+        "effect_class": "selected_brain_mutation",
+        "retry_class": "receipt_required",
+        "eligible_projections": [
+          "cli",
+          "script",
+          "python"
+        ]
+      },
+      "commands": [
+        "retrieval.construct-benchmark"
+      ]
+    },
+    "application_benchmark_read": {
+      "contract": {
+        "owner": "application",
+        "canonical_result_owner": "application_command",
+        "dependency_tier": "managed",
+        "locality": "selected_brain_local",
+        "providers": {
+          "required": [],
+          "optional": []
+        },
+        "authority": "operator",
+        "effect_class": "none",
+        "retry_class": "safe",
+        "eligible_projections": [
+          "cli",
+          "script",
+          "python"
+        ]
+      },
+      "commands": [
+        "retrieval.evaluate"
+      ]
+    },
+    "launcher_read": {
+      "contract": {
+        "owner": "launcher",
+        "canonical_result_owner": "launcher_entry",
+        "dependency_tier": "bootstrap",
+        "locality": "machine_local",
+        "providers": {
+          "required": [],
+          "optional": []
+        },
+        "authority": "reader",
+        "effect_class": "none",
+        "retry_class": "safe",
+        "eligible_projections": [
+          "cli",
+          "launcher"
+        ]
+      },
+      "commands": [
+        "brain.doctor",
+        "brain.get-default",
+        "brain.list",
+        "brain.resolve",
+        "brain.version",
+        "runtime.resolve",
+        "runtime.resolve-runnable"
+      ]
+    },
+    "launcher_mutation": {
+      "contract": {
+        "owner": "launcher",
+        "canonical_result_owner": "launcher_entry",
+        "dependency_tier": "bootstrap",
+        "locality": "machine_local",
+        "providers": {
+          "required": [
+            "caller_filesystem"
+          ],
+          "optional": []
+        },
+        "authority": "operator",
+        "effect_class": "machine_mutation",
+        "retry_class": "receipt_required",
+        "eligible_projections": [
+          "cli",
+          "launcher"
+        ]
+      },
+      "commands": [
+        "agent-skill.configure",
+        "brain.backfill",
+        "brain.clear-default",
+        "brain.install",
+        "brain.prune",
+        "brain.register",
+        "brain.set-default",
+        "brain.uninstall",
+        "brain.unregister",
+        "brain.upgrade",
+        "machine.migrate-legacy",
+        "machine.prune-runtimes",
+        "mcp.configure",
+        "mcp.repair",
+        "runtime.repair"
+      ]
+    },
+    "launcher_operator_key": {
+      "contract": {
+        "owner": "launcher",
+        "canonical_result_owner": "launcher_entry",
+        "dependency_tier": "bootstrap",
+        "locality": "machine_local",
+        "providers": {
+          "required": [],
+          "optional": []
+        },
+        "authority": "operator",
+        "effect_class": "none",
+        "retry_class": "safe",
+        "eligible_projections": [
+          "cli",
+          "launcher"
+        ]
+      },
+      "commands": [
+        "operator.generate-key"
+      ]
+    }
+  },
+  "contract_invariants": {
+    "request_owner": "The concrete typed request is owned by the application command or launcher entry named by its contract group.",
+    "result_owner": "The same owner produces the canonical structural result; adapters only project it.",
+    "catalogue_authority": "Application and launcher commands enter only their separately owned catalogue or manifest."
+  },
+  "behaviour_classification": {
+    "default": "preserve",
+    "interface_change": "replace current aggregate or irregular spelling with its mapped granular command",
+    "removals": [
+      "brain_init",
+      "brain_process",
+      "brain_create.request.content.source=file",
+      "brain_edit.request.mutation.content.source=file",
+      "start_shaping.py"
+    ],
+    "corrections": [
+      "Move caller-local MCP and agent-skill configuration to launcher ownership.",
+      "Move pre-runtime repair to launcher ownership.",
+      "Do not expose internal migrations, resolution-runtime entry points or Doctor helpers as commands."
+    ]
+  },
+  "current_output_contracts": {
+    "mcp": "FastMCP CallToolResult with mixed concise text and tool-specific structuredContent; aggregate errors vary by handler.",
+    "cli": "Human output and exit conventions vary by dispatched script; --json is not universal.",
+    "direct_scripts": "Script-specific stdout, stderr, JSON and exit contracts with no shared structural envelope.",
+    "public_python_wrappers": "MCP-shaped CallToolResult wrappers rather than typed request/result invocation.",
+    "install_upgrade": "Lifecycle-style dictionaries and shell-specific rendering or exit adaptation."
+  },
+  "consumer_replacement_guidance": {
+    "known_current_consumers": {
+      "bootstrap_guidance": "Replace brain_init and aggregate examples with session.start plus command.list/describe routes; keep the session catalogue record bounded.",
+      "machine_launchers": "Install CLI 2.0 grammar and the launcher manifest as one checked cutover; do not retain old dispatch aliases.",
+      "mcp_transport": "Project granular MCP tools from the application catalogue and require proxy restart before any retired-name lookup or dispatch.",
+      "profile_configuration": "Migrate reader, contributor, operator and custom allow-lists from aggregate tool names to eligible granular MCP leaves.",
+      "public_contract_tests": "Replace current-surface characterisation only at cutover with catalogue, parity, authority and released-surface absence gates."
+    },
+    "documented_contract_sources": {
+      "cli": "Regenerate checked command facts from the launcher manifest and selected-Brain catalogue, then author migration and recovery prose.",
+      "direct_scripts": "Document command.py noun/verb grammar and retained internal-only entry points; remove superseded direct script examples.",
+      "install_upgrade": "Document preflight, acknowledgement, proxy restart, matched-set rollback and old-Brain direct-script recovery.",
+      "mcp": "Replace aggregate schemas and examples with one granular tool per eligible application command and catalogue discovery guidance."
+    }
+  },
+  "pending_disposition_fields": []
 }

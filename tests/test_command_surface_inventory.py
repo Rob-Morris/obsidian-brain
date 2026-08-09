@@ -334,6 +334,68 @@ def _install_upgrade_operations() -> dict[str, list[str]]:
     }
 
 
+def _literal_subparser_names(path: Path) -> list[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    return sorted(
+        call.args[0].value
+        for call in ast.walk(tree)
+        if isinstance(call, ast.Call)
+        and isinstance(call.func, ast.Attribute)
+        and call.func.attr == "add_parser"
+        and call.args
+        and isinstance(call.args[0], ast.Constant)
+        and isinstance(call.args[0].value, str)
+    )
+
+
+def _registry_option_names(path: Path) -> list[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    return sorted(
+        call.args[0].value.removeprefix("--")
+        for call in ast.walk(tree)
+        if isinstance(call, ast.Call)
+        and isinstance(call.func, ast.Attribute)
+        and call.func.attr == "add_argument"
+        and call.args
+        and isinstance(call.args[0], ast.Constant)
+        and isinstance(call.args[0].value, str)
+        and call.args[0].value in {
+            "--backfill",
+            "--clear-default",
+            "--get-default",
+            "--list",
+            "--prune",
+            "--register",
+            "--resolve",
+            "--set-default",
+            "--unregister",
+        }
+    )
+
+
+def _direct_script_operation_axes() -> dict[str, list[str]]:
+    scripts = REPO_ROOT / "src" / "brain-core" / "scripts"
+    fix_source = (scripts / "fix_links.py").read_text(encoding="utf-8")
+    sync_source = (scripts / "sync_definitions.py").read_text(encoding="utf-8")
+    fix_operations = ["check"]
+    if '"--fix"' in fix_source:
+        fix_operations.append("fix")
+    sync_operations = ["sync"]
+    if '"--types"' in sync_source:
+        sync_operations.append("install")
+    if '"--status"' in sync_source:
+        sync_operations.append("status")
+    workspace_operations = _registry_option_names(scripts / "workspace_registry.py")
+    workspace_operations.append("list")
+    return {
+        "_common/_venv.py": _literal_subparser_names(scripts / "_common" / "_venv.py"),
+        "fix_links.py": sorted(fix_operations),
+        "sync_definitions.py": sorted(sync_operations),
+        "vault_registry.py": _registry_option_names(scripts / "vault_registry.py"),
+        "workspace_registry.py": sorted(workspace_operations),
+    }
+
+
 def test_observation_identifies_its_source_contract() -> None:
     """The snapshot declares its schema and committed Brain Core version."""
     fixture = load_current_surface()
@@ -397,6 +459,14 @@ def test_observed_install_upgrade_operations_match_owners() -> None:
         "install_upgrade_operations"
     ]
     assert _install_upgrade_operations() == observed
+
+
+def test_observed_direct_script_operation_axes_match_sources() -> None:
+    """Multiplexed direct scripts expose every semantic operation explicitly."""
+    observed = load_current_surface()["observed_surfaces"][
+        "direct_script_operation_axes"
+    ]
+    assert _direct_script_operation_axes() == observed
 
 
 def test_documented_contract_and_known_consumer_paths_exist() -> None:

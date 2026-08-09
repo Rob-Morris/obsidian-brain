@@ -328,6 +328,39 @@
       "vault_registry.py",
       "workspace_registry.py"
     ],
+    "direct_script_operation_axes": {
+      "_common/_venv.py": [
+        "ensure",
+        "python",
+        "runnable-python"
+      ],
+      "fix_links.py": [
+        "check",
+        "fix"
+      ],
+      "sync_definitions.py": [
+        "install",
+        "status",
+        "sync"
+      ],
+      "vault_registry.py": [
+        "backfill",
+        "clear-default",
+        "get-default",
+        "list",
+        "prune",
+        "register",
+        "resolve",
+        "set-default",
+        "unregister"
+      ],
+      "workspace_registry.py": [
+        "list",
+        "register",
+        "resolve",
+        "unregister"
+      ]
+    },
     "public_python_wrappers": [
       "brain_action",
       "brain_check",
