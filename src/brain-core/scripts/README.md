@@ -54,6 +54,9 @@ context and an explicit derived-cache-write effect while retaining
 v0.54.13 adds granular typed search owners plus structural content
 classification and duplicate resolution. Portable lower paths remain complete,
 and semantic enhancement is gated by trusted provider/capability context.
+v0.54.14 adds typed contributor mutation owners for staged bodies and
+attachments, with explicit effects, dry-run behavior and unknown-outcome
+handling over the existing staging and attachment semantic modules.
 Existing adapters are not cut over in the v0.54.x foundation releases; they
 continue to behave as documented until the coordinated breaking release
 replaces the old grammar.

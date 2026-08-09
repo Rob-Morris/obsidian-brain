@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.54.14](changelog/v0.54.14.md) | 2026-08-09 | Migrate typed staging and attachment mutation owners |
 | [v0.54.13](changelog/v0.54.13.md) | 2026-08-09 | Migrate typed search, classification, and resolution owners |
 | [v0.54.12](changelog/v0.54.12.md) | 2026-08-09 | Migrate typed managed `session.start` ownership |
 | [v0.54.11](changelog/v0.54.11.md) | 2026-08-09 | Migrate bounded config, check, and type-status owners |

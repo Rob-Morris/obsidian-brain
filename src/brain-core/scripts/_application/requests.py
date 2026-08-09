@@ -11,6 +11,7 @@ from .artefact.outline import ArtefactOutlineRequest
 from .artefact.read import ArtefactReadRequest
 from .artefact.read_archived import ArtefactReadArchivedRequest
 from .artefact.search import ArtefactSearchRequest
+from .attachment.upload import AttachmentUploadRequest
 from .content.classify import ContentClassifyRequest
 from .content.resolve import ContentResolveRequest
 from .links.check import LinksCheckRequest
@@ -25,6 +26,8 @@ from .session.start import SessionStartRequest
 from .skill.list import SkillListRequest
 from .skill.read import SkillReadRequest
 from .skill.search import SkillSearchRequest
+from .stage.create import StageCreateRequest
+from .stage.discard import StageDiscardRequest
 from .style.list import StyleListRequest
 from .style.read import StyleReadRequest
 from .style.search import StyleSearchRequest
@@ -180,6 +183,7 @@ CommandRequest = (
     | ArtefactListRequest
     | ArtefactListArchivedRequest
     | ArtefactSearchRequest
+    | AttachmentUploadRequest
     | ContentClassifyRequest
     | ContentResolveRequest
     | LinksCheckRequest
@@ -194,6 +198,8 @@ CommandRequest = (
     | SkillListRequest
     | SkillReadRequest
     | SkillSearchRequest
+    | StageCreateRequest
+    | StageDiscardRequest
     | StyleListRequest
     | StyleReadRequest
     | StyleSearchRequest
@@ -228,6 +234,7 @@ def command_identity(request: CommandRequest) -> tuple[str, int, type]:
         ArtefactListRequest,
         ArtefactListArchivedRequest,
         ArtefactSearchRequest,
+        AttachmentUploadRequest,
         ContentClassifyRequest,
         ContentResolveRequest,
         LinksCheckRequest,
@@ -242,6 +249,8 @@ def command_identity(request: CommandRequest) -> tuple[str, int, type]:
         SkillListRequest,
         SkillReadRequest,
         SkillSearchRequest,
+        StageCreateRequest,
+        StageDiscardRequest,
         StyleListRequest,
         StyleReadRequest,
         StyleSearchRequest,

@@ -46,12 +46,14 @@ def application_for(
     workspace_dir=None,
     capabilities=(),
     providers=(),
+    authority=None,
+    dry_run=False,
 ):
     receipts = _Receipts()
     context = InvocationContext(
         selected_brain=SelectedBrain("command-vault", vault_root.resolve()),
         profile="reader",
-        authority=_Authority(),
+        authority=authority or _Authority(),
         dependency_tier=dependency_tier,
         capabilities=CapabilitySnapshot(
             "snapshot",
@@ -65,6 +67,7 @@ def application_for(
         receipt_writer=receipts,
         receipt_reader=receipts,
         clock=_Clock(),
+        dry_run=dry_run,
         workspace_dir=workspace_dir,
     )
     return CommandApplication(context, current_application_catalogue())

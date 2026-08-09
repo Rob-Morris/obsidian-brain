@@ -8,6 +8,7 @@ from .artefact import outline as artefact_outline
 from .artefact import read as artefact_read
 from .artefact import read_archived as artefact_read_archived
 from .artefact import search as artefact_search
+from .attachment import upload as attachment_upload
 from .content import classify as content_classify
 from .content import resolve as content_resolve
 from .foundation import build_application_catalogue, build_request_resolver
@@ -23,6 +24,8 @@ from .session import start as session_start
 from .skill import list as skill_list
 from .skill import read as skill_read
 from .skill import search as skill_search
+from .stage import create as stage_create
+from .stage import discard as stage_discard
 from .style import list as style_list
 from .style import read as style_read
 from .style import search as style_search
@@ -52,6 +55,7 @@ def current_application_catalogue():
             artefact_read.catalogue_entry(),
             artefact_read_archived.catalogue_entry(),
             artefact_search.catalogue_entry(),
+            attachment_upload.catalogue_entry(),
             content_classify.catalogue_entry(),
             content_resolve.catalogue_entry(),
             links_check.catalogue_entry(),
@@ -66,6 +70,8 @@ def current_application_catalogue():
             skill_list.catalogue_entry(),
             skill_read.catalogue_entry(),
             skill_search.catalogue_entry(),
+            stage_create.catalogue_entry(),
+            stage_discard.catalogue_entry(),
             style_list.catalogue_entry(),
             style_read.catalogue_entry(),
             style_search.catalogue_entry(),
@@ -97,6 +103,7 @@ def current_request_resolver():
             artefact_read.resolver_entry(),
             artefact_read_archived.resolver_entry(),
             artefact_search.resolver_entry(),
+            attachment_upload.resolver_entry(),
             content_classify.resolver_entry(),
             content_resolve.resolver_entry(),
             links_check.resolver_entry(),
@@ -111,6 +118,8 @@ def current_request_resolver():
             skill_list.resolver_entry(),
             skill_read.resolver_entry(),
             skill_search.resolver_entry(),
+            stage_create.resolver_entry(),
+            stage_discard.resolver_entry(),
             style_list.resolver_entry(),
             style_read.resolver_entry(),
             style_search.resolver_entry(),

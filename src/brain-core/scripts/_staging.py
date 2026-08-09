@@ -20,12 +20,18 @@ STAGING_TTL_SECONDS = 24 * 60 * 60
 
 
 def _handle_path(vault_root, handle):
+    match = _HANDLE_RE.fullmatch(validate_staged_body_handle(handle))
+    return os.path.join(vault_root, STAGING_DIR, f"{match.group(1)}.body")
+
+
+def validate_staged_body_handle(handle):
+    """Return a syntactically valid opaque staged-body handle."""
     match = _HANDLE_RE.fullmatch(handle or "")
     if not match:
         raise ValueError(
             "Invalid body_handle. Create one with brain_stage and pass the returned handle."
         )
-    return os.path.join(vault_root, STAGING_DIR, f"{match.group(1)}.body")
+    return handle
 
 
 def _iter_staged_bodies(directory):

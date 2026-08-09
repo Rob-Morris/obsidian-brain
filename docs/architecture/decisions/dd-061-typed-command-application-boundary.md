@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.13)
+**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.14)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -213,3 +213,16 @@ provider binding and a fresh available capability from trusted invocation
 context before loading selected-Brain sidecars. The application layer owns
 contract validation and result normalisation while the existing search/process
 modules remain the algorithm owners.
+
+## v0.54.14 typed content-transfer mutation owners
+
+`stage.create`, `stage.discard` and `attachment.upload` are the first migrated
+selected-Brain mutation owners. They require contributor authority, declare
+receipt-required retry, return compact committed effects, and leave unexpected
+post-entry failures to the application boundary's non-retryable unknown-outcome
+mapping. Validation and lock conflicts return structural no-effect errors.
+
+The commands retain `_staging` and `upload_attachment.py` as their semantic and
+path-safety owners. Attachment content crosses the canonical boundary as
+bounded base64; caller-file reads belong to local adapters. Dry-run never
+allocates a fake stage handle or writes/discards a resource.

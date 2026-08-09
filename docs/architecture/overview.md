@@ -150,6 +150,10 @@ v0.54.13 completes the optional-semantic read group with granular search,
 classification and duplicate-resolution owners. Portable lexical and taxonomy
 paths remain complete; semantic enhancement requires trusted provider and
 capability context before any selected-Brain semantic sidecar is loaded.
+v0.54.14 begins typed mutation ownership with staging and attachment transfer.
+Contributor authority, receipt-required retry, compact committed effects and
+unknown-outcome handling are enforced at the application boundary while the
+existing staging and attachment modules retain content/path semantics.
 
 The lifecycle/bootstrap side of that script layer now has an explicit shared owner under `scripts/_bootstrap/`. `runtime.py` owns launcher discovery, managed-runtime handoff, executable path identity, and the shared `BRAIN_BOOTSTRAP_SUMMARY` contract; `diagnostics.py` owns the launcher-safe runtime/MCP/registry checks needed before managed semantic work is available; `mcp_state.py` owns shared MCP/config-layout and init-state helpers; `vaults.py` owns the env-aware vault-root discovery seam used by the public lifecycle wrappers; `workspace_scaffold.py` owns Brain-local ignore-rule convergence; `mcp_transport.py` owns the shared Claude/Codex transport/config write engine; and `agent_skills.py` owns version-neutral, ownership-safe client skill adapters. Entry points such as `setup.py`, `repair.py`, `configure.py`, `session.py`, and `check.py` now converge on that seam instead of carrying parallel launcher or env-var logic.
 

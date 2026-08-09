@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 import stat
+from dataclasses import dataclass
 
 from _common import (
     MutationLockError,
@@ -41,6 +42,18 @@ _WINDOWS_RESERVED_NAMES = frozenset({
     *(f"LPT{number}" for number in range(1, 10)),
 })
 _COMPARE_CHUNK_BYTES = 64 * 1024
+
+
+@dataclass(frozen=True)
+class AttachmentUploadPlan:
+    destination: dict
+    path: str
+    embed: str
+    bytes: int
+    sha256: str
+    would_create: bool
+    target: Path
+    content: bytes
 
 
 def attachment_destination_requires_router(value: str) -> bool:
@@ -347,6 +360,41 @@ def upload_attachment(
     content: bytes,
 ) -> dict:
     """Create one retry-safe file beneath a derived attachment scope."""
+    plan = plan_attachment_upload(
+        vault_root,
+        router,
+        destination_key=destination_key,
+        name=name,
+        content=content,
+    )
+    if plan.would_create:
+        safe_write_via(
+            plan.target,
+            lambda handle: handle.write(plan.content),
+            mode="wb",
+            bounds=Path(vault_root).resolve(),
+            follow_symlinks=False,
+            exclusive=True,
+        )
+    return {
+        "destination": plan.destination,
+        "path": plan.path,
+        "embed": plan.embed,
+        "bytes": plan.bytes,
+        "sha256": plan.sha256,
+        "created": plan.would_create,
+    }
+
+
+def plan_attachment_upload(
+    vault_root: str | os.PathLike[str],
+    router: dict | None,
+    *,
+    destination_key: str,
+    name: str,
+    content: bytes,
+) -> AttachmentUploadPlan:
+    """Validate one upload and report its path/idempotency without writing."""
     destination = resolve_attachment_destination(router, destination_key)
     filename = validate_attachment_name(name)
     payload = validate_attachment_content(content)
@@ -359,34 +407,26 @@ def upload_attachment(
     )
     digest = hashlib.sha256(payload).hexdigest()
 
-    if resolved_target.exists():
+    would_create = not resolved_target.exists()
+    if not would_create:
         if not resolved_target.is_file():
             raise ValueError(f"Attachment target is not a file: {rel_path.as_posix()}")
         if not _existing_attachment_matches(resolved_target, payload):
             raise FileExistsError(
                 f"Attachment already exists with different content: {rel_path.as_posix()}"
             )
-        created = False
-    else:
-        safe_write_via(
-            target,
-            lambda handle: handle.write(payload),
-            mode="wb",
-            bounds=root,
-            follow_symlinks=False,
-            exclusive=True,
-        )
-        created = True
 
     path = rel_path.as_posix()
-    return {
-        "destination": destination,
-        "path": path,
-        "embed": f"![[{path}]]",
-        "bytes": len(payload),
-        "sha256": digest,
-        "created": created,
-    }
+    return AttachmentUploadPlan(
+        destination=destination,
+        path=path,
+        embed=f"![[{path}]]",
+        bytes=len(payload),
+        sha256=digest,
+        would_create=would_create,
+        target=target,
+        content=payload,
+    )
 
 
 def upload_attachment_base64(
