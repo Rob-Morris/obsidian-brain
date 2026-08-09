@@ -17,6 +17,14 @@ runtime path/runnable resolution. These owners share the structural command
 result vocabulary without importing selected-Brain `_application`, and they
 remain internal until the same coordinated cutover.
 
+v0.54.36 adds typed mutation owners for machine Brain registration, backfill,
+unregistration, default selection/clearing and stale-entry pruning. They retain
+the existing registry file semantics but expose exact no-op, dry-run, committed
+and partial outcomes through command-specific launcher results and receipts.
+Dry-run uses the same locked feasibility checks without writing. Registry-row and
+default-pointer effects remain distinct, including when the first commits and
+the second fails. The public v1 shell grammar is still unchanged.
+
 ## Install
 
 The CLI is installed automatically by `install.sh` to `~/.local/bin/brain` (user scope) or `/usr/local/bin/brain` (with `--system`). `upgrade.py` refreshes any installed CLI binary on each upgrade; it does not install a new CLI where none existed.

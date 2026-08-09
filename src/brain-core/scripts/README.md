@@ -107,6 +107,11 @@ remain bootstrap-capable CLI/script/Python commands and explicitly exclude MCP.
 v0.54.35 establishes the separate stdlib-only machine-global launcher
 invocation boundary and its first six read owners under `cli/_launcher/`.
 Selected-Brain `_application` does not import or duplicate that authority.
+v0.54.36 adds the six machine Brain-registry mutation owners, with exact
+change/no-op state, caller-filesystem capability preflight and receipt-safe
+partial/unknown outcome reporting. The existing `vault_registry.py` scalar
+functions and direct-script behaviour remain available over the new structured
+action seams.
 Existing adapters are not cut over in the v0.54.x foundation releases; they
 continue to behave as documented until the coordinated breaking release
 replaces the old grammar.

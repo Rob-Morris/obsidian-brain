@@ -89,8 +89,13 @@ def _invocation(tmp_path, *, authority=None, receipts=None):
 
 def test_launcher_read_owners_match_their_authoritative_catalogue_entries():
     entries = {entry.command_id: entry for entry in LAUNCHER_CATALOGUE.entries}
+    read_owners = [
+        owner
+        for owner in LAUNCHER_OWNERS.entries
+        if entries[owner.command_id].effect_class == "none"
+    ]
 
-    assert [owner.command_id for owner in LAUNCHER_OWNERS.entries] == [
+    assert [owner.command_id for owner in read_owners] == [
         "brain.get-default",
         "brain.list",
         "brain.resolve",
@@ -98,7 +103,7 @@ def test_launcher_read_owners_match_their_authoritative_catalogue_entries():
         "runtime.resolve",
         "runtime.resolve-runnable",
     ]
-    for owner in LAUNCHER_OWNERS.entries:
+    for owner in read_owners:
         entry = entries[owner.command_id]
         assert entry.owner_ref == owner.owner_ref
         assert entry.command_version == owner.command_version

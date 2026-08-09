@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.35)
+**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.36)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -573,3 +573,22 @@ outputs, fail authority before execution and map unexpected read failure to a
 privacy-bounded internal error. The launcher catalogue now correctly identifies
 the runtime owners as managed-runtime resolution rather than Brain-target
 resolution. Public CLI dispatch remains unchanged until coordinated cutover.
+
+## v0.54.36 machine-global registry mutation owners
+
+The launcher boundary now owns `brain.register`, `brain.backfill`,
+`brain.unregister`, `brain.set-default`, `brain.clear-default` and
+`brain.prune` through distinct frozen request types. Each command requires
+operator authority, the explicit machine-local caller-filesystem provider and
+a receipt because its authoritative state lives outside any selected Brain.
+
+Structured action seams in `vault_registry.py` report change/no-op state while
+the established scalar functions retain their public return contracts. The
+launcher returns command-specific result shapes and projects registry rows and
+the default pointer as separate effects. Dry-run evaluates the same locked
+resolution and conflict checks while suppressing writes.
+If unregister or prune persists row removal before default cleanup fails, the
+result is known partial with exact committed row identities; other unexpected
+post-entry failures stay non-retryable and outcome-unknown. Dry-run remains an
+explicit no-effect plan. Public CLI dispatch remains unchanged until the
+coordinated cutover.

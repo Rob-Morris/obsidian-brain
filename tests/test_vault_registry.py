@@ -200,6 +200,14 @@ def test_register_same_path_is_idempotent(registry_home):
     assert _local_entries() == {"brain": "/Users/rob/brain"}
 
 
+def test_structured_registration_action_reports_change_state(registry_home):
+    created = vault_registry.register_action("/Users/rob/brain")
+    repeated = vault_registry.register_action("/Users/rob/brain")
+
+    assert created == vault_registry.RegistryRegistrationResult("brain", True)
+    assert repeated == vault_registry.RegistryRegistrationResult("brain", False)
+
+
 def test_register_collision_appends_suffix(registry_home, monkeypatch):
     monkeypatch.setattr(vault_registry, "random_short_suffix", lambda: "a3f")
     vault_registry.register("/Users/rob/brain")
@@ -495,6 +503,20 @@ def test_clear_default_tolerates_absent(registry_home):
     assert vault_registry.get_default() is None
 
 
+def test_structured_default_actions_report_change_state(registry_home):
+    vault_registry.register("/Users/rob/brain")
+
+    selected = vault_registry.set_default_action("brain")
+    repeated = vault_registry.set_default_action("brain")
+    cleared = vault_registry.clear_default_action()
+    absent = vault_registry.clear_default_action()
+
+    assert selected == vault_registry.RegistryDefaultResult("brain", True)
+    assert repeated == vault_registry.RegistryDefaultResult("brain", False)
+    assert cleared == vault_registry.RegistryDefaultResult("brain", True)
+    assert absent == vault_registry.RegistryDefaultResult(None, False)
+
+
 def test_set_default_rejects_unknown_id(registry_home):
     with pytest.raises(vault_registry.RegistryConflictError, match="not a registered local Brain"):
         vault_registry.set_default("unknown-id")
@@ -519,6 +541,16 @@ def test_unregister_leaves_non_matching_default(registry_home):
     vault_registry.set_default("work")
     vault_registry.unregister("/Users/rob/brain")
     assert vault_registry.get_default() == "work"
+
+
+def test_structured_unregister_action_reports_removed_ids(registry_home):
+    vault_registry.register("/Users/rob/brain", brain_id="brain")
+
+    removed = vault_registry.unregister_action("/Users/rob/brain")
+    absent = vault_registry.unregister_action("/Users/rob/brain")
+
+    assert removed == vault_registry.RegistryRemovalResult(("brain",), True, False)
+    assert absent == vault_registry.RegistryRemovalResult((), False, False)
 
 
 def test_default_file_is_separate_from_vaults_file(registry_home, registry_dir):

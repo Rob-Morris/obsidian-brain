@@ -62,9 +62,15 @@ LAUNCHER_OWNERS = LauncherOwners(
     tuple(
         sorted(
             (
+                registry.backfill_owner(),
+                registry.clear_default_owner(),
                 registry.get_default_owner(),
                 registry.list_owner(),
+                registry.prune_owner(),
+                registry.register_owner(),
                 registry.resolve_owner(),
+                registry.set_default_owner(),
+                registry.unregister_owner(),
                 version.version_owner(),
                 managed_runtime.resolve_owner(),
                 managed_runtime.resolve_runnable_owner(),

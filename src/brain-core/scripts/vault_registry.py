@@ -72,11 +72,39 @@ class RegistryConflictError(ValueError):
     """Raised when a register or set-default call would create a conflict."""
 
 
+class RegistryPartialApplyError(RuntimeError):
+    """Raised when registry rows commit before default-pointer cleanup fails."""
+
+    def __init__(self, message, *, operation, committed_brain_ids):
+        super().__init__(message)
+        self.operation = operation
+        self.committed_brain_ids = tuple(committed_brain_ids)
+
+
 @dataclass(frozen=True)
 class RegistryEntry:
     brain_id: str
     kind: str
     value: str
+
+
+@dataclass(frozen=True)
+class RegistryRegistrationResult:
+    brain_id: str
+    changed: bool
+
+
+@dataclass(frozen=True)
+class RegistryDefaultResult:
+    brain_id: str | None
+    changed: bool
+
+
+@dataclass(frozen=True)
+class RegistryRemovalResult:
+    removed_brain_ids: tuple[str, ...]
+    changed: bool
+    default_cleared: bool
 
 
 def _registry_path():
@@ -146,13 +174,8 @@ def get_default():
         ) from exc
 
 
-def set_default(brain_id):
-    """Set the machine default Brain ID.
-
-    Validates that brain_id is a known LOCAL entry (raises RegistryConflictError
-    otherwise) then atomically writes the default file.  Runs under _locked()
-    to keep validation and write atomic.
-    """
+def set_default_action(brain_id, *, dry_run=False):
+    """Set or plan the default and report whether the pointer changes."""
     with _locked():
         entries = load_registry_entries()
         entry = entries.get(brain_id)
@@ -161,13 +184,37 @@ def set_default(brain_id):
                 f"cannot set default: '{brain_id}' is not a registered local Brain; "
                 f"register it first"
             )
-        _write_default_unlocked(brain_id)
+        if get_default() == brain_id:
+            return RegistryDefaultResult(brain_id, False)
+        if not dry_run:
+            _write_default_unlocked(brain_id)
+        return RegistryDefaultResult(brain_id, True)
+
+
+def set_default(brain_id):
+    """Set the machine default Brain ID.
+
+    Validates that brain_id is a known LOCAL entry (raises RegistryConflictError
+    otherwise) then atomically writes the default file.  Runs under _locked()
+    to keep validation and write atomic.
+    """
+    set_default_action(brain_id)
+
+
+def clear_default_action(*, dry_run=False):
+    """Remove or plan removal of the default and report whether one exists."""
+    with _locked():
+        brain_id = get_default()
+        if brain_id is None:
+            return RegistryDefaultResult(None, False)
+        if not dry_run:
+            _clear_default_unlocked()
+        return RegistryDefaultResult(brain_id, True)
 
 
 def clear_default():
     """Remove the default Brain pointer.  Tolerates absence."""
-    with _locked():
-        _clear_default_unlocked()
+    clear_default_action()
 
 
 def _parse_entry(raw: str) -> RegistryEntry | None:
@@ -271,8 +318,8 @@ def _is_valid_brain_id(brain_id):
     return bool(brain_id and _BRAIN_ID_RE.fullmatch(brain_id))
 
 
-def register(vault_path, brain_id=None):
-    """Register a local vault. Returns the resolved Brain ID.
+def register_action(vault_path, brain_id=None, *, dry_run=False):
+    """Register or plan a local vault and report resolved ID/change state.
 
     When brain_id is None (default):
     - Brain ID = slugified basename.
@@ -299,7 +346,7 @@ def register(vault_path, brain_id=None):
         if brain_id is None:
             # Original behaviour — auto-assign from basename.
             if existing_id is not None:
-                return existing_id
+                return RegistryRegistrationResult(existing_id, False)
             base_brain_id = title_to_slug(os.path.basename(abs_path)) or "vault"
             new_id = base_brain_id
             while new_id in entries:
@@ -309,15 +356,16 @@ def register(vault_path, brain_id=None):
                 kind=TYPE_LOCAL,
                 value=abs_path,
             )
-            _save_registry_entries(entries)
-            return new_id
+            if not dry_run:
+                _save_registry_entries(entries)
+            return RegistryRegistrationResult(new_id, True)
 
         # Explicit brain_id given.
         existing_entry = entries.get(brain_id)
         if existing_entry is not None:
             # ID is taken — check whether it points to this path.
             if existing_entry.kind == TYPE_LOCAL and existing_entry.value == abs_path:
-                return brain_id  # exact no-op
+                return RegistryRegistrationResult(brain_id, False)
             raise RegistryConflictError(
                 f"Brain ID '{brain_id}' is already registered to a different path: "
                 f"{existing_entry.value!r}; unregister it first"
@@ -333,8 +381,18 @@ def register(vault_path, brain_id=None):
             kind=TYPE_LOCAL,
             value=abs_path,
         )
-        _save_registry_entries(entries)
-        return brain_id
+        if not dry_run:
+            _save_registry_entries(entries)
+        return RegistryRegistrationResult(brain_id, True)
+
+
+def register(vault_path, brain_id=None):
+    """Register a local vault. Returns the resolved Brain ID.
+
+    ``register_action`` is the structured owner seam; this function preserves
+    the established public scalar return contract.
+    """
+    return register_action(vault_path, brain_id=brain_id).brain_id
 
 
 def backfill(vault_path):
@@ -346,11 +404,17 @@ def backfill(vault_path):
     return register(vault_path)
 
 
-def unregister(vault_path):
-    """Remove the local entry keyed to this path. Returns True if removed.
+def backfill_action(vault_path, *, dry_run=False):
+    """Backfill or plan a local vault and report resolved ID/change state."""
+    return register_action(vault_path, dry_run=dry_run)
+
+
+def unregister_action(vault_path, *, dry_run=False):
+    """Remove or plan path-matching entries and report exact state.
 
     When the removed Brain ID matches the stored default, the default pointer
-    is cleared atomically within the same lock.
+    is cleared within the same lock. If that second write fails after registry
+    rows commit, ``RegistryPartialApplyError`` reports the committed row IDs.
     """
     abs_path = _absolute(vault_path)
     with _locked():
@@ -360,17 +424,33 @@ def unregister(vault_path):
             for brain_id, entry in _local_entries(entries).items()
             if entry.value == abs_path
         ]
+        to_remove.sort()
         if not to_remove:
-            return False
+            return RegistryRemovalResult((), False, False)
+        current_default = get_default()
+        default_cleared = current_default is not None and current_default in to_remove
+        if dry_run:
+            return RegistryRemovalResult(tuple(to_remove), True, default_cleared)
         for brain_id in to_remove:
             del entries[brain_id]
         _save_registry_entries(entries)
         # Clear a dangling default pointer within the same lock (get_default is
         # an unlocked read — safe inside the lock as it never acquires it).
-        current_default = get_default()
-        if current_default is not None and current_default in to_remove:
-            _clear_default_unlocked()
-        return True
+        if default_cleared:
+            try:
+                _clear_default_unlocked()
+            except RegistryReadError as exc:
+                raise RegistryPartialApplyError(
+                    str(exc),
+                    operation="unregister",
+                    committed_brain_ids=to_remove,
+                ) from exc
+        return RegistryRemovalResult(tuple(to_remove), True, default_cleared)
+
+
+def unregister(vault_path):
+    """Remove the local entry keyed to this path. Returns True if removed."""
+    return unregister_action(vault_path).changed
 
 
 def resolve(brain_id):
@@ -416,12 +496,12 @@ def list_entries():
     return rendered
 
 
-def prune():
-    """Remove stale local entries. Returns list of removed Brain IDs.
+def prune_action(*, dry_run=False):
+    """Remove or plan stale local entries and report exact state.
 
     When the stored default points at a pruned Brain ID, the default pointer is
-    cleared atomically within the same lock — mirroring unregister(), so the two
-    removal paths keep the "no dangling default" invariant consistently.
+    cleared within the same lock. As with ``unregister_action``, a failure after
+    registry rows commit is surfaced as an explicit partial application.
     """
     with _locked():
         entries = load_registry_entries()
@@ -430,17 +510,33 @@ def prune():
             for brain_id, entry in _local_entries(entries).items()
             if not is_vault_root(entry.value)
         ]
+        stale.sort()
         if not stale:
-            return []
+            return RegistryRemovalResult((), False, False)
+        current_default = get_default()
+        default_cleared = current_default is not None and current_default in stale
+        if dry_run:
+            return RegistryRemovalResult(tuple(stale), True, default_cleared)
         for brain_id in stale:
             del entries[brain_id]
         _save_registry_entries(entries)
         # Clear a dangling default pointer within the same lock (get_default is
         # an unlocked read — safe inside the lock as it never acquires it).
-        current_default = get_default()
-        if current_default is not None and current_default in stale:
-            _clear_default_unlocked()
-        return stale
+        if default_cleared:
+            try:
+                _clear_default_unlocked()
+            except RegistryReadError as exc:
+                raise RegistryPartialApplyError(
+                    str(exc),
+                    operation="prune",
+                    committed_brain_ids=stale,
+                ) from exc
+        return RegistryRemovalResult(tuple(stale), True, default_cleared)
+
+
+def prune():
+    """Remove stale local entries. Returns list of removed Brain IDs."""
+    return list(prune_action().removed_brain_ids)
 
 
 # ---------------------------------------------------------------------------

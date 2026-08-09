@@ -224,6 +224,10 @@ v0.54.35 establishes the independent stdlib-only launcher invocation boundary
 and typed machine-registry, CLI-version and managed-runtime read owners. It
 shares the structural result vocabulary but never imports selected-Brain
 `_application` or manufactures synthetic application executors.
+v0.54.36 extends that boundary with the six machine Brain-registry mutation
+owners. Their structured lower seams preserve legacy scalar callers while
+distinguishing no-op, dry-run, registry-row, default-pointer, known-partial and
+unknown outcomes at the canonical launcher boundary.
 
 The lifecycle/bootstrap side of that script layer now has an explicit shared owner under `scripts/_bootstrap/`. `runtime.py` owns launcher discovery, managed-runtime handoff, executable path identity, and the shared `BRAIN_BOOTSTRAP_SUMMARY` contract; `diagnostics.py` owns the launcher-safe runtime/MCP/registry checks needed before managed semantic work is available; `mcp_state.py` owns shared MCP/config-layout and init-state helpers; `vaults.py` owns the env-aware vault-root discovery seam used by the public lifecycle wrappers; `workspace_scaffold.py` owns Brain-local ignore-rule convergence; `mcp_transport.py` owns the shared Claude/Codex transport/config write engine; and `agent_skills.py` owns version-neutral, ownership-safe client skill adapters. Entry points such as `setup.py`, `repair.py`, `configure.py`, `session.py`, and `check.py` now converge on that seam instead of carrying parallel launcher or env-var logic.
 
