@@ -79,6 +79,8 @@ v0.54.23 splits plugin and trigger definition mutation into five operator-owned
 commands with staged-content safety, optimistic hashes and exact trigger intent.
 v0.54.24 adds atomic `type.create` and `type.replace` owners for paired taxonomy
 and template documents with independent hashes and staged-handle finalisation.
+v0.54.25 separates explicit artefact-library install from singular type sync,
+including force-correct local customisation handling and structural outcomes.
 Existing adapters are not cut over in the v0.54.x foundation releases; they
 continue to behave as documented until the coordinated breaking release
 replaces the old grammar.

@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.24)
+**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.25)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -384,3 +384,21 @@ The typed result reports both paths and hash transitions, classification,
 frontmatter type, status enum and artefact folder. It contains no caller-owned
 file path or selected-vault prefix. Public aggregate adapters remain unchanged
 until the coordinated breaking cutover.
+
+## v0.54.25 artefact-library install and sync owners
+
+`type.install` and `type.sync` now represent different operator intents.
+Installation requires one known uninstalled library type and remains additive;
+sync requires one installed type and alone exposes explicit force. Agents use
+the read-only `type.status` collection to choose and sequence multiple types.
+
+The application owner holds the selected-Brain mutation lock, overrides the
+background sync preference only because invocation itself is explicit intent,
+and maps per-role library results into bounded paths and structural outcomes.
+The portable `sync_definitions.py` module retains discovery, comparison,
+tracking and write authority.
+
+Local customisation is a no-effect conflict unless force is true. The semantic
+owner now honours force for local-only drift as well as collision and two-sided
+conflict, bringing direct-script behaviour into line with its documented
+contract. Public adapters remain unchanged until coordinated cutover.

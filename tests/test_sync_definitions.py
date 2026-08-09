@@ -575,6 +575,27 @@ class TestSyncDefinitions:
         assert len(result["warnings"]) == 0
         assert any(u["action"] == "collision" for u in result["updated"])
 
+    def test_force_overwrites_local_customisation(self, vault):
+        """force=True replaces local-only drift with the library version."""
+        _install_type(vault)
+        target = vault / "_Config" / "Taxonomy" / "Temporal" / "cookies.md"
+        target.write_text("# Local customisation\n")
+
+        result = sync.sync_definitions(str(vault), force=True)
+
+        assert result["status"] == "ok"
+        update = next(item for item in result["updated"] if item["role"] == "taxonomy")
+        assert update["action"] == "skip"
+        library = (
+            vault
+            / ".brain-core"
+            / "artefact-library"
+            / "temporal"
+            / "cookies"
+            / "taxonomy.md"
+        )
+        assert target.read_text() == library.read_text()
+
     def test_preference_skip(self, vault):
         """artefact_sync: skip → return immediately."""
         (vault / ".brain" / "preferences.json").write_text(

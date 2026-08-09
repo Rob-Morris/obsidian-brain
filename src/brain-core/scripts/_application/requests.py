@@ -67,10 +67,12 @@ from .trigger.read import TriggerReadRequest
 from .trigger.replace import TriggerReplaceRequest
 from .trigger.search import TriggerSearchRequest
 from .type.create import TypeCreateRequest
+from .type.install import TypeInstallRequest
 from .type.list import ArtefactTypeListRequest
 from .type.read import ArtefactTypeReadRequest
 from .type.replace import TypeReplaceRequest
 from .type.status import TypeStatusRequest
+from .type.sync import TypeSyncRequest
 from .vault.check import VaultCheckRequest
 from .vault.read_config import VaultReadConfigRequest
 from .vault.read_router import VaultReadRouterRequest
@@ -271,10 +273,12 @@ CommandRequest = (
     | TriggerReplaceRequest
     | TriggerSearchRequest
     | TypeCreateRequest
+    | TypeInstallRequest
     | ArtefactTypeListRequest
     | ArtefactTypeReadRequest
     | TypeReplaceRequest
     | TypeStatusRequest
+    | TypeSyncRequest
     | VaultCheckRequest
     | VaultReadConfigRequest
     | VaultReadRouterRequest
@@ -354,10 +358,12 @@ def command_identity(request: CommandRequest) -> tuple[str, int, type]:
         TriggerReplaceRequest,
         TriggerSearchRequest,
         TypeCreateRequest,
+        TypeInstallRequest,
         ArtefactTypeListRequest,
         ArtefactTypeReadRequest,
         TypeReplaceRequest,
         TypeStatusRequest,
+        TypeSyncRequest,
         VaultCheckRequest,
         VaultReadConfigRequest,
         VaultReadRouterRequest,

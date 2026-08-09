@@ -578,7 +578,9 @@ def sync_definitions(
 
             status = compute_file_status(source_path, installed_entry, vault_path)
 
-            if status["action"] == "skip":
+            if status["action"] == "skip" and (
+                status["matches_upstream"] or not force
+            ):
                 skipped.append({
                     "type": type_key,
                     "role": role,
