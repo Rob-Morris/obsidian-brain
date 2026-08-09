@@ -34,7 +34,7 @@ class _Clock:
 def _vault(tmp_path):
     root = (tmp_path / "Brain").resolve()
     (root / ".brain-core").mkdir(parents=True, exist_ok=True)
-    (root / ".brain-core" / "VERSION").write_text("0.54.51\n")
+    (root / ".brain-core" / "VERSION").write_text("0.54.52\n")
     return root
 
 

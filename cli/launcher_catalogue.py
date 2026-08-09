@@ -48,6 +48,7 @@ class LauncherEntry:
     effect_class: str
     retry_class: str
     required_providers: tuple[str, ...] = ()
+    summary: str = ""
     projections: tuple[LauncherProjection, ...] = _projection_contract()
     owner: str = "launcher"
     dependency_tier: str = "bootstrap"
@@ -78,6 +79,10 @@ class LauncherEntry:
             raise ValueError("mutating launcher entry requires an outcome receipt")
         if self.required_providers != tuple(sorted(set(self.required_providers))):
             raise ValueError("launcher provider names must be unique and sorted")
+        if not self.summary:
+            object.__setattr__(self, "summary", _summary(self.command_id))
+        if not self.summary.strip() or not self.summary.endswith("."):
+            raise ValueError("launcher entry summary must be one non-empty sentence")
         projection_names = [projection.projection for projection in self.projections]
         if tuple(projection_names) != _PROJECTIONS:
             raise ValueError("launcher entry must describe every projection in canonical order")
@@ -115,6 +120,7 @@ class LauncherCatalogue:
                 "authority": entry.authority,
                 "effect_class": entry.effect_class,
                 "retry_class": entry.retry_class,
+                "summary": entry.summary,
                 "projections": tuple(
                     (projection.projection, projection.supported, projection.reason)
                     for projection in entry.projections
@@ -141,6 +147,30 @@ def _mutation(command_id: str, owner_ref: str, *entry_point: str) -> LauncherEnt
         "receipt_required",
         required_providers=("caller_filesystem",),
     )
+
+
+def _summary(command_id: str) -> str:
+    noun, verb = command_id.split(".", 1)
+    noun_words = noun.replace("-", " ")
+    verb_words = verb.replace("-", " ")
+    direct = {
+        "backfill": "Backfill the {noun} registry",
+        "configure": "Configure {noun}",
+        "doctor": "Diagnose {noun} state",
+        "install": "Install one {noun}",
+        "list": "List registered {noun} resources",
+        "prune": "Prune stale {noun} records",
+        "register": "Register one {noun}",
+        "repair": "Repair {noun} state",
+        "resolve": "Resolve one {noun}",
+        "uninstall": "Uninstall one {noun}",
+        "unregister": "Unregister one {noun}",
+        "upgrade": "Upgrade one {noun}",
+        "version": "Read the {noun} version",
+    }
+    if verb in direct:
+        return direct[verb].format(noun=noun_words) + "."
+    return f"{verb_words.capitalize()} for {noun_words}."
 
 
 LAUNCHER_CATALOGUE = LauncherCatalogue(

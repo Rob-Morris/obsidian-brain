@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.54.52](changelog/v0.54.52.md) | 2026-08-10 | Compose launcher-owned discovery into the local command view |
 | [v0.54.51](changelog/v0.54.51.md) | 2026-08-10 | Enforce real-client token budgets for the granular MCP projection |
 | [v0.54.50](changelog/v0.54.50.md) | 2026-08-10 | Stage the bounded session command-discovery route |
 | [v0.54.49](changelog/v0.54.49.md) | 2026-08-10 | Add the staged granular MCP projection |

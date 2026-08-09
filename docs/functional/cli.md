@@ -87,6 +87,13 @@ mode. Recursive uninstall uncertainty and unverified upgrade rollback remain
 non-retryable unknown outcomes. Public v1 CLI behaviour is unchanged until the
 coordinated cutover.
 
+v0.54.52 adds launcher-owned `list` and `describe` discovery over the static
+manifest and sealed launcher request/result types. The outer stdlib-only
+`cli/_local_cli/` package may compose that view with selected-Brain discovery,
+but it preserves each owner schema, fingerprint, cursor and payload rather than
+creating a third catalogue. Launcher/application command collisions fail
+closed. Public v1 CLI behaviour remains unchanged until coordinated cutover.
+
 ## Install
 
 The CLI is installed automatically by `install.sh` to `~/.local/bin/brain` (user scope) or `/usr/local/bin/brain` (with `--system`). `upgrade.py` refreshes any installed CLI binary on each upgrade; it does not install a new CLI where none existed.

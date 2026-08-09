@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.51)
+**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.52)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -904,3 +904,20 @@ tokens and every individual tool stays below 512 tokens. Recursive field
 descriptions remain present but mechanical label descriptions omit redundant
 command names and punctuation; equivalent distinct-type unions use compact
 JSON Schema type arrays.
+
+## v0.54.52 launcher discovery and local composition
+
+The launcher now lists and describes its 23 commands from its own static
+manifest and sealed stdlib request/result types. Strict schemas, minimal
+resolver-checked examples, provider availability, safety metadata and
+pagination remain launcher-owned and require no selected-Brain application
+import.
+
+The machine CLI's outer composition package is named `_local_cli`, not
+`_command_interface`: the latter is already the selected Brain's trusted local
+application-composition package and normal runtime path precedence would make
+the two packages ambiguous. `_local_cli` may present application and launcher
+entries together, but preserves each catalogue schema, fingerprint, cursor and
+owned payload. It sorts deterministically and fails on command-identity
+collisions; it does not create a third semantic catalogue or pass launcher
+entries to application execution.
