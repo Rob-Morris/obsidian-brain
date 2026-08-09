@@ -10,21 +10,29 @@ from .artefact.list_archived import ArtefactListArchivedRequest
 from .artefact.outline import ArtefactOutlineRequest
 from .artefact.read import ArtefactReadRequest
 from .artefact.read_archived import ArtefactReadArchivedRequest
+from .artefact.search import ArtefactSearchRequest
+from .content.classify import ContentClassifyRequest
+from .content.resolve import ContentResolveRequest
 from .links.check import LinksCheckRequest
 from .memory.list import MemoryListRequest
 from .memory.read import MemoryReadRequest
+from .memory.search import MemorySearchRequest
 from .plugin.list import PluginListRequest
 from .plugin.read import PluginReadRequest
+from .plugin.search import PluginSearchRequest
 from .runtime.read_environment import RuntimeReadEnvironmentRequest
 from .session.start import SessionStartRequest
 from .skill.list import SkillListRequest
 from .skill.read import SkillReadRequest
+from .skill.search import SkillSearchRequest
 from .style.list import StyleListRequest
 from .style.read import StyleReadRequest
+from .style.search import StyleSearchRequest
 from .template.list import TemplateListRequest
 from .template.read import TemplateReadRequest
 from .trigger.list import TriggerListRequest
 from .trigger.read import TriggerReadRequest
+from .trigger.search import TriggerSearchRequest
 from .type.list import ArtefactTypeListRequest
 from .type.read import ArtefactTypeReadRequest
 from .type.status import TypeStatusRequest
@@ -171,21 +179,29 @@ CommandRequest = (
     | ArtefactOutlineRequest
     | ArtefactListRequest
     | ArtefactListArchivedRequest
+    | ArtefactSearchRequest
+    | ContentClassifyRequest
+    | ContentResolveRequest
     | LinksCheckRequest
     | MemoryListRequest
     | MemoryReadRequest
+    | MemorySearchRequest
     | PluginListRequest
     | PluginReadRequest
+    | PluginSearchRequest
     | RuntimeReadEnvironmentRequest
     | SessionStartRequest
     | SkillListRequest
     | SkillReadRequest
+    | SkillSearchRequest
     | StyleListRequest
     | StyleReadRequest
+    | StyleSearchRequest
     | TemplateListRequest
     | TemplateReadRequest
     | TriggerListRequest
     | TriggerReadRequest
+    | TriggerSearchRequest
     | ArtefactTypeListRequest
     | ArtefactTypeReadRequest
     | TypeStatusRequest
@@ -211,21 +227,29 @@ def command_identity(request: CommandRequest) -> tuple[str, int, type]:
         ArtefactOutlineRequest,
         ArtefactListRequest,
         ArtefactListArchivedRequest,
+        ArtefactSearchRequest,
+        ContentClassifyRequest,
+        ContentResolveRequest,
         LinksCheckRequest,
         MemoryListRequest,
         MemoryReadRequest,
+        MemorySearchRequest,
         PluginListRequest,
         PluginReadRequest,
+        PluginSearchRequest,
         RuntimeReadEnvironmentRequest,
         SessionStartRequest,
         SkillListRequest,
         SkillReadRequest,
+        SkillSearchRequest,
         StyleListRequest,
         StyleReadRequest,
+        StyleSearchRequest,
         TemplateListRequest,
         TemplateReadRequest,
         TriggerListRequest,
         TriggerReadRequest,
+        TriggerSearchRequest,
         ArtefactTypeListRequest,
         ArtefactTypeReadRequest,
         TypeStatusRequest,

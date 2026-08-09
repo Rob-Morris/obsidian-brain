@@ -783,6 +783,34 @@
         "workspace.resolve"
       ]
     },
+    "application_read_resource_text": {
+      "contract": {
+        "owner": "application",
+        "canonical_result_owner": "application_command",
+        "dependency_tier": "portable",
+        "locality": "selected_brain_local",
+        "providers": {
+          "required": [],
+          "optional": []
+        },
+        "authority": "reader",
+        "effect_class": "none",
+        "retry_class": "safe",
+        "eligible_projections": [
+          "mcp",
+          "cli",
+          "script",
+          "python"
+        ]
+      },
+      "commands": [
+        "memory.search",
+        "plugin.search",
+        "skill.search",
+        "style.search",
+        "trigger.search"
+      ]
+    },
     "application_read_optional_semantic": {
       "contract": {
         "owner": "application",
@@ -808,12 +836,7 @@
       "commands": [
         "artefact.search",
         "content.classify",
-        "content.resolve",
-        "memory.search",
-        "plugin.search",
-        "skill.search",
-        "style.search",
-        "trigger.search"
+        "content.resolve"
       ]
     },
     "application_session": {

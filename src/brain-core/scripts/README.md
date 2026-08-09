@@ -51,6 +51,9 @@ uses canonical command identifiers instead of executable shell strings.
 v0.54.12 adds a typed managed `session.start` owner with trusted workspace
 context and an explicit derived-cache-write effect while retaining
 `session.py` as the bootstrap model and markdown-rendering authority.
+v0.54.13 adds granular typed search owners plus structural content
+classification and duplicate resolution. Portable lower paths remain complete,
+and semantic enhancement is gated by trusted provider/capability context.
 Existing adapters are not cut over in the v0.54.x foundation releases; they
 continue to behave as documented until the coordinated breaking release
 replaces the old grammar.

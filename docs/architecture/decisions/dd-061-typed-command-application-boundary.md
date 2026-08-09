@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.12)
+**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.13)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -196,3 +196,20 @@ dependency plus derived-cache-write effect for its session mirror refresh.
 the command does not accept or rediscover that adapter fact. The old no-op
 context-scoping field is absent from the canonical request. `session.py`
 remains the single owner of bootstrap compilation and markdown rendering.
+
+## v0.54.13 typed optional-semantic read owners
+
+Search is now split into one artefact command and one command per searchable
+definition resource. Typed results replace the aggregate resource discriminator
+and open dictionaries. `content.classify` represents ranked and
+context-assembly outcomes structurally; `content.resolve` represents its
+create, update or ambiguous decision explicitly.
+
+Each command retains a complete portable lower path over `_search` or
+`process.py`. Semantic retrieval is optional only for artefact search,
+classification and duplicate resolution; resource-document search remains
+honestly lexical-only. Automatic and explicit semantic paths require both a
+provider binding and a fresh available capability from trusted invocation
+context before loading selected-Brain sidecars. The application layer owns
+contract validation and result normalisation while the existing search/process
+modules remain the algorithm owners.

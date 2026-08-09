@@ -44,6 +44,8 @@ def application_for(
     *,
     dependency_tier=DependencyTier.PORTABLE,
     workspace_dir=None,
+    capabilities=(),
+    providers=(),
 ):
     receipts = _Receipts()
     context = InvocationContext(
@@ -55,8 +57,9 @@ def application_for(
             "snapshot",
             SnapshotFreshness.FRESH,
             NOW,
+            tuple(capabilities),
         ),
-        providers=ProviderBindings(),
+        providers=ProviderBindings(tuple(providers)),
         correlation_id="corr-read",
         invocation_id="inv-read",
         receipt_writer=receipts,
