@@ -29,6 +29,7 @@ from brain_mcp import server
 
 CAPTURE_PATH = REPO_ROOT / "tests" / "fixtures" / "command_interface_mcp_metadata_baseline_v1.json"
 TOKENISER = "brain-unicode-lexeme/1"
+BASELINE_BRAIN_CORE_VERSION = "0.54.0"
 _LEXEME = re.compile(r"\w+|[^\w\s]", re.UNICODE)
 
 SUPPORTED_CLIENTS = {
@@ -94,7 +95,7 @@ def build_metadata_capture() -> dict:
     source_by_name = {tool["name"]: tool for tool in tools}
     capture = {
         "schema": "brain.command-interface-mcp-metadata-baseline/1",
-        "brain_core_version": (REPO_ROOT / "src" / "brain-core" / "VERSION").read_text(encoding="utf-8").strip(),
+        "brain_core_version": BASELINE_BRAIN_CORE_VERSION,
         "captured_at": "2026-08-09T09:30:00+10:00",
         "capture_command": ".venv/bin/python tests/capture_mcp_metadata_baseline.py --output tests/fixtures/command_interface_mcp_metadata_baseline_v1.json",
         "mcp_sdk_version": importlib.metadata.version("mcp"),

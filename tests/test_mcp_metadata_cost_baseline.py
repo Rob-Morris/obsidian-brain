@@ -6,6 +6,7 @@ import json
 
 from mcp_metadata_cost import (
     CAPTURE_PATH,
+    BASELINE_BRAIN_CORE_VERSION,
     SUPPORTED_CLIENTS,
     TOKENISER,
     build_metadata_capture,
@@ -24,6 +25,7 @@ def test_capture_pins_supported_client_projectors_and_measurement_method():
     capture = _capture()
 
     assert capture["schema"] == "brain.command-interface-mcp-metadata-baseline/1"
+    assert capture["brain_core_version"] == BASELINE_BRAIN_CORE_VERSION
     assert capture["tokeniser"] == TOKENISER
     assert set(capture["clients"]) == set(SUPPORTED_CLIENTS)
     assert capture["raw_fastmcp"]["tool_count"] == 22

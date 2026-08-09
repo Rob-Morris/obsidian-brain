@@ -95,6 +95,17 @@ The compiled router (`.brain/local/compiled-router.json`) is the interface betwe
 
 The MCP server is a thin wrapper. All vault operation logic lives in `.brain-core/scripts/` as importable Python modules, each with a CLI entry point. The server imports functions from scripts and adds MCP transport, in-memory caching, process-local mutation serialization for mutating tool calls, and Obsidian CLI delegation. This means agents without MCP use the scripts directly and get identical results. New operations are always implemented as scripts first, then exposed via MCP — never the reverse.
 
+The command-interface migration adds a transport-neutral application boundary
+under `scripts/_application/` (DD-061). Typed request classes own command
+identity/version/result type; adapters compose trusted `InvocationContext`
+values and call `CommandApplication.invoke`. The boundary checks authority and
+capability state before executor entry, validates structural
+`brain.command-result/1` values, and records typed outcome receipts. It imports
+no MCP SDK, parser, environment resolver or managed provider, and lower-level
+packages never import back into it. The v0.54.1 foundation is internal only:
+the existing MCP, CLI and direct-script flow above remains authoritative until
+the coordinated breaking cutover.
+
 The lifecycle/bootstrap side of that script layer now has an explicit shared owner under `scripts/_bootstrap/`. `runtime.py` owns launcher discovery, managed-runtime handoff, executable path identity, and the shared `BRAIN_BOOTSTRAP_SUMMARY` contract; `diagnostics.py` owns the launcher-safe runtime/MCP/registry checks needed before managed semantic work is available; `mcp_state.py` owns shared MCP/config-layout and init-state helpers; `vaults.py` owns the env-aware vault-root discovery seam used by the public lifecycle wrappers; `workspace_scaffold.py` owns Brain-local ignore-rule convergence; `mcp_transport.py` owns the shared Claude/Codex transport/config write engine; and `agent_skills.py` owns version-neutral, ownership-safe client skill adapters. Entry points such as `setup.py`, `repair.py`, `configure.py`, `session.py`, and `check.py` now converge on that seam instead of carrying parallel launcher or env-var logic.
 
 Managed operational wrappers now consume that same seam instead of assuming the caller already arranged the right interpreter. Retrieval wrappers (`build_index.py`, `search_index.py`, `construct_benchmark_fixture.py`, `evaluate_search.py`) and the remaining managed direct wrappers (`compile_router.py`, `compile_colours.py`, `sync_definitions.py`, `shape_printable.py`, `shape_presentation.py`, `migrate_naming.py`) all start in a compatible launcher Python only long enough to enter the canonical managed runtime, then continue substantive work there.

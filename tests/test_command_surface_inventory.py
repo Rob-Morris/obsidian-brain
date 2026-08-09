@@ -28,6 +28,7 @@ from brain_mcp import server
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_PATH = REPO_ROOT / "tests" / "fixtures" / "command_interface_current_surface_v1.json"
+PRE_CUTOVER_BRAIN_CORE_VERSION = "0.54.0"
 VARIANT_PROPERTY_NAMES = {"action", "kind", "op", "operation", "resource", "source"}
 
 
@@ -397,13 +398,10 @@ def _direct_script_operation_axes() -> dict[str, list[str]]:
 
 
 def test_observation_identifies_its_source_contract() -> None:
-    """The snapshot declares its schema and committed Brain Core version."""
+    """The frozen pre-cutover snapshot declares its schema and source version."""
     fixture = load_current_surface()
     assert fixture["schema"] == "brain.command-surface-observation/1"
-    version = (REPO_ROOT / "src" / "brain-core" / "VERSION").read_text(
-        encoding="utf-8"
-    ).strip()
-    assert fixture["brain_core_version"] == version
+    assert fixture["brain_core_version"] == PRE_CUTOVER_BRAIN_CORE_VERSION
 
 
 def test_observed_mcp_tools_match_registration_source() -> None:

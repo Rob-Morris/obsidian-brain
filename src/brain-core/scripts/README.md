@@ -8,6 +8,15 @@ Direct script invocation remains the baseline command-line contract:
 python3.12 .brain-core/scripts/<script>.py ...
 ```
 
+The new command architecture is being built behind the existing public grammar
+under `_application/`. That stdlib-only package owns typed request identity,
+trusted invocation context, structural results, receipts and static
+selected-Brain catalogue contracts. Its shared `CommandApplication.invoke`
+boundary performs authority/capability checks and result normalisation without
+importing MCP, CLI parsing, environment resolution or managed providers.
+Existing adapters are not cut over in v0.54.1; they continue to behave as
+documented until the coordinated breaking release replaces the old grammar.
+
 That launcher process is not automatically the managed runtime. The shared launcher-safe bootstrap ownership now lives under `_bootstrap/`: bootstrap entrypoints do meaningful launcher-safe work there, and runtime-owning lifecycle entrypoints such as `repair.py`, `setup.py`, `configure.py`, `session.py`, and `check.py` hand substantive managed work off into the canonical managed runtime before continuing.
 
 Managed operational wrappers now follow that same contract too: `build_index.py`, `search_index.py`, `construct_benchmark_fixture.py`, `evaluate_search.py`, `compile_router.py`, `compile_colours.py`, `sync_definitions.py`, `shape_printable.py`, `shape_presentation.py`, and `migrate_naming.py` start in the launcher only long enough to enter the managed runtime. Manually activating the vault venv still works for debugging, but it is no longer the normal direct-script contract these wrappers document or rely on.
@@ -33,6 +42,7 @@ remains lexical-only.
 
 | Script | Purpose | CLI usage |
 |---|---|---|
+| `_application/` | Transport-neutral selected-Brain application contracts: typed request identity, explicit trusted context/provider ports, structural `brain.command-result/1` variants, outcome receipts, static catalogue values, and the shared invocation boundary. Imports remain stdlib-only and package initialisation is intentionally lazy. | (library only; public adapter cutover pending) |
 | `_bootstrap/` | Shared launcher-safe bootstrap package: env-aware vault discovery, workspace-local scaffold/ignore rules, managed-runtime handoff, bootstrap diagnostics, shared MCP/config-layout state, the Claude/Codex transport engine, and ownership-safe native-skill discovery adapters | (library only) |
 | `_common/` | Shared utilities package: vault discovery, frontmatter parsing, serialisation, CLI parser helpers, and general script support | (library only) |
 | `_lifecycle_common.py` | Shared lifecycle result-envelope rendering and CLI emission helpers | (library only) |

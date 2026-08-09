@@ -1,0 +1,90 @@
+# DD-061: Typed selected-Brain command application boundary
+
+**Status:** Implemented (v0.54.1)
+**Extends:** DD-002, DD-003, DD-045, DD-049
+
+## Context
+
+Brain's scripts are the version-matched semantic implementation (DD-002 and
+DD-003), while MCP and the machine-global `brain` CLI are adapters. The current
+MCP surface nevertheless groups unrelated operations behind broad request
+unions, and semantic validation, authority, result and effect handling can be
+distributed between scripts and adapters. DD-045 improved privilege grouping
+but deliberately retained residual aggregates.
+
+The new command grammar needs one semantic owner per selected-Brain operation
+without moving that owner into MCP, the CLI, a separately installed package or
+the machine-global launcher. It must also preserve Brain's bootstrap, portable
+and managed dependency planes.
+
+## Decision
+
+Canonical selected-Brain commands live under the installed Brain's
+`scripts/_application/` package. A concrete frozen request type owns its
+command identifier, integer command-contract version and result payload type;
+callers cannot pass a free command identifier alongside unrelated input.
+
+Adapters explicitly compose a trusted `InvocationContext` carrying the
+selected Brain, authenticated profile and authority evaluator, current ordered
+dependency tier, one bounded capability snapshot, provider ports, correlation
+and invocation identities, receipt ports and clock. Caller intent remains in
+the request rather than the context.
+
+`CommandApplication.invoke(request)` is the shared Python/result boundary. It
+resolves one static selected-Brain catalogue entry, rejects authority or
+capability failures before executor entry, invokes one internal executor,
+validates the structural result, records the strongest provable outcome and
+maps unexpected failures without leaking tracebacks.
+
+Shared results use the independently versioned `brain.command-result/1`
+structural union:
+
+- `ok` carries a typed command result;
+- `partial` enumerates known committed effects;
+- `error` proves `effects: none | unknown`;
+- unknown effects require a matching, non-retryable typed outcome reference.
+
+The package initialiser imports nothing. Contract modules remain stdlib-only;
+command modules may import only their declared dependency tier or lower.
+Lower-level packages never import `_application`. Machine-global install,
+resolution, repair and self-replacing upgrade commands remain separate
+launcher owners and do not gain synthetic application executors.
+
+## Alternatives Considered
+
+### Keep scripts as unrelated public functions and normalise only in adapters
+
+Rejected. The same semantic rule and effect policy would remain distributed
+between MCP, CLI, direct scripts and Python, so parity would still be a testing
+convention rather than a structural property.
+
+### Put commands in a new top-level installed Python package
+
+Rejected. It would add another code-version and bootstrap resolution path.
+The selected Brain already ships the correct version under `scripts/`.
+
+### Put canonical commands under `_bootstrap/`
+
+Rejected. Bootstrap and self-replacing launcher code must run before the
+selected application package or managed runtime is necessarily available.
+Combining them would collapse the dependency and ownership boundary.
+
+### Accept a dynamic `invoke(command_id, dict)` Python API
+
+Rejected as the canonical Python surface. Dynamic names and dictionaries are
+necessary at transport resolvers, but allowing them internally permits invalid
+command/input pairings and makes result typing advisory.
+
+## Consequences
+
+- MCP, CLI, direct-script and typed-Python adapters can converge on one
+  selected-Brain owner without importing each other.
+- Authority and temporary capability failures are stable pre-execution result
+  states rather than missing commands or adapter-specific exceptions.
+- Mutation failure cannot be represented as safely retryable when effects are
+  unknown; `invocation.read` resolves typed outcome references.
+- Static catalogue fingerprints exclude dynamic availability and executor
+  identity, so they validate installed contracts rather than environment state.
+- v0.54.1 ships only the internal foundation. Existing public grammar remains
+  unchanged until one coordinated breaking cutover removes old aggregates and
+  adapters; no compatibility translator or mixed released grammar is added.
