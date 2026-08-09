@@ -73,6 +73,8 @@ Required-but-nullable parent intent distinguishes omission from deliberate
 ownership clearing, while `edit.py` retains lifecycle and derived-move rules.
 v0.54.21 adds operator-owned rename, convert, archive, unarchive and delete
 commands with structural path sets and explicit partial/unknown outcomes.
+v0.54.22 completes operator artefact maintenance ownership with explicit
+child-reparent modes, bounded repair/naming results and typed link preview/fix.
 Existing adapters are not cut over in the v0.54.x foundation releases; they
 continue to behave as documented until the coordinated breaking release
 replaces the old grammar.

@@ -261,19 +261,19 @@ def repair_ownership(vault_root: Path, dry_run: bool, bootstrap_steps: list[dict
     """Reconcile derived paths towards valid authoritative parent metadata."""
     try:
         with vault_mutation_lock(vault_root):
-            return _repair_ownership_locked(vault_root, dry_run, bootstrap_steps)
+            return repair_ownership_locked(vault_root, dry_run, bootstrap_steps)
     except MutationLockError as exc:
         steps = list(bootstrap_steps or [])
         steps.append(_step("ownership", "error", mutation_lock_error_message(exc)))
         return _finalise_result("ownership", vault_root, dry_run, steps)
 
 
-def _repair_ownership_locked(
+def repair_ownership_locked(
     vault_root: Path,
     dry_run: bool,
     bootstrap_steps: list[dict] | None = None,
 ) -> dict:
-    """Plan and apply ownership repair while the vault mutation lock is held."""
+    """Plan and apply ownership repair while the caller holds the mutation lock."""
     steps = list(bootstrap_steps or [])
     router = compile_router.compile(str(vault_root))
     findings = [

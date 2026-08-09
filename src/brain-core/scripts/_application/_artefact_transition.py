@@ -120,7 +120,7 @@ def execute_transition(
     *,
     operation: Callable[[str, dict], dict],
     payload_builder: Callable[[dict], object],
-    effect_subject: Callable[[object], str],
+    effect_subject: Callable[[object], str | None],
 ):
     from _common import (
         MutationLockError,
@@ -177,12 +177,15 @@ def execute_transition(
 
     payload = payload_builder(raw_result)
     warnings = _warnings(payload)
+    subject = effect_subject(payload)
     return Ok(
         request.COMMAND_ID,
         request.COMMAND_VERSION,
         payload,
         committed_effects=(
-            CommittedEffect(request.COMMAND_ID, effect_subject(payload)),
+            ()
+            if subject is None
+            else (CommittedEffect(request.COMMAND_ID, subject),)
         ),
         warnings=warnings,
     )

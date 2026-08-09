@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.21)
+**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.22)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -331,3 +331,20 @@ A `PartialApplyError` becomes a structural partial result and known-partial
 receipt. An unexpected exception after mutation entry remains outcome-unknown.
 This preserves the backend's deliberately non-transactional vault-wide link and
 move operations without inviting unsafe blind retry.
+
+## v0.54.22 artefact maintenance and link-fix owners
+
+The remaining operator artefact workflows now have typed owners:
+`artefact.reparent-children`, the frontmatter and ownership repairs, naming
+migration and `links.fix`. Child reparenting uses a closed three-mode target
+instead of treating omitted and null `to` values as unrelated operations.
+
+Repair and migration previews consume trusted invocation dry-run state. Their
+results retain actionable steps, notes, moves and errors but omit the selected
+vault root and managed Python path from the canonical application envelope.
+Changed, no-op, planned, partial and unknown outcomes remain distinct.
+
+`links.fix` treats preview/apply as explicit intent within one semantic verb and
+allows target filtering only for scoped application. Resolvable, ambiguous and
+unresolvable links are bounded typed values; substitutions alone produce a
+committed effect.

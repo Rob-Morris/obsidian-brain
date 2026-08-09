@@ -11,12 +11,16 @@ from .artefact import delete_section as artefact_delete_section
 from .artefact import edit as artefact_edit
 from .artefact import list as artefact_list
 from .artefact import list_archived as artefact_list_archived
+from .artefact import migrate_naming as artefact_migrate_naming
 from .artefact import outline as artefact_outline
 from .artefact import prepend as artefact_prepend
 from .artefact import read as artefact_read
 from .artefact import read_archived as artefact_read_archived
+from .artefact import repair_frontmatter as artefact_repair_frontmatter
+from .artefact import repair_ownership as artefact_repair_ownership
 from .artefact import reparent as artefact_reparent
 from .artefact import rename as artefact_rename
+from .artefact import reparent_children as artefact_reparent_children
 from .artefact import replace_text as artefact_replace_text
 from .artefact import search as artefact_search
 from .artefact import set_key as artefact_set_key
@@ -28,6 +32,7 @@ from .content import classify as content_classify
 from .content import resolve as content_resolve
 from .foundation import build_application_catalogue, build_request_resolver
 from .links import check as links_check
+from .links import fix as links_fix
 from .memory import append as memory_append
 from .memory import create as memory_create
 from .memory import delete_section as memory_delete_section
@@ -97,12 +102,16 @@ def current_application_catalogue():
             artefact_edit.catalogue_entry(),
             artefact_list.catalogue_entry(),
             artefact_list_archived.catalogue_entry(),
+            artefact_migrate_naming.catalogue_entry(),
             artefact_outline.catalogue_entry(),
             artefact_prepend.catalogue_entry(),
             artefact_read.catalogue_entry(),
             artefact_read_archived.catalogue_entry(),
-            artefact_reparent.catalogue_entry(),
+            artefact_repair_frontmatter.catalogue_entry(),
+            artefact_repair_ownership.catalogue_entry(),
             artefact_rename.catalogue_entry(),
+            artefact_reparent.catalogue_entry(),
+            artefact_reparent_children.catalogue_entry(),
             artefact_replace_text.catalogue_entry(),
             artefact_search.catalogue_entry(),
             artefact_set_key.catalogue_entry(),
@@ -113,6 +122,7 @@ def current_application_catalogue():
             content_classify.catalogue_entry(),
             content_resolve.catalogue_entry(),
             links_check.catalogue_entry(),
+            links_fix.catalogue_entry(),
             memory_append.catalogue_entry(),
             memory_create.catalogue_entry(),
             memory_delete_section.catalogue_entry(),
@@ -184,12 +194,16 @@ def current_request_resolver():
             artefact_edit.resolver_entry(),
             artefact_list.resolver_entry(),
             artefact_list_archived.resolver_entry(),
+            artefact_migrate_naming.resolver_entry(),
             artefact_outline.resolver_entry(),
             artefact_prepend.resolver_entry(),
             artefact_read.resolver_entry(),
             artefact_read_archived.resolver_entry(),
-            artefact_reparent.resolver_entry(),
+            artefact_repair_frontmatter.resolver_entry(),
+            artefact_repair_ownership.resolver_entry(),
             artefact_rename.resolver_entry(),
+            artefact_reparent.resolver_entry(),
+            artefact_reparent_children.resolver_entry(),
             artefact_replace_text.resolver_entry(),
             artefact_search.resolver_entry(),
             artefact_set_key.resolver_entry(),
@@ -200,6 +214,7 @@ def current_request_resolver():
             content_classify.resolver_entry(),
             content_resolve.resolver_entry(),
             links_check.resolver_entry(),
+            links_fix.resolver_entry(),
             memory_append.resolver_entry(),
             memory_create.resolver_entry(),
             memory_delete_section.resolver_entry(),

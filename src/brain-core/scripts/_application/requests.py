@@ -15,12 +15,16 @@ from .artefact.delete_section import ArtefactDeleteSectionRequest
 from .artefact.edit import ArtefactEditRequest
 from .artefact.list import ArtefactListRequest
 from .artefact.list_archived import ArtefactListArchivedRequest
+from .artefact.migrate_naming import ArtefactMigrateNamingRequest
 from .artefact.outline import ArtefactOutlineRequest
 from .artefact.prepend import ArtefactPrependRequest
 from .artefact.read import ArtefactReadRequest
 from .artefact.read_archived import ArtefactReadArchivedRequest
+from .artefact.repair_frontmatter import ArtefactRepairFrontmatterRequest
+from .artefact.repair_ownership import ArtefactRepairOwnershipRequest
 from .artefact.reparent import ArtefactReparentRequest
 from .artefact.rename import ArtefactRenameRequest
+from .artefact.reparent_children import ArtefactReparentChildrenRequest
 from .artefact.replace_text import ArtefactReplaceTextRequest
 from .artefact.search import ArtefactSearchRequest
 from .artefact.set_key import ArtefactSetKeyRequest
@@ -31,6 +35,7 @@ from .attachment.upload import AttachmentUploadRequest
 from .content.classify import ContentClassifyRequest
 from .content.resolve import ContentResolveRequest
 from .links.check import LinksCheckRequest
+from .links.fix import LinksFixRequest
 from .memory.list import MemoryListRequest
 from .memory.create import MemoryCreateRequest
 from .memory.read import MemoryReadRequest
@@ -206,13 +211,17 @@ CommandRequest = (
     | ArtefactEditRequest
     | ArtefactReadRequest
     | ArtefactReadArchivedRequest
+    | ArtefactRepairFrontmatterRequest
+    | ArtefactRepairOwnershipRequest
     | ArtefactReparentRequest
     | ArtefactRenameRequest
+    | ArtefactReparentChildrenRequest
     | ArtefactOutlineRequest
     | ArtefactPrependRequest
     | ArtefactReplaceTextRequest
     | ArtefactListRequest
     | ArtefactListArchivedRequest
+    | ArtefactMigrateNamingRequest
     | ArtefactSearchRequest
     | ArtefactSetKeyRequest
     | ArtefactSetNamingFieldRequest
@@ -222,6 +231,7 @@ CommandRequest = (
     | ContentClassifyRequest
     | ContentResolveRequest
     | LinksCheckRequest
+    | LinksFixRequest
     | MemoryCreateRequest
     | NamedEditRequest
     | MemoryListRequest
@@ -277,13 +287,17 @@ def command_identity(request: CommandRequest) -> tuple[str, int, type]:
         ArtefactEditRequest,
         ArtefactReadRequest,
         ArtefactReadArchivedRequest,
+        ArtefactRepairFrontmatterRequest,
+        ArtefactRepairOwnershipRequest,
         ArtefactReparentRequest,
         ArtefactRenameRequest,
+        ArtefactReparentChildrenRequest,
         ArtefactOutlineRequest,
         ArtefactPrependRequest,
         ArtefactReplaceTextRequest,
         ArtefactListRequest,
         ArtefactListArchivedRequest,
+        ArtefactMigrateNamingRequest,
         ArtefactSearchRequest,
         ArtefactSetKeyRequest,
         ArtefactSetNamingFieldRequest,
@@ -293,6 +307,7 @@ def command_identity(request: CommandRequest) -> tuple[str, int, type]:
         ContentClassifyRequest,
         ContentResolveRequest,
         LinksCheckRequest,
+        LinksFixRequest,
         MemoryCreateRequest,
         *NAMED_EDIT_REQUEST_TYPES,
         MemoryListRequest,

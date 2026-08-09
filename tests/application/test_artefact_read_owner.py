@@ -58,12 +58,16 @@ def test_artefact_read_transport_and_catalogue_identity_are_one_to_one():
         "artefact.edit",
         "artefact.list",
         "artefact.list-archived",
+        "artefact.migrate-naming",
         "artefact.outline",
         "artefact.prepend",
         "artefact.read",
         "artefact.read-archived",
         "artefact.rename",
+        "artefact.repair-frontmatter",
+        "artefact.repair-ownership",
         "artefact.reparent",
+        "artefact.reparent-children",
         "artefact.replace-text",
         "artefact.search",
         "artefact.set-key",
@@ -77,6 +81,7 @@ def test_artefact_read_transport_and_catalogue_identity_are_one_to_one():
         "content.resolve",
         "invocation.read",
         "links.check",
+        "links.fix",
         "memory.append",
         "memory.create",
         "memory.delete-section",
@@ -150,12 +155,16 @@ def test_foundational_discovery_immediately_includes_migrated_owner(tmp_path):
         "artefact.edit",
         "artefact.list",
         "artefact.list-archived",
+        "artefact.migrate-naming",
         "artefact.outline",
         "artefact.prepend",
         "artefact.read",
         "artefact.read-archived",
         "artefact.rename",
+        "artefact.repair-frontmatter",
+        "artefact.repair-ownership",
         "artefact.reparent",
+        "artefact.reparent-children",
         "artefact.replace-text",
         "artefact.search",
         "artefact.set-key",
@@ -253,7 +262,7 @@ def test_router_metadata_is_typed_without_an_unbounded_metadata_bag(
     )
 
     assert result.status == "ok"
-    assert result.result.brain_core_version == "0.54.21"
+    assert result.result.brain_core_version == "0.54.22"
     assert result.result.always_rules
     assert result.result.source_hash.startswith("sha256:")
     assert len(result.result.sources) > 0

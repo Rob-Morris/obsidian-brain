@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.54.22](changelog/v0.54.22.md) | 2026-08-09 | Migrate typed artefact maintenance and link-fix owners |
 | [v0.54.21](changelog/v0.54.21.md) | 2026-08-09 | Migrate typed artefact transition owners |
 | [v0.54.20](changelog/v0.54.20.md) | 2026-08-09 | Migrate typed artefact lifecycle mutation owners |
 | [v0.54.19](changelog/v0.54.19.md) | 2026-08-09 | Migrate typed named document mutation owners |

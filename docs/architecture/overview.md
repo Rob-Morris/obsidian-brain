@@ -179,6 +179,9 @@ existing lifecycle invariant engine as their single semantic owner.
 v0.54.21 adds five operator artefact transitions. Requests are split by verb,
 same-type rename policy belongs to the script semantic layer, and results
 distinguish committed, known-partial and unknown effects structurally.
+v0.54.22 completes the operator artefact-maintenance group with explicit
+child-reparent modes, bounded repair and naming workflows, and link preview/fix
+results that do not leak machine or selected-vault paths.
 
 The lifecycle/bootstrap side of that script layer now has an explicit shared owner under `scripts/_bootstrap/`. `runtime.py` owns launcher discovery, managed-runtime handoff, executable path identity, and the shared `BRAIN_BOOTSTRAP_SUMMARY` contract; `diagnostics.py` owns the launcher-safe runtime/MCP/registry checks needed before managed semantic work is available; `mcp_state.py` owns shared MCP/config-layout and init-state helpers; `vaults.py` owns the env-aware vault-root discovery seam used by the public lifecycle wrappers; `workspace_scaffold.py` owns Brain-local ignore-rule convergence; `mcp_transport.py` owns the shared Claude/Codex transport/config write engine; and `agent_skills.py` owns version-neutral, ownership-safe client skill adapters. Entry points such as `setup.py`, `repair.py`, `configure.py`, `session.py`, and `check.py` now converge on that seam instead of carrying parallel launcher or env-var logic.
 
