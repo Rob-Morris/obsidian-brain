@@ -30,6 +30,9 @@ normalise results and effects without importing `argparse` or MCP.
 v0.54.5 adds `runtime.read-environment`, `vault.read-router` and `links.check`.
 Runtime/router views now have an adapter-free portable owner and link checks
 reuse the existing portable scanner without requiring router availability.
+v0.54.6 adds separate read/list owners for skills, styles and plugins. Their
+exact-name reads and filtered lists share `_portable/named_documents.py`, and
+the legacy reader/lister delegate to that seam without changing public output.
 Existing adapters are not cut over in the v0.54.x foundation releases; they
 continue to behave as documented until the coordinated breaking release
 replaces the old grammar.

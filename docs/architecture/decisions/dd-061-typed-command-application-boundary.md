@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.5)
+**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.6)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -130,3 +130,12 @@ uses an exact result type rather than an open metadata bag; and link diagnosis
 reuses the lower portable scanner without making router availability a hidden
 dependency. The legacy router/environment reader delegates to the same lower
 views while public grammar remains unchanged.
+
+## v0.54.6 portable named-document owners
+
+`skill.read/list`, `style.read/list` and `plugin.read/list` now have distinct
+typed command owners over one adapter-free named-document seam. The seam owns
+exact-name resolution, document loading and case-insensitive list filtering;
+legacy readers and listers delegate to it. Application results retain only
+bounded command-specific fields, including explicit core/user skill source,
+and do not expose router records as unbounded metadata.

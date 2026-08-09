@@ -42,6 +42,7 @@ from _common import (
     resolve_artefact_path,
 )
 from _portable.artefact_read import read_artefact as _portable_read_artefact
+from _portable.named_documents import read_named_document as _portable_read_named_document
 from _portable.router_views import (
     read_environment as _portable_read_environment,
     read_router_meta as _portable_read_router_meta,
@@ -73,8 +74,10 @@ def read_named_resource(router, vault_root, resource_label, name, router_key, do
 
     Requires name. Listing (name=None) is handled by brain_list.
     """
-    items = router[router_key]
     _require_name(resource_label, name)
+    if resource_label in {"skill", "style", "plugin"}:
+        return _portable_read_named_document(router, vault_root, resource_label, name)
+    items = router[router_key]
     match = next((i for i in items if i["name"] == name), None)
     if not match:
         return {"error": f"No {resource_label} matching '{name}'"}

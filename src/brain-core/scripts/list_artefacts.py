@@ -36,6 +36,7 @@ from _portable.artefact_listing import (
     list_artefacts,
     list_artefacts_page,
 )
+from _portable.named_documents import list_named_documents
 
 
 # ---------------------------------------------------------------------------
@@ -175,6 +176,8 @@ def list_resources(index, router, vault_root, resource="artefact", query=None,
         return workspace_registry.list_workspaces(vault_root)
 
     if resource in _COLLECTION_MAP:
+        if resource in {"skill", "style", "plugin"}:
+            return list_named_documents(router, resource, query)
         router_key, name_field = _COLLECTION_MAP[resource]
         return _list_collection(router, router_key, name_field, query)
 

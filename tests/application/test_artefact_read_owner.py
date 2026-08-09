@@ -2,75 +2,20 @@
 
 from __future__ import annotations
 
-from datetime import datetime
-
-from _application.application import CommandApplication
 from _application.artefact.list import ArtefactListRequest, ArtefactSort
 from _application.artefact.outline import ArtefactOutlineRequest
 from _application.artefact.read import ArtefactReadRequest
-from _application.context import (
-    CapabilitySnapshot,
-    InvocationContext,
-    ProviderBindings,
-    SelectedBrain,
-)
 from _application.links.check import LinksCheckRequest
 from _application.registry import current_application_catalogue, current_request_resolver
 from _application.requests import CommandListRequest
 from _application.results import ErrorCode
 from _application.runtime.read_environment import RuntimeReadEnvironmentRequest
-from _application.types import DependencyTier, SnapshotFreshness
 from _application.vault.read_router import VaultReadRouterRequest
-
-
-NOW = datetime.fromisoformat("2026-08-09T16:00:00+10:00")
-
-
-class _Authority:
-    def allows(self, **_kwargs):
-        return True
-
-
-class _Receipts:
-    def __init__(self):
-        self.values = {}
-
-    def write(self, receipt):
-        self.values[receipt.reference.invocation_id] = receipt
-
-    def read(self, reference):
-        return self.values.get(reference.invocation_id)
-
-
-class _Clock:
-    def now(self):
-        return NOW
-
-
-def _application(vault_root):
-    receipts = _Receipts()
-    context = InvocationContext(
-        selected_brain=SelectedBrain("command-vault", vault_root.resolve()),
-        profile="reader",
-        authority=_Authority(),
-        dependency_tier=DependencyTier.PORTABLE,
-        capabilities=CapabilitySnapshot(
-            "snapshot",
-            SnapshotFreshness.FRESH,
-            NOW,
-        ),
-        providers=ProviderBindings(),
-        correlation_id="corr-read",
-        invocation_id="inv-read",
-        receipt_writer=receipts,
-        receipt_reader=receipts,
-        clock=_Clock(),
-    )
-    return CommandApplication(context, current_application_catalogue())
+from command_application import application_for
 
 
 def test_artefact_read_uses_the_installed_portable_owner(command_vault_baseline):
-    application = _application(command_vault_baseline.vault_root)
+    application = application_for(command_vault_baseline.vault_root)
 
     result = application.invoke(ArtefactReadRequest("project/command-fixture"))
 
@@ -82,7 +27,7 @@ def test_artefact_read_uses_the_installed_portable_owner(command_vault_baseline)
 def test_artefact_read_maps_missing_and_escape_errors_before_effects(
     command_vault_baseline,
 ):
-    application = _application(command_vault_baseline.vault_root)
+    application = application_for(command_vault_baseline.vault_root)
 
     missing = application.invoke(ArtefactReadRequest("Ideas/Does Not Exist.md"))
     escaped = application.invoke(ArtefactReadRequest("../outside.md"))
@@ -111,13 +56,19 @@ def test_artefact_read_transport_and_catalogue_identity_are_one_to_one():
         "command.list",
         "invocation.read",
         "links.check",
+        "plugin.list",
+        "plugin.read",
         "runtime.read-environment",
+        "skill.list",
+        "skill.read",
+        "style.list",
+        "style.read",
         "vault.read-router",
     ]
 
 
 def test_foundational_discovery_immediately_includes_migrated_owner(tmp_path):
-    application = _application(tmp_path)
+    application = application_for(tmp_path)
 
     result = application.invoke(CommandListRequest(domain="artefact"))
 
@@ -129,7 +80,7 @@ def test_foundational_discovery_immediately_includes_migrated_owner(tmp_path):
 
 
 def test_artefact_outline_uses_the_same_structural_scanner(command_vault_baseline):
-    application = _application(command_vault_baseline.vault_root)
+    application = application_for(command_vault_baseline.vault_root)
 
     result = application.invoke(
         ArtefactOutlineRequest("design/command-fixture-design")
@@ -156,7 +107,7 @@ def test_artefact_outline_transport_resolves_the_same_typed_request():
 
 
 def test_artefact_list_returns_typed_stable_pages(command_vault_baseline):
-    application = _application(command_vault_baseline.vault_root)
+    application = application_for(command_vault_baseline.vault_root)
 
     first = application.invoke(ArtefactListRequest(page_size=2, sort=ArtefactSort.TITLE))
     second = application.invoke(
@@ -177,7 +128,7 @@ def test_artefact_list_returns_typed_stable_pages(command_vault_baseline):
 
 
 def test_artefact_list_invalid_filters_are_structural_errors(command_vault_baseline):
-    result = _application(command_vault_baseline.vault_root).invoke(
+    result = application_for(command_vault_baseline.vault_root).invoke(
         ArtefactListRequest(since="not-a-date")
     )
 
@@ -197,7 +148,7 @@ def test_artefact_list_transport_resolves_sort_and_pagination():
 
 
 def test_runtime_environment_is_a_typed_scalar_view(command_vault_baseline):
-    result = _application(command_vault_baseline.vault_root).invoke(
+    result = application_for(command_vault_baseline.vault_root).invoke(
         RuntimeReadEnvironmentRequest()
     )
     facts = {fact.name: fact.value for fact in result.result.facts}
@@ -211,12 +162,12 @@ def test_runtime_environment_is_a_typed_scalar_view(command_vault_baseline):
 def test_router_metadata_is_typed_without_an_unbounded_metadata_bag(
     command_vault_baseline,
 ):
-    result = _application(command_vault_baseline.vault_root).invoke(
+    result = application_for(command_vault_baseline.vault_root).invoke(
         VaultReadRouterRequest()
     )
 
     assert result.status == "ok"
-    assert result.result.brain_core_version == "0.54.5"
+    assert result.result.brain_core_version == "0.54.6"
     assert result.result.always_rules
     assert result.result.source_hash.startswith("sha256:")
     assert len(result.result.sources) > 0
@@ -225,7 +176,7 @@ def test_router_metadata_is_typed_without_an_unbounded_metadata_bag(
 def test_links_check_returns_typed_findings_without_router_probe(
     command_vault_baseline,
 ):
-    result = _application(command_vault_baseline.vault_root).invoke(
+    result = application_for(command_vault_baseline.vault_root).invoke(
         LinksCheckRequest()
     )
 

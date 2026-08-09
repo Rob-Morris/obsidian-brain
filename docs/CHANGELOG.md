@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.54.6](changelog/v0.54.6.md) | 2026-08-09 | Migrate portable skill, style, and plugin document owners |
 | [v0.54.5](changelog/v0.54.5.md) | 2026-08-09 | Migrate portable router, environment, and link-check command owners |
 | [v0.54.4](changelog/v0.54.4.md) | 2026-08-09 | Migrate portable artefact read, list, and outline command owners |
 | [v0.54.3](changelog/v0.54.3.md) | 2026-08-09 | Implement foundational discovery and invocation-outcome owners |
