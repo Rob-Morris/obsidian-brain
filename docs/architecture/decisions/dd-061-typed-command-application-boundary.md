@@ -637,3 +637,23 @@ I/O failure occurs after mutation entry, the invocation boundary records a
 non-retryable unknown outcome rather than asserting no effects. Existing public
 configuration behaviour and output remain in place until the coordinated
 breaking projection cutover.
+
+## v0.54.39 orphan-runtime pruning launcher owner
+
+`machine.prune-runtimes` now has a frozen empty request and bounded typed target
+results. Its source/current Brain is trusted launcher context rather than
+semantic request data. This is required for safety: a current but unregistered
+Brain must still count as selecting its managed runtime during orphan
+classification.
+
+The owner invokes machine discovery with `synchronise_registry=False`, keeping
+derived `brains.json` reconciliation out of the pruning effect set. Pruning is
+blocked with a known no-effect conflict when the live-process scan is
+unavailable, is a real no-write plan under dry-run and records each removed
+runtime directory as a separate committed effect.
+
+Recursive removal is not atomic. Any deletion error may mean a target directory
+was partly removed, so the launcher returns a receipt-backed, non-retryable
+unknown outcome rather than projecting the legacy per-target error as proven
+no-effect. The existing public machine adapter remains unchanged until the
+coordinated cutover.

@@ -40,6 +40,13 @@ application, dry-run returns that real plan, and committed adapter/backup effect
 are receipted independently. The existing v1 configuration adapter stays public
 until coordinated cutover.
 
+v0.54.39 adds typed `machine.prune-runtimes` ownership. Canonical pruning uses
+trusted current-Brain context and read-only registry comparison, requires a
+successful live-process scan, returns a real no-write plan and receipts every
+removed runtime directory. Recursive-deletion failure remains non-retryable and
+outcome-unknown. The existing v1 machine adapter stays public until coordinated
+cutover.
+
 ## Install
 
 The CLI is installed automatically by `install.sh` to `~/.local/bin/brain` (user scope) or `/usr/local/bin/brain` (with `--system`). `upgrade.py` refreshes any installed CLI binary on each upgrade; it does not install a new CLI where none existed.

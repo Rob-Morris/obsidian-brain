@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.54.39](changelog/v0.54.39.md) | 2026-08-10 | Add fail-closed orphan-runtime pruning launcher ownership |
 | [v0.54.38](changelog/v0.54.38.md) | 2026-08-10 | Add receipt-safe agent-skill launcher configuration ownership |
 | [v0.54.37](changelog/v0.54.37.md) | 2026-08-10 | Add effect-free Doctor and operator-key launcher owners |
 | [v0.54.36](changelog/v0.54.36.md) | 2026-08-10 | Migrate receipt-safe machine Brain-registry mutation owners |

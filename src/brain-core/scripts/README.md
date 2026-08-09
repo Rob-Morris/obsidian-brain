@@ -122,6 +122,10 @@ v0.54.38 adds typed `agent-skill.configure` launcher ownership over the shared
 `_bootstrap/agent_skills.py` seam. That seam now exposes genuine no-write
 planning, while trusted home context, all-client preflight and receipt-safe
 adapter/backup effects remain in the launcher owner.
+v0.54.39 adds typed `machine.prune-runtimes` ownership over the existing
+read-only topology and pruning seams. Trusted current-Brain context prevents an
+unregistered active Brain from appearing orphaned; live-scan failure blocks
+deletion and recursive-removal failure remains outcome-unknown.
 Existing adapters are not cut over in the v0.54.x foundation releases; they
 continue to behave as documented until the coordinated breaking release
 replaces the old grammar.

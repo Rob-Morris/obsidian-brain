@@ -187,6 +187,13 @@ to machine-local files under the vault (`.brain/local/...`) and do not
 broaden into user-home config or cross-vault registries by default. See
 [DD-048: Central managed runtime](decisions/dd-048-central-managed-runtime.md).
 
+Canonical orphan-runtime pruning is launcher-owned and fail-closed. It includes
+the current Brain from trusted launcher context, compares derived machine state
+without rewriting it, and removes only runtimes classified as unselected with a
+successful live-process scan. A recursive-deletion error is outcome-unknown
+rather than a retryable no-effect failure because part of the directory may
+already be gone.
+
 Client skill adapters are an explicit machine-global exception to ordinary
 vault write bounds. `configure.py agent-skills` writes only the fixed
 `~/.claude/skills/shaping/` and/or `~/.codex/skills/shaping/` destinations. It
