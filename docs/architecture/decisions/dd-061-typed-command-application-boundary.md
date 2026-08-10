@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.57)
+**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.58)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -995,3 +995,18 @@ Grammar failures use category 2. The parser imports no selected-Brain
 application semantics; its application output is verified by the authoritative
 selected-Brain resolver and its launcher output by launcher discovery. Public
 CLI v1 dispatch remains unchanged until the coordinated CLI 2.0 cutover.
+
+## v0.54.58 strict command-interface header contract
+
+`brain.command-interface-header/1` now has one stdlib-only proxy/server
+contract. The authoritative selected-Brain catalogue mechanically supplies
+every eligible MCP tool's command identifier, command version and mutation
+class together with the interface epoch, catalogue/result schemas and
+catalogue fingerprint.
+
+The header carries its own deterministic fingerprint. Parsing is exact and
+fails closed on absent, unknown, malformed, contradictory or tampered facts;
+the initialise extension has one location under
+`capabilities.experimental.brainCommandInterface`. The contract remains staged
+until subsequent Phase 5 checkpoints make the server emit it and the running
+proxy validate it before accepting calls.

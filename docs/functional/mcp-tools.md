@@ -15,6 +15,14 @@ successive refreshes collapse to the latest intent, and an `atexit` drain with
 a bounded cap lets the last in-flight write finish on clean shutdown. See
 dd-036 for the full contract.
 
+v0.54.58 stages the strict `brain.command-interface-header/1` proxy/server
+contract without changing the released tool surface. The
+`brainCommandInterface` initialise extension is derived from the authoritative
+application catalogue and binds proxy protocol range, interface epoch,
+catalogue/result schemas, fingerprints and the exact granular MCP
+tool-to-command/version/mutation mapping. Server emission and proxy enforcement
+follow in later Phase 5 checkpoints before the coordinated breaking cutover.
+
 ## Tool Metadata Contract
 
 This section is the living source of truth for the metadata emitted by every

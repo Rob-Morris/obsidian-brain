@@ -27,8 +27,37 @@ from _application.resolver import RequestResolver
 from _application.results import CommandError, Error, ErrorCode
 from _application.types import EffectClass, Projection, RetryClass
 
+from ._interface_protocol import (
+    CommandInterfaceHeader,
+    InterfaceTool,
+    command_interface_header,
+)
+
 
 ContextFactory = Callable[..., InvocationContext]
+
+
+def application_interface_header(
+    catalogue: ApplicationCatalogue,
+) -> CommandInterfaceHeader:
+    """Project the authoritative MCP mapping into the proxy handshake contract."""
+
+    tools = {
+        project_identity(entry.command_id).mcp_tool: InterfaceTool(
+            command_id=entry.command_id,
+            command_version=entry.command_version,
+            mutation_class=entry.effect_class.value,
+        )
+        for entry in catalogue.entries
+        if Projection.MCP in entry.eligible_projections
+    }
+    return command_interface_header(
+        interface_epoch=catalogue.interface_epoch,
+        catalogue_schema=catalogue.schema,
+        result_schema=catalogue.result_schema,
+        catalogue_fingerprint=catalogue.fingerprint,
+        tools=tools,
+    )
 
 
 class _CanonicalInvocationMetadata(FuncMetadata):

@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.54.58](changelog/v0.54.58.md) | 2026-08-10 | Define the strict MCP command-interface header contract |
 | [v0.54.57](changelog/v0.54.57.md) | 2026-08-10 | Stage explicit local command discovery grammar |
 | [v0.54.56](changelog/v0.54.56.md) | 2026-08-10 | Stage one-time granular profile allow-list migration |
 | [v0.54.55](changelog/v0.54.55.md) | 2026-08-10 | Enforce structural result parity across local command adapters |
