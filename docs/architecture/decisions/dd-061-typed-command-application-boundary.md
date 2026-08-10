@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.55)
+**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.56)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -967,3 +967,18 @@ outer CLI execution projection contains only structural result data; one
 presentation function owns JSON versus human stdout/stderr. Selected-Brain
 child stderr, malformed structure, command/version drift and any structural
 result/exit mismatch fail closed before presentation.
+
+## v0.54.56 one-time profile migration
+
+The staged profile migration is a pure cutover input, not a compatibility
+adapter or runtime aggregate fallback. It recognises exact historical built-in
+sets and replaces them with catalogue-derived granular sets. A custom profile
+maps only tools it explicitly allowed, retains unrelated metadata and gains
+`invocation.read` only when one of its mapped commands requires receipt-backed
+outcome recovery.
+
+Mixed legacy and already-granular input converges idempotently. Unknown tools,
+malformed definitions or a migration target absent from the authoritative
+catalogue fail before any migrated result is returned. The mapping is checked
+against the closed operation-disposition evidence. Writing the result and
+switching shipped defaults remain part of the atomic breaking cutover.

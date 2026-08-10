@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.54.56](changelog/v0.54.56.md) | 2026-08-10 | Stage one-time granular profile allow-list migration |
 | [v0.54.55](changelog/v0.54.55.md) | 2026-08-10 | Enforce structural result parity across local command adapters |
 | [v0.54.54](changelog/v0.54.54.md) | 2026-08-10 | Stage owner-preserving local CLI command execution |
 | [v0.54.53](changelog/v0.54.53.md) | 2026-08-10 | Stage granular profile projection before request resolution |

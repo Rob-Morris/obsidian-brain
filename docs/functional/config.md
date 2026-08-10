@@ -152,6 +152,14 @@ dynamic request resolution, executor entry or effects. Existing aggregate
 defaults remain public until the coordinated breaking cutover migrates both
 built-in and custom allow-lists; there is no runtime aggregate fallback.
 
+v0.54.56 stages that one-time migration as a pure pre-write operation. Exact
+historical built-ins become the catalogue-derived sets above. A custom profile
+expands only the legacy tools it explicitly allowed, preserves its other
+metadata and gains `invocation.read` only when a mapped mutator requires
+receipt-backed recovery. Mixed granular/legacy input is idempotent; unknown
+tools or malformed definitions fail the whole migration before output. The
+migration is not activated until the coordinated cutover transaction.
+
 ### Authentication
 
 `brain_session` accepts an optional `operator_key` parameter. Before authenticating, the server refreshes config if any config input changed. It then hashes the supplied key with SHA-256 and matches it against registered operators in the vault config. On a match, it sets the session profile to the operator's configured profile for all subsequent per-call enforcement. If `operator_key` is omitted, the default profile from config is used.

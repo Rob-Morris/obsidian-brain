@@ -177,7 +177,7 @@ def test_install_dry_run_validates_registry_and_writes_nothing(tmp_path, monkeyp
 
     assert result.result.status is LifecycleStatus.PLANNED
     assert result.result.mode is InstallMode.FRESH
-    assert result.result.brain_core_version == "0.54.55"
+    assert result.result.brain_core_version == "0.54.56"
     assert result.committed_effects == ()
     assert not target.exists()
     assert not (tmp_path / "config").exists()
@@ -365,7 +365,7 @@ def test_upgrade_success_receipts_core_and_error_is_unknown(tmp_path, monkeypatc
     success = _invocation(tmp_path, vault=vault).invoke(BrainUpgradeRequest())
     assert success.result.status is LifecycleStatus.CHANGED
     assert success.committed_effects[0].subject == f"upgrade:{vault}"
-    assert "BRAIN_INSTALL_REF=\"v0.54.55\"" in cli_binary.read_text()
+    assert "BRAIN_INSTALL_REF=\"v0.54.56\"" in cli_binary.read_text()
     assert stat.S_IMODE(cli_binary.stat().st_mode) == 0o755
     assert success.committed_effects[1].subject == f"file:{cli_binary}"
 

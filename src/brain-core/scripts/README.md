@@ -198,6 +198,10 @@ result identity and exit categories without importing `_application`.
 v0.54.55 makes known semantic request failures structural across typed Python,
 dynamic, direct-script, FastMCP and composed local CLI paths. The outer CLI is
 the sole JSON/human stream owner and rejects child stderr or result/exit drift.
+v0.54.56 stages a pure one-time granular profile migration. Exact historical
+built-ins become catalogue-derived sets; custom profiles expand only explicit
+legacy capabilities plus required outcome-query closure. Runtime fallback and
+pre-cutover config mutation remain prohibited.
 
 That launcher process is not automatically the managed runtime. The shared launcher-safe bootstrap ownership now lives under `_bootstrap/`: bootstrap entrypoints do meaningful launcher-safe work there, and runtime-owning lifecycle entrypoints such as `repair.py`, `setup.py`, `configure.py`, `session.py`, and `check.py` hand substantive managed work off into the canonical managed runtime before continuing.
 
