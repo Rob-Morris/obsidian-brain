@@ -15,13 +15,22 @@ successive refreshes collapse to the latest intent, and an `atexit` drain with
 a bounded cap lets the last in-flight write finish on clean shutdown. See
 dd-036 for the full contract.
 
-v0.54.58 stages the strict `brain.command-interface-header/1` proxy/server
-contract without changing the released tool surface. The
+v0.54.59 activates the strict `brain.command-interface-header/1` proxy/server
+contract without yet changing the released tool surface. The
 `brainCommandInterface` initialise extension is derived from the authoritative
 application catalogue and binds proxy protocol range, interface epoch,
 catalogue/result schemas, fingerprints and the exact granular MCP
-tool-to-command/version/mutation mapping. Server emission and proxy enforcement
-follow in later Phase 5 checkpoints before the coordinated breaking cutover.
+tool-to-command/version/mutation mapping. A replacement server completes MCP
+initialisation under an old live proxy but intercepts every tool call before
+lookup with `proxy_restart_required` and `effects: none`. Proxy 0.6.0 supplies
+protocol marker 2, validates the header, records accepted granular calls before
+dispatch, permits only positively compatible planned-drift replay, retries a
+read orphan once and resolves mutating child loss through `invocation.read`.
+No request translation or mutation replay is performed.
+The generic minimum-proxy gate remains until the oldest supported live proxy
+always supplies compatible protocol metadata. At that point only the
+cutover-specific wording may be retired; the transport invariant and its
+oldest-supported-proxy evidence remain.
 
 ## Tool Metadata Contract
 

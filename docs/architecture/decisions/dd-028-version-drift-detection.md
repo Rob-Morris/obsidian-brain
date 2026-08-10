@@ -22,15 +22,42 @@ The proxy (`proxy.py`) distinguishes exit code 10 from crashes: it restarts imme
 
 `os._exit()` is used rather than `sys.exit()` because `SystemExit` raised inside an MCP tool handler gets wrapped in `BaseExceptionGroup` by anyio task groups, losing the exit code. The MCP SDK's async shutdown then treats it as a normal exit (code 0), causing the proxy to shut down instead of restarting. `os._exit()` bypasses the async stack entirely, ensuring the exit code reaches the proxy.
 
-The proxy tracks in-flight requests (full request objects, not just IDs) and handles them on child exit: for version drift, saved requests are replayed to the new child so the client gets a success response; for crashes, error responses are sent to the client. Replay is safe because `_check_version_drift()` runs before any side effects. Replay depth is capped at 1 to prevent loops.
+The proxy tracks in-flight requests (full request objects, not just IDs). Proxy
+protocol 2 also binds each granular call, before child dispatch, to the exact
+validated initialise header facts: projected tool, canonical command/version,
+interface epoch, mutation class and a proxy-owned invocation identifier.
+
+Exit 10 remains the only planned replay path. `_check_version_drift()` runs on
+the child side before effects; after restart the proxy replays only when the
+replacement header positively retains the accepted protocol, epoch, projected
+tool, command identity/version and mutation class. Missing, malformed or
+contradictory facts return `interface_changed` with `effects: none`, emit
+`notifications/tools/list_changed` and dispatch nothing. Replay depth remains
+capped at 1.
+
+Unexpected child loss is separate. A compatible read-only orphan receives one
+proxy retry; a second loss returns a proven no-effect retryable transport error.
+A mutating orphan is never replayed. After restart the proxy queries the durable
+receipt through `invocation.read`; a conclusive receipt reports the privacy-
+minimal known outcome, while an absent, invalid or explicitly unknown receipt
+returns non-retryable `command_outcome_unknown` with the same queryable
+invocation reference. If restart cannot complete, the same read/no-effect or
+mutation/unknown distinction is preserved rather than collapsed into a generic
+retry-shaped error.
 
 The proxy also detects its own code drift via file-hash comparison (SHA-256) after child restarts, and injects upgrade notes into responses when drift is detected. On Unix, the reader thread uses `select()` with a configurable timeout (default 30s) to detect children that hang without exiting — after 3 consecutive timeouts with in-flight requests, the proxy kills the child and routes that loss through the same restart coordinator. On Windows, anonymous pipe handles cannot be waited on with `select()`, so the reader thread blocks in `readline()` and retains EOF/crash recovery but not timeout-based hang detection. If every restart attempt fails, the proxy marks the session as given up and returns explicit MCP-restart guidance rather than a permanent soft-restarting loop. After give-up, later `tools/call` requests trigger an asynchronous VERSION re-check on the recovery thread; the triggering request still gets the unrecoverable error immediately, and recovery resumes only if `.brain-core/VERSION` changed. If the recovery thread itself crashes, dead-child requests surface a hard `MCP unrecoverable — proxy recovery thread crashed. Restart MCP to recover.` error instead of waiting forever.
 
 ## Consequences
 
 - Brain-core upgrades take effect within one tool call — no manual MCP restart needed. The triggering request is transparently replayed, so no client retry is required.
-- The proxy must remain running across upgrades; it is deliberately kept thin (no business logic) so it rarely needs replacing. File-hash drift detection alerts if the proxy itself changed on disk.
+- The proxy remains transport-focused but now owns protocol validation,
+  accepted-call identity, bounded read retry and receipt-query orchestration.
+  It still owns no command semantics or request translation. File-hash drift
+  detection alerts if the proxy itself changed on disk.
 - Every tool call pays a cheap disk read for the VERSION file. This is negligible compared to index or vault I/O.
 - Version drift is logged as a warning with old and new version strings for auditability.
 - On Unix, hung children are detected and killed rather than causing permanent silent hangs. Windows retains child crash/EOF recovery, but not pipe timeout hang detection.
 - Persistent restart failure is explicit: once backoff is exhausted, the proxy stops claiming it is still restarting and instead returns a hard failure with MCP-restart guidance.
+- Planned drift and unexpected loss have mechanically distinct safety rules;
+  mutations can never enter the read retry or planned replay path after an
+  unplanned exit.

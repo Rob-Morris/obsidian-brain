@@ -123,6 +123,9 @@ from ._server_contracts import (
 )
 from _resource_contract import CREATE_SPECS, EDIT_SPECS, READ_SPECS, LIST_SPECS
 from ._server_runtime import ReadinessInfo, ServerRuntime, ServerState
+from ._command_adapter import application_interface_header
+from ._proxy_protocol_gate import install_proxy_protocol_gate
+from _application.registry import current_application_catalogue
 
 # Path constants — read from script modules (single source of truth).
 def _router_rel() -> str:
@@ -4302,6 +4305,10 @@ def main():
         sys.exit(1)
 
     try:
+        install_proxy_protocol_gate(
+            mcp,
+            application_interface_header(current_application_catalogue()),
+        )
         mcp.run(transport="stdio")
     except SystemExit:
         # Preserve exit code (e.g. 10 for version drift) so the proxy

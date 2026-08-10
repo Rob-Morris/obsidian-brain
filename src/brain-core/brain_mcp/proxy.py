@@ -17,8 +17,11 @@ Env:
     BRAIN_PROXY_BACKOFF     — comma-separated int seconds (default: 0,4,8,16,32)
     BRAIN_PROXY_INIT_TIMEOUT — seconds to wait for child initialize response (default 60)
     BRAIN_PROXY_VERSION_CHECK_INTERVAL — rate-limit for version-reset checks (default 5)
+    BRAIN_MCP_PROXY_PROTOCOL — set by this running proxy for the child handshake
 """
 
+from dataclasses import replace
+from datetime import datetime, timezone
 import hashlib
 import json
 import logging
@@ -31,6 +34,7 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 from pathlib import Path
 
 _SCRIPT_ROOT = Path(__file__).resolve().parents[1] / "scripts"
@@ -45,12 +49,21 @@ from _bootstrap.workspace_binding import (
 )
 from _common import resolve_vault_venv_python
 from _repair_common import build_repair_command
+from ._interface_protocol import (
+    PROXY_PROTOCOL,
+    PROXY_PROTOCOL_ENV,
+    AcceptedCallRecord,
+    CommandInterfaceHeader,
+    accept_call,
+    interface_header_from_initialize,
+    replay_decision,
+)
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
-PROXY_VERSION = "0.5.6"
+PROXY_VERSION = "0.6.0"
 
 _LOG_REL = os.path.join(".brain", "local", "mcp-proxy.log")
 _LOG_MAX_BYTES = 2 * 1024 * 1024  # 2 MB
@@ -204,6 +217,265 @@ def _make_error_response(msg_id: int | str | None, code: int, message: str) -> d
     }
 
 
+def _interface_changed_response(
+    msg_id: int | str | None,
+    reason: str,
+    *,
+    detail: str | None = None,
+) -> dict:
+    message = (
+        "The Brain command interface changed while this call was in flight; "
+        "re-discover tools and reformulate the request."
+    )
+    payload = {
+        "schema": "brain.proxy-replay-result/1",
+        "status": "error",
+        "error": {
+            "code": "interface_changed",
+            "message": message,
+            "effects": "none",
+            "retryable": False,
+            "details": {"reason": reason, "diagnostic": detail},
+            "next_action": {
+                "instruction": "rediscover_tools",
+                "description": message,
+            },
+        },
+    }
+    return {
+        "jsonrpc": "2.0",
+        "id": msg_id,
+        "result": {
+            "content": [
+                {
+                    "type": "text",
+                    "text": f"interface_changed: {message}",
+                }
+            ],
+            "structuredContent": payload,
+            "isError": True,
+        },
+    }
+
+
+def _read_orphan_response(record: AcceptedCallRecord) -> dict:
+    """Return a proven no-effect result after the one proxy retry is exhausted."""
+
+    message = (
+        "The Brain child was lost during a read-only call after its one safe "
+        "proxy retry; the call had no durable effects and may be retried by the caller."
+    )
+    payload = {
+        "schema": "brain.proxy-read-recovery/1",
+        "status": "error",
+        "command": record.command_id,
+        "command_version": record.command_version,
+        "error": {
+            "code": "read_transport_lost",
+            "message": message,
+            "effects": "none",
+            "retryable": True,
+        },
+    }
+    return {
+        "jsonrpc": "2.0",
+        "id": record.request_id,
+        "result": {
+            "content": [{"type": "text", "text": f"read_transport_lost: {message}"}],
+            "structuredContent": payload,
+            "isError": True,
+        },
+    }
+
+
+def _outcome_unknown_response(
+    record: AcceptedCallRecord,
+    *,
+    diagnostic: str | None = None,
+) -> dict:
+    """Return the proxy-owned typed unknown-outcome result for a lost mutation."""
+
+    message = (
+        "The Brain child was lost after accepting a mutating call and no conclusive "
+        "outcome receipt could be obtained. Do not retry the mutation blindly."
+    )
+    reference = {"invocation_id": record.invocation_id}
+    payload = {
+        "schema": "brain.command-result/1",
+        "command": record.command_id,
+        "command_version": record.command_version,
+        "status": "error",
+        "warnings": [],
+        "result": None,
+        "error": {
+            "code": "command_outcome_unknown",
+            "message": message,
+            "details": {"reference": reference},
+            "effects": "unknown",
+            "retryable": False,
+            "outcome_reference": reference,
+            "next_action": {
+                "command_id": "invocation.read",
+                "arguments": [
+                    {"name": "invocation_id", "value": record.invocation_id}
+                ],
+            },
+        },
+    }
+    if diagnostic:
+        _log().warning(
+            "mutation outcome remains unknown id=%s diagnostic=%s",
+            record.request_id,
+            diagnostic,
+        )
+    return {
+        "jsonrpc": "2.0",
+        "id": record.request_id,
+        "result": {
+            "content": [
+                {
+                    "type": "text",
+                    "text": f"{record.command_id}: command_outcome_unknown — {message}",
+                }
+            ],
+            "structuredContent": payload,
+            "isError": True,
+        },
+    }
+
+
+def _resolved_outcome_response(
+    record: AcceptedCallRecord,
+    receipt: dict[str, object],
+) -> dict:
+    """Return a privacy-minimal conclusive receipt after child loss."""
+
+    state = receipt["state"]
+    partial = state == "known_partial"
+    message = (
+        f"The original {record.command_id} response was lost, but its durable "
+        f"outcome receipt proves state {state}."
+    )
+    payload = {
+        "schema": "brain.proxy-outcome-resolution/1",
+        "status": "partial" if partial else "resolved",
+        "command": record.command_id,
+        "command_version": record.command_version,
+        "outcome_reference": {"invocation_id": record.invocation_id},
+        "receipt": receipt,
+        "retryable": False,
+    }
+    return {
+        "jsonrpc": "2.0",
+        "id": record.request_id,
+        "result": {
+            "content": [{"type": "text", "text": message}],
+            "structuredContent": payload,
+            "isError": partial,
+        },
+    }
+
+
+def _parse_receipt_lookup_response(
+    response: object,
+    *,
+    query_id: str,
+    record: AcceptedCallRecord,
+    invocation_read_version: int,
+) -> dict[str, object] | None:
+    """Validate the exact useful subset of an ``invocation.read`` MCP result."""
+
+    if not isinstance(response, dict) or response.get("id") != query_id:
+        raise ValueError("receipt query response identity is invalid")
+    result = response.get("result")
+    if not isinstance(result, dict):
+        raise ValueError("receipt query did not return an MCP tool result")
+    structured = result.get("structuredContent")
+    if not isinstance(structured, dict):
+        raise ValueError("receipt query has no structured command result")
+    expected_top = {
+        "schema",
+        "command",
+        "command_version",
+        "status",
+        "warnings",
+        "result",
+        "committed_effects",
+    }
+    if set(structured) != expected_top:
+        raise ValueError("receipt query command-result shape is invalid")
+    if (
+        structured["schema"] != "brain.command-result/1"
+        or structured["command"] != "invocation.read"
+        or structured["command_version"] != invocation_read_version
+        or structured["status"] != "ok"
+        or structured["warnings"] != []
+        or structured["committed_effects"] != []
+    ):
+        raise ValueError("receipt query command-result facts are contradictory")
+    payload = structured["result"]
+    if not isinstance(payload, dict) or set(payload) != {
+        "reference",
+        "state",
+        "receipt",
+    }:
+        raise ValueError("receipt query payload shape is invalid")
+    reference = {"invocation_id": record.invocation_id}
+    if payload["reference"] != reference:
+        raise ValueError("receipt query returned the wrong outcome reference")
+    if payload["state"] == "still_unknown":
+        if payload["receipt"] is not None:
+            raise ValueError("still-unknown lookup cannot carry a receipt")
+        return None
+    if payload["state"] != "found" or not isinstance(payload["receipt"], dict):
+        raise ValueError("receipt query lookup state is invalid")
+    receipt = payload["receipt"]
+    if set(receipt) != {
+        "reference",
+        "command_id",
+        "command_version",
+        "state",
+        "recorded_at",
+        "committed_effects",
+    }:
+        raise ValueError("outcome receipt shape is invalid")
+    if (
+        receipt["reference"] != reference
+        or receipt["command_id"] != record.command_id
+        or receipt["command_version"] != record.command_version
+    ):
+        raise ValueError("outcome receipt contradicts the accepted call")
+    if receipt["state"] not in {"committed", "known_partial", "unknown"}:
+        raise ValueError("outcome receipt state is not conclusive or explicitly unknown")
+    recorded_at = receipt["recorded_at"]
+    if not isinstance(recorded_at, str):
+        raise ValueError("outcome receipt timestamp is invalid")
+    try:
+        parsed_at = datetime.fromisoformat(recorded_at)
+    except ValueError as exc:
+        raise ValueError("outcome receipt timestamp is invalid") from exc
+    if parsed_at.tzinfo is None:
+        raise ValueError("outcome receipt timestamp must be timezone-aware")
+    effects = receipt["committed_effects"]
+    if not isinstance(effects, list):
+        raise ValueError("outcome receipt effects must be a list")
+    for effect in effects:
+        if (
+            not isinstance(effect, dict)
+            or set(effect) != {"kind", "subject"}
+            or not isinstance(effect["kind"], str)
+            or not effect["kind"].strip()
+            or not isinstance(effect["subject"], str)
+            or not effect["subject"].strip()
+        ):
+            raise ValueError("outcome receipt contains an invalid committed effect")
+    if receipt["state"] == "known_partial" and not effects:
+        raise ValueError("known-partial receipt must enumerate committed effects")
+    if receipt["state"] == "unknown" and effects:
+        raise ValueError("unknown receipt cannot claim committed effects")
+    return receipt
+
+
 def _write_line(stream, obj: dict) -> None:
     """Serialize obj as NDJSON and write to stream."""
     line = json.dumps(obj) + "\n"
@@ -333,6 +605,7 @@ class ChildProcess:
     def start(self) -> None:
         """Spawn the child process."""
         env = os.environ.copy()
+        env[PROXY_PROTOCOL_ENV] = str(PROXY_PROTOCOL)
         if os.path.isfile(self.server_target):
             cmd = [self.python_path, self.server_target]
         else:
@@ -429,6 +702,9 @@ class Proxy:
         # initialize capture
         self._init_request: dict | None = None
         self._init_response: dict | None = None
+        self._interface_header: CommandInterfaceHeader | None = None
+        self._interface_header_error: str | None = None
+        self._interface_lock = threading.Lock()
 
         # Backoff state
         self._backoff_schedule = _get_backoff_schedule()
@@ -447,12 +723,16 @@ class Proxy:
         # a monotonic timestamp used to log per-message latency on response.
         # Protected by _inflight_lock.
         self._inflight_requests: dict[int | str, tuple[dict, float]] = {}
+        self._accepted_calls: dict[int | str, AcceptedCallRecord] = {}
         self._inflight_lock = threading.Lock()
         # _pending_replay holds drained-but-not-yet-replayed requests across
         # the wake/sleep boundary on a drift restart. Protected by
         # _restart_lock (NOT _inflight_lock — drain copies under _inflight_lock,
         # then hands the snapshot to recovery state under _restart_lock).
         self._pending_replay: list[dict] = []
+        self._pending_accepted_calls: dict[int | str, AcceptedCallRecord] = {}
+        self._pending_unexpected: list[dict] = []
+        self._pending_unexpected_calls: dict[int | str, AcceptedCallRecord] = {}
         self._replay_depth = 0  # prevent infinite drift→replay loops
 
         # Synchronization
@@ -558,6 +838,7 @@ class Proxy:
                 child.kill()
                 return False
 
+            self._capture_interface_header(response)
             _log().info("child restarted successfully, discarding init response")
 
             # Notify client that tools may have changed
@@ -569,6 +850,10 @@ class Proxy:
                 _log().info("sent notifications/tools/list_changed to client")
             except Exception as e:
                 _log().error("failed to send list_changed notification: %s", e)
+
+            # The reader cannot race these proxy-owned receipt queries because
+            # the replacement child is not published until resolution ends.
+            self._resolve_pending_unexpected(child)
 
         with self._child_lock:
             self._child = child
@@ -594,8 +879,19 @@ class Proxy:
             # owed a response.
             with self._inflight_lock:
                 was_tracked = self._inflight_requests.pop(msg_id, None) is not None
+                accepted = self._accepted_calls.pop(msg_id, None)
             if was_tracked:
-                self._send_to_client(self._error_response_for_dead_child(msg_id))
+                if accepted is None:
+                    self._send_to_client(self._error_response_for_dead_child(msg_id))
+                elif accepted.mutation_class == "none":
+                    self._send_to_client(_read_orphan_response(accepted))
+                else:
+                    self._send_to_client(
+                        _outcome_unknown_response(
+                            accepted,
+                            diagnostic="recovery was already claimed before dispatch failed",
+                        )
+                    )
 
     def _initiate_shutdown(self) -> None:
         """Begin proxy shutdown and wake any sleeping background threads."""
@@ -641,6 +937,32 @@ class Proxy:
             _log().error("error reading child initialize response: invalid JSON-RPC frame")
             return None
         return obj
+
+    def _capture_interface_header(self, response: dict) -> None:
+        """Publish one validated child header or its fail-closed parse error."""
+
+        try:
+            header = interface_header_from_initialize(response)
+            if not (
+                header.minimum_proxy_protocol
+                <= PROXY_PROTOCOL
+                <= header.maximum_proxy_protocol
+            ):
+                raise ValueError("child does not support the running proxy protocol")
+        except (TypeError, ValueError) as exc:
+            with self._interface_lock:
+                self._interface_header = None
+                self._interface_header_error = str(exc)
+            _log().error("child command-interface header rejected: %s", exc)
+            return
+        with self._interface_lock:
+            self._interface_header = header
+            self._interface_header_error = None
+        _log().info(
+            "accepted child command-interface header epoch=%d fingerprint=%s",
+            header.interface_epoch,
+            header.fingerprint,
+        )
 
     def _compute_proxy_hash(self, content: bytes | None = None) -> str | None:
         """Compute SHA-256 hash prefix of proxy.py. Uses provided content or reads from disk."""
@@ -711,21 +1033,184 @@ class Proxy:
             self._version_reset_requested = False
 
     def _fail_pending_replay(self, message: str) -> None:
-        """Fail any saved replay requests when recovery cannot complete."""
+        """Fail any saved recovery work when the child cannot restart."""
         with self._restart_lock:
             pending = list(self._pending_replay)
             self._pending_replay.clear()
+            self._pending_accepted_calls.clear()
+            unexpected = list(self._pending_unexpected)
+            accepted = dict(self._pending_unexpected_calls)
+            self._pending_unexpected.clear()
+            self._pending_unexpected_calls.clear()
         if pending:
             self._replay_depth = 0
             self._send_client_errors(pending, message)
+        for request in unexpected:
+            record = accepted.get(request.get("id"))
+            if record is None:
+                self._send_client_errors([request], message)
+            elif record.mutation_class == "none":
+                self._send_to_client(_read_orphan_response(record))
+            else:
+                self._send_to_client(
+                    _outcome_unknown_response(record, diagnostic=message)
+                )
 
     def _replay_pending_requests(self) -> None:
         """Replay saved requests to the current child before ending recovery."""
         with self._restart_lock:
             pending = list(self._pending_replay)
             self._pending_replay.clear()
+            accepted = dict(self._pending_accepted_calls)
+            self._pending_accepted_calls.clear()
         if pending:
-            self._replay_requests(pending)
+            self._replay_requests(pending, accepted)
+
+    def _resolve_pending_unexpected(self, child: ChildProcess) -> None:
+        """Resolve accepted calls after unplanned child loss without mutation replay."""
+
+        with self._restart_lock:
+            pending = list(self._pending_unexpected)
+            accepted = dict(self._pending_unexpected_calls)
+            self._pending_unexpected.clear()
+            self._pending_unexpected_calls.clear()
+        if not pending:
+            return
+
+        with self._interface_lock:
+            header = self._interface_header
+            header_error = self._interface_header_error
+        for request in pending:
+            request_id = request.get("id")
+            record = accepted.get(request_id)
+            if record is None:
+                self._send_client_errors([request], "accepted-call record was lost")
+                continue
+            if record.mutation_class == "none":
+                self._retry_read_orphan(child, request, record, header, header_error)
+            else:
+                self._resolve_mutation_orphan(child, record, header, header_error)
+
+    def _retry_read_orphan(
+        self,
+        child: ChildProcess,
+        request: dict,
+        record: AcceptedCallRecord,
+        header: CommandInterfaceHeader | None,
+        header_error: str | None,
+    ) -> None:
+        """Retry one compatible read orphan once, independently of drift replay."""
+
+        if record.read_retry_count >= 1:
+            self._send_to_client(_read_orphan_response(record))
+            return
+        if header is None:
+            self._refuse_interface_replay(
+                record.request_id,
+                "replacement_header_invalid",
+                detail=header_error,
+            )
+            return
+        decision = replay_decision(record, header)
+        if not decision.compatible:
+            self._refuse_interface_replay(record.request_id, decision.reason)
+            return
+        retried = replace(record, read_retry_count=record.read_retry_count + 1)
+        try:
+            child.send(request)
+        except Exception as exc:
+            _log().error("read-only orphan retry failed id=%s: %s", record.request_id, exc)
+            self._send_to_client(_read_orphan_response(retried))
+            return
+        with self._inflight_lock:
+            self._inflight_requests[record.request_id] = (request, time.monotonic())
+            self._accepted_calls[record.request_id] = retried
+        _log().info("retried read-only orphan id=%s once", record.request_id)
+
+    def _resolve_mutation_orphan(
+        self,
+        child: ChildProcess,
+        record: AcceptedCallRecord,
+        header: CommandInterfaceHeader | None,
+        header_error: str | None,
+    ) -> None:
+        """Query the replacement child for one mutating orphan's durable receipt."""
+
+        if header is None:
+            self._send_to_client(
+                _outcome_unknown_response(record, diagnostic=header_error)
+            )
+            return
+        mapping = header.tool("brain_invocation_read")
+        if mapping is None or mapping.command_id != "invocation.read":
+            self._send_to_client(
+                _outcome_unknown_response(
+                    record,
+                    diagnostic="replacement interface cannot query invocation receipts",
+                )
+            )
+            return
+        query_id = f"brain-proxy-receipt-{uuid.uuid4()}"
+        query = {
+            "jsonrpc": "2.0",
+            "id": query_id,
+            "method": "tools/call",
+            "params": {
+                "name": "brain_invocation_read",
+                "arguments": {"invocation_id": record.invocation_id},
+            },
+        }
+        try:
+            child.send(query)
+            response = self._read_internal_response(child, query_id, _get_init_timeout())
+            receipt = _parse_receipt_lookup_response(
+                response,
+                query_id=query_id,
+                record=record,
+                invocation_read_version=mapping.command_version,
+            )
+        except Exception as exc:
+            _log().warning(
+                "mutation outcome query inconclusive id=%s: %s",
+                record.request_id,
+                exc,
+            )
+            self._send_to_client(
+                _outcome_unknown_response(record, diagnostic=str(exc))
+            )
+            return
+        if receipt is None or receipt["state"] == "unknown":
+            self._send_to_client(
+                _outcome_unknown_response(
+                    record,
+                    diagnostic="outcome receipt remains inconclusive",
+                )
+            )
+            return
+        self._send_to_client(_resolved_outcome_response(record, receipt))
+
+    def _read_internal_response(
+        self,
+        child: ChildProcess,
+        query_id: str,
+        timeout: int,
+    ) -> dict:
+        """Read one proxy-owned child response while preserving notifications."""
+
+        deadline = time.monotonic() + timeout
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise ValueError("receipt query timed out")
+            response = self._read_with_timeout(child, max(1, int(remaining + 0.999)))
+            if response is None:
+                raise ValueError("receipt query produced no response")
+            if response.get("id") == query_id:
+                return response
+            if response.get("method"):
+                self._send_to_client(response)
+                continue
+            raise ValueError("receipt query received a contradictory response identifier")
 
     def _signal_recovery(
         self,
@@ -762,20 +1247,35 @@ class Proxy:
 
             is_drift = exit_code == _EXIT_CODE_VERSION_DRIFT
             can_replay = is_drift and self._replay_depth < _MAX_REPLAY_DEPTH
-            drained_requests = self._drain_inflight()
+            drained_requests, accepted_calls = self._drain_inflight()
 
             if can_replay:
                 for req in drained_requests:
                     _log().info("saving in-flight request id=%s for replay", req.get("id"))
                 self._pending_replay = drained_requests
+                self._pending_accepted_calls = accepted_calls
+                self._pending_unexpected = []
+                self._pending_unexpected_calls = {}
                 self._replay_depth += 1
             else:
                 if drained_requests:
                     self._replay_depth = 0
                 self._pending_replay = []
+                self._pending_accepted_calls = {}
+                self._pending_unexpected = [
+                    request
+                    for request in drained_requests
+                    if request.get("id") in accepted_calls
+                ]
+                self._pending_unexpected_calls = accepted_calls
 
         recovery_dead = self._recovery_thread_is_dead() or self._recovery_thread_failed
-        if not can_replay and drained_requests:
+        legacy_orphans = [
+            request
+            for request in drained_requests
+            if request.get("id") not in accepted_calls
+        ]
+        if not can_replay and legacy_orphans:
             # When recovery cannot proceed, the orphan response must reflect
             # that — the soft "restarting" message would mislead the client
             # into retrying against a proxy that will never recover.
@@ -783,7 +1283,7 @@ class Proxy:
                 _RECOVERY_THREAD_CRASHED_MSG if recovery_dead
                 else "server exited mid-request, restarting"
             )
-            self._send_client_errors(drained_requests, message)
+            self._send_client_errors(legacy_orphans, message)
 
         self._recovery_trigger.set()
 
@@ -794,7 +1294,9 @@ class Proxy:
         # Gated on (pending_replay populated OR first detection) so steady-
         # state dead-recovery hits don't keep re-acquiring _restart_lock.
         if recovery_dead and (
-            self._pending_replay or not self._recovery_thread_failed
+            self._pending_replay
+            or self._pending_unexpected
+            or not self._recovery_thread_failed
         ):
             self._recovery_thread_failed = True
             self._fail_pending_replay(_RECOVERY_THREAD_CRASHED_MSG)
@@ -957,7 +1459,9 @@ class Proxy:
     # Reader thread (child stdout → proxy stdout)
     # ------------------------------------------------------------------
 
-    def _drain_inflight(self) -> list[dict]:
+    def _drain_inflight(
+        self,
+    ) -> tuple[list[dict], dict[int | str, AcceptedCallRecord]]:
         """
         Atomically clear and return the in-flight request map.
 
@@ -966,8 +1470,13 @@ class Proxy:
         """
         with self._inflight_lock:
             orphans = [req for req, _ in self._inflight_requests.values()]
+            accepted = {
+                request_id: self._accepted_calls.pop(request_id)
+                for request_id in tuple(self._accepted_calls)
+                if request_id in self._inflight_requests
+            }
             self._inflight_requests.clear()
-        return orphans
+        return orphans, accepted
 
     def _send_client_errors(self, requests: list[dict], message: str) -> None:
         """Send JSON-RPC error responses to the client for a list of requests."""
@@ -976,7 +1485,40 @@ class Proxy:
             _log().warning("orphaned in-flight request id=%s — sending error to client", req_id)
             self._send_to_client(_make_error_response(req_id, -32603, message))
 
-    def _replay_requests(self, requests: list[dict]) -> None:
+    def _refuse_interface_replay(
+        self,
+        request_id: int | str | None,
+        reason: str | None,
+        *,
+        detail: str | None = None,
+    ) -> None:
+        """Fail one replay without child dispatch and force tool re-discovery."""
+
+        resolved_reason = reason or "indeterminate_interface_change"
+        _log().warning(
+            "refusing request replay id=%s reason=%s",
+            request_id,
+            resolved_reason,
+        )
+        self._send_to_client(
+            _interface_changed_response(
+                request_id,
+                resolved_reason,
+                detail=detail,
+            )
+        )
+        self._send_to_client(
+            {
+                "jsonrpc": "2.0",
+                "method": "notifications/tools/list_changed",
+            }
+        )
+
+    def _replay_requests(
+        self,
+        requests: list[dict],
+        accepted_calls: dict[int | str, AcceptedCallRecord],
+    ) -> None:
         """
         Replay saved requests to the current child after a version-drift restart.
         Called from the recovery thread after a successful restart.
@@ -990,11 +1532,42 @@ class Proxy:
         replayed_any = False
         for req in requests:
             req_id = req.get("id")
+            accepted = accepted_calls.get(req_id)
+            with self._interface_lock:
+                header = self._interface_header
+                header_error = self._interface_header_error
+            params = req.get("params")
+            tool_name = params.get("name") if isinstance(params, dict) else None
+            mapped_call = (
+                header is not None
+                and isinstance(tool_name, str)
+                and header.tool(tool_name) is not None
+            )
+            if accepted is None and mapped_call:
+                self._refuse_interface_replay(req_id, "accepted_call_missing")
+                continue
+            if accepted is not None and not isinstance(accepted, AcceptedCallRecord):
+                self._refuse_interface_replay(req_id, "accepted_call_invalid")
+                continue
+            if accepted is not None:
+                if header is None:
+                    self._refuse_interface_replay(
+                        req_id,
+                        "replacement_header_invalid",
+                        detail=header_error,
+                    )
+                    continue
+                decision = replay_decision(accepted, header)
+                if not decision.compatible:
+                    self._refuse_interface_replay(req_id, decision.reason)
+                    continue
             _log().info("replaying request id=%s to new child", req_id)
             try:
                 child.send(req)
                 with self._inflight_lock:
                     self._inflight_requests[req_id] = (req, time.monotonic())
+                    if accepted is not None:
+                        self._accepted_calls[req_id] = accepted
                 replayed_any = True
             except Exception as e:
                 _log().error("replay failed for request id=%s: %s", req_id, e)
@@ -1096,6 +1669,7 @@ class Proxy:
                 if msg_id is not None:
                     with self._inflight_lock:
                         entry = self._inflight_requests.pop(msg_id, None)
+                        self._accepted_calls.pop(msg_id, None)
                     if entry is not None:
                         _, sent_at = entry
                         latency_s = time.monotonic() - sent_at
@@ -1119,6 +1693,7 @@ class Proxy:
                     and "result" in obj
                 ):
                     self._init_response = obj
+                    self._capture_interface_header(obj)
                     _log().info("captured initialize response from child")
 
                 self._send_to_client(obj)
@@ -1144,6 +1719,31 @@ class Proxy:
         else:
             message = "server restarting, please retry"
         return _make_error_response(msg_id, -32603, message)
+
+    def _prepare_interface_call(
+        self,
+        request: dict,
+    ) -> tuple[dict, AcceptedCallRecord | None]:
+        """Bind granular calls when the child advertised their exact contract."""
+
+        with self._interface_lock:
+            header = self._interface_header
+        if header is None:
+            return request, None
+        params = request.get("params")
+        tool_name = params.get("name") if isinstance(params, dict) else None
+        # Pre-cutover aggregate calls remain development scaffolding. Phase 6
+        # removes them and makes absence from this mapping fail closed.
+        if not isinstance(tool_name, str) or header.tool(tool_name) is None:
+            return request, None
+        invocation_id = f"mcp-{uuid.uuid4()}"
+        record, forwarded = accept_call(
+            request,
+            header,
+            invocation_id=invocation_id,
+            accepted_at=datetime.now(timezone.utc),
+        )
+        return forwarded, record
 
     def run(self) -> None:
         """Main proxy loop. Reads from stdin, forwards to child."""
@@ -1196,7 +1796,9 @@ class Proxy:
 
             recovery_thread_dead = child is None and self._recovery_thread_is_dead()
             if recovery_thread_dead and (
-                self._pending_replay or not self._recovery_thread_failed
+                self._pending_replay
+                or self._pending_unexpected
+                or not self._recovery_thread_failed
             ):
                 self._recovery_thread_failed = True
                 self._fail_pending_replay(_RECOVERY_THREAD_CRASHED_MSG)
@@ -1210,10 +1812,24 @@ class Proxy:
                     _log().debug("dropping notification (child dead): method=%s", method)
                 continue
 
+            accepted_call = None
+            if method == "tools/call":
+                try:
+                    obj, accepted_call = self._prepare_interface_call(obj)
+                except (TypeError, ValueError) as exc:
+                    self._refuse_interface_replay(
+                        msg_id,
+                        "accepted_call_invalid",
+                        detail=str(exc),
+                    )
+                    continue
+
             # Forward to child
             if is_request:
                 with self._inflight_lock:
                     self._inflight_requests[msg_id] = (obj, time.monotonic())
+                    if accepted_call is not None:
+                        self._accepted_calls[msg_id] = accepted_call
             try:
                 child.send(obj)
             except BrokenPipeError:

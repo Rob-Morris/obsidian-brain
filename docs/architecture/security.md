@@ -196,6 +196,19 @@ identity, outcome state, timestamp and compact effect references. Request
 bodies, credentials and provider values are not representable in the receipt
 schema. Proven no-effect results are not persisted.
 
+The MCP proxy/server protocol marker is a local compatibility assertion, not an
+authentication credential. The long-lived proxy sets it only in the child
+environment; a replacement server with a missing, malformed or incompatible
+marker completes initialisation but refuses every tool call before lookup or
+effects. Proxy 0.6.0 then validates the catalogue-derived interface header and
+owns the invocation identifier inserted into forwarded call metadata. Caller
+metadata cannot replace that identifier at the proxy boundary. After unexpected
+mutation loss the proxy queries only the fixed `invocation.read` command and
+validates the returned reference, command identity/version, state, timestamp
+and bounded effect records before reporting a known outcome. Any absent or
+contradictory fact remains non-retryable and outcome-unknown; the proxy never
+uses receipt absence as proof of no effect and never replays the mutation.
+
 The staged direct `command.py` adapter keeps semantic request data separate
 from trusted locality. `--vault` must resolve to a regular installed Brain with
 non-symlinked Brain Core identity files. `--workspace` is accepted as invocation

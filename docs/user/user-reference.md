@@ -222,6 +222,15 @@ If your vault runs the Brain MCP server (`.brain-core/brain_mcp/server.py`), twe
 
 The MCP server writes persistent logs to `.brain/local/mcp-server.log` (2 MB max, 1 backup). Startup diagnostics, tool call tracing, and errors are logged at INFO level. Startup now emits explicit begin/success/failure markers for config load, router freshness, index freshness, workspace registry load, and session-mirror refresh, so a stalled startup can be localised from the log alone. To include tool arguments in the log, set the environment variable `BRAIN_LOG_LEVEL=DEBUG`. The log file is local-only (gitignored).
 
+After a Brain upgrade, an old live MCP proxy may return
+`proxy_restart_required` before any tool lookup. Restart the MCP connection once
+to load the matching proxy; the server does not translate or execute the
+blocked call. With the matching proxy, planned pre-effect version drift can be
+replayed only after interface validation. Unexpected read loss is retried at
+most once, while a lost mutation is never replayed: Brain reports a durable
+receipt when available or a non-retryable `command_outcome_unknown` reference
+that can be queried with `invocation.read`.
+
 ### Scripts
 
 Available in `.brain-core/scripts/`. Scripts are the source of truth for all vault operations — the MCP server imports from them. The optional [`brain` CLI](../functional/cli.md) provides ergonomic shortcuts that dispatch to these same top-level script surfaces.

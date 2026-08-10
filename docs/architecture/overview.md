@@ -311,11 +311,13 @@ v0.54.57 stages explicit, non-exiting local `command list/describe` grammar.
 Owner selection and shared filter spellings remain presentation concerns; each
 owner receives only its own request/filter data, and application refresh never
 becomes launcher semantics. Public CLI v1 dispatch remains unchanged.
-v0.54.58 defines the stdlib-only proxy/server command-interface header contract.
-Its MCP mapping is derived from the authoritative application catalogue and
-binds protocol range, epoch, command versions, mutation classes, schemas and
-fingerprints under strict fail-closed parsing. Emission and enforcement remain
-staged for the following Phase 5 checkpoints.
+v0.54.59 activates the stdlib-only proxy/server command-interface contract.
+The server emits the catalogue-derived header and rejects every call before
+tool lookup when its running proxy marker is missing or incompatible. Proxy
+0.6.0 supplies protocol 2, binds accepted calls before dispatch and separates
+planned drift from unplanned child loss: only positively compatible drift calls
+replay; reads receive one independent retry; mutations are never replayed and
+resolve through durable receipts or non-retryable outcome-unknown results.
 
 The lifecycle/bootstrap side of that script layer now has an explicit shared owner under `scripts/_bootstrap/`. `runtime.py` owns launcher discovery, managed-runtime handoff, executable path identity, and the shared `BRAIN_BOOTSTRAP_SUMMARY` contract; `diagnostics.py` owns the launcher-safe runtime/MCP/registry checks needed before managed semantic work is available; `mcp_state.py` owns shared MCP/config-layout and init-state helpers; `vaults.py` owns the env-aware vault-root discovery seam used by the public lifecycle wrappers; `workspace_scaffold.py` owns Brain-local ignore-rule convergence; `mcp_transport.py` owns the shared Claude/Codex transport/config write engine; and `agent_skills.py` owns version-neutral, ownership-safe client skill adapters. Entry points such as `setup.py`, `repair.py`, `configure.py`, `session.py`, and `check.py` now converge on that seam instead of carrying parallel launcher or env-var logic.
 

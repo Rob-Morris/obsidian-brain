@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass
+from datetime import datetime
 import hashlib
 import json
 from typing import Mapping
 
 
 PROXY_PROTOCOL = 2
+PROXY_PROTOCOL_ENV = "BRAIN_MCP_PROXY_PROTOCOL"
 MIN_PROXY_PROTOCOL = 2
 MAX_PROXY_PROTOCOL = 2
 INTERFACE_HEADER_SCHEMA = "brain.command-interface-header/1"
@@ -78,6 +81,52 @@ class CommandInterfaceHeader:
 
     def tool(self, name: str) -> InterfaceTool | None:
         return dict(self.tools).get(name)
+
+
+@dataclass(frozen=True, slots=True)
+class AcceptedCallRecord:
+    request_id: int | str
+    raw_request: Mapping[str, object]
+    projected_tool: str
+    command_id: str
+    command_version: int
+    interface_epoch: int
+    header_fingerprint: str
+    mutation_class: str
+    invocation_id: str
+    accepted_at: datetime
+    read_retry_count: int = 0
+
+    def __post_init__(self) -> None:
+        if isinstance(self.request_id, bool) or not isinstance(
+            self.request_id, (int, str)
+        ):
+            raise ValueError("accepted call requires a JSON-RPC request identifier")
+        if isinstance(self.request_id, str) and not self.request_id:
+            raise ValueError("accepted call string request identifier cannot be empty")
+        if not isinstance(self.raw_request, Mapping):
+            raise ValueError("accepted call requires its raw request object")
+        _tool_name(self.projected_tool)
+        _command_id(self.command_id)
+        _positive_int(self.command_version, "accepted command version")
+        _positive_int(self.interface_epoch, "accepted interface epoch")
+        _fingerprint(self.header_fingerprint, "accepted header fingerprint")
+        _non_empty(self.mutation_class, "accepted mutation class")
+        _non_empty(self.invocation_id, "accepted invocation identifier")
+        if not isinstance(self.accepted_at, datetime) or self.accepted_at.tzinfo is None:
+            raise ValueError("accepted call timestamp must be timezone-aware")
+        if (
+            not isinstance(self.read_retry_count, int)
+            or isinstance(self.read_retry_count, bool)
+            or self.read_retry_count < 0
+        ):
+            raise ValueError("accepted read retry count must be a non-negative integer")
+
+
+@dataclass(frozen=True, slots=True)
+class ReplayDecision:
+    compatible: bool
+    reason: str | None = None
 
 
 def command_interface_header(
@@ -194,6 +243,81 @@ def proxy_protocol_supported(header: CommandInterfaceHeader, protocol: int) -> b
 
     _positive_int(protocol, "running proxy protocol")
     return header.minimum_proxy_protocol <= protocol <= header.maximum_proxy_protocol
+
+
+def accept_call(
+    request: Mapping[str, object],
+    header: CommandInterfaceHeader,
+    *,
+    invocation_id: str,
+    accepted_at: datetime,
+) -> tuple[AcceptedCallRecord, dict[str, object]]:
+    """Bind one raw tools/call request to the exact accepted interface facts."""
+
+    raw = deepcopy(dict(request))
+    if raw.get("jsonrpc") != "2.0" or raw.get("method") != "tools/call":
+        raise ValueError("accepted call must be a JSON-RPC tools/call request")
+    request_id = raw.get("id")
+    params = raw.get("params")
+    if not isinstance(params, Mapping):
+        raise ValueError("accepted tools/call request requires params")
+    projected_tool = params.get("name")
+    if not isinstance(projected_tool, str):
+        raise ValueError("accepted tools/call request requires a tool name")
+    mapping = header.tool(projected_tool)
+    if mapping is None:
+        raise ValueError("projected tool is absent from the accepted interface header")
+    record = AcceptedCallRecord(
+        request_id=request_id,
+        raw_request=raw,
+        projected_tool=projected_tool,
+        command_id=mapping.command_id,
+        command_version=mapping.command_version,
+        interface_epoch=header.interface_epoch,
+        header_fingerprint=header.fingerprint,
+        mutation_class=mapping.mutation_class,
+        invocation_id=invocation_id,
+        accepted_at=accepted_at,
+    )
+    forwarded = deepcopy(raw)
+    forwarded_params = dict(forwarded["params"])
+    raw_meta = forwarded_params.get("_meta")
+    if raw_meta is None:
+        metadata = {}
+    elif isinstance(raw_meta, Mapping):
+        metadata = dict(raw_meta)
+    else:
+        raise ValueError("tools/call _meta must be an object")
+    if "brainInvocation" in metadata:
+        raise ValueError("brainInvocation metadata is owned by the proxy")
+    metadata["brainInvocation"] = {"invocationId": invocation_id}
+    forwarded_params["_meta"] = metadata
+    forwarded["params"] = forwarded_params
+    return record, forwarded
+
+
+def replay_decision(
+    record: AcceptedCallRecord,
+    replacement: CommandInterfaceHeader,
+    *,
+    proxy_protocol: int = PROXY_PROTOCOL,
+) -> ReplayDecision:
+    """Permit replay only from positive command-level compatibility evidence."""
+
+    if not proxy_protocol_supported(replacement, proxy_protocol):
+        return ReplayDecision(False, "proxy_protocol_incompatible")
+    if replacement.interface_epoch != record.interface_epoch:
+        return ReplayDecision(False, "interface_epoch_changed")
+    mapping = replacement.tool(record.projected_tool)
+    if mapping is None:
+        return ReplayDecision(False, "projected_tool_removed")
+    if mapping.command_id != record.command_id:
+        return ReplayDecision(False, "command_identity_changed")
+    if mapping.command_version != record.command_version:
+        return ReplayDecision(False, "command_version_changed")
+    if mapping.mutation_class != record.mutation_class:
+        return ReplayDecision(False, "mutation_class_changed")
+    return ReplayDecision(True)
 
 
 def _header_payload(header: CommandInterfaceHeader) -> dict[str, object]:

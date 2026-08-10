@@ -15,6 +15,7 @@ import sys
 import textwrap
 import threading
 import time
+from dataclasses import replace
 
 import pytest
 
@@ -31,6 +32,8 @@ PROXY_MODULE = "brain_mcp.proxy"
 PYTHON = sys.executable
 
 from brain_mcp import proxy as proxy_mod
+from brain_mcp._command_adapter import application_interface_header
+from _application.registry import current_application_catalogue
 
 _GIVE_UP_MSG_FRAGMENT = "recovery attempts"
 
@@ -48,6 +51,52 @@ def _make_jsonrpc(method: str, id: int | str | None = None, params: dict | None 
 def _make_response(id: int | str | None, result: dict) -> str:
     """Build a JSON-RPC success response as an NDJSON line (no trailing newline)."""
     return json.dumps({"jsonrpc": "2.0", "id": id, "result": result}) + "\n"
+
+
+def _receipt_lookup_response(
+    query_id: str,
+    record,
+    *,
+    state: str = "committed",
+    found: bool = True,
+) -> dict:
+    reference = {"invocation_id": record.invocation_id}
+    receipt = None
+    if found:
+        effects = (
+            [{"kind": "artefact.created", "subject": "Designs/Example.md"}]
+            if state in {"committed", "known_partial"}
+            else []
+        )
+        receipt = {
+            "reference": reference,
+            "command_id": record.command_id,
+            "command_version": record.command_version,
+            "state": state,
+            "recorded_at": "2026-08-10T10:00:00+10:00",
+            "committed_effects": effects,
+        }
+    return {
+        "jsonrpc": "2.0",
+        "id": query_id,
+        "result": {
+            "content": [{"type": "text", "text": "invocation.read: ok"}],
+            "structuredContent": {
+                "schema": "brain.command-result/1",
+                "command": "invocation.read",
+                "command_version": 2,
+                "status": "ok",
+                "warnings": [],
+                "result": {
+                    "reference": reference,
+                    "state": "found" if found else "still_unknown",
+                    "receipt": receipt,
+                },
+                "committed_effects": [],
+            },
+            "isError": False,
+        },
+    }
 
 
 def _write_vault(tmp_path, version: str = "1.0.0") -> None:
@@ -398,6 +447,28 @@ class _ReadableFakeChild(_FakeChild):
         if self._lines:
             return self._lines.pop(0)
         return None
+
+
+def test_child_process_marks_the_running_proxy_protocol(monkeypatch):
+    captured = {}
+
+    class Process:
+        pid = 4321
+        stderr = ()
+
+    def popen(command, **kwargs):
+        captured.update(command=command, **kwargs)
+        return Process()
+
+    monkeypatch.setattr(proxy_mod.subprocess, "Popen", popen)
+    monkeypatch.setattr(proxy_mod.threading, "Thread", _NoOpThread)
+    child = proxy_mod.ChildProcess(PYTHON, "brain_mcp.server")
+
+    child.start()
+
+    assert captured["env"][proxy_mod.PROXY_PROTOCOL_ENV] == str(
+        proxy_mod.PROXY_PROTOCOL
+    )
 
 
 def _make_inprocess_proxy(tmp_path, monkeypatch, stdin_lines: list[bytes]) -> tuple[proxy_mod.Proxy, list[dict]]:
@@ -1592,6 +1663,307 @@ class TestProxyDrift:
 
 class TestVersionDriftReplay:
     """The request that triggers version drift is transparently replayed to the new child."""
+
+    def test_granular_call_records_proxy_owned_identity_before_dispatch(
+        self, tmp_path, monkeypatch
+    ):
+        proxy, _sent_to_client = _make_inprocess_proxy(tmp_path, monkeypatch, [])
+        header = application_interface_header(current_application_catalogue())
+        with proxy._interface_lock:
+            proxy._interface_header = header
+        raw = json.loads(
+            _make_jsonrpc(
+                "tools/call",
+                id="granular-1",
+                params={
+                    "name": "brain_artefact_create",
+                    "arguments": {"type": "living/wiki", "title": "Example"},
+                },
+            )
+        )
+
+        forwarded, record = proxy._prepare_interface_call(raw)
+
+        assert record.raw_request == raw
+        assert record.projected_tool == "brain_artefact_create"
+        assert record.command_id == "artefact.create"
+        assert record.header_fingerprint == header.fingerprint
+        assert record.invocation_id.startswith("mcp-")
+        assert forwarded["params"]["_meta"] == {
+            "brainInvocation": {"invocationId": record.invocation_id}
+        }
+
+    def test_compatible_granular_replay_reaches_replacement_child(
+        self, tmp_path, monkeypatch
+    ):
+        proxy, sent_to_client = _make_inprocess_proxy(tmp_path, monkeypatch, [])
+        replacement = _FakeChild()
+        with proxy._child_lock:
+            proxy._child = replacement
+        header = application_interface_header(current_application_catalogue())
+        with proxy._interface_lock:
+            proxy._interface_header = header
+        raw = json.loads(
+            _make_jsonrpc(
+                "tools/call",
+                id=201,
+                params={"name": "brain_artefact_read", "arguments": {"path": "Example"}},
+            )
+        )
+        forwarded, record = proxy._prepare_interface_call(raw)
+
+        proxy._replay_requests([forwarded], {201: record})
+
+        assert replacement.sent == [forwarded]
+        assert sent_to_client == []
+        assert proxy._accepted_calls == {201: record}
+
+    def test_incompatible_granular_replay_fails_closed_without_child_dispatch(
+        self, tmp_path, monkeypatch
+    ):
+        proxy, sent_to_client = _make_inprocess_proxy(tmp_path, monkeypatch, [])
+        replacement = _FakeChild()
+        with proxy._child_lock:
+            proxy._child = replacement
+        header = application_interface_header(current_application_catalogue())
+        with proxy._interface_lock:
+            proxy._interface_header = header
+        raw = json.loads(
+            _make_jsonrpc(
+                "tools/call",
+                id=202,
+                params={"name": "brain_artefact_read", "arguments": {"path": "Example"}},
+            )
+        )
+        forwarded, record = proxy._prepare_interface_call(raw)
+        changed = replace(
+            header,
+            tools=tuple(
+                (name, replace(mapping, command_version=mapping.command_version + 1))
+                if name == "brain_artefact_read"
+                else (name, mapping)
+                for name, mapping in header.tools
+            ),
+        )
+        with proxy._interface_lock:
+            proxy._interface_header = changed
+
+        proxy._replay_requests([forwarded], {202: record})
+
+        assert replacement.sent == []
+        result = next(message for message in sent_to_client if message.get("id") == 202)
+        assert result["result"]["structuredContent"]["error"] == {
+            "code": "interface_changed",
+            "message": (
+                "The Brain command interface changed while this call was in flight; "
+                "re-discover tools and reformulate the request."
+            ),
+            "effects": "none",
+            "retryable": False,
+            "details": {"reason": "command_version_changed", "diagnostic": None},
+            "next_action": {
+                "instruction": "rediscover_tools",
+                "description": (
+                    "The Brain command interface changed while this call was in flight; "
+                    "re-discover tools and reformulate the request."
+                ),
+            },
+        }
+        assert _find_notification(
+            sent_to_client, "notifications/tools/list_changed"
+        ) is not None
+
+    @pytest.mark.parametrize("accepted", [{}, {203: object()}])
+    def test_missing_or_invalid_accepted_record_refuses_mapped_replay(
+        self, tmp_path, monkeypatch, accepted
+    ):
+        proxy, sent_to_client = _make_inprocess_proxy(tmp_path, monkeypatch, [])
+        replacement = _FakeChild()
+        with proxy._child_lock:
+            proxy._child = replacement
+        header = application_interface_header(current_application_catalogue())
+        with proxy._interface_lock:
+            proxy._interface_header = header
+        request = json.loads(
+            _make_jsonrpc(
+                "tools/call",
+                id=203,
+                params={"name": "brain_artefact_read", "arguments": {"path": "Example"}},
+            )
+        )
+
+        proxy._replay_requests([request], accepted)
+
+        assert replacement.sent == []
+        result = next(message for message in sent_to_client if message.get("id") == 203)
+        reason = result["result"]["structuredContent"]["error"]["details"]["reason"]
+        assert reason == (
+            "accepted_call_missing" if accepted == {} else "accepted_call_invalid"
+        )
+
+
+class TestUnexpectedChildOutcomeSafety:
+    """Unplanned child loss retries reads once and never replays mutations."""
+
+    @staticmethod
+    def _accepted(proxy, *, request_id: int, tool: str, arguments: dict):
+        header = application_interface_header(current_application_catalogue())
+        with proxy._interface_lock:
+            proxy._interface_header = header
+        raw = json.loads(
+            _make_jsonrpc(
+                "tools/call",
+                id=request_id,
+                params={"name": tool, "arguments": arguments},
+            )
+        )
+        forwarded, record = proxy._prepare_interface_call(raw)
+        return header, forwarded, record
+
+    def test_read_only_orphan_is_retried_once_then_fails_with_no_effects(
+        self, tmp_path, monkeypatch
+    ):
+        proxy, sent_to_client = _make_inprocess_proxy(tmp_path, monkeypatch, [])
+        header, forwarded, record = self._accepted(
+            proxy,
+            request_id=301,
+            tool="brain_artefact_read",
+            arguments={"path": "Designs/Example.md"},
+        )
+        replacement = _FakeChild()
+
+        proxy._retry_read_orphan(replacement, forwarded, record, header, None)
+
+        assert replacement.sent == [forwarded]
+        retried = proxy._accepted_calls[301]
+        assert retried.read_retry_count == 1
+        assert sent_to_client == []
+
+        proxy._inflight_requests.clear()
+        proxy._accepted_calls.clear()
+        proxy._retry_read_orphan(replacement, forwarded, retried, header, None)
+
+        assert replacement.sent == [forwarded]
+        result = sent_to_client[-1]["result"]["structuredContent"]
+        assert result["error"]["effects"] == "none"
+        assert result["error"]["retryable"] is True
+
+    def test_crash_after_mutation_acceptance_queries_receipt_without_replay(
+        self, tmp_path, monkeypatch
+    ):
+        proxy, sent_to_client = _make_inprocess_proxy(tmp_path, monkeypatch, [])
+        _header, forwarded, record = self._accepted(
+            proxy,
+            request_id=302,
+            tool="brain_artefact_create",
+            arguments={"type": "living/wiki", "title": "Example"},
+        )
+        with proxy._inflight_lock:
+            proxy._inflight_requests[302] = (forwarded, time.monotonic())
+            proxy._accepted_calls[302] = record
+
+        assert proxy._signal_recovery(1)
+        replacement = _FakeChild()
+
+        def receipt_response(_child, query_id, _timeout):
+            return _receipt_lookup_response(query_id, record)
+
+        monkeypatch.setattr(proxy, "_read_internal_response", receipt_response)
+        proxy._resolve_pending_unexpected(replacement)
+
+        assert len(replacement.sent) == 1
+        assert replacement.sent[0]["params"] == {
+            "name": "brain_invocation_read",
+            "arguments": {"invocation_id": record.invocation_id},
+        }
+        assert forwarded not in replacement.sent
+        result = sent_to_client[-1]["result"]["structuredContent"]
+        assert result["schema"] == "brain.proxy-outcome-resolution/1"
+        assert result["status"] == "resolved"
+        assert result["receipt"]["state"] == "committed"
+        assert result["retryable"] is False
+
+    @pytest.mark.parametrize("found,state", [(False, "committed"), (True, "unknown")])
+    def test_inconclusive_mutation_receipt_returns_queryable_non_retryable_unknown(
+        self, tmp_path, monkeypatch, found, state
+    ):
+        proxy, sent_to_client = _make_inprocess_proxy(tmp_path, monkeypatch, [])
+        _header, _forwarded, record = self._accepted(
+            proxy,
+            request_id=303,
+            tool="brain_artefact_delete",
+            arguments={"path": "Designs/Example.md"},
+        )
+        replacement = _FakeChild()
+
+        def receipt_response(_child, query_id, _timeout):
+            return _receipt_lookup_response(
+                query_id,
+                record,
+                found=found,
+                state=state,
+            )
+
+        monkeypatch.setattr(proxy, "_read_internal_response", receipt_response)
+        proxy._resolve_mutation_orphan(
+            replacement,
+            record,
+            proxy._interface_header,
+            None,
+        )
+
+        result = sent_to_client[-1]["result"]["structuredContent"]
+        assert result["status"] == "error"
+        assert result["error"]["code"] == "command_outcome_unknown"
+        assert result["error"]["effects"] == "unknown"
+        assert result["error"]["retryable"] is False
+        assert result["error"]["outcome_reference"] == {
+            "invocation_id": record.invocation_id
+        }
+        assert result["error"]["next_action"] == {
+            "command_id": "invocation.read",
+            "arguments": [
+                {"name": "invocation_id", "value": record.invocation_id}
+            ],
+        }
+
+    def test_contradictory_receipt_is_inconclusive_and_never_dispatches_mutation(
+        self, tmp_path, monkeypatch
+    ):
+        proxy, sent_to_client = _make_inprocess_proxy(tmp_path, monkeypatch, [])
+        _header, forwarded, record = self._accepted(
+            proxy,
+            request_id=304,
+            tool="brain_artefact_create",
+            arguments={"type": "living/wiki", "title": "Example"},
+        )
+        replacement = _FakeChild()
+
+        def receipt_response(_child, query_id, _timeout):
+            response = _receipt_lookup_response(query_id, record)
+            response["result"]["structuredContent"]["result"]["receipt"][
+                "command_version"
+            ] += 1
+            return response
+
+        monkeypatch.setattr(proxy, "_read_internal_response", receipt_response)
+        proxy._resolve_mutation_orphan(
+            replacement,
+            record,
+            proxy._interface_header,
+            None,
+        )
+
+        assert forwarded not in replacement.sent
+        result = sent_to_client[-1]["result"]["structuredContent"]
+        assert result["error"]["code"] == "command_outcome_unknown"
+        assert result["error"]["details"] == {
+            "reference": {"invocation_id": record.invocation_id}
+        }
+
+
+class TestVersionDriftReplayIntegration:
+    """Existing end-to-end drift replay remains correct under protocol binding."""
 
     def test_drift_triggering_request_gets_success(self, tmp_path):
         """

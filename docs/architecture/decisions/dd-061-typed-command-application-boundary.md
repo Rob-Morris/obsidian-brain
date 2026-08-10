@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.58)
+**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.59)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -1010,3 +1010,29 @@ the initialise extension has one location under
 `capabilities.experimental.brainCommandInterface`. The contract remains staged
 until subsequent Phase 5 checkpoints make the server emit it and the running
 proxy validate it before accepting calls.
+
+## v0.54.59 active proxy protocol and outcome recovery
+
+The replacement server now emits the strict command-interface header during
+MCP initialisation. Its pre-lookup gate trusts only the running proxy's protocol
+environment marker: missing, malformed, old or new values keep initialisation
+available but turn every call, including a retired name, into an ordinary
+`proxy_restart_required` no-effect result. The gate resolves or translates
+nothing.
+
+Proxy 0.6.0 supplies protocol 2, validates the child header and injects one
+proxy-owned invocation identifier while retaining the caller's raw request in
+an immutable accepted-call record. Exit-10 replay requires positive agreement
+on protocol, epoch, tool, command/version and mutation class. Unrelated additive
+catalogue fingerprint changes remain compatible; every indeterminate or
+incompatible case fails before replacement-child dispatch and requests tool
+re-discovery.
+
+Unplanned child loss does not use drift replay. A compatible read-only orphan
+is retried once and only once. A mutating orphan is never replayed: the proxy
+queries `brain_invocation_read` on the replacement child and validates the
+receipt against the accepted command/version/reference. A conclusive receipt
+is returned in a versioned transport wrapper because the original typed command
+result cannot be reconstructed; every absent, corrupt, contradictory or
+explicitly unknown outcome becomes canonical non-retryable
+`command_outcome_unknown` with the queryable reference.

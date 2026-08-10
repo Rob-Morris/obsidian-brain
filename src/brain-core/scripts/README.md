@@ -205,10 +205,13 @@ pre-cutover config mutation remain prohibited.
 v0.54.57 stages `brain command list/describe` parsing with explicit composed
 owner selection. The outer CLI projects filters separately to each catalogue,
 keeps refresh application-owned and raises non-exiting category-2 usage errors.
-v0.54.58 defines `brain.command-interface-header/1` as a strict stdlib-only
-proxy/server contract derived from the selected-Brain catalogue. It binds the
-protocol range, interface epoch, schemas and exact MCP command/version/effect
-mapping without activating the public cutover.
+v0.54.59 activates `brain.command-interface-header/1` as the strict
+proxy/server contract derived from the selected-Brain catalogue. The
+replacement server emits the header and blocks incompatible live proxies before
+tool lookup; proxy 0.6.0 marks its running protocol, validates accepted command
+identity and permits only compatible planned-drift replay. Unexpected read loss
+has one bounded retry, while mutation loss queries durable receipts and is never
+blindly replayed. The public command grammar remains staged for cutover.
 
 That launcher process is not automatically the managed runtime. The shared launcher-safe bootstrap ownership now lives under `_bootstrap/`: bootstrap entrypoints do meaningful launcher-safe work there, and runtime-owning lifecycle entrypoints such as `repair.py`, `setup.py`, `configure.py`, `session.py`, and `check.py` hand substantive managed work off into the canonical managed runtime before continuing.
 
