@@ -195,6 +195,9 @@ v0.54.54 stages owner-preserving local CLI execution. Launcher commands use a
 launcher-owned dynamic adapter; application commands cross a process boundary
 to the selected Brain's own `command.py`. The outer CLI validates provenance,
 result identity and exit categories without importing `_application`.
+v0.54.55 makes known semantic request failures structural across typed Python,
+dynamic, direct-script, FastMCP and composed local CLI paths. The outer CLI is
+the sole JSON/human stream owner and rejects child stderr or result/exit drift.
 
 That launcher process is not automatically the managed runtime. The shared launcher-safe bootstrap ownership now lives under `_bootstrap/`: bootstrap entrypoints do meaningful launcher-safe work there, and runtime-owning lifecycle entrypoints such as `repair.py`, `setup.py`, `configure.py`, `session.py`, and `check.py` hand substantive managed work off into the canonical managed runtime before continuing.
 

@@ -102,6 +102,13 @@ identity and exit category. The outer router selects only from owner-labelled
 composed entries and never imports selected-Brain `_application`. Public v1 CLI
 behaviour remains unchanged until coordinated cutover.
 
+v0.54.55 makes structural result and stream parity explicit. Known semantic
+request failures now use the same `brain.command-result/1` error through typed
+Python, dynamic, direct-script, FastMCP and composed local CLI paths. The outer
+CLI alone renders canonical JSON to stdout or concise human errors to stderr;
+selected-Brain child stderr and result/exit disagreement fail closed. Public v1
+CLI behaviour remains unchanged until coordinated cutover.
+
 ## Install
 
 The CLI is installed automatically by `install.sh` to `~/.local/bin/brain` (user scope) or `/usr/local/bin/brain` (with `--system`). `upgrade.py` refreshes any installed CLI binary on each upgrade; it does not install a new CLI where none existed.

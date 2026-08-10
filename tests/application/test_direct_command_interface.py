@@ -133,6 +133,23 @@ def test_direct_request_can_be_read_from_stdin(tmp_path):
     assert stderr == ""
 
 
+def test_direct_json_projects_known_request_failures_structurally(tmp_path):
+    code, stdout, stderr = _run(
+        tmp_path,
+        ["command", "list", "--request-json", '{"unknown":true}', "--json"],
+    )
+
+    payload = json.loads(stdout)
+    assert code == 2
+    assert stderr == ""
+    assert payload["command"] == "command.list"
+    assert payload["status"] == "error"
+    assert payload["error"]["code"] == "invalid_request"
+    assert payload["error"]["details"]["reason"].startswith(
+        "invalid request for command.list"
+    )
+
+
 def test_direct_vault_resolution_is_explicit_and_non_exiting(tmp_path, monkeypatch):
     vault = _vault(tmp_path)
     monkeypatch.setenv("BRAIN_VAULT_ROOT", str(vault))

@@ -14,7 +14,15 @@ from .catalogue import ApplicationCatalogue
 from .context import InvocationContext
 from .projection import canonical_result_envelope, canonical_result_json
 from .resolver import RequestResolutionError, RequestResolver, ResolutionErrorCode
-from .results import CommandResult, Error, ErrorCode, Ok, Partial
+from .results import (
+    CommandError,
+    CommandResult,
+    Error,
+    ErrorCode,
+    Ok,
+    Partial,
+    RequestErrorDetails,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,15 +97,19 @@ class ApplicationAdapter:
             if denied is not None:
                 return project_adapter_result(denied)
         if not isinstance(payload, Mapping):
-            raise AdapterRequestError(
-                ResolutionErrorCode.INVALID_REQUEST,
-                "command request payload must be an object",
-            )
+            message = "command request payload must be an object"
+            if entry is not None:
+                return project_invalid_request(entry, message)
+            raise AdapterRequestError(ResolutionErrorCode.INVALID_REQUEST, message)
         try:
             request = self.resolver.resolve(command_id, payload)
         except RequestResolutionError as exc:
+            if entry is not None:
+                return project_invalid_request(entry, str(exc))
             raise AdapterRequestError(exc.code, str(exc)) from exc
         except (TypeError, ValueError) as exc:
+            if entry is not None:
+                return project_invalid_request(entry, str(exc))
             raise AdapterRequestError(
                 ResolutionErrorCode.INVALID_REQUEST,
                 str(exc),
@@ -116,6 +128,22 @@ def project_adapter_result(result: CommandResult) -> AdapterProjection:
         concise_text=_concise_text(result),
         is_error=not isinstance(result, Ok),
         exit_code=_exit_code(result),
+    )
+
+
+def project_invalid_request(entry, message: str) -> AdapterProjection:
+    """Project a known command's semantic request failure structurally."""
+
+    return project_adapter_result(
+        Error(
+            entry.command_id,
+            entry.command_version,
+            CommandError(
+                ErrorCode.INVALID_REQUEST,
+                message,
+                RequestErrorDetails(None, message),
+            ),
+        )
     )
 
 

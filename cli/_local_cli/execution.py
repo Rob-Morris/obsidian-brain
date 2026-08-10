@@ -19,11 +19,10 @@ class LocalExecutionProjection:
     owner: str
     command_id: str
     command_version: int
-    structured_content: Mapping[str, object] | None
-    json_text: str | None
-    concise_text: str | None
-    stdout: str
-    stderr: str
+    structured_content: Mapping[str, object]
+    json_text: str
+    concise_text: str
+    is_error: bool
     exit_code: int
 
     def __post_init__(self) -> None:
@@ -31,11 +30,18 @@ class LocalExecutionProjection:
             raise ValueError("local execution projection requires an authoritative owner")
         if self.exit_code not in range(5):
             raise ValueError("local execution exit code must use categories 0-4")
-        if self.structured_content is None:
-            if self.json_text is not None or self.concise_text is not None:
-                raise ValueError("unstructured parser failures cannot claim result projection")
-        elif not self.json_text or not self.concise_text:
+        if not self.json_text or not self.concise_text:
             raise ValueError("structural local results require JSON and concise text")
+        try:
+            decoded = json.loads(self.json_text)
+        except json.JSONDecodeError as exc:
+            raise ValueError("local execution JSON must be valid") from exc
+        if decoded != self.structured_content:
+            raise ValueError("local execution JSON and structured result must agree")
+        if self.is_error != (self.structured_content.get("status") != "ok"):
+            raise ValueError("local execution error state must follow structural status")
+        if self.exit_code != _envelope_exit_code(self.structured_content):
+            raise ValueError("local execution exit category must follow structural result")
 
 
 class OwnedCommandInvoker(Protocol):
@@ -123,20 +129,10 @@ class ApplicationProcessInvoker:
             raise RuntimeError("selected Brain command returned an invalid exit category")
         stdout = completed.stdout
         stderr = completed.stderr
+        if stderr:
+            raise RuntimeError("selected Brain JSON command wrote unexpected stderr")
         if not stdout.strip():
-            if completed.returncode != 2 or not stderr.strip():
-                raise RuntimeError("selected Brain command returned no structural result")
-            return LocalExecutionProjection(
-                self.owner,
-                entry.command_id,
-                entry.command_version,
-                None,
-                None,
-                None,
-                stdout,
-                stderr,
-                completed.returncode,
-            )
+            raise RuntimeError("selected Brain command returned no structural result")
         try:
             envelope = json.loads(stdout)
         except json.JSONDecodeError as exc:
@@ -149,8 +145,7 @@ class ApplicationProcessInvoker:
             envelope,
             stdout.strip(),
             _concise_text(envelope),
-            stdout,
-            stderr,
+            envelope["status"] != "ok",
             completed.returncode,
         )
 
@@ -177,8 +172,7 @@ class LauncherCommandInvoker:
             projection.structured_content,
             projection.json_text,
             projection.concise_text,
-            projection.json_text + "\n",
-            "",
+            projection.is_error,
             projection.exit_code,
         )
 
@@ -201,6 +195,21 @@ class LocalCliExecution:
         return invoker.invoke(entry, payload)
 
 
+def render_local_result(
+    projection: LocalExecutionProjection,
+    *,
+    json_mode: bool,
+) -> tuple[str, str, int]:
+    """Place one canonical local result on deterministic CLI streams."""
+
+    if json_mode:
+        return projection.json_text + "\n", "", projection.exit_code
+    line = projection.concise_text + "\n"
+    if projection.is_error:
+        return "", line, projection.exit_code
+    return line, "", projection.exit_code
+
+
 def _require_entry_owner(entry: ComposedCommandEntry, owner: str) -> None:
     if entry.owner != owner:
         raise ValueError(f"{owner} invoker cannot execute {entry.owner} discovery")
@@ -220,25 +229,30 @@ def _validate_child_envelope(
         entry.command_version,
     ):
         raise RuntimeError("selected Brain command result identity changed after discovery")
+    try:
+        expected_exit = _envelope_exit_code(envelope)
+    except ValueError as exc:
+        raise RuntimeError(f"selected Brain {exc}") from exc
+    if exit_code != expected_exit:
+        raise RuntimeError("selected Brain result and exit category disagree")
+
+
+def _envelope_exit_code(envelope: Mapping[str, object]) -> int:
     status = envelope.get("status")
-    if status not in {"ok", "partial", "error"}:
-        raise RuntimeError("selected Brain command result status is invalid")
-    if (status == "ok") != (exit_code == 0):
-        raise RuntimeError("selected Brain command status and exit category disagree")
-    if status == "partial" and exit_code != 1:
-        raise RuntimeError("selected Brain partial result requires exit category 1")
-    if status == "error":
-        error = envelope.get("error")
-        if not isinstance(error, Mapping) or not isinstance(error.get("code"), str):
-            raise RuntimeError("selected Brain error requires a structural error code")
-        if error["code"] in {"invalid_request", "not_found", "conflict"}:
-            expected_exit = 2
-        elif error["code"] in {"authority_denied", "capability_unavailable"}:
-            expected_exit = 3
-        else:
-            expected_exit = 4
-        if exit_code != expected_exit:
-            raise RuntimeError("selected Brain error code and exit category disagree")
+    if status == "ok":
+        return 0
+    if status == "partial":
+        return 1
+    if status != "error":
+        raise ValueError("command result status is invalid")
+    error = envelope.get("error")
+    if not isinstance(error, Mapping) or not isinstance(error.get("code"), str):
+        raise ValueError("command error requires a structural error code")
+    if error["code"] in {"invalid_request", "not_found", "conflict"}:
+        return 2
+    if error["code"] in {"authority_denied", "capability_unavailable"}:
+        return 3
+    return 4
 
 
 def _concise_text(envelope: Mapping[str, object]) -> str:

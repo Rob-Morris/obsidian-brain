@@ -35,6 +35,7 @@ from _local_cli.execution import (
     LauncherCommandInvoker,
     LocalCliExecution,
     SelectedBrainProcess,
+    render_local_result,
 )
 from _application.projection import canonical_result_envelope
 from _application.receipts import CommittedEffect as ApplicationCommittedEffect
@@ -340,3 +341,32 @@ def test_launcher_projection_error_uses_the_same_exit_categories():
 
     assert result.exit_code == 3
     assert result.structured_content["error"]["effects"] == "none"
+
+
+def test_local_result_renderer_exclusively_owns_json_and_human_streams(tmp_path):
+    adapter = _launcher_adapter()
+    ok = LauncherCommandInvoker(_context(tmp_path), adapter).invoke(
+        _entry("launcher", "brain.version"),
+        {},
+    )
+    denied = LauncherCommandInvoker(
+        _context(tmp_path, authority=_Authority(allowed=False)),
+        adapter,
+    ).invoke(_entry("launcher", "brain.version"), {})
+
+    assert render_local_result(ok, json_mode=True) == (ok.json_text + "\n", "", 0)
+    assert render_local_result(ok, json_mode=False) == (
+        "brain.version: ok\n",
+        "",
+        0,
+    )
+    assert render_local_result(denied, json_mode=True) == (
+        denied.json_text + "\n",
+        "",
+        3,
+    )
+    assert render_local_result(denied, json_mode=False) == (
+        "",
+        denied.concise_text + "\n",
+        3,
+    )

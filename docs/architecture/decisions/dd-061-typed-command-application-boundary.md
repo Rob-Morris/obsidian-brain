@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.54)
+**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.55)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -951,3 +951,19 @@ Brain's own `command.py`; the outer layer imports no `_application` semantics
 and validates the returned schema, command/version identity, status and exit
 category before presentation. The public v1 shell grammar remains unchanged
 until the coordinated cutover.
+
+## v0.54.55 structural adapter parity
+
+For a known command, dynamic request-resolution failure now produces the same
+typed `invalid_request` result as other application failures. Transport grammar
+that cannot establish a catalogue command identity remains an unstructured
+parser failure. This preserves the boundary between transport parsing and
+semantic intent without giving direct scripts a private error contract.
+
+A deterministic parity harness executes equivalent valid and known-invalid
+`command.list` intent through typed Python, the dynamic adapter, direct script,
+real FastMCP and composed local CLI paths and compares canonical envelopes. The
+outer CLI execution projection contains only structural result data; one
+presentation function owns JSON versus human stdout/stderr. Selected-Brain
+child stderr, malformed structure, command/version drift and any structural
+result/exit mismatch fail closed before presentation.

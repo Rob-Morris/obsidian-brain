@@ -46,21 +46,28 @@ def test_dynamic_adapter_resolves_and_invokes_one_owned_request(command_vault_cl
     assert projected.exit_code == 0
 
 
-def test_dynamic_adapter_rejects_unknown_invalid_and_identity_smuggling(command_vault_clone):
+def test_dynamic_adapter_structures_known_invalid_and_rejects_unknown_identity(
+    command_vault_clone,
+):
     context = application_for(command_vault_clone.vault_root)._context
-    cases = (
-        ("unknown.command", {}),
-        ("vault.read-file", {"path": "README.md", "command_version": 1}),
-        ("not canonical", {}),
+    invalid = _adapter().invoke(
+        context,
+        "vault.read-file",
+        {"path": "README.md", "command_version": 1},
     )
 
-    for command_id, payload in cases:
+    assert invalid.result.error.code is ErrorCode.INVALID_REQUEST
+    assert invalid.structured_content["error"]["details"]["reason"].startswith(
+        "command identity"
+    )
+    assert invalid.exit_code == 2
+    for command_id in ("unknown.command", "not canonical"):
         try:
-            _adapter().invoke(context, command_id, payload)
+            _adapter().invoke(context, command_id, {})
         except AdapterRequestError as exc:
             assert exc.code.value in {"unknown_command", "invalid_request"}
         else:
-            raise AssertionError("invalid dynamic adapter request unexpectedly executed")
+            raise AssertionError("unknown dynamic adapter identity unexpectedly resolved")
     assert parser_exit_code() == 2
 
 
