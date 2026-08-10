@@ -109,6 +109,13 @@ CLI alone renders canonical JSON to stdout or concise human errors to stderr;
 selected-Brain child stderr and result/exit disagreement fail closed. Public v1
 CLI behaviour remains unchanged until coordinated cutover.
 
+v0.54.57 stages non-exiting `brain command list/describe` grammar. `--owner`
+accepts `application`, `launcher` or `all` and defaults to the composed local
+view. Shared filter spellings project separately into selected-Brain request
+data and launcher manifest filters; refresh remains selected-Brain-owned.
+Native grammar failures use exit category 2. Public v1 dispatch remains
+unchanged until the CLI 2.0 cutover.
+
 ## Install
 
 The CLI is installed automatically by `install.sh` to `~/.local/bin/brain` (user scope) or `/usr/local/bin/brain` (with `--system`). `upgrade.py` refreshes any installed CLI binary on each upgrade; it does not install a new CLI where none existed.

@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.56)
+**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.57)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -982,3 +982,16 @@ malformed definitions or a migration target absent from the authoritative
 catalogue fail before any migrated result is returned. The mapping is checked
 against the closed operation-disposition evidence. Writing the result and
 switching shipped defaults remain part of the atomic breaking cutover.
+
+## v0.54.57 explicit local discovery grammar
+
+The staged outer CLI now parses `brain command list` and `brain command
+describe` without exiting its host process. `--owner application|launcher|all`
+is explicit and defaults to the composed local view. Shared filter spellings
+are presentation only: application request data and launcher manifest filters
+are projected separately, and refresh remains selected-Brain-owned.
+
+Grammar failures use category 2. The parser imports no selected-Brain
+application semantics; its application output is verified by the authoritative
+selected-Brain resolver and its launcher output by launcher discovery. Public
+CLI v1 dispatch remains unchanged until the coordinated CLI 2.0 cutover.

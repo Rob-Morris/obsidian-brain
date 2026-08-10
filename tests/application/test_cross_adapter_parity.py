@@ -46,7 +46,7 @@ def _vault(tmp_path):
     script = root / ".brain-core" / "scripts" / "command.py"
     script.parent.mkdir(parents=True)
     script.write_text("# selected Brain command owner\n", encoding="utf-8")
-    (root / ".brain-core" / "VERSION").write_text("0.54.56\n", encoding="utf-8")
+    (root / ".brain-core" / "VERSION").write_text("0.54.57\n", encoding="utf-8")
     return root
 
 

@@ -202,6 +202,9 @@ v0.54.56 stages a pure one-time granular profile migration. Exact historical
 built-ins become catalogue-derived sets; custom profiles expand only explicit
 legacy capabilities plus required outcome-query closure. Runtime fallback and
 pre-cutover config mutation remain prohibited.
+v0.54.57 stages `brain command list/describe` parsing with explicit composed
+owner selection. The outer CLI projects filters separately to each catalogue,
+keeps refresh application-owned and raises non-exiting category-2 usage errors.
 
 That launcher process is not automatically the managed runtime. The shared launcher-safe bootstrap ownership now lives under `_bootstrap/`: bootstrap entrypoints do meaningful launcher-safe work there, and runtime-owning lifecycle entrypoints such as `repair.py`, `setup.py`, `configure.py`, `session.py`, and `check.py` hand substantive managed work off into the canonical managed runtime before continuing.
 
