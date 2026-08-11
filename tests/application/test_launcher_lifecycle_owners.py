@@ -33,6 +33,7 @@ from _launcher.owners import LAUNCHER_OWNERS
 
 
 NOW = datetime.fromisoformat("2026-08-10T08:00:00+10:00")
+CORE_VERSION = (REPO_ROOT / "src" / "brain-core" / "VERSION").read_text().strip()
 
 
 class _Authority:
@@ -185,7 +186,7 @@ def test_install_dry_run_validates_registry_and_writes_nothing(tmp_path, monkeyp
 
     assert result.result.status is LifecycleStatus.PLANNED
     assert result.result.mode is InstallMode.FRESH
-    assert result.result.brain_core_version == "0.55.0"
+    assert result.result.brain_core_version == CORE_VERSION
     assert result.committed_effects == ()
     assert not target.exists()
     assert not (tmp_path / "config").exists()
@@ -317,7 +318,7 @@ def test_upgrade_projects_dry_run_and_closed_policies(tmp_path, monkeypatch):
         return {
             "status": "ok",
             "old_version": "0.54.41",
-            "new_version": "0.55.0",
+            "new_version": CORE_VERSION,
             "files_added": ["one"],
             "files_modified": ["two", "three"],
             "files_removed": [],
@@ -363,7 +364,7 @@ def test_upgrade_success_receipts_core_and_error_is_unknown(tmp_path, monkeypatc
                     lambda *_args, **kwargs: {
                         "status": "ok",
                         "old_version": "0.54.41",
-                        "new_version": "0.55.0",
+                        "new_version": CORE_VERSION,
                         "files_added": [],
                         "files_modified": ["VERSION"],
                         "files_removed": [],
@@ -376,7 +377,7 @@ def test_upgrade_success_receipts_core_and_error_is_unknown(tmp_path, monkeypatc
     success = _invocation(tmp_path, vault=vault).invoke(BrainUpgradeRequest())
     assert success.result.status is LifecycleStatus.CHANGED
     assert success.committed_effects[0].subject == f"upgrade:{vault}"
-    assert "BRAIN_INSTALL_REF=\"v0.55.0\"" in cli_binary.read_text()
+    assert f'BRAIN_INSTALL_REF="v{CORE_VERSION}"' in cli_binary.read_text()
     assert stat.S_IMODE(cli_binary.stat().st_mode) == 0o755
     assert success.committed_effects[1].subject == f"file:{cli_binary}"
 

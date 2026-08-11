@@ -11,6 +11,7 @@ import sys
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+CORE_VERSION = (REPO_ROOT / "src" / "brain-core" / "VERSION").read_text().strip()
 CLI_DIR = REPO_ROOT / "cli"
 if str(CLI_DIR) not in sys.path:
     sys.path.insert(0, str(CLI_DIR))
@@ -1015,7 +1016,7 @@ class TestPrecompileDefinitionRemediation:
         assert tracking["installed"]["living/daily-notes"]["files"]["taxonomy"]["source_hash"] == tracked_hash
 
     def test_cutover_callback_failure_proves_the_old_core_was_restored(self, tmp_path):
-        source = _make_real_compile_source(tmp_path, version="0.55.0")
+        source = _make_real_compile_source(tmp_path, version=CORE_VERSION)
         vault = _make_minimal_upgrade_vault(tmp_path, version="0.54.59")
         before = {
             path.relative_to(vault / ".brain-core").as_posix(): path.read_bytes()
@@ -1027,7 +1028,7 @@ class TestPrecompileDefinitionRemediation:
             rollback_verified = True
 
         def fail_commit(_result):
-            assert (vault / ".brain-core" / "VERSION").read_text().strip() == "0.55.0"
+            assert (vault / ".brain-core" / "VERSION").read_text().strip() == CORE_VERSION
             raise CheckedExternalFailure("injected CLI commit failure")
 
         result = upgrade.upgrade(
@@ -1051,7 +1052,7 @@ class TestPrecompileDefinitionRemediation:
     def test_cutover_commits_matching_core_and_cli_without_touching_other_brain(
         self, tmp_path
     ):
-        source = _make_real_compile_source(tmp_path, version="0.55.0")
+        source = _make_real_compile_source(tmp_path, version=CORE_VERSION)
         selected = _make_minimal_upgrade_vault(tmp_path, version="0.54.59")
         other_root = tmp_path / "other"
         other_root.mkdir()
@@ -1068,7 +1069,7 @@ class TestPrecompileDefinitionRemediation:
                 REPO_ROOT,
                 cli_binary,
                 cli_version="2.0.0",
-                expected_brain_core_version="0.55.0",
+                expected_brain_core_version=CORE_VERSION,
             )
             return {
                 "status": "changed",
@@ -1094,9 +1095,9 @@ class TestPrecompileDefinitionRemediation:
             tmp_path / "machine" / "lib" / "brain-cli" / "2.0.0"
         )
         assert result["status"] == "ok"
-        assert (selected / ".brain-core" / "VERSION").read_text().strip() == "0.55.0"
+        assert (selected / ".brain-core" / "VERSION").read_text().strip() == CORE_VERSION
         assert result["cutover_commit"]["cli_version"] == "2.0.0"
-        assert manifest["brain_core_version"] == "0.55.0"
+        assert manifest["brain_core_version"] == CORE_VERSION
         assert other_before == other_after
 
     def test_unverified_core_rollback_retains_recovery_backup(

@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import stat
 import sys
+import tomllib
 
 import pytest
 
@@ -15,6 +16,24 @@ import vault_registry
 
 
 install_core = importlib.import_module("install")
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_supported_mcp_major_is_shared_by_install_and_test_surfaces():
+    requirement = "mcp>=1.0.0,<2"
+    runtime_requirements = (
+        REPO_ROOT / "src" / "brain-core" / "brain_mcp" / "requirements.txt"
+    ).read_text(encoding="utf-8").splitlines()
+    project = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+
+    assert runtime_requirements == [requirement]
+    assert requirement in project["project"]["dependencies"]
+    assert "-r src/brain-core/brain_mcp/requirements.txt" in (
+        REPO_ROOT / "Makefile"
+    ).read_text(encoding="utf-8")
+    assert "-r src/brain-core/brain_mcp/requirements.txt" in (
+        REPO_ROOT / ".github" / "workflows" / "windows-smoke.yml"
+    ).read_text(encoding="utf-8")
 
 
 def _copy_source(tmp_path: Path) -> Path:

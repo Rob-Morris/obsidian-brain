@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.55.1](changelog/v0.55.1.md) | 2026-08-11 | Bound the managed runtime to the supported MCP major |
 | [v0.55.0](changelog/v0.55.0.md) | 2026-08-11 | **BREAKING — [Release: Brain Command Architecture](changelog/releases/v0.55.0-brain-command-architecture.md)** |
 | [v0.54.59](changelog/v0.54.59.md) | 2026-08-10 | Activate fail-closed proxy protocol and outcome recovery |
 | [v0.54.58](changelog/v0.54.58.md) | 2026-08-10 | Define the strict MCP command-interface header contract |

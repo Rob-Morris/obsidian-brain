@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from _application.registry import current_application_catalogue, current_request_resolver
 from _application.session.start import SessionStartRequest
 from _application.types import DependencyTier, EffectClass
 from command_application import application_for
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+CORE_VERSION = (REPO_ROOT / "src" / "brain-core" / "VERSION").read_text().strip()
 
 
 def test_session_start_returns_typed_bootstrap_and_refreshes_mirror(
@@ -21,7 +27,7 @@ def test_session_start_returns_typed_bootstrap_and_refreshes_mirror(
     result = application.invoke(SessionStartRequest())
 
     assert result.status == "ok", result
-    assert result.result.brain_core_version == "0.55.0"
+    assert result.result.brain_core_version == CORE_VERSION
     assert result.result.active_profile == "reader"
     assert result.result.core_bootstrap
     assert result.result.core_docs

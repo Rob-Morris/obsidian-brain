@@ -25,7 +25,7 @@ jobs:
         run: |
           python -m venv .venv
           .\.venv\Scripts\python.exe -m pip install --upgrade pip
-          .\.venv\Scripts\python.exe -m pip install "mcp>=1.0.0" "pytest>=9.0"
+          .\.venv\Scripts\python.exe -m pip install -r src/brain-core/brain_mcp/requirements.txt "pytest>=9.0"
 
       - name: Run native Windows user smoke
         shell: pwsh
