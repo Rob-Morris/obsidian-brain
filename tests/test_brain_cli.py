@@ -92,7 +92,7 @@ print(json.dumps(base, separators=(',', ':')))
 
 
 def test_release_versions_move_together():
-    assert _shell_value("BRAIN_CLI_VERSION") == "2.0.2"
+    assert _shell_value("BRAIN_CLI_VERSION") == "2.0.3"
     assert _shell_value("BRAIN_INSTALL_REF") == f"v{CORE_VERSION}"
 
 
@@ -108,17 +108,22 @@ def test_windows_bootloader_defaults_to_the_installed_distribution():
     )
 
 
+def test_windows_python_probe_does_not_escape_comparison_inside_quotes():
+    assert "sys.version_info < (3, 12)" in WINDOWS_CLI_TEXT
+    assert "sys.version_info ^< (3, 12)" not in WINDOWS_CLI_TEXT
+
+
 def test_version_and_launcher_discovery_need_no_selected_brain(tmp_path):
     version = _run(tmp_path, "--version")
     structural = _run(tmp_path, "brain", "version", "--json")
     listing = _run(tmp_path, "command", "list", "--owner", "launcher", "--json")
 
     assert version.returncode == 0
-    assert version.stdout.strip() == "brain 2.0.2"
+    assert version.stdout.strip() == "brain 2.0.3"
     payload = json.loads(structural.stdout)
     assert structural.returncode == 0
     assert payload["command"] == "brain.version"
-    assert payload["result"]["cli_version"] == "2.0.2"
+    assert payload["result"]["cli_version"] == "2.0.3"
     commands = json.loads(listing.stdout)
     assert listing.returncode == 0
     assert commands["schema"] == "brain.local-command-list/1"

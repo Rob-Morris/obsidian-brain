@@ -1,7 +1,7 @@
 @echo off
 setlocal
-set "BRAIN_CLI_VERSION=2.0.2"
-set "BRAIN_INSTALL_REF=v0.55.3"
+set "BRAIN_CLI_VERSION=2.0.3"
+set "BRAIN_INSTALL_REF=v0.55.4"
 
 set "SELF_DIR=%~dp0"
 set "SELF_PATH=%~f0"
@@ -23,9 +23,9 @@ if not exist "%DISTRIBUTION_ROOT%\src\brain-core\VERSION" (
 )
 
 set "PYTHON_COMMAND="
-where python3.12.exe >nul 2>nul && python3.12.exe -c "import sys; raise SystemExit(sys.version_info ^< (3, 12))" >nul 2>nul && set "PYTHON_COMMAND=python3.12.exe"
-if not defined PYTHON_COMMAND where python.exe >nul 2>nul && python.exe -c "import sys; raise SystemExit(sys.version_info ^< (3, 12))" >nul 2>nul && set "PYTHON_COMMAND=python.exe"
-if not defined PYTHON_COMMAND where py.exe >nul 2>nul && py.exe -3.12 -c "import sys; raise SystemExit(sys.version_info ^< (3, 12))" >nul 2>nul && set "PYTHON_COMMAND=py.exe -3.12"
+where python3.12.exe >nul 2>nul && python3.12.exe -c "import sys; raise SystemExit(sys.version_info < (3, 12))" >nul 2>nul && set "PYTHON_COMMAND=python3.12.exe"
+if not defined PYTHON_COMMAND where python.exe >nul 2>nul && python.exe -c "import sys; raise SystemExit(sys.version_info < (3, 12))" >nul 2>nul && set "PYTHON_COMMAND=python.exe"
+if not defined PYTHON_COMMAND where py.exe >nul 2>nul && py.exe -3.12 -c "import sys; raise SystemExit(sys.version_info < (3, 12))" >nul 2>nul && set "PYTHON_COMMAND=py.exe -3.12"
 if not defined PYTHON_COMMAND (
     >&2 echo brain: Python 3.12 or newer is required
     exit /b 4
